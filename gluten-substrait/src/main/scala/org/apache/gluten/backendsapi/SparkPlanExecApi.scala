@@ -375,6 +375,14 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, childrenTransformers, expr)
   }
 
+  /** Transform map_from_entries to Substrait. */
+  def genMapFromEntriesTransformer(
+      substraitExprName: String,
+      child: ExpressionTransformer,
+      expr: Expression): ExpressionTransformer = {
+    throw new UnsupportedOperationException("map_from_entries is not supported")
+  }
+
   /**
    * Generate ShuffleDependency for ColumnarShuffleExchangeExec.
    *

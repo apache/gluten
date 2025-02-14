@@ -269,6 +269,28 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("map_from_entries") {
+    withTempPath {
+      path =>
+        Seq(
+          Seq((1, "10"), (2, "20"), (3, null)),
+          Seq((1, "10"), null, (2, "20")),
+          Seq.empty,
+          null
+        ).toDF("a")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read
+          .parquet(path.getCanonicalPath)
+          .createOrReplaceTempView("test")
+
+        runQueryAndCompare("select map_from_entries(a) from test") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
   test("map_keys") {
     withTempPath {
       path =>

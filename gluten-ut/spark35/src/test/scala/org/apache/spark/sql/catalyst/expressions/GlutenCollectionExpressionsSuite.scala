@@ -16,7 +16,11 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.spark.SparkRuntimeException
 import org.apache.spark.sql.GlutenTestsTrait
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.types._
 
 import scala.util.Random
@@ -86,5 +90,79 @@ class GlutenCollectionExpressionsSuite extends CollectionExpressionsSuite with G
     assert(
       evaluateWithUnsafeProjection(Shuffle(ai0, seed1)) !==
         evaluateWithUnsafeProjection(Shuffle(ai0, seed2)))
+  }
+
+  testGluten("MapFromEntries") {
+    def arrayType(keyType: DataType, valueType: DataType): DataType = {
+      ArrayType(StructType(Seq(StructField("a", keyType), StructField("b", valueType))), true)
+    }
+
+    def row(values: Any*): InternalRow = create_row(values: _*)
+
+    // Primitive-type keys and values
+    val aiType = arrayType(IntegerType, IntegerType)
+    val ai0 = Literal.create(Seq(row(1, 10), row(2, 20), row(3, 20)), aiType)
+    val ai1 = Literal.create(Seq(row(1, null), row(2, 20), row(3, null)), aiType)
+    val ai2 = Literal.create(Seq.empty, aiType)
+    val ai3 = Literal.create(null, aiType)
+    // Velox doesn't support duplicated map key
+    // val ai4 = Literal.create(Seq(row(1, 10), row(1, 20)), aiType)
+    // The map key is null
+    val ai5 = Literal.create(Seq(row(1, 10), row(null, 20)), aiType)
+    val ai6 = Literal.create(Seq(null, row(2, 20), null), aiType)
+
+    checkEvaluation(MapFromEntries(ai0), create_map(1 -> 10, 2 -> 20, 3 -> 20))
+    checkEvaluation(MapFromEntries(ai1), create_map(1 -> null, 2 -> 20, 3 -> null))
+    checkEvaluation(MapFromEntries(ai2), Map.empty)
+    checkEvaluation(MapFromEntries(ai3), null)
+
+    // Map key can't be null
+    checkErrorInExpression[SparkRuntimeException](MapFromEntries(ai5), "NULL_MAP_KEY")
+    checkEvaluation(MapFromEntries(ai6), null)
+
+    // Non-primitive-type keys and values
+    val asType = arrayType(StringType, StringType)
+    val as0 = Literal.create(Seq(row("a", "aa"), row("b", "bb"), row("c", "bb")), asType)
+    val as1 = Literal.create(Seq(row("a", null), row("b", "bb"), row("c", null)), asType)
+    val as2 = Literal.create(Seq.empty, asType)
+    val as3 = Literal.create(null, asType)
+    val as5 = Literal.create(Seq(row("a", "aa"), row(null, "bb")), asType)
+    val as6 = Literal.create(Seq(null, row("b", "bb"), null), asType)
+
+    checkEvaluation(MapFromEntries(as0), create_map("a" -> "aa", "b" -> "bb", "c" -> "bb"))
+    checkEvaluation(MapFromEntries(as1), create_map("a" -> null, "b" -> "bb", "c" -> null))
+    checkEvaluation(MapFromEntries(as2), Map.empty)
+    checkEvaluation(MapFromEntries(as3), null)
+
+    // Map key can't be null
+    checkExceptionInExpression[SparkRuntimeException](MapFromEntries(as5), "NULL_MAP_KEY")
+    checkEvaluation(MapFromEntries(as6), null)
+
+    // map key can't be map
+    val structOfMap = row(create_map(1 -> 1), 1)
+    val map = MapFromEntries(
+      Literal.create(
+        Seq(structOfMap),
+        arrayType(keyType = MapType(IntegerType, IntegerType), valueType = IntegerType)))
+    map.checkInputDataTypes() match {
+      case TypeCheckResult.TypeCheckSuccess => fail("should not allow map as map key")
+      case TypeCheckResult.DataTypeMismatch(errorSubClass, messageParameters) =>
+        assert(errorSubClass === "INVALID_MAP_KEY_TYPE")
+        assert(messageParameters === Map("keyType" -> "\"MAP<INT, INT>\""))
+    }
+
+    // accepts only arrays of pair structs
+    val mapWrongType = MapFromEntries(Literal(1))
+    assert(
+      mapWrongType.checkInputDataTypes() ==
+        DataTypeMismatch(
+          errorSubClass = "UNEXPECTED_INPUT_TYPE",
+          messageParameters = Map(
+            "paramIndex" -> "1",
+            "inputSql" -> "\"1\"",
+            "inputType" -> "\"INT\"",
+            "requiredType" -> "\"ARRAY\" of pair \"STRUCT\""
+          )
+        ))
   }
 }
