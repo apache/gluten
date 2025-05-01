@@ -11,7 +11,7 @@ index d56f6a36d..9b4088df9 100644
 +    list(APPEND ARROW_STATIC_INSTALL_INTERFACE_LIBS orc::orc)
    endif()
  endif()
-
+ 
 @@ -823,9 +822,6 @@ if(ARROW_WITH_OPENTELEMETRY)
           opentelemetry-cpp::ostream_span_exporter
           opentelemetry-cpp::otlp_http_exporter)
@@ -21,11 +21,11 @@ index d56f6a36d..9b4088df9 100644
 -  endif()
    list(APPEND ARROW_STATIC_INSTALL_INTERFACE_LIBS CURL::libcurl)
  endif()
-
+ 
 @@ -860,6 +856,14 @@ if(ARROW_USE_XSIMD)
    list(APPEND ARROW_STATIC_LINK_LIBS ${ARROW_XSIMD})
  endif()
-
+ 
 +# This should be done after if(ARROW_ORC) and if(ARROW_WITH_OPENTELEMETRY)
 +# because they depend on Protobuf.
 +if(ARROW_WITH_PROTOBUF)
@@ -69,11 +69,36 @@ index a24f272fe..e25f78c85 100644
  #include <stdio.h>
  #include <stdlib.h>
  #include <string.h>
+diff --git a/cpp/thirdparty/versions.txt b/cpp/thirdparty/versions.txt
+index e9df0c8d7..b92002c75 100644
+--- a/cpp/thirdparty/versions.txt
++++ b/cpp/thirdparty/versions.txt
+@@ -107,8 +107,8 @@ ARROW_SUBSTRAIT_BUILD_VERSION=v0.27.0
+ ARROW_SUBSTRAIT_BUILD_SHA256_CHECKSUM=4ed375f69d972a57fdc5ec406c17003a111831d8640d3f1733eccd4b3ff45628
+ ARROW_S2N_TLS_BUILD_VERSION=v1.3.35
+ ARROW_S2N_TLS_BUILD_SHA256_CHECKSUM=9d32b26e6bfcc058d98248bf8fc231537e347395dd89cf62bb432b55c5da990d
+-ARROW_THRIFT_BUILD_VERSION=0.16.0
+-ARROW_THRIFT_BUILD_SHA256_CHECKSUM=f460b5c1ca30d8918ff95ea3eb6291b3951cf518553566088f3f2be8981f6209
++ARROW_THRIFT_BUILD_VERSION=0.21.0
++ARROW_THRIFT_BUILD_SHA256_CHECKSUM=9a24f3eba9a4ca493602226c16d8c228037db3b9291c6fc4019bfe3bd39fc67c
+ ARROW_UCX_BUILD_VERSION=1.12.1
+ ARROW_UCX_BUILD_SHA256_CHECKSUM=9bef31aed0e28bf1973d28d74d9ac4f8926c43ca3b7010bd22a084e164e31b71
+ ARROW_UTF8PROC_BUILD_VERSION=v2.7.0
 diff --git a/java/dataset/src/main/cpp/jni_wrapper.cc b/java/dataset/src/main/cpp/jni_wrapper.cc
-index d2d976677..d7dd01ecd 100644
+index d2d976677..8d7dafd84 100644
 --- a/java/dataset/src/main/cpp/jni_wrapper.cc
 +++ b/java/dataset/src/main/cpp/jni_wrapper.cc
-@@ -126,20 +126,14 @@ class ReserveFromJava : public arrow::dataset::jni::ReservationListener {
+@@ -27,7 +27,9 @@
+ #include "arrow/dataset/file_base.h"
+ #include "arrow/filesystem/localfs.h"
+ #include "arrow/filesystem/path_util.h"
++#ifdef ARROW_S3
+ #include "arrow/filesystem/s3fs.h"
++#endif
+ #include "arrow/engine/substrait/util.h"
+ #include "arrow/engine/substrait/serde.h"
+ #include "arrow/engine/substrait/relation.h"
+@@ -126,20 +128,14 @@ class ReserveFromJava : public arrow::dataset::jni::ReservationListener {
        : vm_(vm), java_reservation_listener_(java_reservation_listener) {}
  
    arrow::Status OnReservation(int64_t size) override {
@@ -96,6 +121,16 @@ index d2d976677..d7dd01ecd 100644
      env->CallObjectMethod(java_reservation_listener_, unreserve_memory_method, size);
      RETURN_NOT_OK(arrow::dataset::jni::CheckException(env));
      return arrow::Status::OK();
+@@ -622,7 +618,9 @@ JNIEXPORT void JNICALL Java_org_apache_arrow_dataset_jni_JniWrapper_releaseBuffe
+ JNIEXPORT void JNICALL Java_org_apache_arrow_dataset_jni_JniWrapper_ensureS3Finalized(
+     JNIEnv* env, jobject) {
+   JNI_METHOD_START
++#ifdef ARROW_S3
+   JniAssertOkOrThrow(arrow::fs::EnsureS3Finalized());
++#endif
+   JNI_METHOD_END()
+ }
+ 
 diff --git a/java/pom.xml b/java/pom.xml
 index a8328576b..57f282c6c 100644
 --- a/java/pom.xml
@@ -110,26 +145,3 @@ index a8328576b..57f282c6c 100644
                      -DARROW_SUBSTRAIT=${ARROW_DATASET}
                      -DARROW_USE_CCACHE=ON
                      -DCMAKE_BUILD_TYPE=Release
-diff --git a/java/dataset/src/main/cpp/jni_wrapper.cc b/java/dataset/src/main/cpp/jni_wrapper.cc
-index d2d976677..eb4b6d1d2 100644
---- a/java/dataset/src/main/cpp/jni_wrapper.cc
-+++ b/java/dataset/src/main/cpp/jni_wrapper.cc
-@@ -27,7 +27,9 @@
- #include "arrow/dataset/file_base.h"
- #include "arrow/filesystem/localfs.h"
- #include "arrow/filesystem/path_util.h"
-+#ifdef ARROW_S3
- #include "arrow/filesystem/s3fs.h"
-+#endif
- #include "arrow/engine/substrait/util.h"
- #include "arrow/engine/substrait/serde.h"
- #include "arrow/engine/substrait/relation.h"
-@@ -622,7 +624,9 @@ JNIEXPORT void JNICALL Java_org_apache_arrow_dataset_jni_JniWrapper_releaseBuffe
- JNIEXPORT void JNICALL Java_org_apache_arrow_dataset_jni_JniWrapper_ensureS3Finalized(
-     JNIEnv* env, jobject) {
-   JNI_METHOD_START
-+#ifdef ARROW_S3
-   JniAssertOkOrThrow(arrow::fs::EnsureS3Finalized());
-+#endif
-   JNI_METHOD_END()
- }
