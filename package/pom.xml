@@ -194,6 +194,29 @@
               </arguments>
             </configuration>
           </execution>
+          <execution>
+            <!--
+              Verify that the bundled Arrow C-Data classes have public method
+              signatures referencing the unshaded Apache Arrow API
+              (org.apache.arrow.memory.*, org.apache.arrow.vector.*) and not
+              the gluten-shaded copies. Catches a regression where shading
+              relocates classes that the unshaded org.apache.arrow.c.* API
+              transitively depends on, producing a bundle whose public Arrow
+              C-Data API is incompatible with vanilla Apache Arrow callers
+              (gluten#12225).
+            -->
+            <id>verify-arrow-c-shading</id>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <phase>verify</phase>
+            <configuration>
+              <executable>${project.basedir}/../dev/check-arrow-c-shading.sh</executable>
+              <arguments>
+                <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
+              </arguments>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
       <plugin>
@@ -298,35 +321,6 @@
           </execution>
         </executions>
       </plugin>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
-        <executions>
-          <execution>
-            <!--
-              Verify that the bundled Arrow C-Data classes have public method
-              signatures referencing the unshaded Apache Arrow API
-              (org.apache.arrow.memory.*, org.apache.arrow.vector.*) and not
-              the gluten-shaded copies. Catches a regression where shading
-              relocates classes that the unshaded org.apache.arrow.c.* API
-              transitively depends on, producing a bundle whose public Arrow
-              C-Data API is incompatible with vanilla Apache Arrow callers
-              (gluten#12225).
-            -->
-            <id>verify-arrow-c-shading</id>
-            <goals>
-              <goal>exec</goal>
-            </goals>
-            <phase>verify</phase>
-            <configuration>
-              <executable>${project.basedir}/../dev/check-arrow-c-shading.sh</executable>
-              <arguments>
-                <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
-              </arguments>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
     </plugins>
   </build>
 
@@ -337,6 +331,16 @@
         <dependency>
           <groupId>org.apache.gluten</groupId>
           <artifactId>backends-velox</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
+      <id>backends-bolt</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>backends-bolt</artifactId>
           <version>${project.version}</version>
         </dependency>
       </dependencies>

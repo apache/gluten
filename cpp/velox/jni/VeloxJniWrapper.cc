@@ -41,6 +41,7 @@
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "shuffle/rss/RssPartitionWriter.h"
 #include "substrait/SubstraitToVeloxPlanValidator.h"
+#include "utils/ConfigResolver.h"
 #include "utils/ObjectStore.h"
 #include "utils/VeloxBatchResizer.h"
 #include "velox/common/base/BloomFilter.h"
@@ -465,7 +466,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_utils_VeloxBatchResizerJniWrapper
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
   auto pool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->getLeafMemoryPool();
-  auto iter = makeJniColumnarBatchIterator(env, jIter, ctx);
+  auto parallelEnabled = getBoolConfigValue(ctx->getConfMap(), kGlutenEnableParallel, false);
+  auto iter = makeJniColumnarBatchIterator(env, jIter, ctx, parallelEnabled);
   auto appender = std::make_shared<ResultIterator>(std::make_unique<VeloxBatchResizer>(
       pool.get(),
       minOutputBatchSize,
@@ -488,7 +490,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_utils_GpuBufferBatchResizerJniWra
   auto ctx = getRuntime(env, wrapper);
   auto arrowPool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->defaultArrowMemoryPool();
   auto pool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->getLeafMemoryPool();
-  auto iter = makeJniColumnarBatchIterator(env, jIter, ctx);
+  auto parallelEnabled = getBoolConfigValue(ctx->getConfMap(), kGlutenEnableParallel, false);
+  auto iter = makeJniColumnarBatchIterator(env, jIter, ctx, parallelEnabled);
   auto appender = std::make_shared<ResultIterator>(std::make_unique<GpuBufferBatchResizer>(
       arrowPool, pool.get(), minOutputBatchSize, maxPrefetchBatchBytes, std::move(iter)));
   return ctx->saveObject(appender);

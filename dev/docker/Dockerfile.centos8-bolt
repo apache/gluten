@@ -1,0 +1,123 @@
+# https://github.com/apache/incubator-gluten/blob/main/dev/docker/Dockerfile.centos8-gcc13
+
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# copied from https://github.com/jeromerobert/centos7-gcc13
+FROM centos:8 as base0
+
+FROM base0 as base
+RUN /usr/bin/sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-*; sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-*;
+RUN yum update -y && yum install -y dnf epel-release perl patch && \
+    dnf --enablerepo=powertools install -y epel-release perl \
+    bison flex wget curl perl vim  perl-IPC-Cmd  \
+    python3 python3-pip \
+    texinfo gettext gcc gcc-c++  make ninja-build autoconf automake bzip2 zlib-devel libcurl-devel  ; \
+    echo -e '/usr/local/lib\n/usr/local/lib64' > /etc/ld.so.conf.d/local.conf && ldconfig
+ENV PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig
+
+ARG BUILD_DIR=/tmp/build
+ARG GCC_VERSION=12.5.0
+ARG CMAKE_VERSION=3.31.10
+ARG MAVEN_VERSION=3.9.12
+
+# Git
+WORKDIR ${BUILD_DIR}
+RUN mkdir -p ${BUILD_DIR} && cd ${BUILD_DIR} && \
+    wget https://mirrors.edge.kernel.org/pub/software/scm/git/git-2.42.0.tar.xz && \
+    sha256sum *.tar.xz && \
+    echo "3278210e9fd2994b8484dd7e3ddd9ea8b940ef52170cdb606daa94d887c93b0d " *.tar.* | sha256sum -c -  && \
+    tar xf *.tar.xz && \
+    cd git-2.42.0 && \
+    ./configure --prefix=/usr/local  && \
+    make -j $(nproc) && \
+    make NO_INSTALL_HARDLINKS=YesPlease install && \
+    rm -rf  ${BUILD_DIR}/* ;
+
+# Install GCC
+RUN cd ${BUILD_DIR} && wget https://github.com/gcc-mirror/gcc/archive/refs/tags/releases/gcc-${GCC_VERSION}.tar.gz &&\
+    tar -xzvf gcc-${GCC_VERSION}.tar.gz &&\
+    cd $(realpath gcc*-${GCC_VERSION}) &&\
+    ./contrib/download_prerequisites  &&\
+    ./configure --prefix=/usr --enable-checking=release --enable-languages=c,c++ --disable-multilib  &&\
+    make -j $(nproc)   &&\
+    make install-strip  &&\
+    ldconfig  &&\
+    rm -rf  ${BUILD_DIR}/gcc* ;
+
+# # Install Binutils
+RUN cd ${BUILD_DIR} && wget https://ftp.wayne.edu/gnu/binutils/binutils-2.41.tar.xz  &&\
+    echo "ae9a5789e23459e59606e6714723f2d3ffc31c03174191ef0d015bdf06007450 " binutils*.tar.* | sha256sum -c -  ;\
+    tar xf binutils*.tar.* &&\
+    cd binutils-2.41 &&\
+    ../binutils*/configure &&\
+    make -j$(nproc) &&\
+    make install &&\
+    rm -rf ${BUILD_DIR}/* ;
+
+# OpenSSL 3
+RUN cd ${BUILD_DIR} && wget  https://www.openssl.org/source/openssl-3.0.10.tar.gz  && \
+    echo "1761d4f5b13a1028b9b6f3d4b8e17feb0cedc9370f6afe61d7193d2cdce83323 " openssl*.tar.gz | sha256sum -c -  && \
+    tar xf openssl*.tar.gz && \
+    cd openssl-3.0.10 && \
+    ./config --prefix=/usr/ --openssldir=/usr/local shared && \
+    make -j$(nproc)  && make install_sw install_ssldirs && \
+    rm -rf  ${BUILD_DIR}/* ;
+
+# hwloc
+RUN cd ${BUILD_DIR} && curl -kLO https://download.open-mpi.org/release/hwloc/v2.9/hwloc-2.9.2.tar.gz && \
+    sha256sum *.tar.* &&\
+    echo "ffb554d5735e0e0a19d1fd4b2b86e771d3b58b2d97f257eedacae67ade5054b3 " *.tar.* | sha256sum -c -  &&\
+    tar xf *.tar.gz &&\
+    cd hwloc-2.9.2 &&\
+    ./configure && make -j$(nproc) && make install  && \
+    rm -rf ${BUILD_DIR}/hwloc* ;
+
+# Install CMake
+RUN cd ${BUILD_DIR} && wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}.tar.gz &&\
+    tar xf cmake*.tar.gz &&\
+    cd cmake-${CMAKE_VERSION} &&\
+    ./bootstrap --parallel=$(nproc) && ./configure --prefix=/usr && make -j$(nproc) && make install && cmake --version &&\
+    rm -rf  ${BUILD_DIR}/* ;
+
+# Install java-17-openjdk
+RUN yum install -y java-17-openjdk-devel
+ENV JAVA_HOME /usr/lib/jvm/java-17-openjdk
+ENV PATH "$JAVA_HOME/bin:$PATH"
+
+# Install maven
+ARG MAVEN_DIR=/opt/maven/apache-maven-${MAVEN_VERSION}
+ARG MAVEN_URL=https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz
+RUN mkdir -p ${MAVEN_DIR} && \
+    wget -qO- ${MAVEN_URL} | tar -zxf - -C  ${MAVEN_DIR} --strip-components=1 && \
+    ln -sf ${MAVEN_DIR}/bin/mvn /usr/bin/mvn
+ENV MAVEN_HOME ${MAVEN_DIR}
+ENV PATH ${MAVEN_HOME}/bin:${PATH}
+
+# Install Conda & Conan
+RUN MINICONDA_VERSION=py310_23.1.0-1 && \
+    MINICONDA_URL=https://repo.anaconda.com/miniconda/Miniconda3-${MINICONDA_VERSION}-Linux-$(arch).sh && \
+    cd ${BUILD_DIR} && wget --progress=dot:mega -O miniconda.sh ${MINICONDA_URL} && \
+    chmod +x miniconda.sh &&\
+    ./miniconda.sh -b -u -p /root/miniconda3 && rm -f miniconda.sh && \
+    echo "export PATH=/root/miniconda3/bin:\$PATH" >> /root/.bashrc &&  . /root/.bashrc && \
+    pip install --upgrade pip || true && \
+    pip install pydot conan && \
+    conan profile detect
+ENV PATH "/root/miniconda3/bin:${PATH}"
+
+RUN yum clean all && \
+    rm -rf /var/cache/yum && \
+    rm -rf /tmp/build

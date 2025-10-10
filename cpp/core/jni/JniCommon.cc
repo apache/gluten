@@ -256,8 +256,12 @@ gluten::JniColumnarBatchIterator::JniColumnarBatchIterator(
     JNIEnv* env,
     jobject jColumnarBatchItr,
     Runtime* runtime,
+    bool parallelEnabled,
     std::optional<int32_t> iteratorIndex)
-    : runtime_(runtime), iteratorIndex_(iteratorIndex), shouldDump_(runtime_->getDumper() != nullptr) {
+    : runtime_(runtime),
+      parallelEnabled_{parallelEnabled},
+      iteratorIndex_(iteratorIndex),
+      shouldDump_(runtime_->getDumper() != nullptr) {
   // IMPORTANT: DO NOT USE LOCAL REF IN DIFFERENT THREAD
   if (env->GetJavaVM(&vm_) != JNI_OK) {
     std::string errorMessage = "Unable to get JavaVM instance";
@@ -269,6 +273,19 @@ gluten::JniColumnarBatchIterator::JniColumnarBatchIterator(
       getMethodIdOrError(env, serializedColumnarBatchIteratorClass_, "hasNext", "()Z");
   serializedColumnarBatchIteratorNext_ = getMethodIdOrError(env, serializedColumnarBatchIteratorClass_, "next", "()J");
   jColumnarBatchItr_ = env->NewGlobalRef(jColumnarBatchItr);
+
+  // [multi-thread spark]
+  if (parallelEnabled_) {
+    // get a global reference to contextClassLoader
+    getContextClassLoader(env);
+    // Get Spark TaskContext
+    getTaskContext(env);
+    // get a global reference to SparkTaskUtil class to reduce overhead of loading it repeatedly
+    if (jclass localClass = env->FindClass("org/apache/spark/util/SparkTaskUtil")) {
+      jSparkTaskUtilClass_ = reinterpret_cast<jclass>(env->NewGlobalRef(localClass));
+      env->DeleteLocalRef(localClass); // Release the local reference
+    }
+  }
 }
 
 gluten::JniColumnarBatchIterator::~JniColumnarBatchIterator() {
@@ -276,7 +293,15 @@ gluten::JniColumnarBatchIterator::~JniColumnarBatchIterator() {
   attachCurrentThreadAsDaemonOrThrow(vm_, &env);
   env->DeleteGlobalRef(jColumnarBatchItr_);
   env->DeleteGlobalRef(serializedColumnarBatchIteratorClass_);
-  // Do NOT call DetachCurrentThread() here.
+  if (parallelEnabled_) {
+    // [multi-thread spark] In parallel mode the iterator runs on dedicated worker threads that are
+    // attached on demand; clean up the per-thread global refs and detach the worker thread.
+    env->DeleteGlobalRef(jSparkTaskContext_);
+    env->DeleteGlobalRef(jSparkTaskUtilClass_);
+    env->DeleteGlobalRef(jContextClassLoader_);
+    vm_->DetachCurrentThread();
+  }
+  // Do NOT call DetachCurrentThread() on the non-parallel path.
   // libhdfs.so caches JNIEnv* in thread-local storage after AttachCurrentThread.
   // If we detach, libhdfs's TLS cache becomes stale — the next HDFS call via
   // libhdfs returns the stale env, causing SIGSEGV in jni_NewStringUTF.
@@ -284,6 +309,16 @@ gluten::JniColumnarBatchIterator::~JniColumnarBatchIterator() {
 }
 
 std::shared_ptr<gluten::ColumnarBatch> gluten::JniColumnarBatchIterator::next() {
+  // [multi-thread spark] Only the parallel path runs on switchable worker threads and therefore
+  // needs to (re)attach and restore the Spark TaskContext / classloader on each call. The regular
+  // path keeps the community behavior untouched.
+  if (parallelEnabled_) {
+    JNIEnv* env = nullptr;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    setTaskContext(env);
+    setClassLoader(env);
+  }
+
   if (shouldDump_ && dumpedIteratorReader_ == nullptr) {
     GLUTEN_CHECK(iteratorIndex_.has_value(), "iteratorIndex_ should not be null");
 

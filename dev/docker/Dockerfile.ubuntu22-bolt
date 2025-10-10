@@ -1,0 +1,65 @@
+FROM ubuntu:22.04 as base
+
+RUN set -eux; \
+    apt update && apt upgrade -y &&\
+    apt install -y libnuma-dev openssl libcurl4-openssl-dev binutils-dev libssl-dev \
+        make automake autoconf ninja-build cmake gperf \
+        flex bison gcc g++ gdb  \
+        python3 python3-pip python3-dev \
+        vim git git-lfs openssh-client ssh wget bzip2;
+
+ARG BUILD_DIR=/tmp/build
+ARG GCC_VERSION=12.5.0
+ARG CMAKE_VERSION=3.31.10
+ARG MAVEN_VERSION=3.9.12
+
+# Install GCC
+RUN mkdir -p ${BUILD_DIR} &&\
+    cd ${BUILD_DIR} && wget https://github.com/gcc-mirror/gcc/archive/refs/tags/releases/gcc-${GCC_VERSION}.tar.gz &&\
+    tar -xzvf gcc-${GCC_VERSION}.tar.gz &&\
+    cd $(realpath gcc*-${GCC_VERSION}) &&\
+    ./contrib/download_prerequisites &&\
+    ./configure --prefix=/usr --enable-checking=release --enable-languages=c,c++ --disable-multilib  &&\
+    make -j $(nproc)   &&\
+    make install-strip  &&\
+    ldconfig &&\
+    rm -rf  ${BUILD_DIR}/gcc* ;
+
+
+# Install CMake
+RUN cd ${BUILD_DIR} && wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}.tar.gz &&\
+    tar xf cmake*.tar.gz &&\
+    cd cmake-${CMAKE_VERSION} &&\
+    ./bootstrap --parallel=$(nproc) && ./configure --prefix=/usr && make -j$(nproc) && make install && cmake --version &&\
+    rm -rf  ${BUILD_DIR}/* ;
+
+# Install java-17.0-openjdk
+RUN apt update && apt install -y openjdk-17-jdk && java -version &&\
+    ln -s  "/usr/lib/jvm/java-17-openjdk-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/aarch64/')" /usr/lib/jvm/java-17-openjdk
+ENV JAVA_HOME /usr/lib/jvm/java-17-openjdk
+ENV PATH "$JAVA_HOME/bin:$PATH"
+
+# Install maven
+ARG MAVEN_DIR=/opt/maven/apache-maven-${MAVEN_VERSION}
+ARG MAVEN_URL=https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz
+RUN mkdir -p ${MAVEN_DIR} && \
+    wget -qO- ${MAVEN_URL} | tar -zxf - -C  ${MAVEN_DIR} --strip-components=1 && \
+    ln -sf ${MAVEN_DIR}/bin/mvn /usr/bin/mvn
+ENV MAVEN_HOME ${MAVEN_DIR}
+ENV PATH ${MAVEN_HOME}/bin:${PATH}
+
+# Install Conda & Conan
+RUN MINICONDA_VERSION=py310_23.1.0-1 && \
+    MINICONDA_URL=https://repo.anaconda.com/miniconda/Miniconda3-${MINICONDA_VERSION}-Linux-$(arch).sh && \
+    cd ${BUILD_DIR} && wget --progress=dot:mega -O miniconda.sh ${MINICONDA_URL} && \
+    chmod +x miniconda.sh &&\
+    ./miniconda.sh -b -u -p /root/miniconda3 && rm -f miniconda.sh && \
+    echo "export PATH=/root/miniconda3/bin:\$PATH" >> /root/.bashrc &&  . /root/.bashrc && \
+    pip install --upgrade pip || true && \
+    pip install pydot conan && \
+    conan profile detect
+ENV PATH "/root/miniconda3/bin:${PATH}"
+
+RUN apt clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /tmp/build

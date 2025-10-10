@@ -154,6 +154,60 @@ ClickHouse backend demonstrated an average speedup of 2.12x, with up to 3.48x sp
 
 <sub>Test environment: a 8-nodes AWS cluster with 1TB data, using Spark 3.1.1 as the baseline and with Gluten integrated into the same Spark version.</sub>
 
+### Bolt Backend
+#### Prerequisites
+* Linux operating system
+* GCC 10/11/12 or Clang 16
+* python 3 (virtualenv or Conda) for conan
+
+Linux with kernel version(>5.4) is preferred, since Bolt will enable io-uring when the kernel supports.
+
+if the system gcc version is too older, it is recommended to install GCC from source code:
+```shell
+# run with root privilege
+bash ./dev/install-gcc.sh 12.5.0
+```
+
+Bolt adopts Conan as its package manager. Conan is an open-source, cross-platform package management tool.
+We provide dedicated scripts to assist developers in setting up and installing Bolt's dependencies.
+```shell
+bash ./dev/install-conan.sh
+```
+
+We also provide a Dockerfile to build a Docker image for the **Bolt** backend, it includes all the prerequisites required to build Gluten with Bolt backend.
+```shell
+docker buildx build -t bolt -f dev/docker/Dockerfile.centos8-bolt .
+```
+
+#### Build Bolt Backend
+To install bolt recipe for Gluten:
+```shell
+# Install the recipes of Bolt and its third-party dependencies
+make bolt-recipe
+
+# specific a version of Bolt (release or branch)
+# `main` branch is the default
+make bolt-recipe  BOLT_BUILD_VERSION=main
+```
+
+To build bolt backend:
+```shell
+make release
+
+# or specific the version for Bolt, and the version for Gluten
+make release BOLT_BUILD_VERSION=main GLUTEN_BUILD_VERSION=main
+```
+Note that, the missing third-parties binaries will be built from source for the first time.
+
+To build gluten:
+
+```shell
+# install arrow dependency for gluten
+make arrow
+
+make jar_spark35
+```
+
 ## 8. Qualification Tool
 
 The [Qualification Tool](./tools/qualification-tool/README.md) is a utility to analyze Spark event log files and assess the compatibility and performance of SQL workloads with Gluten. This tool helps users understand how their workloads can benefit from Gluten.

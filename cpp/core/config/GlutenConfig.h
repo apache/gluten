@@ -113,6 +113,9 @@ const std::string kDebugCudfDefault = "false";
 const std::string kCudfAllowCpuFallback = "spark.gluten.sql.columnar.backend.velox.cudf.allowCpuFallback";
 const std::string kCudfAllowCpuFallbackDefault = "true";
 
+// multi-thread spark
+const std::string kGlutenEnableParallel = "spark.gluten.parallel.enabled";
+
 std::unordered_map<std::string, std::string>
 parseConfMap(JNIEnv* env, const uint8_t* planData, const int32_t planDataLength);
 

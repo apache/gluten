@@ -2077,6 +2077,19 @@
       </properties>
     </profile>
     <profile>
+      <id>backends-bolt</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <modules>
+        <module>gluten-arrow</module>
+        <module>backends-bolt</module>
+      </modules>
+      <properties>
+        <backend_type>bolt</backend_type>
+      </properties>
+    </profile>
+    <profile>
       <id>kafka</id>
       <activation>
         <activeByDefault>false</activeByDefault>

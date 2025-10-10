@@ -21,6 +21,7 @@ import org.apache.gluten.exception.GlutenException
 import org.apache.spark.SparkException
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types._
 
 class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenSQLTestsTrait {
   import testImplicits._
@@ -110,5 +111,37 @@ class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenS
     withSQLConf(SQLConf.LEGACY_NEGATIVE_INDEX_IN_ARRAY_INSERT.key -> "true") {
       checkAnswer(df1.selectExpr("array_insert(a, -6, c)"), Seq(Row(Seq(3, null, 3, 2, 5, 1, 2))))
     }
+  }
+
+  testGluten("map with arrays") {
+    val df1 = Seq((Seq(1, 2), Seq("a", "b"))).toDF("k", "v")
+    val expectedType = MapType(IntegerType, StringType, valueContainsNull = true)
+    val row = df1.select(map_from_arrays($"k", $"v")).first()
+    assert(row.schema(0).dataType === expectedType)
+    assert(row.getMap[Int, String](0) === Map(1 -> "a", 2 -> "b"))
+    checkAnswer(df1.select(map_from_arrays($"k", $"v")), Seq(Row(Map(1 -> "a", 2 -> "b"))))
+
+    val df2 = Seq((Seq(1, 2), Seq(null, "b"))).toDF("k", "v")
+    checkAnswer(df2.select(map_from_arrays($"k", $"v")), Seq(Row(Map(1 -> null, 2 -> "b"))))
+
+    val df3 = Seq((null, null)).toDF("k", "v")
+    checkAnswer(df3.select(map_from_arrays($"k", $"v")), Seq(Row(null)))
+
+    val df4 = Seq((1, "a")).toDF("k", "v")
+    intercept[AnalysisException] {
+      df4.select(map_from_arrays($"k", $"v"))
+    }
+
+    val df5 = Seq((Seq("a", null), Seq(1, 2))).toDF("k", "v")
+    val msg1 = intercept[Exception] {
+      df5.select(map_from_arrays($"k", $"v")).collect
+    }.getMessage
+    assert(msg1.contains("map key cannot be null"))
+
+    val df6 = Seq((Seq(1, 2), Seq("a"))).toDF("k", "v")
+    val msg2 = intercept[Exception] {
+      df6.select(map_from_arrays($"k", $"v")).collect
+    }.getMessage
+    assert(msg2.contains("Key and value arrays must be the same length"))
   }
 }

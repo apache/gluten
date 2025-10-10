@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package gluten;
+
+option java_package = "org.apache.gluten.proto";
+option java_multiple_files = true;
+
+// Shuffle reader configuration
+message ShuffleReaderInfo {
+    string compression_type = 1;
+    string codec = 2;
+    int32 batch_size = 3;
+    int32 shuffle_batch_byte_size = 4;
+    int32 num_partitions = 5;
+    string partition_short_name = 6;
+    int32 forced_writer_type = 7;
+}

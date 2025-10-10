@@ -13,6 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+if (ENABLE_BOLT) 
+  include(bolt.CMakeLists.cmake)
+  return()
+endif()
+
 cmake_minimum_required(VERSION 3.16)
 
 project(gluten)
@@ -145,6 +150,7 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     shuffle/Spill.cc
     shuffle/Utils.cc
     utils/Compression.cc
+    utils/ConfigResolver.cc
     utils/tac/FForCodec.cc
     utils/tac/TypeAwareCompressCodec.cc
     utils/StringUtil.cc

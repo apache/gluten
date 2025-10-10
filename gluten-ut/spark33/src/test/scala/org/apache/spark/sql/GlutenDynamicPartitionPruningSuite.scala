@@ -648,7 +648,9 @@ class GlutenDynamicPartitionPruningV1SuiteAEOff
         if (BackendTestUtils.isCHBackendLoaded()) {
           assert(subqueryIds.size == 2, "Whole plan subquery reusing not working correctly")
           assert(reusedSubqueryIds.size == 1, "Whole plan subquery reusing not working correctly")
-        } else if (BackendTestUtils.isVeloxBackendLoaded()) {
+        } else if (
+          BackendTestUtils.isVeloxBackendLoaded() || BackendTestUtils.isBoltBackendLoaded()
+        ) {
           assert(subqueryIds.size == 3, "Whole plan subquery reusing not working correctly")
           assert(reusedSubqueryIds.size == 2, "Whole plan subquery reusing not working correctly")
         } else {

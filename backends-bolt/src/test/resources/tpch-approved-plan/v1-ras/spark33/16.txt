@@ -1,0 +1,379 @@
+== Physical Plan ==
+AdaptiveSparkPlan (71)
++- == Final Plan ==
+   BoltColumnarToRow (47)
+   +- ^ SortExecTransformer (45)
+      +- ^ InputIteratorTransformer (44)
+         +- ShuffleQueryStage (42), Statistics(X)
+            +- ColumnarExchange (41)
+               +- BoltResizeBatches (40)
+                  +- ^ RegularHashAggregateExecTransformer (38)
+                     +- ^ InputIteratorTransformer (37)
+                        +- ShuffleQueryStage (35), Statistics(X)
+                           +- ColumnarExchange (34)
+                              +- BoltResizeBatches (33)
+                                 +- ^ ProjectExecTransformer (31)
+                                    +- ^ FlushableHashAggregateExecTransformer (30)
+                                       +- ^ RegularHashAggregateExecTransformer (29)
+                                          +- ^ InputIteratorTransformer (28)
+                                             +- ShuffleQueryStage (26), Statistics(X)
+                                                +- ColumnarExchange (25)
+                                                   +- BoltResizeBatches (24)
+                                                      +- ^ ProjectExecTransformer (22)
+                                                         +- ^ FlushableHashAggregateExecTransformer (21)
+                                                            +- ^ ProjectExecTransformer (20)
+                                                               +- ^ ShuffledHashJoinExecTransformer Inner BuildRight (19)
+                                                                  :- ^ InputIteratorTransformer (9)
+                                                                  :  +- ShuffleQueryStage (7), Statistics(X)
+                                                                  :     +- ColumnarExchange (6)
+                                                                  :        +- BoltResizeBatches (5)
+                                                                  :           +- ^ ProjectExecTransformer (3)
+                                                                  :              +- ^ FilterExecTransformer (2)
+                                                                  :                 +- ^ ScanTransformer parquet  (1)
+                                                                  +- ^ InputIteratorTransformer (18)
+                                                                     +- ShuffleQueryStage (16), Statistics(X)
+                                                                        +- ColumnarExchange (15)
+                                                                           +- BoltResizeBatches (14)
+                                                                              +- ^ ProjectExecTransformer (12)
+                                                                                 +- ^ FilterExecTransformer (11)
+                                                                                    +- ^ ScanTransformer parquet  (10)
++- == Initial Plan ==
+   Sort (70)
+   +- Exchange (69)
+      +- HashAggregate (68)
+         +- Exchange (67)
+            +- HashAggregate (66)
+               +- HashAggregate (65)
+                  +- Exchange (64)
+                     +- HashAggregate (63)
+                        +- Project (62)
+                           +- SortMergeJoin Inner (61)
+                              :- Sort (56)
+                              :  +- Exchange (55)
+                              :     +- BroadcastHashJoin LeftAnti BuildRight (54)
+                              :        :- Filter (49)
+                              :        :  +- Scan parquet (48)
+                              :        +- BroadcastExchange (53)
+                              :           +- Project (52)
+                              :              +- Filter (51)
+                              :                 +- Scan parquet (50)
+                              +- Sort (60)
+                                 +- Exchange (59)
+                                    +- Filter (58)
+                                       +- Scan parquet (57)
+
+
+(1) ScanTransformer parquet 
+Output [2]: [ps_partkey#X, ps_suppkey#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(ps_partkey)]
+ReadSchema: struct<ps_partkey:bigint,ps_suppkey:bigint>
+
+(2) FilterExecTransformer
+Input [2]: [ps_partkey#X, ps_suppkey#X]
+Arguments: isnotnull(ps_partkey#X)
+
+(3) ProjectExecTransformer
+Output [3]: [hash(ps_partkey#X, 42) AS hash_partition_key#X, ps_partkey#X, ps_suppkey#X]
+Input [2]: [ps_partkey#X, ps_suppkey#X]
+
+(4) WholeStageCodegenTransformer (X)
+Input [3]: [hash_partition_key#X, ps_partkey#X, ps_suppkey#X]
+Arguments: false
+
+(5) BoltResizeBatches
+Input [3]: [hash_partition_key#X, ps_partkey#X, ps_suppkey#X]
+Arguments: X, X
+
+(6) ColumnarExchange
+Input [3]: [hash_partition_key#X, ps_partkey#X, ps_suppkey#X]
+Arguments: hashpartitioning(ps_partkey#X, 1), ENSURE_REQUIREMENTS, [ps_partkey#X, ps_suppkey#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(7) ShuffleQueryStage
+Output [2]: [ps_partkey#X, ps_suppkey#X]
+Arguments: X
+
+(8) InputAdapter
+Input [2]: [ps_partkey#X, ps_suppkey#X]
+
+(9) InputIteratorTransformer
+Input [2]: [ps_partkey#X, ps_suppkey#X]
+
+(10) ScanTransformer parquet 
+Output [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(p_brand), IsNotNull(p_type), Not(EqualTo(p_brand,Brand#X)), Not(StringStartsWith(p_type,MEDIUM POLISHED)), In(p_size, [14,19,23,3,36,45,49,9]), IsNotNull(p_partkey)]
+ReadSchema: struct<p_partkey:bigint,p_brand:string,p_type:string,p_size:int>
+
+(11) FilterExecTransformer
+Input [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Arguments: (((((isnotnull(p_brand#X) AND isnotnull(p_type#X)) AND NOT (p_brand#X = Brand#X)) AND NOT StartsWith(p_type#X, MEDIUM POLISHED)) AND p_size#X IN (49,14,23,45,19,3,36,9)) AND isnotnull(p_partkey#X))
+
+(12) ProjectExecTransformer
+Output [5]: [hash(p_partkey#X, 42) AS hash_partition_key#X, p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Input [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
+
+(13) WholeStageCodegenTransformer (X)
+Input [5]: [hash_partition_key#X, p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Arguments: false
+
+(14) BoltResizeBatches
+Input [5]: [hash_partition_key#X, p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Arguments: X, X
+
+(15) ColumnarExchange
+Input [5]: [hash_partition_key#X, p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Arguments: hashpartitioning(p_partkey#X, 1), ENSURE_REQUIREMENTS, [p_partkey#X, p_brand#X, p_type#X, p_size#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(16) ShuffleQueryStage
+Output [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Arguments: X
+
+(17) InputAdapter
+Input [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
+
+(18) InputIteratorTransformer
+Input [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
+
+(19) ShuffledHashJoinExecTransformer
+Left keys [1]: [ps_partkey#X]
+Right keys [1]: [p_partkey#X]
+Join condition: None
+
+(20) ProjectExecTransformer
+Output [4]: [ps_suppkey#X, p_brand#X, p_type#X, p_size#X]
+Input [6]: [ps_partkey#X, ps_suppkey#X, p_partkey#X, p_brand#X, p_type#X, p_size#X]
+
+(21) FlushableHashAggregateExecTransformer
+Input [4]: [ps_suppkey#X, p_brand#X, p_type#X, p_size#X]
+Keys [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Functions: []
+Aggregate Attributes: []
+Results [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+
+(22) ProjectExecTransformer
+Output [5]: [hash(p_brand#X, p_type#X, p_size#X, ps_suppkey#X, 42) AS hash_partition_key#X, p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Input [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+
+(23) WholeStageCodegenTransformer (X)
+Input [5]: [hash_partition_key#X, p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Arguments: false
+
+(24) BoltResizeBatches
+Input [5]: [hash_partition_key#X, p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Arguments: X, X
+
+(25) ColumnarExchange
+Input [5]: [hash_partition_key#X, p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Arguments: hashpartitioning(p_brand#X, p_type#X, p_size#X, ps_suppkey#X, 1), ENSURE_REQUIREMENTS, [p_brand#X, p_type#X, p_size#X, ps_suppkey#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(26) ShuffleQueryStage
+Output [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Arguments: X
+
+(27) InputAdapter
+Input [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+
+(28) InputIteratorTransformer
+Input [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+
+(29) RegularHashAggregateExecTransformer
+Input [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Keys [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Functions: []
+Aggregate Attributes: []
+Results [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+
+(30) FlushableHashAggregateExecTransformer
+Input [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Keys [3]: [p_brand#X, p_type#X, p_size#X]
+Functions [1]: [partial_count(distinct ps_suppkey#X)]
+Aggregate Attributes [1]: [count(ps_suppkey#X)#X]
+Results [4]: [p_brand#X, p_type#X, p_size#X, count#X]
+
+(31) ProjectExecTransformer
+Output [5]: [hash(p_brand#X, p_type#X, p_size#X, 42) AS hash_partition_key#X, p_brand#X, p_type#X, p_size#X, count#X]
+Input [4]: [p_brand#X, p_type#X, p_size#X, count#X]
+
+(32) WholeStageCodegenTransformer (X)
+Input [5]: [hash_partition_key#X, p_brand#X, p_type#X, p_size#X, count#X]
+Arguments: false
+
+(33) BoltResizeBatches
+Input [5]: [hash_partition_key#X, p_brand#X, p_type#X, p_size#X, count#X]
+Arguments: X, X
+
+(34) ColumnarExchange
+Input [5]: [hash_partition_key#X, p_brand#X, p_type#X, p_size#X, count#X]
+Arguments: hashpartitioning(p_brand#X, p_type#X, p_size#X, 1), ENSURE_REQUIREMENTS, [p_brand#X, p_type#X, p_size#X, count#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(35) ShuffleQueryStage
+Output [4]: [p_brand#X, p_type#X, p_size#X, count#X]
+Arguments: X
+
+(36) InputAdapter
+Input [4]: [p_brand#X, p_type#X, p_size#X, count#X]
+
+(37) InputIteratorTransformer
+Input [4]: [p_brand#X, p_type#X, p_size#X, count#X]
+
+(38) RegularHashAggregateExecTransformer
+Input [4]: [p_brand#X, p_type#X, p_size#X, count#X]
+Keys [3]: [p_brand#X, p_type#X, p_size#X]
+Functions [1]: [count(distinct ps_suppkey#X)]
+Aggregate Attributes [1]: [count(ps_suppkey#X)#X]
+Results [4]: [p_brand#X, p_type#X, p_size#X, count(ps_suppkey#X)#X AS supplier_cnt#X]
+
+(39) WholeStageCodegenTransformer (X)
+Input [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+Arguments: false
+
+(40) BoltResizeBatches
+Input [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+Arguments: X, X
+
+(41) ColumnarExchange
+Input [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+Arguments: rangepartitioning(supplier_cnt#X DESC NULLS LAST, p_brand#X ASC NULLS FIRST, p_type#X ASC NULLS FIRST, p_size#X ASC NULLS FIRST, 1), ENSURE_REQUIREMENTS, [plan_id=X], [shuffle_writer_type=hash]
+
+(42) ShuffleQueryStage
+Output [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+Arguments: X
+
+(43) InputAdapter
+Input [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+
+(44) InputIteratorTransformer
+Input [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+
+(45) SortExecTransformer
+Input [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+Arguments: [supplier_cnt#X DESC NULLS LAST, p_brand#X ASC NULLS FIRST, p_type#X ASC NULLS FIRST, p_size#X ASC NULLS FIRST], true, 0
+
+(46) WholeStageCodegenTransformer (X)
+Input [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+Arguments: false
+
+(47) BoltColumnarToRow
+Input [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+
+(48) Scan parquet
+Output [2]: [ps_partkey#X, ps_suppkey#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(ps_partkey)]
+ReadSchema: struct<ps_partkey:bigint,ps_suppkey:bigint>
+
+(49) Filter
+Input [2]: [ps_partkey#X, ps_suppkey#X]
+Condition : isnotnull(ps_partkey#X)
+
+(50) Scan parquet
+Output [2]: [s_suppkey#X, s_comment#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(s_comment)]
+ReadSchema: struct<s_suppkey:bigint,s_comment:string>
+
+(51) Filter
+Input [2]: [s_suppkey#X, s_comment#X]
+Condition : (isnotnull(s_comment#X) AND s_comment#X LIKE %Customer%Complaints%)
+
+(52) Project
+Output [1]: [s_suppkey#X]
+Input [2]: [s_suppkey#X, s_comment#X]
+
+(53) BroadcastExchange
+Input [1]: [s_suppkey#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, true]),true), [plan_id=X]
+
+(54) BroadcastHashJoin
+Left keys [1]: [ps_suppkey#X]
+Right keys [1]: [s_suppkey#X]
+Join condition: None
+
+(55) Exchange
+Input [2]: [ps_partkey#X, ps_suppkey#X]
+Arguments: hashpartitioning(ps_partkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(56) Sort
+Input [2]: [ps_partkey#X, ps_suppkey#X]
+Arguments: [ps_partkey#X ASC NULLS FIRST], false, 0
+
+(57) Scan parquet
+Output [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(p_brand), IsNotNull(p_type), Not(EqualTo(p_brand,Brand#X)), Not(StringStartsWith(p_type,MEDIUM POLISHED)), In(p_size, [14,19,23,3,36,45,49,9]), IsNotNull(p_partkey)]
+ReadSchema: struct<p_partkey:bigint,p_brand:string,p_type:string,p_size:int>
+
+(58) Filter
+Input [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Condition : (((((isnotnull(p_brand#X) AND isnotnull(p_type#X)) AND NOT (p_brand#X = Brand#X)) AND NOT StartsWith(p_type#X, MEDIUM POLISHED)) AND p_size#X IN (49,14,23,45,19,3,36,9)) AND isnotnull(p_partkey#X))
+
+(59) Exchange
+Input [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Arguments: hashpartitioning(p_partkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(60) Sort
+Input [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
+Arguments: [p_partkey#X ASC NULLS FIRST], false, 0
+
+(61) SortMergeJoin
+Left keys [1]: [ps_partkey#X]
+Right keys [1]: [p_partkey#X]
+Join condition: None
+
+(62) Project
+Output [4]: [ps_suppkey#X, p_brand#X, p_type#X, p_size#X]
+Input [6]: [ps_partkey#X, ps_suppkey#X, p_partkey#X, p_brand#X, p_type#X, p_size#X]
+
+(63) HashAggregate
+Input [4]: [ps_suppkey#X, p_brand#X, p_type#X, p_size#X]
+Keys [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Functions: []
+Aggregate Attributes: []
+Results [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+
+(64) Exchange
+Input [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Arguments: hashpartitioning(p_brand#X, p_type#X, p_size#X, ps_suppkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(65) HashAggregate
+Input [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Keys [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Functions: []
+Aggregate Attributes: []
+Results [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+
+(66) HashAggregate
+Input [4]: [p_brand#X, p_type#X, p_size#X, ps_suppkey#X]
+Keys [3]: [p_brand#X, p_type#X, p_size#X]
+Functions [1]: [partial_count(distinct ps_suppkey#X)]
+Aggregate Attributes [1]: [count(ps_suppkey#X)#X]
+Results [4]: [p_brand#X, p_type#X, p_size#X, count#X]
+
+(67) Exchange
+Input [4]: [p_brand#X, p_type#X, p_size#X, count#X]
+Arguments: hashpartitioning(p_brand#X, p_type#X, p_size#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(68) HashAggregate
+Input [4]: [p_brand#X, p_type#X, p_size#X, count#X]
+Keys [3]: [p_brand#X, p_type#X, p_size#X]
+Functions [1]: [count(distinct ps_suppkey#X)]
+Aggregate Attributes [1]: [count(ps_suppkey#X)#X]
+Results [4]: [p_brand#X, p_type#X, p_size#X, count(ps_suppkey#X)#X AS supplier_cnt#X]
+
+(69) Exchange
+Input [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+Arguments: rangepartitioning(supplier_cnt#X DESC NULLS LAST, p_brand#X ASC NULLS FIRST, p_type#X ASC NULLS FIRST, p_size#X ASC NULLS FIRST, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(70) Sort
+Input [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+Arguments: [supplier_cnt#X DESC NULLS LAST, p_brand#X ASC NULLS FIRST, p_type#X ASC NULLS FIRST, p_size#X ASC NULLS FIRST], true, 0
+
+(71) AdaptiveSparkPlan
+Output [4]: [p_brand#X, p_type#X, p_size#X, supplier_cnt#X]
+Arguments: isFinalPlan=true

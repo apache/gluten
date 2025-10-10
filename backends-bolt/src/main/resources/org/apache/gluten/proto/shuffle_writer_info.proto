@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package gluten;
+
+option java_package = "org.apache.gluten.proto";
+option java_multiple_files = true;
+
+// Shuffle writer configuration
+message ShuffleWriterInfo {
+  // ==================== Basic Partitioning ====================
+  string partitioning_name = 1;     // Partition strategy name, "hash"/"range"/"rr"/"single"
+  int32 num_partitions = 2;         // Total number of partitions
+  int32 start_partition_id = 3;     // Starting partition ID
+  int64 task_attempt_id = 29;        // Task attempt ID
+
+  // ==================== Buffer Configuration ====================
+  int32 buffer_size = 4;            // Base buffer size
+  int32 merge_buffer_size = 5;      // Merge buffer size
+  double merge_threshold = 6;       // Merge trigger threshold (0.0-1.0)
+
+  // ==================== Compression Settings ====================
+  string compression_codec = 7;               // Compression algorithm
+  string compression_backend = 8;             // Implementation backend,
+  int32 compression_level = 9;                // Compression level
+  int32 compression_threshold = 10;            // Minimum compression size
+  string compression_mode = 11;                // Compression mode
+
+  // ==================== Path Configuration ====================
+  string data_file = 12;             // Data file template
+  int32 num_sub_dirs = 13;           // Subdirectory count
+  string local_dirs = 14;           // Local directories
+
+  // ==================== Memory Management ====================
+  double realloc_threshold = 15;     // Reallocation threshold
+  int64 mem_limit = 16;              // Memory limit (bytes)
+
+  // ==================== Celeborn ====================
+  int32 push_buffer_max_size = 17;    // Push buffer max size
+  int32 shuffle_batch_byte_size = 30;
+
+  // ==================== Advanced Tuning ====================
+  string writer_type = 19;            // Writer implementation, "local"/"celeborn"
+  int32 forced_writer_type = 21;      // Writer type override, 0/1/2
+
+  // ==================== Vectorization Config ====================
+  int32 use_v2_prealloc_threshold = 22;  // V2 threshold
+  int32 row_compression_min_cols = 23;    // Min columns
+  int32 row_compression_max_buffer = 24; // Max buffer
+  bool enable_vector_combination = 25;   // Optimization flag
+
+  // ==================== Batch Accumulation ====================
+  int32 accumulate_batch_max_columns = 26;           // Columns limit
+  int32 accumulate_batch_max_batches = 27;           // Batches limit
+  int32 recommended_c2r_size = 28;   // Conversion size
+  double shuffle_check_ratio = 31;  // Shuffle debug check ratio [0, 1]
+}
+
+message ShuffleWriterResult {
+  repeated int64 partitionLengths = 1;
+
+  message Metrics {
+    int64 input_row_number = 1;
+    int64 input_batches = 2;
+    int64 split_time = 3;
+    int64 spill_time = 4;
+    int64 spill_bytes = 5;
+    int64 split_buffer_size = 6;
+    int64 prealloc_size = 7;
+    int64 row_vector_mode_compress = 8;
+    int64 combined_vector_number = 9;
+    int64 combined_vector_times = 10;
+    int64 combine_vector_cost = 11;
+    int64 compute_pid_time = 12;
+    int64 compress_time = 13;
+    int64 use_v2 = 14;
+    int64 convert_time = 15;
+    int64 flatten_time = 16;
+    int64 data_size = 17;
+    int64 use_row_based = 18;
+    int64 total_bytes_written = 19;
+    // total write io cost
+    int64 total_write_time = 20;
+    // all time cost in whole shuffle write
+    int64 shuffle_write_time = 21;
+    int64 total_push_time = 22;
+  }
+  Metrics metrics = 2;
+}

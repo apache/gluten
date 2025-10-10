@@ -1,0 +1,374 @@
+== Physical Plan ==
+AdaptiveSparkPlan (68)
++- == Final Plan ==
+   BoltColumnarToRow (44)
+   +- TakeOrderedAndProjectExecTransformer (43)
+      +- ^ ProjectExecTransformer (41)
+         +- ^ RegularHashAggregateExecTransformer (40)
+            +- ^ InputIteratorTransformer (39)
+               +- ShuffleQueryStage (37), Statistics(X)
+                  +- ColumnarExchange (36)
+                     +- BoltResizeBatches (35)
+                        +- ^ ProjectExecTransformer (33)
+                           +- ^ FlushableHashAggregateExecTransformer (32)
+                              +- ^ ProjectExecTransformer (31)
+                                 +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (30)
+                                    :- ^ ProjectExecTransformer (22)
+                                    :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (21)
+                                    :     :- ^ ProjectExecTransformer (12)
+                                    :     :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (11)
+                                    :     :     :- ^ FilterExecTransformer (2)
+                                    :     :     :  +- ^ ScanTransformer parquet  (1)
+                                    :     :     +- ^ InputIteratorTransformer (10)
+                                    :     :        +- BroadcastQueryStage (8), Statistics(X)
+                                    :     :           +- ColumnarBroadcastExchange (7)
+                                    :     :              +- ^ ProjectExecTransformer (5)
+                                    :     :                 +- ^ FilterExecTransformer (4)
+                                    :     :                    +- ^ ScanTransformer parquet  (3)
+                                    :     +- ^ InputIteratorTransformer (20)
+                                    :        +- BroadcastQueryStage (18), Statistics(X)
+                                    :           +- ColumnarBroadcastExchange (17)
+                                    :              +- ^ ProjectExecTransformer (15)
+                                    :                 +- ^ FilterExecTransformer (14)
+                                    :                    +- ^ ScanTransformer parquet  (13)
+                                    +- ^ InputIteratorTransformer (29)
+                                       +- BroadcastQueryStage (27), Statistics(X)
+                                          +- ColumnarBroadcastExchange (26)
+                                             +- ^ FilterExecTransformer (24)
+                                                +- ^ ScanTransformer parquet  (23)
++- == Initial Plan ==
+   TakeOrderedAndProject (67)
+   +- HashAggregate (66)
+      +- Exchange (65)
+         +- HashAggregate (64)
+            +- Project (63)
+               +- BroadcastHashJoin Inner BuildRight (62)
+                  :- Project (58)
+                  :  +- BroadcastHashJoin Inner BuildRight (57)
+                  :     :- Project (52)
+                  :     :  +- BroadcastHashJoin Inner BuildRight (51)
+                  :     :     :- Filter (46)
+                  :     :     :  +- Scan parquet (45)
+                  :     :     +- BroadcastExchange (50)
+                  :     :        +- Project (49)
+                  :     :           +- Filter (48)
+                  :     :              +- Scan parquet (47)
+                  :     +- BroadcastExchange (56)
+                  :        +- Project (55)
+                  :           +- Filter (54)
+                  :              +- Scan parquet (53)
+                  +- BroadcastExchange (61)
+                     +- Filter (60)
+                        +- Scan parquet (59)
+
+
+(1) ScanTransformer parquet 
+Output [7]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(c_custkey), IsNotNull(c_nationkey)]
+ReadSchema: struct<c_custkey:bigint,c_name:string,c_address:string,c_nationkey:bigint,c_phone:string,c_acctbal:decimal(12,2),c_comment:string>
+
+(2) FilterExecTransformer
+Input [7]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X]
+Arguments: (isnotnull(c_custkey#X) AND isnotnull(c_nationkey#X))
+
+(3) ScanTransformer parquet 
+Output [3]: [o_orderkey#X, o_custkey#X, o_orderdate#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(o_orderdate), GreaterThanOrEqual(o_orderdate,1993-10-01), LessThan(o_orderdate,1994-01-01), IsNotNull(o_custkey), IsNotNull(o_orderkey)]
+ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint,o_orderdate:date>
+
+(4) FilterExecTransformer
+Input [3]: [o_orderkey#X, o_custkey#X, o_orderdate#X]
+Arguments: ((((isnotnull(o_orderdate#X) AND (o_orderdate#X >= 1993-10-01)) AND (o_orderdate#X < 1994-01-01)) AND isnotnull(o_custkey#X)) AND isnotnull(o_orderkey#X))
+
+(5) ProjectExecTransformer
+Output [2]: [o_orderkey#X, o_custkey#X]
+Input [3]: [o_orderkey#X, o_custkey#X, o_orderdate#X]
+
+(6) WholeStageCodegenTransformer (X)
+Input [2]: [o_orderkey#X, o_custkey#X]
+Arguments: false
+
+(7) ColumnarBroadcastExchange
+Input [2]: [o_orderkey#X, o_custkey#X]
+Arguments: HashedRelationBroadcastMode(List(input[1, bigint, true]),false), [plan_id=X]
+
+(8) BroadcastQueryStage
+Output [2]: [o_orderkey#X, o_custkey#X]
+Arguments: X
+
+(9) InputAdapter
+Input [2]: [o_orderkey#X, o_custkey#X]
+
+(10) InputIteratorTransformer
+Input [2]: [o_orderkey#X, o_custkey#X]
+
+(11) BroadcastHashJoinExecTransformer
+Left keys [1]: [c_custkey#X]
+Right keys [1]: [o_custkey#X]
+Join type: Inner
+Join condition: None
+
+(12) ProjectExecTransformer
+Output [8]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, o_orderkey#X]
+Input [9]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, o_orderkey#X, o_custkey#X]
+
+(13) ScanTransformer parquet 
+Output [4]: [l_orderkey#X, l_extendedprice#X, l_discount#X, l_returnflag#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(l_returnflag), EqualTo(l_returnflag,R), IsNotNull(l_orderkey)]
+ReadSchema: struct<l_orderkey:bigint,l_extendedprice:decimal(12,2),l_discount:decimal(12,2),l_returnflag:string>
+
+(14) FilterExecTransformer
+Input [4]: [l_orderkey#X, l_extendedprice#X, l_discount#X, l_returnflag#X]
+Arguments: ((isnotnull(l_returnflag#X) AND (l_returnflag#X = R)) AND isnotnull(l_orderkey#X))
+
+(15) ProjectExecTransformer
+Output [3]: [l_orderkey#X, l_extendedprice#X, l_discount#X]
+Input [4]: [l_orderkey#X, l_extendedprice#X, l_discount#X, l_returnflag#X]
+
+(16) WholeStageCodegenTransformer (X)
+Input [3]: [l_orderkey#X, l_extendedprice#X, l_discount#X]
+Arguments: false
+
+(17) ColumnarBroadcastExchange
+Input [3]: [l_orderkey#X, l_extendedprice#X, l_discount#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, true]),false), [plan_id=X]
+
+(18) BroadcastQueryStage
+Output [3]: [l_orderkey#X, l_extendedprice#X, l_discount#X]
+Arguments: X
+
+(19) InputAdapter
+Input [3]: [l_orderkey#X, l_extendedprice#X, l_discount#X]
+
+(20) InputIteratorTransformer
+Input [3]: [l_orderkey#X, l_extendedprice#X, l_discount#X]
+
+(21) BroadcastHashJoinExecTransformer
+Left keys [1]: [o_orderkey#X]
+Right keys [1]: [l_orderkey#X]
+Join type: Inner
+Join condition: None
+
+(22) ProjectExecTransformer
+Output [9]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, l_extendedprice#X, l_discount#X]
+Input [11]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, o_orderkey#X, l_orderkey#X, l_extendedprice#X, l_discount#X]
+
+(23) ScanTransformer parquet 
+Output [2]: [n_nationkey#X, n_name#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(n_nationkey)]
+ReadSchema: struct<n_nationkey:bigint,n_name:string>
+
+(24) FilterExecTransformer
+Input [2]: [n_nationkey#X, n_name#X]
+Arguments: isnotnull(n_nationkey#X)
+
+(25) WholeStageCodegenTransformer (X)
+Input [2]: [n_nationkey#X, n_name#X]
+Arguments: false
+
+(26) ColumnarBroadcastExchange
+Input [2]: [n_nationkey#X, n_name#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(27) BroadcastQueryStage
+Output [2]: [n_nationkey#X, n_name#X]
+Arguments: X
+
+(28) InputAdapter
+Input [2]: [n_nationkey#X, n_name#X]
+
+(29) InputIteratorTransformer
+Input [2]: [n_nationkey#X, n_name#X]
+
+(30) BroadcastHashJoinExecTransformer
+Left keys [1]: [c_nationkey#X]
+Right keys [1]: [n_nationkey#X]
+Join type: Inner
+Join condition: None
+
+(31) ProjectExecTransformer
+Output [8]: [c_custkey#X, c_name#X, c_address#X, c_phone#X, c_acctbal#X, c_comment#X, n_name#X, (l_extendedprice#X * (1 - l_discount#X)) AS _pre_X#X]
+Input [11]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, l_extendedprice#X, l_discount#X, n_nationkey#X, n_name#X]
+
+(32) FlushableHashAggregateExecTransformer
+Input [8]: [c_custkey#X, c_name#X, c_address#X, c_phone#X, c_acctbal#X, c_comment#X, n_name#X, _pre_X#X]
+Keys [7]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X]
+Functions [1]: [partial_sum(_pre_X#X)]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [9]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+
+(33) ProjectExecTransformer
+Output [10]: [hash(c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, 42) AS hash_partition_key#X, c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+Input [9]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+
+(34) WholeStageCodegenTransformer (X)
+Input [10]: [hash_partition_key#X, c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+Arguments: false
+
+(35) BoltResizeBatches
+Input [10]: [hash_partition_key#X, c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+Arguments: X, X
+
+(36) ColumnarExchange
+Input [10]: [hash_partition_key#X, c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, 1), ENSURE_REQUIREMENTS, [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(37) ShuffleQueryStage
+Output [9]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+Arguments: X
+
+(38) InputAdapter
+Input [9]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+
+(39) InputIteratorTransformer
+Input [9]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+
+(40) RegularHashAggregateExecTransformer
+Input [9]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+Keys [7]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X]
+Functions [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))]
+Aggregate Attributes [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))#X]
+Results [8]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum((l_extendedprice#X * (1 - l_discount#X)))#X]
+
+(41) ProjectExecTransformer
+Output [8]: [c_custkey#X, c_name#X, sum((l_extendedprice#X * (1 - l_discount#X)))#X AS revenue#X, c_acctbal#X, n_name#X, c_address#X, c_phone#X, c_comment#X]
+Input [8]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum((l_extendedprice#X * (1 - l_discount#X)))#X]
+
+(42) WholeStageCodegenTransformer (X)
+Input [8]: [c_custkey#X, c_name#X, revenue#X, c_acctbal#X, n_name#X, c_address#X, c_phone#X, c_comment#X]
+Arguments: false
+
+(43) TakeOrderedAndProjectExecTransformer
+Input [8]: [c_custkey#X, c_name#X, revenue#X, c_acctbal#X, n_name#X, c_address#X, c_phone#X, c_comment#X]
+Arguments: X, [revenue#X DESC NULLS LAST], [c_custkey#X, c_name#X, revenue#X, c_acctbal#X, n_name#X, c_address#X, c_phone#X, c_comment#X], 0
+
+(44) BoltColumnarToRow
+Input [8]: [c_custkey#X, c_name#X, revenue#X, c_acctbal#X, n_name#X, c_address#X, c_phone#X, c_comment#X]
+
+(45) Scan parquet
+Output [7]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(c_custkey), IsNotNull(c_nationkey)]
+ReadSchema: struct<c_custkey:bigint,c_name:string,c_address:string,c_nationkey:bigint,c_phone:string,c_acctbal:decimal(12,2),c_comment:string>
+
+(46) Filter
+Input [7]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X]
+Condition : (isnotnull(c_custkey#X) AND isnotnull(c_nationkey#X))
+
+(47) Scan parquet
+Output [3]: [o_orderkey#X, o_custkey#X, o_orderdate#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(o_orderdate), GreaterThanOrEqual(o_orderdate,1993-10-01), LessThan(o_orderdate,1994-01-01), IsNotNull(o_custkey), IsNotNull(o_orderkey)]
+ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint,o_orderdate:date>
+
+(48) Filter
+Input [3]: [o_orderkey#X, o_custkey#X, o_orderdate#X]
+Condition : ((((isnotnull(o_orderdate#X) AND (o_orderdate#X >= 1993-10-01)) AND (o_orderdate#X < 1994-01-01)) AND isnotnull(o_custkey#X)) AND isnotnull(o_orderkey#X))
+
+(49) Project
+Output [2]: [o_orderkey#X, o_custkey#X]
+Input [3]: [o_orderkey#X, o_custkey#X, o_orderdate#X]
+
+(50) BroadcastExchange
+Input [2]: [o_orderkey#X, o_custkey#X]
+Arguments: HashedRelationBroadcastMode(List(input[1, bigint, true]),false), [plan_id=X]
+
+(51) BroadcastHashJoin
+Left keys [1]: [c_custkey#X]
+Right keys [1]: [o_custkey#X]
+Join type: Inner
+Join condition: None
+
+(52) Project
+Output [8]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, o_orderkey#X]
+Input [9]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, o_orderkey#X, o_custkey#X]
+
+(53) Scan parquet
+Output [4]: [l_orderkey#X, l_extendedprice#X, l_discount#X, l_returnflag#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(l_returnflag), EqualTo(l_returnflag,R), IsNotNull(l_orderkey)]
+ReadSchema: struct<l_orderkey:bigint,l_extendedprice:decimal(12,2),l_discount:decimal(12,2),l_returnflag:string>
+
+(54) Filter
+Input [4]: [l_orderkey#X, l_extendedprice#X, l_discount#X, l_returnflag#X]
+Condition : ((isnotnull(l_returnflag#X) AND (l_returnflag#X = R)) AND isnotnull(l_orderkey#X))
+
+(55) Project
+Output [3]: [l_orderkey#X, l_extendedprice#X, l_discount#X]
+Input [4]: [l_orderkey#X, l_extendedprice#X, l_discount#X, l_returnflag#X]
+
+(56) BroadcastExchange
+Input [3]: [l_orderkey#X, l_extendedprice#X, l_discount#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, true]),false), [plan_id=X]
+
+(57) BroadcastHashJoin
+Left keys [1]: [o_orderkey#X]
+Right keys [1]: [l_orderkey#X]
+Join type: Inner
+Join condition: None
+
+(58) Project
+Output [9]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, l_extendedprice#X, l_discount#X]
+Input [11]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, o_orderkey#X, l_orderkey#X, l_extendedprice#X, l_discount#X]
+
+(59) Scan parquet
+Output [2]: [n_nationkey#X, n_name#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(n_nationkey)]
+ReadSchema: struct<n_nationkey:bigint,n_name:string>
+
+(60) Filter
+Input [2]: [n_nationkey#X, n_name#X]
+Condition : isnotnull(n_nationkey#X)
+
+(61) BroadcastExchange
+Input [2]: [n_nationkey#X, n_name#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(62) BroadcastHashJoin
+Left keys [1]: [c_nationkey#X]
+Right keys [1]: [n_nationkey#X]
+Join type: Inner
+Join condition: None
+
+(63) Project
+Output [9]: [c_custkey#X, c_name#X, c_address#X, c_phone#X, c_acctbal#X, c_comment#X, l_extendedprice#X, l_discount#X, n_name#X]
+Input [11]: [c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, l_extendedprice#X, l_discount#X, n_nationkey#X, n_name#X]
+
+(64) HashAggregate
+Input [9]: [c_custkey#X, c_name#X, c_address#X, c_phone#X, c_acctbal#X, c_comment#X, l_extendedprice#X, l_discount#X, n_name#X]
+Keys [7]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X]
+Functions [1]: [partial_sum((l_extendedprice#X * (1 - l_discount#X)))]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [9]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+
+(65) Exchange
+Input [9]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(66) HashAggregate
+Input [9]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
+Keys [7]: [c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X]
+Functions [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))]
+Aggregate Attributes [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))#X]
+Results [8]: [c_custkey#X, c_name#X, sum((l_extendedprice#X * (1 - l_discount#X)))#X AS revenue#X, c_acctbal#X, n_name#X, c_address#X, c_phone#X, c_comment#X]
+
+(67) TakeOrderedAndProject
+Input [8]: [c_custkey#X, c_name#X, revenue#X, c_acctbal#X, n_name#X, c_address#X, c_phone#X, c_comment#X]
+Arguments: X, [revenue#X DESC NULLS LAST], [c_custkey#X, c_name#X, revenue#X, c_acctbal#X, n_name#X, c_address#X, c_phone#X, c_comment#X]
+
+(68) AdaptiveSparkPlan
+Output [8]: [c_custkey#X, c_name#X, revenue#X, c_acctbal#X, n_name#X, c_address#X, c_phone#X, c_comment#X]
+Arguments: isFinalPlan=true
