@@ -1,0 +1,1610 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "SubstraitToBoltPlan.h"
+#include <bolt/common/compression/Compression.h>
+
+#include "PaimonTableEnhancement.pb.h"
+#include "TypeUtils.h"
+#include "VariantToVectorConverter.h"
+#include "operators/plannodes/RowVectorStream.h"
+#include "bolt/connectors/hive/HiveDataSink.h"
+#include "bolt/exec/TableWriter.h"
+#include "bolt/type/Type.h"
+
+#include "utils/ConfigExtractor.h"
+#include "utils/BoltWriterUtils.h"
+
+#include "config.pb.h"
+#include "config/GlutenConfig.h"
+#include "config/BoltConfig.h"
+#include "bolt/shuffle/sparksql/ShuffleWriterNode.h"
+#include "bolt/shuffle/sparksql/ShuffleReaderNode.h"
+#include "shuffle/ReaderStreamIteratorWrapper.h"
+#include "shuffle/BoltShuffleReaderWrapper.h"
+#include "jni/JniCommon.h"
+#include "shuffle_reader_info.pb.h"
+#include "compute/BoltRuntime.h"
+
+
+#ifdef GLUTEN_ENABLE_GPU
+#include "bolt/experimental/cudf/connectors/hive/CudfHiveDataSink.h"
+#include "bolt/experimental/cudf/connectors/hive/CudfHiveTableHandle.h"
+#include "bolt/experimental/cudf/exec/ToCudf.h"
+#include "bolt/experimental/cudf/exec/BoltCudfInterop.h"
+
+using namespace cudf_bolt::connector::hive;
+#endif
+
+namespace gluten {
+
+namespace {
+
+bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfos) {
+#ifdef GLUTEN_ENABLE_GPU
+  if (splitInfos.empty()) {
+    return false;
+  }
+  return splitInfos[0]->canUseCudfConnector();
+#else
+  return false;
+#endif
+}
+
+core::SortOrder toSortOrder(const ::substrait::SortField& sortField) {
+  switch (sortField.direction()) {
+    case ::substrait::SortField_SortDirection_SORT_DIRECTION_ASC_NULLS_FIRST:
+      return core::kAscNullsFirst;
+    case ::substrait::SortField_SortDirection_SORT_DIRECTION_ASC_NULLS_LAST:
+      return core::kAscNullsLast;
+    case ::substrait::SortField_SortDirection_SORT_DIRECTION_DESC_NULLS_FIRST:
+      return core::kDescNullsFirst;
+    case ::substrait::SortField_SortDirection_SORT_DIRECTION_DESC_NULLS_LAST:
+      return core::kDescNullsLast;
+    default:
+      BOLT_FAIL("Sort direction is not supported.");
+  }
+}
+
+// The index of the output columns of generated
+static std::atomic<int64_t> sequenceId = 0;
+
+/// Holds the information required to create
+/// a project node to simulate the emit
+/// behavior in Substrait.
+struct EmitInfo {
+  std::vector<core::TypedExprPtr> expressions;
+  std::vector<std::string> projectNames;
+};
+
+/// Helper function to extract the attributes required to create a ProjectNode
+/// used for interpreting Substrait Emit.
+EmitInfo getEmitInfo(const ::substrait::RelCommon& relCommon, const core::PlanNodePtr& node) {
+  const auto& emit = relCommon.emit();
+  int emitSize = emit.output_mapping_size();
+  EmitInfo emitInfo;
+  emitInfo.projectNames.reserve(emitSize);
+  emitInfo.expressions.reserve(emitSize);
+  const auto& outputType = node->outputType();
+  for (int i = 0; i < emitSize; i++) {
+    int32_t mapId = emit.output_mapping(i);
+    emitInfo.projectNames[i] = outputType->nameOf(mapId);
+    emitInfo.expressions[i] =
+        std::make_shared<core::FieldAccessTypedExpr>(outputType->childAt(mapId), outputType->nameOf(mapId));
+  }
+  return emitInfo;
+}
+
+/// @brief Get the input type from both sides of join.
+/// @param leftNode the plan node of left side.
+/// @param rightNode the plan node of right side.
+/// @return the input type.
+RowTypePtr getJoinInputType(const core::PlanNodePtr& leftNode, const core::PlanNodePtr& rightNode) {
+  auto outputSize = leftNode->outputType()->size() + rightNode->outputType()->size();
+  std::vector<std::string> outputNames;
+  std::vector<TypePtr> outputTypes;
+  outputNames.reserve(outputSize);
+  outputTypes.reserve(outputSize);
+  for (const auto& node : {leftNode, rightNode}) {
+    const auto& names = node->outputType()->names();
+    outputNames.insert(outputNames.end(), names.begin(), names.end());
+    const auto& types = node->outputType()->children();
+    outputTypes.insert(outputTypes.end(), types.begin(), types.end());
+  }
+  return std::make_shared<const RowType>(std::move(outputNames), std::move(outputTypes));
+}
+
+/// @brief Get the direct output type of join.
+/// @param leftNode the plan node of left side.
+/// @param rightNode the plan node of right side.
+/// @param joinType the join type.
+/// @return the output type.
+RowTypePtr getJoinOutputType(
+    const core::PlanNodePtr& leftNode,
+    const core::PlanNodePtr& rightNode,
+    const core::JoinType& joinType) {
+  // Decide output type.
+  // Output of right semi join cannot include columns from the left side.
+  bool outputMayIncludeLeftColumns = !(core::isRightSemiFilterJoin(joinType) || core::isRightSemiProjectJoin(joinType));
+
+  // Output of left semi and anti joins cannot include columns from the right
+  // side.
+  bool outputMayIncludeRightColumns =
+      !(core::isLeftSemiFilterJoin(joinType) || core::isLeftSemiProjectJoin(joinType) || core::isAntiJoin(joinType));
+
+  if (outputMayIncludeLeftColumns && outputMayIncludeRightColumns) {
+    return getJoinInputType(leftNode, rightNode);
+  }
+
+  if (outputMayIncludeLeftColumns) {
+    if (core::isLeftSemiProjectJoin(joinType)) {
+      std::vector<std::string> outputNames = leftNode->outputType()->names();
+      std::vector<TypePtr> outputTypes = leftNode->outputType()->children();
+      outputNames.emplace_back("exists");
+      outputTypes.emplace_back(BOOLEAN());
+      return std::make_shared<const RowType>(std::move(outputNames), std::move(outputTypes));
+    } else {
+      return leftNode->outputType();
+    }
+  }
+
+  if (outputMayIncludeRightColumns) {
+    if (core::isRightSemiProjectJoin(joinType)) {
+      std::vector<std::string> outputNames = rightNode->outputType()->names();
+      std::vector<TypePtr> outputTypes = rightNode->outputType()->children();
+      outputNames.emplace_back("exists");
+      outputTypes.emplace_back(BOOLEAN());
+      return std::make_shared<const RowType>(std::move(outputNames), std::move(outputTypes));
+    } else {
+      return rightNode->outputType();
+    }
+  }
+  BOLT_FAIL("Output should include left or right columns.");
+}
+
+} // namespace
+
+bool SplitInfo::canUseCudfConnector() {
+  bool isEmpty = partitionColumns.empty();
+
+  if (!isEmpty) {
+    // Check if all maps are empty
+    bool allMapsEmpty = true;
+    for (const auto& m : partitionColumns) {
+      if (!m.empty()) {
+        allMapsEmpty = false;
+        break;
+      }
+    }
+    isEmpty = allMapsEmpty;
+  }
+  return isEmpty && format == dwio::common::FileFormat::PARQUET;
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::processEmit(
+    const ::substrait::RelCommon& relCommon,
+    const core::PlanNodePtr& noEmitNode) {
+  switch (relCommon.emit_kind_case()) {
+    case ::substrait::RelCommon::EmitKindCase::kDirect:
+      return noEmitNode;
+    case ::substrait::RelCommon::EmitKindCase::kEmit: {
+      auto emitInfo = getEmitInfo(relCommon, noEmitNode);
+      return std::make_shared<core::ProjectNode>(
+          nextPlanNodeId(), std::move(emitInfo.projectNames), std::move(emitInfo.expressions), noEmitNode);
+    }
+    default:
+      BOLT_FAIL("unrecognized emit kind");
+  }
+}
+
+core::AggregationNode::Step SubstraitToBoltPlanConverter::toAggregationStep(const ::substrait::AggregateRel& aggRel) {
+  // TODO Simplify Bolt's aggregation steps
+  if (aggRel.has_advanced_extension() &&
+      SubstraitParser::configSetInOptimization(aggRel.advanced_extension(), "allowFlush=")) {
+    return core::AggregationNode::Step::kPartial;
+  }
+  return core::AggregationNode::Step::kSingle;
+}
+
+/// Get aggregation function step for AggregateFunction.
+/// The returned step value will be used to decide which Bolt aggregate function or companion function
+/// is used for the actual data processing.
+core::AggregationNode::Step SubstraitToBoltPlanConverter::toAggregationFunctionStep(
+    const ::substrait::AggregateFunction& sAggFuc) {
+  const auto& phase = sAggFuc.phase();
+  switch (phase) {
+    case ::substrait::AGGREGATION_PHASE_UNSPECIFIED:
+      BOLT_FAIL("Aggregation phase not specified.");
+      break;
+    case ::substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE:
+      return core::AggregationNode::Step::kPartial;
+    case ::substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_INTERMEDIATE:
+      return core::AggregationNode::Step::kIntermediate;
+    case ::substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT:
+      return core::AggregationNode::Step::kSingle;
+    case ::substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT:
+      return core::AggregationNode::Step::kFinal;
+    default:
+      BOLT_FAIL("Unexpected aggregation phase.");
+  }
+}
+
+std::string SubstraitToBoltPlanConverter::toAggregationFunctionName(
+    const std::string& baseName,
+    const core::AggregationNode::Step& step) {
+  std::string suffix;
+  switch (step) {
+    case core::AggregationNode::Step::kPartial:
+      suffix = "_partial";
+      break;
+    case core::AggregationNode::Step::kFinal:
+      suffix = "_merge_extract";
+      break;
+    case core::AggregationNode::Step::kIntermediate:
+      suffix = "_merge";
+      break;
+    case core::AggregationNode::Step::kSingle:
+      suffix = "";
+      break;
+    default:
+      BOLT_FAIL("Unexpected aggregation node step.");
+  }
+  return baseName + suffix;
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::JoinRel& sJoin) {
+  if (!sJoin.has_left()) {
+    BOLT_FAIL("Left Rel is expected in JoinRel.");
+  }
+  if (!sJoin.has_right()) {
+    BOLT_FAIL("Right Rel is expected in JoinRel.");
+  }
+
+  auto leftNode = toBoltPlan(sJoin.left());
+  auto rightNode = toBoltPlan(sJoin.right());
+
+  // Map join type.
+  core::JoinType joinType;
+  bool isNullAwareAntiJoin = false;
+  switch (sJoin.type()) {
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_INNER:
+      joinType = core::JoinType::kInner;
+      break;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_OUTER:
+      joinType = core::JoinType::kFull;
+      break;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT:
+      joinType = core::JoinType::kLeft;
+      break;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_RIGHT:
+      joinType = core::JoinType::kRight;
+      break;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT_SEMI:
+      // Determine the semi join type based on extracted information.
+      if (sJoin.has_advanced_extension() &&
+          SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isExistenceJoin=")) {
+        joinType = core::JoinType::kLeftSemiProject;
+      } else {
+        joinType = core::JoinType::kLeftSemiFilter;
+      }
+      break;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_RIGHT_SEMI:
+      // Determine the semi join type based on extracted information.
+      if (sJoin.has_advanced_extension() &&
+          SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isExistenceJoin=")) {
+        joinType = core::JoinType::kRightSemiProject;
+      } else {
+        joinType = core::JoinType::kRightSemiFilter;
+      }
+      break;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT_ANTI: {
+      // Determine the anti join type based on extracted information.
+      if (sJoin.has_advanced_extension() &&
+          SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isNullAwareAntiJoin=")) {
+        isNullAwareAntiJoin = true;
+      }
+      joinType = core::JoinType::kAnti;
+      break;
+    }
+    default:
+      BOLT_NYI("Unsupported Join type: {}", std::to_string(sJoin.type()));
+  }
+
+  // extract join keys from join expression
+  std::vector<const ::substrait::Expression::FieldReference*> leftExprs, rightExprs;
+  extractJoinKeys(sJoin.expression(), leftExprs, rightExprs);
+  BOLT_CHECK_EQ(leftExprs.size(), rightExprs.size());
+  size_t numKeys = leftExprs.size();
+
+  std::vector<std::shared_ptr<const core::FieldAccessTypedExpr>> leftKeys, rightKeys;
+  leftKeys.reserve(numKeys);
+  rightKeys.reserve(numKeys);
+  auto inputRowType = getJoinInputType(leftNode, rightNode);
+  for (size_t i = 0; i < numKeys; ++i) {
+    leftKeys.emplace_back(exprConverter_->toBoltExpr(*leftExprs[i], inputRowType));
+    rightKeys.emplace_back(exprConverter_->toBoltExpr(*rightExprs[i], inputRowType));
+  }
+
+  core::TypedExprPtr filter;
+  if (sJoin.has_post_join_filter()) {
+    filter = exprConverter_->toBoltExpr(sJoin.post_join_filter(), inputRowType);
+  }
+
+  if (sJoin.has_advanced_extension() &&
+      SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isSMJ=")) {
+    // Create MergeJoinNode node
+    return std::make_shared<core::MergeJoinNode>(
+        nextPlanNodeId(),
+        joinType,
+        leftKeys,
+        rightKeys,
+        filter,
+        leftNode,
+        rightNode,
+        getJoinOutputType(leftNode, rightNode, joinType));
+
+  } else {
+    // Create HashJoinNode node
+    return std::make_shared<core::HashJoinNode>(
+        nextPlanNodeId(),
+        joinType,
+        isNullAwareAntiJoin,
+        leftKeys,
+        rightKeys,
+        filter,
+        leftNode,
+        rightNode,
+        getJoinOutputType(leftNode, rightNode, joinType));
+  }
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::CrossRel& crossRel) {
+  // Support basic cross join without any filters
+  if (!crossRel.has_left()) {
+    BOLT_FAIL("Left Rel is expected in CrossRel.");
+  }
+  if (!crossRel.has_right()) {
+    BOLT_FAIL("Right Rel is expected in CrossRel.");
+  }
+
+  auto leftNode = toBoltPlan(crossRel.left());
+  auto rightNode = toBoltPlan(crossRel.right());
+
+  // Map join type.
+  core::JoinType joinType;
+  switch (crossRel.type()) {
+    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_INNER:
+      joinType = core::JoinType::kInner;
+      break;
+    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_LEFT:
+      joinType = core::JoinType::kLeft;
+      break;
+    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_LEFT_SEMI:
+      if (crossRel.has_advanced_extension() &&
+          SubstraitParser::configSetInOptimization(crossRel.advanced_extension(), "isExistenceJoin=")) {
+        joinType = core::JoinType::kLeftSemiProject;
+      } else {
+        BOLT_NYI("Unsupported Join type: {}", std::to_string(crossRel.type()));
+      }
+      break;
+    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_OUTER:
+      joinType = core::JoinType::kFull;
+      break;
+    default:
+      BOLT_NYI("Unsupported Join type: {}", std::to_string(crossRel.type()));
+  }
+
+  auto inputRowType = getJoinInputType(leftNode, rightNode);
+  core::TypedExprPtr joinConditions;
+  if (crossRel.has_expression()) {
+    joinConditions = exprConverter_->toBoltExpr(crossRel.expression(), inputRowType);
+  }
+
+  return std::make_shared<core::NestedLoopJoinNode>(
+      nextPlanNodeId(),
+      joinType,
+      joinConditions,
+      leftNode,
+      rightNode,
+      getJoinOutputType(leftNode, rightNode, joinType));
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::AggregateRel& aggRel) {
+  auto childNode = convertSingleInput<::substrait::AggregateRel>(aggRel);
+  core::AggregationNode::Step aggStep = toAggregationStep(aggRel);
+  const auto& inputType = childNode->outputType();
+  std::vector<core::FieldAccessTypedExprPtr> boltGroupingExprs;
+
+  // Get the grouping expressions.
+  for (const auto& grouping : aggRel.groupings()) {
+    for (const auto& groupingExpr : grouping.grouping_expressions()) {
+      // Bolt's groupings are limited to be Field.
+      boltGroupingExprs.emplace_back(exprConverter_->toBoltExpr(groupingExpr.selection(), inputType));
+    }
+  }
+
+  // Parse measures and get the aggregate expressions.
+  // Each measure represents one aggregate expression.
+  std::vector<core::AggregationNode::Aggregate> aggregates;
+  aggregates.reserve(aggRel.measures().size());
+
+  for (const auto& measure : aggRel.measures()) {
+    core::FieldAccessTypedExprPtr mask;
+    ::substrait::Expression substraitAggMask = measure.filter();
+    // Get Aggregation Masks.
+    if (measure.has_filter()) {
+      if (substraitAggMask.ByteSizeLong() > 0) {
+        mask = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(
+            exprConverter_->toBoltExpr(substraitAggMask, inputType));
+      }
+    }
+    const auto& aggFunction = measure.measure();
+    auto baseFuncName = SubstraitParser::findBoltFunction(functionMap_, aggFunction.function_reference(), useIcuRegex_);
+    auto funcName = toAggregationFunctionName(baseFuncName, toAggregationFunctionStep(aggFunction));
+    std::vector<core::TypedExprPtr> aggParams;
+    aggParams.reserve(aggFunction.arguments().size());
+    for (const auto& arg : aggFunction.arguments()) {
+      aggParams.emplace_back(exprConverter_->toBoltExpr(arg.value(), inputType));
+    }
+    auto aggBoltType = SubstraitParser::parseType(aggFunction.output_type());
+    auto aggExpr = std::make_shared<const core::CallTypedExpr>(aggBoltType, std::move(aggParams), funcName);
+
+    std::vector<TypePtr> rawInputTypes =
+        SubstraitParser::sigToTypes(SubstraitParser::findFunctionSpec(functionMap_, aggFunction.function_reference()));
+    aggregates.emplace_back(core::AggregationNode::Aggregate{aggExpr, rawInputTypes, mask, {}, {}});
+  }
+
+  bool ignoreNullKeys = false;
+  std::vector<core::FieldAccessTypedExprPtr> preGroupingExprs;
+  if (aggRel.has_advanced_extension() &&
+      SubstraitParser::configSetInOptimization(aggRel.advanced_extension(), "isStreaming=")) {
+    preGroupingExprs.reserve(boltGroupingExprs.size());
+    preGroupingExprs.insert(preGroupingExprs.begin(), boltGroupingExprs.begin(), boltGroupingExprs.end());
+  }
+
+  if (aggRel.has_advanced_extension() &&
+      SubstraitParser::configSetInOptimization(aggRel.advanced_extension(), "ignoreNullKeys=")) {
+    ignoreNullKeys = true;
+  }
+
+  // Get the output names of Aggregation.
+  std::vector<std::string> aggOutNames;
+  aggOutNames.reserve(aggRel.measures().size());
+  for (int idx = boltGroupingExprs.size(); idx < boltGroupingExprs.size() + aggRel.measures().size(); idx++) {
+    aggOutNames.emplace_back(SubstraitParser::makeNodeName(planNodeId_, idx));
+  }
+
+  auto aggregationNode = std::make_shared<core::AggregationNode>(
+      nextPlanNodeId(),
+      aggStep,
+      boltGroupingExprs,
+      preGroupingExprs,
+      aggOutNames,
+      aggregates,
+      ignoreNullKeys,
+      childNode);
+
+  if (aggRel.has_common()) {
+    return processEmit(aggRel.common(), std::move(aggregationNode));
+  } else {
+    return aggregationNode;
+  }
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::ProjectRel& projectRel) {
+  auto childNode = convertSingleInput<::substrait::ProjectRel>(projectRel);
+  // Construct Bolt Expressions.
+  const auto& projectExprs = projectRel.expressions();
+  const auto& inputType = childNode->outputType();
+  const size_t totalSize = projectExprs.size() + inputType->size();
+  std::vector<std::string> projectNames;
+  std::vector<core::TypedExprPtr> expressions;
+  projectNames.reserve(totalSize);
+  expressions.reserve(totalSize);
+
+  // Note that Substrait projection adds the project expressions on top of the
+  // input to the projection node. Thus we need to add the input columns first
+  // and then add the projection expressions.
+
+  // First, adding the project names and expressions from the input to
+  // the project node.
+  for (uint32_t idx = 0; idx < inputType->size(); idx++) {
+    const auto& fieldName = inputType->nameOf(idx);
+    projectNames.emplace_back(fieldName);
+    expressions.emplace_back(std::make_shared<core::FieldAccessTypedExpr>(inputType->childAt(idx), fieldName));
+  }
+
+  // Then, adding project expression related project names and expressions.
+  const size_t startIdx = expressions.size();
+  for (int i = 0; i < projectExprs.size(); i++) {
+    expressions.emplace_back(exprConverter_->toBoltExpr(projectExprs[i], inputType));
+    projectNames.emplace_back(SubstraitParser::makeNodeName(planNodeId_, startIdx + i));
+  }
+
+  if (projectRel.has_common()) {
+    auto relCommon = projectRel.common();
+    const auto& emit = relCommon.emit();
+    int emitSize = emit.output_mapping_size();
+    std::vector<std::string> emitProjectNames;
+    std::vector<core::TypedExprPtr> emitExpressions;
+    emitProjectNames.reserve(emitSize);
+    emitExpressions.reserve(emitSize);
+
+    for (int i = 0; i < emitSize; i++) {
+      int32_t mapId = emit.output_mapping(i);
+      emitProjectNames.emplace_back(std::move(projectNames[mapId]));
+      emitExpressions.emplace_back(std::move(expressions[mapId]));
+    }
+
+    return std::make_shared<core::ProjectNode>(
+        nextPlanNodeId(), std::move(emitProjectNames), std::move(emitExpressions), std::move(childNode));
+  } else {
+    return std::make_shared<core::ProjectNode>(
+        nextPlanNodeId(), std::move(projectNames), std::move(expressions), std::move(childNode));
+  }
+}
+
+std::shared_ptr<connector::hive::LocationHandle> makeLocationHandle(
+    const std::string& targetDirectory,
+    const std::string& fileName,
+    dwio::common::FileFormat fileFormat,
+    common::CompressionKind compression,
+    const bool& isBucketed,
+    const std::optional<std::string>& writeDirectory = std::nullopt,
+    const connector::hive::LocationHandle::TableType& tableType =
+        connector::hive::LocationHandle::TableType::kExisting) {
+  std::string targetFileName = "";
+  if (fileFormat == dwio::common::FileFormat::PARQUET && !isBucketed) {
+    targetFileName = fileName;
+  }
+  return std::make_shared<connector::hive::LocationHandle>(
+      targetDirectory, writeDirectory.value_or(targetDirectory), tableType, targetFileName);
+}
+
+std::shared_ptr<connector::hive::HiveInsertTableHandle> makeHiveInsertTableHandle(
+    const std::vector<std::string>& tableColumnNames,
+    const std::vector<TypePtr>& tableColumnTypes,
+    const std::vector<std::string>& partitionedBy,
+    const std::shared_ptr<connector::hive::HiveBucketProperty>& bucketProperty,
+    const std::shared_ptr<connector::hive::LocationHandle>& locationHandle,
+    const std::shared_ptr<bytedance::bolt::parquet::WriterOptions>& writerOptions,
+    const dwio::common::FileFormat& tableStorageFormat = dwio::common::FileFormat::PARQUET,
+    const std::optional<common::CompressionKind>& compressionKind = {}) {
+  std::vector<std::shared_ptr<const connector::hive::HiveColumnHandle>> columnHandles;
+  columnHandles.reserve(tableColumnNames.size());
+  std::vector<std::string> bucketedBy;
+  std::vector<TypePtr> bucketedTypes;
+  std::vector<std::shared_ptr<const connector::hive::HiveSortingColumn>> sortedBy;
+  if (bucketProperty != nullptr) {
+    bucketedBy = bucketProperty->bucketedBy();
+    bucketedTypes = bucketProperty->bucketedTypes();
+    sortedBy = bucketProperty->sortedBy();
+  }
+  int32_t numPartitionColumns{0};
+  int32_t numSortingColumns{0};
+  int32_t numBucketColumns{0};
+  for (int i = 0; i < tableColumnNames.size(); ++i) {
+    for (int j = 0; j < bucketedBy.size(); ++j) {
+      if (bucketedBy[j] == tableColumnNames[i]) {
+        ++numBucketColumns;
+      }
+    }
+    for (int j = 0; j < sortedBy.size(); ++j) {
+      if (sortedBy[j]->sortColumn() == tableColumnNames[i]) {
+        ++numSortingColumns;
+      }
+    }
+    if (std::find(partitionedBy.cbegin(), partitionedBy.cend(), tableColumnNames.at(i)) != partitionedBy.cend()) {
+      ++numPartitionColumns;
+      columnHandles.emplace_back(std::make_shared<connector::hive::HiveColumnHandle>(
+          tableColumnNames.at(i),
+          connector::hive::HiveColumnHandle::ColumnType::kPartitionKey,
+          tableColumnTypes.at(i),
+          tableColumnTypes.at(i)));
+    } else {
+      columnHandles.emplace_back(std::make_shared<connector::hive::HiveColumnHandle>(
+          tableColumnNames.at(i),
+          connector::hive::HiveColumnHandle::ColumnType::kRegular,
+          tableColumnTypes.at(i),
+          tableColumnTypes.at(i)));
+    }
+  }
+  BOLT_CHECK_EQ(numPartitionColumns, partitionedBy.size());
+  BOLT_CHECK_EQ(numBucketColumns, bucketedBy.size());
+  BOLT_CHECK_EQ(numSortingColumns, sortedBy.size());
+  /// TODO sync bolt and uncomment it
+  return std::make_shared<connector::hive::HiveInsertTableHandle>(
+      columnHandles,
+      locationHandle,
+      tableStorageFormat,
+      bucketProperty,
+      compressionKind,
+      std::unordered_map<std::string, std::string>{}
+      // writerOptions
+    );
+}
+
+#ifdef GLUTEN_ENABLE_GPU
+std::shared_ptr<CudfHiveInsertTableHandle> makeCudfHiveInsertTableHandle(
+    const std::vector<std::string>& tableColumnNames,
+    const std::vector<TypePtr>& tableColumnTypes,
+    std::shared_ptr<cudf_bolt::connector::hive::LocationHandle> locationHandle,
+    const std::optional<common::CompressionKind> compressionKind,
+    const std::unordered_map<std::string, std::string>& serdeParameters,
+    const std::shared_ptr<dwio::common::WriterOptions>& writerOptions) {
+  std::vector<std::shared_ptr<const CudfHiveColumnHandle>> columnHandles;
+
+  for (int i = 0; i < tableColumnNames.size(); ++i) {
+    columnHandles.push_back(std::make_shared<CudfHiveColumnHandle>(
+        tableColumnNames.at(i),
+        tableColumnTypes.at(i),
+        cudf::data_type{cudf_bolt::boltToCudfTypeId(tableColumnTypes.at(i))}));
+  }
+
+  return std::make_shared<CudfHiveInsertTableHandle>(
+      columnHandles, locationHandle, compressionKind, serdeParameters, writerOptions);
+}
+#endif
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::WriteRel& writeRel) {
+  core::PlanNodePtr childNode;
+  if (writeRel.has_input()) {
+    childNode = toBoltPlan(writeRel.input());
+  } else {
+    BOLT_FAIL("Child Rel is expected in WriteRel.");
+  }
+  const auto& inputType = childNode->outputType();
+
+  std::vector<std::string> tableColumnNames;
+  std::vector<std::string> partitionedKey;
+  std::vector<ColumnType> columnTypes;
+  tableColumnNames.reserve(writeRel.table_schema().names_size());
+
+  BOLT_CHECK(writeRel.has_table_schema(), "WriteRel should have the table schema to store the column information");
+  const auto& tableSchema = writeRel.table_schema();
+  SubstraitParser::parseColumnTypes(tableSchema, columnTypes);
+
+  for (const auto& name : tableSchema.names()) {
+    tableColumnNames.emplace_back(name);
+  }
+
+  for (int i = 0; i < tableSchema.names_size(); i++) {
+    if (columnTypes[i] == ColumnType::kPartitionKey) {
+      partitionedKey.emplace_back(tableColumnNames[i]);
+    }
+  }
+
+  std::shared_ptr<connector::hive::HiveBucketProperty> bucketProperty = nullptr;
+  if (writeRel.has_bucket_spec()) {
+    const auto& bucketSpec = writeRel.bucket_spec();
+    const auto& numBuckets = bucketSpec.num_buckets();
+
+    std::vector<std::string> bucketedBy;
+    for (const auto& name : bucketSpec.bucket_column_names()) {
+      bucketedBy.emplace_back(name);
+    }
+
+    std::vector<TypePtr> bucketedTypes;
+    bucketedTypes.reserve(bucketedBy.size());
+    std::vector<TypePtr> tableColumnTypes = inputType->children();
+    for (const auto& name : bucketedBy) {
+      auto it = std::find(tableColumnNames.begin(), tableColumnNames.end(), name);
+      BOLT_CHECK(it != tableColumnNames.end(), "Invalid bucket {}", name);
+      std::size_t index = std::distance(tableColumnNames.begin(), it);
+      bucketedTypes.emplace_back(tableColumnTypes[index]);
+    }
+
+    std::vector<std::shared_ptr<const connector::hive::HiveSortingColumn>> sortedBy;
+    for (const auto& name : bucketSpec.sort_column_names()) {
+      sortedBy.emplace_back(std::make_shared<connector::hive::HiveSortingColumn>(name, core::SortOrder{true, true}));
+    }
+
+    bucketProperty = std::make_shared<connector::hive::HiveBucketProperty>(
+        connector::hive::HiveBucketProperty::Kind::kHiveCompatible, numBuckets, bucketedBy, bucketedTypes, sortedBy);
+  }
+
+  std::string writePath;
+  if (writeFilesTempPath_.has_value()) {
+    writePath = writeFilesTempPath_.value();
+  } else {
+    BOLT_CHECK(validationMode_, "WriteRel should have the write path before initializing the plan.");
+    writePath = "";
+  }
+
+  std::string fileName;
+  if (writeFileName_.has_value()) {
+    fileName = writeFileName_.value();
+  } else {
+    BOLT_CHECK(validationMode_, "WriteRel should have the write path before initializing the plan.");
+    fileName = "";
+  }
+
+  GLUTEN_CHECK(writeRel.named_table().has_advanced_extension(), "Advanced extension not found in WriteRel");
+  const auto& ext = writeRel.named_table().advanced_extension();
+  GLUTEN_CHECK(ext.has_optimization(), "Extension optimization not found in WriteRel");
+  const auto& opt = ext.optimization();
+  gluten::ConfigMap confMap;
+  opt.UnpackTo(&confMap);
+  std::unordered_map<std::string, std::string> writeConfs;
+  for (const auto& item : *(confMap.mutable_configs())) {
+    writeConfs.emplace(item.first, item.second);
+  }
+
+  // Currently only support parquet format.
+  const std::string& formatShortName = writeConfs["format"];
+  GLUTEN_CHECK(formatShortName == "parquet", "Unsupported file write format: " + formatShortName);
+  dwio::common::FileFormat fileFormat = dwio::common::FileFormat::PARQUET;
+
+  const std::shared_ptr<bytedance::bolt::parquet::WriterOptions> writerOptions = makeParquetWriteOption(writeConfs);
+  const auto compressionKind = writerOptions->compression;
+  std::shared_ptr<core::InsertTableHandle> tableHandle = std::make_shared<core::InsertTableHandle>(
+      kHiveConnectorId,
+      makeHiveInsertTableHandle(
+          tableColumnNames, /*inputType->names() clolumn name is different*/
+          inputType->children(),
+          partitionedKey,
+          bucketProperty,
+          makeLocationHandle(writePath, fileName, fileFormat, compressionKind, bucketProperty != nullptr),
+          writerOptions,
+          fileFormat,
+          compressionKind));
+  return std::make_shared<core::TableWriteNode>(
+      nextPlanNodeId(),
+      inputType,
+      tableColumnNames,
+      nullptr /*aggregationNode*/,
+      tableHandle,
+      (!partitionedKey.empty()),
+      exec::TableWriteTraits::outputType(nullptr),
+      connector::CommitStrategy::kNoCommit,
+      childNode);
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::ExpandRel& expandRel) {
+  core::PlanNodePtr childNode;
+  if (expandRel.has_input()) {
+    childNode = toBoltPlan(expandRel.input());
+  } else {
+    BOLT_FAIL("Child Rel is expected in ExpandRel.");
+  }
+
+  const auto& inputType = childNode->outputType();
+
+  std::vector<std::vector<core::TypedExprPtr>> projectSetExprs;
+  projectSetExprs.reserve(expandRel.fields_size());
+
+  for (const auto& projections : expandRel.fields()) {
+    std::vector<core::TypedExprPtr> projectExprs;
+    projectExprs.reserve(projections.switching_field().duplicates_size());
+
+    for (const auto& projectExpr : projections.switching_field().duplicates()) {
+      if (projectExpr.has_selection()) {
+        auto expression = exprConverter_->toBoltExpr(projectExpr.selection(), inputType);
+        projectExprs.emplace_back(expression);
+      } else if (projectExpr.has_literal()) {
+        auto expression = exprConverter_->toBoltExpr(projectExpr.literal());
+        projectExprs.emplace_back(expression);
+      } else {
+        BOLT_FAIL("The project in Expand Operator only support field or literal.");
+      }
+    }
+    projectSetExprs.emplace_back(projectExprs);
+  }
+
+  auto projectSize = expandRel.fields()[0].switching_field().duplicates_size();
+  std::vector<std::string> names;
+  names.reserve(projectSize);
+  for (int idx = 0; idx < projectSize; idx++) {
+    names.push_back(SubstraitParser::makeNodeName(planNodeId_, idx));
+  }
+
+  return std::make_shared<core::ExpandNode>(nextPlanNodeId(), projectSetExprs, std::move(names), childNode);
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::GenerateRel& sGenerate) {
+  const static std::set<std::string> supportedFunctions{"explode", "json_tuple", "posexplode"};
+  auto childNode = convertSingleInput<::substrait::GenerateRel>(sGenerate);
+  const auto& inputType = childNode->outputType();
+
+  const auto& generator = sGenerate.generator();
+
+  std::vector<core::FieldAccessTypedExprPtr> replicateExpr;
+  core::CallTypedExprPtr generatorFunc;
+
+  if (generator.rex_type_case() == ::substrait::Expression::RexTypeCase::kScalarFunction) {
+    generatorFunc =
+        std::dynamic_pointer_cast<const core::CallTypedExpr>(exprConverter_->toBoltExpr(generator, inputType));
+    const auto& funcName = generatorFunc->name();
+    auto isFunctionSupported = [&funcName]() { return supportedFunctions.find(funcName) != supportedFunctions.end(); };
+
+    if (isFunctionSupported()) {
+      if (sGenerate.child_output_size()) {
+        for (const auto& child : sGenerate.child_output()) {
+          if (child.has_selection()) {
+            replicateExpr.emplace_back(exprConverter_->toBoltExpr(child.selection(), inputType));
+          } else {
+            BOLT_FAIL("Function {} replication requires selection", funcName);
+          }
+        }
+      }
+    } else {
+      BOLT_FAIL("GenerateNode do not support function {}", funcName);
+    }
+  } else {
+    BOLT_FAIL("GenerateNode do not support {}", generator.DebugString());
+  }
+
+  std::optional<std::string> ordinalColumn;
+  std::vector<std::string> generateExprNames;
+  bool isOuter = false;
+
+  const auto& funcName = generatorFunc->name();
+  auto isExplode = [&funcName]() { return funcName == "explode" || funcName == "posexplode"; };
+  auto withPos = [&funcName]() { return funcName == "posexplode"; };
+  auto isJsonTuple = [&funcName]() { return funcName == "json_tuple"; };
+  if (isExplode()) {
+    isOuter = sGenerate.outer();
+
+    ordinalColumn = withPos() ? make_optional(fmt::format("{}_pos_{}", funcName, sequenceId++)) : std::nullopt;
+    const auto& type = generatorFunc->inputs()[0]->type();
+    if (type->isArray()) {
+      generateExprNames.push_back(fmt::format("{}_e_{}", funcName, sequenceId++));
+    } else if (type->isMap()) {
+      int64_t curSequenceId = sequenceId++;
+      generateExprNames.push_back(fmt::format("{}_k_{}", funcName, curSequenceId));
+      generateExprNames.push_back(fmt::format("{}_v_{}", funcName, curSequenceId));
+    } else {
+      BOLT_FAIL("Explode Function input type not supported : {}", type->toString());
+    }
+  } else if (isJsonTuple()) {
+    // inputs()[0] is json str
+    for (auto i = 1; i < generatorFunc->inputs().size(); ++i) {
+      generateExprNames.push_back(fmt::format("{}_{}", funcName, sequenceId++));
+    }
+  }
+
+  return std::make_shared<core::GeneratorNode>(
+      nextPlanNodeId(), replicateExpr, generatorFunc, generateExprNames, ordinalColumn, childNode, isOuter);
+}
+
+const core::WindowNode::Frame SubstraitToBoltPlanConverter::createWindowFrame(
+    const ::substrait::Expression_WindowFunction_Bound& lower_bound,
+    const ::substrait::Expression_WindowFunction_Bound& upper_bound,
+    const ::substrait::WindowType& type,
+    const RowTypePtr& inputType) {
+  core::WindowNode::Frame frame;
+  switch (type) {
+    case ::substrait::WindowType::ROWS:
+      frame.type = core::WindowNode::WindowType::kRows;
+      break;
+    case ::substrait::WindowType::RANGE:
+      frame.type = core::WindowNode::WindowType::kRange;
+      break;
+    default:
+      BOLT_FAIL("the window type only support ROWS and RANGE, and the input type is ", std::to_string(type));
+  }
+
+  auto specifiedBound =
+      [&](bool hasOffset, int64_t offset, const ::substrait::Expression& columnRef) -> core::TypedExprPtr {
+    if (hasOffset) {
+      BOLT_CHECK(
+          frame.type != core::WindowNode::WindowType::kRange,
+          "for RANGE frame offset, we should pre-calculate the range frame boundary and pass the column reference, but got a constant offset.");
+      return std::make_shared<core::ConstantTypedExpr>(BIGINT(), variant(offset));
+    } else {
+      BOLT_CHECK(
+          frame.type != core::WindowNode::WindowType::kRows, "for ROW frame offset, we should pass a constant offset.");
+      return exprConverter_->toBoltExpr(columnRef, inputType);
+    }
+  };
+
+  auto boundTypeConversion = [&](::substrait::Expression_WindowFunction_Bound boundType)
+      -> std::tuple<core::WindowNode::BoundType, core::TypedExprPtr> {
+    if (boundType.has_current_row()) {
+      return std::make_tuple(core::WindowNode::BoundType::kCurrentRow, nullptr);
+    } else if (boundType.has_unbounded_following()) {
+      return std::make_tuple(core::WindowNode::BoundType::kUnboundedFollowing, nullptr);
+    } else if (boundType.has_unbounded_preceding()) {
+      return std::make_tuple(core::WindowNode::BoundType::kUnboundedPreceding, nullptr);
+    } else if (boundType.has_following()) {
+      auto following = boundType.following();
+      return std::make_tuple(
+          core::WindowNode::BoundType::kFollowing,
+          specifiedBound(following.has_offset(), following.offset(), following.ref()));
+    } else if (boundType.has_preceding()) {
+      auto preceding = boundType.preceding();
+      return std::make_tuple(
+          core::WindowNode::BoundType::kPreceding,
+          specifiedBound(preceding.has_offset(), preceding.offset(), preceding.ref()));
+    } else {
+      BOLT_FAIL("The BoundType is not supported.");
+    }
+  };
+  std::tie(frame.startType, frame.startValue) = boundTypeConversion(lower_bound);
+  std::tie(frame.endType, frame.endValue) = boundTypeConversion(upper_bound);
+  return frame;
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::WindowRel& windowRel) {
+  core::PlanNodePtr childNode;
+  if (windowRel.has_input()) {
+    childNode = toBoltPlan(windowRel.input());
+  } else {
+    BOLT_FAIL("Child Rel is expected in WindowRel.");
+  }
+
+  const auto& inputType = childNode->outputType();
+
+  // Parse measures and get the window expressions.
+  // Each measure represents one window expression.
+  std::vector<core::WindowNode::Function> windowNodeFunctions;
+  std::vector<std::string> windowColumnNames;
+
+  windowNodeFunctions.reserve(windowRel.measures().size());
+  for (const auto& smea : windowRel.measures()) {
+    const auto& windowFunction = smea.measure();
+    std::string funcName = SubstraitParser::findBoltFunction(functionMap_, windowFunction.function_reference(), useIcuRegex_);
+    std::vector<core::TypedExprPtr> windowParams;
+    auto& argumentList = windowFunction.arguments();
+    windowParams.reserve(argumentList.size());
+    const auto& options = windowFunction.options();
+    // For functions in kOffsetWindowFunctions (see Spark OffsetWindowFunctions),
+    // we expect the first option name is `ignoreNulls` if ignoreNulls is true.
+    bool ignoreNulls = false;
+    if (!options.empty() && options.at(0).name() == "ignoreNulls") {
+      ignoreNulls = true;
+    }
+    for (const auto& arg : argumentList) {
+      windowParams.emplace_back(exprConverter_->toBoltExpr(arg.value(), inputType));
+    }
+    auto windowBoltType = SubstraitParser::parseType(windowFunction.output_type());
+    auto windowCall = std::make_shared<const core::CallTypedExpr>(windowBoltType, std::move(windowParams), funcName);
+    auto upperBound = windowFunction.upper_bound();
+    auto lowerBound = windowFunction.lower_bound();
+    auto type = windowFunction.window_type();
+
+    windowColumnNames.push_back(windowFunction.column_name());
+
+    windowNodeFunctions.push_back(
+        {std::move(windowCall), createWindowFrame(lowerBound, upperBound, type, inputType), ignoreNulls});
+  }
+
+  // Construct partitionKeys
+  std::vector<core::FieldAccessTypedExprPtr> partitionKeys;
+  std::unordered_set<std::string> keyNames;
+  const auto& partitions = windowRel.partition_expressions();
+  partitionKeys.reserve(partitions.size());
+  for (const auto& partition : partitions) {
+    auto expression = exprConverter_->toBoltExpr(partition, inputType);
+    core::FieldAccessTypedExprPtr boltPartitionKey =
+        std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(expression);
+    BOLT_USER_CHECK_NOT_NULL(boltPartitionKey, "Window Operator only supports field partition key.");
+    // Constructs unique parition keys.
+    if (keyNames.insert(boltPartitionKey->name()).second) {
+      partitionKeys.emplace_back(boltPartitionKey);
+    }
+  }
+  std::vector<core::FieldAccessTypedExprPtr> sortingKeys;
+  std::vector<core::SortOrder> sortingOrders;
+  const auto& [rawSortingKeys, rawSortingOrders] = processSortField(windowRel.sorts(), inputType);
+  for (vector_size_t i = 0; i < rawSortingKeys.size(); ++i) {
+    // Constructs unique sort keys and excludes keys overlapped with partition keys.
+    if (keyNames.insert(rawSortingKeys[i]->name()).second) {
+      sortingKeys.emplace_back(rawSortingKeys[i]);
+      sortingOrders.emplace_back(rawSortingOrders[i]);
+    }
+  }
+
+  return std::make_shared<core::WindowNode>(
+      nextPlanNodeId(),
+      partitionKeys,
+      sortingKeys,
+      sortingOrders,
+      windowColumnNames,
+      windowNodeFunctions,
+      true /*inputsSorted*/,
+      0,
+      childNode);
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(
+    const ::substrait::WindowGroupLimitRel& windowGroupLimitRel) {
+  core::PlanNodePtr childNode;
+  if (windowGroupLimitRel.has_input()) {
+    childNode = toBoltPlan(windowGroupLimitRel.input());
+  } else {
+    BOLT_FAIL("Child Rel is expected in WindowGroupLimitRel.");
+  }
+  const auto& inputType = childNode->outputType();
+  // Construct partitionKeys
+  std::vector<core::FieldAccessTypedExprPtr> partitionKeys;
+  std::unordered_set<std::string> keyNames;
+  const auto& partitions = windowGroupLimitRel.partition_expressions();
+  partitionKeys.reserve(partitions.size());
+  for (const auto& partition : partitions) {
+    auto expression = exprConverter_->toBoltExpr(partition, inputType);
+    core::FieldAccessTypedExprPtr boltPartitionKey =
+        std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(expression);
+    BOLT_USER_CHECK_NOT_NULL(boltPartitionKey, "Window Group Limit Operator only supports field partition key.");
+    // Constructs unique partition keys.
+    if (keyNames.insert(boltPartitionKey->name()).second) {
+      partitionKeys.emplace_back(boltPartitionKey);
+    }
+  }
+  std::vector<core::FieldAccessTypedExprPtr> sortingKeys;
+  std::vector<core::SortOrder> sortingOrders;
+  const auto& [rawSortingKeys, rawSortingOrders] = processSortField(windowGroupLimitRel.sorts(), inputType);
+  for (vector_size_t i = 0; i < rawSortingKeys.size(); ++i) {
+    // Constructs unique sort keys and excludes keys overlapped with partition keys.
+    if (keyNames.insert(rawSortingKeys[i]->name()).second) {
+      sortingKeys.emplace_back(rawSortingKeys[i]);
+      sortingOrders.emplace_back(rawSortingOrders[i]);
+    }
+  }
+  const std::optional<std::string> rowNumberColumnName = std::nullopt;
+
+  if (sortingKeys.empty()) {
+    // Handle if all sorting keys are also used as partition keys.
+
+    return std::make_shared<core::RowNumberNode>(
+        nextPlanNodeId(),
+        partitionKeys,
+        rowNumberColumnName,
+        static_cast<int32_t>(windowGroupLimitRel.limit()),
+        childNode);
+  }
+
+  return std::make_shared<core::TopNRowNumberNode>(
+      nextPlanNodeId(),
+      // core::TopNRowNumberNode::RankFunction::kRowNumber,
+      partitionKeys,
+      sortingKeys,
+      sortingOrders,
+      rowNumberColumnName,
+      static_cast<int32_t>(windowGroupLimitRel.limit()),
+      childNode);
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::SetRel& setRel) {
+  switch (setRel.op()) {
+    case ::substrait::SetRel_SetOp::SetRel_SetOp_SET_OP_UNION_ALL: {
+      std::vector<core::PlanNodePtr> children;
+      for (int32_t i = 0; i < setRel.inputs_size(); ++i) {
+        const auto& input = setRel.inputs(i);
+        children.push_back(toBoltPlan(input));
+      }
+      GLUTEN_CHECK(!children.empty(), "At least one source is required for Bolt LocalPartition");
+
+      // Bolt doesn't allow different field names in schemas of LocalPartitionNode's children.
+      // Add project nodes to unify the schemas.
+      const RowTypePtr outRowType = asRowType(children[0]->outputType());
+      std::vector<std::string> outNames;
+      for (int32_t colIdx = 0; colIdx < outRowType->size(); ++colIdx) {
+        const auto name = outRowType->childAt(colIdx)->name();
+        outNames.push_back(name);
+      }
+
+      std::vector<core::PlanNodePtr> projectedChildren;
+      for (int32_t i = 0; i < children.size(); ++i) {
+        const auto& child = children[i];
+        const RowTypePtr& childRowType = child->outputType();
+        std::vector<core::TypedExprPtr> expressions;
+        for (int32_t colIdx = 0; colIdx < outNames.size(); ++colIdx) {
+          const auto fa =
+              std::make_shared<core::FieldAccessTypedExpr>(childRowType->childAt(colIdx), childRowType->nameOf(colIdx));
+          const auto cast = std::make_shared<core::CastTypedExpr>(outRowType->childAt(colIdx), fa, false);
+          expressions.push_back(cast);
+        }
+        auto project = std::make_shared<core::ProjectNode>(nextPlanNodeId(), outNames, expressions, child);
+        projectedChildren.push_back(project);
+      }
+      return std::make_shared<core::LocalPartitionNode>(
+          nextPlanNodeId(),
+          0 /*numPartitions*/,
+          core::LocalPartitionNode::Type::kGather,
+          std::make_shared<core::GatherPartitionFunctionSpec>(),
+          projectedChildren);
+    }
+    default:
+      throw GlutenException("Unsupported SetRel op: " + std::to_string(setRel.op()));
+  }
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::SortRel& sortRel) {
+  auto childNode = convertSingleInput<::substrait::SortRel>(sortRel);
+  auto [sortingKeys, sortingOrders] = processSortField(sortRel.sorts(), childNode->outputType());
+  return std::make_shared<core::OrderByNode>(
+      nextPlanNodeId(), sortingKeys, sortingOrders, false /*isPartial*/, childNode);
+}
+
+std::pair<std::vector<core::FieldAccessTypedExprPtr>, std::vector<core::SortOrder>>
+SubstraitToBoltPlanConverter::processSortField(
+    const ::google::protobuf::RepeatedPtrField<::substrait::SortField>& sortFields,
+    const RowTypePtr& inputType) {
+  std::vector<core::FieldAccessTypedExprPtr> sortingKeys;
+  std::vector<core::SortOrder> sortingOrders;
+  std::unordered_set<std::string> uniqueKeys;
+  for (const auto& sort : sortFields) {
+    GLUTEN_CHECK(sort.has_expr(), "Sort field must have expr");
+    auto expression = exprConverter_->toBoltExpr(sort.expr(), inputType);
+    auto fieldExpr = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(expression);
+    BOLT_USER_CHECK_NOT_NULL(fieldExpr, "Sort Operator only supports field sorting key");
+    if (uniqueKeys.insert(fieldExpr->name()).second) {
+      sortingKeys.emplace_back(fieldExpr);
+      sortingOrders.emplace_back(toSortOrder(sort));
+    }
+  }
+  return {sortingKeys, sortingOrders};
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::FilterRel& filterRel) {
+  auto childNode = convertSingleInput<::substrait::FilterRel>(filterRel);
+  auto filterNode = std::make_shared<core::FilterNode>(
+      nextPlanNodeId(), exprConverter_->toBoltExpr(filterRel.condition(), childNode->outputType()), childNode);
+
+  if (filterRel.has_common()) {
+    return processEmit(filterRel.common(), std::move(filterNode));
+  } else {
+    return filterNode;
+  }
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::FetchRel& fetchRel) {
+  auto childNode = convertSingleInput<::substrait::FetchRel>(fetchRel);
+  return std::make_shared<core::LimitNode>(
+      nextPlanNodeId(),
+      static_cast<int32_t>(fetchRel.offset()),
+      static_cast<int32_t>(fetchRel.count()),
+      false /*isPartial*/,
+      childNode);
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::TopNRel& topNRel) {
+  auto childNode = convertSingleInput<::substrait::TopNRel>(topNRel);
+  auto [sortingKeys, sortingOrders] = processSortField(topNRel.sorts(), childNode->outputType());
+  return std::make_shared<core::TopNNode>(
+      nextPlanNodeId(), sortingKeys, sortingOrders, static_cast<int32_t>(topNRel.n()), false /*isPartial*/, childNode);
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::constructValueStreamNode(
+    const ::substrait::ReadRel& readRel,
+    int32_t streamIdx) {
+  // Get the input schema of this iterator.
+  uint64_t colNum = 0;
+  std::vector<TypePtr> boltTypeList;
+  if (readRel.has_base_schema()) {
+    const auto& baseSchema = readRel.base_schema();
+    // Input names is not used. Instead, new input/output names will be created
+    // because the ValueStreamNode in Bolt does not support name change.
+    colNum = baseSchema.names().size();
+    boltTypeList = SubstraitParser::parseNamedStruct(baseSchema);
+  }
+
+  std::vector<std::string> outNames;
+  outNames.reserve(colNum);
+  for (int idx = 0; idx < colNum; idx++) {
+    auto colName = SubstraitParser::makeNodeName(planNodeId_, idx);
+    outNames.emplace_back(colName);
+  }
+
+  auto outputType = ROW(std::move(outNames), std::move(boltTypeList));
+  int64_t rowCount = 0;
+  if (readRel.has_advanced_extension() &&
+      SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowSize=") >= 0) {
+    rowCount = SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowSize=");
+  }
+
+  std::shared_ptr<ResultIterator> iterator;
+  if (!validationMode_) {
+    BOLT_CHECK_LT(streamIdx, inputIters_.size(), "Could not find stream index {} in input iterator list.", streamIdx);
+    iterator = inputIters_[streamIdx];
+  }
+
+  auto factory = [&](std::string nodeId,
+                     memory::MemoryPool* pool,
+                     int32_t streamIdx,
+                     RowTypePtr outputType,
+                     int64_t rowCount) -> std::shared_ptr<bytedance::bolt::core::PlanNode> {
+    auto shuffleReaderIterator =
+        iterator ? dynamic_cast<gluten::ShuffleReaderWrapperedIterator*>(iterator->getInputIter()) : nullptr;
+    if (shuffleReaderIterator) {
+      const auto rawReaderInfo = shuffleReaderIterator->getRawReaderInfo();
+      ShuffleReaderInfo readerInfo;
+      GLUTEN_CHECK(readerInfo.ParseFromString(rawReaderInfo), "Failed to parse ShuffleReaderInfo from proto bytes.");
+      shuffleReaderIterator->markAsOffloaded();
+      LOG(INFO) << "Node " << nodeId << " is offloaded as SparkShuffleReaderNode.";
+      return std::make_shared<bytedance::bolt::shuffle::sparksql::SparkShuffleReaderNode>(
+          nodeId,
+          outputType,
+          gluten::getOptionsFromInfo(readerInfo),
+          std::make_shared<gluten::ReaderStreamIteratorWrapper>(iterator, shuffleReaderIterator));
+    } else {
+      auto valueStreamNode = std::make_shared<ValueStreamNode>(nodeId, outputType, std::move(iterator));
+      if (rowCount >= 0) {
+        valueStreamNode->setRowCount(rowCount);
+      }
+      return valueStreamNode;
+    }
+  };
+  auto node = factory(nextPlanNodeId(), pool_, streamIdx, outputType, rowCount);
+
+  auto splitInfo = std::make_shared<SplitInfo>();
+  splitInfo->leafType = SplitInfo::LeafType::SPLIT_AWARE_STREAM;
+  splitInfoMap_[node->id()] = splitInfo;
+  return node;
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::constructValuesNode(
+    const ::substrait::ReadRel& readRel,
+    int32_t streamIdx) {
+  std::vector<RowVectorPtr> values;
+  BOLT_CHECK_LT(streamIdx, inputIters_.size(), "Could not find stream index {} in input iterator list.", streamIdx);
+  const auto iterator = inputIters_[streamIdx];
+  while (iterator->hasNext()) {
+    auto cb = BoltColumnarBatch::from(defaultLeafBoltMemoryPool().get(), iterator->next());
+    values.emplace_back(cb->getRowVector());
+  }
+  auto node = std::make_shared<bytedance::bolt::core::ValuesNode>(nextPlanNodeId(), std::move(values));
+
+  auto splitInfo = std::make_shared<SplitInfo>();
+  splitInfo->leafType = SplitInfo::LeafType::TRIVIAL_LEAF;
+  splitInfoMap_[node->id()] = splitInfo;
+  return node;
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::ReadRel& readRel) {
+  // emit is not allowed in TableScanNode and ValuesNode related
+  // outputs
+  if (readRel.has_common()) {
+    BOLT_USER_CHECK(
+        !readRel.common().has_emit(), "Emit not supported for ValuesNode and TableScanNode related Substrait plans.");
+  }
+
+  // Check if the ReadRel specifies an input of stream. If yes, build ValueStreamNode as the data source.
+  auto streamIdx = getStreamIndex(readRel);
+  if (streamIdx >= 0) {
+    // Only used in benchmark enable query trace, replace ValueStreamNode to ValuesNode to support serialization.
+    if (LIKELY(!boltCfg_->get<bool>(kQueryTraceEnabled, false))) {
+      return constructValueStreamNode(readRel, streamIdx);
+    } else {
+      return constructValuesNode(readRel, streamIdx);
+    }
+  }
+
+  // Otherwise, will create TableScan node for ReadRel.
+  auto splitInfo = std::make_shared<SplitInfo>();
+  splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
+  if (!validationMode_ && !readRel.has_virtual_table()) {
+    BOLT_CHECK_LT(splitInfoIdx_, splitInfos_.size(), "Plan must have readRel and related split info.");
+    splitInfo = splitInfos_[splitInfoIdx_++];
+  }
+
+  // Get output names and types.
+  std::vector<std::string> colNameList;
+  std::vector<TypePtr> boltTypeList;
+  std::vector<ColumnType> columnTypes;
+  // Convert field names into lower case when not case-sensitive.
+  bool asLowerCase = !boltCfg_->get<bool>(kCaseSensitive, false);
+  if (readRel.has_base_schema()) {
+    const auto& baseSchema = readRel.base_schema();
+    colNameList.reserve(baseSchema.names().size());
+    for (const auto& name : baseSchema.names()) {
+      std::string fieldName = name;
+      if (asLowerCase) {
+        folly::toLowerAscii(fieldName);
+      }
+      colNameList.emplace_back(fieldName);
+    }
+    boltTypeList = SubstraitParser::parseNamedStruct(baseSchema, asLowerCase);
+    SubstraitParser::parseColumnTypes(baseSchema, columnTypes);
+  }
+
+  std::unordered_map<std::string, std::string> tableParameters;
+  if (readRel.has_advanced_extension()) {
+    const auto& ext = readRel.advanced_extension();
+    if (ext.has_enhancement()) {
+      gluten::PaimonTableEnhancement paimonParameters;
+      if (ext.enhancement().UnpackTo(&paimonParameters)) {
+        for (const auto& item : *(paimonParameters.mutable_table_properties())) {
+          tableParameters.emplace(item.first, item.second);
+        }
+      }
+    }
+    std::ostringstream paramstream;
+    for (const auto& item : tableParameters) {
+      paramstream << "[" << item.first << "=" << item.second << "];";
+    }
+    LOG(INFO) << "Adding table parameters: " << paramstream.str();
+  }
+
+
+  // Bolt requires Filter Pushdown must being enabled.
+  bool filterPushdownEnabled = true;
+  auto names = colNameList;
+  auto types = boltTypeList;
+
+  // The columns we project from the file.
+  auto baseSchema = ROW(std::move(names), std::move(types));
+  // The columns present in the table, if not available default to the baseSchema.
+  auto tableSchema = splitInfo->tableSchema ? splitInfo->tableSchema : baseSchema;
+
+  std::shared_ptr<connector::ConnectorTableHandle> tableHandle;
+  auto remainingFilter = readRel.has_filter() ? exprConverter_->toBoltExpr(readRel.filter(), baseSchema) : nullptr;
+  auto connectorId = kHiveConnectorId;
+  if (useCudfTableHandle(splitInfos_) && boltCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
+      boltCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
+#ifdef GLUTEN_ENABLE_GPU
+    connectorId = kCudfHiveConnectorId;
+#endif
+  }
+  bytedance::bolt::connector::hive::SubfieldFilters subfieldFilters;
+  tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
+      connectorId, "hive_table", filterPushdownEnabled, std::move(subfieldFilters), remainingFilter, tableSchema, tableParameters);
+
+  // Get assignments and out names.
+  std::vector<std::string> outNames;
+  outNames.reserve(colNameList.size());
+
+  using ColumnHandleMap = std::unordered_map<std::string, std::shared_ptr<connector::ColumnHandle>>;
+  ColumnHandleMap assignments;
+  for (int idx = 0; idx < colNameList.size(); idx++) {
+    auto outName = SubstraitParser::makeNodeName(planNodeId_, idx);
+    auto columnType = columnTypes[idx];
+    assignments[outName] = std::make_shared<connector::hive::HiveColumnHandle>(
+        colNameList[idx], columnType, boltTypeList[idx], boltTypeList[idx]);
+    outNames.emplace_back(outName);
+  }
+  auto outputType = ROW(std::move(outNames), std::move(boltTypeList));
+
+  if (readRel.has_virtual_table()) {
+    return toBoltPlan(readRel, outputType);
+  } else {
+    auto tableScanNode =
+        std::make_shared<core::TableScanNode>(nextPlanNodeId(), std::move(outputType), tableHandle, assignments);
+    if (readRel.has_advanced_extension() &&
+        SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowSize=") >= 0) {
+      LOG(INFO) << "table scan node rowcount: "
+                << SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowSize=")
+                << std::endl;
+      tableScanNode->setRowCount(
+          SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowSize="));
+    }
+    // Set split info map.
+    splitInfoMap_[tableScanNode->id()] = splitInfo;
+    return tableScanNode;
+  }
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(
+    const ::substrait::ReadRel& readRel,
+    const RowTypePtr& type) {
+  ::substrait::ReadRel_VirtualTable readVirtualTable = readRel.virtual_table();
+  int64_t numVectors = readVirtualTable.values_size();
+  int64_t numColumns = type->size();
+  int64_t valueFieldNums = readVirtualTable.values(numVectors - 1).fields_size();
+  std::vector<RowVectorPtr> vectors;
+  vectors.reserve(numVectors);
+
+  int64_t batchSize;
+  // For the empty vectors, eg,vectors = makeRowVector(ROW({}, {}), 1).
+  if (numColumns == 0) {
+    batchSize = 1;
+  } else {
+    batchSize = valueFieldNums / numColumns;
+  }
+
+  for (int64_t index = 0; index < numVectors; ++index) {
+    std::vector<VectorPtr> children;
+    ::substrait::Expression_Literal_Struct rowValue = readRel.virtual_table().values(index);
+    auto fieldSize = rowValue.fields_size();
+    BOLT_CHECK_EQ(fieldSize, batchSize * numColumns);
+
+    for (int64_t col = 0; col < numColumns; ++col) {
+      const TypePtr& outputChildType = type->childAt(col);
+      std::vector<variant> batchChild;
+      batchChild.reserve(batchSize);
+      for (int64_t batchId = 0; batchId < batchSize; batchId++) {
+        // each value in the batch
+        auto fieldIdx = col * batchSize + batchId;
+        ::substrait::Expression_Literal field = rowValue.fields(fieldIdx);
+
+        auto expr = exprConverter_->toBoltExpr(field);
+        if (auto constantExpr = std::dynamic_pointer_cast<const core::ConstantTypedExpr>(expr)) {
+          if (!constantExpr->hasValueVector()) {
+            batchChild.emplace_back(constantExpr->value());
+          } else {
+            BOLT_UNSUPPORTED("Values node with complex type values is not supported yet");
+          }
+        } else {
+          BOLT_FAIL("Expected constant expression");
+        }
+      }
+      children.emplace_back(setVectorFromVariants(outputChildType, batchChild, pool_));
+    }
+
+    vectors.emplace_back(std::make_shared<RowVector>(pool_, type, nullptr, batchSize, children));
+  }
+
+  auto valuesNode = std::make_shared<core::ValuesNode>(nextPlanNodeId(), std::move(vectors));
+  auto splitInfo = std::make_shared<SplitInfo>();
+  splitInfo->leafType = SplitInfo::LeafType::TRIVIAL_LEAF;
+  splitInfoMap_[valuesNode->id()] = splitInfo;
+  return valuesNode;
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Rel& rel) {
+  if (rel.has_aggregate()) {
+    return toBoltPlan(rel.aggregate());
+  } else if (rel.has_project()) {
+    return toBoltPlan(rel.project());
+  } else if (rel.has_filter()) {
+    return toBoltPlan(rel.filter());
+  } else if (rel.has_join()) {
+    return toBoltPlan(rel.join());
+  } else if (rel.has_cross()) {
+    return toBoltPlan(rel.cross());
+  } else if (rel.has_read()) {
+    return toBoltPlan(rel.read());
+  } else if (rel.has_sort()) {
+    return toBoltPlan(rel.sort());
+  } else if (rel.has_expand()) {
+    return toBoltPlan(rel.expand());
+  } else if (rel.has_generate()) {
+    return toBoltPlan(rel.generate());
+  } else if (rel.has_fetch()) {
+    return toBoltPlan(rel.fetch());
+  } else if (rel.has_top_n()) {
+    return toBoltPlan(rel.top_n());
+  } else if (rel.has_window()) {
+    return toBoltPlan(rel.window());
+  } else if (rel.has_write()) {
+    return toBoltPlan(rel.write());
+  } else if (rel.has_windowgrouplimit()) {
+    return toBoltPlan(rel.windowgrouplimit());
+  } else if (rel.has_set()) {
+    return toBoltPlan(rel.set());
+  } else {
+    BOLT_NYI("Substrait conversion not supported for Rel.");
+  }
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::RelRoot& root) {
+  // TODO: Use the names as the output names for the whole computing.
+  // const auto& names = root.names();
+  if (root.has_input()) {
+    const auto& rel = root.input();
+    return toBoltPlan(rel);
+  } else {
+    BOLT_FAIL("Input is expected in RelRoot.");
+  }
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Plan& substraitPlan) {
+  BOLT_CHECK(checkTypeExtension(substraitPlan), "The type extension only have unknown type.");
+  // Construct the function map based on the Substrait representation,
+  // and initialize the expression converter with it.
+  constructFunctionMap(substraitPlan);
+
+  // In fact, only one RelRoot or Rel is expected here.
+  BOLT_CHECK_EQ(substraitPlan.relations_size(), 1);
+  const auto& rel = substraitPlan.relations(0);
+  if (rel.has_root()) {
+    return toBoltPlan(rel.root());
+  } else if (rel.has_rel()) {
+    return toBoltPlan(rel.rel());
+  } else {
+    BOLT_FAIL("RelRoot or Rel is expected in Plan.");
+  }
+}
+
+std::string SubstraitToBoltPlanConverter::nextPlanNodeId() {
+  auto id = fmt::format("{}", planNodeId_);
+  planNodeId_++;
+  return id;
+}
+
+void SubstraitToBoltPlanConverter::constructFunctionMap(const ::substrait::Plan& substraitPlan) {
+  // Construct the function map based on the Substrait representation.
+  for (const auto& extension : substraitPlan.extensions()) {
+    if (!extension.has_extension_function()) {
+      continue;
+    }
+    const auto& sFmap = extension.extension_function();
+    auto id = sFmap.function_anchor();
+    auto name = sFmap.name();
+    functionMap_[id] = name;
+  }
+  exprConverter_ = std::make_unique<SubstraitBoltExprConverter>(pool_, functionMap_, boltCfg_->rawConfigs());
+}
+
+std::string SubstraitToBoltPlanConverter::findFuncSpec(uint64_t id) {
+  return SubstraitParser::findFunctionSpec(functionMap_, id);
+}
+
+int32_t SubstraitToBoltPlanConverter::getStreamIndex(const ::substrait::ReadRel& sRead) {
+  if (sRead.has_local_files()) {
+    const auto& fileList = sRead.local_files().items();
+    if (fileList.size() == 0) {
+      // bucketed scan may contains empty file list
+      return -1;
+    }
+    // The stream input will be specified with the format of
+    // "iterator:${index}".
+    std::string filePath = fileList[0].uri_file();
+    std::string prefix = "iterator:";
+    std::size_t pos = filePath.find(prefix);
+    if (pos == std::string::npos) {
+      return -1;
+    }
+
+    // Get the index.
+    std::string idxStr = filePath.substr(pos + prefix.size(), filePath.size());
+    try {
+      return stoi(idxStr);
+    } catch (const std::exception& err) {
+      BOLT_FAIL(err.what());
+    }
+  }
+  return -1;
+}
+
+void SubstraitToBoltPlanConverter::extractJoinKeys(
+    const ::substrait::Expression& joinExpression,
+    std::vector<const ::substrait::Expression::FieldReference*>& leftExprs,
+    std::vector<const ::substrait::Expression::FieldReference*>& rightExprs) {
+  std::stack<const ::substrait::Expression*> expressions;
+  expressions.push(&joinExpression);
+  while (!expressions.empty()) {
+    auto visited = expressions.top();
+    expressions.pop();
+    if (visited->rex_type_case() == ::substrait::Expression::RexTypeCase::kScalarFunction) {
+      const auto& funcName = SubstraitParser::getNameBeforeDelimiter(
+          SubstraitParser::findBoltFunction(functionMap_, visited->scalar_function().function_reference(), useIcuRegex_));
+      const auto& args = visited->scalar_function().arguments();
+      if (funcName == "and") {
+        expressions.push(&args[1].value());
+        expressions.push(&args[0].value());
+      } else if (funcName == "eq" || funcName == "equalto" || funcName == "decimal_equalto") {
+        BOLT_CHECK(std::all_of(args.cbegin(), args.cend(), [](const ::substrait::FunctionArgument& arg) {
+          return arg.value().has_selection();
+        }));
+        leftExprs.push_back(&args[0].value().selection());
+        rightExprs.push_back(&args[1].value().selection());
+      } else {
+        BOLT_NYI("Join condition {} not supported.", funcName);
+      }
+    } else {
+      BOLT_FAIL("Unable to parse from join expression: {}", joinExpression.DebugString());
+    }
+  }
+}
+
+bool SubstraitToBoltPlanConverter::checkTypeExtension(const ::substrait::Plan& substraitPlan) {
+  for (const auto& sExtension : substraitPlan.extensions()) {
+    if (!sExtension.has_extension_type()) {
+      continue;
+    }
+
+    // Only support UNKNOWN type in UserDefined type extension.
+    if (sExtension.extension_type().name() != "UNKNOWN") {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace gluten

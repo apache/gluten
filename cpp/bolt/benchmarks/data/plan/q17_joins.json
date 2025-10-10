@@ -1,0 +1,601 @@
+{
+  "extensions": [
+    {
+      "extensionFunction": {
+        "functionAnchor": 7,
+        "name": "sum:opt_fp64"
+      }
+    },
+    {
+      "extensionFunction": {
+        "functionAnchor": 6,
+        "name": "lt:fp64_fp64"
+      }
+    },
+    {
+      "extensionFunction": {
+        "functionAnchor": 3,
+        "name": "alias:fp64"
+      }
+    },
+    {
+      "extensionFunction": {
+        "name": "equal:i64_i64"
+      }
+    },
+    {
+      "extensionFunction": {
+        "functionAnchor": 4,
+        "name": "alias:i64"
+      }
+    },
+    {
+      "extensionFunction": {
+        "functionAnchor": 5,
+        "name": "is_not_null:fp64"
+      }
+    },
+    {
+      "extensionFunction": {
+        "functionAnchor": 1,
+        "name": "avg:opt_fp64"
+      }
+    },
+    {
+      "extensionFunction": {
+        "functionAnchor": 2,
+        "name": "multiply:opt_fp64_fp64"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "root": {
+        "input": {
+          "aggregate": {
+            "common": {
+              "direct": {}
+            },
+            "input": {
+              "project": {
+                "common": {
+                  "direct": {}
+                },
+                "input": {
+                  "project": {
+                    "common": {
+                      "direct": {}
+                    },
+                    "input": {
+                      "join": {
+                        "left": {
+                          "project": {
+                            "common": {
+                              "direct": {}
+                            },
+                            "input": {
+                              "project": {
+                                "common": {
+                                  "direct": {}
+                                },
+                                "input": {
+                                  "join": {
+                                    "left": {
+                                      "read": {
+                                        "common": {
+                                          "direct": {}
+                                        },
+                                        "baseSchema": {
+                                          "names": [
+                                            "l_partkey#17",
+                                            "l_quantity#20",
+                                            "l_extendedprice#21"
+                                          ],
+                                          "struct": {
+                                            "types": [
+                                              {
+                                                "i64": {
+                                                  "nullability": "NULLABILITY_REQUIRED"
+                                                }
+                                              },
+                                              {
+                                                "fp64": {
+                                                  "nullability": "NULLABILITY_REQUIRED"
+                                                }
+                                              },
+                                              {
+                                                "fp64": {
+                                                  "nullability": "NULLABILITY_NULLABLE"
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "localFiles": {
+                                          "items": [
+                                            {
+                                              "uriFile": "iterator:0"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "right": {
+                                      "read": {
+                                        "common": {
+                                          "direct": {}
+                                        },
+                                        "baseSchema": {
+                                          "names": [
+                                            "p_partkey#74"
+                                          ],
+                                          "struct": {
+                                            "types": [
+                                              {
+                                                "i64": {
+                                                  "nullability": "NULLABILITY_NULLABLE"
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "localFiles": {
+                                          "items": [
+                                            {
+                                              "uriFile": "iterator:1"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "expression": {
+                                      "scalarFunction": {
+                                        "args": [
+                                          {
+                                            "selection": {
+                                              "directReference": {
+                                                "structField": {}
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "selection": {
+                                              "directReference": {
+                                                "structField": {
+                                                  "field": 3
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ],
+                                        "outputType": {
+                                          "bool": {
+                                            "nullability": "NULLABILITY_NULLABLE"
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "type": "JOIN_TYPE_INNER",
+                                    "advancedExtension": {
+                                      "optimization": {
+                                        "@type": "/google.protobuf.StringValue",
+                                        "value": "inParameters:isBHJ=1\nisNullAwareAntiJoin=0\nbuildHashTableId=BuildedHashTable-421\n"
+                                      }
+                                    }
+                                  }
+                                },
+                                "expressions": [
+                                  {
+                                    "selection": {
+                                      "directReference": {
+                                        "structField": {}
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "selection": {
+                                      "directReference": {
+                                        "structField": {
+                                          "field": 1
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "selection": {
+                                      "directReference": {
+                                        "structField": {
+                                          "field": 2
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "selection": {
+                                      "directReference": {
+                                        "structField": {
+                                          "field": 3
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "expressions": [
+                              {
+                                "selection": {
+                                  "directReference": {
+                                    "structField": {
+                                      "field": 1
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "selection": {
+                                  "directReference": {
+                                    "structField": {
+                                      "field": 2
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "selection": {
+                                  "directReference": {
+                                    "structField": {
+                                      "field": 3
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        "right": {
+                          "filter": {
+                            "common": {
+                              "direct": {}
+                            },
+                            "input": {
+                              "project": {
+                                "common": {
+                                  "direct": {}
+                                },
+                                "input": {
+                                  "aggregate": {
+                                    "common": {
+                                      "direct": {}
+                                    },
+                                    "input": {
+                                      "read": {
+                                        "common": {
+                                          "direct": {}
+                                        },
+                                        "baseSchema": {
+                                          "names": [
+                                            "l_partkey#17",
+                                            "sum#144",
+                                            "count#145"
+                                          ],
+                                          "struct": {
+                                            "types": [
+                                              {
+                                                "i64": {
+                                                  "nullability": "NULLABILITY_NULLABLE"
+                                                }
+                                              },
+                                              {
+                                                "fp64": {
+                                                  "nullability": "NULLABILITY_NULLABLE"
+                                                }
+                                              },
+                                              {
+                                                "i64": {
+                                                  "nullability": "NULLABILITY_NULLABLE"
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "localFiles": {
+                                          "items": [
+                                            {
+                                              "uriFile": "iterator:2"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "groupings": [
+                                      {
+                                        "groupingExpressions": [
+                                          {
+                                            "selection": {
+                                              "directReference": {
+                                                "structField": {}
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "measures": [
+                                      {
+                                        "measure": {
+                                          "functionReference": 1,
+                                          "args": [
+                                            {
+                                              "selection": {
+                                                "directReference": {
+                                                  "structField": {
+                                                    "field": 1
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "selection": {
+                                                "directReference": {
+                                                  "structField": {
+                                                    "field": 2
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ],
+                                          "phase": "AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT",
+                                          "outputType": {
+                                            "fp64": {
+                                              "nullability": "NULLABILITY_NULLABLE"
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                },
+                                "expressions": [
+                                  {
+                                    "scalarFunction": {
+                                      "functionReference": 3,
+                                      "args": [
+                                        {
+                                          "scalarFunction": {
+                                            "functionReference": 2,
+                                            "args": [
+                                              {
+                                                "literal": {
+                                                  "fp64": 0.2
+                                                }
+                                              },
+                                              {
+                                                "selection": {
+                                                  "directReference": {
+                                                    "structField": {
+                                                      "field": 1
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            ],
+                                            "outputType": {
+                                              "fp64": {
+                                                "nullability": "NULLABILITY_NULLABLE"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ],
+                                      "outputType": {
+                                        "fp64": {
+                                          "nullability": "NULLABILITY_NULLABLE"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "scalarFunction": {
+                                      "functionReference": 4,
+                                      "args": [
+                                        {
+                                          "selection": {
+                                            "directReference": {
+                                              "structField": {}
+                                            }
+                                          }
+                                        }
+                                      ],
+                                      "outputType": {
+                                        "i64": {
+                                          "nullability": "NULLABILITY_NULLABLE"
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "condition": {
+                              "scalarFunction": {
+                                "functionReference": 5,
+                                "args": [
+                                  {
+                                    "selection": {
+                                      "directReference": {
+                                        "structField": {}
+                                      }
+                                    }
+                                  }
+                                ],
+                                "outputType": {
+                                  "bool": {
+                                    "nullability": "NULLABILITY_NULLABLE"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "expression": {
+                          "scalarFunction": {
+                            "args": [
+                              {
+                                "selection": {
+                                  "directReference": {
+                                    "structField": {
+                                      "field": 2
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "selection": {
+                                  "directReference": {
+                                    "structField": {
+                                      "field": 4
+                                    }
+                                  }
+                                }
+                              }
+                            ],
+                            "outputType": {
+                              "bool": {
+                                "nullability": "NULLABILITY_NULLABLE"
+                              }
+                            }
+                          }
+                        },
+                        "postJoinFilter": {
+                          "scalarFunction": {
+                            "functionReference": 6,
+                            "args": [
+                              {
+                                "selection": {
+                                  "directReference": {
+                                    "structField": {}
+                                  }
+                                }
+                              },
+                              {
+                                "selection": {
+                                  "directReference": {
+                                    "structField": {
+                                      "field": 3
+                                    }
+                                  }
+                                }
+                              }
+                            ],
+                            "outputType": {
+                              "bool": {
+                                "nullability": "NULLABILITY_NULLABLE"
+                              }
+                            }
+                          }
+                        },
+                        "type": "JOIN_TYPE_INNER",
+                        "advancedExtension": {
+                          "optimization": {
+                            "@type": "/google.protobuf.StringValue",
+                            "value": "inParameters:isBHJ=0\nisNullAwareAntiJoin=0\nbuildHashTableId=\n"
+                          }
+                        }
+                      }
+                    },
+                    "expressions": [
+                      {
+                        "selection": {
+                          "directReference": {
+                            "structField": {}
+                          }
+                        }
+                      },
+                      {
+                        "selection": {
+                          "directReference": {
+                            "structField": {
+                              "field": 1
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "selection": {
+                          "directReference": {
+                            "structField": {
+                              "field": 2
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "selection": {
+                          "directReference": {
+                            "structField": {
+                              "field": 3
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "selection": {
+                          "directReference": {
+                            "structField": {
+                              "field": 4
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "expressions": [
+                  {
+                    "selection": {
+                      "directReference": {
+                        "structField": {
+                          "field": 1
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "groupings": [
+              {}
+            ],
+            "measures": [
+              {
+                "measure": {
+                  "functionReference": 7,
+                  "args": [
+                    {
+                      "selection": {
+                        "directReference": {
+                          "structField": {}
+                        }
+                      }
+                    }
+                  ],
+                  "phase": "AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE",
+                  "outputType": {
+                    "fp64": {
+                      "nullability": "NULLABILITY_NULLABLE"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "names": [
+          "real_arrow_output",
+          "sum#141"
+        ]
+      }
+    }
+  ]
+}

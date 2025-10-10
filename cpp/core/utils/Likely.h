@@ -24,3 +24,9 @@
 #define LIKELY(x) (x)
 #define UNLIKELY(x) (x)
 #endif
+
+#if defined(__clang__) || defined(__GNUC__)
+#define FLATTEN __attribute__((flatten))
+#else
+#define FLATTEN
+#endif

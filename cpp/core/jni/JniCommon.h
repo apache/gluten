@@ -152,6 +152,7 @@ static T* jniCastOrThrow(jlong handle) {
   GLUTEN_CHECK(instance != nullptr, "FATAL: resource instance should not be null.");
   return instance;
 }
+
 namespace gluten {
 
 class ShuffleStreamReader final : public StreamReader {
@@ -175,6 +176,10 @@ class JniCommonState {
   void assertInitialized() const;
 
   void close();
+
+  JavaVM* getJavaVM() const {
+    return vm_;
+  }
 
   jmethodID runtimeAwareCtxHandle();
 
@@ -331,6 +336,7 @@ class JniColumnarBatchIterator : public ColumnarBatchIterator {
       JNIEnv* env,
       jobject jColumnarBatchItr,
       Runtime* runtime,
+      bool parallelEnabled,
       std::optional<int32_t> iteratorIndex = std::nullopt);
 
   // singleton
@@ -340,6 +346,124 @@ class JniColumnarBatchIterator : public ColumnarBatchIterator {
   JniColumnarBatchIterator& operator=(JniColumnarBatchIterator&&) = delete;
 
   ~JniColumnarBatchIterator() override;
+
+  // multi-thread spark: get a global reference to Spark ContextClassLoader
+  void getContextClassLoader(JNIEnv* env) {
+    // 1. Get the java.lang.Thread class
+    jclass threadClass = env->FindClass("java/lang/Thread");
+    if (threadClass == nullptr) {
+      LOG(ERROR) << "JNI Error: Could not find java.lang.Thread class";
+      return;
+    }
+    // 2. Get the static method ID for Thread.currentThread()
+    jmethodID currentThreadMethod = env->GetStaticMethodID(threadClass, "currentThread", "()Ljava/lang/Thread;");
+    if (currentThreadMethod == nullptr) {
+      LOG(ERROR) << "JNI Error: Could not find Thread.currentThread method";
+      return;
+    }
+    // 3. Call Thread.currentThread() to get the current thread object
+    jobject currentThread = env->CallStaticObjectMethod(threadClass, currentThreadMethod);
+    if (currentThread == nullptr) {
+      LOG(ERROR) << "JNI Error: Call to Thread.currentThread failed";
+      return;
+    }
+    // 4. Get the method ID for getContextClassLoader()
+    jmethodID getContextClassLoaderMethod =
+        env->GetMethodID(threadClass, "getContextClassLoader", "()Ljava/lang/ClassLoader;");
+    if (getContextClassLoaderMethod == nullptr) {
+      LOG(ERROR) << "JNI Error: Could not find getContextClassLoader method";
+      return;
+    }
+    // 5. Call getContextClassLoader() on the current thread object
+    jobject contextClassLoader = env->CallObjectMethod(currentThread, getContextClassLoaderMethod);
+    if (contextClassLoader == nullptr) {
+      LOG(ERROR) << "JNI Error: Call to getContextClassLoader failed";
+      return;
+    }
+    // 6. Create a global reference to the ClassLoader. This is the crucial step.
+    //    This new reference will not be garbage collected until explicitly freed.
+    if (jContextClassLoader_ != nullptr) {
+      env->DeleteGlobalRef(jContextClassLoader_); // Clean up any old reference
+    }
+    jContextClassLoader_ = env->NewGlobalRef(contextClassLoader);
+    LOG(INFO) << "Successfully cached the context class loader.";
+    // Clean up the local references we created
+    env->DeleteLocalRef(threadClass);
+    env->DeleteLocalRef(currentThread);
+    env->DeleteLocalRef(contextClassLoader);
+  }
+  // multi-thread spark: get a global reference to Spark taskContext
+  void getTaskContext(JNIEnv* env) {
+    // 1. Find class org.apache.spark.TaskContext
+    jclass taskContextClass = env->FindClass("org/apache/spark/TaskContext");
+    if (taskContextClass == nullptr) {
+      LOG(ERROR) << "JNI Error: Could not find org.apache.spark.TaskContext class";
+      return;
+    }
+    // 2. Get the static method ID for TaskContext.get()
+    // Signature for static get(): ()Lorg/apache/spark/TaskContext;
+    jmethodID getMethodID = env->GetStaticMethodID(taskContextClass, "get", "()Lorg/apache/spark/TaskContext;");
+    if (env->ExceptionCheck()) {
+      env->ExceptionDescribe();
+      env->ExceptionClear();
+      LOG(ERROR) << "cannot get TaskContext.get";
+      env->DeleteLocalRef(taskContextClass);
+    }
+    if (!getMethodID) {
+      LOG(ERROR) << "cannot get TaskContext.get";
+    }
+    // 3. Call the static method
+    jobject taskContext = env->CallStaticObjectMethod(taskContextClass, getMethodID);
+    checkException(env);
+    if (!taskContext) {
+      std::string errorMessage = "Error: Spark taskContext is null.";
+      throw gluten::GlutenException(errorMessage);
+    }
+    jSparkTaskContext_ = env->NewGlobalRef(taskContext);
+    checkException(env);
+    if (!jSparkTaskContext_) {
+      std::string errorMessage = "Error: setting global reference to Spark TaskContex failst";
+      throw gluten::GlutenException(errorMessage);
+    }
+    LOG(INFO) << "JniColumnarBatchIterator Successfully set global reference to Spark TaskContext";
+    env->DeleteLocalRef(taskContextClass);
+  }
+  // multi-thread spark: proactively set context class loader upon thread switch
+  void setClassLoader(JNIEnv* env) {
+    if (!jContextClassLoader_) {
+      LOG(ERROR) << "[multi-thread spark] ContextClassLoader is null. Cannot set thread ContextClassLoader";
+      return;
+    }
+    // 1. Get the current Thread object
+    jclass threadClass = env->FindClass("java/lang/Thread");
+    jmethodID currentThreadMethod = env->GetStaticMethodID(threadClass, "currentThread", "()Ljava/lang/Thread;");
+    jobject currentThread = env->CallStaticObjectMethod(threadClass, currentThreadMethod);
+    // 2. Get the setContextClassLoader method
+    jclass classLoaderClass = env->FindClass("java/lang/ClassLoader");
+    jmethodID setContextMethod = env->GetMethodID(threadClass, "setContextClassLoader", "(Ljava/lang/ClassLoader;)V");
+    // 3. Set the context classloader to our cached application loader
+    env->CallVoidMethod(currentThread, setContextMethod, jContextClassLoader_);
+    // Cleanup local references
+    env->DeleteLocalRef(threadClass);
+    env->DeleteLocalRef(classLoaderClass);
+    env->DeleteLocalRef(currentThread);
+  }
+  void setTaskContext(JNIEnv* env) {
+    if (!jSparkTaskContext_) {
+      LOG(ERROR) << "[multi-thread spark] jSparkTaskContext_ is null. Cannot set Spark TaskContext";
+      return;
+    }
+    // 2. Find setTaskContext method
+    jmethodID setTaskContextMethod =
+        env->GetStaticMethodID(jSparkTaskUtilClass_, "setTaskContext", "(Lorg/apache/spark/TaskContext;)V");
+    checkException(env);
+    if (!setTaskContextMethod) {
+      std::string errorMessage = "cannot get TaskContext.get";
+      throw gluten::GlutenException(errorMessage);
+    }
+    env->CallVoidMethod(jSparkTaskUtilClass_, setTaskContextMethod, jSparkTaskContext_);
+    checkException(env);
+  }
 
   std::shared_ptr<ColumnarBatch> next() override;
 
@@ -361,6 +485,7 @@ class JniColumnarBatchIterator : public ColumnarBatchIterator {
   JavaVM* vm_;
   jobject jColumnarBatchItr_;
   Runtime* runtime_;
+  bool parallelEnabled_{false}; // [multi-thread spark]
   std::optional<int32_t> iteratorIndex_;
   const bool shouldDump_;
 
@@ -369,10 +494,194 @@ class JniColumnarBatchIterator : public ColumnarBatchIterator {
   jmethodID serializedColumnarBatchIteratorNext_;
 
   std::shared_ptr<ColumnarBatchIterator> dumpedIteratorReader_{nullptr};
+
+  // [multi-thread spark]
+  jobject jSparkTaskContext_{nullptr};
+  jclass jSparkTaskUtilClass_{nullptr};
+  jobject jContextClassLoader_{nullptr};
+};
+
+// A wrapper of ShuffleReaderIteratorWrapper JNI iterator
+class ShuffleReaderWrapperedIterator : public JniColumnarBatchIterator {
+ public:
+  static std::unique_ptr<ShuffleReaderWrapperedIterator> tryFrom(
+      JNIEnv* env,
+      jobject jColumnarBatchItr,
+      Runtime* runtime,
+      bool parallelEnabled,
+      std::optional<int32_t> iteratorIndex = std::nullopt) {
+    if (env == nullptr || jColumnarBatchItr == nullptr) {
+      VLOG(1) << "ShuffleReaderWrapperedIterator cannot wrap: invalid JNI arguments";
+      return nullptr;
+    }
+
+    try {
+      return std::make_unique<ShuffleReaderWrapperedIterator>(
+          env, jColumnarBatchItr, runtime, parallelEnabled, iteratorIndex);
+    } catch (const std::exception& e) {
+      VLOG(1) << "ShuffleReaderWrapperedIterator cannot wrap: " << e.what();
+      if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+      }
+      return nullptr;
+    }
+  }
+
+  explicit ShuffleReaderWrapperedIterator(
+      JNIEnv* env,
+      jobject jColumnarBatchItr,
+      Runtime* runtime,
+      bool parallelEnabled,
+      std::optional<int32_t> iteratorIndex = std::nullopt)
+      : JniColumnarBatchIterator(env, jColumnarBatchItr, runtime, parallelEnabled, iteratorIndex) {
+    if (env->GetJavaVM(&shuffleVm_) != JNI_OK) {
+      throw gluten::GlutenException("Unable to get JavaVM instance");
+    }
+
+    auto handles = resolveShuffleReaderHandles(env, jColumnarBatchItr);
+
+    streamReader_ = makeShuffleStreamReader(env, handles.streamReader);
+    env->DeleteLocalRef(handles.streamReader);
+
+    jclass shuffleReaderIteratorWrapperClass = env->GetObjectClass(handles.wrapper);
+    GLUTEN_CHECK(shuffleReaderIteratorWrapperClass != nullptr, "Failed to get ShuffleReaderIteratorWrapper class");
+    markAsOffloadedMethod_ =
+        getMethodIdOrError(env, shuffleReaderIteratorWrapperClass, "markAsOffloaded", "()V");
+    updateMetricsMethod_ =
+        getMethodIdOrError(env, shuffleReaderIteratorWrapperClass, "updateMetrics", "(JJJJJ)V");
+    getReaderInfoMethod_ = getMethodIdOrError(env, shuffleReaderIteratorWrapperClass, "getReaderInfo", "()[B");
+
+    jShuffleReaderIteratorWrapper_ = env->NewGlobalRef(handles.wrapper);
+    env->DeleteLocalRef(shuffleReaderIteratorWrapperClass);
+    env->DeleteLocalRef(handles.wrapper);
+  }
+
+  // singleton
+  ShuffleReaderWrapperedIterator(const ShuffleReaderWrapperedIterator&) = delete;
+  ShuffleReaderWrapperedIterator(ShuffleReaderWrapperedIterator&&) = delete;
+  ShuffleReaderWrapperedIterator& operator=(const ShuffleReaderWrapperedIterator&) = delete;
+  ShuffleReaderWrapperedIterator& operator=(ShuffleReaderWrapperedIterator&&) = delete;
+
+  ~ShuffleReaderWrapperedIterator() override {
+    JNIEnv* env = nullptr;
+    attachCurrentThreadAsDaemonOrThrow(shuffleVm_, &env);
+    if (jShuffleReaderIteratorWrapper_ != nullptr) {
+      env->DeleteGlobalRef(jShuffleReaderIteratorWrapper_);
+    }
+  }
+
+  void markAsOffloaded() {
+    JNIEnv* env = nullptr;
+    attachCurrentThreadAsDaemonOrThrow(shuffleVm_, &env);
+    env->CallVoidMethod(jShuffleReaderIteratorWrapper_, markAsOffloadedMethod_);
+    checkException(env);
+  }
+
+  void updateMetrics(
+      int64_t numRows,
+      int64_t numBatchesTotal,
+      int64_t decompressTime,
+      int64_t deserializeTime,
+      int64_t totalReadTime) {
+    JNIEnv* env = nullptr;
+    attachCurrentThreadAsDaemonOrThrow(shuffleVm_, &env);
+    env->CallVoidMethod(
+        jShuffleReaderIteratorWrapper_,
+        updateMetricsMethod_,
+        static_cast<jlong>(numRows),
+        static_cast<jlong>(numBatchesTotal),
+        static_cast<jlong>(decompressTime),
+        static_cast<jlong>(deserializeTime),
+        static_cast<jlong>(totalReadTime));
+    checkException(env);
+  }
+
+  std::string getRawReaderInfo() {
+    JNIEnv* env = nullptr;
+    attachCurrentThreadAsDaemonOrThrow(shuffleVm_, &env);
+    auto infoArray = static_cast<jbyteArray>(
+        env->CallObjectMethod(jShuffleReaderIteratorWrapper_, getReaderInfoMethod_));
+    checkException(env);
+    if (infoArray == nullptr) {
+      return {};
+    }
+    jsize length = env->GetArrayLength(infoArray);
+    std::string info(length, '\0');
+    if (length > 0) {
+      env->GetByteArrayRegion(infoArray, 0, length, reinterpret_cast<jbyte*>(info.data()));
+    }
+    env->DeleteLocalRef(infoArray);
+    return info;
+  }
+
+  std::shared_ptr<StreamReader> getStreamReader() {
+    return streamReader_;
+  }
+
+ private:
+  struct ShuffleReaderHandles {
+    jobject wrapper;
+    jobject streamReader;
+  };
+
+  static ShuffleReaderHandles resolveShuffleReaderHandles(JNIEnv* env, jobject iterator) {
+    GLUTEN_CHECK(env != nullptr, "JNIEnv is null when resolving ShuffleReaderInIterator");
+    GLUTEN_CHECK(iterator != nullptr, "Iterator is null when resolving ShuffleReaderInIterator");
+
+    jclass shuffleReaderInIteratorClass =
+        env->FindClass("org/apache/gluten/backendsapi/bolt/ShuffleReaderInIterator");
+    GLUTEN_CHECK(shuffleReaderInIteratorClass != nullptr && !env->ExceptionCheck(), "ShuffleReaderInIterator not found");
+
+    bool isWrapper = env->IsInstanceOf(iterator, shuffleReaderInIteratorClass);
+    env->DeleteLocalRef(shuffleReaderInIteratorClass);
+    GLUTEN_CHECK(isWrapper, "Iterator is not ShuffleReaderInIterator");
+
+    auto resolveWrapperMethod = [&](const char* name) -> jmethodID {
+      jclass iteratorClass = env->GetObjectClass(iterator);
+      GLUTEN_CHECK(iteratorClass != nullptr, "Failed to get ShuffleReaderInIterator class");
+      jmethodID method = env->GetMethodID(
+          iteratorClass, name, "()Lorg/apache/spark/shuffle/ShuffleReaderIteratorWrapper;");
+      env->DeleteLocalRef(iteratorClass);
+      return method;
+    };
+
+    jmethodID getWrapperMethod = resolveWrapperMethod("getReaderWrapper");
+    if (getWrapperMethod == nullptr || env->ExceptionCheck()) {
+      env->ExceptionClear();
+      getWrapperMethod = resolveWrapperMethod("readerWrapper");
+      GLUTEN_CHECK(
+          getWrapperMethod != nullptr && !env->ExceptionCheck(), "ShuffleReaderInIterator#getReaderWrapper unavailable");
+    }
+
+    jobject wrapper = env->CallObjectMethod(iterator, getWrapperMethod);
+    checkException(env);
+    GLUTEN_CHECK(wrapper != nullptr, "ShuffleReaderInIterator#getReaderWrapper returned null");
+
+    jclass wrapperClass = env->GetObjectClass(wrapper);
+    GLUTEN_CHECK(wrapperClass != nullptr, "Failed to get ShuffleReaderIteratorWrapper class");
+
+    jmethodID getStreamReaderMethod = env->GetMethodID(
+        wrapperClass, "getStreamReader", "()Lorg/apache/gluten/vectorized/ShuffleStreamReader;");
+    GLUTEN_CHECK(getStreamReaderMethod != nullptr, "ShuffleReaderIteratorWrapper#getStreamReader unavailable");
+
+    jobject streamReader = env->CallObjectMethod(wrapper, getStreamReaderMethod);
+    checkException(env);
+    GLUTEN_CHECK(streamReader != nullptr, "ShuffleReaderIteratorWrapper#getStreamReader returned null");
+
+    env->DeleteLocalRef(wrapperClass);
+    return ShuffleReaderHandles{wrapper, streamReader};
+  }
+
+  JavaVM* shuffleVm_{nullptr};
+  jobject jShuffleReaderIteratorWrapper_{nullptr};
+  jmethodID markAsOffloadedMethod_{nullptr};
+  jmethodID updateMetricsMethod_{nullptr};
+  jmethodID getReaderInfoMethod_{nullptr};
+  std::shared_ptr<StreamReader> streamReader_{nullptr};
 };
 
 std::unique_ptr<JniColumnarBatchIterator>
-makeJniColumnarBatchIterator(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime);
+makeJniColumnarBatchIterator(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime, bool parallelEnabled);
 } // namespace gluten
 
 // TODO: Move the static functions to namespace gluten
@@ -385,6 +694,35 @@ static inline void backtrace() {
     LOG(INFO) << strings[i];
   }
   free(strings);
+}
+
+static inline std::vector<std::string> ToStringVector(JNIEnv* env, jobjectArray& str_array) {
+  std::vector<std::string> vector;
+  if (str_array == NULL) {
+    return vector;
+  }
+  int length = env->GetArrayLength(str_array);
+  for (int i = 0; i < length; i++) {
+    auto string = reinterpret_cast<jstring>(env->GetObjectArrayElement(str_array, i));
+    vector.push_back(jStringToCString(env, string));
+  }
+  return vector;
+}
+static inline std::vector<std::string> FromByteArrToStringVector(JNIEnv* env, jobjectArray& str_array) {
+  std::vector<std::string> vector;
+  if (str_array == NULL) {
+    return vector;
+  }
+  int length = env->GetArrayLength(str_array);
+  for (int i = 0; i < length; i++) {
+    jbyteArray byte_array = reinterpret_cast<jbyteArray>(env->GetObjectArrayElement(str_array, i));
+    int bytes_len = env->GetArrayLength(byte_array);
+    signed char array[bytes_len];
+    env->GetByteArrayRegion(byte_array, 0, bytes_len, array);
+    std::string j_string(reinterpret_cast<char*>(array), sizeof(array));
+    vector.push_back(j_string);
+  }
+  return vector;
 }
 
 static inline arrow::Compression::type getCompressionType(JNIEnv* env, jstring codecJstr) {
@@ -548,6 +886,7 @@ class JavaRssClient : public RssClient {
 
   ~JavaRssClient() {
     JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
     if (vm_->GetEnv(reinterpret_cast<void**>(&env), jniVersion) != JNI_OK) {
       LOG(WARNING) << "JavaRssClient#~JavaRssClient(): "
                    << "JNIEnv was not attached to current thread";
@@ -564,6 +903,7 @@ class JavaRssClient : public RssClient {
 
   int32_t pushPartitionData(int32_t partitionId, const char* bytes, int64_t size) override {
     JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
     if (vm_->GetEnv(reinterpret_cast<void**>(&env), jniVersion) != JNI_OK) {
       throw gluten::GlutenException("JNIEnv was not attached to current thread");
     }

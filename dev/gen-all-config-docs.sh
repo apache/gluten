@@ -26,3 +26,9 @@ ${MVN_CMD} clean test \
   -Dtest=none \
   -DfailIfNoTests=false \
   -DwildcardSuites=org.apache.gluten.config.AllGlutenConfiguration,org.apache.gluten.config.AllVeloxConfiguration
+
+${MVN_CMD} clean test \
+  -Pbackends-bolt -pl backends-bolt -am \
+  -Dtest=none \
+  -DfailIfNoTests=false \
+  -DwildcardSuites=org.apache.gluten.config.AllGlutenConfiguration,org.apache.gluten.config.AllBoltConfiguration

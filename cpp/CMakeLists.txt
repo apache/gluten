@@ -13,6 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+if (ENABLE_BOLT) 
+  include(bolt.CMakeLists.cmake)
+  return()
+endif()
+
 cmake_minimum_required(VERSION 3.16)
 message(STATUS "Building using CMake version: ${CMAKE_VERSION}")
 
