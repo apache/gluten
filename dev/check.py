@@ -186,6 +186,22 @@ def tidy_command(commit, files, fix):
     return status
 
 
+def iwyu_command(commit, files, fix):
+    files = [file for file in files if regex.match(r".*\.cc$", file)]
+
+    if not files:
+        return 0
+    files_str = ",".join(files)
+    status, stdout, stderr = util.run(
+        f"{SCRIPTS}/iwyu_tool.py -p cpp/build {files_str}"
+    )
+
+    if stdout != "":
+        print(stdout)
+
+    return status
+
+
 def get_commit(files):
     if files == "commit":
         return "HEAD^"
@@ -254,10 +270,10 @@ def parse_args():
     global parser
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
-        description="""Check format/header/tidy
+        description="""Check format/header/tidy/iwyu
 
-    check.py {format,header,tidy} {commit,branch} [--fix]
-    check.py {format,header,tidy} {tree} [--fix] PATH
+    check.py {format,header,tidy,iwyu} {commit,branch} [--fix]
+    check.py {format,header,tidy,iwyu} {tree} [--fix] PATH
 """,
     )
     command = parser.add_subparsers(dest="command")
@@ -266,6 +282,7 @@ def parse_args():
     format_command_parser = add_check_command(command, "format")
     header_command_parser = add_check_command(command, "header")
     tidy_command_parser = add_check_command(command, "tidy")
+    iwyu_command_parser = add_check_command(command, "iwyu")
 
     parser.set_defaults(path="")
     parser.set_defaults(command="help")
@@ -290,6 +307,10 @@ def header(args):
 
 def tidy(args):
     return run_command(args, tidy_command)
+
+
+def iwyu(args):
+    return run_command(args, iwyu_command)
 
 
 def main():

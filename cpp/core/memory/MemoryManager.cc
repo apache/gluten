@@ -24,6 +24,7 @@ Registry<MemoryManager::Factory>& memoryManagerFactories() {
   static Registry<MemoryManager::Factory> registry;
   return registry;
 }
+
 Registry<MemoryManager::Releaser>& memoryManagerReleasers() {
   static Registry<MemoryManager::Releaser> registry;
   return registry;

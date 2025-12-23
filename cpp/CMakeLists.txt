@@ -99,6 +99,7 @@ set(KNOWN_WARNINGS
        -Wno-error=unused-function \
        -Wno-error=unused-variable \
        -Wno-error=uninitialized \
+       -Wno-pessimizing-move \
        -Wno-error=maybe-uninitialized \
        -Wno-unknown-warning-option \
        -Wno-strict-aliasing \

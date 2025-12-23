@@ -1,0 +1,81 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Include What You Use Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/iwyu.yml'
+      - 'cpp/**/*.cc'
+      - 'cpp/**/*.h'
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  SETUP: 'bash .github/workflows/util/setup-helper.sh'
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  Run-Include-What-You-Use:
+    runs-on: ubuntu-22.04
+    container: apache/gluten:vcpkg-centos-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build Gluten native libraries
+        run: |
+          set -e
+          yum install tzdata -y
+          source /opt/rh/gcc-toolset-11/enable
+          pip3 install regex
+          cd $GITHUB_WORKSPACE/
+          wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz
+          tar -xf clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz
+          rm -rf clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz
+          cd clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04/bin/ && ls -1 | grep -v "^clang" | xargs rm -rf
+          ln -s /lib64/libtinfo.so.6.1 /lib64/libtinfo.so.5
+          ln -s `pwd`/clang /usr/bin/clang
+          ln -s `pwd`/clang++ /usr/bin/clang++
+          clang --version
+          ln -s /opt/rh/gcc-toolset-11/root/usr/lib/gcc/x86_64-redhat-linux/11/libstdc++.a /usr/lib64/libstdc++.a
+          export CXXFLAGS="-I/opt/rh/gcc-toolset-11/root/usr/include/c++/11 -I/opt/rh/gcc-toolset-11/root/usr/include/c++/11/x86_64-redhat-linux"
+          cd $GITHUB_WORKSPACE/
+          export NUM_THREADS=$(nproc)
+          bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_arrow=OFF --build_tests=OFF --build_benchmarks=OFF \
+               --build_examples=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON get_velox
+          bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_arrow=OFF --build_tests=OFF --build_benchmarks=OFF \
+               --build_examples=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON build_velox
+          export CC="clang"
+          export CXX="clang++"
+          bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_arrow=OFF --build_tests=OFF --build_benchmarks=OFF \
+               --build_examples=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON build_gluten_cpp
+          unset CC
+          unset CXX
+          rm -rf /usr/bin/clang /usr/bin/clang++
+      - name: Check Include What You Use
+        run: |
+          cd $GITHUB_WORKSPACE/
+          bash .github/workflows/util/setup-helper.sh install_iwyu
+          ls -lh /usr/bin/include-what-you-use
+          export CPLUS_INCLUDE_PATH=/opt/rh/gcc-toolset-11/root/usr/lib/gcc/x86_64-redhat-linux/11/include
+          export CXXFLAGS="--gcc-toolchain=/opt/rh/gcc-toolset-11/root/usr"
+          wget https://github.com/include-what-you-use/include-what-you-use/archive/refs/tags/0.25.tar.gz
+          tar -xzvf 0.25.tar.gz
+          cp include-what-you-use-0.25/iwyu_tool.py dev/iwyu_tool.py
+          python3 dev/check.py iwyu commit
