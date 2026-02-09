@@ -41,8 +41,9 @@ RUN set -ex; \
     ./install-resources.sh 3.5; \
     ./install-resources.sh 3.5-scala2.13; \
     ./install-resources.sh 4.0; \
-    if [ "$(uname -m)" = "aarch64" ]; then \
-        export CPU_TARGET="aarch64"; \
+    ARCH=$(uname -m); \
+    if [[ "$ARCH" == "aarch64" || "$ARCH" == "ppc64le" ]]; then \
+        export CPU_TARGET="$ARCH"; \
     fi; \
     cd /opt/gluten; \
     source /opt/rh/gcc-toolset-12/enable; \

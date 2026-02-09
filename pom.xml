@@ -2234,5 +2234,28 @@
         <os.full.name>${platform}_${arch}</os.full.name>
       </properties>
     </profile>
+    <profile>
+      <id>linux-ppc64le</id>
+      <activation>
+        <os>
+          <family>Linux</family>
+          <arch>ppc64le</arch>
+        </os>
+      </activation>
+      <properties>
+        <platform>linux</platform>
+        <arch>ppc64le</arch>
+        <os.full.name>${platform}_${arch}</os.full.name>
+      </properties>
+    </profile>
+    <profile>
+      <id>disaggregated-shuffle</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <modules>
+        <module>gluten-disaggregated-shuffle</module>
+      </modules>
+    </profile>
   </profiles>
 </project>

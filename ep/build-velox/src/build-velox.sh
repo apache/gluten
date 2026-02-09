@@ -155,7 +155,7 @@ function compile {
   export Arrow_SOURCE=AUTO
   if [ $ARCH == 'x86_64' ]; then
     make $COMPILE_TYPE $NUM_THREADS_OPTS EXTRA_CMAKE_FLAGS="${COMPILE_OPTION}"
-  elif [[ "$ARCH" == 'arm64' || "$ARCH" == 'aarch64' ]]; then
+  elif [[ "$ARCH" == 'arm64' || "$ARCH" == 'aarch64' || "$ARCH" == "ppc64le" ]]; then
     CPU_TARGET=$ARCH make $COMPILE_TYPE $NUM_THREADS_OPTS EXTRA_CMAKE_FLAGS="${COMPILE_OPTION}"
   else
     echo "Unsupported arch: $ARCH"
