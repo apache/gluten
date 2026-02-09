@@ -53,8 +53,7 @@ function build_arrow_cpp() {
        -DARROW_FILESYSTEM=ON \
        -DARROW_PROTOBUF_USE_SHARED=OFF \
        -DARROW_DEPENDENCY_USE_SHARED=OFF \
-       -DARROW_DEPENDENCY_SOURCE=BUNDLED \
-       -DARROW_WITH_THRIFT=ON \
+       -DARROW_WITH_THRIFT=OFF \
        -DARROW_WITH_LZ4=ON \
        -DARROW_WITH_SNAPPY=ON \
        -DARROW_WITH_ZLIB=${ARROW_WITH_ZLIB} \
@@ -68,11 +67,6 @@ function build_arrow_cpp() {
        -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
        -DARROW_BUILD_SHARED=OFF \
        -DARROW_BUILD_STATIC=ON
-
- # Install thrift.
- cd _build/thrift_ep-prefix/src/thrift_ep-build
- ${SUDO} cmake --install ./ --prefix "${INSTALL_PREFIX}"/
- popd
 }
 
 function build_arrow_java() {
@@ -110,7 +104,7 @@ function build_arrow_java() {
     # Arrow JNI Date Interface CPP libraries
     export PKG_CONFIG_PATH="${INSTALL_PREFIX}"/lib64/pkgconfig:"${INSTALL_PREFIX}"/lib/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}
     ${MVN_CMD} generate-resources -Pgenerate-libs-jni-macos-linux -N -Darrow.dataset.jni.dist.dir=$ARROW_INSTALL_DIR \
-      -DARROW_GANDIVA=OFF -DARROW_JAVA_JNI_ENABLE_GANDIVA=OFF -DARROW_ORC=OFF -DARROW_JAVA_JNI_ENABLE_ORC=OFF \
+      -DARROW_GANDIVA=OFF -DARROW_JAVA_JNI_ENABLE_GANDIVA=OFF -DARROW_ORC=OFF -DARROW_PARQUET=OFF -DARROW_JAVA_JNI_ENABLE_ORC=OFF \
 	    -Dmaven.test.skip -Drat.skip -Dmaven.gitcommitid.skip -Dcheckstyle.skip -N
 
     # Arrow Java libraries

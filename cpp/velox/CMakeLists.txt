@@ -460,6 +460,12 @@ if(ENABLE_GPU)
            facebook::velox::velox_cudf_expression cudf::cudf velox_curl)
 endif()
 
+import_library(thriftprotocol ${VELOX_HOME}/deps-download/fbthrift/_build/lib/libthriftprotocol.a)
+import_library(thriftcpp2 ${VELOX_HOME}/deps-download/fbthrift/_build/lib/libthriftcpp2.a)
+import_library(thriftmetadata ${VELOX_HOME}/deps-download/fbthrift/_build/lib/libthriftmetadata.a)
+import_library(facebook::velox::dwio::parquet::thrift::raw ${VELOX_BUILD_PATH}/velox/dwio/parquet/thrift/libvelox_dwio_parquet_thrift_raw.a)
+target_link_libraries(velox PRIVATE thriftprotocol thriftcpp2 thriftmetadata facebook::velox::dwio::parquet::thrift::raw)
+
 add_custom_command(
   TARGET velox
   POST_BUILD

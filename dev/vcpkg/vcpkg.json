@@ -48,7 +48,10 @@
         "protobuf",
         "benchmark",
         "icu",
-        "thrift",
+        "fizz",
+        "wangle",
+        "mvfst",
+        { "name": "fbthrift", "features": ["cpp2"]},
         "libstemmer",
         "geos",
         "grpc"
@@ -114,6 +117,7 @@
     { "name": "glog", "version": "0.6.0"},
     { "name": "gflags", "version": "2.2.2"},
     { "name": "azure-identity-cpp", "version": "1.11.0"},
-    { "name": "grpc", "version": "1.51.1"}
+    { "name": "grpc", "version": "1.51.1"},
+    { "name": "fbthrift", "version-date": "2026.01.05.00"}
   ]
 }
