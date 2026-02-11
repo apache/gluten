@@ -25,7 +25,7 @@ RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
 # Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID="11934"
+UPSTREAM_VELOX_PR_ID=""
 
 OS=`uname -s`
 
