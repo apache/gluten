@@ -767,5 +767,5 @@ object VeloxConfig extends ConfigRegistry {
           "containing TimestampNTZ will fall back to Spark execution. Set to false during " +
           "development/testing of TimestampNTZ support to allow native execution.")
       .booleanConf
-      .createWithDefault(true)
+      .createWithDefault(false)
 }

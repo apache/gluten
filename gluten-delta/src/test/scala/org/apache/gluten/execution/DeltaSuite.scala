@@ -340,13 +340,13 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
 
   // TIMESTAMP_NTZ was introduced in Spark 3.4 / Delta 2.4
   testWithMinSparkVersion(
-    "delta: create table with TIMESTAMP_NTZ should fallback and return correct results",
+    "delta: create table with TIMESTAMP_NTZ and return correct results",
     "3.4") {
     withTable("delta_ntz") {
       spark.sql("CREATE TABLE delta_ntz(c1 STRING, c2 TIMESTAMP, c3 TIMESTAMP_NTZ) USING DELTA")
       spark.sql("""INSERT INTO delta_ntz VALUES
                   |('foo','2022-01-02 03:04:05.123456','2022-01-02 03:04:05.123456')""".stripMargin)
-      val df = runQueryAndCompare("select * from delta_ntz", noFallBack = false) { _ => }
+      val df = runQueryAndCompare("select * from delta_ntz") { _ => }
       checkAnswer(
         df,
         Row(
