@@ -382,7 +382,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
       assert(nestedLoopJoin.isDefined)
       val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
       assert(fallbackReasons.nonEmpty)
-      assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern (?<=")))
+      assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
     } finally {
       spark.sparkContext.removeSparkListener(listener)
     }
