@@ -1498,6 +1498,31 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   // The columns present in the table, if not available default to the baseSchema.
   auto tableSchema = splitInfo->tableSchema ? splitInfo->tableSchema : baseSchema;
 
+  // Build dataColumns from tableSchema, excluding partition columns.
+  // HiveTableHandle::dataColumns() is used as fileSchema for the reader.
+  // Partition columns should not be validated against the file's physical types
+  // (their values come from the partition path, not from the file).
+  std::unordered_set<std::string> partitionColNames;
+  for (int idx = 0; idx < colNameList.size(); idx++) {
+    if (columnTypes[idx] == ColumnType::kPartitionKey) {
+      partitionColNames.insert(colNameList[idx]);
+    }
+  }
+  RowTypePtr dataColumns;
+  if (partitionColNames.empty()) {
+    dataColumns = tableSchema;
+  } else {
+    std::vector<std::string> dataColNames;
+    std::vector<TypePtr> dataColTypes;
+    for (int idx = 0; idx < tableSchema->size(); idx++) {
+      if (partitionColNames.find(tableSchema->nameOf(idx)) == partitionColNames.end()) {
+        dataColNames.push_back(tableSchema->nameOf(idx));
+        dataColTypes.push_back(tableSchema->childAt(idx));
+      }
+    }
+    dataColumns = ROW(std::move(dataColNames), std::move(dataColTypes));
+  }
+
   connector::ConnectorTableHandlePtr tableHandle;
   auto remainingFilter = readRel.has_filter() ? exprConverter_->toVeloxExpr(readRel.filter(), baseSchema) : nullptr;
   auto connectorId = kHiveConnectorId;
@@ -1509,7 +1534,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   }
   common::SubfieldFilters subfieldFilters;
   tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
-      connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, tableSchema);
+      connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
 
   // Get assignments and out names.
   std::vector<std::string> outNames;
