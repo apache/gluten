@@ -239,6 +239,8 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
       conf->get<bool>(kIgnoreMissingFiles, false) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kParquetUseColumnNamesSession] =
       conf->get<bool>(kParquetUseColumnNames, true) ? "true" : "false";
+  configs[facebook::velox::connector::hive::HiveConfig::kAllowInt32NarrowingSession] =
+      conf->get<bool>(kAllowInt32Narrowing, true) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kOrcUseColumnNamesSession] =
       conf->get<bool>(kOrcUseColumnNames, true) ? "true" : "false";
 
