@@ -16,6 +16,17 @@
  */
 package org.apache.spark.sql.execution.datasources.parquet
 
+import org.apache.gluten.config.GlutenConfig
+
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenParquetTypeWideningSuite extends ParquetTypeWideningSuite with GlutenSQLTestsTrait {}
+class GlutenParquetTypeWideningSuite extends ParquetTypeWideningSuite with GlutenSQLTestsTrait {
+
+  // Disable native writer so that writeParquetFiles() uses Spark's Parquet writer.
+  // This suite tests the READ path. The native writer doesn't produce
+  // DELTA_BINARY_PACKED/DELTA_BYTE_ARRAY encodings that the parent test's
+  // V2 encoding assertions expect.
+  override def sparkConf: SparkConf =
+    super.sparkConf.set(GlutenConfig.NATIVE_WRITER_ENABLED.key, "false")
+}

@@ -329,10 +329,12 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenParquetCommitterSuite]
   enableSuite[GlutenParquetFieldIdSchemaSuite]
   enableSuite[GlutenParquetTypeWideningSuite]
+    // Velox does not support DELTA_BYTE_ARRAY encoding for FIXED_LEN_BYTE_ARRAY decimals.
     .exclude("parquet decimal precision change Decimal(20, 2) -> Decimal(22, 2)")
     .exclude("parquet decimal precision and scale change Decimal(20, 7) -> Decimal(22, 5)")
     .exclude("parquet decimal precision and scale change Decimal(20, 5) -> Decimal(22, 8)")
     .exclude("parquet decimal precision and scale change Decimal(20, 2) -> Decimal(22, 4)")
+    // Velox native reader aligns with vectorized reader behavior, always rejecting incompatible decimal conversions.
     .exclude("parquet decimal precision and scale change Decimal(10, 4) -> Decimal(12, 7)")
     .exclude("parquet decimal precision and scale change Decimal(10, 6) -> Decimal(12, 4)")
     .exclude("parquet decimal precision and scale change Decimal(10, 7) -> Decimal(5, 2)")
@@ -344,22 +346,12 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("parquet decimal precision and scale change Decimal(22, 5) -> Decimal(20, 7)")
     .exclude("parquet decimal precision and scale change Decimal(5, 2) -> Decimal(6, 4)")
     .exclude("parquet decimal precision and scale change Decimal(7, 4) -> Decimal(5, 2)")
-    .exclude("parquet decimal precision and scale change Decimal(10, 2) -> Decimal(12, 4)")
-    .exclude("parquet decimal precision and scale change Decimal(10, 2) -> Decimal(20, 12)")
-    .exclude("parquet decimal precision and scale change Decimal(5, 2) -> Decimal(10, 7)")
-    .exclude("parquet decimal precision and scale change Decimal(5, 2) -> Decimal(20, 17)")
-    .exclude("parquet decimal precision and scale change Decimal(5, 2) -> Decimal(7, 4)")
     .exclude("parquet decimal precision change Decimal(10, 2) -> Decimal(5, 2)")
     .exclude("parquet decimal precision change Decimal(12, 2) -> Decimal(10, 2)")
     .exclude("parquet decimal precision change Decimal(20, 2) -> Decimal(10, 2)")
     .exclude("parquet decimal precision change Decimal(20, 2) -> Decimal(5, 2)")
     .exclude("parquet decimal precision change Decimal(22, 2) -> Decimal(20, 2)")
     .exclude("parquet decimal precision change Decimal(7, 2) -> Decimal(5, 2)")
-    .exclude("parquet decimal precision change Decimal(10, 2) -> Decimal(12, 2)")
-    .exclude("parquet decimal precision change Decimal(10, 2) -> Decimal(20, 2)")
-    .exclude("parquet decimal precision change Decimal(5, 2) -> Decimal(10, 2)")
-    .exclude("parquet decimal precision change Decimal(5, 2) -> Decimal(20, 2)")
-    .exclude("parquet decimal precision change Decimal(5, 2) -> Decimal(7, 2)")
     .exclude("parquet decimal type change Decimal(5, 2) -> Decimal(3, 2) overflows with parquet-mr")
     .exclude("unsupported parquet conversion ByteType -> DecimalType(1,0)")
     .exclude("unsupported parquet conversion ByteType -> DecimalType(2,0)")
