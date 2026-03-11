@@ -171,7 +171,7 @@ object GlutenCoreConfig extends ConfigRegistry {
       .intConf
       .createWithDefaultString("-1")
 
-  // Since https://github.com/apache/incubator-gluten/issues/5439.
+  // Since https://github.com/apache/gluten/issues/5439.
   val DYNAMIC_OFFHEAP_SIZING_ENABLED =
     buildStaticConf("spark.gluten.memory.dynamic.offHeap.sizing.enabled")
       .experimental()
@@ -189,7 +189,7 @@ object GlutenCoreConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
-  // Since https://github.com/apache/incubator-gluten/issues/5439.
+  // Since https://github.com/apache/gluten/issues/5439.
   val DYNAMIC_OFFHEAP_SIZING_MEMORY_FRACTION =
     buildStaticConf("spark.gluten.memory.dynamic.offHeap.sizing.memory.fraction")
       .experimental()

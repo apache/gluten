@@ -82,7 +82,7 @@ class VeloxTransitionSuite extends SharedSparkSession with TransitionSuiteBase {
     val out = BackendTransitions.insert(in, outputsColumnar = false)
     // No explicit transition needed for ArrowNative-to-Velox.
     // FIXME: Add explicit transitions.
-    //  See https://github.com/apache/incubator-gluten/issues/7313.
+    //  See https://github.com/apache/gluten/issues/7313.
     assert(
       out == VeloxColumnarToRowExec(
         BatchUnary(

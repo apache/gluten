@@ -325,7 +325,7 @@ class VeloxIcebergSuite extends IcebergSuite {
       val lastExecId = statusStore.executionsList().last.executionId
       val executionMetrics = statusStore.executionMetrics(lastExecId)
 
-      // TODO: fix https://github.com/apache/incubator-gluten/issues/11510
+      // TODO: fix https://github.com/apache/gluten/issues/11510
       assert(executionMetrics(metrics("numWrittenFiles").id).toLong == 0)
     }
   }

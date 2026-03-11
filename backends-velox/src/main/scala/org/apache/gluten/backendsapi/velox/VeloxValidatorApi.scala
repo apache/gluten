@@ -90,11 +90,11 @@ class VeloxValidatorApi extends ValidatorApi {
       child: SparkPlan): Option[String] = {
     if (!BackendsApiManager.getSettings.supportEmptySchemaColumnarShuffle()) {
       if (outputAttributes.isEmpty) {
-        // See: https://github.com/apache/incubator-gluten/issues/7600.
+        // See: https://github.com/apache/gluten/issues/7600.
         return Some("Shuffle with empty output schema is not supported")
       }
       if (child.output.isEmpty) {
-        // See: https://github.com/apache/incubator-gluten/issues/7600.
+        // See: https://github.com/apache/gluten/issues/7600.
         return Some("Shuffle with empty input schema is not supported")
       }
     }

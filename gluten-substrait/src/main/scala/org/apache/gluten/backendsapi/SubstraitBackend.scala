@@ -92,7 +92,7 @@ trait SubstraitBackend extends Backend with Logging {
 
 object SubstraitBackend extends Logging {
 
-  /** Since https://github.com/apache/incubator-gluten/pull/2247. */
+  /** Since https://github.com/apache/gluten/pull/2247. */
   private def postBuildInfoEvent(sc: SparkContext): Unit = {
     // export gluten version to property to spark
     System.setProperty("gluten.version", GlutenBuildInfo.VERSION)
@@ -134,7 +134,7 @@ object SubstraitBackend extends Logging {
 
     // Disable vanilla columnar readers, to prevent columnar-to-columnar conversions.
     // FIXME: Do we still need this trick since
-    //  https://github.com/apache/incubator-gluten/pull/1931 was merged?
+    //  https://github.com/apache/gluten/pull/1931 was merged?
     if (!conf.get(GlutenConfig.VANILLA_VECTORIZED_READERS_ENABLED)) {
       // FIXME Hongze 22/12/06
       //  BatchScan.scala in shim was not always loaded by class loader.

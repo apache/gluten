@@ -36,7 +36,7 @@ The basic rule of Gluten's design is that we would reuse spark's whole control f
 ## 1.3 Target User
 
 Gluten's target user is anyone who wants to accelerate SparkSQL fundamentally. As a plugin to Spark, Gluten doesn't require any change for dataframe API or SQL query, but only requires user to make correct configuration.
-See Gluten configuration properties [here](https://github.com/apache/incubator-gluten/blob/main/docs/Configuration.md).
+See Gluten configuration properties [here](https://github.com/apache/gluten/blob/main/docs/Configuration.md).
 
 ## 1.4 References
 

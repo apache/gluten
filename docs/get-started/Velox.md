@@ -44,7 +44,7 @@ export PATH=$JAVA_HOME/bin:$PATH
 ## config maven, like proxy in ~/.m2/settings.xml
 
 ## fetch gluten code
-git clone https://github.com/apache/incubator-gluten.git
+git clone https://github.com/apache/gluten.git
 ```
 
 # Build Gluten with Velox Backend
@@ -173,7 +173,7 @@ cp /path/to/hdfs-client.xml hdfs-client.xml
 
 One typical deployment on Spark/HDFS cluster is to enable [short-circuit reading](https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-hdfs/ShortCircuitLocalReads.html). Short-circuit reads provide a substantial performance boost to many applications.
 
-By default libhdfs3 does not set the default hdfs domain socket path to support HDFS short-circuit read. If this feature is required in HDFS setup, users may need to setup the domain socket path correctly by patching the libhdfs3 source code or by setting the correct config environment. In Gluten the short-circuit domain socket path is set to "/var/lib/hadoop-hdfs/dn_socket" in [build-velox.sh](https://github.com/apache/incubator-gluten/blob/main/ep/build-velox/src/build-velox.sh) So we need to make sure the folder existed and user has write access as below script.
+By default libhdfs3 does not set the default hdfs domain socket path to support HDFS short-circuit read. If this feature is required in HDFS setup, users may need to setup the domain socket path correctly by patching the libhdfs3 source code or by setting the correct config environment. In Gluten the short-circuit domain socket path is set to "/var/lib/hadoop-hdfs/dn_socket" in [build-velox.sh](https://github.com/apache/gluten/blob/main/ep/build-velox/src/build-velox.sh) So we need to make sure the folder existed and user has write access as below script.
 
 ```
 sudo mkdir -p /var/lib/hadoop-hdfs/
@@ -412,7 +412,7 @@ Spark3.3 has 387 functions in total. ~240 are commonly used. To get the support 
 To identify what can be offloaded in a query and detailed fallback reasons, user can follow below steps to retrieve corresponding logs.
 
 ```
-1) Enable Gluten by proper [configuration](https://github.com/apache/incubator-gluten/blob/main/docs/Configuration.md).
+1) Enable Gluten by proper [configuration](https://github.com/apache/gluten/blob/main/docs/Configuration.md).
 
 2) Disable Spark AQE to trigger plan validation in Gluten
 spark.sql.adaptive.enabled = false

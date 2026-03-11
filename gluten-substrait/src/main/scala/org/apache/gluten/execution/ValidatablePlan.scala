@@ -28,7 +28,7 @@ import org.apache.spark.sql.catalyst.analysis.UnresolvedException
 /**
  * Base interface for a Gluten query plan that is also open to validation calls.
  *
- * Since https://github.com/apache/incubator-gluten/pull/2185.
+ * Since https://github.com/apache/gluten/pull/2185.
  */
 trait ValidatablePlan extends GlutenPlan with LogLevelUtil {
   protected def glutenConf: GlutenConfig = GlutenConfig.get

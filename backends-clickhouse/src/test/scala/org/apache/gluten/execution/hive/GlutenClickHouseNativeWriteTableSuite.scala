@@ -514,7 +514,7 @@ class GlutenClickHouseNativeWriteTableSuite
       ("decimal_field", "decimal(23,12)"),
       ("date_field", "date")
       // ("timestamp_field", "timestamp")
-      // FIXME https://github.com/apache/incubator-gluten/issues/8053
+      // FIXME https://github.com/apache/gluten/issues/8053
     )
     val origin_table = "origin_table"
     withSource(genTestData(), origin_table) {

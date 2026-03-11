@@ -1022,7 +1022,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH(
       "SPARK-45882: BroadcastHashJoinExec propagate partitioning should respect CoalescedHashPartitioning")
   enableSuite[GlutenJsonExpressionsSuite]
-    // https://github.com/apache/incubator-gluten/issues/8102
+    // https://github.com/apache/gluten/issues/8102
     .includeCH("$.store.book")
     .includeCH("$")
     .includeCH("$.store.book[0]")

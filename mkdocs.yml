@@ -15,7 +15,7 @@
 site_name: Gluten
 
 repo_name: 'Fork on GitHub '
-repo_url: "https://github.com/apache/incubator-gluten.git"
+repo_url: "https://github.com/apache/gluten.git"
 edit_uri: ""
 
 

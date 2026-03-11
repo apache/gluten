@@ -20,7 +20,7 @@ import java.util.Properties
 
 import scala.util.Try
 
-/** Since https://github.com/apache/incubator-gluten/pull/1973. */
+/** Since https://github.com/apache/gluten/pull/1973. */
 object GlutenBuildInfo {
   private val buildFile = "gluten-build-info.properties"
   private val buildFileStream =

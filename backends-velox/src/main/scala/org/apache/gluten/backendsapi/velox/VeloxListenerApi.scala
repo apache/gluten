@@ -315,7 +315,7 @@ object VeloxListenerApi {
 
     var parsed: Map[String, String] = GlutenConfigUtil.parseConfig(conf.getAll.toMap)
 
-    // Workaround for https://github.com/apache/incubator-gluten/issues/7837
+    // Workaround for https://github.com/apache/gluten/issues/7837
     if (isDriver && !inLocalMode(conf)) {
       parsed += (COLUMNAR_VELOX_CACHE_ENABLED.key -> "false")
     }

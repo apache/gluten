@@ -154,7 +154,7 @@ object VeloxBackendSettings extends BackendSettingsApi {
         case ParquetReadFormat =>
           val parquetOptions = new ParquetOptions(CaseInsensitiveMap(properties), SQLConf.get)
           if (parquetOptions.mergeSchema) {
-            // https://github.com/apache/incubator-gluten/issues/7174
+            // https://github.com/apache/gluten/issues/7174
             Some(s"not support when merge schema is true")
           } else {
             None

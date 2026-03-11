@@ -25,7 +25,7 @@ import org.apache.spark.util.Utils
 /**
  * This [[CostEvaluator]] is to force use the new physical plan when cost is equal.
  *
- * Since https://github.com/apache/incubator-gluten/pull/6143.
+ * Since https://github.com/apache/gluten/pull/6143.
  */
 case class GlutenCostEvaluator() extends CostEvaluator with SQLConfHelper {
 

@@ -87,7 +87,7 @@ trait TransformSupport extends ValidatablePlan {
    */
   def columnarInputRDDs: Seq[RDD[ColumnarBatch]]
 
-  // Since https://github.com/apache/incubator-gluten/pull/2185.
+  // Since https://github.com/apache/gluten/pull/2185.
   protected def doNativeValidation(context: SubstraitContext, node: RelNode): ValidationResult = {
     if (node != null && enableNativeValidation) {
       val planNode = PlanBuilder.makePlan(context, Lists.newArrayList(node))

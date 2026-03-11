@@ -62,7 +62,7 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           
           # action/checkout does not work centos7 anymore, so we clone the branch instead.
-          git clone -b main --depth=1 https://github.com/apache/incubator-gluten.git && cd incubator-gluten/
+          git clone -b main --depth=1 https://github.com/apache/gluten.git && cd gluten/
           if [ ${{ github.event_name }} = "pull_request" ]; then
             git fetch origin ${{ github.ref }}:pr_branch && git checkout pr_branch
           fi

@@ -16,7 +16,7 @@ remote_theme: pmarsceill/just-the-docs
 
 aux_links:
   "Gluten on Github":
-    - "//github.com/apache/incubator-gluten"
+    - "//github.com/apache/gluten"
 
 plugins:
   - jekyll-optional-front-matter # GitHub Pages

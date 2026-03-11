@@ -126,7 +126,7 @@ to view past discussions, or [subscribe to the mailing list](mailto:dev-subscrib
 
 ### Slack Channel (English)
 
-Request an invitation to the ASF Slack workspace via [this page](https://github.com/apache/incubator-gluten/discussions/8429). Once invited, you can join the **incubator-gluten** channel.
+Request an invitation to the ASF Slack workspace via [this page](https://github.com/apache/gluten/discussions/8429). Once invited, you can join the **gluten** channel.
 
 The ASF Slack login entry: https://the-asf.slack.com/.
 
@@ -166,6 +166,6 @@ Gluten is licensed under [Apache License Version 2.0](https://www.apache.org/lic
 
 Gluten was initiated by Intel and Kyligence in 2022. Several other companies are also actively contributing to its development, including BIGO, Meituan, Alibaba Cloud, NetEase, Baidu, Microsoft, IBM, Google, etc.
 
-<a href="https://github.com/apache/incubator-gluten/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=apache/incubator-gluten&columns=25" />
+<a href="https://github.com/apache/gluten/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=apache/gluten&columns=25" />
 </a>

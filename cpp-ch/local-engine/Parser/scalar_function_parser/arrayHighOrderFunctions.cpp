@@ -96,7 +96,7 @@ public:
         {
             /// Convert Array(T) to Array(U) if needed, Array(T) is the type of the first argument of transform.
             /// U is the argument type of lambda function. In some cases Array(T) is not equal to Array(U).
-            /// e.g. in the second query of https://github.com/apache/incubator-gluten/issues/6561, T is String, and U is Nullable(String)
+            /// e.g. in the second query of https://github.com/apache/gluten/issues/6561, T is String, and U is Nullable(String)
             /// The difference of both types will result in runtime exceptions in function capture.
             const auto & src_array_type = parsed_args[0]->result_type;
             DataTypePtr dst_array_type = std::make_shared<DataTypeArray>(lambda_args.front().type);

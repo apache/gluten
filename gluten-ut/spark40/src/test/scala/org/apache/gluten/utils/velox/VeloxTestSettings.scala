@@ -163,9 +163,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHigherOrderFunctionsSuite]
   enableSuite[GlutenIntervalExpressionsSuite]
   enableSuite[GlutenJsonExpressionsSuite]
-    // https://github.com/apache/incubator-gluten/issues/10948
+    // https://github.com/apache/gluten/issues/10948
     .exclude("$['key with spaces']")
-    // https://github.com/apache/incubator-gluten/issues/8102
+    // https://github.com/apache/gluten/issues/8102
     .exclude("$.store.book")
     .exclude("$")
     .exclude("$.store.book[0]")
@@ -625,7 +625,7 @@ class VeloxTestSettings extends BackendTestSettings {
     // error message mismatch is accepted
     .exclude("schema mismatch failure error message for parquet reader")
     .exclude("schema mismatch failure error message for parquet vectorized reader")
-    // https://github.com/apache/incubator-gluten/issues/11220
+    // https://github.com/apache/gluten/issues/11220
     .excludeByPrefix("SPARK-40819")
     .excludeByPrefix("SPARK-46056") // TODO: fix in Spark-4.0
     .exclude("CANNOT_MERGE_SCHEMAS: Failed merging schemas")
@@ -947,7 +947,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-41048: Improve output partitioning and ordering with AQE cache")
     // Rewrite this test since it checks the physical operator which is changed in Gluten
     .exclude("SPARK-27439: Explain result should match collected result after view change")
-    // https://github.com/apache/incubator-gluten/issues/11570
+    // https://github.com/apache/gluten/issues/11570
     .exclude("getRows: binary")
   enableSuite[GlutenDataFrameTimeWindowingSuite]
   enableSuite[GlutenDataFrameTungstenSuite]

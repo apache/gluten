@@ -157,7 +157,7 @@ public class UnsafeByteArray implements Externalizable, KryoSerializable {
    * It's needed once the broadcast variable is garbage collected. Since now, we don't have an
    * elegant way to free the underlying memory in off-heap.
    *
-   * <p>Since: https://github.com/apache/incubator-gluten/pull/8127.
+   * <p>Since: https://github.com/apache/gluten/pull/8127.
    */
   public void finalize() throws Throwable {
     release();

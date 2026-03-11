@@ -72,4 +72,4 @@ And the execution plan will like following with ApplyResourceProfile node insert
 • Tested with YARN/Kubernetes; other resource managers may need validation.
 
 
-For issues or feedback, refer to [GLUTEN-8018](https://github.com/apache/incubator-gluten/issues/8018).
+For issues or feedback, refer to [GLUTEN-8018](https://github.com/apache/gluten/issues/8018).

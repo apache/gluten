@@ -357,9 +357,9 @@ class VeloxTestSettings extends BackendTestSettings {
     // Not useful and time consuming.
     .exclude("SPARK-33084: Add jar support Ivy URI in SQL")
     .exclude("SPARK-33084: Add jar support Ivy URI in SQL -- jar contains udf class")
-    // https://github.com/apache/incubator-gluten/pull/9145.
+    // https://github.com/apache/gluten/pull/9145.
     .exclude("SPARK-17515: CollectLimit.execute() should perform per-partition limits")
-    // https://github.com/apache/incubator-gluten/pull/9145.
+    // https://github.com/apache/gluten/pull/9145.
     .exclude("SPARK-19650: An action on a Command should not trigger a Spark job")
   enableSuite[GlutenDatasetAggregatorSuite]
   enableSuite[GlutenDatasetOptimizationSuite]
@@ -369,9 +369,9 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("dropDuplicates: columns with same column name")
     .exclude("groupBy.as")
   enableSuite[GlutenJsonExpressionsSuite]
-    // https://github.com/apache/incubator-gluten/issues/8102
+    // https://github.com/apache/gluten/issues/8102
     .exclude("$.store.book")
-    // https://github.com/apache/incubator-gluten/issues/10948
+    // https://github.com/apache/gluten/issues/10948
     .exclude("$['key with spaces']")
     .exclude("$")
     .exclude("$.store.book[0]")
@@ -415,7 +415,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("File source v2: support passing data filters to FileScan without partitionFilters")
     // DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type
     .exclude("File source v2: support partition pruning")
-    // https://github.com/apache/incubator-gluten/pull/9145.
+    // https://github.com/apache/gluten/pull/9145.
     .excludeGlutenTest("SPARK-25237 compute correct input metrics in FileScanRDD")
   enableSuite[GlutenEnsureRequirementsSuite]
     // Rewrite to change the shuffle partitions for optimizing repartition
@@ -640,7 +640,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-17091: Convert IN predicate to Parquet filter push-down")
     .exclude("Support Parquet column index")
     .exclude("SPARK-34562: Bloom filter push down")
-    // https://github.com/apache/incubator-gluten/issues/7174
+    // https://github.com/apache/gluten/issues/7174
     .excludeGlutenTest("Filter applied on merged Parquet schema with new column should work")
   enableSuite[GlutenParquetInteroperabilitySuite]
     .exclude("parquet timestamp conversion")

@@ -67,7 +67,7 @@ abstract class ColumnarWriteFilesExec protected (
    * processing or columnar processing. It's true because Spark only calls `doExecuteWrite` of the
    * object.
    *
-   * Since https://github.com/apache/incubator-gluten/pull/6745.
+   * Since https://github.com/apache/gluten/pull/6745.
    */
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
   override def rowType(): RowType = {

@@ -1988,7 +1988,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
-  // Enable the test after fixing https://github.com/apache/incubator-gluten/issues/6827
+  // Enable the test after fixing https://github.com/apache/gluten/issues/6827
   ignore("Test round expression") {
     val df1 = runQueryAndCompare("SELECT round(cast(0.5549999999999999 as double), 2)") { _ => }
     checkLengthAndPlan(df1, 1)
@@ -2022,7 +2022,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
-  // Since https://github.com/apache/incubator-gluten/pull/7330.
+  // Since https://github.com/apache/gluten/pull/7330.
   test("field names contain non-ASCII characters") {
     withTempPath {
       path =>

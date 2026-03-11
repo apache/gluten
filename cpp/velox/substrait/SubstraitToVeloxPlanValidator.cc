@@ -651,7 +651,7 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::WindowRel& windo
   }
 
   if (types.empty()) {
-    // See: https://github.com/apache/incubator-gluten/issues/7600.
+    // See: https://github.com/apache/gluten/issues/7600.
     LOG_VALIDATION_MSG("Validation failed for empty input schema in WindowRel.");
     return false;
   }

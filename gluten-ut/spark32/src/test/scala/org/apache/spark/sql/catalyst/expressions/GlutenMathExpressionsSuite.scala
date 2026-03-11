@@ -126,7 +126,7 @@ class GlutenMathExpressionsSuite extends MathExpressionsSuite with GlutenTestsTr
     checkEvaluation(Round(12345.67890123456789, 6), 12345.678901)
     checkEvaluation(Round(44, -1), 40)
     checkEvaluation(Round(78, 1), 78)
-    // Enable the test after fixing https://github.com/apache/incubator-gluten/issues/6827
+    // Enable the test after fixing https://github.com/apache/gluten/issues/6827
     // checkEvaluation(Round(0.5549999999999999, 2), 0.55)
     checkEvaluation(BRound(2.5, 0), 2.0)
     checkEvaluation(BRound(3.5, 0), 4.0)

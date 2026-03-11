@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateFunction
 
 // Static helper object for handling expressions that are specifically used in CH backend.
 object CHExpressions {
-  // Since https://github.com/apache/incubator-gluten/pull/1937.
+  // Since https://github.com/apache/gluten/pull/1937.
   def createAggregateFunction(context: SubstraitContext, aggregateFunc: AggregateFunction): Long = {
     val expressionExtensionTransformer =
       ExpressionExtensionTrait.findExpressionExtension(aggregateFunc.getClass)

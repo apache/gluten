@@ -128,7 +128,7 @@ compiling Gluten.
 Note: If you have previously compiled Velox in release mode, use the command below to compile in debug mode.
 
 ```bash
-cd incubator-gluten/ep/build-velox/build/velox_ep
+cd gluten/ep/build-velox/build/velox_ep
 
 # Build the Velox debug version in <velox_home>/_build/debug
 make debug EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_PARQUET=ON -DENABLE_HDFS=ON -DVELOX_BUILD_TESTING=OFF  -DVELOX_ENABLE_DUCKDB=ON -DVELOX_BUILD_TEST_UTILS=ON"
@@ -396,7 +396,7 @@ valgrind --leak-check=yes ./exec_backend_test
 ## Run TPC-H and TPC-DS
 
 We supply `<gluten_home>/tools/gluten-it` to execute these queries.
-See [velox_backend_x86.yml](https://github.com/apache/incubator-gluten/blob/main/.github/workflows/velox_backend_x86.yml).
+See [velox_backend_x86.yml](https://github.com/apache/gluten/blob/main/.github/workflows/velox_backend_x86.yml).
 
 ## Enable Gluten for Spark
 

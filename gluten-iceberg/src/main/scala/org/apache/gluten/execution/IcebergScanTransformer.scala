@@ -155,7 +155,7 @@ case class IcebergScanTransformer(
         return ValidationResult.failed("Delete file format puffin is not supported")
       }
     }
-    // https://github.com/apache/incubator-gluten/issues/11135
+    // https://github.com/apache/gluten/issues/11135
     if (metadata.propertyAsBoolean(TableProperties.SPARK_WRITE_ACCEPT_ANY_SCHEMA, false)) {
       return ValidationResult.failed("Not support read the file with accept any schema")
     }

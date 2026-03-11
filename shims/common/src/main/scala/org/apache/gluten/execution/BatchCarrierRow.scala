@@ -96,7 +96,7 @@ object BatchCarrierRow {
  * A [[BatchCarrierRow]] implementation that is backed by a
  * [[org.apache.spark.sql.vectorized.ColumnarBatch]].
  *
- * Serialization code originated since https://github.com/apache/incubator-gluten/issues/9270.
+ * Serialization code originated since https://github.com/apache/gluten/issues/9270.
  */
 abstract class TerminalRow extends BatchCarrierRow {
   def batch(): ColumnarBatch

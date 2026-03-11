@@ -29,7 +29,7 @@ case class CHColumnarToCarrierRowExec(override val child: SparkPlan)
   override def rowType(): Convention.RowType = CHCarrierRowType
   override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
     copy(child = newChild)
-  // Since https://github.com/apache/incubator-gluten/pull/1595.
+  // Since https://github.com/apache/gluten/pull/1595.
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = {
     if (child.supportsColumnar) {
       child.executeColumnar()

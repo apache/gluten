@@ -114,7 +114,7 @@ object CHValidatorApi {
    * and make it into a new column which the shuffle will refer to. But we need to remove it from
    * the result columns from the shuffle.
    *
-   * Since https://github.com/apache/incubator-gluten/pull/1071.
+   * Since https://github.com/apache/gluten/pull/1071.
    */
   def supportShuffleWithProject(outputPartitioning: Partitioning, child: SparkPlan): Boolean = {
     child match {

@@ -319,7 +319,7 @@ class GlutenClickHouseTPCHColumnarShuffleParquetAQESuite extends ParquetTPCHSuit
     }
   }
 
-  ignore("https://github.com/apache/incubator-gluten/issues/7726") {
+  ignore("https://github.com/apache/gluten/issues/7726") {
     runQueryAndCompare(Arm.withResource(
       Source.fromFile(new File(s"$queryPath/tpch-schema-related/7726.sql"), "UTF-8"))(_.mkString)) {
       df =>
