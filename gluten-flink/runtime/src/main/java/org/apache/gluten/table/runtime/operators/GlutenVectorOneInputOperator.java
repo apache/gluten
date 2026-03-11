@@ -183,7 +183,6 @@ public class GlutenVectorOneInputOperator extends TableStreamOperator<StatefulRe
       initGlutenTask();
     }
     // TODO: implement it
-    task.initializeState(0);
     super.initializeState(context);
   }
 

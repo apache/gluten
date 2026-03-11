@@ -30,27 +30,23 @@ import org.apache.flink.api.common.typeutils.TypeSerializerSnapshot;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.Closeable;
 import java.io.IOException;
 
 /** Serializer for {@link RowVector}. */
 @Internal
-public class GlutenRowVectorSerializer extends TypeSerializer<StatefulRecord> {
+public class GlutenStatefulRecordSerializer extends TypeSerializer<StatefulRecord> {
   private static final long serialVersionUID = 1L;
   private final RowType rowType;
   private final GlutenOperator operator;
 
-  public GlutenRowVectorSerializer(RowType rowType, GlutenOperator operator) {
+  public GlutenStatefulRecordSerializer(RowType rowType, GlutenOperator operator) {
     this.rowType = rowType;
     this.operator = operator;
   }
 
   @Override
   public TypeSerializer<StatefulRecord> duplicate() {
-    return new GlutenRowVectorSerializer(rowType, operator);
+    return new GlutenStatefulRecordSerializer(rowType, operator);
   }
 
   @Override
@@ -168,8 +164,8 @@ public class GlutenRowVectorSerializer extends TypeSerializer<StatefulRecord> {
         throws IOException {}
 
     @Override
-    public GlutenRowVectorSerializer restoreSerializer() {
-      return new GlutenRowVectorSerializer(rowType, operator);
+    public GlutenStatefulRecordSerializer restoreSerializer() {
+      return new GlutenStatefulRecordSerializer(rowType, operator);
     }
 
     @Override

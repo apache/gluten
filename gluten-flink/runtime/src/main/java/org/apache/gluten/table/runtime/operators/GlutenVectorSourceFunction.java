@@ -163,8 +163,6 @@ public class GlutenVectorSourceFunction extends RichParallelSourceFunction<State
       task.addSplit(id, split);
       task.noMoreSplits(id);
     }
-    // TODO: implement it
-    this.task.initializeState(0);
   }
 
   public String[] notifyCheckpointComplete(long checkpointId) throws Exception {
