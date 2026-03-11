@@ -38,8 +38,8 @@ import org.apache.spark.sql.execution.vectorized.WritableColumnVectorShim;
 import org.apache.spark.sql.types.*;
 import org.apache.spark.sql.utils.SparkArrowUtil;
 import org.apache.spark.sql.utils.SparkSchemaUtil;
-import org.apache.spark.sql.vectorized.ColumnarArray;
-import org.apache.spark.sql.vectorized.ColumnarMap;
+import org.apache.spark.sql.vectorized.ArrowColumnarArray;
+import org.apache.spark.sql.vectorized.ArrowColumnarMap;
 import org.apache.spark.unsafe.Platform;
 import org.apache.spark.unsafe.types.UTF8String;
 import org.slf4j.Logger;
@@ -378,7 +378,7 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
   }
 
   @Override
-  protected ArrowWritableColumnVector reserveNewColumn(int capacity, DataType type) {
+  public ArrowWritableColumnVector reserveNewColumn(int capacity, DataType type) {
     return new ArrowWritableColumnVector(capacity, type);
   }
 
@@ -411,6 +411,22 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     return "vectorCounter is " + vectorCount.get();
   }
 
+  // `get` method in Spark `ColumnarArray` doesn't check null values and arrow vectors will throw
+  // exception when we try to access a null value, so here we return `ArrowColumnarMap`
+  // as a workaround.
+  public MapData getMapInternal(int rowId) {
+    return accessor.getMap(rowId);
+  }
+
+  // `get` method in Spark `ColumnarArray` doesn't check null values and arrow vectors will throw
+  // exception when we try to access a null value, so here we return `ArrowColumnarMap`
+  // as a workaround.
+  public ArrayData getArrayInternal(int rowId) {
+    return accessor.getArray(rowId);
+  }
+
+  // `get` method in Spark `ColumnarRow` doesn't check whether the data to get is a null value,
+  // so we return `ArrowColumnarRow` as a workaround.
   public ArrowColumnarRow getStructInternal(int rowId) {
     if (isNullAt(rowId)) return null;
     ArrowWritableColumnVector[] writableColumns =
@@ -893,7 +909,7 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
       throw new UnsupportedOperationException();
     }
 
-    ColumnarArray getArray(int rowId) {
+    ArrayData getArray(int rowId) {
       throw new UnsupportedOperationException();
     }
 
@@ -905,7 +921,7 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
       throw new UnsupportedOperationException();
     }
 
-    ColumnarMap getMap(int rowId) {
+    MapData getMap(int rowId) {
       throw new UnsupportedOperationException();
     }
   }
@@ -1239,8 +1255,8 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     }
 
     @Override
-    final ColumnarArray getArray(int rowId) {
-      return new ColumnarArray(elements, getArrayOffset(rowId), getArrayLength(rowId));
+    final ArrayData getArray(int rowId) {
+      return new ArrowColumnarArray(elements, getArrayOffset(rowId), getArrayLength(rowId));
     }
 
     @Override
@@ -1264,11 +1280,11 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     }
 
     @Override
-    final ColumnarMap getMap(int rowId) {
+    final MapData getMap(int rowId) {
       int index = rowId * MapVector.OFFSET_WIDTH;
       int offset = accessor.getOffsetBuffer().getInt(index);
       int length = accessor.getInnerValueCountAt(rowId);
-      return new ColumnarMap(keys, values, offset, length);
+      return new ArrowColumnarMap(keys, values, offset, length);
     }
 
     @Override

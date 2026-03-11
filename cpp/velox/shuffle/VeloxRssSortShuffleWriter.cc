@@ -21,7 +21,6 @@
 #include "shuffle/ShuffleSchema.h"
 #include "utils/Common.h"
 #include "utils/Macros.h"
-#include "utils/VeloxArrowUtils.h"
 
 #include "velox/common/base/Nulls.h"
 #include "velox/type/Type.h"
@@ -79,10 +78,11 @@ arrow::Status VeloxRssSortShuffleWriter::write(std::shared_ptr<ColumnarBatch> cb
     VELOX_CHECK(numColumns >= 2);
     auto pidBatch = veloxColumnBatch->select(veloxPool_.get(), {0});
     auto pidArr = getFirstColumn(*(pidBatch->getRowVector()));
-    START_TIMING(cpuWallTimingList_[CpuWallTimingCompute]);
-    setSortState(RssSortState::kSort);
-    RETURN_NOT_OK(partitioner_->compute(pidArr, pidBatch->numRows(), batches_.size(), rowVectorIndexMap_));
-    END_TIMING();
+    {
+      SCOPED_TIMER(cpuWallTimingList_[CpuWallTimingCompute]);
+      setSortState(RssSortState::kSort);
+      RETURN_NOT_OK(partitioner_->compute(pidArr, pidBatch->numRows(), batches_.size(), rowVectorIndexMap_));
+    }
     std::vector<int32_t> range;
     range.reserve(numColumns);
     for (int32_t i = 1; i < numColumns; i++) {
@@ -96,24 +96,27 @@ arrow::Status VeloxRssSortShuffleWriter::write(std::shared_ptr<ColumnarBatch> cb
     auto veloxColumnBatch = VeloxColumnarBatch::from(veloxPool_.get(), cb);
     VELOX_CHECK_NOT_NULL(veloxColumnBatch);
     facebook::velox::RowVectorPtr rv;
-    START_TIMING(cpuWallTimingList_[CpuWallTimingFlattenRV]);
-    rv = veloxColumnBatch->getFlattenedRowVector();
-    END_TIMING();
+    {
+      SCOPED_TIMER(cpuWallTimingList_[CpuWallTimingFlattenRV]);
+      rv = veloxColumnBatch->getFlattenedRowVector();
+    }
     if (partitioner_->hasPid()) {
       auto pidArr = getFirstColumn(*rv);
-      START_TIMING(cpuWallTimingList_[CpuWallTimingCompute]);
-      setSortState(RssSortState::kSort);
-      RETURN_NOT_OK(partitioner_->compute(pidArr, rv->size(), batches_.size(), rowVectorIndexMap_));
-      END_TIMING();
+      {
+        SCOPED_TIMER(cpuWallTimingList_[CpuWallTimingCompute]);
+        setSortState(RssSortState::kSort);
+        RETURN_NOT_OK(partitioner_->compute(pidArr, rv->size(), batches_.size(), rowVectorIndexMap_));
+      }
       auto strippedRv = getStrippedRowVector(*rv);
       RETURN_NOT_OK(initFromRowVector(*strippedRv));
       RETURN_NOT_OK(doSort(strippedRv, sortBufferMaxSize_));
     } else {
       RETURN_NOT_OK(initFromRowVector(*rv));
-      START_TIMING(cpuWallTimingList_[CpuWallTimingCompute]);
-      setSortState(RssSortState::kSort);
-      RETURN_NOT_OK(partitioner_->compute(nullptr, rv->size(), batches_.size(), rowVectorIndexMap_));
-      END_TIMING();
+      {
+        SCOPED_TIMER(cpuWallTimingList_[CpuWallTimingCompute]);
+        setSortState(RssSortState::kSort);
+        RETURN_NOT_OK(partitioner_->compute(nullptr, rv->size(), batches_.size(), rowVectorIndexMap_));
+      }
       RETURN_NOT_OK(doSort(rv, sortBufferMaxSize_));
     }
   }

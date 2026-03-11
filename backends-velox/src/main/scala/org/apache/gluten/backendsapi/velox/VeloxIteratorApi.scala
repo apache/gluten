@@ -83,9 +83,9 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     val locations = filePartitions.flatMap(p => SoftAffinity.getFilePartitionLocations(p))
     val (paths, starts, lengths) = getPartitionedFileInfo(partitionFiles).unzip3
     val (fileSizes, modificationTimes) = partitionFiles
-      .map(f => SparkShimLoader.getSparkShims.getFileSizeAndModificationTime(f))
+      .map(f => (f.fileSize, f.modificationTime))
       .collect {
-        case (Some(size), Some(time)) =>
+        case (size, time) =>
           (JLong.valueOf(size), JLong.valueOf(time))
       }
       .unzip
@@ -161,7 +161,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
               case _: DateType =>
                 DateFormatter.apply().format(pv.asInstanceOf[Integer])
               case _: DecimalType =>
-                pv.asInstanceOf[Decimal].toJavaBigInteger.toString
+                pv.asInstanceOf[Decimal].toJavaBigDecimal.unscaledValue().toString
               case _: TimestampType =>
                 TimestampFormatter
                   .getFractionFormatter(ZoneOffset.UTC)
@@ -213,11 +213,12 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     val resIter: ColumnarBatchOutIterator =
       transKernel.createKernelWithBatchIterator(
         inputPartition.plan,
-        splitInfoByteArray,
-        columnarNativeIterators.asJava,
+        if (splitInfoByteArray.nonEmpty) splitInfoByteArray else null,
+        if (columnarNativeIterators.nonEmpty) columnarNativeIterators.toArray else null,
         partitionIndex,
         BackendsApiManager.getSparkPlanExecApiInstance.rewriteSpillPath(spillDirPath)
       )
+    resIter.noMoreSplits()
     val itrMetrics = IteratorMetricsJniWrapper.create()
 
     Iterators
@@ -261,12 +262,12 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     val nativeResultIterator =
       transKernel.createKernelWithBatchIterator(
         rootNode.toProtobuf.toByteArray,
-        // Final iterator does not contain scan split, so pass empty split info to native here.
-        new Array[Array[Byte]](0),
-        columnarNativeIterator.asJava,
+        null,
+        if (columnarNativeIterator.nonEmpty) columnarNativeIterator.toArray else null,
         partitionIndex,
         BackendsApiManager.getSparkPlanExecApiInstance.rewriteSpillPath(spillDirPath)
       )
+    nativeResultIterator.noMoreSplits()
     val itrMetrics = IteratorMetricsJniWrapper.create()
 
     Iterators

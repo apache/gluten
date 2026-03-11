@@ -65,6 +65,11 @@ class DummyRuntime final : public Runtime {
     auto iter = std::make_shared<ResultIterator>(std::move(resIter));
     return iter;
   }
+
+  void noMoreSplits(ResultIterator* iter) override {
+    // Do nothing.
+  }
+
   MemoryManager* memoryManager() override {
     throw GlutenException("Not yet implemented");
   }
@@ -150,6 +155,7 @@ TEST(TestRuntime, GetResultIterator) {
   DummyMemoryManager mm(kDummyBackendKind);
   auto runtime = std::make_shared<DummyRuntime>(kDummyBackendKind, &mm, std::unordered_map<std::string, std::string>());
   auto iter = runtime->createResultIterator("/tmp/test-spill", {});
+  runtime->noMoreSplits(iter.get());
   ASSERT_TRUE(iter->hasNext());
   auto next = iter->next();
   ASSERT_NE(next, nullptr);

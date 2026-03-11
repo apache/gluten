@@ -24,8 +24,7 @@ import org.apache.spark.util.SparkReflectionUtil
 
 class CHIcebergComponent extends Component {
   override def name(): String = "clickhouse-iceberg"
-  override def buildInfo(): Component.BuildInfo =
-    Component.BuildInfo("ClickHouseIceberg", "N/A", "N/A", "N/A")
+
   override def dependencies(): Seq[Class[_ <: Component]] = classOf[CHBackend] :: Nil
 
   override def isRuntimeCompatible: Boolean = {

@@ -62,7 +62,7 @@ public final class Spillers {
   }
 
   public static class AppendableSpillerList implements Spiller {
-    private final List<Spiller> spillers = new LinkedList<>();
+    private final List<Spiller> spillers = new ArrayList<>();
 
     private AppendableSpillerList() {}
 

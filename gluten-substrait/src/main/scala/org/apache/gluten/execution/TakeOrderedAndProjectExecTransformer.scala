@@ -137,7 +137,7 @@ case class TakeOrderedAndProjectExecTransformer(
           LimitExecTransformer(localSortPlan, limitBeforeShuffleOffset, limit)
       }
       val transformStageCounter: AtomicInteger =
-        ColumnarCollapseTransformStages.transformStageCounter
+        ColumnarCollapseTransformStages.getTransformStageCounter(child)
       val finalLimitPlan = if (hasShuffle) {
         limitBeforeShuffle
       } else {

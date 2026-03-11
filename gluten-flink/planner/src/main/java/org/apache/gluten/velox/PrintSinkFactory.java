@@ -17,7 +17,7 @@
 package org.apache.gluten.velox;
 
 import org.apache.gluten.streaming.api.operators.GlutenOneInputOperatorFactory;
-import org.apache.gluten.table.runtime.operators.GlutenVectorOneInputOperator;
+import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
@@ -114,11 +114,14 @@ public class PrintSinkFactory implements VeloxSourceSinkFactory {
         inputTrans,
         transformation.getName(),
         new GlutenOneInputOperatorFactory(
-            new GlutenVectorOneInputOperator(
+            new GlutenOneInputOperator(
                 new StatefulPlanNode(tableWriteNode.getId(), tableWriteNode),
                 PlanNodeIdGenerator.newId(),
                 inputColumns,
-                Map.of(tableWriteNode.getId(), ignore))),
+                Map.of(tableWriteNode.getId(), ignore),
+                RowData.class,
+                RowData.class,
+                "PrintSink")),
         transformation.getParallelism());
   }
 }

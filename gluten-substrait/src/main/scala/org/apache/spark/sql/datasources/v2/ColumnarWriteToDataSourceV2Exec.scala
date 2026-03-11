@@ -46,7 +46,7 @@ trait WritingColumnarBatchSparkTask[W <: DataWriter[ColumnarBatch]]
     val partId = context.partitionId()
     val taskId = context.taskAttemptId()
     val attemptId = context.attemptNumber()
-    val dataWriter = factory.createWriter().asInstanceOf[W]
+    val dataWriter = factory.createWriter(partId, taskId).asInstanceOf[W]
 
     var count = 0
     // write the data and commit this writer.

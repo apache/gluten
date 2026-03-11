@@ -35,8 +35,6 @@ import org.apache.spark.util.SparkResourceUtil
 import java.util
 import java.util.Collections
 
-import scala.collection.mutable
-
 class GlutenPlugin extends SparkPlugin {
   override def driverPlugin(): DriverPlugin = {
     new GlutenDriverPlugin()
@@ -157,17 +155,14 @@ private object GlutenDriverPlugin extends Logging {
   }
 
   private def printComponentInfo(components: Seq[Component]): Unit = {
-    val componentInfo = mutable.LinkedHashMap[String, String]()
-    componentInfo.put("Components", components.map(_.buildInfo().name).mkString(", "))
-    components.foreach {
-      comp =>
-        val buildInfo = comp.buildInfo()
-        componentInfo.put(s"Component ${buildInfo.name} Branch", buildInfo.branch)
-        componentInfo.put(s"Component ${buildInfo.name} Revision", buildInfo.revision)
-        componentInfo.put(s"Component ${buildInfo.name} Revision Time", buildInfo.revisionTime)
-    }
-    val loggingInfo = componentInfo
-      .map { case (name, value) => s"$name: $value" }
+    val loggingInfo = components
+      .map {
+        c =>
+          val infoStr =
+            if (c.info().isEmpty) ""
+            else "\n" + c.info().map { case (k, v) => s"  $k = $v" }.mkString("\n")
+          s"Component ${c.name()}$infoStr"
+      }
       .mkString(
         "Gluten components:\n==============================================================\n",
         "\n",

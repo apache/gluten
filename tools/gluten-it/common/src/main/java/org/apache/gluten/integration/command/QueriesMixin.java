@@ -108,7 +108,7 @@ public class QueriesMixin {
         }
         final Division div = Division.parse(shard);
         querySet = querySet.getShard(div.shard - 1, div.shardCount);
-        System.out.println("About to run queries: " + querySet.queryIds() + "... ");
+        System.out.println("About to run queries: " + querySet.queryIds().mkString(",") + "... ");
         return querySet;
       }
     };

@@ -42,6 +42,7 @@ public class Metrics implements IMetrics {
   public long[] numReplacedWithDynamicFilterRows;
   public long[] flushRowCount;
   public long[] loadedToValueHook;
+  public long[] bloomFilterBlocksByteSize;
   public long[] skippedSplits;
   public long[] processedSplits;
   public long[] skippedStrides;
@@ -91,6 +92,7 @@ public class Metrics implements IMetrics {
       long[] numReplacedWithDynamicFilterRows,
       long[] flushRowCount,
       long[] loadedToValueHook,
+      long[] bloomFilterBlocksByteSize,
       long[] scanTime,
       long[] skippedSplits,
       long[] processedSplits,
@@ -134,6 +136,7 @@ public class Metrics implements IMetrics {
     this.numReplacedWithDynamicFilterRows = numReplacedWithDynamicFilterRows;
     this.flushRowCount = flushRowCount;
     this.loadedToValueHook = loadedToValueHook;
+    this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
     this.skippedSplits = skippedSplits;
     this.processedSplits = processedSplits;
     this.skippedStrides = skippedStrides;
@@ -183,6 +186,7 @@ public class Metrics implements IMetrics {
         numReplacedWithDynamicFilterRows[index],
         flushRowCount[index],
         loadedToValueHook[index],
+        bloomFilterBlocksByteSize[index],
         scanTime[index],
         skippedSplits[index],
         processedSplits[index],

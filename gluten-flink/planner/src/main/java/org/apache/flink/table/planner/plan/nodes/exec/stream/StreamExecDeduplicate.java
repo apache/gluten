@@ -16,7 +16,7 @@
  */
 package org.apache.flink.table.planner.plan.nodes.exec.stream;
 
-import org.apache.gluten.table.runtime.operators.GlutenVectorOneInputOperator;
+import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
@@ -212,11 +212,14 @@ public class StreamExecDeduplicate extends ExecNodeBase<RowData>
               deduplicateNode,
               outputType);
       operator =
-          new GlutenVectorOneInputOperator(
+          new GlutenOneInputOperator(
               new StatefulPlanNode(streamRankNode.getId(), streamRankNode),
               PlanNodeIdGenerator.newId(),
               inputType,
-              Map.of(streamRankNode.getId(), outputType));
+              Map.of(streamRankNode.getId(), outputType),
+              RowData.class,
+              RowData.class,
+              "StreamExecDeduplicate");
     } else {
       throw new RuntimeException("ProcTime in deduplicate is not supported.");
     }

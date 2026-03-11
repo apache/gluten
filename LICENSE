@@ -247,6 +247,7 @@
    ./backends-clickhouse/src-delta-33/main/scala/org/apache/spark/sql/delta/Snapshot.scala
    ./backends-clickhouse/src-delta-33/main/scala/org/apache/spark/sql/delta/commands/DMLWithDeletionVectorsHelper.scala
    ./backends-clickhouse/src-delta-33/main/scala/org/apache/spark/sql/delta/commands/VacuumCommand.scala
+   ./backends-clickhouse/src-delta-33/main/scala/org/apache/spark/sql/delta/commands/merge/MergeIntoMaterializeSource.scala
 
     The Velox Project(https://github.com/facebookincubator/velox)
    ./cpp/velox/udf/examples/MyUDAF.cc
@@ -259,4 +260,18 @@
    ClickHouse(https://github.com/ClickHouse/ClickHouse)
    ./cpp-ch/local-engine/AggregateFunctions/AggregateFunctionPartialMerge.h
    ./cpp-ch/local-engine/Functions/SparkFunctionArrayDistinct.cpp
+
+   This product bundles the following compiled test binary under the
+   Apache Software License 2.0.
+
+   Apache Hive(https://github.com/apache/hive)
+   ./backends-clickhouse/src/test/resources/udfs/hive-test-udfs.jar
+
+   This product bundles the following binary test data files, which are
+   self-generated Delta Lake deletion vector fixtures used for testing,
+   under the Apache Software License 2.0.
+
+   ./cpp-ch/local-engine/tests/data/deletion_vector_long_values.bin
+   ./cpp-ch/local-engine/tests/data/deletion_vector_multiple.bin
+   ./cpp-ch/local-engine/tests/data/deletion_vector_only_one.bin
    

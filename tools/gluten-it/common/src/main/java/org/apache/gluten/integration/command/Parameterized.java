@@ -76,6 +76,9 @@ public class Parameterized implements Callable<Integer> {
 
   @Override
   public Integer call() throws Exception {
+    if (dims.length == 0) {
+      throw new IllegalArgumentException("At least one dimension must be specified by -d / --dim");
+    }
     final Map<String, Map<String, List<Map.Entry<String, String>>>> parsed = new LinkedHashMap<>();
 
     final scala.collection.immutable.Seq<

@@ -22,6 +22,7 @@ import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.optimizer.InferFiltersFromConstraints
 import org.apache.spark.sql.catalyst.planning.PhysicalOperation
+import org.apache.spark.sql.classic.ClassicColumn
 import org.apache.spark.sql.classic.ClassicConversions._
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.parseColumnPath
 import org.apache.spark.sql.execution.datasources.{DataSourceStrategy, HadoopFsRelation, LogicalRelation, PushableColumnAndNestedColumn}
@@ -309,8 +310,8 @@ class GlutenParquetV1FilterSuite extends GlutenParquetFilterSuite with GlutenSQL
           SQLConf.NESTED_PREDICATE_PUSHDOWN_FILE_SOURCE_LIST.key -> pushdownDsList
         ) {
           val query = df
-            .select(output.map(e => Column(e)): _*)
-            .where(Column(predicate))
+            .select(output.map(e => ClassicColumn(e)): _*)
+            .where(ClassicColumn(predicate))
 
           val nestedOrAttributes = predicate.collectFirst {
             case g: GetStructField => g
@@ -395,8 +396,8 @@ class GlutenParquetV2FilterSuite extends GlutenParquetFilterSuite with GlutenSQL
       SQLConf.PARQUET_VECTORIZED_READER_ENABLED.key -> "false"
     ) {
       val query = df
-        .select(output.map(e => Column(e)): _*)
-        .where(Column(predicate))
+        .select(output.map(e => ClassicColumn(e)): _*)
+        .where(ClassicColumn(predicate))
 
       query.queryExecution.optimizedPlan.collectFirst {
         case PhysicalOperation(

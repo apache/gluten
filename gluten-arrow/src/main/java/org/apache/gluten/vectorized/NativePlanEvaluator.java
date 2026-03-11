@@ -28,7 +28,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -71,10 +70,11 @@ public class NativePlanEvaluator {
 
   // Used by WholeStageTransform to create the native computing pipeline and
   // return a columnar result iterator.
+  // Supports both creation-time splits (splitInfo, iterList) and runtime splits (via addSplits()).
   public ColumnarBatchOutIterator createKernelWithBatchIterator(
       byte[] wsPlan,
       byte[][] splitInfo,
-      List<ColumnarBatchInIterator> iterList,
+      ColumnarBatchInIterator[] iterList,
       int partitionIndex,
       String spillDirPath)
       throws RuntimeException {
@@ -82,7 +82,7 @@ public class NativePlanEvaluator {
         jniWrapper.nativeCreateKernelWithIterator(
             wsPlan,
             splitInfo,
-            iterList.toArray(new ColumnarBatchInIterator[0]),
+            iterList,
             TaskContext.get().stageId(),
             partitionIndex, // TaskContext.getPartitionId(),
             TaskContext.get().taskAttemptId(),

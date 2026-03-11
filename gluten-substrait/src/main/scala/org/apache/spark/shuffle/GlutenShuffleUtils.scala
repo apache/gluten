@@ -18,10 +18,9 @@ package org.apache.spark.shuffle
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.vectorized.NativePartitioning
 
-import org.apache.spark.{SparkConf, TaskContext}
+import org.apache.spark.{ShuffleUtils, SparkConf, TaskContext}
 import org.apache.spark.internal.config._
 import org.apache.spark.shuffle.api.ShuffleExecutorComponents
 import org.apache.spark.shuffle.sort.ColumnarShuffleHandle
@@ -120,12 +119,7 @@ object GlutenShuffleUtils {
       startPartition: Int,
       endPartition: Int
   ): Tuple2[Iterator[(BlockManagerId, Seq[(BlockId, Long, Int)])], Boolean] = {
-    SparkShimLoader.getSparkShims.getShuffleReaderParam(
-      handle,
-      startMapIndex,
-      endMapIndex,
-      startPartition,
-      endPartition)
+    ShuffleUtils.getReaderParam(handle, startMapIndex, endMapIndex, startPartition, endPartition)
   }
 
   def getSortShuffleWriter[K, V](

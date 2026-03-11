@@ -36,7 +36,7 @@ namespace gluten {
 
 void VeloxParquetDataSource::initSink(const std::unordered_map<std::string, std::string>& /* sparkConfs */) {
   if (strncmp(filePath_.c_str(), "file:", 5) == 0) {
-    sink_ = dwio::common::FileSink::create(filePath_, {.pool = pool_.get()});
+    sink_ = dwio::common::FileSink::create(filePath_, {.pool = sinkPool_.get()});
   } else {
     throw std::runtime_error("The file path is not local when writing data with parquet format in velox runtime!");
   }

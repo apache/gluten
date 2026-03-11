@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 package org.apache.spark.sql.delta
+
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
 import org.apache.spark.sql.delta.stats.DeltaScan
 

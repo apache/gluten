@@ -78,7 +78,7 @@ export CPU_TARGET="aarch64"
 **Step-by-step build**
 
 Alternative to the above one-step build, you can follow the below guide for step-by-step build.
-Currently, Gluten is using a [forked Velox](https://github.com/oap-project/velox/) which is daily updated based on [upstream Velox](https://github.com/facebookincubator/velox).
+Currently, Gluten is using a [IBM Velox](https://github.com/IBM/velox) which is daily updated based on [upstream Velox](https://github.com/facebookincubator/velox).
 
 ```bash
 

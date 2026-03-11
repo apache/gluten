@@ -28,11 +28,12 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
-import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, BatchScanExec, OverwriteByExpressionExec, OverwritePartitionsDynamicExec, ReplaceDataExec}
+import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, BatchScanExec, OverwriteByExpressionExec, OverwritePartitionsDynamicExec, ReplaceDataExec, WriteToDataSourceV2Exec}
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, ShuffleExchangeExec}
 import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 
 object Validators {
   implicit class ValidatorBuilderImplicits(builder: Validator.Builder) {
@@ -76,6 +77,11 @@ object Validators {
 
     def fallbackByTestInjects(): Validator.Builder = {
       builder.add(new FallbackByTestInjects())
+    }
+
+    /** Fails validation if a plan node's input or output schema contains TimestampNTZType. */
+    def fallbackByTimestampNTZ(): Validator.Builder = {
+      builder.add(new FallbackByTimestampNTZ())
     }
 
     /**
@@ -140,6 +146,7 @@ object Validators {
       case p: OverwriteByExpressionExec if !settings.supportOverwriteByExpression() => fail(p)
       case p: OverwritePartitionsDynamicExec if !settings.supportOverwritePartitionsDynamic() =>
         fail(p)
+      case p: WriteToDataSourceV2Exec if !settings.supportWriteToDataSourceV2() => fail(p)
       case _ => pass()
     }
   }
@@ -164,6 +171,7 @@ object Validators {
       case p: OverwriteByExpressionExec if !glutenConf.enableOverwriteByExpression => fail(p)
       case p: OverwritePartitionsDynamicExec if !glutenConf.enableOverwritePartitionsDynamic =>
         fail(p)
+      case p: WriteToDataSourceV2Exec if !glutenConf.enableColumnarWriteToDataSourceV2 => fail(p)
       case p @ (_: LocalLimitExec | _: GlobalLimitExec) if !glutenConf.enableColumnarLimit =>
         fail(p)
       case p: GenerateExec if !glutenConf.enableColumnarGenerate => fail(p)
@@ -207,6 +215,25 @@ object Validators {
         return fail(plan)
       }
       pass()
+    }
+  }
+
+  private class FallbackByTimestampNTZ() extends Validator {
+    override def validate(plan: SparkPlan): Validator.OutCome = {
+      def containsNTZ(dataType: DataType): Boolean = dataType match {
+        case dt if dt.catalogString == "timestamp_ntz" => true
+        case st: StructType => st.exists(f => containsNTZ(f.dataType))
+        case at: ArrayType => containsNTZ(at.elementType)
+        case mt: MapType => containsNTZ(mt.keyType) || containsNTZ(mt.valueType)
+        case _ => false
+      }
+      val hasNTZ = plan.output.exists(a => containsNTZ(a.dataType)) ||
+        plan.children.exists(_.output.exists(a => containsNTZ(a.dataType)))
+      if (hasNTZ) {
+        fail(s"${plan.nodeName} has TimestampNTZType in input/output schema")
+      } else {
+        pass()
+      }
     }
   }
 
@@ -290,6 +317,7 @@ object Validators {
       .fallbackComplexExpressions()
       .fallbackByBackendSettings()
       .fallbackByUserOptions()
+      .fallbackByTimestampNTZ()
       .fallbackByTestInjects()
       .build()
   }

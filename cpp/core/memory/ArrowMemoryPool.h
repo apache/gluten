@@ -17,10 +17,11 @@
 
 #pragma once
 
-#include "arrow/memory_pool.h"
+#include "arrow/memory_pool.h" // IWYU pragma: keep
 
-#include "MemoryAllocator.h"
+#include "MemoryAllocator.h" // IWYU pragma: keep
 
+// NOLINTNEXTLINE(cert-dcl58-cpp)
 namespace gluten {
 
 using ArrowMemoryPoolReleaser = std::function<void(arrow::MemoryPool*)>;
@@ -28,11 +29,19 @@ using ArrowMemoryPoolReleaser = std::function<void(arrow::MemoryPool*)>;
 /// This pool was not tracked by Spark, should only used in test.
 class ArrowMemoryPool final : public arrow::MemoryPool {
  public:
-  explicit ArrowMemoryPool(AllocationListener* listener, ArrowMemoryPoolReleaser releaser = nullptr)
-      : allocator_(std::make_unique<ListenableMemoryAllocator>(defaultMemoryAllocator().get(), listener)),
-        releaser_(std::move(releaser)) {}
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init, hicpp-member-init)
+  explicit ArrowMemoryPool(AllocationListener* listener)
+      : allocator_(std::make_unique<ListenableMemoryAllocator>(defaultMemoryAllocator().get(), listener)) {}
 
-  ~ArrowMemoryPool() override;
+  ~ArrowMemoryPool() override = default;
+
+  ArrowMemoryPool(const ArrowMemoryPool&) = delete;
+
+  ArrowMemoryPool& operator=(const ArrowMemoryPool&) = delete;
+
+  ArrowMemoryPool(ArrowMemoryPool&&) = delete;
+
+  ArrowMemoryPool& operator=(ArrowMemoryPool&&) = delete;
 
   arrow::Status Allocate(int64_t size, int64_t alignment, uint8_t** out) override;
 
@@ -53,8 +62,7 @@ class ArrowMemoryPool final : public arrow::MemoryPool {
   MemoryAllocator* allocator() const;
 
  private:
-  std::unique_ptr<MemoryAllocator> allocator_;
-  ArrowMemoryPoolReleaser releaser_;
+  std::unique_ptr<MemoryAllocator> allocator_ = nullptr;
 };
 
 } // namespace gluten

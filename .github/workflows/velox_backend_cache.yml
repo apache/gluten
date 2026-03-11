@@ -91,7 +91,7 @@ jobs:
         os: [ ubuntu-22.04, ubuntu-24.04-arm ]
     container: apache/gluten:centos-8-jdk8
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Get Ccache
         uses: actions/cache/restore@v3
         with:
@@ -178,7 +178,7 @@ jobs:
           cd /work
           bash dev/builddeps-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF --build_tests=ON --build_benchmarks=ON --enable_gpu=ON # TODO: re-enable tests with more disk space
           rm -rf ep/build-velox/build/velox_ep
-          mvn clean package -Pbackends-velox -Pspark-3.4 -DskipTests
+          ./build/mvn clean package -Pbackends-velox -Pspark-3.4 -DskipTests
           ccache -s
           "
       - name: Save Ccache

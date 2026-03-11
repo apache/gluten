@@ -15,19 +15,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+BASEDIR=$(dirname "$0")
+# Use Gluten's Maven wrapper
+MVN_CMD="${BASEDIR}/../build/mvn"
+
 # If a new profile is introduced for new modules, please add it here to ensure
 # the new modules are covered.
-PROFILES="-Pbackends-velox -Pceleborn,uniffle -Piceberg,delta,hudi,paimon \
-          -Pspark-3.2,spark-3.3,spark-3.4,spark-3.5,spark-4.0 -Pspark-ut"
+PROFILES="-Pbackends-velox,backends-clickhouse -Pceleborn,uniffle -Piceberg,delta,hudi,paimon \
+          -Pspark-3.3,spark-3.4,spark-3.5,spark-4.0,spark-4.1 -Pspark-ut -Pkafka"
 
 COMMAND=$1
 
 if [[ "$COMMAND" == "check" ]]; then
   echo "Checking Scala code style.."
-  mvn -q spotless:check $PROFILES
+  ${MVN_CMD} -q spotless:check $PROFILES
 elif [[ "$COMMAND" == "apply" ]] || [[ "$COMMAND" == "" ]]; then
   echo "Fixing Scala code style.."
-  mvn -q spotless:apply $PROFILES
+  ${MVN_CMD} -q spotless:apply $PROFILES
 else
   echo "Unrecognized option."
   exit 1

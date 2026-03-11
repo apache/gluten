@@ -22,7 +22,6 @@ ARG JAVA_VERSION=1.8.0
 
 ENV JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-openjdk
 ENV PATH=$JAVA_HOME/bin:$PATH
-ENV PATH=${PATH}:/usr/lib/maven/bin
 
 
 RUN set -ex; \
@@ -30,33 +29,25 @@ RUN set -ex; \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-12 gcc-toolset-13; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     yum install -y java-${JAVA_VERSION}-openjdk-devel patch wget git perl; \
-    maven_version=3.9.2; \
-    local_binary="apache-maven-${maven_version}-bin.tar.gz"; \
     mirror_host="https://www.apache.org/dyn/closer.lua"; \
-    url="${mirror_host}/maven/maven-3/${maven_version}/binaries/${local_binary}?action=download"; \
-    wget -nv -O ${local_binary} ${url}; \
-    tar -xvf ${local_binary}; \
-    mv apache-maven-${maven_version} /usr/lib/maven; \
-    rm -rf ${local_binary}; \
     wget -nv ${mirror_host}/celeborn/celeborn-0.5.4/apache-celeborn-0.5.4-bin.tgz?action=download -O /opt/apache-celeborn-0.5.4-bin.tgz; \
     wget -nv ${mirror_host}/celeborn/celeborn-0.6.1/apache-celeborn-0.6.1-bin.tgz?action=download -O /opt/apache-celeborn-0.6.1-bin.tgz; \
     wget -nv ${mirror_host}/uniffle/0.10.0/apache-uniffle-0.10.0-bin.tar.gz?action=download -O /opt/apache-uniffle-0.10.0-bin.tar.gz; \
     wget -nv ${mirror_host}/hadoop/common/hadoop-2.8.5/hadoop-2.8.5.tar.gz?action=download -O /opt/hadoop-2.8.5.tar.gz; \
     git clone --depth=1 https://github.com/apache/incubator-gluten /opt/gluten; \
     cd /opt/gluten/.github/workflows/util/; \
-    ./install-spark-resources.sh 3.2; \
-    ./install-spark-resources.sh 3.3; \
-    ./install-spark-resources.sh 3.4; \
-    ./install-spark-resources.sh 3.5; \
-    ./install-spark-resources.sh 3.5-scala2.13; \
-    ./install-spark-resources.sh 4.0; \
+    ./install-resources.sh 3.3; \
+    ./install-resources.sh 3.4; \
+    ./install-resources.sh 3.5; \
+    ./install-resources.sh 3.5-scala2.13; \
+    ./install-resources.sh 4.0; \
     if [ "$(uname -m)" = "aarch64" ]; then \
         export CPU_TARGET="aarch64"; \
     fi; \
     cd /opt/gluten; \
     source /opt/rh/gcc-toolset-12/enable; \
     ./dev/builddeps-veloxbe.sh --run_setup_script=ON build_arrow; \
-    mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
+    ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
     dnf clean all; \
     rm -rf /opt/gluten; \
     rm -rf /root/.cache/ccache;

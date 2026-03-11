@@ -21,18 +21,18 @@
   <parent>
     <groupId>org.apache.gluten</groupId>
     <artifactId>gluten-it</artifactId>
-    <version>1.6.0-SNAPSHOT</version>
+    <version>1.7.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>gluten-it-common</artifactId>
-  <version>1.6.0-SNAPSHOT</version>
+  <version>1.7.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <dependencies>
     <dependency>
       <groupId>org.apache.gluten</groupId>
       <artifactId>gluten-it-3rd</artifactId>
-      <version>1.6.0-SNAPSHOT</version>
+      <version>1.7.0-SNAPSHOT</version>
       <scope>compile</scope>
       <exclusions>
         <exclusion>
@@ -113,9 +113,11 @@
       <plugin>
         <groupId>net.alchim31.maven</groupId>
         <artifactId>scala-maven-plugin</artifactId>
-        <version>4.8.0</version>
+        <!-- Hardcoded since gluten-it is a standalone third-party module
+             that doesn't inherit parent POM properties -->
+        <version>4.9.2</version>
         <configuration>
-          <recompileMode>all</recompileMode>
+          <recompileMode>incremental</recompileMode>
         </configuration>
         <executions>
           <execution>

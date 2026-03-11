@@ -23,6 +23,7 @@
 #include "compute/ResultIterator.h"
 #include "memory/ColumnarBatch.h"
 #include "memory/MemoryManager.h"
+#include "memory/SplitAwareColumnarBatchIterator.h"
 #include "operators/c2r/ColumnarToRow.h"
 #include "operators/r2c/RowToColumnar.h"
 #include "operators/serializer/ColumnarBatchSerializer.h"
@@ -102,6 +103,14 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   virtual std::shared_ptr<ResultIterator> createResultIterator(
       const std::string& spillDir,
       const std::vector<std::shared_ptr<ResultIterator>>& inputs) {
+    throw GlutenException("Not implemented");
+  }
+
+  virtual void noMoreSplits(ResultIterator* iter) {
+    throw GlutenException("Not implemented");
+  }
+
+  virtual void requestBarrier(ResultIterator* iter) {
     throw GlutenException("Not implemented");
   }
 

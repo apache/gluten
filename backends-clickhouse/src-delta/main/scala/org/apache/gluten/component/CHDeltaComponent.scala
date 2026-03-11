@@ -33,8 +33,7 @@ import org.apache.spark.util.SparkReflectionUtil
 
 class CHDeltaComponent extends Component {
   override def name(): String = "ch-delta"
-  override def buildInfo(): Component.BuildInfo =
-    Component.BuildInfo("CHDelta", "N/A", "N/A", "N/A")
+
   override def dependencies(): Seq[Class[_ <: Component]] = classOf[CHBackend] :: Nil
 
   override def isRuntimeCompatible: Boolean = {

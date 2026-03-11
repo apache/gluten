@@ -99,6 +99,8 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
   val hashProbeDynamicFiltersProduced: SQLMetric =
     metrics("hashProbeDynamicFiltersProduced")
 
+  val bloomFilterBlocksByteSize: SQLMetric = metrics("bloomFilterBlocksByteSize")
+
   val streamPreProjectionCpuCount: SQLMetric = metrics("streamPreProjectionCpuCount")
   val streamPreProjectionWallNanos: SQLMetric = metrics("streamPreProjectionWallNanos")
 
@@ -127,6 +129,7 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashProbeSpilledFiles += hashProbeMetrics.spilledFiles
     hashProbeReplacedWithDynamicFilterRows += hashProbeMetrics.numReplacedWithDynamicFilterRows
     hashProbeDynamicFiltersProduced += hashProbeMetrics.numDynamicFiltersProduced
+    bloomFilterBlocksByteSize += hashProbeMetrics.bloomFilterBlocksByteSize
     idx += 1
 
     // HashBuild

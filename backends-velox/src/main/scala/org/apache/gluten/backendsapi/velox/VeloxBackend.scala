@@ -18,7 +18,6 @@ package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.GlutenBuildInfo._
 import org.apache.gluten.backendsapi._
-import org.apache.gluten.component.Component.BuildInfo
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.ValidationResult
@@ -57,8 +56,12 @@ class VeloxBackend extends SubstraitBackend {
   import VeloxBackend._
 
   override def name(): String = VeloxBackend.BACKEND_NAME
-  override def buildInfo(): BuildInfo =
-    BuildInfo("Velox", VELOX_BRANCH, VELOX_REVISION, VELOX_REVISION_TIME)
+  override def info(): Map[String, String] = {
+    Map(
+      "velox_branch" -> VELOX_BRANCH,
+      "velox_revision" -> VELOX_REVISION,
+      "velox_revisionTime" -> VELOX_REVISION_TIME)
+  }
   override def iteratorApi(): IteratorApi = new VeloxIteratorApi
   override def sparkPlanExecApi(): SparkPlanExecApi = new VeloxSparkPlanExecApi
   override def transformerApi(): TransformerApi = new VeloxTransformerApi
@@ -93,6 +96,11 @@ object VeloxBackendSettings extends BackendSettingsApi {
   val GLUTEN_VELOX_DRIVER_UDF_LIB_PATHS = VeloxBackend.CONF_PREFIX + ".driver.udfLibraryPaths"
   val GLUTEN_VELOX_INTERNAL_UDF_LIB_PATHS = VeloxBackend.CONF_PREFIX + ".internal.udfLibraryPaths"
   val GLUTEN_VELOX_UDF_ALLOW_TYPE_CONVERSION = VeloxBackend.CONF_PREFIX + ".udfAllowTypeConversion"
+
+  val GLUTEN_VELOX_BROADCAST_CACHE_EXPIRED_TIME: String =
+    VeloxBackend.CONF_PREFIX + ("broadcast.cache.expired.time")
+  // unit: SECONDS, default 1 day
+  val GLUTEN_VELOX_BROADCAST_CACHE_EXPIRED_TIME_DEFAULT: Int = 86400
 
   override def primaryBatchType: Convention.BatchType = VeloxBatchType
 
@@ -305,7 +313,7 @@ object VeloxBackendSettings extends BackendSettingsApi {
       val unSupportedCompressions = Set("brotli", "lzo", "lz4raw", "lz4_raw")
       val compressionCodec = WriteFilesExecTransformer.getCompressionCodec(options)
       if (unSupportedCompressions.contains(compressionCodec)) {
-        Some("Brotli, lzo, lz4raw and lz4_raw compression codec is unsupported in Velox backend.")
+        Some(s"$compressionCodec compression codec is unsupported in Velox backend.")
       } else {
         None
       }
@@ -416,7 +424,7 @@ object VeloxBackendSettings extends BackendSettingsApi {
 
   override def supportWindowGroupLimitExec(rankLikeFunction: Expression): Boolean = {
     rankLikeFunction match {
-      case _: RowNumber => true
+      case _: RowNumber | _: Rank | _: DenseRank => true
       case _ => false
     }
   }
@@ -492,13 +500,17 @@ object VeloxBackendSettings extends BackendSettingsApi {
     allSupported
   }
 
+  override def enableJoinKeysRewrite(): Boolean = false
+
   override def supportColumnarShuffleExec(): Boolean = {
     val conf = GlutenConfig.get
     conf.enableColumnarShuffle &&
     (conf.isUseGlutenShuffleManager || conf.shuffleManagerSupportsColumnarShuffle)
   }
 
-  override def enableJoinKeysRewrite(): Boolean = false
+  override def enableHashTableBuildOncePerExecutor(): Boolean = {
+    VeloxConfig.get.enableBroadcastBuildOncePerExecutor
+  }
 
   override def supportHashBuildJoinTypeOnLeft: JoinType => Boolean = {
     t =>
@@ -586,6 +598,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
   override def supportOverwriteByExpression(): Boolean = enableEnhancedFeatures()
 
   override def supportOverwritePartitionsDynamic(): Boolean = enableEnhancedFeatures()
+
+  override def supportWriteToDataSourceV2(): Boolean = enableEnhancedFeatures()
 
   /** Velox does not support columnar shuffle with empty schema. */
   override def supportEmptySchemaColumnarShuffle(): Boolean = false

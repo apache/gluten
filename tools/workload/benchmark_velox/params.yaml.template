@@ -2,7 +2,7 @@
 gluten_home: /home/sparkuser/gluten
 
 # Local path to gluten jar.
-gluten_target_jar: /home/sparkuser/gluten-velox-bundle-spark3.5_2.12-linux_amd64-1.6.0-SNAPSHOT.jar
+gluten_target_jar: /home/sparkuser/gluten-velox-bundle-spark3.5_2.12-linux_amd64-1.7.0-SNAPSHOT.jar
 
 # Spark app master.
 master: yarn

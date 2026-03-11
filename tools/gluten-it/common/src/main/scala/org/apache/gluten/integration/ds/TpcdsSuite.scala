@@ -16,17 +16,17 @@
  */
 package org.apache.gluten.integration.ds
 
-import org.apache.gluten.integration.{DataGen, QuerySet, Suite, TableCreator}
+import org.apache.gluten.integration.{DataGen, QuerySet, Suite, TableAnalyzer, TableCreator}
 import org.apache.gluten.integration.action.Action
 import org.apache.gluten.integration.metrics.MetricMapper
 
 import org.apache.spark.SparkConf
 
+import org.apache.hadoop.fs.Path
 import org.apache.log4j.Level
 
-import java.io.File
-
 class TpcdsSuite(
+    val appName: String,
     val masterUrl: String,
     val actions: Array[Action],
     val testConf: SparkConf,
@@ -45,12 +45,15 @@ class TpcdsSuite(
     val disableAqe: Boolean,
     val disableBhj: Boolean,
     val disableWscg: Boolean,
+    val enableCbo: Boolean,
     val shufflePartitions: Int,
     val scanPartitions: Int,
     val decimalAsDouble: Boolean,
     val baselineMetricMapper: MetricMapper,
-    val testMetricMapper: MetricMapper)
+    val testMetricMapper: MetricMapper,
+    val reportPath: String)
   extends Suite(
+    appName,
     masterUrl,
     actions,
     testConf,
@@ -64,11 +67,13 @@ class TpcdsSuite(
     disableAqe,
     disableBhj,
     disableWscg,
+    enableCbo,
     shufflePartitions,
     scanPartitions,
     decimalAsDouble,
     baselineMetricMapper,
-    testMetricMapper
+    testMetricMapper,
+    reportPath
   ) {
   import TpcdsSuite._
 
@@ -81,16 +86,14 @@ class TpcdsSuite(
       "non_partitioned"
     }
     val featureFlags = dataGenFeatures.map(feature => s"-$feature").mkString("")
-    new File(dataDir).toPath
-      .resolve(s"$TPCDS_WRITE_RELATIVE_PATH-$dataScale-$dataSource-$partitionedFlag$featureFlags")
-      .toFile
-      .getAbsolutePath
+    val relative =
+      s"$TPCDS_WRITE_RELATIVE_PATH-$dataScale-$dataSource-$partitionedFlag$featureFlags"
+    new Path(dataDir, relative).toString
   }
 
   override private[integration] def createDataGen(): DataGen = {
     checkDataGenArgs(dataSource, dataScale, genPartitionedData)
     new TpcdsDataGen(
-      sessionSwitcher.spark(),
       dataScale,
       shufflePartitions,
       dataSource,
@@ -106,7 +109,9 @@ class TpcdsSuite(
 
   override private[integration] def desc(): String = "TPC-DS"
 
-  override def tableCreator(): TableCreator = TableCreator.discoverSchema()
+  override def tableCreator(): TableCreator = TableCreator.discoverFromFiles()
+
+  override def tableAnalyzer0(): TableAnalyzer = TableAnalyzer.analyzeAll()
 }
 
 object TpcdsSuite {

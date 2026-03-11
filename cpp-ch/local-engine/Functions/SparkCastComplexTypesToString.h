@@ -114,7 +114,7 @@ public:
             for (size_t row = 0; row < input_rows_count; ++row)
             {
                 serializeTuple(*tuple_col, row, tuple_type->getElements(), write_buffer, format_settings);
-                write_helper.rowWritten();
+                write_helper.finishRow();
             }
             write_helper.finalize();
         }
@@ -126,7 +126,7 @@ public:
             for (size_t row = 0; row < input_rows_count; ++row)
             {
                 serializeMap(*map_col, row, key_type, value_type, write_buffer, format_settings);
-                write_helper.rowWritten();
+                write_helper.finishRow();
             }
             write_helper.finalize();
         }
@@ -136,7 +136,7 @@ public:
             for (size_t row = 0; row < input_rows_count; ++row)
             {
                 serializeArray(*array_col, row, array_type->getNestedType(), write_buffer, format_settings);
-                write_helper.rowWritten();
+                write_helper.finishRow();
             }
             write_helper.finalize();
         }

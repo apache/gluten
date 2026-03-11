@@ -465,6 +465,20 @@ class VeloxParquetDataTypeValidationSuite extends VeloxWholeStageTransformerSuit
     }
   }
 
+  testWithMinSparkVersion("Fallback for TimestampNTZ type scan", "3.4") {
+    withTempDir {
+      dir =>
+        val path = new File(dir, "ntz_data").toURI.getPath
+        val inputDf =
+          spark.sql("SELECT CAST('2024-01-01 00:00:00' AS TIMESTAMP_NTZ) AS ts_ntz")
+        inputDf.write.format("parquet").save(path)
+        val df = spark.read.format("parquet").load(path)
+        val executedPlan = getExecutedPlan(df)
+        assert(!executedPlan.exists(plan => plan.isInstanceOf[BatchScanExecTransformer]))
+        checkAnswer(df, inputDf)
+    }
+  }
+
   test("Velox Parquet Write") {
     withSQLConf((GlutenConfig.NATIVE_WRITER_ENABLED.key, "true")) {
       withTempDir {

@@ -26,7 +26,7 @@ void VeloxGpuHashShuffleWriter::splitBoolValueType(const uint8_t* srcAddr, const
     if (dstaddr == nullptr) {
       continue;
     }
-    auto dstPidBase = (uint8_t*)(dstaddr + partitionBufferBase_[pid] * sizeof(uint8_t));
+    auto dstPidBase = reinterpret_cast<uint8_t*>(dstaddr + partitionBufferBase_[pid] * sizeof(uint8_t));
     auto pos = partition2RowOffsetBase_[pid];
     auto end = partition2RowOffsetBase_[pid + 1];
     for (; pos < end; ++pos) {
@@ -42,7 +42,7 @@ void VeloxGpuHashShuffleWriter::splitBoolValueType(const uint8_t* srcAddr, const
 // Split timestamp from int128_t to int64_t, both of them represents the timestamp nanoseconds.
 arrow::Status VeloxGpuHashShuffleWriter::splitTimestamp(const uint8_t* srcAddr, const std::vector<uint8_t*>& dstAddrs) {
    for (auto& pid : partitionUsed_) {
-      auto dstPidBase = (int64_t*)(dstAddrs[pid] + partitionBufferBase_[pid] * sizeof(int64_t));
+      auto dstPidBase = reinterpret_cast<int64_t*>(dstAddrs[pid] + partitionBufferBase_[pid] * sizeof(int64_t));
       auto pos = partition2RowOffsetBase_[pid];
       auto end = partition2RowOffsetBase_[pid + 1];
       for (; pos < end; ++pos) {

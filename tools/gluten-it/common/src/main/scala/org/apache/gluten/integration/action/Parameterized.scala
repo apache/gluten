@@ -26,6 +26,7 @@ import org.apache.gluten.integration.stat.RamStat
 import org.apache.spark.sql.ConfUtils.ConfImplicits._
 import org.apache.spark.sql.SparkSession
 
+import java.io.PrintStream
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 
 import scala.collection.mutable
@@ -132,7 +133,7 @@ class Parameterized(
       entry =>
         val coordinate = entry._1
         sessionSwitcher.useSession(coordinate.toString, "Parameterized %s".format(coordinate))
-        runner.createTables(suite.tableCreator(), sessionSwitcher.spark())
+        runner.createTables(suite.tableCreator(), suite.tableAnalyzer(), sessionSwitcher.spark())
 
         runQueryIds.flatMap {
           queryId =>
@@ -150,7 +151,10 @@ class Parameterized(
                 } finally {
                   if (noSessionReuse) {
                     sessionSwitcher.renewSession()
-                    runner.createTables(suite.tableCreator(), sessionSwitcher.spark())
+                    runner.createTables(
+                      suite.tableCreator(),
+                      suite.tableAnalyzer(),
+                      sessionSwitcher.spark())
                   }
                 }
             }
@@ -173,7 +177,10 @@ class Parameterized(
                   } finally {
                     if (noSessionReuse) {
                       sessionSwitcher.renewSession()
-                      runner.createTables(suite.tableCreator(), sessionSwitcher.spark())
+                      runner.createTables(
+                        suite.tableCreator(),
+                        suite.tableAnalyzer(),
+                        sessionSwitcher.spark())
                     }
                   }
                 TestResultLine.CoordMark(iteration, queryId, r)
@@ -207,18 +214,19 @@ class Parameterized(
       RamStat.getJvmHeapTotal(),
       RamStat.getProcessRamUsed()
     )
+    println()
 
-    println("")
-    println("Test report: ")
-    println("")
-    printf(
-      "Summary: %d out of %d queries successfully run on all config combinations. \n",
-      succeededCount,
-      totalCount)
-    println("")
-    println("Configurations:")
-    coordinates.foreach(coord => println(s"${coord._1.id}. ${coord._1}"))
-    println("")
+    // Write out test report.
+    val reportAppender = suite.getReporter().actionAppender(getClass.getSimpleName)
+    reportAppender.out.println("Test report: ")
+    reportAppender.out.println()
+    reportAppender.out.println(
+      "Summary: %d out of %d queries successfully run on all config combinations."
+        .format(succeededCount, totalCount))
+    reportAppender.out.println()
+    reportAppender.out.println("Configurations:")
+    coordinates.foreach(coord => reportAppender.out.println(s"${coord._1.id}. ${coord._1}"))
+    reportAppender.out.println()
     val succeeded = results.filter(_.succeeded())
     val all = succeeded match {
       case Nil => None
@@ -240,22 +248,22 @@ class Parameterized(
           ))
     }
     TestResultLines(coordinates.map(_._1.id).toSeq, configDimensions, metrics, succeeded ++ all)
-      .print()
-    println("")
+      .print(reportAppender.out)
+    reportAppender.out.println()
 
     if (succeededCount == totalCount) {
-      println("No failed queries. ")
-      println("")
+      reportAppender.out.println("No failed queries. ")
+      reportAppender.out.println()
     } else {
-      println("Failed queries: ")
-      println("")
+      reportAppender.err.println("Failed queries: ")
+      reportAppender.err.println()
       TestResultLines(
         coordinates.map(_._1.id).toSeq,
         configDimensions,
         metrics,
         results.filter(!_.succeeded()))
-        .print()
-      println("")
+        .print(reportAppender.err)
+      reportAppender.err.println()
     }
 
     if (succeededCount != totalCount) {
@@ -341,7 +349,7 @@ object Parameterized {
       configDimensions: Seq[Dim],
       metricNames: Seq[String],
       lines: Iterable[TestResultLine]) {
-    def print(): Unit = {
+    def print(out: PrintStream): Unit = {
       val coordFields: Seq[Field] = coordIds.map(id => Field.Leaf(id.toString))
       val fields: Seq[Field] =
         Seq(Field.Leaf("Query ID")) ++
@@ -357,7 +365,7 @@ object Parameterized {
         )
       lines.foreach(line => render.appendRow(line))
 
-      render.print(System.out)
+      render.print(out)
     }
   }
 

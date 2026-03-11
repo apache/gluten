@@ -110,7 +110,7 @@ class VeloxColumnarCacheSuite extends VeloxWholeStageTransformerSuite with Adapt
   }
 
   // See issue https://github.com/apache/incubator-gluten/issues/8497.
-  testWithMinSparkVersion("Input fallen back vanilla Spark columnar scan", "3.3") {
+  test("Input fallen back vanilla Spark columnar scan") {
     def withId(id: Int): Metadata =
       new MetadataBuilder().putLong("parquet.field.id", id).build()
 

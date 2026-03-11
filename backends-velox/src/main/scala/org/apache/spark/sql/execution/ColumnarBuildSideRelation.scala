@@ -18,13 +18,16 @@ package org.apache.spark.sql.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
+import org.apache.gluten.execution.BroadcastHashJoinContext
+import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.sql.shims.SparkShimLoader
-import org.apache.gluten.utils.ArrowAbiUtil
-import org.apache.gluten.vectorized.{ColumnarBatchSerializerJniWrapper, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
+import org.apache.gluten.utils.{ArrowAbiUtil, SubstraitUtil}
+import org.apache.gluten.vectorized.{ColumnarBatchSerializerJniWrapper, HashJoinBuilder, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
 
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSeq, BindReferences, BoundReference, Expression, UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.catalyst.plans.physical.BroadcastMode
@@ -37,14 +40,18 @@ import org.apache.spark.util.KnownSizeEstimation
 
 import org.apache.arrow.c.ArrowSchema
 
+import scala.collection.JavaConverters._
 import scala.collection.JavaConverters.asScalaIteratorConverter
+import scala.collection.mutable.ArrayBuffer
 
 object ColumnarBuildSideRelation {
   // Keep constructor with BroadcastMode for compatibility
   def apply(
       output: Seq[Attribute],
       batches: Array[Array[Byte]],
-      mode: BroadcastMode): ColumnarBuildSideRelation = {
+      mode: BroadcastMode,
+      newBuildKeys: Seq[Expression] = Seq.empty,
+      offload: Boolean = false): ColumnarBuildSideRelation = {
     val boundMode = mode match {
       case HashedRelationBroadcastMode(keys, isNullAware) =>
         // Bind each key to the build-side output so simple cols become BoundReference
@@ -54,15 +61,23 @@ object ColumnarBuildSideRelation {
       case m =>
         m // IdentityBroadcastMode, etc.
     }
-    new ColumnarBuildSideRelation(output, batches, BroadcastModeUtils.toSafe(boundMode))
+    new ColumnarBuildSideRelation(
+      output,
+      batches,
+      BroadcastModeUtils.toSafe(boundMode),
+      newBuildKeys,
+      offload)
   }
 }
 
 case class ColumnarBuildSideRelation(
     output: Seq[Attribute],
     batches: Array[Array[Byte]],
-    safeBroadcastMode: SafeBroadcastMode)
+    safeBroadcastMode: SafeBroadcastMode,
+    newBuildKeys: Seq[Expression],
+    offload: Boolean)
   extends BuildSideRelation
+  with Logging
   with KnownSizeEstimation {
 
   // Rebuild the real BroadcastMode on demand; never serialize it.
@@ -134,6 +149,85 @@ case class ColumnarBuildSideRelation(
   }
 
   override def asReadOnlyCopy(): ColumnarBuildSideRelation = this
+
+  private var hashTableData: Long = 0L
+
+  def buildHashTable(
+      broadcastContext: BroadcastHashJoinContext): (Long, ColumnarBuildSideRelation) =
+    synchronized {
+      if (hashTableData == 0) {
+        val runtime = Runtimes.contextInstance(
+          BackendsApiManager.getBackendName,
+          "ColumnarBuildSideRelation#buildHashTable")
+        val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
+        val serializeHandle: Long = {
+          val allocator = ArrowBufferAllocators.contextInstance()
+          val cSchema = ArrowSchema.allocateNew(allocator)
+          val arrowSchema = SparkArrowUtil.toArrowSchema(
+            SparkShimLoader.getSparkShims.structFromAttributes(output),
+            SQLConf.get.sessionLocalTimeZone)
+          ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
+          val handle = jniWrapper
+            .init(cSchema.memoryAddress())
+          cSchema.close()
+          handle
+        }
+
+        val batchArray = new ArrayBuffer[Long]
+
+        var batchId = 0
+        while (batchId < batches.size) {
+          batchArray.append(jniWrapper.deserialize(serializeHandle, batches(batchId)))
+          batchId += 1
+        }
+
+        logDebug(
+          s"BHJ value size: " +
+            s"${broadcastContext.buildHashTableId} = ${batches.length}")
+
+        val (keys, newOutput) = if (newBuildKeys.isEmpty) {
+          (
+            broadcastContext.buildSideJoinKeys.asJava,
+            broadcastContext.buildSideStructure.asJava
+          )
+        } else {
+          (
+            newBuildKeys.asJava,
+            output.asJava
+          )
+        }
+
+        val joinKeys = keys.asScala.map {
+          key =>
+            val attr = ConverterUtils.getAttrFromExpr(key)
+            ConverterUtils.genColumnNameWithExprId(attr)
+        }.toArray
+
+        // Build the hash table
+        hashTableData = HashJoinBuilder
+          .nativeBuild(
+            broadcastContext.buildHashTableId,
+            batchArray.toArray,
+            joinKeys,
+            broadcastContext.substraitJoinType.ordinal(),
+            broadcastContext.hasMixedFiltCondition,
+            broadcastContext.isExistenceJoin,
+            SubstraitUtil.toNameStruct(newOutput).toByteArray,
+            broadcastContext.isNullAwareAntiJoin,
+            broadcastContext.bloomFilterPushdownSize,
+            broadcastContext.broadcastHashTableBuildThreads
+          )
+
+        jniWrapper.close(serializeHandle)
+        (hashTableData, this)
+      } else {
+        (HashJoinBuilder.cloneHashTable(hashTableData), null)
+      }
+    }
+
+  def reset(): Unit = synchronized {
+    hashTableData = 0
+  }
 
   /**
    * Transform columnar broadcast value to Array[InternalRow] by key.

@@ -62,8 +62,11 @@ public class PlanEvaluatorJniWrapper implements RuntimeAware {
   public native String nativePlanString(byte[] substraitPlan, Boolean details);
 
   /**
-   * Create a native compute kernel and return a columnar result iterator.
+   * Create a native compute kernel and return a columnar result iterator. Supports both
+   * creation-time splits (splitInfo, batchItr) and runtime splits (via addSplits).
    *
+   * @param splitInfo optional file-based splits to add at creation time (can be null)
+   * @param batchItr optional iterator-based splits to add at creation time (can be null)
    * @return iterator instance id
    */
   public native long nativeCreateKernelWithIterator(

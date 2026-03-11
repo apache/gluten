@@ -1029,6 +1029,25 @@ def parse_logs(log_file):
             else:
                 function_not_found(r)
 
+        elif "was not supported in AggregateRel" in r:
+            pattern = r"([\w0-9]+) was not supported in AggregateRel"
+
+            # Extract the function name
+            match = re.search(pattern, r)
+
+            if match:
+                function_name = match.group(1)
+                if function_name in function_names:
+                    support_list["aggregate"]["unsupported"].add(
+                        function_name_tuple(function_name)
+                    )
+                else:
+                    support_list["aggregate"]["unknown"].add(
+                        function_name_tuple(function_name)
+                    )
+            else:
+                function_not_found(r)
+
         elif "Unsupported aggregate mode" in r:
             pattern = r"Unsupported aggregate mode: [\w]+ for ([\w0-9]+)"
 

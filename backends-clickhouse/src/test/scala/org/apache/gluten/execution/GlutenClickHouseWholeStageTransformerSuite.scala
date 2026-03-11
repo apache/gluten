@@ -117,6 +117,8 @@ class GlutenClickHouseWholeStageTransformerSuite
     FileUtils.forceMkdir(basePathDir)
     FileUtils.forceMkdir(new File(warehouse))
     FileUtils.forceMkdir(new File(metaStorePathAbsolute))
+    FileUtils.forceMkdir(new File("/tmp/user_defined"))
+    FileUtils.forceMkdir(new File(s"/tmp/libch/$SPARK_DIR_NAME"))
     super.beforeAll()
     spark.sparkContext.setLogLevel(logLevel)
     prepareTestTables()

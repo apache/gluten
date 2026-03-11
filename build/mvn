@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This script downloads and installs Apache Maven if it's not already installed
+# Usage: build/mvn <maven-args>
+#
+
+# Determine the current working directory
+GLUTEN_HOME="$(cd "$(dirname "$0")"/.. && pwd)" || exit 1
+DOWNLOAD_DIR="${GLUTEN_HOME}/build"
+MVN_DOWNLOAD_DIR="${DOWNLOAD_DIR}/.mvn"
+
+# Global variable for Maven binary path
+MVN_BIN=""
+
+# Read Maven version from pom.xml if not set
+install_mvn() {
+    # Check for system Maven first
+    local SYSTEM_MVN
+    SYSTEM_MVN="$(command -v mvn)"
+
+    if [ -n "$SYSTEM_MVN" ]; then
+        local MVN_DETECTED_VERSION
+        MVN_DETECTED_VERSION="$(mvn --version 2>/dev/null | grep '^Apache Maven' | awk '{print $3}')"
+        echo "Using system Maven: $SYSTEM_MVN (version $MVN_DETECTED_VERSION)" >&2
+        MVN_BIN="$SYSTEM_MVN"
+        return 0
+    fi
+
+    # Get Maven version from pom.xml using grep and sed
+    local VERSION
+    VERSION=$(grep "<maven.version>" "${GLUTEN_HOME}/pom.xml" | head -n1 | \
+              awk -F '[<>]' '{print $3}')
+
+    if [ -z "$VERSION" ]; then
+        echo "ERROR: Could not read maven.version from pom.xml. Please define <maven.version> in ${GLUTEN_HOME}/pom.xml" >&2
+        exit 1
+    fi
+
+    local MVN_LOCAL_BIN="${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}/bin/mvn"
+
+    if [ ! -f "${MVN_LOCAL_BIN}" ]; then
+        echo "Maven ${VERSION} not found locally. Downloading..." >&2
+
+        # Create download directory
+        mkdir -p "${MVN_DOWNLOAD_DIR}"
+
+        local MVN_TAR="${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}-bin.tar.gz"
+
+        if [ ! -f "${MVN_TAR}" ]; then
+            # Use Maven Central repository for download
+            local DOWNLOAD_URL="https://repo1.maven.org/maven2/org/apache/maven/apache-maven/${VERSION}/apache-maven-${VERSION}-bin.tar.gz"
+
+            echo "Downloading Maven ${VERSION} from Maven Central..." >&2
+            echo "URL: ${DOWNLOAD_URL}" >&2
+
+            if command -v curl > /dev/null 2>&1; then
+                curl -f -L --retry 3 --retry-delay 3 \
+                     --connect-timeout 30 --max-time 600 \
+                     -o "${MVN_TAR}" "${DOWNLOAD_URL}" || {
+                    echo "ERROR: Failed to download Maven from ${DOWNLOAD_URL}" >&2
+                    rm -f "${MVN_TAR}"
+                    exit 1
+                }
+            elif command -v wget > /dev/null 2>&1; then
+                wget --tries=3 --waitretry=3 \
+                     --connect-timeout=30 --read-timeout=600 \
+                     -O "${MVN_TAR}" "${DOWNLOAD_URL}" || {
+                    echo "ERROR: Failed to download Maven from ${DOWNLOAD_URL}" >&2
+                    rm -f "${MVN_TAR}"
+                    exit 1
+                }
+            else
+                echo "ERROR: Neither curl nor wget found. Please install one of them or install Maven manually." >&2
+                exit 1
+            fi
+
+            echo "Download completed successfully" >&2
+        fi
+
+        # Extract Maven
+        echo "Extracting Maven to ${MVN_DOWNLOAD_DIR}..." >&2
+        if ! tar -xzf "${MVN_TAR}" -C "${MVN_DOWNLOAD_DIR}"; then
+            echo "ERROR: Failed to extract Maven" >&2
+            rm -f "${MVN_TAR}"
+            exit 1
+        fi
+
+        # Clean up tar file
+        rm -f "${MVN_TAR}"
+
+        echo "Maven ${VERSION} installed successfully to ${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}" >&2
+    else
+        echo "Using downloaded Maven: ${MVN_LOCAL_BIN} (version ${VERSION})" >&2
+    fi
+
+    # Set global variable
+    MVN_BIN="${MVN_LOCAL_BIN}"
+}
+
+# Install Maven if needed
+install_mvn
+
+# Verify Maven binary is set
+if [ -z "${MVN_BIN}" ]; then
+    echo "ERROR: Maven binary not found. Please install Maven or check your installation." >&2
+    exit 1
+fi
+
+# Verify Maven binary exists
+if [ ! -f "${MVN_BIN}" ]; then
+    echo "ERROR: Maven binary does not exist: ${MVN_BIN}" >&2
+    exit 1
+fi
+
+_COMPILE_JVM_OPTS="-Xss128m -Xmx4g -XX:ReservedCodeCacheSize=2g"
+# Set any `mvn` options if not already present
+export MAVEN_OPTS=${MAVEN_OPTS:-"$_COMPILE_JVM_OPTS"}
+
+echo "MAVEN_OPTS: ${MAVEN_OPTS}" >&2
+
+"${MVN_BIN}" "$@"
+
+MVN_RETCODE=$?
+
+exit $MVN_RETCODE

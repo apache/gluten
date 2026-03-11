@@ -25,3 +25,12 @@ Describe how the changes were tested, if applicable.
 Include new tests to validate the functionality, if necessary.
 For UI-related changes, attach screenshots to demonstrate the updates.
 -->
+
+## Was this patch authored or co-authored using generative AI tooling?
+
+<!--
+If generative AI tooling has been used in the process of authoring this patch, please include the
+phrase: 'Generated-by: ' followed by the name of the tool and its version.
+If no, write 'No'.
+Please refer to the [ASF Generative Tooling Guidance](https://www.apache.org/legal/generative-tooling.html) for details.
+-->

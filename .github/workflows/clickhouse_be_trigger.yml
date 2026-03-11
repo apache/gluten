@@ -19,7 +19,6 @@ name: Clickhouse Backend Trigger
 on:
   pull_request_target:
     paths:
-      - '.github/workflows/clickhouse_be_trigger.yml'
       - 'pom.xml'
       - 'backends-clickhouse/**'
       - 'gluten-celeborn/**'
@@ -34,6 +33,10 @@ on:
       - 'gluten-ras/**'
       - 'gluten-ui/**'
       - 'gluten-kafka/**'
+      - '!shims/spark40/**'
+      - '!shims/spark41/**'
+      - '!gluten-ut/spark40/**'
+      - '!gluten-ut/spark41/**'
 
 jobs:
   add-comment:
@@ -63,3 +66,4 @@ jobs:
               issue_number: issueNumber,
               body: body
             });
+

@@ -55,6 +55,8 @@ const std::string kMaxPartialAggregationMemoryRatio =
 const std::string kMaxPartialAggregationMemory = "spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemory";
 const std::string kMaxExtendedPartialAggregationMemoryRatio =
     "spark.gluten.sql.columnar.backend.velox.maxExtendedPartialAggregationMemoryRatio";
+const std::string kMaxExtendedPartialAggregationMemory =
+    "spark.gluten.sql.columnar.backend.velox.maxExtendedPartialAggregationMemory";
 const std::string kAbandonPartialAggregationMinPct =
     "spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinPct";
 const std::string kAbandonPartialAggregationMinRows =
@@ -65,10 +67,20 @@ const std::string kAbandonDedupHashMapMinRows = "spark.gluten.velox.abandonDedup
 const std::string kAbandonDedupHashMapMinPct = "spark.gluten.velox.abandonDedupHashMap.minPct";
 
 // execution
+const std::string kSparkBloomFilterExpectedNumItems = "spark.sql.optimizer.runtime.bloomFilter.expectedNumItems";
+const std::string kSparkBloomFilterNumBits = "spark.sql.optimizer.runtime.bloomFilter.numBits";
+const std::string kSparkBloomFilterMaxNumBits = "spark.sql.optimizer.runtime.bloomFilter.maxNumBits";
+const std::string kSparkBloomFilterMaxNumItems = "spark.sql.optimizer.runtime.bloomFilter.maxNumItems";
 const std::string kBloomFilterExpectedNumItems = "spark.gluten.sql.columnar.backend.velox.bloomFilter.expectedNumItems";
 const std::string kBloomFilterNumBits = "spark.gluten.sql.columnar.backend.velox.bloomFilter.numBits";
 const std::string kBloomFilterMaxNumBits = "spark.gluten.sql.columnar.backend.velox.bloomFilter.maxNumBits";
 const std::string kVeloxSplitPreloadPerDriver = "spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver";
+
+const std::string kHashProbeDynamicFilterPushdownEnabled =
+    "spark.gluten.sql.columnar.backend.velox.hashProbe.dynamicFilterPushdown.enabled";
+
+const std::string kHashProbeBloomFilterPushdownMaxSize =
+    "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterPushdown.maxSize";
 
 const std::string kShowTaskMetricsWhenFinished = "spark.gluten.sql.columnar.backend.velox.showTaskMetricsWhenFinished";
 const bool kShowTaskMetricsWhenFinishedDefault = false;

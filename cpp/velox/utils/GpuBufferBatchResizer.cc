@@ -19,7 +19,7 @@
 #include "cudf/GpuLock.h"
 #include "memory/GpuBufferColumnarBatch.h"
 #include "utils/Timer.h"
-#include "velox/experimental/cudf/exec/Utilities.h"
+#include "velox/experimental/cudf/exec/GpuResources.h"
 #include "velox/experimental/cudf/exec/VeloxCudfInterop.h"
 #include "velox/experimental/cudf/vector/CudfVector.h"
 #include "velox/vector/FlatVector.h"
@@ -159,7 +159,7 @@ std::shared_ptr<VeloxColumnarBatch> makeCudfTable(
   auto cudfTable = std::make_unique<cudf::table>(std::move(cudfColumns));
   stream.synchronize();
   return std::make_shared<VeloxColumnarBatch>(
-      std::make_shared<cudf_velox::CudfVector>(pool, type, numRows, std::move(cudfTable), stream));
+      std::make_shared<cudf_velox::CudfVector>(pool, type, numRows, std::move(cudfTable), stream), type->size());
 }
 
 } // namespace

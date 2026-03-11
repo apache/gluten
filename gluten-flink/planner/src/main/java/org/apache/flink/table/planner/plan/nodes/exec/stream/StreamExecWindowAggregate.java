@@ -19,7 +19,6 @@ package org.apache.flink.table.planner.plan.nodes.exec.stream;
 import org.apache.gluten.rexnode.AggregateCallConverter;
 import org.apache.gluten.rexnode.Utils;
 import org.apache.gluten.rexnode.WindowUtils;
-import org.apache.gluten.table.runtime.operators.GlutenVectorOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
@@ -53,12 +52,16 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeContext;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
+import org.apache.flink.table.planner.plan.utils.AggregateInfoList;
+import org.apache.flink.table.planner.plan.utils.AggregateUtil;
 import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
+import org.apache.flink.table.planner.utils.JavaScalaConversionUtil;
 import org.apache.flink.table.planner.utils.TableConfigUtils;
 import org.apache.flink.table.runtime.groupwindow.NamedWindowProperty;
 import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.runtime.util.TimeWindowUtil;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
@@ -177,6 +180,14 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
     final ZoneId shiftTimeZone =
         TimeWindowUtil.getShiftTimeZone(
             windowing.getTimeAttributeType(), TableConfigUtils.getLocalTimeZone(config));
+    final AggregateInfoList aggInfoList =
+        AggregateUtil.deriveStreamWindowAggregateInfoList(
+            planner.getTypeFactory(),
+            inputRowType,
+            JavaScalaConversionUtil.toScala(Arrays.asList(aggCalls)),
+            needRetraction,
+            windowing.getWindow(),
+            true); // isStateBackendDataViews
 
     // --- Begin Gluten-specific code changes ---
     // TODO: velox window not equal to flink window.
@@ -258,19 +269,29 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             rowtimeIndex,
             windowStartIndex,
             windowEndIndex);
-    final OneInputStreamOperator windowOperator =
-        new GlutenVectorOneInputOperator(
-            new StatefulPlanNode(windowAgg.getId(), windowAgg),
-            PlanNodeIdGenerator.newId(),
-            inputType,
-            Map.of(windowAgg.getId(), outputType));
-    // --- End Gluten-specific code changes ---
-
     final RowDataKeySelector selector =
         KeySelectorUtil.getRowDataSelector(
             planner.getFlinkContext().getClassLoader(),
             grouping,
             InternalTypeInfo.of(inputRowType));
+    LogicalType[] accTypes =
+        Arrays.stream(aggInfoList.getAccTypes())
+            .map(x -> x.getLogicalType())
+            .collect(Collectors.toList())
+            .toArray(new LogicalType[] {});
+    final OneInputStreamOperator<RowData, RowData> windowOperator =
+        new org.apache.gluten.table.runtime.operators.WindowAggOperator<RowData, RowData, Long>(
+            new StatefulPlanNode(windowAgg.getId(), windowAgg),
+            PlanNodeIdGenerator.newId(),
+            inputType,
+            Map.of(windowAgg.getId(), outputType),
+            RowData.class,
+            RowData.class,
+            "StreamExecWindowAggregate",
+            selector.getProducedType(),
+            aggInfoList.getAggNames(),
+            accTypes);
+    // --- End Gluten-specific code changes ---
 
     final OneInputTransformation<RowData, RowData> transform =
         ExecNodeUtil.createOneInputTransformation(
@@ -283,6 +304,8 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             false);
 
     // set KeyType and Selector for state
+    // This key selector will be updated in OffloadedJobGraphGenerator to GlutenKeySelector as
+    // needed.
     transform.setStateKeySelector(selector);
     transform.setStateKeyType(selector.getProducedType());
     return transform;

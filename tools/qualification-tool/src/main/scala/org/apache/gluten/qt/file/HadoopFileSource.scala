@@ -84,6 +84,7 @@ object HadoopFileSource {
       case f if f.startsWith("gs://") => GcsFileSource(conf)
       case f if f.startsWith("file://") => file.LocalFsFileSource(conf)
       case f if f.startsWith("/") => file.LocalFsFileSource(conf)
+      case f if f.startsWith("hdfs://") => file.LocalFsFileSource(conf)
     }
   }
 }

@@ -34,6 +34,8 @@ import scala.util.Random
 
 class GlutenDataFrameSuite extends DataFrameSuite with GlutenSQLTestsTrait {
 
+  import testImplicits._
+
   testGluten("repartitionByRange") {
     val partitionNum = 10
     withSQLConf(
@@ -235,6 +237,16 @@ class GlutenDataFrameSuite extends DataFrameSuite with GlutenSQLTestsTrait {
     }
   }
 
+  testGluten("getRows: binary") {
+    val df = Seq(
+      ("12".getBytes(StandardCharsets.UTF_8), "ABC.".getBytes(StandardCharsets.UTF_8)),
+      ("34".getBytes(StandardCharsets.UTF_8), "12346".getBytes(StandardCharsets.UTF_8))
+    ).toDF()
+    val expectedAnswer =
+      Seq(Seq("_1", "_2"), Seq("[31 32]", "[41 42 43 2E]"), Seq("[33 34]", "[31 32 33 34 36]"))
+    assert(df.getRows(10, 20) === expectedAnswer)
+  }
+
   // TODO: fix in spark-4.0
   /** Failed to check WholeStageCodegenExec, so we rewrite the UT. */
   // testGluten("SPARK-22520: support code generation for large CaseWhen") {
@@ -252,7 +264,6 @@ class GlutenDataFrameSuite extends DataFrameSuite with GlutenSQLTestsTrait {
   //   // We check WholeStageTransformer instead of WholeStageCodegenExec
   //   assert(df.queryExecution.executedPlan.find(_.isInstanceOf[WholeStageTransformer]).isDefined)
   // }
-  import testImplicits._
 
   private lazy val person2: DataFrame = Seq(
     ("Bob", 16, 176),

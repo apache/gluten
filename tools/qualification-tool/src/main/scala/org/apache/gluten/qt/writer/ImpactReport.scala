@@ -21,7 +21,8 @@ import org.apache.gluten.qt.support.ResultVisitor.UnsupportedImpact
 case class ImpactReport(operatorName: String, impact: UnsupportedImpact) extends Report {
   private val cumulativeCpuMs = impact.getCumulativeCpuDuration.toMillis
   private val count = impact.getCount
+  private val sanitizedOperatorName = operatorName.replaceAll("[\r\n\t]+", " ").trim
 
   override def toTSVLine: String =
-    Seq(s"$operatorName", s"$cumulativeCpuMs", s"$count").mkString("\t")
+    Seq(s"$sanitizedOperatorName", s"$cumulativeCpuMs", s"$count").mkString("\t")
 }

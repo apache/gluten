@@ -25,18 +25,24 @@ import scala.reflect.ClassTag
 object TestUtils {
 
   def checkExecutedPlanContains[T: ClassTag](spark: SparkSession, sqlStr: String): Unit = {
+    checkExecutedPlanContains(spark) {
+      spark.sql(sqlStr)
+    }
+  }
+
+  def checkExecutedPlanContains[T: ClassTag](spark: SparkSession)(action: => Unit): Unit = {
     var found = false
     val queryListener = new QueryExecutionListener {
       override def onFailure(f: String, qe: QueryExecution, e: Exception): Unit = {}
       override def onSuccess(funcName: String, qe: QueryExecution, duration: Long): Unit = {
         if (!found) {
-          found = qe.executedPlan.find(implicitly[ClassTag[T]].runtimeClass.isInstance(_)).isDefined
+          found = qe.executedPlan.exists(implicitly[ClassTag[T]].runtimeClass.isInstance(_))
         }
       }
     }
     try {
       spark.listenerManager.register(queryListener)
-      spark.sql(sqlStr)
+      action
       spark.sparkContext.listenerBus.waitUntilEmpty()
       assert(found)
     } finally {

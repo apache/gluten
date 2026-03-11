@@ -38,17 +38,32 @@ case class FallbackMultiCodegens(session: SparkSession) extends Rule[SparkPlan] 
   lazy val glutenConf: GlutenConfig = GlutenConfig.get
   lazy val physicalJoinOptimize = glutenConf.enablePhysicalJoinOptimize
   lazy val optimizeLevel: Integer = glutenConf.physicalJoinOptimizationThrottle
+  lazy val outputSize: Integer = glutenConf.physicalJoinOptimizationOutputSize
 
   def existsMultiCodegens(plan: SparkPlan, count: Int = 0): Boolean =
     plan match {
       case plan: CodegenSupport if plan.supportCodegen =>
-        if ((count + 1) >= optimizeLevel) return true
+        if (
+          (count + 1) >= optimizeLevel && plan.output.map(_.dataType.defaultSize).sum >= outputSize
+        ) {
+          return true
+        }
         plan.children.exists(existsMultiCodegens(_, count + 1))
       case plan: ShuffledHashJoinExec =>
-        if ((count + 1) >= optimizeLevel) return true
+        if (
+          (count + 1) >= optimizeLevel && plan.output.map(_.dataType.defaultSize).sum >= outputSize
+        ) {
+          return true
+        }
+
         plan.children.exists(existsMultiCodegens(_, count + 1))
       case plan: SortMergeJoinExec if GlutenConfig.get.forceShuffledHashJoin =>
-        if ((count + 1) >= optimizeLevel) return true
+        if (
+          (count + 1) >= optimizeLevel && plan.output.map(_.dataType.defaultSize).sum >= outputSize
+        ) {
+          return true
+        }
+
         plan.children.exists(existsMultiCodegens(_, count + 1))
       case _ => false
     }

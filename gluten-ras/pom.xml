@@ -20,7 +20,7 @@
   <parent>
     <groupId>org.apache.gluten</groupId>
     <artifactId>gluten-parent</artifactId>
-    <version>1.6.0-SNAPSHOT</version>
+    <version>1.7.0-SNAPSHOT</version>
   </parent>
   <artifactId>gluten-ras</artifactId>
   <packaging>pom</packaging>
@@ -103,7 +103,6 @@
             <goals>
               <goal>test-jar</goal>
             </goals>
-            <phase>test-compile</phase>
           </execution>
         </executions>
       </plugin>

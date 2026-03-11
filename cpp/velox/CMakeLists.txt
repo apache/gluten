@@ -157,6 +157,7 @@ set(VELOX_SRCS
     jni/JniFileSystem.cc
     jni/JniUdf.cc
     jni/VeloxJniWrapper.cc
+    jni/JniHashTable.cc
     memory/BufferOutputStream.cc
     memory/VeloxColumnarBatch.cc
     memory/VeloxMemoryManager.cc
@@ -164,6 +165,7 @@ set(VELOX_SRCS
     operators/functions/RowConstructorWithNull.cc
     operators/functions/SparkExprToSubfieldFilterParser.cc
     operators/plannodes/RowVectorStream.cc
+    operators/hashjoin/HashTableBuilder.cc
     operators/reader/FileReaderIterator.cc
     operators/reader/ParquetReaderIterator.cc
     operators/serializer/VeloxColumnarBatchSerializer.cc
@@ -205,8 +207,10 @@ if(ENABLE_GPU)
     VELOX_SRCS
     cudf/CudfPlanValidator.cc
     cudf/GpuLock.cc
+    operators/plannodes/CudfVectorStream.cc
     shuffle/VeloxGpuShuffleReader.cc
     shuffle/VeloxGpuShuffleWriter.cc
+    operators/serializer/VeloxGpuColumnarBatchSerializer.cc
     utils/GpuBufferBatchResizer.cc
     memory/GpuBufferColumnarBatch.cc)
 endif()
@@ -302,16 +306,13 @@ if(BUILD_TESTS)
     facebook::velox::file_test_utils
     ${VELOX_BUILD_PATH}/velox/common/file/tests/libvelox_file_test_utils.a)
   import_library(
-    facebook::velox::temp_path
-    ${VELOX_BUILD_PATH}/velox/exec/tests/utils/libvelox_temp_path.a)
-  import_library(
     facebook::velox::exec_test_lib
     ${VELOX_BUILD_PATH}/velox/exec/tests/utils/libvelox_exec_test_lib.a)
   target_link_libraries(
     facebook::velox::exec_test_lib
     INTERFACE facebook::velox::vector_test_lib
               facebook::velox::dwio_common_test
-              facebook::velox::file_test_utils facebook::velox::temp_path)
+              facebook::velox::file_test_utils)
   target_link_libraries(velox PUBLIC facebook::velox::exec_test_lib)
 endif()
 
@@ -417,6 +418,9 @@ if(BUILD_EXAMPLES)
 endif()
 
 if(ENABLE_GPU)
+  set(cudf_DIR "${VELOX_BUILD_PATH}/_deps/cudf-build")
+  find_package(cudf CONFIG REQUIRED)
+
   import_library(
     facebook::velox::velox_cudf_expression
     ${VELOX_BUILD_PATH}/velox/experimental/cudf/expression/libvelox_cudf_expression.a
@@ -431,35 +435,20 @@ if(ENABLE_GPU)
     facebook::velox::velox_cudf_hive_connector
     ${VELOX_BUILD_PATH}/velox/experimental/cudf/connectors/hive/libvelox_cudf_hive_connector.a
   )
-  target_include_directories(
-    velox
-    PRIVATE ${VELOX_BUILD_PATH}/_deps/cudf-src/cpp/include
-            ${VELOX_BUILD_PATH}/_deps/rmm-src/cpp/include
-            ${VELOX_BUILD_PATH}/_deps/kvikio-src/cpp/include
-            ${VELOX_BUILD_PATH}/_deps/nvtx3-src/c/include
-            ${VELOX_BUILD_PATH}/_deps/nvcomp_proprietary_binary-src/include
-            ${VELOX_BUILD_PATH}/_deps/rapids_logger-src/include
-            /usr/local/cuda/include/cccl
-            /usr/local/cuda/include)
 
   target_compile_definitions(
     velox PRIVATE LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE)
+
+  add_library(velox_curl SHARED IMPORTED GLOBAL)
+  set_target_properties(
+    velox_curl PROPERTIES IMPORTED_LOCATION
+                          ${VELOX_BUILD_PATH}/_deps/curl-build/lib/libcurl.so)
 
   target_link_libraries(
     velox
     PUBLIC facebook::velox::velox_cudf_exec facebook::velox::velox_cudf_vector
            facebook::velox::velox_cudf_hive_connector
-           facebook::velox::velox_cudf_expression)
-  target_link_libraries(
-    velox
-    PRIVATE
-      ${VELOX_BUILD_PATH}/_deps/cudf-build/libcudf.so
-      ${VELOX_BUILD_PATH}/_deps/rmm-build/librmm.so
-      ${VELOX_BUILD_PATH}/_deps/kvikio-build/libkvikio.so
-      ${VELOX_BUILD_PATH}/_deps/nvcomp_proprietary_binary-src/lib64/libnvcomp.so
-      ${VELOX_BUILD_PATH}/_deps/nvcomp_proprietary_binary-src/lib64/libnvcomp_cpu.so
-      ${VELOX_BUILD_PATH}/_deps/rapids_logger-build/librapids_logger.so
-      /usr/local/cuda/lib64/libcudart.so)
+           facebook::velox::velox_cudf_expression cudf::cudf velox_curl)
 endif()
 
 add_custom_command(

@@ -17,7 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.IcebergNestedFieldVisitor
-import org.apache.gluten.connector.write.{ColumnarBatchDataWriterFactory, IcebergDataWriteFactory}
+import org.apache.gluten.connector.write.{ColumnarBatchDataWriterFactory, ColumnarStreamingDataWriterFactory, IcebergDataWriteFactory}
 
 import org.apache.spark.sql.types.StructType
 
@@ -26,7 +26,8 @@ import org.apache.iceberg.types.TypeUtil
 
 abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
 
-  override protected def createFactory(schema: StructType): ColumnarBatchDataWriterFactory = {
+  // the writer factory works for both batch and streaming
+  private def createIcebergDataWriteFactory(schema: StructType): IcebergDataWriteFactory = {
     val writeSchema = IcebergWriteUtil.getWriteSchema(write)
     val nestedField = TypeUtil.visit(writeSchema, new IcebergNestedFieldVisitor)
     IcebergDataWriteFactory(
@@ -36,7 +37,18 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
       getCodec,
       getPartitionSpec,
       IcebergWriteUtil.getSortOrder(write),
-      nestedField
+      nestedField,
+      IcebergWriteUtil.getQueryId(write)
     )
+  }
+
+  override protected def createBatchWriterFactory(
+      schema: StructType): ColumnarBatchDataWriterFactory = {
+    createIcebergDataWriteFactory(schema)
+  }
+
+  override protected def createStreamingWriterFactory(
+      schema: StructType): ColumnarStreamingDataWriterFactory = {
+    createIcebergDataWriteFactory(schema)
   }
 }

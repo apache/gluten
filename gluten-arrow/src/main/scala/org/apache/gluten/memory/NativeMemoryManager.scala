@@ -112,8 +112,8 @@ object NativeMemoryManager {
     }
     override def priority(): Int = {
       // Memory managers should be released after all runtimes are released.
-      // So lower the priority to 0.
-      0
+      // So set the priority lower than runtime resources.
+      10
     }
     override def resourceName(): String = "nmm"
   }

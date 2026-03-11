@@ -43,6 +43,7 @@ import org.apache.arrow.vector.ipc.{ArrowStreamReader, ArrowStreamWriter}
 import java.io.{DataInputStream, DataOutputStream}
 import java.util.concurrent.atomic.AtomicBoolean
 
+import scala.annotation.nowarn
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
@@ -362,7 +363,7 @@ case class ColumnarArrowEvalPythonExec(
             StructField(s"_$i", dt)
         }.toSeq)
 
-        val contextAwareIterator = new ContextAwareIterator(context, iter)
+        @nowarn val contextAwareIterator = new ContextAwareIterator(context, iter)
         val inputCbCache = new ArrayBuffer[ColumnarBatch]()
         var start_time: Long = 0
         val inputBatchIter = contextAwareIterator.map {

@@ -17,7 +17,7 @@
 package org.apache.gluten.velox;
 
 import org.apache.gluten.streaming.api.operators.GlutenStreamSource;
-import org.apache.gluten.table.runtime.operators.GlutenVectorSourceFunction;
+import org.apache.gluten.table.runtime.operators.GlutenSourceFunction;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 import org.apache.gluten.util.ReflectUtils;
@@ -94,11 +94,13 @@ public class FromElementsSourceFactory implements VeloxSourceSinkFactory {
           new TableScanNode(PlanNodeIdGenerator.newId(), rowType, tableHandle, List.of());
       GlutenStreamSource op =
           new GlutenStreamSource(
-              new GlutenVectorSourceFunction(
+              new GlutenSourceFunction(
                   new StatefulPlanNode(scanNode.getId(), scanNode),
                   Map.of(scanNode.getId(), rowType),
                   scanNode.getId(),
-                  new FromElementsConnectorSplit("connector-from-elements", 0, false)));
+                  new FromElementsConnectorSplit("connector-from-elements", 0, false),
+                  RowData.class),
+              "FromElementsSource");
       return new LegacySourceTransformation<RowData>(
           sourceTransformation.getName(),
           op,

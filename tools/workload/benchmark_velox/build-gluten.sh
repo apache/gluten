@@ -29,7 +29,8 @@ sudo rm -rf ${GLUTEN_HOME}/ep/build-velox/build/velox_ep/ || true
 spark_version=$(head  -n1 $SPARK_HOME/RELEASE | awk '{print $2}')
 short_version=${spark_version%.*}
 
-sed -i "s/3.2 3.3 3.4 3.5/$short_version/" $GLUTEN_HOME/dev/buildbundle-veloxbe.sh
+# Set SPARK_VERSION environment variable instead of modifying the script
+export SPARK_VERSION=$short_version
 
 # Update local docker image to make more cache hit for vcpkg lib binary.
 sudo docker pull apache/gluten:vcpkg-centos-7
@@ -41,6 +42,7 @@ sudo docker run --rm \
         -v ${HOME}/.ccache:/root/.ccache \
         -e http_proxy \
         -e https_proxy \
+        -e SPARK_VERSION=$short_version \
         --workdir /root/gluten \
         apache/gluten:vcpkg-centos-7 \
         ./dev/package-vcpkg.sh

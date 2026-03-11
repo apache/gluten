@@ -18,6 +18,7 @@
 #include <Functions/FunctionFactory.h>
 #include <Functions/FunctionsStringSearch.h>
 #include <Functions/PositionImpl.h>
+#include <Common/logger_useful.h>
 
 namespace DB
 {
@@ -176,8 +177,8 @@ struct PositionSparkImpl
 
         for (size_t i = 0; i < input_rows_count; ++i)
         {
-            size_t needle_size = needle_offsets[i] - prev_needle_offset - 1;
-            size_t haystack_size = haystack_offsets[i] - prev_haystack_offset - 1;
+            size_t needle_size = needle_offsets[i] - prev_needle_offset;
+            size_t haystack_size = haystack_offsets[i] - prev_haystack_offset;
 
             auto start = start_pos != nullptr ? start_pos->getUInt(i) : UInt64(0);
 
@@ -195,14 +196,14 @@ struct PositionSparkImpl
                 /// It is assumed that the StringSearcher is not very difficult to initialize.
                 typename Impl::SearcherInSmallHaystack searcher = Impl::createSearcherInSmallHaystack(
                     reinterpret_cast<const char *>(&needle_data[prev_needle_offset]),
-                    needle_offsets[i] - prev_needle_offset - 1); /// zero byte at the end
+                    needle_offsets[i] - prev_needle_offset);
 
                 const char * beg = Impl::advancePos(
                     reinterpret_cast<const char *>(&haystack_data[prev_haystack_offset]),
-                    reinterpret_cast<const char *>(&haystack_data[haystack_offsets[i] - 1]),
+                    reinterpret_cast<const char *>(&haystack_data[haystack_offsets[i]]),
                     start - 1);
                 /// searcher returns a pointer to the found substring or to the end of `haystack`.
-                size_t pos = searcher.search(reinterpret_cast<const UInt8 *>(beg), &haystack_data[haystack_offsets[i] - 1])
+                size_t pos = searcher.search(reinterpret_cast<const UInt8 *>(beg), &haystack_data[haystack_offsets[i]])
                     - &haystack_data[prev_haystack_offset];
 
                 if (pos != haystack_size)
@@ -239,7 +240,7 @@ struct PositionSparkImpl
 
         for (size_t i = 0; i < input_rows_count; ++i)
         {
-            size_t needle_size = needle_offsets[i] - prev_needle_offset - 1;
+            size_t needle_size = needle_offsets[i] - prev_needle_offset;
 
             auto start = start_pos != nullptr ? start_pos->getUInt(i) : UInt64(0);
 
@@ -254,7 +255,7 @@ struct PositionSparkImpl
             else
             {
                 typename Impl::SearcherInSmallHaystack searcher = Impl::createSearcherInSmallHaystack(
-                    reinterpret_cast<const char *>(&needle_data[prev_needle_offset]), needle_offsets[i] - prev_needle_offset - 1);
+                    reinterpret_cast<const char *>(&needle_data[prev_needle_offset]), needle_offsets[i] - prev_needle_offset);
 
                 const char * beg = Impl::advancePos(haystack.data(), haystack.data() + haystack.size(), start - 1);
                 size_t pos = searcher.search(

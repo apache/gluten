@@ -18,7 +18,6 @@ name: Build bundle package
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
-  SETUP: 'bash .github/workflows/util/setup-helper.sh'
 
 concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
@@ -28,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       spark:
-        description: 'Spark version: spark-3.2, spark-3.3, spark-3.4 or spark-3.5'
+        description: 'Spark version: spark-3.3, spark-3.4, spark-3.5 or spark-4.0'
         required: true
         default: 'spark-3.5'
       hadoop:
@@ -95,16 +94,15 @@ jobs:
         with:
           name: velox-arrow-jar-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
-      - name: Setup java and maven
+      - name: Setup java
         run: |
           sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-* && \
           sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-* && \
-          yum update -y && yum install -y java-1.8.0-openjdk-devel wget
-          $SETUP install_maven
+          yum update -y && yum install -y java-1.8.0-openjdk-devel
       - name: Build for Spark ${{ github.event.inputs.spark }}
         run: |
           cd $GITHUB_WORKSPACE/ && \
-          mvn clean install -P${{ github.event.inputs.spark }} -Dhadoop.version=${{ github.event.inputs.hadoop }} -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
+          ./build/mvn clean install -P${{ github.event.inputs.spark }} -Dhadoop.version=${{ github.event.inputs.hadoop }} -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
         uses: actions/upload-artifact@v4
         with:

@@ -25,7 +25,7 @@ public class DataGenMixin {
   @CommandLine.Option(
       names = {"--data-gen"},
       description = "The strategy of data generation, accepted values: skip, once, always",
-      defaultValue = "always")
+      defaultValue = "once")
   private String dataGenStrategy;
 
   public Action[] makeActions() {

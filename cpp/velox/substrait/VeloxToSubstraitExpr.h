@@ -29,7 +29,7 @@ namespace gluten {
 class VeloxToSubstraitExprConvertor {
  public:
   explicit VeloxToSubstraitExprConvertor(const SubstraitExtensionCollectorPtr& extensionCollector)
-      : extensionCollector_(extensionCollector) {}
+      : typeConvertor_(std::make_shared<VeloxToSubstraitTypeConvertor>()), extensionCollector_(extensionCollector) {}
 
   /// Convert Velox Expression to Substrait Expression.
   /// @param arena Arena to use for allocating Substrait plan objects.

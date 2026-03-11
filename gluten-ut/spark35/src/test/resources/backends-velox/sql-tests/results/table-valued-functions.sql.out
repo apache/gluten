@@ -247,7 +247,7 @@ select * from explode(array(rand(0)))
 -- !query schema
 struct<col:double>
 -- !query output
-0.5488135024422883
+0.7604953758285915
 
 
 -- !query

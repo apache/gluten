@@ -37,9 +37,6 @@ concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
   cancel-in-progress: true
 
-env:
-  SETUP: 'bash .github/workflows/util/setup-helper.sh'
-
 jobs:
 
   scala-format-check:

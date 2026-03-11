@@ -84,7 +84,7 @@ org.apache.spark.sql.catalyst.ExtendedAnalysisException
   "messageParameters" : {
     "inputSql" : "\"col\"",
     "inputType" : "\"ARRAY<INT>\"",
-    "paramIndex" : "1",
+    "paramIndex" : "first",
     "requiredType" : "(\"INT\" or \"BIGINT\" or \"STRING\" or \"BINARY\")",
     "sqlExpr" : "\"hll_sketch_agg(col, 12)\""
   },
@@ -107,6 +107,7 @@ struct<>
 org.apache.spark.SparkRuntimeException
 {
   "errorClass" : "HLL_INVALID_LG_K",
+  "sqlState" : "22546",
   "messageParameters" : {
     "function" : "`hll_sketch_agg`",
     "max" : "21",
@@ -125,6 +126,7 @@ struct<>
 org.apache.spark.SparkRuntimeException
 {
   "errorClass" : "HLL_INVALID_LG_K",
+  "sqlState" : "22546",
   "messageParameters" : {
     "function" : "`hll_sketch_agg`",
     "max" : "21",
@@ -150,6 +152,7 @@ struct<>
 org.apache.spark.SparkRuntimeException
 {
   "errorClass" : "HLL_UNION_DIFFERENT_LG_K",
+  "sqlState" : "22000",
   "messageParameters" : {
     "function" : "`hll_union`",
     "left" : "12",
@@ -171,6 +174,7 @@ struct<>
 org.apache.spark.SparkRuntimeException
 {
   "errorClass" : "HLL_UNION_DIFFERENT_LG_K",
+  "sqlState" : "22000",
   "messageParameters" : {
     "function" : "`hll_union_agg`",
     "left" : "12",
@@ -197,7 +201,7 @@ org.apache.spark.sql.catalyst.ExtendedAnalysisException
   "messageParameters" : {
     "inputSql" : "\"1\"",
     "inputType" : "\"INT\"",
-    "paramIndex" : "1",
+    "paramIndex" : "first",
     "requiredType" : "\"BINARY\"",
     "sqlExpr" : "\"hll_union(1, 2, false)\""
   },
@@ -216,8 +220,14 @@ SELECT hll_sketch_estimate(CAST ('abc' AS BINARY))
 -- !query schema
 struct<>
 -- !query output
-org.apache.datasketches.SketchesArgumentException
-Possible Corruption: Illegal Family ID: 99
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "HLL_INVALID_INPUT_SKETCH_BUFFER",
+  "sqlState" : "22546",
+  "messageParameters" : {
+    "function" : "`hll_sketch_estimate`"
+  }
+}
 
 
 -- !query
@@ -225,8 +235,14 @@ SELECT hll_union(CAST ('abc' AS BINARY), CAST ('def' AS BINARY))
 -- !query schema
 struct<>
 -- !query output
-org.apache.datasketches.SketchesArgumentException
-Possible Corruption: Illegal Family ID: 99
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "HLL_INVALID_INPUT_SKETCH_BUFFER",
+  "sqlState" : "22546",
+  "messageParameters" : {
+    "function" : "`hll_union`"
+  }
+}
 
 
 -- !query
@@ -235,8 +251,14 @@ FROM (SELECT CAST('abc' AS BINARY) AS buffer)
 -- !query schema
 struct<>
 -- !query output
-org.apache.datasketches.SketchesArgumentException
-Possible Corruption: Illegal Family ID: 99
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "HLL_INVALID_INPUT_SKETCH_BUFFER",
+  "sqlState" : "22546",
+  "messageParameters" : {
+    "function" : "`hll_union_agg`"
+  }
+}
 
 
 -- !query

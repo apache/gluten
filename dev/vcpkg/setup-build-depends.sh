@@ -25,7 +25,7 @@ function semver {
 
 install_maven_from_source() {
     if [ -z "$(which mvn)" ]; then
-        maven_version=3.9.2
+        maven_version=3.9.12
         maven_install_dir=/opt/maven-$maven_version
         if [ -d /opt/maven-$maven_version ]; then
             echo "Failed to install maven: ${maven_install_dir} is exists" >&2

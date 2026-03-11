@@ -18,31 +18,66 @@ package org.apache.gluten.integration.action
 
 import org.apache.gluten.integration.Suite
 
-import java.io.File
+import org.apache.hadoop.fs.{FileSystem, Path}
 
 case class DataGenOnly(strategy: DataGenOnly.Strategy) extends Action {
+
   override def execute(suite: Suite): Boolean = {
+    suite.sessionSwitcher.useSession("baseline", "Data Gen")
+    val fs = this.fs(suite)
+    val markerPath = this.markerPath(suite)
+
     strategy match {
       case DataGenOnly.Skip =>
-      // Do nothing
+        ()
+
       case DataGenOnly.Once =>
-        val dataPath = suite.dataWritePath()
-        val alreadyExists = new File(dataPath).exists()
-        if (alreadyExists) {
-          println(s"Data already exists at $dataPath, skipping generating it.")
+        val dataPath = this.dataPath(suite)
+        if (fs.exists(dataPath) && fs.exists(markerPath)) {
+          println(s"Test data already generated at $dataPath. Skipping.")
         } else {
+          if (fs.exists(dataPath)) {
+            println(
+              s"Test data exists at $dataPath but no completion marker found. Regenerating."
+            )
+            fs.delete(dataPath, true)
+          }
+          if (fs.exists(markerPath)) {
+            fs.delete(markerPath, true)
+          }
           gen(suite)
+          // Create marker after successful generation.
+          fs.create(markerPath, false).close()
         }
+
       case DataGenOnly.Always =>
         gen(suite)
+        // Create marker after successful generation.
+        fs.create(markerPath, false).close()
     }
     true
   }
 
+  private def fs(suite: Suite): FileSystem = {
+    val configuration = suite.sessionSwitcher.spark().sessionState.newHadoopConf()
+    dataPath(suite).getFileSystem(configuration)
+  }
+
+  private def markerPath(suite: Suite): Path =
+    new Path(suite.dataWritePath() + ".completed")
+
+  private def dataPath(suite: Suite): Path =
+    new Path(suite.dataWritePath())
+
   private def gen(suite: Suite): Unit = {
-    suite.sessionSwitcher.useSession("baseline", "Data Gen")
+    val dataPath = suite.dataWritePath()
+
+    println(s"Generating test data to $dataPath...")
+
     val dataGen = suite.createDataGen()
-    dataGen.gen()
+    dataGen.gen(suite.sessionSwitcher.spark())
+
+    println(s"All test data successfully generated at $dataPath.")
   }
 }
 

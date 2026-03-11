@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.ListenerApi
 import org.apache.gluten.backendsapi.arrow.ArrowBatchTypes.{ArrowJavaBatchType, ArrowNativeBatchType}
 import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig, VeloxConfig}
 import org.apache.gluten.config.VeloxConfig._
+import org.apache.gluten.execution.VeloxBroadcastBuildSideCache
 import org.apache.gluten.execution.datasource.GlutenFormatFactory
 import org.apache.gluten.expression.UDFMappings
 import org.apache.gluten.extension.columnar.transition.Convention
@@ -35,8 +36,10 @@ import org.apache.gluten.utils._
 import org.apache.spark.{HdfsConfGenerator, ShuffleDependency, SparkConf, SparkContext}
 import org.apache.spark.api.plugin.PluginContext
 import org.apache.spark.internal.Logging
+import org.apache.spark.listener.VeloxGlutenSQLAppStatusListener
 import org.apache.spark.memory.GlobalOffHeapMemory
 import org.apache.spark.network.util.ByteUnit
+import org.apache.spark.rpc.{GlutenDriverEndpoint, GlutenExecutorEndpoint}
 import org.apache.spark.shuffle.{ColumnarShuffleDependency, LookupKey, ShuffleManagerRegistry}
 import org.apache.spark.shuffle.sort.ColumnarShuffleManager
 import org.apache.spark.sql.execution.ColumnarCachedBatchSerializer
@@ -56,6 +59,8 @@ class VeloxListenerApi extends ListenerApi with Logging {
   import VeloxListenerApi._
 
   override def onDriverStart(sc: SparkContext, pc: PluginContext): Unit = {
+    GlutenDriverEndpoint.glutenDriverEndpointRef = (new GlutenDriverEndpoint).self
+    VeloxGlutenSQLAppStatusListener.registerListener(sc)
     val conf = pc.conf()
 
     // When the Velox cache is enabled, the Velox file handle cache should also be enabled.
@@ -138,6 +143,8 @@ class VeloxListenerApi extends ListenerApi with Logging {
   override def onDriverShutdown(): Unit = shutdown()
 
   override def onExecutorStart(pc: PluginContext): Unit = {
+    GlutenExecutorEndpoint.executorEndpoint = new GlutenExecutorEndpoint(pc.executorID, pc.conf)
+
     val conf = pc.conf()
 
     // Static initializers for executor.
@@ -250,6 +257,11 @@ class VeloxListenerApi extends ListenerApi with Logging {
 
   private def shutdown(): Unit = {
     // TODO shutdown implementation in velox to release resources
+    VeloxBroadcastBuildSideCache.cleanAll()
+    val executorEndpoint = GlutenExecutorEndpoint.executorEndpoint
+    if (executorEndpoint != null) {
+      executorEndpoint.stop()
+    }
   }
 }
 

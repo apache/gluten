@@ -58,7 +58,7 @@ struct ExtractNullableSubstringImpl
 
         for (size_t i = 0; i < size; ++i)
         {
-            String s(reinterpret_cast<const char *>(&data[prev_offset]), offsets[i] - prev_offset - 1);
+            String s(reinterpret_cast<const char *>(&data[prev_offset]), offsets[i] - prev_offset);
             try
             {
                 Poco::URI uri(s, false);
@@ -69,7 +69,7 @@ struct ExtractNullableSubstringImpl
                 start = nullptr;
                 length = 0;
             }
-            res_data.resize_exact(res_data.size() + length + 1);
+            res_data.resize_exact(res_data.size() + length);
             if (start)
             {
                 memcpySmallAllowReadWriteOverflow15(&res_data[res_offset], start, length);
@@ -79,8 +79,7 @@ struct ExtractNullableSubstringImpl
             {
                 null_map.insert(1);
             }
-            res_offset += length + 1;
-            res_data[res_offset - 1] = 0;
+            res_offset += length;
 
             res_offsets[i] = res_offset;
             prev_offset = offsets[i];

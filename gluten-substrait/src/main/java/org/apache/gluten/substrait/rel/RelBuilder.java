@@ -184,11 +184,12 @@ public class RelBuilder {
       JoinRel.JoinType joinType,
       ExpressionNode expression,
       ExpressionNode postJoinFilter,
+      String hashTableId,
       SubstraitContext context,
       Long operatorId) {
     context.registerRelToOperator(operatorId);
     return makeJoinRel(
-        left, right, joinType, expression, postJoinFilter, null, context, operatorId);
+        left, right, joinType, expression, postJoinFilter, null, hashTableId, context, operatorId);
   }
 
   public static RelNode makeJoinRel(
@@ -198,10 +199,12 @@ public class RelBuilder {
       ExpressionNode expression,
       ExpressionNode postJoinFilter,
       AdvancedExtensionNode extensionNode,
+      String hashTableId,
       SubstraitContext context,
       Long operatorId) {
     context.registerRelToOperator(operatorId);
-    return new JoinRelNode(left, right, joinType, expression, postJoinFilter, extensionNode);
+    return new JoinRelNode(
+        left, right, joinType, expression, postJoinFilter, hashTableId, extensionNode);
   }
 
   public static RelNode makeCrossRel(

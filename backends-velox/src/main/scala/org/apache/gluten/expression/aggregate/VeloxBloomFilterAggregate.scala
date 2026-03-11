@@ -16,18 +16,21 @@
  */
 package org.apache.gluten.expression.aggregate
 
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.VeloxBloomFilter
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.catalyst.expressions.aggregate.TypedImperativeAggregate
+import org.apache.spark.sql.catalyst.expressions.aggregate.{BloomFilterAggregate, TypedImperativeAggregate}
 import org.apache.spark.sql.catalyst.trees.TernaryLike
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.task.TaskResources
+import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.sketch.BloomFilter
+
+import java.io.Serializable
 
 /**
  * Velox's bloom-filter implementation uses different algorithms internally comparing to vanilla
@@ -43,12 +46,12 @@ case class VeloxBloomFilterAggregate(
   extends TypedImperativeAggregate[BloomFilter]
   with TernaryLike[Expression] {
 
-  private val delegate = SparkShimLoader.getSparkShims.newBloomFilterAggregate[BloomFilter](
+  private val delegate = BloomFilterAggregate(
     child,
     estimatedNumItemsExpression,
     numBitsExpression,
     mutableAggBufferOffset,
-    inputAggBufferOffset)
+    inputAggBufferOffset).asInstanceOf[TypedImperativeAggregate[BloomFilter]]
 
   override def prettyName: String = "velox_bloom_filter_agg"
 
@@ -60,6 +63,15 @@ case class VeloxBloomFilterAggregate(
         .getConfString("spark.sql.optimizer.runtime.bloomFilter.maxNumItems", "4000000")
         .toLong
     )
+
+  // Mark as lazy so that `updater` is not evaluated during tree transformation.
+  private lazy val updater: BloomFilterUpdater = child.dataType match {
+    case LongType => LongUpdater
+    case IntegerType => IntUpdater
+    case ShortType => ShortUpdater
+    case ByteType => ByteUpdater
+    case _: StringType => BinaryUpdater
+  }
 
   override def first: Expression = child
 
@@ -97,7 +109,7 @@ case class VeloxBloomFilterAggregate(
     if (value == null) {
       return buffer
     }
-    buffer.putLong(value.asInstanceOf[Long])
+    updater.update(buffer, value)
     buffer
   }
 
@@ -127,4 +139,34 @@ case class VeloxBloomFilterAggregate(
   override def withNewInputAggBufferOffset(newOffset: Int): VeloxBloomFilterAggregate =
     copy(inputAggBufferOffset = newOffset)
 
+}
+
+// see https://github.com/apache/spark/pull/42414
+private trait BloomFilterUpdater {
+  def update(bf: BloomFilter, v: Any): Boolean
+}
+
+private object LongUpdater extends BloomFilterUpdater with Serializable {
+  override def update(bf: BloomFilter, v: Any): Boolean =
+    bf.putLong(v.asInstanceOf[Long])
+}
+
+private object IntUpdater extends BloomFilterUpdater with Serializable {
+  override def update(bf: BloomFilter, v: Any): Boolean =
+    bf.putLong(v.asInstanceOf[Int])
+}
+
+private object ShortUpdater extends BloomFilterUpdater with Serializable {
+  override def update(bf: BloomFilter, v: Any): Boolean =
+    bf.putLong(v.asInstanceOf[Short])
+}
+
+private object ByteUpdater extends BloomFilterUpdater with Serializable {
+  override def update(bf: BloomFilter, v: Any): Boolean =
+    bf.putLong(v.asInstanceOf[Byte])
+}
+
+private object BinaryUpdater extends BloomFilterUpdater with Serializable {
+  override def update(bf: BloomFilter, v: Any): Boolean =
+    bf.putBinary(v.asInstanceOf[UTF8String].getBytes)
 }

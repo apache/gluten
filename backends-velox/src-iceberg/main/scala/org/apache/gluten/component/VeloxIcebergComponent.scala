@@ -24,8 +24,7 @@ import org.apache.spark.util.SparkReflectionUtil
 
 class VeloxIcebergComponent extends Component {
   override def name(): String = "velox-iceberg"
-  override def buildInfo(): Component.BuildInfo =
-    Component.BuildInfo("VeloxIceberg", "N/A", "N/A", "N/A")
+
   override def dependencies(): Seq[Class[_ <: Component]] = classOf[VeloxBackend] :: Nil
 
   override def isRuntimeCompatible: Boolean = {

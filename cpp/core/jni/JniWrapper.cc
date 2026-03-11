@@ -26,9 +26,11 @@
 #include "jni/JniError.h"
 
 #include <arrow/c/bridge.h>
+#include <google/protobuf/stubs/common.h>
 #include <optional>
 #include <string>
 #include "memory/AllocationListener.h"
+#include "memory/SplitAwareColumnarBatchIterator.h"
 #include "operators/serializer/ColumnarBatchSerializer.h"
 #include "shuffle/LocalPartitionWriter.h"
 #include "shuffle/Partitioning.h"
@@ -271,7 +273,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
       env,
       metricsBuilderClass,
       "<init>",
-      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
+      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
 
   nativeColumnarToRowInfoClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/NativeColumnarToRowInfo;");
@@ -304,6 +306,8 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
 
   getJniErrorState()->close();
   getJniCommonState()->close();
+
+  google::protobuf::ShutdownProtobufLibrary();
 }
 
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_runtime_RuntimeJniWrapper_createRuntime( // NOLINT
@@ -455,7 +459,7 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeCreateKernelWith
     jobject wrapper,
     jbyteArray planArr,
     jobjectArray splitInfosArr,
-    jobjectArray iterArr,
+    jobjectArray batchItrArray,
     jint stageId,
     jint partitionId,
     jlong taskId,
@@ -478,24 +482,28 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeCreateKernelWith
 
   ctx->parsePlan(safePlanArray.elems(), planSize);
 
-  for (jsize i = 0, splitInfoArraySize = env->GetArrayLength(splitInfosArr); i < splitInfoArraySize; i++) {
-    jbyteArray splitInfoArray = static_cast<jbyteArray>(env->GetObjectArrayElement(splitInfosArr, i));
-    jsize splitInfoSize = env->GetArrayLength(splitInfoArray);
-    auto safeSplitArray = getByteArrayElementsSafe(env, splitInfoArray);
-    auto splitInfoData = safeSplitArray.elems();
+  if (splitInfosArr != nullptr) {
+    for (jsize i = 0, splitInfoArraySize = env->GetArrayLength(splitInfosArr); i < splitInfoArraySize; i++) {
+      jbyteArray splitInfoArray = static_cast<jbyteArray>(env->GetObjectArrayElement(splitInfosArr, i));
+      jsize splitInfoSize = env->GetArrayLength(splitInfoArray);
+      auto safeSplitArray = getByteArrayElementsSafe(env, splitInfoArray);
+      auto splitInfoData = safeSplitArray.elems();
 
-    ctx->parseSplitInfo(splitInfoData, splitInfoSize, i);
+      ctx->parseSplitInfo(splitInfoData, splitInfoSize, i);
+    }
   }
 
   // Handle the Java iters
-  jsize itersLen = env->GetArrayLength(iterArr);
   std::vector<std::shared_ptr<ResultIterator>> inputIters;
-  inputIters.reserve(itersLen);
-  for (int idx = 0; idx < itersLen; idx++) {
-    jobject iter = env->GetObjectArrayElement(iterArr, idx);
-    auto arrayIter = std::make_unique<JniColumnarBatchIterator>(env, iter, ctx, idx);
-    auto resultIter = std::make_shared<ResultIterator>(std::move(arrayIter));
-    inputIters.push_back(std::move(resultIter));
+  if (batchItrArray != nullptr) {
+    jsize itersLen = env->GetArrayLength(batchItrArray);
+    inputIters.reserve(itersLen);
+    for (int idx = 0; idx < itersLen; idx++) {
+      jobject iter = env->GetObjectArrayElement(batchItrArray, idx);
+      auto arrayIter = std::make_unique<JniColumnarBatchIterator>(env, iter, ctx, idx);
+      auto resultIter = std::make_shared<ResultIterator>(std::move(arrayIter));
+      inputIters.push_back(std::move(resultIter));
+    }
   }
 
   return ctx->saveObject(ctx->createResultIterator(spillDirStr, inputIters));
@@ -583,6 +591,7 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
       longArray[Metrics::kNumReplacedWithDynamicFilterRows],
       longArray[Metrics::kFlushRowCount],
       longArray[Metrics::kLoadedToValueHook],
+      longArray[Metrics::kBloomFilterBlocksByteSize],
       longArray[Metrics::kScanTime],
       longArray[Metrics::kSkippedSplits],
       longArray[Metrics::kProcessedSplits],
@@ -627,6 +636,80 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIterato
     jlong iterHandle) {
   JNI_METHOD_START
   ObjectStore::release(iterHandle);
+  JNI_METHOD_END()
+}
+
+JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIterator_nativeAddIteratorSplits( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong iterHandle,
+    jobjectArray batchItrArray) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto outIter = ObjectStore::retrieve<ResultIterator>(iterHandle);
+  if (outIter == nullptr) {
+    throw GlutenException("Invalid iterator handle for addSplits");
+  }
+  
+  // Get the underlying split-aware iterator
+  auto* splitAwareIter = dynamic_cast<gluten::SplitAwareColumnarBatchIterator*>(outIter->getInputIter());
+  if (splitAwareIter == nullptr) {
+    throw GlutenException("Iterator does not support split management");
+  }
+
+  GLUTEN_CHECK(batchItrArray != nullptr, "FATAL: Splits to add cannot be null");
+
+  // Convert Java ColumnarBatchInIterator[] to native iterators and add as splits
+  jsize numIterators = env->GetArrayLength(batchItrArray);
+  std::vector<std::shared_ptr<ResultIterator>> inputIterators;
+  inputIterators.reserve(numIterators);
+
+  for (jsize idx = 0; idx < numIterators; idx++) {
+    jobject iter = env->GetObjectArrayElement(batchItrArray, idx);
+    if (iter == nullptr) {
+      inputIterators.push_back(nullptr);
+    } else {
+      auto arrayIter = std::make_unique<JniColumnarBatchIterator>(env, iter, ctx, idx);
+      auto resultIter = std::make_shared<ResultIterator>(std::move(arrayIter));
+      inputIterators.push_back(std::move(resultIter));
+    }
+    env->DeleteLocalRef(iter);
+  }
+
+  // Add iterator splits via interface method
+  if (!inputIterators.empty()) {
+    splitAwareIter->addIteratorSplits(inputIterators);
+  }
+
+  return true;
+  JNI_METHOD_END(false)
+}
+
+JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIterator_nativeNoMoreSplits( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong iterHandle) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto iter = ObjectStore::retrieve<ResultIterator>(iterHandle);
+  if (iter == nullptr) {
+    throw GlutenException("Invalid iterator handle for noMoreSplits");
+  }
+  ctx->noMoreSplits(iter.get());
+  JNI_METHOD_END()
+}
+
+JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIterator_nativeRequestBarrier( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong iterHandle) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto iter = ObjectStore::retrieve<ResultIterator>(iterHandle);
+  if (iter == nullptr) {
+    throw GlutenException("Invalid iterator handle for requestBarrier");
+  }
+  ctx->requestBarrier(iter.get());
   JNI_METHOD_END()
 }
 

@@ -153,15 +153,7 @@ object SparkQueryRunner {
         p.metrics.map {
           case keyValue @ (k, m) =>
             val tags = mapper.map(p, k, m)
-            val tagMapMutable = mutable.Map[String, mutable.Buffer[MetricTag[_]]]()
-            tags.foreach {
-              tag: MetricTag[_] =>
-                val buffer =
-                  tagMapMutable.getOrElseUpdate(tag.name(), mutable.ListBuffer[MetricTag[_]]())
-                buffer += tag
-            }
-            val tagMap = tagMapMutable.map { case (k, v) => (k, v.toSeq) }.toMap
-            PlanMetric(queryPath, p, k, m, tagMap)
+            PlanMetric(queryPath, p, k, m, tags.toSet)
         }
     }
     all.toSeq

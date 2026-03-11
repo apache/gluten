@@ -17,7 +17,6 @@
 package org.apache.spark.sql.execution
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.VeloxColumnarToCarrierRowExec
 
 import org.apache.spark.SparkConf
 import org.apache.spark.internal.config
@@ -30,7 +29,6 @@ import org.apache.spark.sql.classic.ClassicTypes._
 import org.apache.spark.sql.hive.HiveUtils
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.test.SQLTestUtils
-import org.apache.spark.sql.util.QueryExecutionListener
 import org.apache.spark.util.Utils
 
 import org.apache.hadoop.fs.Path
@@ -39,10 +37,7 @@ import org.apache.parquet.hadoop.util.HadoopInputFile
 
 import java.io.File
 
-class VeloxParquetWriteForHiveSuite
-  extends GlutenQueryTest
-  with SQLTestUtils
-  with BucketWriteUtils {
+class VeloxParquetWriteForHiveSuite extends GlutenQueryTest with SQLTestUtils with WriteUtils {
   private var _spark: SparkSession = _
   import testImplicits._
 
@@ -95,32 +90,6 @@ class VeloxParquetWriteForHiveSuite
       .set(GlutenConfig.NATIVE_WRITER_ENABLED.key, "true")
   }
 
-  private def checkNativeWrite(sqlStr: String, checkNative: Boolean): Unit = {
-    var nativeUsed = false
-    val queryListener = new QueryExecutionListener {
-      override def onFailure(f: String, qe: QueryExecution, e: Exception): Unit = {}
-      override def onSuccess(funcName: String, qe: QueryExecution, duration: Long): Unit = {
-        if (!nativeUsed) {
-          nativeUsed = if (isSparkVersionGE("3.4")) {
-            qe.executedPlan.find(_.isInstanceOf[ColumnarWriteFilesExec]).isDefined
-          } else {
-            qe.executedPlan.find(_.isInstanceOf[VeloxColumnarToCarrierRowExec]).isDefined
-          }
-        }
-      }
-    }
-    try {
-      spark.listenerManager.register(queryListener)
-      spark.sql(sqlStr)
-      spark.sparkContext.listenerBus.waitUntilEmpty()
-      if (checkNative) {
-        assert(nativeUsed)
-      }
-    } finally {
-      spark.listenerManager.unregister(queryListener)
-    }
-  }
-
   test("test hive static partition write table") {
     withTable("t") {
       spark.sql(
@@ -129,8 +98,7 @@ class VeloxParquetWriteForHiveSuite
       withSQLConf("spark.sql.hive.convertMetastoreParquet" -> "true") {
         checkNativeWrite(
           "INSERT OVERWRITE TABLE t partition(c=1, d=2)" +
-            " SELECT 3 as e",
-          checkNative = true)
+            " SELECT 3 as e")
       }
       checkAnswer(spark.table("t"), Row(3, 1, 2))
       checkAnswer(spark.sql("SHOW PARTITIONS t"), Seq(Row("c=1/d=2")))
@@ -145,8 +113,7 @@ class VeloxParquetWriteForHiveSuite
       withSQLConf("spark.sql.hive.convertMetastoreParquet" -> "true") {
         checkNativeWrite(
           "INSERT OVERWRITE TABLE t partition(c=1, d)" +
-            " SELECT 3 as e, 2 as d",
-          checkNative = true)
+            " SELECT 3 as e, 2 as d")
       }
       checkAnswer(spark.table("t"), Row(3, 1, 2))
       checkAnswer(spark.sql("SHOW PARTITIONS t"), Seq(Row("c=1/d=2")))
@@ -163,8 +130,7 @@ class VeloxParquetWriteForHiveSuite
           "INSERT OVERWRITE TABLE t partition(c=1, d)" +
             " SELECT 3 as e, 2 as d" +
             " UNION ALL" +
-            " SELECT 4 as e, 5 as d",
-          checkNative = true)
+            " SELECT 4 as e, 5 as d")
       }
       checkAnswer(spark.table("t"), Seq(Row(3, 1, 2), Row(4, 1, 5)))
       checkAnswer(spark.sql("SHOW PARTITIONS t"), Seq(Row("c=1/d=2"), Row("c=1/d=5")))
@@ -185,8 +151,7 @@ class VeloxParquetWriteForHiveSuite
             " UNION ALL" +
             " SELECT 6 as e, 2 as d, 7 as f" + // Partition 0.
             " UNION ALL" +
-            " SELECT 8 as e, 5 as d, 7 as f", // Partition 2.
-          checkNative = true
+            " SELECT 8 as e, 5 as d, 7 as f" // Partition 2.
         )
       }
       checkAnswer(
@@ -213,9 +178,7 @@ class VeloxParquetWriteForHiveSuite
             " (3, 2, 7)," +
             " (4, 5, 9)," +
             " (6, 2, 7)," +
-            " (8, 5, 7)",
-          checkNative = true
-        )
+            " (8, 5, 7)")
       }
       checkAnswer(
         spark.table("t"),
@@ -230,7 +193,7 @@ class VeloxParquetWriteForHiveSuite
     withTable("t") {
       spark.sql("CREATE TABLE t (c int) STORED AS PARQUET")
       withSQLConf("spark.sql.hive.convertMetastoreParquet" -> "false") {
-        checkNativeWrite("INSERT OVERWRITE TABLE t SELECT 1 as c", checkNative = true)
+        checkNativeWrite("INSERT OVERWRITE TABLE t SELECT 1 as c")
       }
       checkAnswer(spark.table("t"), Row(1))
     }
@@ -246,15 +209,13 @@ class VeloxParquetWriteForHiveSuite
               s"""
                  |INSERT OVERWRITE DIRECTORY '${f.getCanonicalPath}' STORED AS PARQUET SELECT 1 as c
                  |""".stripMargin,
-              checkNative = false
+              expectNative = false
             )
           } else {
             checkNativeWrite(
               s"""
                  |INSERT OVERWRITE DIRECTORY '${f.getCanonicalPath}' STORED AS PARQUET SELECT 1 as c
-                 |""".stripMargin,
-              checkNative = true
-            )
+                 |""".stripMargin)
           }
           checkAnswer(spark.read.parquet(f.getCanonicalPath), Row(1))
         }
@@ -271,7 +232,7 @@ class VeloxParquetWriteForHiveSuite
   test("native writer support CreateHiveTableAsSelectCommand") {
     withTable("t") {
       withSQLConf("spark.sql.hive.convertMetastoreParquet" -> "false") {
-        checkNativeWrite("CREATE TABLE t STORED AS PARQUET AS SELECT 1 as c", checkNative = true)
+        checkNativeWrite("CREATE TABLE t STORED AS PARQUET AS SELECT 1 as c")
       }
       checkAnswer(spark.table("t"), Row(1))
     }
@@ -288,7 +249,7 @@ class VeloxParquetWriteForHiveSuite
               checkNativeWrite(
                 "CREATE TABLE t STORED AS PARQUET TBLPROPERTIES ('parquet.compression'='zstd') " +
                   "AS SELECT 1 as c",
-                checkNative = enableNativeWrite)
+                expectNative = enableNativeWrite)
               val tableDir = new Path(s"${conf.getConf(StaticSQLConf.WAREHOUSE_PATH)}/t")
               val configuration = spark.sessionState.newHadoopConf()
               val files = tableDir
@@ -329,7 +290,7 @@ class VeloxParquetWriteForHiveSuite
               df.write.mode(SaveMode.Overwrite).saveAsTable(source)
 
               withSQLConf("hive.exec.dynamic.partition.mode" -> "nonstrict") {
-                checkNativeWrite(s"INSERT INTO $target SELECT * FROM $source", checkNative = true)
+                checkNativeWrite(s"INSERT INTO $target SELECT * FROM $source")
               }
 
               for (k <- 0 until 5) {
@@ -369,9 +330,7 @@ class VeloxParquetWriteForHiveSuite
               df.write.mode(SaveMode.Overwrite).saveAsTable(source)
 
               // hive relation convert always use dynamic, so it will offload to native.
-              checkNativeWrite(
-                s"INSERT INTO $target PARTITION(k='0') SELECT i, j FROM $source",
-                checkNative = true)
+              checkNativeWrite(s"INSERT INTO $target PARTITION(k='0') SELECT i, j FROM $source")
               val files = tableDir(target)
                 .listFiles()
                 .filterNot(f => f.getName.startsWith(".") || f.getName.startsWith("_"))
@@ -401,7 +360,7 @@ class VeloxParquetWriteForHiveSuite
                 (0 until 50).map(i => (i % 13, i.toString)).toDF("i", "j")
               df.write.mode(SaveMode.Overwrite).saveAsTable(source)
 
-              checkNativeWrite(s"INSERT INTO $target SELECT i, j FROM $source", checkNative = true)
+              checkNativeWrite(s"INSERT INTO $target SELECT i, j FROM $source")
 
               checkAnswer(spark.table(target), df)
             }
@@ -427,7 +386,7 @@ class VeloxParquetWriteForHiveSuite
               checkNativeWrite(
                 "CREATE TABLE t STORED AS PARQUET TBLPROPERTIES ('parquet.compression'='zstd') " +
                   "AS SELECT 1 as c",
-                checkNative = enableNativeWrite)
+                expectNative = enableNativeWrite)
               val tableDir = new Path(s"${conf.getConf(StaticSQLConf.WAREHOUSE_PATH)}/t")
               val configuration = spark.sessionState.newHadoopConf()
               val files = tableDir

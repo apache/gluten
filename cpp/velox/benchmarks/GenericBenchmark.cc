@@ -452,6 +452,7 @@ auto BM_Generic = [](::benchmark::State& state,
       }
 
       auto resultIter = runtime->createResultIterator(veloxSpillDir, std::move(inputIters));
+      runtime->noMoreSplits(resultIter.get());
       listenerPtr->setIterator(resultIter.get());
 
       if (FLAGS_with_shuffle) {

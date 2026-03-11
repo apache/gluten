@@ -16,6 +16,8 @@
 
 LIBRDKAFKA_VERSION="v2.10.0"
 CPPKAFKA_VERSION="v0.4.1"
+FROCKSDB_VERSION="FRocksDB-6.20.3"
+FROCKSDB_REPO="ververica/frocksdb"
 
 function wget_and_untar {
   local URL=$1
@@ -39,6 +41,28 @@ function wget_and_untar {
   popd
 }
 
+function github_checkout {
+  local REPO=$1
+  shift
+  local VERSION=$1
+  shift
+  local GIT_CLONE_PARAMS=("$@")
+  local DIRNAME
+  DIRNAME=$(basename "$REPO")
+  SUDO="${SUDO:-""}"
+  cd "${DEPENDENCY_DIR}" || exit
+  if [ -z "${DIRNAME}" ]; then
+    echo "Failed to get repo name from ${REPO}"
+    exit 1
+  fi
+  if [ -d "${DIRNAME}" ] && prompt "${DIRNAME} already exists. Delete?"; then
+    ${SUDO} rm -rf "${DIRNAME}"
+  fi
+  if [ ! -d "${DIRNAME}" ]; then
+    git clone -q -b "$VERSION" "${GIT_CLONE_PARAMS[@]}" "https://github.com/${REPO}.git"
+  fi
+}
+
 function cmake_install_dir {
   pushd "./${DEPENDENCY_DIR}/$1"
   # remove the directory argument
@@ -60,7 +84,7 @@ function cmake_install {
   fi
 
   mkdir -p "${BINARY_DIR}"
-  COMPILER_FLAGS=$(get_cxx_flags)
+  COMPILER_FLAGS="-g -gdwarf-2"
   # Add platform specific CXX flags if any
   COMPILER_FLAGS+=${OS_CXXFLAGS}
 
@@ -93,9 +117,15 @@ function install_cppkafka {
   cmake_install_dir cppkafka -DBUILD_TESTS=OFF
 }
 
+function install_rocksdb {
+  github_checkout ${FROCKSDB_REPO} ${FROCKSDB_VERSION}
+  cmake_install_dir frocksdb -DWITH_GFLAGS=OFF -DWITH_TESTS=OFF -DFAIL_ON_WARNINGS=OFF
+}
+
 function install_velox_deps {
   run_and_time install_librdkafka
   run_and_time install_cppkafka
+  run_and_time install_rocksdb
 }
 
 install_velox_deps

@@ -35,17 +35,11 @@ static inline void fastCopy(void* dst, const void* src, size_t n) {
   facebook::velox::simd::memcpy(dst, src, n);
 }
 
-#define START_TIMING(timing)                  \
-  {                                           \
-    auto ptiming = &timing;                   \
-    facebook::velox::DeltaCpuWallTimer timer{ \
-        [ptiming](const facebook::velox::CpuWallTiming& delta) { ptiming->add(delta); }};
-
-#define END_TIMING() }
-
-#define SCOPED_TIMER(timing)                \
-  auto ptiming = &timing;                   \
-  facebook::velox::DeltaCpuWallTimer timer{ \
-      [ptiming](const facebook::velox::CpuWallTiming& delta) { ptiming->add(delta); }};
+#define SCOPED_TIMER(timing)                                                              \
+  do {                                                                                    \
+    auto ptiming = &timing;                                                               \
+    facebook::velox::DeltaCpuWallTimer timer{                                             \
+        [ptiming](const facebook::velox::CpuWallTiming& delta) { ptiming->add(delta); }}; \
+  } while (0)
 
 } // namespace gluten

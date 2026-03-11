@@ -43,7 +43,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
   }
 
   // IdMapping is supported in Delta 2.2 (related to Spark3.3.1)
-  testWithMinSparkVersion("column mapping mode = id", "3.3") {
+  test("column mapping mode = id") {
     withTable("delta_cm1") {
       spark.sql(s"""
                    |create table delta_cm1 (id int, name string) using delta
@@ -82,7 +82,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: time travel", "3.3") {
+  test("delta: time travel") {
     withTable("delta_tm") {
       spark.sql(s"""
                    |create table delta_tm (id int, name string) using delta
@@ -338,6 +338,68 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           }
         }
       }
+    }
+  }
+
+  // TIMESTAMP_NTZ was introduced in Spark 3.4 / Delta 2.4
+  testWithMinSparkVersion(
+    "delta: create table with TIMESTAMP_NTZ should fallback and return correct results",
+    "3.4") {
+    withTable("delta_ntz") {
+      spark.sql("CREATE TABLE delta_ntz(c1 STRING, c2 TIMESTAMP, c3 TIMESTAMP_NTZ) USING DELTA")
+      spark.sql("""INSERT INTO delta_ntz VALUES
+                  |('foo','2022-01-02 03:04:05.123456','2022-01-02 03:04:05.123456')""".stripMargin)
+      val df = runQueryAndCompare("select * from delta_ntz", noFallBack = false) { _ => }
+      checkAnswer(
+        df,
+        Row(
+          "foo",
+          java.sql.Timestamp.valueOf("2022-01-02 03:04:05.123456"),
+          java.time.LocalDateTime.of(2022, 1, 2, 3, 4, 5, 123456000)))
+    }
+  }
+
+  testWithMinSparkVersion(
+    "delta: TIMESTAMP_NTZ as partition column should fallback and return correct results",
+    "3.4") {
+    withTable("delta_ntz_part") {
+      spark.sql("""CREATE TABLE delta_ntz_part(c1 STRING, c2 TIMESTAMP, c3 TIMESTAMP_NTZ)
+                  |USING DELTA PARTITIONED BY (c3)""".stripMargin)
+      spark.sql("""INSERT INTO delta_ntz_part VALUES
+                  |('foo','2022-01-02 03:04:05.123456','2022-01-02 03:04:05.123456'),
+                  |('bar','2023-06-15 10:30:00.000000','2023-06-15 10:30:00.000000')""".stripMargin)
+      val df = runQueryAndCompare("select * from delta_ntz_part order by c1", noFallBack = false) {
+        _ =>
+      }
+      checkAnswer(
+        df,
+        Seq(
+          Row(
+            "bar",
+            java.sql.Timestamp.valueOf("2023-06-15 10:30:00"),
+            java.time.LocalDateTime.of(2023, 6, 15, 10, 30, 0, 0)),
+          Row(
+            "foo",
+            java.sql.Timestamp.valueOf("2022-01-02 03:04:05.123456"),
+            java.time.LocalDateTime.of(2022, 1, 2, 3, 4, 5, 123456000))
+        )
+      )
+    }
+  }
+
+  testWithMinSparkVersion(
+    "delta: filter on TIMESTAMP_NTZ column should fallback and return correct results",
+    "3.4") {
+    withTable("delta_ntz_filter") {
+      spark.sql("CREATE TABLE delta_ntz_filter(id INT, ts TIMESTAMP_NTZ) USING DELTA")
+      spark.sql("""INSERT INTO delta_ntz_filter VALUES
+                  |(1, '2022-01-01 00:00:00'),
+                  |(2, '2023-01-01 00:00:00'),
+                  |(3, '2024-01-01 00:00:00')""".stripMargin)
+      val df = runQueryAndCompare(
+        "select id from delta_ntz_filter where ts > '2022-06-01 00:00:00'",
+        noFallBack = false) { _ => }
+      checkAnswer(df, Seq(Row(2), Row(3)))
     }
   }
 }

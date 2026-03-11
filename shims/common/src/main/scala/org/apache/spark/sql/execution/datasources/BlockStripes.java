@@ -16,8 +16,6 @@
  */
 package org.apache.spark.sql.execution.datasources;
 
-import org.jetbrains.annotations.NotNull;
-
 import java.util.Iterator;
 
 // FIXME: The abstraction is broken: VL / CH don't rely on the same binary layout of
@@ -57,7 +55,6 @@ public class BlockStripes implements Iterable<BlockStripe> {
         throw new UnsupportedOperationException("subclass of BlockStripe should implement this");
     }
 
-    @NotNull
     @Override
     public Iterator<BlockStripe> iterator() {
         throw new UnsupportedOperationException("subclass of BlockStripe should implement this");

@@ -165,6 +165,8 @@ public abstract class GlutenStreamOperatorTestBase {
         new StatefulPlanNode(veloxPlan.getId(), veloxPlan),
         PlanNodeIdGenerator.newId(),
         inputVeloxType,
-        Map.of(veloxPlan.getId(), outputVeloxType));
+        Map.of(veloxPlan.getId(), outputVeloxType),
+        RowData.class,
+        RowData.class);
   }
 }

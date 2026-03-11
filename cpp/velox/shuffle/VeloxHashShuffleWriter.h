@@ -270,7 +270,7 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
   template <typename T>
   arrow::Status splitFixedType(const uint8_t* srcAddr, const std::vector<uint8_t*>& dstAddrs) {
     for (auto& pid : partitionUsed_) {
-      auto dstPidBase = (T*)(dstAddrs[pid] + partitionBufferBase_[pid] * sizeof(T));
+      auto dstPidBase = reinterpret_cast<T*>(dstAddrs[pid] + partitionBufferBase_[pid] * sizeof(T));
       auto pos = partition2RowOffsetBase_[pid];
       auto end = partition2RowOffsetBase_[pid + 1];
       for (; pos < end; ++pos) {

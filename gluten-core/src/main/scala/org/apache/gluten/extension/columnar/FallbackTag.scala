@@ -105,7 +105,7 @@ object FallbackTags {
 
   def get(plan: TreeNode[_]): FallbackTag = {
     getOption(plan).getOrElse(
-      throw new IllegalStateException("Transform hint tag not set in plan: " + plan.toString()))
+      throw new IllegalStateException("Transform hint tag not set in plan: " + plan.nodeName))
   }
 
   def getOption(plan: TreeNode[_]): Option[FallbackTag] = {

@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.connector.write;
 
+import org.apache.spark.TaskContext;
 import org.apache.spark.annotation.Evolving;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.DataWriterFactory;
@@ -43,6 +44,12 @@ public interface ColumnarBatchDataWriterFactory extends Serializable {
    *
    * <p>If this method fails (by throwing an exception), the corresponding Spark write task would
    * fail and get retried until hitting the maximum retry times.
+   *
+   * @param partitionId A unique id of the RDD partition that the returned writer will process.
+   *     Usually Spark processes many RDD partitions at the same time, implementations should use
+   *     the partition id to distinguish writers for different partitions.
+   * @param taskId The task id returned by {@link TaskContext#taskAttemptId()}. Spark may run
+   *     multiple tasks for the same partition (due to speculation or task failures, for example).
    */
-  DataWriter<ColumnarBatch> createWriter();
+  DataWriter<ColumnarBatch> createWriter(int partitionId, long taskId);
 }

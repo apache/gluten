@@ -4,13 +4,19 @@
   <parent>
     <groupId>org.apache.gluten</groupId>
     <artifactId>gluten-ut</artifactId>
-    <version>1.6.0-SNAPSHOT</version>
+    <version>1.7.0-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
   <artifactId>gluten-ut-spark40</artifactId>
   <packaging>jar</packaging>
   <name>Gluten Unit Test Spark40</name>
+
+  <properties>
+    <parquet.version>1.15.2</parquet.version>
+    <parquet.test.deps.scope>test</parquet.test.deps.scope>
+    <avro.version>1.12.0</avro.version>
+  </properties>
 
   <dependencies>
     <dependency>
@@ -23,16 +29,38 @@
     <dependency>
       <groupId>org.apache.parquet</groupId>
       <artifactId>parquet-column</artifactId>
-      <version>1.15.2</version>
+      <version>${parquet.version}</version>
       <classifier>tests</classifier>
-      <scope>test</scope>
+      <scope>${parquet.test.deps.scope}</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.parquet</groupId>
       <artifactId>parquet-common</artifactId>
-      <version>1.15.2</version>
+      <version>${parquet.version}</version>
       <classifier>tests</classifier>
-      <scope>test</scope>
+      <scope>${parquet.test.deps.scope}</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-avro</artifactId>
+      <version>${parquet.version}</version>
+      <scope>${parquet.test.deps.scope}</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.avro</groupId>
+      <artifactId>avro</artifactId>
+      <version>${avro.version}</version>
+      <scope>${parquet.test.deps.scope}</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>commons-io</groupId>
+          <artifactId>commons-io</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.commons</groupId>
+          <artifactId>commons-lang3</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
@@ -56,6 +84,29 @@
         <exclusion>
           <groupId>org.slf4j</groupId>
           <artifactId>slf4j-api</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-common</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client</artifactId>
+      <scope>provided</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-common</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.fasterxml.woodstox</groupId>
+          <artifactId>woodstox-core</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.codehaus.woodstox</groupId>
+          <artifactId>stax2-api</artifactId>
         </exclusion>
       </exclusions>
     </dependency>
@@ -147,7 +198,6 @@
             <goals>
               <goal>test-jar</goal>
             </goals>
-            <phase>test-compile</phase>
           </execution>
         </executions>
       </plugin>
@@ -236,10 +286,6 @@
       <activation>
         <activeByDefault>false</activeByDefault>
       </activation>
-      <properties>
-        <slf4j.version>2.0.16</slf4j.version>
-        <log4j.version>2.24.3</log4j.version>
-      </properties>
       <dependencies>
         <dependency>
           <groupId>org.junit.jupiter</groupId>

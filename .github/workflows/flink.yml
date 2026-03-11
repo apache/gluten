@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/flink.yml'
+      - 'build/mvn'
       - 'gluten-flink/**'
 
 env:
@@ -53,7 +54,7 @@ jobs:
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-8-jdk17
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Prepare
         run: |
           source /opt/rh/gcc-toolset-11/enable
@@ -61,18 +62,18 @@ jobs:
           sudo yum install https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/tzdata-2025a-1.el9.noarch.rpm -y
           sudo .github/workflows/util/install-flink-resources.sh
           git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
-          cd velox4j && git reset --hard 1753fa68f71d8a1a0df2d4a0ff346ae00e973e9c
+          cd velox4j && git reset --hard 889bafcf2fa04e8c31a30edbdf40fe203ef58484
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
-          mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
+          $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..
           git clone https://github.com/nexmark/nexmark.git
           cd nexmark
-          mvn clean install -DskipTests
+          $GITHUB_WORKSPACE/build/mvn clean install -DskipTests
       - name: Build Gluten Flink
         run: |
           cd $GITHUB_WORKSPACE/gluten-flink
-          mvn clean package -Dmaven.test.skip=true
+          $GITHUB_WORKSPACE/build/mvn clean package -Dmaven.test.skip=true
       - name: Run Unit Tests
         run: |
           cd $GITHUB_WORKSPACE/gluten-flink
-          mvn test
+          $GITHUB_WORKSPACE/build/mvn test

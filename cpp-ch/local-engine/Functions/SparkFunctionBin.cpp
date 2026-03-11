@@ -112,8 +112,7 @@ namespace
                     val >>= 1;
                 } while (val != 0 && char_pos > 0);
 
-                pos += len + 1;
-                out_chars[pos - 1] = '\0';
+                pos += len;
                 out_offsets[i] = pos;
             }
 

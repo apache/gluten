@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.streaming.api.operators;
 
-import org.apache.gluten.table.runtime.operators.GlutenVectorTwoInputOperator;
+import org.apache.gluten.table.runtime.operators.GlutenTwoInputOperator;
 
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
@@ -77,7 +77,7 @@ public class GlutenStreamJoinOperatorTest extends GlutenStreamJoinOperatorTestBa
 
   @Test
   public void testInnerJoin() throws Exception {
-    GlutenVectorTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.INNER);
+    GlutenTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.INNER);
 
     List<RowData> expectedOutput =
         Arrays.asList(
@@ -99,7 +99,7 @@ public class GlutenStreamJoinOperatorTest extends GlutenStreamJoinOperatorTestBa
   @Test
   @Disabled
   public void testLeftJoin() throws Exception {
-    GlutenVectorTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.LEFT);
+    GlutenTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.LEFT);
 
     List<RowData> expectedOutput =
         Arrays.asList(
@@ -127,7 +127,7 @@ public class GlutenStreamJoinOperatorTest extends GlutenStreamJoinOperatorTestBa
   @Test
   @Disabled
   public void testRightJoin() throws Exception {
-    GlutenVectorTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.RIGHT);
+    GlutenTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.RIGHT);
 
     List<RowData> expectedOutput =
         Arrays.asList(
@@ -151,7 +151,7 @@ public class GlutenStreamJoinOperatorTest extends GlutenStreamJoinOperatorTestBa
   @Test
   @Disabled
   public void testFullOuterJoin() throws Exception {
-    GlutenVectorTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.FULL);
+    GlutenTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.FULL);
 
     List<RowData> expectedOutput =
         Arrays.asList(
@@ -181,7 +181,7 @@ public class GlutenStreamJoinOperatorTest extends GlutenStreamJoinOperatorTestBa
   @Test
   public void testInnerJoinWithNonEquiCondition() throws Exception {
     RexNode nonEquiCondition = createNonEquiCondition();
-    GlutenVectorTwoInputOperator operator =
+    GlutenTwoInputOperator operator =
         createGlutenJoinOperator(FlinkJoinType.INNER, nonEquiCondition);
 
     List<RowData> expectedOutput =

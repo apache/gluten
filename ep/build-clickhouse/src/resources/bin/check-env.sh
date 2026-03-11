@@ -81,8 +81,8 @@ function check_spark_version() {
   echo "SPARK_HOME=${SPARK_HOME}"
   SPARK_VERSION=$(cat ${SPARK_HOME}/RELEASE | grep "^Spark" | cut -d " " -f 2)
   SPARK_MAJOR_MINOR_VERSION=$(echo ${SPARK_VERSION} | cut -d '.' -f 1-2)
-  if [[ "${SPARK_MAJOR_MINOR_VERSION}" != "3.2" ]] && [[ "${SPARK_MAJOR_MINOR_VERSION}" != "3.3" ]]; then
-    echo "[ERROR] SPARK_VERSION ${SPARK_VERSION} which defined in $SPARK_HOME/RELEASE, is not supported. Please use spark 3.2 or spark 3.3."
+  if [[ "${SPARK_MAJOR_MINOR_VERSION}" != "3.3" ]] && [[ "${SPARK_MAJOR_MINOR_VERSION}" != "3.4" ]] && [[ "${SPARK_MAJOR_MINOR_VERSION}" != "3.5" ]] && [[ "${SPARK_MAJOR_MINOR_VERSION}" != "4.0" ]]; then
+    echo "[ERROR] SPARK_VERSION ${SPARK_VERSION} which defined in $SPARK_HOME/RELEASE, is not supported. Please use spark 3.3, 3.4, 3.5, or 4.0."
     exit 1
   fi
   export SPARK_MAJOR_MINOR_VERSION=${SPARK_MAJOR_MINOR_VERSION}

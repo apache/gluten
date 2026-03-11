@@ -33,7 +33,6 @@ static inline void excelRead(DB::IColumn & column, Reader && reader)
     try
     {
         reader(data);
-        data.push_back(0);
         offsets.push_back(data.size());
     }
     catch (...)

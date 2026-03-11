@@ -598,7 +598,7 @@ String MergeTreeRelParser::filterRangesOnDriver(const substrait::ReadRel & read_
     auto read_step = storage->reader.readFromParts(
         RangesInDataParts({selected_parts}),
         /* alter_conversions = */
-        {},
+        storage->getMutationsSnapshot({}),
         names_and_types_list.getNames(),
         storage_snapshot,
         *query_info,

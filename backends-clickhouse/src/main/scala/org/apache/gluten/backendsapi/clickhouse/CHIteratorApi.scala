@@ -199,14 +199,8 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
             }
             partitionColumns.add(partitionColumn)
 
-            val (fileSize, modificationTime) =
-              SparkShimLoader.getSparkShims.getFileSizeAndModificationTime(file)
-            (fileSize, modificationTime) match {
-              case (Some(size), Some(time)) =>
-                fileSizes.add(JLong.valueOf(size))
-                modificationTimes.add(JLong.valueOf(time))
-              case _ =>
-            }
+            fileSizes.add(file.fileSize)
+            modificationTimes.add(file.modificationTime)
 
             val otherConstantMetadataColumnValues =
               DeltaShimLoader.getDeltaShims.convertRowIndexFilterIdEncoded(

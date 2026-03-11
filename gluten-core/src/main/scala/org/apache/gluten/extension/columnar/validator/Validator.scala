@@ -43,6 +43,11 @@ object Validator {
   case object Passed extends OutCome
   case class Failed private (reason: String) extends OutCome
 
+  private object NoopValidator extends Validator {
+    override def validate(plan: SparkPlan): Validator.OutCome = pass()
+  }
+
+  def noop(): Validator = NoopValidator
   def builder(): Builder = Builder()
 
   class Builder private {
@@ -74,10 +79,6 @@ object Validator {
 
   private object Builder {
     def apply(): Builder = new Builder()
-
-    private object NoopValidator extends Validator {
-      override def validate(plan: SparkPlan): Validator.OutCome = pass()
-    }
 
     private class ValidatorPipeline(val validators: Seq[Validator]) extends Validator {
       assert(!validators.exists(_.isInstanceOf[ValidatorPipeline]))

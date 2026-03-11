@@ -17,30 +17,39 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.connector.write.ColumnarBatchDataWriterFactory
+import org.apache.gluten.connector.write.{ColumnarBatchDataWriterFactory, ColumnarMicroBatchWriterFactory, ColumnarStreamingDataWriterFactory}
 import org.apache.gluten.extension.columnar.transition.{Convention, ConventionReq}
 import org.apache.gluten.extension.columnar.transition.Convention.RowType
 
 import org.apache.spark.{SparkException, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.connector.write.{BatchWrite, WriterCommitMessage}
+import org.apache.spark.sql.connector.write.{BatchWrite, Write, WriterCommitMessage}
 import org.apache.spark.sql.datasources.v2.{DataWritingColumnarBatchSparkTask, DataWritingColumnarBatchSparkTaskResult, StreamWriterCommitProgressUtil, WritingColumnarBatchSparkTask}
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.v2._
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
+import org.apache.spark.sql.execution.streaming.sources.MicroBatchWrite
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.LongAccumulator
 
-trait ColumnarV2TableWriteExec extends V2ExistingTableWriteExec with ValidatablePlan {
+trait ColumnarV2TableWriteExec extends V2TableWriteExec with ValidatablePlan {
+
+  def refreshCache: () => Unit
+
+  def write: Write
+
+  def batchWrite: BatchWrite = write.toBatch
 
   def withNewQuery(newQuery: SparkPlan): SparkPlan = withNewChildInternal(newQuery)
 
-  protected def createFactory(schema: StructType): ColumnarBatchDataWriterFactory
+  protected def createBatchWriterFactory(schema: StructType): ColumnarBatchDataWriterFactory
+
+  protected def createStreamingWriterFactory(schema: StructType): ColumnarStreamingDataWriterFactory
 
   override protected def run(): Seq[InternalRow] = {
-    writeColumnarBatchWithV2(write.toBatch)
+    writeColumnarBatchWithV2(batchWrite)
     refreshCache()
     Nil
   }
@@ -77,7 +86,15 @@ trait ColumnarV2TableWriteExec extends V2ExistingTableWriteExec with Validatable
 
     // Avoid object not serializable issue.
     val writeMetrics: Map[String, SQLMetric] = customMetrics
-    val factory = createFactory(query.schema)
+    val factory = batchWrite match {
+      case m: MicroBatchWrite =>
+        val epochIdField = m.getClass.getDeclaredField("epochId")
+        epochIdField.setAccessible(true)
+        val epochId = epochIdField.getLong(m)
+        new ColumnarMicroBatchWriterFactory(epochId, createStreamingWriterFactory(query.schema))
+      case _ =>
+        createBatchWriterFactory(query.schema)
+    }
     try {
       sparkContext.runJob(
         rdd,

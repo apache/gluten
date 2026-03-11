@@ -174,6 +174,7 @@ object CHExpressionUtil {
 
   final val CH_BLACKLIST_SCALAR_FUNCTION: Map[String, FunctionValidator] = Map(
     SPLIT_PART -> DefaultValidator(),
+    TO_PRETTY_STRING -> DefaultValidator(),
     TO_UNIX_TIMESTAMP -> UnixTimeStampValidator(),
     UNIX_TIMESTAMP -> UnixTimeStampValidator(),
     SEQUENCE -> SequenceValidator(),

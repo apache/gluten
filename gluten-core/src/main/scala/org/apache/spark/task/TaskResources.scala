@@ -18,9 +18,9 @@ package org.apache.spark.task
 
 import org.apache.gluten.config.GlutenCoreConfig
 import org.apache.gluten.memory.SimpleMemoryUsageRecorder
-import org.apache.gluten.task.TaskListener
+import org.apache.gluten.task.{TaskErrorLogger, TaskListener}
 
-import org.apache.spark.{TaskContext, TaskFailedReason, TaskKilledException, UnknownReason}
+import org.apache.spark.{TaskContext, TaskFailedReason, UnknownReason}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.{SparkTaskUtil, TaskCompletionListener, TaskFailureListener}
@@ -55,7 +55,7 @@ object TaskResources extends TaskListener with Logging {
   private def setUnsafeTaskContext(): Unit = {
     if (inSparkTask()) {
       throw new UnsupportedOperationException(
-        "TaskResources#runUnsafe should only be used outside Spark task")
+        "TaskResources#setUnsafeTaskContext should only be called outside Spark task")
     }
     val properties = new Properties()
     SQLConf.get.getAllConfs.foreach {
@@ -83,11 +83,14 @@ object TaskResources extends TaskListener with Logging {
   // be created and used. Since unsafe task context is not managed by Spark's task memory manager,
   // Spark may not be aware of the allocations happened inside the user code.
   //
-  // The API should only be used in the following cases:
+  // The API should typically be used in the following cases:
   //
   // 1. Run code on driver
   // 2. Run test code
   def runUnsafe[T](body: => T): T = {
+    if (inSparkTask()) {
+      return body
+    }
     TaskResources.setUnsafeTaskContext()
     onTaskStart()
     val context = getLocalTaskContext()
@@ -201,16 +204,14 @@ object TaskResources extends TaskListener with Logging {
       }
       val registry = new TaskResourceRegistry
       RESOURCE_REGISTRIES.put(tc, registry)
+      // TODO: Propose upstream Spark changes for resilient error logging when
+      // CompletionListener crashes. Using TaskErrorLogger as workaround
       tc.addTaskFailureListener(
         // in case of crashing in task completion listener, errors may be swallowed
         new TaskFailureListener {
           override def onTaskFailure(context: TaskContext, error: Throwable): Unit = {
-            // TODO:
-            // The general duty of printing error message should not reside in memory module
-            error match {
-              case e: TaskKilledException if e.reason == "another attempt succeeded" =>
-              case _ => logError(s"Task ${context.taskAttemptId()} failed by error: ", error)
-            }
+            // Delegate error logging to TaskErrorLogger utility
+            TaskErrorLogger.logTaskFailure(context, error)
           }
         })
       tc.addTaskCompletionListener(new TaskCompletionListener {

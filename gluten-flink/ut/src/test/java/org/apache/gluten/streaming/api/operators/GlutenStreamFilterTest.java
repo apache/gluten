@@ -216,7 +216,9 @@ public class GlutenStreamFilterTest extends GlutenStreamOperatorTestBase {
           new io.github.zhztheplayer.velox4j.plan.StatefulPlanNode(veloxPlan.getId(), veloxPlan),
           PlanNodeIdGenerator.newId(),
           veloxType,
-          Map.of(veloxPlan.getId(), veloxType));
+          Map.of(veloxPlan.getId(), veloxType),
+          RowData.class,
+          RowData.class);
     }
 
     @Override

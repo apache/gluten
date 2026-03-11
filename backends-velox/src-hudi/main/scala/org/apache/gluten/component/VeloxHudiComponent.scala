@@ -29,8 +29,7 @@ import org.apache.spark.util.SparkReflectionUtil
 
 class VeloxHudiComponent extends Component {
   override def name(): String = "velox-hudi"
-  override def buildInfo(): Component.BuildInfo =
-    Component.BuildInfo("VeloxHudi", "N/A", "N/A", "N/A")
+
   override def dependencies(): Seq[Class[_ <: Component]] = classOf[VeloxBackend] :: Nil
 
   override def isRuntimeCompatible: Boolean = {

@@ -141,6 +141,7 @@ object ExpressionNames {
   final val MASK = "mask"
   final val FORMAT_STRING = "format_string"
   final val LUHN_CHECK = "luhn_check"
+  final val TO_PRETTY_STRING = "to_pretty_string"
 
   // URL functions
   final val PARSE_URL = "parse_url"
@@ -193,6 +194,7 @@ object ExpressionNames {
   final val REMAINDER = "modulus"
   final val FACTORIAL = "factorial"
   final val RAND = "rand"
+  final val RANDSTR = "randstr"
   final val RINT = "rint"
   final val RIGHT = "right"
 

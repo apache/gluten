@@ -17,7 +17,7 @@
 package org.apache.gluten.velox;
 
 import org.apache.gluten.streaming.api.operators.GlutenStreamSource;
-import org.apache.gluten.table.runtime.operators.GlutenVectorSourceFunction;
+import org.apache.gluten.table.runtime.operators.GlutenSourceFunction;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 import org.apache.gluten.util.ReflectUtils;
@@ -115,11 +115,13 @@ public class KafkaSourceSinkFactory implements VeloxSourceSinkFactory {
       TableScanNode kafkaScan = new TableScanNode(planId, outputType, kafkaTableHandle, List.of());
       GlutenStreamSource sourceOp =
           new GlutenStreamSource(
-              new GlutenVectorSourceFunction(
+              new GlutenSourceFunction(
                   new StatefulPlanNode(kafkaScan.getId(), kafkaScan),
                   Map.of(kafkaScan.getId(), outputType),
                   kafkaScan.getId(),
-                  connectorSplit));
+                  connectorSplit,
+                  RowData.class),
+              "KafkaSource");
       SourceTransformation sourceTransformation = (SourceTransformation) transformation;
       return new LegacySourceTransformation<RowData>(
           sourceTransformation.getName(),

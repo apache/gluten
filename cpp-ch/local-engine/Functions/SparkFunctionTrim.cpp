@@ -185,8 +185,7 @@ namespace
             size_t res_offset = row > 0 ? res_offsets[row - 1] : 0;
             res_data.resize_exact(res_data.size() + dst_size + 1);
             memcpySmallAllowReadWriteOverflow15(&res_data[res_offset], dst, dst_size);
-            res_offset += dst_size + 1;
-            res_data[res_offset - 1] = '\0';
+            res_offset += dst_size;
             res_offsets[row] = res_offset;
         }
 

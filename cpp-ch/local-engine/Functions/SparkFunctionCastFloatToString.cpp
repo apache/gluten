@@ -103,7 +103,6 @@ public:
             {
                 writeFloatText(src_col->getElement(i), write_buffer);
                 writeFloatEnd<F>(src_col->getElement(i), write_buffer);
-                writeChar(0, write_buffer);
                 res_offsets[i] = write_buffer.count();
             }
             return true;

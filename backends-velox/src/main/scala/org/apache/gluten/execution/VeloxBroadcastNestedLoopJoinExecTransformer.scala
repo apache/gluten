@@ -45,7 +45,7 @@ case class VeloxBroadcastNestedLoopJoinExecTransformer(
   override def columnarInputRDDs: Seq[RDD[ColumnarBatch]] = {
     val streamedRDD = getColumnarInputRDDs(streamedPlan)
     val broadcast = buildPlan.executeBroadcast[BuildSideRelation]()
-    val broadcastRDD = VeloxBroadcastBuildSideRDD(sparkContext, broadcast)
+    val broadcastRDD = VeloxBroadcastBuildSideRDD(sparkContext, broadcast, null, true)
     // FIXME: Do we have to make build side a RDD?
     streamedRDD :+ broadcastRDD
   }

@@ -18,12 +18,14 @@ package org.apache.spark.sql.execution.unsafe
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
+import org.apache.gluten.execution.BroadcastHashJoinContext
+import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.sql.shims.SparkShimLoader
-import org.apache.gluten.utils.ArrowAbiUtil
-import org.apache.gluten.vectorized.{ColumnarBatchSerializerJniWrapper, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
+import org.apache.gluten.utils.{ArrowAbiUtil, SubstraitUtil}
+import org.apache.gluten.vectorized.{ColumnarBatchSerializerJniWrapper, HashJoinBuilder, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
 
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.internal.Logging
@@ -44,13 +46,17 @@ import org.apache.arrow.c.ArrowSchema
 
 import java.io.{Externalizable, ObjectInput, ObjectOutput}
 
+import scala.collection.JavaConverters._
 import scala.collection.JavaConverters.asScalaIteratorConverter
+import scala.collection.mutable.ArrayBuffer
 
 object UnsafeColumnarBuildSideRelation {
   def apply(
       output: Seq[Attribute],
       batches: Seq[UnsafeByteArray],
-      mode: BroadcastMode): UnsafeColumnarBuildSideRelation = {
+      mode: BroadcastMode,
+      newBuildKeys: Seq[Expression] = Seq.empty,
+      offload: Boolean = false): UnsafeColumnarBuildSideRelation = {
     val boundMode = mode match {
       case HashedRelationBroadcastMode(keys, isNullAware) =>
         // Bind each key to the build-side output so simple cols become BoundReference
@@ -60,7 +66,12 @@ object UnsafeColumnarBuildSideRelation {
       case m =>
         m // IdentityBroadcastMode, etc.
     }
-    new UnsafeColumnarBuildSideRelation(output, batches, BroadcastModeUtils.toSafe(boundMode))
+    new UnsafeColumnarBuildSideRelation(
+      output,
+      batches,
+      BroadcastModeUtils.toSafe(boundMode),
+      newBuildKeys,
+      offload)
   }
 }
 
@@ -78,7 +89,9 @@ object UnsafeColumnarBuildSideRelation {
 class UnsafeColumnarBuildSideRelation(
     private var output: Seq[Attribute],
     private var batches: Seq[UnsafeByteArray],
-    private var safeBroadcastMode: SafeBroadcastMode)
+    private var safeBroadcastMode: SafeBroadcastMode,
+    private var newBuildKeys: Seq[Expression],
+    private var offload: Boolean)
   extends BuildSideRelation
   with Externalizable
   with Logging
@@ -96,37 +109,126 @@ class UnsafeColumnarBuildSideRelation(
     case _ => None
   }
 
+  def isOffload: Boolean = offload
+
   /** needed for serialization. */
   def this() = {
-    this(null, null, null)
+    this(null, null, null, Seq.empty, false)
   }
 
   private[unsafe] def getBatches(): Seq[UnsafeByteArray] = {
     batches
   }
 
+  private var hashTableData: Long = 0L
+
+  def buildHashTable(broadcastContext: BroadcastHashJoinContext): (Long, BuildSideRelation) =
+    synchronized {
+      if (hashTableData == 0) {
+        val runtime = Runtimes.contextInstance(
+          BackendsApiManager.getBackendName,
+          "UnsafeColumnarBuildSideRelation#buildHashTable")
+        val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
+        val serializeHandle: Long = {
+          val allocator = ArrowBufferAllocators.contextInstance()
+          val cSchema = ArrowSchema.allocateNew(allocator)
+          val arrowSchema = SparkArrowUtil.toArrowSchema(
+            SparkShimLoader.getSparkShims.structFromAttributes(output),
+            SQLConf.get.sessionLocalTimeZone)
+          ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
+          val handle = jniWrapper
+            .init(cSchema.memoryAddress())
+          cSchema.close()
+          handle
+        }
+
+        val batchArray = new ArrayBuffer[Long]
+
+        var batchId = 0
+        while (batchId < batches.size) {
+          val (offset, length) = (batches(batchId).address(), batches(batchId).size())
+          batchArray.append(jniWrapper.deserializeDirect(serializeHandle, offset, length.toInt))
+          batchId += 1
+        }
+
+        logDebug(
+          s"BHJ value size: " +
+            s"${broadcastContext.buildHashTableId} = ${batches.size}")
+
+        val (keys, newOutput) = if (newBuildKeys.isEmpty) {
+          (
+            broadcastContext.buildSideJoinKeys.asJava,
+            broadcastContext.buildSideStructure.asJava
+          )
+        } else {
+          (
+            newBuildKeys.asJava,
+            output.asJava
+          )
+        }
+
+        val joinKeys = keys.asScala.map {
+          key =>
+            val attr = ConverterUtils.getAttrFromExpr(key)
+            ConverterUtils.genColumnNameWithExprId(attr)
+        }.toArray
+
+        // Build the hash table
+        hashTableData = HashJoinBuilder
+          .nativeBuild(
+            broadcastContext.buildHashTableId,
+            batchArray.toArray,
+            joinKeys,
+            broadcastContext.substraitJoinType.ordinal(),
+            broadcastContext.hasMixedFiltCondition,
+            broadcastContext.isExistenceJoin,
+            SubstraitUtil.toNameStruct(newOutput).toByteArray,
+            broadcastContext.isNullAwareAntiJoin,
+            broadcastContext.bloomFilterPushdownSize,
+            broadcastContext.broadcastHashTableBuildThreads
+          )
+
+        jniWrapper.close(serializeHandle)
+        (hashTableData, this)
+      } else {
+        (HashJoinBuilder.cloneHashTable(hashTableData), null)
+      }
+    }
+
+  def reset(): Unit = synchronized {
+    hashTableData = 0
+  }
+
   override def writeExternal(out: ObjectOutput): Unit = Utils.tryOrIOException {
     out.writeObject(output)
     out.writeObject(safeBroadcastMode)
     out.writeObject(batches.toArray)
+    out.writeObject(newBuildKeys)
+    out.writeBoolean(offload)
   }
 
   override def write(kryo: Kryo, out: Output): Unit = Utils.tryOrIOException {
     kryo.writeObject(out, output.toList)
     kryo.writeClassAndObject(out, safeBroadcastMode)
     kryo.writeClassAndObject(out, batches.toArray)
+    kryo.writeClassAndObject(out, newBuildKeys)
+    out.writeBoolean(offload)
   }
 
   override def readExternal(in: ObjectInput): Unit = Utils.tryOrIOException {
     output = in.readObject().asInstanceOf[Seq[Attribute]]
     safeBroadcastMode = in.readObject().asInstanceOf[SafeBroadcastMode]
     batches = in.readObject().asInstanceOf[Array[UnsafeByteArray]].toSeq
+    newBuildKeys = in.readObject().asInstanceOf[Seq[Expression]]
+    offload = in.readBoolean()
   }
 
   override def read(kryo: Kryo, in: Input): Unit = Utils.tryOrIOException {
     output = kryo.readObject(in, classOf[List[_]]).asInstanceOf[Seq[Attribute]]
     safeBroadcastMode = kryo.readClassAndObject(in).asInstanceOf[SafeBroadcastMode]
     batches = kryo.readClassAndObject(in).asInstanceOf[Array[UnsafeByteArray]].toSeq
+    newBuildKeys = kryo.readClassAndObject(in).asInstanceOf[Seq[Expression]]
+    offload = in.readBoolean()
   }
 
   private def transformProjection: UnsafeProjection = safeBroadcastMode match {

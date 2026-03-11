@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 package org.apache.spark.sql.sources
+
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
 class GlutenBucketedWriteWithoutHiveSupportSuite

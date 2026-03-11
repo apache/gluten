@@ -294,10 +294,13 @@ MemoryUsageStats collectGlutenAllocatorMemoryUsageStats(
   return stats;
 }
 
-void logMemoryUsageStats(MemoryUsageStats stats, const std::string& name, const std::string& logPrefix, std::stringstream& ss) {
-  ss << logPrefix << "+- " << name
-     << " (used: " << velox::succinctBytes(stats.current())
-     << ", peak: " <<  velox::succinctBytes(stats.peak()) << ")\n";
+void logMemoryUsageStats(
+    MemoryUsageStats stats,
+    const std::string& name,
+    const std::string& logPrefix,
+    std::stringstream& ss) {
+  ss << logPrefix << "+- " << name << " (used: " << velox::succinctBytes(stats.current())
+     << ", peak: " << velox::succinctBytes(stats.peak()) << ")\n";
   if (stats.children_size() > 0) {
     for (auto it = stats.children().begin(); it != stats.children().end(); ++it) {
       logMemoryUsageStats(it->second, it->first, logPrefix + "   ", ss);
@@ -327,20 +330,15 @@ int64_t shrinkVeloxMemoryPool(velox::memory::MemoryManager* mm, velox::memory::M
 std::shared_ptr<arrow::MemoryPool> VeloxMemoryManager::getOrCreateArrowMemoryPool(const std::string& name) {
   std::lock_guard<std::mutex> l(mutex_);
   if (const auto it = arrowPools_.find(name); it != arrowPools_.end()) {
-    auto pool = it->second.lock();
-    VELOX_CHECK_NOT_NULL(pool, "Arrow memory pool {} has been destructed", name);
-    return pool;
+    if (auto pool = it->second.lock()) {
+      return pool;
+    }
+    arrowPools_.erase(name);
   }
-  auto pool = std::make_shared<ArrowMemoryPool>(
-      blockListener_.get(), [this, name](arrow::MemoryPool* pool) { this->dropMemoryPool(name); });
+
+  auto pool = std::make_shared<ArrowMemoryPool>(blockListener_.get());
   arrowPools_.emplace(name, pool);
   return pool;
-}
-
-void VeloxMemoryManager::dropMemoryPool(const std::string& name) {
-  std::lock_guard<std::mutex> l(mutex_);
-  const auto ret = arrowPools_.erase(name);
-  VELOX_CHECK_EQ(ret, 1, "Child memory pool {} doesn't exist", name);
 }
 
 const MemoryUsageStats VeloxMemoryManager::collectMemoryUsageStats() const {

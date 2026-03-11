@@ -141,7 +141,7 @@ const ::substrait::Expression_Literal& toSubstraitNotNullLiteral(
     }
     case velox::TypeKind::VARCHAR: {
       auto vCharValue = variantValue.value<StringView>();
-      ::substrait::Expression_Literal::VarChar* sVarChar = new ::substrait::Expression_Literal::VarChar();
+      auto* sVarChar = google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal::VarChar>(&arena);
       sVarChar->set_value(vCharValue.data());
       sVarChar->set_length(vCharValue.size());
       literalExpr->set_allocated_var_char(sVarChar);
@@ -261,7 +261,7 @@ const ::substrait::Expression_Literal& toSubstraitNotNullLiteral<TypeKind::VARCH
     const velox::StringView& value) {
   ::substrait::Expression_Literal* literalExpr =
       google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
-  ::substrait::Expression_Literal::VarChar* sVarChar = new ::substrait::Expression_Literal::VarChar();
+  auto* sVarChar = google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal::VarChar>(&arena);
   sVarChar->set_value(value.data());
   sVarChar->set_length(value.size());
   literalExpr->set_allocated_var_char(sVarChar);

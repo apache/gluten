@@ -24,6 +24,9 @@ target_link_libraries(velox_benchmark_common PUBLIC velox benchmark::benchmark
 function(add_velox_benchmark BM_EXEC BM_FILE)
   add_executable(${BM_EXEC} ${BM_FILE})
   target_link_libraries(${BM_EXEC} PRIVATE velox_benchmark_common)
+  if(ENABLE_GPU)
+    target_link_libraries(${BM_EXEC} PRIVATE velox_curl)
+  endif()
 endfunction()
 
 # Generic benchmark

@@ -395,11 +395,18 @@ class VarCharVectorWriter extends BaseVectorWriter<VarCharVector, byte[]> {
   }
 }
 
-class TimestampVectorWriter extends BaseVectorWriter<TimeStampMilliVector, Long> {
+class TimestampVectorWriter extends BaseVectorWriter<FieldVector, Long> {
   private final int precision = 3; // Millisecond precision
 
   public TimestampVectorWriter(Type fieldType, BufferAllocator allocator, FieldVector vector) {
     super(vector);
+    // Verify that the vector is a timestamp vector (either TimeStampMilliVector or
+    // TimeStampMilliTZVector)
+    if (!(vector instanceof TimeStampMilliVector) && !(vector instanceof TimeStampMilliTZVector)) {
+      throw new IllegalArgumentException(
+          "Expected TimeStampMilliVector or TimeStampMilliTZVector, but got: "
+              + vector.getClass().getName());
+    }
   }
 
   @Override
@@ -414,7 +421,16 @@ class TimestampVectorWriter extends BaseVectorWriter<TimeStampMilliVector, Long>
 
   @Override
   protected void setValue(int index, Long value) {
-    this.typedVector.setSafe(index, value);
+
+    // Both TimeStampMilliVector and TimeStampMilliTZVector support setSafe with long value
+    if (this.typedVector instanceof TimeStampMilliVector) {
+      ((TimeStampMilliVector) this.typedVector).setSafe(index, value);
+    } else if (this.typedVector instanceof TimeStampMilliTZVector) {
+      ((TimeStampMilliTZVector) this.typedVector).setSafe(index, value);
+    } else {
+      throw new IllegalStateException(
+          "Unexpected vector type: " + this.typedVector.getClass().getName());
+    }
   }
 }
 

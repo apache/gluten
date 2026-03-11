@@ -30,11 +30,11 @@ var paq_file_root = "/ROOT_PATH"
 
 var tpcds_queries_path = "/tools/gluten-it/common/src/main/resources/tpcds-queries/"
 
-def time[R](block: => R): R = {
+def time[R](fileName: String)(block: => R): R = {
     val t0 = System.nanoTime()
     val result = block    // call-by-name
     val t1 = System.nanoTime()
-    println("Elapsed time: " + (t1 - t0)/1000000000.0 + " seconds")
+    println(s"$fileName, elapsed time: " + (t1 - t0)/1000000000.0 + " seconds")
     result
 }
 
@@ -117,7 +117,7 @@ for (t <- sorted) {
   println(t)
   val fileContents = Source.fromFile(t).getLines.filter(!_.startsWith("--")).mkString(" ")
   println(fileContents)
-  time{spark.sql(fileContents).collectAsList()}
+  time(t.getName){spark.sql(fileContents).collectAsList()}
   // spark.sql(fileContents).explain
   Thread.sleep(2000)
 }

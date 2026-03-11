@@ -35,7 +35,7 @@ public abstract class ClosableIterator<T> implements AutoCloseable, Serializable
     try {
       return hasNext0();
     } catch (Exception e) {
-      throw new GlutenException(e);
+      throw translateException(e);
     }
   }
 
@@ -47,7 +47,7 @@ public abstract class ClosableIterator<T> implements AutoCloseable, Serializable
     try {
       return next0();
     } catch (Exception e) {
-      throw new GlutenException(e);
+      throw translateException(e);
     }
   }
 
@@ -63,4 +63,12 @@ public abstract class ClosableIterator<T> implements AutoCloseable, Serializable
   protected abstract boolean hasNext0() throws Exception;
 
   protected abstract T next0() throws Exception;
+
+  /**
+   * Translates a native exception into an appropriate Java exception. Subclasses can override this
+   * to translate backend-specific exceptions into Spark-compatible exceptions.
+   */
+  protected RuntimeException translateException(Exception e) {
+    return new GlutenException(e);
+  }
 }

@@ -279,7 +279,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
-  testWithMinSparkVersion("fallback with index based schema evolution", "3.3") {
+  test("fallback with index based schema evolution") {
     val query = "SELECT c2 FROM test"
     Seq("parquet", "orc").foreach {
       format =>

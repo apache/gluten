@@ -29,10 +29,8 @@ import org.apache.log4j.LogManager;
 import org.apache.spark.SparkConf;
 import picocli.CommandLine;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import java.io.*;
+import java.util.*;
 
 public class BaseMixin {
 
@@ -57,10 +55,16 @@ public class BaseMixin {
   private String baselinePreset;
 
   @CommandLine.Option(
+      names = {"--app-name"},
+      description = "The name of Spark application started by the benchmark",
+      defaultValue = "Gluten Integration Test")
+  private String appName;
+
+  @CommandLine.Option(
       names = {"--log-level"},
-      description = "Set log level: 0 for DEBUG, 1 for INFO, 2 for WARN",
-      defaultValue = "2")
-  private int logLevel;
+      description = "Set log level: DEBUG, INFO, WARN, etc.",
+      defaultValue = "WARN")
+  private String logLevel;
 
   @CommandLine.Option(
       names = {"--error-on-memleak"},
@@ -118,7 +122,7 @@ public class BaseMixin {
   private int hsUiPort;
 
   @CommandLine.ArgGroup(exclusive = true, multiplicity = "1")
-  SparkRunModes.Mode.Enumeration runModeEnumeration;
+  private SparkRunModes.Mode.Enumeration runModeEnumeration;
 
   @CommandLine.Option(
       names = {"--disable-aqe"},
@@ -137,6 +141,12 @@ public class BaseMixin {
       description = "Disable Spark SQL whole stage code generation",
       defaultValue = "false")
   private boolean disableWscg;
+
+  @CommandLine.Option(
+      names = {"--enable-cbo"},
+      description = "Enable Spark CBO and analyze all tables before running queries",
+      defaultValue = "false")
+  private boolean enableCbo;
 
   @CommandLine.Option(
       names = {"--shuffle-partitions"},
@@ -163,6 +173,13 @@ public class BaseMixin {
           "Extra Spark config entries applying to generated Spark session. E.g. --extra-conf=k1=v1 --extra-conf=k2=v2")
   private Map<String, String> extraSparkConf = Collections.emptyMap();
 
+  @CommandLine.Option(
+      names = {"--report"},
+      description =
+          "The file path where the test report will be written. If not specified, the report will be printed to stdout only.",
+      defaultValue = "")
+  private String reportPath;
+
   private SparkConf pickSparkConf(String preset) {
     return Preset.get(preset).getConf();
   }
@@ -172,20 +189,7 @@ public class BaseMixin {
   }
 
   public Integer runActions(Action[] actions) {
-    final Level level;
-    switch (logLevel) {
-      case 0:
-        level = Level.DEBUG;
-        break;
-      case 1:
-        level = Level.INFO;
-        break;
-      case 2:
-        level = Level.WARN;
-        break;
-      default:
-        throw new IllegalArgumentException("Log level not found: " + logLevel);
-    }
+    final Level level = Level.toLevel(logLevel);
     System.setProperty(org.slf4j.impl.SimpleLogger.DEFAULT_LOG_LEVEL_KEY, level.toString());
     LogManager.getRootLogger().setLevel(level);
 
@@ -204,6 +208,7 @@ public class BaseMixin {
       case "h":
         suite =
             new TpchSuite(
+                appName,
                 runModeEnumeration.getSparkMasterUrl(),
                 actions,
                 testConf,
@@ -222,15 +227,18 @@ public class BaseMixin {
                 disableAqe,
                 disableBhj,
                 disableWscg,
+                enableCbo,
                 shufflePartitions,
                 scanPartitions,
                 decimalAsDouble,
                 baselineMetricMapper,
-                testMetricMapper);
+                testMetricMapper,
+                reportPath);
         break;
       case "ds":
         suite =
             new TpcdsSuite(
+                appName,
                 runModeEnumeration.getSparkMasterUrl(),
                 actions,
                 testConf,
@@ -249,15 +257,18 @@ public class BaseMixin {
                 disableAqe,
                 disableBhj,
                 disableWscg,
+                enableCbo,
                 shufflePartitions,
                 scanPartitions,
                 decimalAsDouble,
                 baselineMetricMapper,
-                testMetricMapper);
+                testMetricMapper,
+                reportPath);
         break;
       case "clickbench":
         suite =
             new ClickBenchSuite(
+                appName,
                 runModeEnumeration.getSparkMasterUrl(),
                 actions,
                 testConf,
@@ -275,21 +286,22 @@ public class BaseMixin {
                 disableAqe,
                 disableBhj,
                 disableWscg,
+                enableCbo,
                 shufflePartitions,
                 scanPartitions,
                 decimalAsDouble,
                 baselineMetricMapper,
-                testMetricMapper);
+                testMetricMapper,
+                reportPath);
         break;
       default:
         throw new IllegalArgumentException("TPC benchmark type not found: " + benchmarkType);
     }
+
+    // Execute the suite.
     final boolean succeed;
     try {
       succeed = suite.run();
-    } catch (Throwable t) {
-      t.printStackTrace();
-      throw t;
     } finally {
       suite.close();
     }

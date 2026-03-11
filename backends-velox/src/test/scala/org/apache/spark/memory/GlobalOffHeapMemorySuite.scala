@@ -21,7 +21,6 @@ import org.apache.gluten.memory.memtarget.{Spillers, TreeMemoryTarget}
 import org.apache.gluten.memory.memtarget.ThrowOnOomMemoryTarget.OutOfMemoryException
 import org.apache.gluten.memory.memtarget.spark.TreeMemoryConsumers
 
-import org.apache.spark.TaskContext
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.task.TaskResources
 
@@ -42,7 +41,7 @@ class GlobalOffHeapMemorySuite extends AnyFunSuite with BeforeAndAfterAll {
   test("Sanity") {
     TaskResources.runUnsafe {
       val factory =
-        TreeMemoryConsumers.factory(TaskContext.get().taskMemoryManager(), MemoryMode.OFF_HEAP)
+        TreeMemoryConsumers.factory(MemoryMode.OFF_HEAP)
       val consumer =
         factory
           .legacyRoot()
@@ -65,7 +64,7 @@ class GlobalOffHeapMemorySuite extends AnyFunSuite with BeforeAndAfterAll {
   test("Task OOM by global occupation") {
     TaskResources.runUnsafe {
       val factory =
-        TreeMemoryConsumers.factory(TaskContext.get().taskMemoryManager(), MemoryMode.OFF_HEAP)
+        TreeMemoryConsumers.factory(MemoryMode.OFF_HEAP)
       val consumer =
         factory
           .legacyRoot()
@@ -84,7 +83,7 @@ class GlobalOffHeapMemorySuite extends AnyFunSuite with BeforeAndAfterAll {
   test("Release global") {
     TaskResources.runUnsafe {
       val factory =
-        TreeMemoryConsumers.factory(TaskContext.get().taskMemoryManager(), MemoryMode.OFF_HEAP)
+        TreeMemoryConsumers.factory(MemoryMode.OFF_HEAP)
       val consumer =
         factory
           .legacyRoot()
@@ -103,7 +102,7 @@ class GlobalOffHeapMemorySuite extends AnyFunSuite with BeforeAndAfterAll {
   test("Release task") {
     TaskResources.runUnsafe {
       val factory =
-        TreeMemoryConsumers.factory(TaskContext.get().taskMemoryManager(), MemoryMode.OFF_HEAP)
+        TreeMemoryConsumers.factory(MemoryMode.OFF_HEAP)
       val consumer =
         factory
           .legacyRoot()

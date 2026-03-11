@@ -550,7 +550,7 @@ class GlutenClickHouseNativeWriteTableSuite
     }
   }
 
-  test("test 1-col partitioned + 2-col bucketed table") {
+  testWithMaxSparkVersion("test 1-col partitioned + 2-col bucketed table", "3.3") {
     val fields: ListMap[String, String] = ListMap(
       ("string_field", "string"),
       ("int_field", "int"),
@@ -624,7 +624,7 @@ class GlutenClickHouseNativeWriteTableSuite
     }
   }
 
-  test("test decimal with rand()") {
+  testWithMaxSparkVersion("test decimal with rand()", "3.3") {
     nativeWrite {
       format =>
         val table_name = table_name_template.format(format)

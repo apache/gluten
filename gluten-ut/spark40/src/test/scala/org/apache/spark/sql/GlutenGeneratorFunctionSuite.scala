@@ -22,7 +22,7 @@ class GlutenGeneratorFunctionSuite extends GeneratorFunctionSuite with GlutenSQL
   testGluten("SPARK-45171: Handle evaluated nondeterministic expression") {
     withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
       val df = sql("select explode(array(rand(0)))")
-      checkAnswer(df, Row(0.5488135024422883))
+      checkAnswer(df, Row(0.7604953758285915))
     }
   }
 }

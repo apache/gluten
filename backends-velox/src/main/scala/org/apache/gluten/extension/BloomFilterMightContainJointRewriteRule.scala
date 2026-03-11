@@ -19,9 +19,10 @@ package org.apache.gluten.extension
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.expression.VeloxBloomFilterMightContain
 import org.apache.gluten.expression.aggregate.VeloxBloomFilterAggregate
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, BloomFilterMightContain, Expression}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{BloomFilterAggregate, TypedImperativeAggregate}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
 
@@ -40,12 +41,42 @@ case class BloomFilterMightContainJointRewriteRule(
     out
   }
 
+  private def replaceBloomFilterAggregate[T](
+      expr: Expression,
+      bloomFilterAggReplacer: (
+          Expression,
+          Expression,
+          Expression,
+          Int,
+          Int) => TypedImperativeAggregate[T]): Expression = expr match {
+    case BloomFilterAggregate(
+          child,
+          estimatedNumItemsExpression,
+          numBitsExpression,
+          mutableAggBufferOffset,
+          inputAggBufferOffset) =>
+      bloomFilterAggReplacer(
+        child,
+        estimatedNumItemsExpression,
+        numBitsExpression,
+        mutableAggBufferOffset,
+        inputAggBufferOffset)
+    case other => other
+  }
+
+  private def replaceMightContain[T](
+      expr: Expression,
+      mightContainReplacer: (Expression, Expression) => BinaryExpression): Expression = expr match {
+    case BloomFilterMightContain(bloomFilterExpression, valueExpression) =>
+      mightContainReplacer(bloomFilterExpression, valueExpression)
+    case other => other
+  }
+
   private def applyForNode(p: SparkPlan) = {
     p.transformExpressions {
       case e =>
-        SparkShimLoader.getSparkShims.replaceMightContain(
-          SparkShimLoader.getSparkShims
-            .replaceBloomFilterAggregate(e, VeloxBloomFilterAggregate.apply),
+        replaceMightContain(
+          replaceBloomFilterAggregate(e, VeloxBloomFilterAggregate.apply),
           VeloxBloomFilterMightContain.apply)
     }
   }

@@ -24,6 +24,8 @@ import org.apache.gluten.integration.command.SparkShell;
 
 import picocli.CommandLine;
 
+import java.util.Arrays;
+
 @CommandLine.Command(
     name = "gluten-it",
     mixinStandardHelpOptions = true,
@@ -37,10 +39,16 @@ import picocli.CommandLine;
     },
     description = "Gluten integration test using various of benchmark's data and queries.")
 public class Cli {
+  private static String[] COMMANDLINE_ARGS = new String[0];
 
   private Cli() {}
 
+  public static String[] args() {
+    return Arrays.copyOf(COMMANDLINE_ARGS, COMMANDLINE_ARGS.length);
+  }
+
   public static void main(String... args) {
+    COMMANDLINE_ARGS = args;
     final CommandLine cmd = new CommandLine(new Cli());
     final int exitCode = cmd.execute(args);
     System.exit(exitCode);

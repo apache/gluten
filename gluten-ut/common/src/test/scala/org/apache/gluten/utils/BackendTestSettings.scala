@@ -146,12 +146,12 @@ abstract class BackendTestSettings {
       }
 
       def includeAllGlutenTests(): SuiteSettings = {
-        settings.include(GLUTEN_TEST)
+        settings.includeByPrefix(GLUTEN_TEST)
         settings
       }
 
       def excludeAllGlutenTests(): SuiteSettings = {
-        settings.exclude(GLUTEN_TEST)
+        settings.excludeByPrefix(GLUTEN_TEST)
         settings
       }
     }

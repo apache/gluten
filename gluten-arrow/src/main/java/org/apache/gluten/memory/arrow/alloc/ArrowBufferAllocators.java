@@ -25,7 +25,6 @@ import org.apache.arrow.memory.AllocationListener;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.spark.memory.GlobalOffHeapMemory;
-import org.apache.spark.memory.TaskMemoryManager;
 import org.apache.spark.task.TaskResource;
 import org.apache.spark.task.TaskResources;
 import org.slf4j.Logger;
@@ -72,7 +71,6 @@ public class ArrowBufferAllocators {
     private final String name;
 
     {
-      final TaskMemoryManager tmm = TaskResources.getLocalTaskContext().taskMemoryManager();
       if (GlutenConfig.get().memoryUntracked()) {
         listener = AllocationListener.NOOP;
       } else {
@@ -81,7 +79,7 @@ public class ArrowBufferAllocators {
                 MemoryTargets.throwOnOom(
                     MemoryTargets.dynamicOffHeapSizingIfEnabled(
                         MemoryTargets.newConsumer(
-                            tmm, "ArrowContextInstance", Spillers.NOOP, Collections.emptyMap()))),
+                            "ArrowContextInstance", Spillers.NOOP, Collections.emptyMap()))),
                 TaskResources.getSharedUsage());
       }
     }
@@ -122,7 +120,7 @@ public class ArrowBufferAllocators {
 
     @Override
     public int priority() {
-      return 0; // lowest priority
+      return 10; // low priority: released after higher-priority task resources
     }
 
     @Override

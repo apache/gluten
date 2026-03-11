@@ -35,7 +35,7 @@ Add the following configurations to your Spark application:
 
 #### **1. Enable Auto-Adjustment**
 ```properties  
-spark.gluten.auto.AdjustStageResource.enabled=true  
+spark.gluten.auto.adjustStageResource.enabled=true  
 ```
 ### **How It Works**
 The framework analyzes each stage during query planning and adjusts resource profiles in following scenarios:

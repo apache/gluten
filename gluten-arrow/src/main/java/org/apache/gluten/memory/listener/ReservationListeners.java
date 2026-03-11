@@ -49,10 +49,10 @@ public final class ReservationListeners {
     final TaskMemoryManager tmm = TaskResources.getLocalTaskContext().taskMemoryManager();
     final TreeMemoryTarget consumer =
         MemoryTargets.newConsumer(
-            tmm, name, Spillers.withMinSpillSize(spiller, reservationBlockSize), mutableStats);
+            name, Spillers.withMinSpillSize(spiller, reservationBlockSize), mutableStats);
     final MemoryTarget overConsumer =
         MemoryTargets.newConsumer(
-            tmm, consumer.name() + ".OverAcquire", Spillers.NOOP, Collections.emptyMap());
+            consumer.name() + ".OverAcquire", Spillers.NOOP, Collections.emptyMap());
     final MemoryTarget target =
         MemoryTargets.throwOnOom(
             MemoryTargets.overAcquire(

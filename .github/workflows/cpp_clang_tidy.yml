@@ -1,0 +1,79 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Clang Tidy Check
+
+on:
+  workflow_run:
+    workflows: ["Velox Backend (x86)"]
+    types:
+      - completed
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+
+concurrency:
+  group: clang-tidy-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  clang-tidy-check:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-8-jdk8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - name: Detect C++ file changes
+        id: filter
+        run: |
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          git remote -v && git fetch origin main:main
+          # Finds the common ancestor for PR targeting the main branch only.
+          # We may need to update the base branch if PR is not targeting the main branch.
+          BASE_SHA=$(git merge-base main $HEAD_SHA)
+          echo "BASE_SHA: $BASE_SHA"
+          echo "HEAD_SHA: $HEAD_SHA"
+          if git diff --name-only $BASE_SHA $HEAD_SHA | grep -E '^cpp/.*\.(cc|h)$'; then
+            echo "cpp_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "cpp_changed=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Download artifact from in-progress workflow
+        if: steps.filter.outputs.cpp_changed == 'true'
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: .github/workflows/velox_backend_x86.yml
+          name: velox-native-lib-centos-7-${{ github.event.workflow_run.head_sha }}
+          commit: ${{ github.event.workflow_run.head_sha }}
+          workflow_conclusion: ""
+          check_artifacts: true
+          search_artifacts: true
+          if_no_artifact_found: fail
+      - name: Check Clang Tidy
+        if: steps.filter.outputs.cpp_changed == 'true'
+        run: |
+          pip3 install regex
+          yum install glibc-devel glibc-headers
+          cd $GITHUB_WORKSPACE/
+          yum install clang llvm llvm-devel -y
+          dnf install clang-tools-extra -y
+          clang-tidy --version
+          sed -i "s|/work|$(pwd)|g" cpp/build/compile_commands.json
+          python3 dev/check.py tidy commit --fix
+

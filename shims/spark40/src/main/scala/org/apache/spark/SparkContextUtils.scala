@@ -17,11 +17,21 @@
 package org.apache.spark
 
 import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import scala.reflect.ClassTag
 
 object SparkContextUtils {
   def broadcastInternal[T: ClassTag](sc: SparkContext, value: T): Broadcast[T] = {
     sc.broadcastInternal(value, serializedOnly = true)
+  }
+
+  def createPartitioningAwareUnionRDD(
+      sc: SparkContext,
+      rdds: Seq[RDD[ColumnarBatch]],
+      numPartitions: Int): RDD[ColumnarBatch] = {
+    throw new UnsupportedOperationException(
+      "SQLPartitioningAwareUnionRDD is only available in Spark 4.1+")
   }
 }

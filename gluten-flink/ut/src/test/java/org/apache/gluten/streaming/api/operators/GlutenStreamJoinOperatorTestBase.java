@@ -19,7 +19,7 @@ package org.apache.gluten.streaming.api.operators;
 import org.apache.gluten.rexnode.RexConversionContext;
 import org.apache.gluten.rexnode.RexNodeConverter;
 import org.apache.gluten.rexnode.Utils;
-import org.apache.gluten.table.runtime.operators.GlutenVectorTwoInputOperator;
+import org.apache.gluten.table.runtime.operators.GlutenTwoInputOperator;
 import org.apache.gluten.table.runtime.stream.common.Velox4jEnvironment;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
@@ -160,11 +160,11 @@ public abstract class GlutenStreamJoinOperatorTestBase extends StreamingJoinOper
     return outputRowType;
   }
 
-  protected GlutenVectorTwoInputOperator createGlutenJoinOperator(FlinkJoinType joinType) {
+  protected GlutenTwoInputOperator createGlutenJoinOperator(FlinkJoinType joinType) {
     return createGlutenJoinOperator(joinType, null);
   }
 
-  protected GlutenVectorTwoInputOperator createGlutenJoinOperator(
+  protected GlutenTwoInputOperator createGlutenJoinOperator(
       FlinkJoinType joinType, RexNode nonEquiCondition) {
     JoinType veloxJoinType = Utils.toVLJoinType(joinType);
 
@@ -226,13 +226,15 @@ public abstract class GlutenStreamJoinOperatorTestBase extends StreamingJoinOper
             outputVeloxType,
             1024);
 
-    return new GlutenVectorTwoInputOperator(
+    return new GlutenTwoInputOperator(
         new StatefulPlanNode(join.getId(), join),
         leftInput.getId(),
         rightInput.getId(),
         leftVeloxType,
         rightVeloxType,
-        Map.of(join.getId(), outputVeloxType));
+        Map.of(join.getId(), outputVeloxType),
+        RowData.class,
+        RowData.class);
   }
 
   protected void processTestData(
@@ -281,7 +283,7 @@ public abstract class GlutenStreamJoinOperatorTestBase extends StreamingJoinOper
   }
 
   protected void executeJoinTest(
-      GlutenVectorTwoInputOperator operator,
+      GlutenTwoInputOperator operator,
       List<RowData> leftData,
       List<RowData> rightData,
       List<RowData> expectedOutput)

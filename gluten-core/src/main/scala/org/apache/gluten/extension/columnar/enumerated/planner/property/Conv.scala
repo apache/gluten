@@ -41,7 +41,8 @@ object Conv {
   }
 
   def findTransition(from: Prop, to: Req): Transition = {
-    val out = Transition.factory.findTransition(from.prop, to.req, new IllegalStateException())
+    val out =
+      Transition.factory.findTransitionOrThrow(from.prop, to.req)(new IllegalStateException())
     out
   }
 

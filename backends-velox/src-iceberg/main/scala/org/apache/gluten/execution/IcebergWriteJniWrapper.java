@@ -31,6 +31,9 @@ public class IcebergWriteJniWrapper implements RuntimeAware {
   public native long init(long cSchema, int format,
                           String directory,
                           String codec,
+                          int partitionId,
+                          long taskId,
+                          String operationId,
                           byte[] partitionSpec,
                           byte[] field);
 

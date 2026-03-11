@@ -20,9 +20,10 @@
 #include "compute/ResultIterator.h"
 #include "compute/VeloxBackend.h"
 #include "compute/VeloxPlanConverter.h"
+#include "config/GlutenConfig.h"
 #include "velox/core/PlanNode.h"
-#include "velox/exec/Task.h"
 #include "velox/exec/TableScan.h"
+#include "velox/exec/Task.h"
 #include "velox/experimental/cudf/exec/NvtxHelper.h"
 #include "velox/experimental/cudf/exec/ToCudf.h"
 
@@ -36,17 +37,17 @@ bool isCudfOperator(const exec::Operator* op) {
   return dynamic_cast<const velox::cudf_velox::NvtxHelper*>(op) != nullptr;
 }
 
-}
+} // namespace
 
 bool CudfPlanValidator::validate(const ::substrait::Plan& substraitPlan) {
   auto veloxMemoryPool = gluten::defaultLeafVeloxMemoryPool();
   std::vector<::substrait::ReadRel_LocalFiles> localFiles;
   std::unordered_map<std::string, std::string> configValues;
   std::vector<std::shared_ptr<ResultIterator>> inputs;
-  std::shared_ptr<facebook::velox::config::ConfigBase> veloxCfg =
-      std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
-  VeloxPlanConverter veloxPlanConverter(
-      inputs, veloxMemoryPool.get(), veloxCfg.get(), std::nullopt, std::nullopt, true);
+  std::shared_ptr<facebook::velox::config::ConfigBase> veloxCfg = std::make_shared<facebook::velox::config::ConfigBase>(
+      std::unordered_map<std::string, std::string>{{kCudfEnabled, "true"}});
+  VeloxPlanConverter veloxPlanConverter(veloxMemoryPool.get(), veloxCfg.get(),
+      inputs, std::nullopt, std::nullopt, true);
   auto planNode = veloxPlanConverter.toVeloxPlan(substraitPlan, localFiles);
   std::unordered_set<velox::core::PlanNodeId> emptySet;
   velox::core::PlanFragment planFragment{planNode, velox::core::ExecutionStrategy::kUngrouped, 1, emptySet};

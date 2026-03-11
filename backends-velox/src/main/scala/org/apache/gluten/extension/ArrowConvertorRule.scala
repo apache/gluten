@@ -19,14 +19,13 @@ package org.apache.gluten.extension
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.datasource.ArrowCSVFileFormat
 import org.apache.gluten.datasource.v2.ArrowCSVTable
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.csv.CSVOptions
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.catalyst.util.PermissiveMode
+import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, PermissiveMode}
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
 import org.apache.spark.sql.execution.datasources.csv.CSVFileFormat
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
@@ -37,6 +36,24 @@ import org.apache.spark.sql.utils.SparkArrowUtil
 import java.nio.charset.StandardCharsets
 
 import scala.collection.convert.ImplicitConversions.`map AsScala`
+
+/**
+ * Extracts a CSVTable from a DataSourceV2Relation.
+ *
+ * Only the table variable of DataSourceV2Relation is accessed to improve compatibility across
+ * different Spark versions.
+ * @since Spark
+ *   4.1
+ */
+private object CSVTableExtractor {
+  def unapply(relation: DataSourceV2Relation): Option[(DataSourceV2Relation, CSVTable)] = {
+    relation.table match {
+      case t: CSVTable =>
+        Some((relation, t))
+      case _ => None
+    }
+  }
+}
 
 @Experimental
 case class ArrowConvertorRule(session: SparkSession) extends Rule[LogicalPlan] {
@@ -56,25 +73,15 @@ case class ArrowConvertorRule(session: SparkSession) extends Rule[LogicalPlan] {
             l.copy(relation = r.copy(fileFormat = new ArrowCSVFileFormat(csvOptions))(session))
           case _ => l
         }
-      case d @ DataSourceV2Relation(
-            t @ CSVTable(
-              name,
-              sparkSession,
-              options,
-              paths,
-              userSpecifiedSchema,
-              fallbackFileFormat),
-            _,
-            _,
-            _,
-            _) if validate(session, t.dataSchema, options.asCaseSensitiveMap().toMap) =>
+      case CSVTableExtractor(d, t)
+          if validate(session, t.dataSchema, t.options.asCaseSensitiveMap().toMap) =>
         d.copy(table = ArrowCSVTable(
-          "arrow" + name,
-          sparkSession,
-          options,
-          paths,
-          userSpecifiedSchema,
-          fallbackFileFormat))
+          "arrow" + t.name,
+          t.sparkSession,
+          t.options,
+          t.paths,
+          t.userSpecifiedSchema,
+          t.fallbackFileFormat))
       case r =>
         r
     }
@@ -94,6 +101,7 @@ case class ArrowConvertorRule(session: SparkSession) extends Rule[LogicalPlan] {
   }
 
   private def checkCsvOptions(csvOptions: CSVOptions, timeZone: String): Boolean = {
+    val default = new CSVOptions(CaseInsensitiveMap(Map()), csvOptions.columnPruning, timeZone)
     csvOptions.headerFlag && !csvOptions.multiLine &&
     csvOptions.delimiter.length == 1 &&
     csvOptions.quote == '\"' &&
@@ -104,7 +112,9 @@ case class ArrowConvertorRule(session: SparkSession) extends Rule[LogicalPlan] {
     csvOptions.nullValue == "" &&
     csvOptions.emptyValueInRead == "" && csvOptions.comment == '\u0000' &&
     csvOptions.columnPruning &&
-    SparkShimLoader.getSparkShims.dateTimestampFormatInReadIsDefaultValue(csvOptions, timeZone)
+    csvOptions.dateFormatInRead == default.dateFormatInRead &&
+    csvOptions.timestampFormatInRead == default.timestampFormatInRead &&
+    csvOptions.timestampNTZFormatInRead == default.timestampNTZFormatInRead
   }
 
 }

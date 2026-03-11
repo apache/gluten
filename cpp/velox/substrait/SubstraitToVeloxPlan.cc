@@ -19,12 +19,15 @@
 
 #include "TypeUtils.h"
 #include "VariantToVectorConverter.h"
+#include "jni/JniHashTable.h"
+#include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "velox/connectors/hive/HiveDataSink.h"
 #include "velox/exec/TableWriter.h"
 #include "velox/type/Type.h"
 
 #include "utils/ConfigExtractor.h"
+#include "utils/ObjectStore.h"
 #include "utils/VeloxWriterUtils.h"
 
 #include "config.pb.h"
@@ -83,8 +86,8 @@ EmitInfo getEmitInfo(const ::substrait::RelCommon& relCommon, const core::PlanNo
   const auto& emit = relCommon.emit();
   int emitSize = emit.output_mapping_size();
   EmitInfo emitInfo;
-  emitInfo.projectNames.reserve(emitSize);
-  emitInfo.expressions.reserve(emitSize);
+  emitInfo.projectNames.resize(emitSize);
+  emitInfo.expressions.resize(emitSize);
   const auto& outputType = node->outputType();
   for (int i = 0; i < emitSize; i++) {
     int32_t mapId = emit.output_mapping(i);
@@ -393,6 +396,43 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         rightNode,
         getJoinOutputType(leftNode, rightNode, joinType));
 
+  } else if (
+      sJoin.has_advanced_extension() &&
+      SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isBHJ=")) {
+    std::string hashTableId = sJoin.hashtableid();
+
+    std::shared_ptr<core::OpaqueHashTable> opaqueSharedHashTable = nullptr;
+    bool joinHasNullKeys = false;
+
+    try {
+      auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(getJoin(hashTableId));
+      joinHasNullKeys = hashTableBuilder->joinHasNullKeys();
+      auto originalShared = hashTableBuilder->hashTable();
+      opaqueSharedHashTable = std::shared_ptr<core::OpaqueHashTable>(
+          originalShared, reinterpret_cast<core::OpaqueHashTable*>(originalShared.get()));
+
+      LOG(INFO) << "Successfully retrieved and aliased HashTable for reuse. ID: " << hashTableId;
+    } catch (const std::exception& e) {
+      LOG(WARNING)
+          << "Error retrieving HashTable from ObjectStore: " << e.what()
+          << ". Falling back to building new table. To ensure correct results, please verify that spark.gluten.velox.buildHashTableOncePerExecutor.enabled is set to false.";
+      opaqueSharedHashTable = nullptr;
+    }
+
+    // Create HashJoinNode node
+    return std::make_shared<core::HashJoinNode>(
+        nextPlanNodeId(),
+        joinType,
+        isNullAwareAntiJoin,
+        leftKeys,
+        rightKeys,
+        filter,
+        leftNode,
+        rightNode,
+        getJoinOutputType(leftNode, rightNode, joinType),
+        false,
+        joinHasNullKeys,
+        opaqueSharedHashTable);
   } else {
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(
@@ -464,7 +504,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
   // Get the grouping expressions.
   VELOX_CHECK(
-    aggRel.groupings().size() <= 1, "At most one grouping is supported, but got {}.", aggRel.groupings().size());
+      aggRel.groupings().size() <= 1, "At most one grouping is supported, but got {}.", aggRel.groupings().size());
   if (aggRel.groupings().size() == 1) {
     for (const auto& groupingExpr : aggRel.groupings()[0].grouping_expressions()) {
       // Velox's groupings are limited to be Field.
@@ -504,7 +544,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     aggregates.emplace_back(core::AggregationNode::Aggregate{aggExpr, rawInputTypes, mask, {}, {}});
   }
 
-  bool ignoreNullKeys = false;
   std::vector<core::FieldAccessTypedExprPtr> preGroupingExprs;
   if (aggRel.has_advanced_extension() &&
       SubstraitParser::configSetInOptimization(aggRel.advanced_extension(), "isStreaming=")) {
@@ -526,7 +565,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       preGroupingExprs,
       aggOutNames,
       aggregates,
-      ignoreNullKeys,
+      /*ignoreNullKeys=*/false,
+      /*noGroupsSpanBatches=*/false,
       childNode);
 
   if (aggRel.has_common()) {
@@ -899,16 +939,15 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       SubstraitParser::configSetInOptimization(generateRel.advanced_extension(), "injectedProject=");
 
   if (injectedProject) {
-    // Child should be either ProjectNode or ValueStreamNode in case of project fallback.
+    // Child should be either ProjectNode or CudfValueStreamNode (GPU) in case of project fallback.
     VELOX_CHECK(
         (std::dynamic_pointer_cast<const core::ProjectNode>(childNode) != nullptr ||
-         std::dynamic_pointer_cast<const ValueStreamNode>(childNode) != nullptr)
+        std::dynamic_pointer_cast<const core::TableScanNode>(childNode) != nullptr
 #ifdef GLUTEN_ENABLE_GPU
-        || std::dynamic_pointer_cast<const CudfValueStreamNode>(childNode) != nullptr
+            || std::dynamic_pointer_cast<const CudfValueStreamNode>(childNode) != nullptr
 #endif
-          &&
-            childNode->outputType()->size() > requiredChildOutput.size(),
-        "injectedProject is true, but the ProjectNode or ValueStreamNode (in case of projection fallback)"
+        ) && childNode->outputType()->size() > requiredChildOutput.size(),
+        "injectedProject is true, but the ProjectNode or TableScanNode or CudfValueStreamNode (in case of projection fallback)"
         " is missing or does not have the corresponding projection field");
 
     bool isStack = generateRel.has_advanced_extension() &&
@@ -1170,9 +1209,18 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
         childNode);
   }
 
+  auto windowFunc = core::TopNRowNumberNode::RankFunction::kRowNumber;
+  if (windowGroupLimitRel.has_advanced_extension()) {
+    if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "rank")){
+        windowFunc = core::TopNRowNumberNode::RankFunction::kRank;
+    } else if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "dense_rank")) {
+        windowFunc = core::TopNRowNumberNode::RankFunction::kDenseRank;
+    }
+  }
+
   return std::make_shared<core::TopNRowNumberNode>(
       nextPlanNodeId(),
-      core::TopNRowNumberNode::RankFunction::kRowNumber,
+      windowFunc,
       partitionKeys,
       sortingKeys,
       sortingOrders,
@@ -1282,8 +1330,56 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       nextPlanNodeId(), sortingKeys, sortingOrders, static_cast<int32_t>(topNRel.n()), false /*isPartial*/, childNode);
 }
 
-template <typename T>
 core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(
+    const ::substrait::ReadRel& readRel, int32_t streamIdx) {
+  // Use TableScanNode with iterator connector for runtime iterator inputs
+  // Get output schema from ReadRel
+  uint64_t colNum = 0;
+  std::vector<TypePtr> veloxTypeList;
+  if (readRel.has_base_schema()) {
+    const auto& baseSchema = readRel.base_schema();
+    colNum = baseSchema.names().size();
+    veloxTypeList = SubstraitParser::parseNamedStruct(baseSchema);
+  }
+
+  auto nodeId = ValueStreamConnectorFactory::nodeIdOf(streamIdx);
+  std::vector<std::string> outNames;
+  outNames.reserve(colNum);
+  for (int idx = 0; idx < colNum; idx++) {
+    // TODO: We'd use the designated names in readRel rather than assigning new names.
+    auto colName = fmt::format("node_{}_{}", nodeId, idx);
+    outNames.emplace_back(colName);
+  }
+  auto outputType = ROW(std::move(outNames), std::move(veloxTypeList));
+
+  // Create TableHandle
+  auto tableHandle = std::make_shared<ValueStreamTableHandle>(kIteratorConnectorId);
+
+  // Create column assignments
+  connector::ColumnHandleMap assignments;
+  for (int idx = 0; idx < outputType->size(); idx++) {
+    auto name = outputType->nameOf(idx);
+    auto type = outputType->childAt(idx);
+    assignments[name] = std::make_shared<ValueStreamColumnHandle>(name, type);
+  }
+
+  // Create TableScanNode
+  auto tableScanNode = std::make_shared<core::TableScanNode>(
+      nodeId,
+      outputType,
+      tableHandle,
+      assignments);
+
+  // Mark this as a stream-based split
+  auto splitInfo = std::make_shared<SplitInfo>();
+  splitInfo->leafType = SplitInfo::LeafType::SPLIT_AWARE_STREAM;
+  splitInfoMap_[tableScanNode->id()] = splitInfo;
+
+  return tableScanNode;
+}
+
+#ifdef GLUTEN_ENABLE_GPU
+core::PlanNodePtr SubstraitToVeloxPlanConverter::constructCudfValueStreamNode(
     const ::substrait::ReadRel& readRel,
     int32_t streamIdx) {
   // Get the input schema of this iterator.
@@ -1308,30 +1404,33 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(
   std::shared_ptr<ResultIterator> iterator;
   if (!validationMode_) {
     VELOX_CHECK_LT(streamIdx, inputIters_.size(), "Could not find stream index {} in input iterator list.", streamIdx);
-    iterator = inputIters_[streamIdx];
+    iterator = std::move(inputIters_[streamIdx]);
   }
-  auto node = std::make_shared<T>(nextPlanNodeId(), outputType, std::move(iterator));
+  auto node = std::make_shared<CudfValueStreamNode>(nextPlanNodeId(), outputType, std::move(iterator));
 
   auto splitInfo = std::make_shared<SplitInfo>();
-  splitInfo->isStream = true;
+  splitInfo->leafType = SplitInfo::LeafType::TRIVIAL_LEAF;
   splitInfoMap_[node->id()] = splitInfo;
   return node;
 }
+#endif
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValuesNode(
     const ::substrait::ReadRel& readRel,
     int32_t streamIdx) {
-  std::vector<RowVectorPtr> values;
+  // ValuesNode is only used for validation/benchmarking with query trace
+  // It loads all data from the iterator at plan construction time
   VELOX_CHECK_LT(streamIdx, inputIters_.size(), "Could not find stream index {} in input iterator list.", streamIdx);
-  const auto iterator = inputIters_[streamIdx];
-  while (iterator->hasNext()) {
-    auto cb = VeloxColumnarBatch::from(defaultLeafVeloxMemoryPool().get(), iterator->next());
-    values.emplace_back(cb->getRowVector());
+  const auto iter = std::move(inputIters_[streamIdx]);
+  std::vector<RowVectorPtr> rowVectors;
+  while (iter->hasNext()) {
+    auto batch = iter->next();
+    auto veloxBatch = VeloxColumnarBatch::from(defaultLeafVeloxMemoryPool().get(), batch);
+    rowVectors.emplace_back(veloxBatch->getRowVector());
   }
-  auto node = std::make_shared<facebook::velox::core::ValuesNode>(nextPlanNodeId(), std::move(values));
-
+  auto node = std::make_shared<facebook::velox::core::ValuesNode>(nextPlanNodeId(), std::move(rowVectors));
   auto splitInfo = std::make_shared<SplitInfo>();
-  splitInfo->isStream = true;
+  splitInfo->leafType = SplitInfo::LeafType::TRIVIAL_LEAF;
   splitInfoMap_[node->id()] = splitInfo;
   return node;
 }
@@ -1344,23 +1443,25 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         !readRel.common().has_emit(), "Emit not supported for ValuesNode and TableScanNode related Substrait plans.");
   }
 
-  // Check if the ReadRel specifies an input of stream. If yes, build ValueStreamNode as the data source.
   auto streamIdx = getStreamIndex(readRel);
   if (streamIdx >= 0) {
+    // Check if the ReadRel specifies an input of stream. If yes, build TableScanNode with iterator connector.
+    const bool isQueryTraceEnabled = veloxCfg_->get<bool>(kQueryTraceEnabled, false);
+    if (isQueryTraceEnabled) {
+      // Only used in benchmark enable query trace, replace ValueStreamNode to ValuesNode to support serialization.
+      return constructValuesNode(readRel, streamIdx);
+    }
 #ifdef GLUTEN_ENABLE_GPU
     if (veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
-      return constructValueStreamNode<CudfValueStreamNode>(readRel, streamIdx);
+      return constructCudfValueStreamNode(readRel, streamIdx);
     }
 #endif
-    if (!veloxCfg_->get<bool>(kQueryTraceEnabled, false)) {
-      return constructValueStreamNode<ValueStreamNode>(readRel, streamIdx);
-    }
-    // Only used in benchmark enable query trace, replace ValueStreamNode to ValuesNode to support serialization.
-    return constructValuesNode(readRel, streamIdx);
+    return constructValueStreamNode(readRel, streamIdx);
   }
 
   // Otherwise, will create TableScan node for ReadRel.
   auto splitInfo = std::make_shared<SplitInfo>();
+  splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
   if (!validationMode_) {
     VELOX_CHECK_LT(splitInfoIdx_, splitInfos_.size(), "Plan must have readRel and related split info.");
     splitInfo = splitInfos_[splitInfoIdx_++];
@@ -1386,8 +1487,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     SubstraitParser::parseColumnTypes(baseSchema, columnTypes);
   }
 
-  // Velox requires Filter Pushdown must being enabled.
-  bool filterPushdownEnabled = true;
   auto names = colNameList;
   auto types = veloxTypeList;
 
@@ -1407,7 +1506,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   }
   common::SubfieldFilters subfieldFilters;
   tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
-      connectorId, "hive_table", filterPushdownEnabled, std::move(subfieldFilters), remainingFilter, tableSchema);
+      connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, tableSchema);
 
   // Get assignments and out names.
   std::vector<std::string> outNames;
@@ -1651,11 +1750,5 @@ bool SubstraitToVeloxPlanConverter::checkTypeExtension(const ::substrait::Plan& 
   }
   return true;
 }
-
-#ifdef GLUTEN_ENABLE_GPU
-template core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode<CudfValueStreamNode>(const ::substrait::ReadRel& sRead, int32_t streamIdx);
-#endif
-
-template core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode<ValueStreamNode>(const ::substrait::ReadRel& sRead, int32_t streamIdx);
 
 } // namespace gluten

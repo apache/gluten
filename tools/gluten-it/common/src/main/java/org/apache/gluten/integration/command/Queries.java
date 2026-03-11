@@ -50,7 +50,8 @@ public class Queries implements Callable<Integer> {
   @CommandLine.Option(
       names = {"--sql-metrics"},
       description =
-          "Collect SQL metrics from run queries and generate a simple report based on them. Available types: execution-time")
+          "Collect SQL metrics from run queries and generate a simple report based on them. Available types: execution-time, join-selectivity",
+      split = ",")
   private Set<String> collectSqlMetrics = Collections.emptySet();
 
   @Override

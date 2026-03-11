@@ -298,6 +298,9 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "loadedToValueHook" -> SQLMetrics.createMetric(
         sparkContext,
         "number of pushdown aggregations"),
+      "bloomFilterBlocksByteSize" -> SQLMetrics.createSizeMetric(
+        sparkContext,
+        "bloom filter blocks byte size"),
       "rowConstructionCpuCount" -> SQLMetrics.createMetric(
         sparkContext,
         "rowConstruction cpu wall time count"),
@@ -625,6 +628,9 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashProbeDynamicFiltersProduced" -> SQLMetrics.createMetric(
         sparkContext,
         "number of hash probe dynamic filters produced"),
+      "bloomFilterBlocksByteSize" -> SQLMetrics.createSizeMetric(
+        sparkContext,
+        "bloom filter blocks byte size"),
       "streamPreProjectionCpuCount" -> SQLMetrics.createMetric(
         sparkContext,
         "stream preProject cpu wall time count"),

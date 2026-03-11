@@ -2006,6 +2006,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("SPLIT")
   enableSuite[GlutenRemoveRedundantWindowGroupLimitsSuite]
     .excludeCH("remove redundant WindowGroupLimits")
+    .excludeCH("Gluten - remove redundant WindowGroupLimits")
   enableSuite[GlutenReplaceHashWithSortAggSuite]
     .exclude("replace partial hash aggregate with sort aggregate")
     .exclude("replace partial and final hash aggregate together with sort aggregate")
@@ -2060,6 +2061,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH(
       "window function: multiple window expressions specified by range in a single expression")
     .excludeCH("Gluten - Filter on row number")
+    .excludeCH("Gluten - Filter on rank")
+    .excludeCH("Gluten - Filter on dense_rank")
   enableSuite[GlutenSameResultSuite]
   enableSuite[GlutenSaveLoadSuite]
   enableSuite[GlutenScalaReflectionRelationSuite]

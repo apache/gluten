@@ -71,7 +71,7 @@ public:
 
     bool next(Pos & token_begin, Pos & token_end)
     {
-        if (str_cursor >= str_end)
+        if (str_cursor > str_end)
             return false;
         token_begin = str_cursor;
         auto next_token_pos = static_cast<Pos>(memmem(str_cursor, str_end - str_cursor, delimiter.c_str(), delimiter.size()));
@@ -79,7 +79,7 @@ public:
         if (!next_token_pos)
         {
             token_end = str_end;
-            str_cursor = str_end;
+            str_cursor = str_end + 1;
             delimiter_begin = nullptr;
             delimiter_end = nullptr;
         }
@@ -126,7 +126,7 @@ public:
 
     bool next(Pos & token_begin, Pos & token_end)
     {
-        if (str_cursor >= str_end)
+        if (str_cursor > str_end)
             return false;
         // If delimiter is empty, return each character as a token.
         if (!re)
@@ -143,7 +143,7 @@ public:
             {
                 token_begin = str_cursor;
                 token_end = str_end;
-                str_cursor = str_end;
+                str_cursor = str_end + 1;
                 delimiter_begin = nullptr;
                 delimiter_end = nullptr;
                 return true;
@@ -271,7 +271,7 @@ public:
                     {
                         DB::Tuple tuple(2);
                         size_t key_len = key_end - key_begin;
-                        tuple[0] = key_end == str_end ? std::string_view(key_begin, key_len - 1) : std::string_view(key_begin, key_len);
+                        tuple[0] = key_end == str_end ? std::string_view(key_begin, key_len) : std::string_view(key_begin, key_len);
                         auto delimiter_begin = kv_generator.getDelimiterBegin();
                         auto delimiter_end = kv_generator.getDelimiterEnd();
                         LOG_TRACE(
@@ -284,7 +284,7 @@ public:
                             std::string_view(key_begin, key_end - key_begin));
                         if (delimiter_begin && delimiter_begin != str_end)
                         {
-                            DB::Field value = pair_end == str_end ? std::string_view(delimiter_end, pair_end - delimiter_end - 1)
+                            DB::Field value = pair_end == str_end ? std::string_view(delimiter_end, pair_end - delimiter_end)
                                                                  : std::string_view(delimiter_end, pair_end - delimiter_end);
                             tuple[1] = std::move(value);
                         }

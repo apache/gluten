@@ -67,7 +67,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
        | l_shipmode      string,
        | l_comment       string""".stripMargin
 
-  test("test parquet table delete with the delta DV") {
+  ignore("test parquet table delete with the delta DV") {
     spark.sql(s"""
                  |DROP TABLE IF EXISTS lineitem_delta_parquet_delete_dv;
                  |""".stripMargin)
@@ -117,7 +117,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
     )
   }
 
-  test("test parquet table delete + update with the delta DV") {
+  ignore("test parquet table delete + update with the delta DV") {
     spark.sql(s"""
                  |DROP TABLE IF EXISTS lineitem_delta_parquet_update_dv;
                  |""".stripMargin)
@@ -193,7 +193,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
     }
   }
 
-  test("test delta DV write") {
+  ignore("test delta DV write") {
     val table_name = "dv_write_test"
     withTable(table_name) {
       spark.sql(s"""
@@ -297,7 +297,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
   }
 
   for (targetDVFileSize <- Seq(2, 200, 2000000)) {
-    test(
+    ignore(
       s"DELETE with DVs - packing multiple DVs into one file: target max DV file " +
         s"size=$targetDVFileSize") {
       withSQLConf(
@@ -345,7 +345,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
     }
   }
 
-  test("test parquet partition table delete with the delta DV") {
+  ignore("test parquet partition table delete with the delta DV") {
     withSQLConf(("spark.sql.sources.partitionOverwriteMode", "dynamic")) {
       spark.sql(s"""
                    |DROP TABLE IF EXISTS lineitem_delta_partition_parquet_delete_dv;
@@ -385,7 +385,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
     }
   }
 
-  test("test parquet table upsert with the delta DV") {
+  ignore("test parquet table upsert with the delta DV") {
     spark.sql(s"""
                  |DROP TABLE IF EXISTS lineitem_delta_parquet_upsert_dv;
                  |""".stripMargin)

@@ -20,7 +20,6 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.hash.ConsistentHash
 import org.apache.gluten.logging.LogLevelUtil
 import org.apache.gluten.softaffinity.strategy.{ConsistentHashSoftAffinityStrategy, ExecutorNode}
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkEnv
 import org.apache.spark.internal.Logging
@@ -185,7 +184,7 @@ abstract class AffinityManager extends LogLevelUtil with Logging {
               val partitions = rddPartitionInfoMap.getIfPresent(rddId)
               if (partitions != null) {
                 val key = partitions
-                  .filter(p => p._1 == SparkShimLoader.getSparkShims.getPartitionId(event.taskInfo))
+                  .filter(p => p._1 == event.taskInfo.partitionId)
                   .map(pInfo => s"${pInfo._2}_${pInfo._3}_${pInfo._4}")
                   .sortBy(p => p)
                   .mkString(",")
@@ -322,8 +321,7 @@ object SoftAffinityManager extends AffinityManager {
   override lazy val detectDuplicateReading: Boolean = SparkEnv.get.conf.getBoolean(
     GlutenConfig.GLUTEN_SOFT_AFFINITY_DUPLICATE_READING_DETECT_ENABLED.key,
     GlutenConfig.GLUTEN_SOFT_AFFINITY_DUPLICATE_READING_DETECT_ENABLED.defaultValue.get
-  ) &&
-    SparkShimLoader.getSparkShims.supportDuplicateReadingTracking
+  )
 
   override lazy val duplicateReadingMaxCacheItems: Int = SparkEnv.get.conf.getInt(
     GlutenConfig.GLUTEN_SOFT_AFFINITY_DUPLICATE_READING_MAX_CACHE_ITEMS.key,

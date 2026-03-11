@@ -42,8 +42,14 @@ case class IcebergDataWriteFactory(
     codec: String,
     partitionSpec: PartitionSpec,
     sortOrder: SortOrder,
-    field: IcebergNestedField)
-  extends ColumnarBatchDataWriterFactory {
+    field: IcebergNestedField,
+    queryId: String)
+  extends ColumnarBatchDataWriterFactory
+  with ColumnarStreamingDataWriterFactory {
+
+  override def createWriter(partitionId: Int, taskId: Long): DataWriter[ColumnarBatch] = {
+    createWriter(partitionId, taskId, 0)
+  }
 
   /**
    * Returns a data writer to do the actual writing work. Note that, Spark will reuse the same data
@@ -52,7 +58,10 @@ case class IcebergDataWriteFactory(
    * <p> If this method fails (by throwing an exception), the corresponding Spark write task would
    * fail and get retried until hitting the maximum retry times.
    */
-  override def createWriter(): DataWriter[ColumnarBatch] = {
+  override def createWriter(
+      partitionId: Int,
+      taskId: Long,
+      epochId: Long): DataWriter[ColumnarBatch] = {
     val fields = partitionSpec
       .fields()
       .stream()
@@ -63,8 +72,18 @@ case class IcebergDataWriteFactory(
       .setSpecId(partitionSpec.specId())
       .addAllFields(fields)
       .build()
+    val operationId = queryId + "-" + epochId
     val (writerHandle, jniWrapper) =
-      getJniWrapper(schema, format, directory, codec, specProto, field)
+      getJniWrapper(
+        schema,
+        format,
+        directory,
+        codec,
+        partitionId,
+        taskId,
+        operationId,
+        specProto,
+        field)
     IcebergColumnarBatchDataWriter(writerHandle, jniWrapper, format, partitionSpec, sortOrder)
   }
 
@@ -73,6 +92,9 @@ case class IcebergDataWriteFactory(
       format: Int,
       directory: String,
       codec: String,
+      partitionId: Int,
+      taskId: Long,
+      operationId: String,
       partitionSpec: IcebergPartitionSpec,
       field: IcebergNestedField): (Long, IcebergWriteJniWrapper) = {
     val schema = SparkArrowUtil.toArrowSchema(localSchema, SQLConf.get.sessionLocalTimeZone)
@@ -87,6 +109,9 @@ case class IcebergDataWriteFactory(
         format,
         directory,
         codec,
+        partitionId,
+        taskId,
+        operationId,
         partitionSpec.toByteArray,
         field.toByteArray)
     cSchema.close()

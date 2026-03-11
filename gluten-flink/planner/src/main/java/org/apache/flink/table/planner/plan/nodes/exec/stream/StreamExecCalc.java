@@ -19,7 +19,7 @@ package org.apache.flink.table.planner.plan.nodes.exec.stream;
 import org.apache.gluten.rexnode.RexConversionContext;
 import org.apache.gluten.rexnode.RexNodeConverter;
 import org.apache.gluten.rexnode.Utils;
-import org.apache.gluten.table.runtime.operators.GlutenVectorOneInputOperator;
+import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
@@ -53,6 +53,8 @@ import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCre
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.apache.calcite.rex.RexNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 
@@ -68,6 +70,7 @@ import java.util.Map;
     minPlanVersion = FlinkVersion.v1_15,
     minStateVersion = FlinkVersion.v1_15)
 public class StreamExecCalc extends CommonExecCalc implements StreamExecNode<RowData> {
+  private static final Logger LOG = LoggerFactory.getLogger(StreamExecCalc.class);
 
   public StreamExecCalc(
       ReadableConfig tableConfig,
@@ -142,11 +145,14 @@ public class StreamExecCalc extends CommonExecCalc implements StreamExecNode<Row
         (io.github.zhztheplayer.velox4j.type.RowType)
             LogicalTypeConverter.toVLType(getOutputType());
     final OneInputStreamOperator calOperator =
-        new GlutenVectorOneInputOperator(
+        new GlutenOneInputOperator(
             new StatefulPlanNode(project.getId(), project),
             PlanNodeIdGenerator.newId(),
             inputType,
-            Map.of(project.getId(), outputType));
+            Map.of(project.getId(), outputType),
+            RowData.class,
+            RowData.class,
+            "StreamExecCalc");
     return ExecNodeUtil.createOneInputTransformation(
         inputTransform,
         new TransformationMetadata("gluten-calc", "Gluten cal operator"),

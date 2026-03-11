@@ -1,0 +1,28 @@
+diff --git a/java/c/src/main/java/org/apache/arrow/c/jni/JniLoader.java b/java/c/src/main/java/org/apache/arrow/c/jni/JniLoader.java
+index e435461349..1012c16337 100644
+--- a/java/c/src/main/java/org/apache/arrow/c/jni/JniLoader.java
++++ b/java/c/src/main/java/org/apache/arrow/c/jni/JniLoader.java
+@@ -105,6 +105,9 @@ public class JniLoader {
+       case "aarch64":
+         arch = "aarch_64";
+         break;
++      case "ppc64le":
++        arch = "ppcle_64";
++        break;
+       default:
+         break;
+     }
+diff --git a/java/dataset/src/main/java/org/apache/arrow/dataset/jni/JniLoader.java b/java/dataset/src/main/java/org/apache/arrow/dataset/jni/JniLoader.java
+index a3b31c73e8..4d8aa9f737 100644
+--- a/java/dataset/src/main/java/org/apache/arrow/dataset/jni/JniLoader.java
++++ b/java/dataset/src/main/java/org/apache/arrow/dataset/jni/JniLoader.java
+@@ -105,6 +105,9 @@ public final class JniLoader {
+       case "aarch64":
+         arch = "aarch_64";
+         break;
++      case "ppc64le":
++        arch = "ppcle_64";
++        break;
+       default:
+         break;
+     }

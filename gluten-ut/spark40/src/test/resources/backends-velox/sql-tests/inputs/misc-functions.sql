@@ -11,7 +11,6 @@ select typeof(x'ABCD'), typeof('SPARK');
 select typeof(array(1, 2)), typeof(map(1, 2)), typeof(named_struct('a', 1, 'b', 'spark'));
 
 set spark.sql.optimizer.excludedRules=org.apache.spark.sql.catalyst.optimizer.ConvertToLocalRelation,org.apache.spark.sql.catalyst.optimizer.ConstantFolding,org.apache.spark.sql.catalyst.optimizer.NullPropagation;
-
 -- Spark-32793: Rewrite AssertTrue with RaiseError
 SELECT assert_true(true), assert_true(boolean(1));
 SELECT assert_true(false);
@@ -23,3 +22,24 @@ SELECT assert_true(false, 'custom error message');
 CREATE TEMPORARY VIEW tbl_misc AS SELECT * FROM (VALUES (1), (8), (2)) AS T(v);
 SELECT raise_error('error message');
 SELECT if(v > 5, raise_error('too big: ' || v), v + 1) FROM tbl_misc;
+
+-- Too many parameters
+SELECT raise_error('error message', Map());
+
+-- Too many parameters
+SELECT raise_error('error message', 'some args');
+
+-- Too few parameters
+SELECT raise_error();
+
+-- Passing null as message
+SELECT raise_error(NULL);
+
+-- Passing non-string type
+SELECT raise_error(1);
+
+-- Check legacy config disables printing of [USER_RAISED_EXCEPTION]
+SET spark.sql.legacy.raiseErrorWithoutErrorClass=true;
+SELECT assert_true(false);
+SELECT raise_error('hello');
+SET spark.sql.legacy.raiseErrorWithoutErrorClass=false;

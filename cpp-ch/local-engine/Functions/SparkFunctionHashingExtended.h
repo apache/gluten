@@ -373,7 +373,7 @@ private:
             {
                 if (!null_map || !(*null_map)[i]) [[likely]]
                     vec_to[i] = applyUnsafeBytes(
-                        reinterpret_cast<const char *>(&data[current_offset]), offsets[i] - current_offset - 1, vec_to[i]);
+                        reinterpret_cast<const char *>(&data[current_offset]), offsets[i] - current_offset, vec_to[i]);
 
                 current_offset = offsets[i];
             }

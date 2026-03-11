@@ -61,6 +61,10 @@ class UnsafeColumnarBuildSideRelationTest extends SharedSparkSession {
 
   override def beforeAll(): Unit = {
     super.beforeAll()
+    // Trigger GC to clean up any residual memory from previous test suites,
+    // ensuring initialGlobalBytes is accurate.
+    System.gc()
+    Thread.sleep(1000)
     initialGlobalBytes = GlobalOffHeapMemory.currentBytes()
     output = Seq(AttributeReference("a", StringType, nullable = false, null)())
     sample1KBytes = randomBytes(1024)
@@ -75,8 +79,8 @@ class UnsafeColumnarBuildSideRelationTest extends SharedSparkSession {
     unsafeRelWithHashMode = null
     System.gc()
     Thread.sleep(1000)
-    // FIXME: This should be zero. We had to assert with the initial bytes because
-    //  there were some allocations from the previous run suites.
+    // Since we trigger GC in beforeAll() to clean up residual memory from previous test suites,
+    // initialGlobalBytes should be accurate and this assertion should be stable.
     assert(GlobalOffHeapMemory.currentBytes() == initialGlobalBytes)
   }
 
@@ -183,5 +187,31 @@ class UnsafeColumnarBuildSideRelationTest extends SharedSparkSession {
     for (i <- 0 until 10) {
       newUnsafeRelationWithHashMode(ByteUnit.MiB.toKiB(50).toInt)
     }
+  }
+
+  test("Verify offload field serialization") {
+    val relation = UnsafeColumnarBuildSideRelation(
+      output,
+      Seq(sampleUnsafeByteArrayInKb(1)),
+      IdentityBroadcastMode,
+      Seq.empty,
+      offload = true
+    )
+
+    // Java Serialization
+    val javaSerializer = new JavaSerializer(SparkEnv.get.conf).newInstance()
+    val javaBuffer = javaSerializer.serialize(relation)
+    val javaObj = javaSerializer.deserialize[UnsafeColumnarBuildSideRelation](javaBuffer)
+    assert(javaObj.isOffload, "Java deserialization failed to restore offload=true")
+
+    // Kryo Serialization
+    val kryoSerializer = new KryoSerializer(SparkEnv.get.conf).newInstance()
+    val kryoBuffer = kryoSerializer.serialize(relation)
+    val kryoObj = kryoSerializer.deserialize[UnsafeColumnarBuildSideRelation](kryoBuffer)
+    assert(kryoObj.isOffload, "Kryo deserialization failed to restore offload=true")
+
+    // Create another relation with offload=false to compare byte size if possible,
+    // but boolean only takes 1 byte, might be hard to distinguish from metadata noise.
+    // Instead, trust the assertion above.
   }
 }

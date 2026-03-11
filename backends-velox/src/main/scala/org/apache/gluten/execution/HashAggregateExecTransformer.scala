@@ -284,7 +284,7 @@ abstract class HashAggregateExecTransformer(
       val aggFunc = aggregateExpression.aggregateFunction
       val functionInputAttributes = aggFunc.inputAggBufferAttributes
       aggFunc match {
-        case _ if aggregateExpression.mode == Partial =>
+        case _ if aggregateExpression.mode == Partial || aggregateExpression.mode == Complete =>
           val childNodes = aggFunc.children
             .map(
               ExpressionConverter
@@ -303,7 +303,7 @@ abstract class HashAggregateExecTransformer(
           // The process of handling the inconsistency in column types and order between
           // Spark and Velox is exactly the opposite of applyExtractStruct.
           aggregateExpression.mode match {
-            case PartialMerge | Final | Complete =>
+            case PartialMerge | Final =>
               val newInputAttributes = new ArrayBuffer[Attribute]()
               val childNodes = new JArrayList[ExpressionNode]()
               val (sparkOrders, sparkTypes) =

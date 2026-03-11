@@ -17,10 +17,11 @@
 package org.apache.spark.sql
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.HashAggregateExecBaseTransformer
+import org.apache.gluten.execution.{HashAggregateExecBaseTransformer, HashAggregateExecTransformer}
 
 import org.apache.spark.sql.execution.WholeStageCodegenExec
-import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, SortAggregateExec}
+import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.expressions.Aggregator
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
@@ -187,23 +188,24 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
 
   // This test is applicable to velox backend. For CH backend, the replacement is disabled.
   testGluten("use gluten hash agg to replace vanilla spark sort agg") {
+    withTempView("t1") {
+      withSQLConf((GlutenConfig.COLUMNAR_FORCE_HASHAGG_ENABLED.key, "false")) {
+        Seq("A", "B", "C", "D").toDF("col1").createOrReplaceTempView("t1")
+        // SortAggregateExec is expected to be used for string type input.
+        val df = spark.sql("select max(col1) from t1")
+        checkAnswer(df, Row("D") :: Nil)
+        assert(find(df.queryExecution.executedPlan)(_.isInstanceOf[SortAggregateExec]).isDefined)
+      }
 
-    withSQLConf((GlutenConfig.COLUMNAR_FORCE_HASHAGG_ENABLED.key, "false")) {
-      Seq("A", "B", "C", "D").toDF("col1").createOrReplaceTempView("t1")
-      // SortAggregateExec is expected to be used for string type input.
-      val df = spark.sql("select max(col1) from t1")
-      checkAnswer(df, Row("D") :: Nil)
-      assert(find(df.queryExecution.executedPlan)(_.isInstanceOf[SortAggregateExec]).isDefined)
-    }
-
-    withSQLConf((GlutenConfig.COLUMNAR_FORCE_HASHAGG_ENABLED.key, "true")) {
-      Seq("A", "B", "C", "D").toDF("col1").createOrReplaceTempView("t1")
-      val df = spark.sql("select max(col1) from t1")
-      checkAnswer(df, Row("D") :: Nil)
-      // Sort agg is expected to be replaced by gluten's hash agg.
-      assert(
-        find(df.queryExecution.executedPlan)(
-          _.isInstanceOf[HashAggregateExecBaseTransformer]).isDefined)
+      withSQLConf((GlutenConfig.COLUMNAR_FORCE_HASHAGG_ENABLED.key, "true")) {
+        Seq("A", "B", "C", "D").toDF("col1").createOrReplaceTempView("t1")
+        val df = spark.sql("select max(col1) from t1")
+        checkAnswer(df, Row("D") :: Nil)
+        // Sort agg is expected to be replaced by gluten's hash agg.
+        assert(
+          find(df.queryExecution.executedPlan)(
+            _.isInstanceOf[HashAggregateExecBaseTransformer]).isDefined)
+      }
     }
   }
 
@@ -279,5 +281,91 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
       rand(Random.nextLong()),
       randn(Random.nextLong())
     ).foreach(assertNoExceptions)
+  }
+
+  testGluten("SPARK-22223: ObjectHashAggregate should not introduce unnecessary shuffle") {
+    withSQLConf(SQLConf.USE_OBJECT_HASH_AGG.key -> "true") {
+      val df = Seq(("1", "2", 1), ("1", "2", 2), ("2", "3", 3), ("2", "3", 4))
+        .toDF("a", "b", "c")
+        .repartition(col("a"))
+
+      val objHashAggDF = df
+        .withColumn("d", expr("(a, b, c)"))
+        .groupBy("a", "b")
+        .agg(collect_list("d").as("e"))
+        .withColumn("f", expr("(b, e)"))
+        .groupBy("a")
+        .agg(collect_list("f").as("g"))
+      val aggPlan = objHashAggDF.queryExecution.executedPlan
+
+      val sortAggPlans = collect(aggPlan) { case sortAgg: SortAggregateExec => sortAgg }
+      // SortAggregate will be retained due velox_collect_list
+      assert(sortAggPlans.size == 4)
+
+      val objHashAggPlans = collect(aggPlan) {
+        case objHashAgg: ObjectHashAggregateExec => objHashAgg
+      }
+      assert(objHashAggPlans.isEmpty)
+
+      val exchangePlans = collect(aggPlan) { case shuffle: ShuffleExchangeExec => shuffle }
+      assert(exchangePlans.length == 1)
+    }
+  }
+
+  Seq(true, false).foreach {
+    value =>
+      testGluten(s"SPARK-31620: agg with subquery (whole-stage-codegen = $value)") {
+        withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> value.toString) {
+          withTempView("t1", "t2") {
+            sql("create temporary view t1 as select * from values (1, 2) as t1(a, b)")
+            sql("create temporary view t2 as select * from values (3, 4) as t2(c, d)")
+
+            // test without grouping keys
+            checkAnswer(
+              sql("select sum(if(c > (select a from t1), d, 0)) as csum from t2"),
+              Row(4) :: Nil)
+
+            // test with grouping keys
+            checkAnswer(
+              sql(
+                "select c, sum(if(c > (select a from t1), d, 0)) as csum from " +
+                  "t2 group by c"),
+              Row(3, 4) :: Nil)
+
+            // test with distinct
+            checkAnswer(
+              sql(
+                "select avg(distinct(d)), sum(distinct(if(c > (select a from t1)," +
+                  " d, 0))) as csum from t2 group by c"),
+              Row(4, 4) :: Nil)
+
+            // test subquery with agg
+            checkAnswer(
+              sql(
+                "select sum(distinct(if(c > (select sum(distinct(a)) from t1)," +
+                  " d, 0))) as csum from t2 group by c"),
+              Row(4) :: Nil)
+
+            // test SortAggregateExec
+            // Converts to HashAggregateExecTransformer
+            var df = sql("select max(if(c > (select a from t1), 'str1', 'str2')) as csum from t2")
+            df.collect()
+            assert(
+              find(df.queryExecution.executedPlan)(
+                _.isInstanceOf[HashAggregateExecTransformer]).isDefined)
+            checkAnswer(df, Row("str1") :: Nil)
+
+            // test ObjectHashAggregateExec
+            // Converts to HashAggregateExecTransformer
+            df =
+              sql("select collect_list(d), sum(if(c > (select a from t1), d, 0)) as csum from t2")
+            df.collect()
+            assert(
+              find(df.queryExecution.executedPlan)(
+                _.isInstanceOf[HashAggregateExecTransformer]).isDefined)
+            checkAnswer(df, Row(Array(4), 4) :: Nil)
+          }
+        }
+      }
   }
 }

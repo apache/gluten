@@ -30,12 +30,31 @@ case class OperatorImpactReportWriter(conf: QualificationToolConfiguration)
 
   override def doPostProcess(lines: Iterator[String]): Iterator[String] = {
     val sumMap = mutable.Map[String, (Long, Long)]()
+    var lineNumber = 0
     for (line <- lines) {
-      val Array(col1, col2, col3) = line.split("\t").map(_.trim)
-      val cpu = col2.toLong
-      val count = col3.toLong
-      val current = sumMap.getOrElse(col1, (0L, 0L))
-      sumMap(col1) = (current._1 + cpu, current._2 + count)
+      lineNumber += 1
+      try {
+        val columns = line.split("\t").map(_.trim)
+        if (columns.length != 3) {
+          System.err.println(
+            s"[WARN] Line $lineNumber: Expected 3 columns, got ${columns.length}. Skipping. Content: $line")
+        } else {
+          val Array(col1, col2, col3) = columns
+          try {
+            val cpu = col2.toLong
+            val count = col3.toLong
+            val current = sumMap.getOrElse(col1, (0L, 0L))
+            sumMap(col1) = (current._1 + cpu, current._2 + count)
+          } catch {
+            case e: NumberFormatException =>
+              System.err.println(
+                s"[WARN] Line $lineNumber: Invalid number format (cpu='$col2', count='$col3'). Skipping. Content: $line")
+          }
+        }
+      } catch {
+        case e: Exception =>
+          System.err.println(s"[ERROR] Line $lineNumber: ${e.getMessage}. Skipping. Content: $line")
+      }
     }
     sumMap.toSeq
       .sortBy(_._2)(Ordering.Tuple2(Ordering.Long.reverse, Ordering.Long.reverse))

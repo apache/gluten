@@ -190,7 +190,7 @@ trait DeletionVectorsTestUtils extends QueryTest with SharedSparkSession with De
   /** Utility method to remove the given rows from the given file using DVs */
   protected def removeRowsFromFile(
       log: DeltaLog, addFile: AddFile, rowIndexesToRemove: Seq[Long]): Unit = {
-    val txn = log.startTransaction()
+    val txn = log.startTransaction(catalogTableOpt = None)
     val actions = removeRowsFromFileUsingDV(log, addFile, rowIndexesToRemove)
     txn.commit(actions, Truncate())
   }
@@ -306,7 +306,7 @@ trait DeletionVectorsTestUtils extends QueryTest with SharedSparkSession with De
     // This is needed to make the manual commit work correctly, since we are not actually
     // running a command that produces metrics.
     withSQLConf(DeltaSQLConf.DELTA_HISTORY_METRICS_ENABLED.key -> "false") {
-      val txn = log.startTransaction()
+      val txn = log.startTransaction(catalogTableOpt = None)
       val allAddFiles = txn.snapshot.allFiles.collect()
       numFiles = Some(allAddFiles.length)
       val bitmap = RoaringBitmapArray(0L until numRowsToRemovePerFile: _*)

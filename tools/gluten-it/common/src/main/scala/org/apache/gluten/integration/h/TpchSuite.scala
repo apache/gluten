@@ -16,17 +16,21 @@
  */
 package org.apache.gluten.integration.h
 
-import org.apache.gluten.integration.{DataGen, QuerySet, Suite, TableCreator}
+import org.apache.gluten.integration.{DataGen, QuerySet, Suite, TableAnalyzer, TableCreator}
 import org.apache.gluten.integration.action.Action
+import org.apache.gluten.integration.ds.TpcdsSuite.TPCDS_WRITE_RELATIVE_PATH
 import org.apache.gluten.integration.metrics.MetricMapper
+import org.apache.gluten.integration.report.TestReporter
 
 import org.apache.spark.SparkConf
 
+import org.apache.hadoop.fs.Path
 import org.apache.log4j.Level
 
 import java.io.File
 
 class TpchSuite(
+    val appName: String,
     val masterUrl: String,
     val actions: Array[Action],
     val testConf: SparkConf,
@@ -45,12 +49,15 @@ class TpchSuite(
     val disableAqe: Boolean,
     val disableBhj: Boolean,
     val disableWscg: Boolean,
+    val enableCbo: Boolean,
     val shufflePartitions: Int,
     val scanPartitions: Int,
     val decimalAsDouble: Boolean,
     val baselineMetricMapper: MetricMapper,
-    val testMetricMapper: MetricMapper)
+    val testMetricMapper: MetricMapper,
+    val reportPath: String)
   extends Suite(
+    appName,
     masterUrl,
     actions,
     testConf,
@@ -64,11 +71,13 @@ class TpchSuite(
     disableAqe,
     disableBhj,
     disableWscg,
+    enableCbo,
     shufflePartitions,
     scanPartitions,
     decimalAsDouble,
     baselineMetricMapper,
-    testMetricMapper
+    testMetricMapper,
+    reportPath
   ) {
   import TpchSuite._
 
@@ -76,16 +85,14 @@ class TpchSuite(
 
   override private[integration] def dataWritePath(): String = {
     val featureFlags = dataGenFeatures.map(feature => s"-$feature").mkString("")
-    new File(dataDir).toPath
-      .resolve(s"$TPCH_WRITE_RELATIVE_PATH-$dataScale-$dataSource$featureFlags")
-      .toFile
-      .getAbsolutePath
+    val relative =
+      s"$TPCH_WRITE_RELATIVE_PATH-$dataScale-$dataSource$featureFlags"
+    new Path(dataDir, relative).toString
   }
 
   override private[integration] def createDataGen(): DataGen = {
     checkDataGenArgs(dataSource, dataScale, genPartitionedData)
     new TpchDataGen(
-      sessionSwitcher.spark(),
       dataScale,
       shufflePartitions,
       dataSource,
@@ -100,7 +107,9 @@ class TpchSuite(
 
   override private[integration] def desc(): String = "TPC-H"
 
-  override def tableCreator(): TableCreator = TableCreator.discoverSchema()
+  override def tableCreator(): TableCreator = TableCreator.discoverFromFiles()
+
+  override def tableAnalyzer0(): TableAnalyzer = TableAnalyzer.analyzeAll()
 }
 
 object TpchSuite {

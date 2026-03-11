@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #include "LoggerExtend.h"
+#include <Loggers/ExtendedLogMessage.h>
 #include <Loggers/OwnSplitChannel.h>
 
 #include <Loggers/Loggers.h>

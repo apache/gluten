@@ -220,18 +220,18 @@ class GlutenClickHouseMergeTreeOptimizeSuite extends CreateMergeTreeSuite {
       val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p3").collect()
       assertResult(600572)(ret.apply(0).get(0))
 
-      assertResult(516)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
+      assertResult(491)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
       spark.sql("VACUUM lineitem_mergetree_optimize_p3 RETAIN 0 HOURS")
       if (spark32) {
-        assertResult(306)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
+        assertResult(302)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
       } else {
-        assertResult(308)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
+        assertResult(304)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
       }
       spark.sql("VACUUM lineitem_mergetree_optimize_p3 RETAIN 0 HOURS")
       if (spark32) {
-        assertResult(276)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
+        assertResult(275)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
       } else {
-        assertResult(282)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
+        assertResult(281)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
       }
 
       val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p3").collect()
@@ -257,18 +257,18 @@ class GlutenClickHouseMergeTreeOptimizeSuite extends CreateMergeTreeSuite {
       val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p4").collect()
       assertResult(600572)(ret.apply(0).get(0))
 
-      assertResult(516)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
+      assertResult(491)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
       spark.sql("VACUUM lineitem_mergetree_optimize_p4 RETAIN 0 HOURS")
       if (spark32) {
-        assertResult(306)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
+        assertResult(302)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
       } else {
-        assertResult(308)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
+        assertResult(304)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
       }
       spark.sql("VACUUM lineitem_mergetree_optimize_p4 RETAIN 0 HOURS")
       if (spark32) {
-        assertResult(276)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
+        assertResult(275)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
       } else {
-        assertResult(282)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
+        assertResult(281)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
       }
 
       val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p4").collect()
@@ -367,7 +367,7 @@ class GlutenClickHouseMergeTreeOptimizeSuite extends CreateMergeTreeSuite {
     assertResult(600572)(ret.apply(0).get(0))
 
     assertResult(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p6")))(
-      if (spark32) 499 else 528)
+      if (spark32) 491 else 519)
     spark.sql("VACUUM lineitem_mergetree_optimize_p6 RETAIN 0 HOURS")
     spark.sql("VACUUM lineitem_mergetree_optimize_p6 RETAIN 0 HOURS")
     assertResult(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p6")))(

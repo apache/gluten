@@ -41,7 +41,7 @@ std::shared_ptr<gluten::ResultIterator> FileReaderIterator::getInputIteratorFrom
           std::make_unique<ParquetBufferedReaderIterator>(path, batchSize, pool));
     }
   }
-  throw new GlutenException("Unreachable.");
+  throw GlutenException("Unreachable.");
 }
 
 } // namespace gluten

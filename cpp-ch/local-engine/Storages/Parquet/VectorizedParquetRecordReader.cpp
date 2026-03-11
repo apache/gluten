@@ -183,6 +183,7 @@ VectorizedParquetRecordReader::VectorizedParquetRecordReader(const DB::Block & h
           "Parquet",
           format_settings_,
           std::nullopt,
+          std::nullopt,
           format_settings_.parquet.allow_missing_columns,
           format_settings_.null_as_default,
           format_settings_.date_time_overflow_behavior,

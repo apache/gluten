@@ -16,54 +16,55 @@
  */
 package org.apache.gluten.util;
 
-import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
-import org.apache.flink.streaming.api.graph.StreamConfig;
-import org.apache.flink.streaming.runtime.tasks.StreamTaskException;
-import org.apache.flink.util.InstantiationUtil;
+import org.apache.gluten.streaming.api.operators.GlutenOneInputOperatorFactory;
+import org.apache.gluten.streaming.api.operators.GlutenOperator;
 
-import java.io.IOException;
-import java.util.Map;
+import org.apache.flink.connector.file.table.stream.PartitionCommitInfo;
+import org.apache.flink.streaming.api.graph.StreamConfig;
+import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
+import org.apache.flink.streaming.api.operators.StreamOperator;
+import org.apache.flink.streaming.api.operators.StreamOperatorFactory;
+
+import java.io.Serializable;
+import java.util.Optional;
 
 /** Utils to add and get some infos to StreamConfig. */
 public class Utils {
 
-  public static void setNodeToChainedOutputs(
-      StreamConfig streamConfig, Map<String, Integer> nodeToChainedOutputs) {
-    setConfigToStreamConfig("_nodeToChainedOutputs", streamConfig, nodeToChainedOutputs);
+  /**
+   * Constructs a PartitionCommitInfo object for checkpoint completion notification.
+   *
+   * @param id checkpoint ID
+   * @param subtaskIndex index of the subtask
+   * @param numberOfSubtasks total number of subtasks
+   * @param committed array of committed partition paths
+   * @return Serializable PartitionCommitInfo object
+   */
+  public static Serializable constructCommitInfo(
+      long id, int subtaskIndex, int numberOfSubtasks, String[] committed) {
+    PartitionCommitInfo commitInfo =
+        new PartitionCommitInfo(id, subtaskIndex, numberOfSubtasks, committed);
+    return commitInfo;
   }
 
-  public static Map<String, Integer> getNodeToChainedOutputs(
+  /**
+   * Extracts a GlutenOperator from a StreamConfig if it exists.
+   *
+   * @param streamConfig the stream configuration to check
+   * @param userClassLoader the class loader to use for deserialization
+   * @return Optional containing the GlutenOperator if found, empty otherwise
+   */
+  public static Optional<GlutenOperator> getGlutenOperator(
       StreamConfig streamConfig, ClassLoader userClassLoader) {
-    return getConfigFromStreamConfig("_nodeToChainedOutputs", streamConfig, userClassLoader);
-  }
-
-  public static void setNodeToNonChainedOutputs(
-      StreamConfig streamConfig, Map<IntermediateDataSetID, String> nodeToChainedOutputs) {
-    setConfigToStreamConfig("_nodeToNonChainedOutputs", streamConfig, nodeToChainedOutputs);
-  }
-
-  public static Map<IntermediateDataSetID, String> getNodeToNonChainedOutputs(
-      StreamConfig streamConfig, ClassLoader userClassLoader) {
-    return getConfigFromStreamConfig("_nodeToNonChainedOutputs", streamConfig, userClassLoader);
-  }
-
-  private static <T> T getConfigFromStreamConfig(
-      String key, StreamConfig streamConfig, ClassLoader userClassLoader) {
-    try {
-      return InstantiationUtil.readObjectFromConfig(
-          streamConfig.getConfiguration(), key, userClassLoader);
-    } catch (Exception e) {
-      throw new StreamTaskException("Could not instantiate serializer.", e);
+    StreamOperatorFactory operatorFactory = streamConfig.getStreamOperatorFactory(userClassLoader);
+    if (operatorFactory instanceof SimpleOperatorFactory) {
+      StreamOperator streamOperator = streamConfig.getStreamOperator(userClassLoader);
+      if (streamOperator instanceof GlutenOperator) {
+        return Optional.of((GlutenOperator) streamOperator);
+      }
+    } else if (operatorFactory instanceof GlutenOneInputOperatorFactory) {
+      return Optional.of(((GlutenOneInputOperatorFactory) operatorFactory).getOperator());
     }
-  }
-
-  private static void setConfigToStreamConfig(
-      String key, StreamConfig streamConfig, Object object) {
-    try {
-      InstantiationUtil.writeObjectToConfig(object, streamConfig.getConfiguration(), key);
-    } catch (IOException e) {
-      throw new StreamTaskException(
-          String.format("Could not serialize object for key %s.", key), e);
-    }
+    return Optional.empty();
   }
 }

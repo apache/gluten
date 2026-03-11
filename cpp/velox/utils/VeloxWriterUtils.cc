@@ -42,10 +42,10 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
   int64_t maxRowGroupBytes = 134217728; // 128MB
   int64_t maxRowGroupRows = 100000000; // 100M
   if (auto it = sparkConfs.find(kParquetBlockSize); it != sparkConfs.end()) {
-    maxRowGroupBytes = static_cast<int64_t>(stoi(it->second));
+    maxRowGroupBytes = std::stoll(it->second);
   }
   if (auto it = sparkConfs.find(kParquetBlockRows); it != sparkConfs.end()) {
-    maxRowGroupRows = static_cast<int64_t>(stoi(it->second));
+    maxRowGroupRows = std::stoll(it->second);
   }
   auto writeOption = std::make_unique<WriterOptions>();
   writeOption->parquetWriteTimestampUnit = TimestampPrecision::kMicroseconds /*micro*/;
@@ -61,7 +61,7 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
         auto parquetGzipWindowSizeStr = sparkConfs.find(kParquetGzipWindowSize)->second;
         if (parquetGzipWindowSizeStr == kGzipWindowSize4k) {
           auto codecOptions = std::make_shared<parquet::arrow::util::GZipCodecOptions>();
-          codecOptions->window_bits = kGzipWindowBits4k;
+          codecOptions->windowBits = kGzipWindowBits4k;
           writeOption->codecOptions = std::move(codecOptions);
         }
       }
@@ -77,7 +77,7 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
       auto codecOptions = std::make_shared<parquet::arrow::util::CodecOptions>();
       auto it = sparkConfs.find(kParquetZSTDCompressionLevel);
       auto compressionLevel = it != sparkConfs.end() ? std::stoi(it->second) : kZSTDDefaultCompressionLevel;
-      codecOptions->compression_level = compressionLevel;
+      codecOptions->compressionLevel = compressionLevel;
       writeOption->codecOptions = std::move(codecOptions);
     } else if (boost::iequals(compressionCodecStr, "uncompressed")) {
       compressionCodec = CompressionKind::CompressionKind_NONE;
@@ -93,7 +93,7 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
   writeOption->arrowMemoryPool =
       getDefaultMemoryManager()->getOrCreateArrowMemoryPool("VeloxParquetWrite.ArrowMemoryPool");
   if (auto it = sparkConfs.find(kParquetDataPageSize); it != sparkConfs.end()) {
-    auto dataPageSize = std::stoi(it->second);
+    auto dataPageSize = std::stoll(it->second);
     writeOption->dataPageSize = dataPageSize;
   }
   if (auto it = sparkConfs.find(kParquetWriterVersion); it != sparkConfs.end()) {

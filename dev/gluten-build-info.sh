@@ -21,10 +21,9 @@ GLUTEN_ROOT=$(cd $(dirname -- $0)/..; pwd -P)
 
 EXTRA_RESOURCE_DIR=$GLUTEN_ROOT/gluten-core/target/generated-resources
 BUILD_INFO="$EXTRA_RESOURCE_DIR"/gluten-build-info.properties
-DO_REMOVAL="$1" && shift
-if [ "true" = "$DO_REMOVAL" ]; then
-  rm -rf "$BUILD_INFO"
-fi
+
+# Delete old build-info file before regenerating
+rm -f "$BUILD_INFO"
 mkdir -p "$EXTRA_RESOURCE_DIR"
 
 function echo_revision_info() {
@@ -56,13 +55,15 @@ while (( "$#" )); do
       echo gluten_version="$2" >> "$BUILD_INFO"
       ;;
     --backend)
-      echo backend_type="$2" >> "$BUILD_INFO"
-      if [ "velox" = "$2" ]; then
-        echo_velox_revision_info "$3" >> "$BUILD_INFO"
-      elif [ "ch" = "$2" ]; then
+      BACKEND_TYPE="$2"
+      echo backend_type="$BACKEND_TYPE" >> "$BUILD_INFO"
+      # Compute backend home path based on type
+      if [ "velox" = "$BACKEND_TYPE" ]; then
+        BACKEND_HOME="$GLUTEN_ROOT/ep/build-velox/build/velox_ep"
+        echo_velox_revision_info "$BACKEND_HOME" >> "$BUILD_INFO"
+      elif [ "ch" = "$BACKEND_TYPE" ] || [ "clickhouse" = "$BACKEND_TYPE" ]; then
         echo_clickhouse_revision_info >> "$BUILD_INFO"
       fi
-      shift
       ;;
     --java)
       echo java_version="$2" >> "$BUILD_INFO"

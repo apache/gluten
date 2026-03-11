@@ -21,7 +21,7 @@ on:
       - main
     paths:
       - '.github/workflows/docker_image.yml'
-      - '.github/workflows/util/install-spark-resources.sh'
+      - '.github/workflows/util/install-resources.sh'
       - 'dev/docker/*'
       - 'dev/docker/cudf/*'
   schedule:
@@ -121,7 +121,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Docker meta
         id: meta
@@ -171,7 +171,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Docker meta
         id: meta
@@ -221,7 +221,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Docker meta
         id: meta
@@ -273,7 +273,7 @@ jobs:
       JDK_VERSION: 1.8.0
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Docker meta
         id: meta
@@ -336,7 +336,7 @@ jobs:
       JDK_VERSION: 1.8.0
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Docker meta
         id: meta

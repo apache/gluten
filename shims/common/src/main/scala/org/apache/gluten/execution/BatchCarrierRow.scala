@@ -35,7 +35,7 @@ import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
  * PlaceholderRows, followed by one TerminalRow that actually wraps that columnar batch. The total
  * number of PlaceholderRows + the TerminalRow equates to the size of the original columnar batch.
  */
-sealed abstract class BatchCarrierRow extends InternalRowGetVariantCompatible {
+sealed abstract class BatchCarrierRow extends InternalRowSparkCompatible {
   override def numFields: Int = throw unsupported()
 
   override def setNullAt(i: Int): Unit = throw unsupported()

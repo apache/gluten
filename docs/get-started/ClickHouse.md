@@ -48,7 +48,7 @@ You can also refer to [How-to-Build-ClickHouse-on-Linux](https://clickhouse.com/
 You need to install the following software manually:
 - Java 8
 - Maven 3.6.3 or higher version
-- Spark 3.2.2 or Spark 3.3.1
+- Spark 3.3.1 or higher version
 
 Then, get Gluten code:
 ```shell
@@ -173,16 +173,6 @@ The result is in `$clickhouse_root/build/utils/extern-local-engine/libch.so`.
 
 The prerequisites are the same as the one mentioned above. Compile Gluten with ClickHouse backend through maven:
 
-- for Spark 3.2.2<span id="deploy-spark-322"></span>
-
-```
-    git clone https://github.com/apache/incubator-gluten.git
-    cd incubator-gluten/
-    export MAVEN_OPTS="-Xmx8g -XX:ReservedCodeCacheSize=2g"
-    mvn clean install -Pbackends-clickhouse -Phadoop-2.7.4 -Pspark-3.2 -Dhadoop.version=2.8.5 -DskipTests -Dcheckstyle.skip
-    ls -al backends-clickhouse/target/gluten-XXXXX-spark-3.2-jar-with-dependencies.jar
-```
-
 - for Spark 3.3.1
 
 ```
@@ -197,16 +187,6 @@ The prerequisites are the same as the one mentioned above. Compile Gluten with C
 
 #### Prepare working directory 
 
-- for Spark 3.2.2
-
-```
-tar zxf spark-3.2.2-bin-hadoop2.7.tgz
-cd spark-3.2.2-bin-hadoop2.7
-#download delta-core_2.12-2.0.1.jar and delta-storage-2.0.1.jar
-wget https://repo1.maven.org/maven2/io/delta/delta-core_2.12/2.0.1/delta-core_2.12-2.0.1.jar -P ./jars
-wget https://repo1.maven.org/maven2/io/delta/delta-storage/2.0.1/delta-storage-2.0.1.jar -P ./jars
-cp gluten-XXXXX-spark-3.2-jar-with-dependencies.jar jars/
-```
 
 - for Spark 3.3.1
 
@@ -223,7 +203,7 @@ cp gluten-XXXXX-spark-3.3-jar-with-dependencies.jar jars/
 
 ##### Start Spark Thriftserver on local
 ```
-cd spark-3.2.2-bin-hadoop2.7
+cd spark-3.5.0-bin-hadoop3
 ./sbin/start-thriftserver.sh \
   --master local[3] \
   --driver-memory 10g \
@@ -402,7 +382,7 @@ export HADOOP_CONF_DIR=/path_to_spark/conf
 ```bash
 hdfs_conf_file=/your_local_path/hdfs-site.xml
 
-cd spark-3.2.2-bin-hadoop2.7
+cd spark-3.5.0-bin-hadoop3
 # add a new option: spark.gluten.sql.columnar.backend.ch.runtime_config.hdfs.libhdfs3_conf
 ./sbin/start-thriftserver.sh \
   --master local[3] \
@@ -532,9 +512,6 @@ This benchmark is tested on AWS EC2 cluster, there are 7 EC2 instances:
       | ---------- | ----------- | ------------- | ------------- |
   | Spark Worker | 15 | 60G  | 6 |
 
-- Prepare jars
-
-  Refer to [Deploy Spark 3.2.2](#deploy-spark-322)
 
 - Deploy gluten-substrait-XXXXX-jar-with-dependencies.jar
 
@@ -590,7 +567,7 @@ Please refer to [Data-preparation](#data-preparation) to generate MergeTree part
 #### Run Spark Thriftserver
 
 ```
-cd spark-3.2.2-bin-hadoop2.7
+cd spark-3.5.0-bin-hadoop3
 ./sbin/start-thriftserver.sh \
   --master spark://master-ip:7070 --deploy-mode client \
   --driver-memory 16g --driver-cores 4 \

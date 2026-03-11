@@ -112,9 +112,11 @@ void readData(const String & path, const std::map<String, Field> & fields)
 
     InputFormatPtr format;
     auto parser_group
-        = std::make_shared<FormatParserGroup>(QueryContext::globalContext()->getSettingsRef(), 1, nullptr, QueryContext::globalContext());
+        = std::make_shared<FormatFilterInfo>(nullptr, QueryContext::globalContext(), nullptr);
+    auto parser_shared_resources
+        = std::make_shared<FormatParserSharedResources>(QueryContext::globalContext()->getSettingsRef(), /*num_streams_=*/1);
     if constexpr (std::is_same_v<InputFormat, DB::ParquetBlockInputFormat>)
-        format = std::make_shared<InputFormat>(in, header, settings, parser_group, 8192);
+        format = std::make_shared<InputFormat>(in, header, settings, parser_shared_resources, parser_group, 8192);
     else
         format = std::make_shared<InputFormat>(in, header, settings);
 
@@ -365,6 +367,7 @@ TEST(ParquetRead, ArrowRead)
         header,
         "Parquet",
         format_settings,
+        std::nullopt,
         std::nullopt,
         format_settings.parquet.allow_missing_columns,
         format_settings.null_as_default,

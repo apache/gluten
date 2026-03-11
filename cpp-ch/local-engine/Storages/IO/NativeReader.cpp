@@ -116,7 +116,6 @@ readVarSizeAggregateData(DB::ReadBuffer & in, DB::ColumnPtr & column, size_t row
         AggregateDataPtr place = arena.alignedAlloc(column_parse_util.aggregate_state_size, column_parse_util.aggregate_state_align);
         column_parse_util.aggregate_function->create(place);
         column_parse_util.aggregate_function->deserialize(place, in, std::nullopt, &arena);
-        in.ignore();
         vec.push_back(place);
     }
 }

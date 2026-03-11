@@ -4,7 +4,7 @@ SELECT rand(0)
 -- !query schema
 struct<rand(0):double>
 -- !query output
-0.5488135024422883
+0.7604953758285915
 
 
 -- !query
@@ -12,7 +12,7 @@ SELECT rand(cast(3 / 7 AS int))
 -- !query schema
 struct<rand(CAST((3 / 7) AS INT)):double>
 -- !query output
-0.5488135024422883
+0.7604953758285915
 
 
 -- !query
@@ -20,7 +20,7 @@ SELECT rand(NULL)
 -- !query schema
 struct<rand(NULL):double>
 -- !query output
-0.5488135024422883
+0.7604953758285915
 
 
 -- !query
@@ -28,7 +28,7 @@ SELECT rand(cast(NULL AS int))
 -- !query schema
 struct<rand(CAST(NULL AS INT)):double>
 -- !query output
-0.5488135024422883
+0.7604953758285915
 
 
 -- !query

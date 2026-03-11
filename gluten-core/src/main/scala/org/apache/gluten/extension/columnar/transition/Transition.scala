@@ -21,6 +21,7 @@ import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.extension.columnar.cost.GlutenCostModel
 
 import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.internal.SQLConf
 
 import scala.collection.mutable
 
@@ -52,20 +53,21 @@ object Transition {
   val empty: Transition = (plan: SparkPlan) => plan
   private val abort: Transition = (_: SparkPlan) => throw new UnsupportedOperationException("Abort")
   val factory = Factory.newBuiltin()
+  private lazy val maxFields = SQLConf.get.maxToStringFields
 
   def notFound(plan: SparkPlan): GlutenException = {
-    new GlutenException(s"No viable transition found from plan's child to itself: $plan")
+    new GlutenException(
+      s"No viable transition found from plan's child to itself: ${plan.simpleString(maxFields)}")
   }
 
   def notFound(plan: SparkPlan, required: ConventionReq): GlutenException = {
-    new GlutenException(s"No viable transition to [$required] found for plan: $plan")
+    new GlutenException(
+      s"No viable transition to [$required] found for plan: ${plan.simpleString(maxFields)}")
   }
 
   trait Factory {
-    final def findTransition(
-        from: Convention,
-        to: ConventionReq,
-        otherwise: Exception): Transition = {
+    final def findTransitionOrThrow(from: Convention, to: ConventionReq)(
+        otherwise: => Exception): Transition = {
       findTransition(from, to) {
         throw otherwise
       }

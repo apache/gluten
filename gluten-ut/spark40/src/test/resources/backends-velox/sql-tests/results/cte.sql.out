@@ -16,6 +16,14 @@ struct<>
 
 
 -- !query
+create temporary view t3 as select * from t
+-- !query schema
+struct<>
+-- !query output
+
+
+
+-- !query
 WITH s AS (SELECT 1 FROM s) SELECT * FROM s
 -- !query schema
 struct<>
@@ -68,6 +76,16 @@ struct<1:int>
 1
 1
 1
+
+
+-- !query
+WITH t AS (SELECT 1) SELECT * FROM t3
+-- !query schema
+struct<id:int>
+-- !query output
+0
+1
+2
 
 
 -- !query
@@ -188,9 +206,10 @@ struct<>
 -- !query output
 org.apache.spark.sql.catalyst.parser.ParseException
 {
-  "errorClass" : "_LEGACY_ERROR_TEMP_0038",
+  "errorClass" : "DUPLICATED_CTE_NAMES",
+  "sqlState" : "42602",
   "messageParameters" : {
-    "duplicateNames" : "'t'"
+    "duplicateNames" : "`t`"
   },
   "queryContext" : [ {
     "objectType" : "",
@@ -272,6 +291,7 @@ struct<>
 org.apache.spark.sql.AnalysisException
 {
   "errorClass" : "INVALID_INLINE_TABLE.CANNOT_EVALUATE_EXPRESSION_IN_INLINE_TABLE",
+  "sqlState" : "42000",
   "messageParameters" : {
     "expr" : "\"outer(t.id)\""
   },
@@ -327,6 +347,7 @@ spark.sql.optimizer.excludedRules	org.apache.spark.sql.catalyst.optimizer.Conver
 
 
 -- !query
+
 WITH q AS (SELECT 'foo' AS x)
 SELECT x, typeof(x) FROM q
 -- !query schema
@@ -344,6 +365,7 @@ spark.sql.optimizer.excludedRules	org.apache.spark.sql.catalyst.optimizer.Conver
 
 
 -- !query
+
 with cte as (select id as id_alias from t)
 select id from cte
 -- !query schema
@@ -512,9 +534,10 @@ struct<>
 -- !query output
 org.apache.spark.sql.catalyst.parser.ParseException
 {
-  "errorClass" : "_LEGACY_ERROR_TEMP_0038",
+  "errorClass" : "DUPLICATED_CTE_NAMES",
+  "sqlState" : "42602",
   "messageParameters" : {
-    "duplicateNames" : "'cte1'"
+    "duplicateNames" : "`cte1`"
   },
   "queryContext" : [ {
     "objectType" : "",
@@ -589,6 +612,14 @@ struct<>
 
 -- !query
 DROP VIEW IF EXISTS t2
+-- !query schema
+struct<>
+-- !query output
+
+
+
+-- !query
+DROP VIEW IF EXISTS t3
 -- !query schema
 struct<>
 -- !query output

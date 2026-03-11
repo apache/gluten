@@ -89,7 +89,6 @@ DB::ColumnWithTypeAndName convertAggregateStateToString(const DB::ColumnWithType
     for (const auto & item : aggregate_col->getData())
     {
         aggregate_col->getAggregateFunction()->serialize(item, value_writer);
-        writeChar('\0', value_writer);
         column_offsets.emplace_back(value_writer.count());
     }
     return DB::ColumnWithTypeAndName(std::move(res_col), res_type, col.name);

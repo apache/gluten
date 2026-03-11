@@ -242,4 +242,20 @@ class GlutenClickHouseJoinSuite extends GlutenClickHouseWholeStageTransformerSui
     compareResultsAgainstVanillaSpark(leftSql2, true, { _ => })
   }
 
+  test("left join with empty partition on build side") {
+    withTable("t1", "t2") {
+      sql("create table t1(id int, v string) using parquet")
+      sql("create table t2(id int, v string) using parquet partitioned by (day string)")
+      sql("insert into t1 values (1, 'a')")
+      sql("alter table t2 add if not exists partition (day='2026-01-01')")
+
+      val q =
+        """
+          |select * from t1
+          |left join (select * from t2 where day='2026-01-01')
+          |""".stripMargin
+      compareResultsAgainstVanillaSpark(q, true, { _ => })
+    }
+  }
+
 }

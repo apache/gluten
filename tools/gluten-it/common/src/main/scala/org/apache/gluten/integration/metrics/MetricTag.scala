@@ -16,23 +16,13 @@
  */
 package org.apache.gluten.integration.metrics
 
-import scala.reflect.{classTag, ClassTag}
-
-trait MetricTag[T] {
-  import MetricTag._
-  final def name(): String = nameOf(ClassTag(this.getClass))
-  def value(): T
+trait MetricTag {
+  final def name(): String = s"${this.getClass}-${System.identityHashCode(this)}"
 }
 
 object MetricTag {
-  def nameOf[T <: MetricTag[_]: ClassTag]: String = {
-    val clazz = classTag[T].runtimeClass
-    assert(classOf[MetricTag[_]].isAssignableFrom(clazz))
-    clazz.getSimpleName
-  }
-  case class IsSelfTime() extends MetricTag[Nothing] {
-    override def value(): Nothing = {
-      throw new UnsupportedOperationException()
-    }
-  }
+  object IsSelfTime extends MetricTag
+  object IsJoinProbeInputNumRows extends MetricTag
+  object IsJoinProbeOutputNumRows extends MetricTag
+  object IsJoinOutputNumRows extends MetricTag
 }

@@ -17,6 +17,7 @@
 package org.apache.gluten.qt.support;
 
 import org.apache.gluten.qt.graph.SparkPlanGraphNodeInternal;
+import org.apache.gluten.qt.support.LakehouseFormatDetector.LakehouseFormat;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -52,6 +53,9 @@ public class NodeSupportVisitor extends GraphVisitor {
   private static final Pattern SIZE_PATTERN = Pattern.compile("([\\d.]+)\\s*([a-zA-Z]+)");
   private static final Pattern FORMAT_PATTERN = Pattern.compile("Format: ([^,]+)");
   private static final Pattern SCHEMA_PATTERN = Pattern.compile("ReadSchema: struct<(.*)");
+
+  private final LakehouseFormatDetector lakehouseDetector = new LakehouseFormatDetector();
+
   private static final ImmutableSet<String> FULLY_SUPPORTED_OPERATORS =
       ImmutableSet.of(
           "AdaptiveSparkPlan",
@@ -193,10 +197,46 @@ public class NodeSupportVisitor extends GraphVisitor {
           ? new Supported()
           : new NotSupported(NODE_NOT_SUPPORTED, "BHJ Not Supported");
     } else if (name.contains("Scan")) {
-      Matcher formatMatcher = FORMAT_PATTERN.matcher(desc);
+      // Try to detect lakehouse format first
+      Optional<LakehouseFormat> lakehouseFormat = lakehouseDetector.detect(name, desc);
+
       Matcher schemaMatcher = SCHEMA_PATTERN.matcher(desc);
-      String format = formatMatcher.find() ? formatMatcher.group(1) : "";
       String schema = schemaMatcher.find() ? schemaMatcher.group(1) : "";
+
+      if (lakehouseFormat.isPresent()) {
+        // Lakehouse format detected - check underlying file format
+        String fileFormat = lakehouseDetector.extractFileFormat(desc);
+        String formatPrefix = lakehouseFormat.get().getDisplayName() + " Scan";
+
+        if (fileFormat.isEmpty()) {
+          return new NotSupported(
+              NODE_NOT_SUPPORTED, formatPrefix + " with format UNKNOWN not supported");
+        }
+
+        // Lakehouse formats use Parquet/ORC underneath - apply same type checks
+        if (fileFormat.equals("Parquet") && checkTypeSupport(schema, PARQUET_UNSUPPORTED_TYPES)) {
+          return new Supported();
+        } else if (fileFormat.equals("ORC") && checkTypeSupport(schema, ORC_UNSUPPORTED_TYPES)) {
+          return new Supported();
+        } else if (fileFormat.equals("Parquet")) {
+          return new NotSupported(
+              NODE_NOT_SUPPORTED,
+              formatPrefix + " with " + schemaConditions(schema, PARQUET_UNSUPPORTED_TYPES));
+        } else if (fileFormat.equals("ORC")) {
+          return new NotSupported(
+              NODE_NOT_SUPPORTED,
+              formatPrefix + " with " + schemaConditions(schema, ORC_UNSUPPORTED_TYPES));
+        } else {
+          // Unsupported underlying format (e.g., Avro for Iceberg)
+          return new NotSupported(
+              NODE_NOT_SUPPORTED, formatPrefix + " (" + fileFormat + ") not supported");
+        }
+      }
+
+      // Not a lakehouse format - fall back to raw format detection
+      Matcher formatMatcher = FORMAT_PATTERN.matcher(desc);
+      String format = formatMatcher.find() ? formatMatcher.group(1) : "";
+
       if (format.equals("Parquet") && checkTypeSupport(schema, PARQUET_UNSUPPORTED_TYPES)) {
         return new Supported();
       } else if (format.equals("ORC") && checkTypeSupport(schema, ORC_UNSUPPORTED_TYPES)) {

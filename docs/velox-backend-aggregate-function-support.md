@@ -1,6 +1,6 @@
 # Aggregate Functions Support Status
 
-**Out of 62 aggregate functions in Spark 3.5, Gluten currently fully supports 54 functions and partially supports 1 function.**
+**Out of 62 aggregate functions in Spark 3.5, Gluten currently fully supports 52 functions and partially supports 1 function.**
 
 ## Aggregate Functions
 
@@ -9,7 +9,7 @@
 | any                   | BoolOr                             | S        |                |
 | any_value             | AnyValue                           | S        |                |
 | approx_count_distinct | HyperLogLogPlusPlus                | S        |                |
-| approx_percentile     | ApproximatePercentile              | S        |                |
+| approx_percentile     | ApproximatePercentile              |          |                |
 | array_agg             | CollectList                        | S        |                |
 | avg                   | Average                            | S        |                |
 | bit_and               | BitAndAgg                          | S        |                |
@@ -45,8 +45,8 @@
 | min                   | Min                                | S        |                |
 | min_by                | MinBy                              | S        |                |
 | mode                  | Mode                               |          |                |
-| percentile            | Percentile                         | S        |                |
-| percentile_approx     | ApproximatePercentile              | S        |                |
+| percentile            | Percentile                         |          |                |
+| percentile_approx     | ApproximatePercentile              |          |                |
 | regr_avgx             | RegrAvgX                           | S        |                |
 | regr_avgy             | RegrAvgY                           | S        |                |
 | regr_count            | RegrCount                          | S        |                |

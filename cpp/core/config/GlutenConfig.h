@@ -95,7 +95,7 @@ const std::string kSparkJsonIgnoreNullFields = "spark.sql.jsonGenerator.ignoreNu
 
 // cudf
 const std::string kCudfEnabled = "spark.gluten.sql.columnar.cudf";
-constexpr bool kCudfEnabledDefault = true;
+constexpr bool kCudfEnabledDefault = false;
 const std::string kDebugCudf = "spark.gluten.sql.debug.cudf";
 const std::string kDebugCudfDefault = "false";
 

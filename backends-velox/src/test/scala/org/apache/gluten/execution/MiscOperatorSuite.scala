@@ -24,6 +24,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.{AnalysisException, DataFrame, Row}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.joins.BaseJoinExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
@@ -753,7 +754,11 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     val df = sql("SELECT 1")
     checkAnswer(df, Row(1))
     val plan = df.queryExecution.executedPlan
-    assert(plan.find(_.isInstanceOf[RDDScanExec]).isDefined)
+    if (isSparkVersionGE("4.1")) {
+      assert(plan.find(_.getClass.getSimpleName == "OneRowRelationExec").isDefined)
+    } else {
+      assert(plan.find(_.isInstanceOf[RDDScanExec]).isDefined)
+    }
     assert(plan.find(_.isInstanceOf[ProjectExecTransformer]).isDefined)
     assert(plan.find(_.isInstanceOf[RowToVeloxColumnarExec]).isDefined)
   }
@@ -864,7 +869,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         }
         assert(wholeStageTransformers.size == 3)
         val nativePlanString = wholeStageTransformers.head.nativePlanString()
-        assert(nativePlanString.contains("Aggregation[1][SINGLE"))
+        assert(nativePlanString.matches("[\\s\\S]*Aggregation\\[\\d+]\\[SINGLE[\\s\\S]*"))
         assert(nativePlanString.contains("ValueStream"))
         assert(wholeStageTransformers(1).nativePlanString().contains("ValueStream"))
         assert(wholeStageTransformers.last.nativePlanString().contains("TableScan"))
@@ -2186,6 +2191,24 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         val executedPlan = getExecutedPlan(df)
         assert(executedPlan.count(_.isInstanceOf[ProjectExec]) == 0)
         assert(executedPlan.count(_.isInstanceOf[ColumnarPartialProjectExec]) == 1)
+    }
+  }
+
+  testWithMinSparkVersion("Left single join should not result into exception", "4.0") {
+    withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+      spark.sql("create temp view x (x1, x2) as values (1, 1), (2, 2);")
+      spark.sql("create temp view y (y1, y2) as values (2, 0), (3, -1);")
+
+      runQueryAndCompare(
+        "select *," +
+          " (select count(*) from y where x1 = y1 and y2 + 10 = x1 + 1 group by y2) from x") {
+        df =>
+          assert(
+            getExecutedPlan(df).collect {
+              case join: BaseJoinExec if join.joinType.toString == "LeftSingle" => join
+            }.size == 1
+          )
+      }
     }
   }
 }

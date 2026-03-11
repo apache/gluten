@@ -1,6 +1,6 @@
 <img src="docs/image/gluten-logo.svg" alt="Gluten" width="200">
 
-# Apache Gluten (Incubating)
+# Apache Gluten
 
 **A Middle Layer for Offloading JVM-based SQL Engines' Execution to Native Engines**
 
@@ -160,7 +160,7 @@ The [Qualification Tool](./tools/qualification-tool/README.md) is a utility to a
 
 ## 9. License
 
-Gluten is licensed under [Apache 2.0 license](https://www.apache.org/licenses/LICENSE-2.0).
+Gluten is licensed under [Apache License Version 2.0](https://www.apache.org/licenses/LICENSE-2.0).
 
 ## 10. Acknowledgements
 
@@ -169,7 +169,3 @@ Gluten was initiated by Intel and Kyligence in 2022. Several other companies are
 <a href="https://github.com/apache/incubator-gluten/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=apache/incubator-gluten&columns=25" />
 </a>
-
-<sub>\* LEGAL NOTICE: Your use of this software and any required dependent software (the "Software Package") is subject to the terms and conditions of the software license agreements for the Software Package,
-which may also include notices, disclaimers, or license terms for third party or open source software included in or with the Software Package, and your use indicates your acceptance of all such terms.
-Please refer to the "TPP.txt" or other similarly-named text file included with the Software Package for additional details.</sub>

@@ -16,6 +16,7 @@
  */
 #include "WholeStageResultIterator.h"
 #include "VeloxBackend.h"
+#include "VeloxPlanConverter.h"
 #include "VeloxRuntime.h"
 #include "config/VeloxConfig.h"
 #include "utils/ConfigExtractor.h"
@@ -29,6 +30,8 @@
 #include "velox/experimental/cudf/exec/ToCudf.h"
 #include "cudf/GpuLock.h"
 #endif
+#include "operators/plannodes/RowVectorStream.h"
+
 
 using namespace facebook;
 
@@ -42,12 +45,13 @@ const std::string kDynamicFiltersAccepted = "dynamicFiltersAccepted";
 const std::string kReplacedWithDynamicFilterRows = "replacedWithDynamicFilterRows";
 const std::string kFlushRowCount = "flushRowCount";
 const std::string kLoadedToValueHook = "loadedToValueHook";
+const std::string kBloomFilterBlocksByteSize = "bloomFilterSize";
 const std::string kTotalScanTime = "totalScanTime";
 const std::string kSkippedSplits = "skippedSplits";
 const std::string kProcessedSplits = "processedSplits";
 const std::string kSkippedStrides = "skippedStrides";
 const std::string kProcessedStrides = "processedStrides";
-const std::string kRemainingFilterTime = "totalRemainingFilterTime";
+const std::string kRemainingFilterTime = "totalRemainingFilterWallNanos";
 const std::string kIoWaitTime = "ioWaitWallNanos";
 const std::string kStorageReadBytes = "storageReadBytes";
 const std::string kLocalReadBytes = "localReadBytes";
@@ -174,8 +178,6 @@ WholeStageResultIterator::WholeStageResultIterator(
         if (canUseCudfConnector && enableCudf_ &&
             veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault)) {
           connectorId = kCudfHiveConnectorId;
-          VELOX_CHECK_EQ(starts[idx], 0, "Not support split file");
-          VELOX_CHECK_EQ(lengths[idx], scanInfo->properties[idx]->fileSize, "Not support split file");
         }
 #endif
         split = std::make_shared<velox::connector::hive::HiveConnectorSplit>(
@@ -227,7 +229,6 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
 }
 
 std::shared_ptr<ColumnarBatch> WholeStageResultIterator::next() {
-  tryAddSplitsToTask();
   if (task_->isFinished()) {
     return nullptr;
   }
@@ -355,17 +356,47 @@ void WholeStageResultIterator::constructPartitionColumns(
   }
 }
 
-void WholeStageResultIterator::tryAddSplitsToTask() {
-  if (noMoreSplits_) {
+void WholeStageResultIterator::addIteratorSplits(const std::vector<std::shared_ptr<ResultIterator>>& inputIterators) {
+  GLUTEN_CHECK(!allSplitsAdded_, "Method addIteratorSplits should not be called since all splits has been added to the Velox task.");
+  // Create IteratorConnectorSplit for each iterator
+  for (size_t i = 0; i < streamIds_.size() && i < inputIterators.size(); ++i) {
+    if (inputIterators[i] == nullptr) {
+      continue;
+    }
+    auto connectorSplit = std::make_shared<IteratorConnectorSplit>(
+        kIteratorConnectorId, inputIterators[i]);
+    exec::Split split(folly::copy(connectorSplit), -1);
+    task_->addSplit(streamIds_[i], std::move(split));
+  }
+}
+
+void WholeStageResultIterator::noMoreSplits() {
+  if (allSplitsAdded_) {
     return;
   }
+  // Mark no more splits for all scan nodes
   for (int idx = 0; idx < scanNodeIds_.size(); idx++) {
     for (auto& split : splits_[idx]) {
       task_->addSplit(scanNodeIds_[idx], std::move(split));
     }
-    task_->noMoreSplits(scanNodeIds_[idx]);
   }
-  noMoreSplits_ = true;
+
+  for (const auto& scanNodeId : scanNodeIds_) {
+    task_->noMoreSplits(scanNodeId);
+  }
+  
+  // Mark no more splits for all stream nodes
+  for (const auto& streamId : streamIds_) {
+    task_->noMoreSplits(streamId);
+  }
+  allSplitsAdded_ = true;
+}
+
+void WholeStageResultIterator::requestBarrier() {
+  if (task_ == nullptr) {
+    throw GlutenException("Cannot request barrier: task is null");
+  }
+  task_->requestBarrier();
 }
 
 void WholeStageResultIterator::collectMetrics() {
@@ -462,6 +493,8 @@ void WholeStageResultIterator::collectMetrics() {
       metrics_->get(Metrics::kFlushRowCount)[metricIndex] = runtimeMetric("sum", second->customStats, kFlushRowCount);
       metrics_->get(Metrics::kLoadedToValueHook)[metricIndex] =
           runtimeMetric("sum", second->customStats, kLoadedToValueHook);
+      metrics_->get(Metrics::kBloomFilterBlocksByteSize)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kBloomFilterBlocksByteSize);
       metrics_->get(Metrics::kScanTime)[metricIndex] = runtimeMetric("sum", second->customStats, kTotalScanTime);
       metrics_->get(Metrics::kSkippedSplits)[metricIndex] = runtimeMetric("sum", second->customStats, kSkippedSplits);
       metrics_->get(Metrics::kProcessedSplits)[metricIndex] =
@@ -555,7 +588,10 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
               : static_cast<int64_t>(veloxCfg_->get<double>(kMaxPartialAggregationMemoryRatio, 0.1) * offHeapMemory));
       auto maxExtendedPartialAggregationMemory = std::max<int64_t>(
           1 << 26,
-          static_cast<long>(veloxCfg_->get<double>(kMaxExtendedPartialAggregationMemoryRatio, 0.15) * offHeapMemory));
+          veloxCfg_->get<int64_t>(kMaxExtendedPartialAggregationMemory).has_value()
+              ? veloxCfg_->get<int64_t>(kMaxExtendedPartialAggregationMemory).value()
+              : static_cast<int64_t>(
+                    veloxCfg_->get<double>(kMaxExtendedPartialAggregationMemoryRatio, 0.15) * offHeapMemory));
       configs[velox::core::QueryConfig::kMaxPartialAggregationMemory] = std::to_string(maxPartialAggregationMemory);
       configs[velox::core::QueryConfig::kMaxExtendedPartialAggregationMemory] =
           std::to_string(maxExtendedPartialAggregationMemory);
@@ -603,12 +639,25 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     } else {
       configs[velox::core::QueryConfig::kSpillCompressionKind] = "none";
     }
-    configs[velox::core::QueryConfig::kSparkBloomFilterExpectedNumItems] =
-        std::to_string(veloxCfg_->get<int64_t>(kBloomFilterExpectedNumItems, 1000000));
-    configs[velox::core::QueryConfig::kSparkBloomFilterNumBits] =
-        std::to_string(veloxCfg_->get<int64_t>(kBloomFilterNumBits, 8388608));
-    configs[velox::core::QueryConfig::kSparkBloomFilterMaxNumBits] =
-        std::to_string(veloxCfg_->get<int64_t>(kBloomFilterMaxNumBits, 4194304));
+
+    configs[velox::core::QueryConfig::kHashProbeDynamicFilterPushdownEnabled] =
+        std::to_string(veloxCfg_->get<bool>(kHashProbeDynamicFilterPushdownEnabled, true));
+    configs[velox::core::QueryConfig::kHashProbeBloomFilterPushdownMaxSize] =
+        std::to_string(veloxCfg_->get<uint64_t>(kHashProbeBloomFilterPushdownMaxSize, 0));
+
+    if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterExpectedNumItems)) {
+      configs[velox::core::QueryConfig::kSparkBloomFilterExpectedNumItems] = opt.value();
+    }
+    if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterNumBits)) {
+      configs[velox::core::QueryConfig::kSparkBloomFilterNumBits] = opt.value();
+    }
+    if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterMaxNumBits)) {
+      // Velox will check memory cannot exceed 4194304.
+      configs[velox::core::QueryConfig::kSparkBloomFilterMaxNumBits] = opt.value();
+    }
+    if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterMaxNumItems)) {
+      configs[velox::core::QueryConfig::kSparkBloomFilterMaxNumItems] = opt.value();
+    }
     // spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver takes no effect if
     // spark.gluten.sql.columnar.backend.velox.IOThreads is set to 0
     configs[velox::core::QueryConfig::kMaxSplitPreloadPerDriver] =

@@ -139,10 +139,7 @@ case class InputIteratorTransformer(child: SparkPlan) extends UnaryTransformSupp
  * created, e.g. for special fallback handling when an existing WholeStageTransformer failed to
  * generate/compile code.
  */
-case class ColumnarCollapseTransformStages(
-    glutenConf: GlutenConfig,
-    transformStageCounter: AtomicInteger = ColumnarCollapseTransformStages.transformStageCounter)
-  extends Rule[SparkPlan] {
+case class ColumnarCollapseTransformStages(glutenConf: GlutenConfig) extends Rule[SparkPlan] {
 
   def apply(plan: SparkPlan): SparkPlan = {
     insertWholeStageTransformer(plan)
@@ -166,7 +163,9 @@ case class ColumnarCollapseTransformStages(
   /** Inserts an InputIteratorTransformer on top of those that do not support transform. */
   private def insertInputIteratorTransformer(plan: SparkPlan): SparkPlan = {
     plan match {
-      case p if !supportTransform(p) =>
+      case p if p.isInstanceOf[WholeStageTransformer] || !supportTransform(p) =>
+        // TODO: if p.isInstanceOf[WholeStageTransformer], we can merge two whole stage
+        //  transformers.
         ColumnarCollapseTransformStages.wrapInputIteratorTransformer(insertWholeStageTransformer(p))
       case p =>
         p.withNewChildren(p.children.map(insertInputIteratorTransformer))
@@ -175,9 +174,10 @@ case class ColumnarCollapseTransformStages(
 
   private def insertWholeStageTransformer(plan: SparkPlan): SparkPlan = {
     plan match {
+      case wst: WholeStageTransformer => wst
       case t if supportTransform(t) =>
-        WholeStageTransformer(t.withNewChildren(t.children.map(insertInputIteratorTransformer)))(
-          transformStageCounter.incrementAndGet())
+        // transformStageId will be updated by rule `GenerateTransformStageId`.
+        WholeStageTransformer(t.withNewChildren(t.children.map(insertInputIteratorTransformer)))(-1)
       case other =>
         other.withNewChildren(other.children.map(insertWholeStageTransformer))
     }
@@ -213,9 +213,20 @@ case class ColumnarInputAdapter(child: SparkPlan)
 }
 
 object ColumnarCollapseTransformStages {
-  val transformStageCounter = new AtomicInteger(0)
-
   def wrapInputIteratorTransformer(plan: SparkPlan): TransformSupport = {
     InputIteratorTransformer(ColumnarInputAdapter(plan))
+  }
+
+  def getTransformStageCounter(plan: SparkPlan): AtomicInteger = {
+    new AtomicInteger(findMaxTransformStageId(plan))
+  }
+
+  private def findMaxTransformStageId(plan: SparkPlan): Int = {
+    plan match {
+      case wst: WholeStageTransformer =>
+        wst.transformStageId
+      case _ =>
+        plan.children.map(findMaxTransformStageId).foldLeft(0)(Math.max)
+    }
   }
 }

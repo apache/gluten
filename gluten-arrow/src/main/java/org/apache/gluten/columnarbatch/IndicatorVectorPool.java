@@ -56,7 +56,7 @@ public class IndicatorVectorPool implements TaskResource {
 
   @Override
   public int priority() {
-    return 10;
+    return 20;
   }
 
   @Override

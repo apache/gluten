@@ -59,8 +59,10 @@ static void readParquetFile(const SharedHeader & header, const String & file, Bl
     auto in = std::make_unique<ReadBufferFromFile>(file);
     FormatSettings format_settings;
     auto global_context = QueryContext::globalContext();
-    auto parser_group = std::make_shared<FormatParserGroup>(global_context->getSettingsRef(), 1, nullptr, global_context);
-    auto format = std::make_shared<ParquetBlockInputFormat>(*in, header, format_settings, std::move(parser_group), 8192);
+    auto parser_group = std::make_shared<FormatFilterInfo>(nullptr, global_context, nullptr);
+    auto parser_shared_resources
+        = std::make_shared<FormatParserSharedResources>(global_context->getSettingsRef(), /*num_streams_=*/1);
+    auto format = std::make_shared<ParquetBlockInputFormat>(*in, header, format_settings, parser_shared_resources, std::move(parser_group), 8192);
     auto pipeline = QueryPipeline(std::move(format));
     auto reader = std::make_unique<PullingPipelineExecutor>(pipeline);
     while (reader->pull(block))

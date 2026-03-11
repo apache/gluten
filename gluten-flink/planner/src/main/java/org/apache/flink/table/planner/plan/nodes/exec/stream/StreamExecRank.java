@@ -17,7 +17,7 @@
 package org.apache.flink.table.planner.plan.nodes.exec.stream;
 
 import org.apache.gluten.rexnode.Utils;
-import org.apache.gluten.table.runtime.operators.GlutenVectorOneInputOperator;
+import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
@@ -268,11 +268,14 @@ public class StreamExecRank extends ExecNodeBase<RowData>
             streamTopNNode,
             outputType);
     final OneInputStreamOperator operator =
-        new GlutenVectorOneInputOperator(
+        new GlutenOneInputOperator(
             new StatefulPlanNode(streamRankNode.getId(), streamRankNode),
             PlanNodeIdGenerator.newId(),
             inputType,
-            Map.of(streamRankNode.getId(), outputType));
+            Map.of(streamRankNode.getId(), outputType),
+            RowData.class,
+            RowData.class,
+            "StreamExecRank");
     // --- End Gluten-specific code changes ---
 
     OneInputTransformation<RowData, RowData> transform =

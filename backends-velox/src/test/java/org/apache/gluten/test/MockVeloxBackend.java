@@ -43,7 +43,7 @@ public final class MockVeloxBackend {
 
       @Override
       public String executorID() {
-        throw new UnsupportedOperationException();
+        return "MockVeloxBackend ID";
       }
 
       @Override

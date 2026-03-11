@@ -8,27 +8,27 @@ parent: Getting-Started
 ### Native build parameters for buildbundle-veloxbe.sh or builddeps-veloxbe.sh
 Please set them via `--`, e.g. `--build_type=Release`.
 
-| Parameters             | Description                                                                                        | Default |
-|------------------------|----------------------------------------------------------------------------------------------------|---------|
-| build_type             | Build type for Velox & gluten cpp, CMAKE_BUILD_TYPE.                                               | Release |
-| build_tests            | Build gluten cpp tests.                                                                            | OFF     |
-| build_examples         | Build udf example.                                                                                 | OFF     |
-| build_benchmarks       | Build gluten cpp benchmarks.                                                                       | OFF     |
-| enable_jemalloc_stats  | Print jemalloc stats for debugging.                                                                | OFF     |
-| enable_qat             | Enable QAT for shuffle data de/compression.                                                        | OFF     |
-| enable_s3              | Build with S3 support.                                                                             | OFF     |
-| enable_gcs             | Build with GCS support.                                                                            | OFF     |
-| enable_hdfs            | Build with HDFS support.                                                                           | OFF     |
-| enable_abfs            | Build with ABFS support.                                                                           | OFF     |
-| enable_vcpkg           | Enable vcpkg for static build.                                                                     | OFF     |
-| run_setup_script       | Run setup script to install Velox dependencies.                                                    | ON      |
-| velox_repo             | Specify your own Velox repo to build.                                                              | ""      |
-| velox_branch           | Specify your own Velox branch to build.                                                            | ""      |
-| velox_home             | Specify your own Velox source path to build.                                                       | ""      |
-| build_velox_tests      | Build Velox tests.                                                                                 | OFF     |
-| build_velox_benchmarks | Build Velox benchmarks (velox_tests and connectors will be disabled if ON)                         | OFF     |
-| build_arrow            | Build arrow java/cpp and install the libs in local. Can turn it OFF after first build.             | ON      |
-| spark_version          | Build for specified version of Spark(3.2, 3.3, 3.4, 3.5, ALL). `ALL` means build for all versions. | ALL     |
+| Parameters             | Description                                                                                   | Default |
+|------------------------|-----------------------------------------------------------------------------------------------|---------|
+| build_type             | Build type for Velox & gluten cpp, CMAKE_BUILD_TYPE.                                          | Release |
+| build_tests            | Build gluten cpp tests.                                                                       | OFF     |
+| build_examples         | Build udf example.                                                                            | OFF     |
+| build_benchmarks       | Build gluten cpp benchmarks.                                                                  | OFF     |
+| enable_jemalloc_stats  | Print jemalloc stats for debugging.                                                           | OFF     |
+| enable_qat             | Enable QAT for shuffle data de/compression.                                                   | OFF     |
+| enable_s3              | Build with S3 support.                                                                        | OFF     |
+| enable_gcs             | Build with GCS support.                                                                       | OFF     |
+| enable_hdfs            | Build with HDFS support.                                                                      | OFF     |
+| enable_abfs            | Build with ABFS support.                                                                      | OFF     |
+| enable_vcpkg           | Enable vcpkg for static build.                                                                | OFF     |
+| run_setup_script       | Run setup script to install Velox dependencies.                                               | ON      |
+| velox_repo             | Specify your own Velox repo to build.                                                         | ""      |
+| velox_branch           | Specify your own Velox branch to build.                                                       | ""      |
+| velox_home             | Specify your own Velox source path to build.                                                  | ""      |
+| build_velox_tests      | Build Velox tests.                                                                            | OFF     |
+| build_velox_benchmarks | Build Velox benchmarks (velox_tests and connectors will be disabled if ON)                    | OFF     |
+| build_arrow            | Build arrow java/cpp and install the libs in local. Can turn it OFF after first build.        | ON      |
+| spark_version          | Build for specified version of Spark(3.3, 3.4, 3.5, ALL). `ALL` means build for all versions. | ALL     |
 
 ### Velox build parameters for build-velox.sh
 Please set them via `--`, e.g., `--velox_home=/YOUR/PATH`.
@@ -58,10 +58,9 @@ The below parameters can be set via `-P` for mvn.
 | delta               | Build Gluten with Delta Lake support. | disabled      |
 | iceberg             | Build Gluten with Iceberg support.    | disabled      |
 | hudi                | Build Gluten with Hudi support.       | disabled      |
-| spark-3.2           | Build Gluten for Spark 3.2.           | enabled       |
-| spark-3.3           | Build Gluten for Spark 3.3.           | disabled      |
+| spark-3.3           | Build Gluten for Spark 3.3.           | disabled       |
 | spark-3.4           | Build Gluten for Spark 3.4.           | disabled      |
-| spark-3.5           | Build Gluten for Spark 3.5.           | disabled      |
+| spark-3.5           | Build Gluten for Spark 3.5.           | enabled      |
 
 ## Gluten Jar for Deployment
 The gluten jar built out is under `GLUTEN_SRC/package/target/`.
@@ -69,7 +68,6 @@ It's name pattern is `gluten-<backend_type>-bundle-spark<spark.bundle.version>_<
 
 | Spark Version | spark.bundle.version | scala.binary.version |
 |---------------|----------------------|----------------------|
-| 3.2.2         | 3.2                  | 2.12                 |
 | 3.3.1         | 3.3                  | 2.12                 |
 | 3.4.4         | 3.4                  | 2.12                 |
 | 3.5.5         | 3.5                  | 2.12                 |

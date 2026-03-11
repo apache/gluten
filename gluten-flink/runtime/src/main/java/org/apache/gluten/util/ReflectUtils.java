@@ -33,6 +33,15 @@ public class ReflectUtils {
     }
   }
 
+  public static Object getObjectField(String className, Object obj, String fieldName) {
+    try {
+      Class<?> clazz = Class.forName(className);
+      return getObjectField(clazz, obj, fieldName);
+    } catch (ClassNotFoundException e) {
+      throw new FlinkRuntimeException(e);
+    }
+  }
+
   public static Object invokeObjectMethod(
       Class<?> clazz, Object obj, String methodName, Class<?>[] paramTypes, Object[] paramValues) {
     try {

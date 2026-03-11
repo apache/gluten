@@ -404,14 +404,14 @@ arrow::Status ArrowShuffleDictionaryWriter::serialize(arrow::io::OutputStream* o
   ARROW_RETURN_NOT_OK(out->Write(bitMap.data(), bitMapSize));
 
   for (auto fieldIdx : dictionaryFields_) {
+    auto it = dictionaries_.find(fieldIdx);
     GLUTEN_DCHECK(
-        dictionaries_.find(fieldIdx) != dictionaries_.end(),
+        it != dictionaries_.end(),
         "Invalid dictionary field index: " + std::to_string(fieldIdx));
 
-    const auto& dictionary = dictionaries_[fieldIdx];
-    ARROW_RETURN_NOT_OK(dictionary->serialize(out));
+    ARROW_RETURN_NOT_OK(it->second->serialize(out));
 
-    dictionaries_.erase(fieldIdx);
+    dictionaries_.erase(it);
   }
 
   return arrow::Status::OK();

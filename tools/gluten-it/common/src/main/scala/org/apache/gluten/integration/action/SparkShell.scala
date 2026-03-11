@@ -25,7 +25,7 @@ case class SparkShell() extends Action {
     suite.sessionSwitcher.useSession("test", "Spark CLI")
     val runner: QueryRunner =
       new QueryRunner(suite.dataSource(), suite.dataWritePath())
-    runner.createTables(suite.tableCreator(), suite.sessionSwitcher.spark())
+    runner.createTables(suite.tableCreator(), suite.tableAnalyzer(), suite.sessionSwitcher.spark())
     Main.sparkSession = suite.sessionSwitcher.spark()
     Main.sparkContext = suite.sessionSwitcher.spark().sparkContext
     Main.main(Array("-usejavacp"))

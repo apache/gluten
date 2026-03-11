@@ -156,7 +156,10 @@ object CHAggAndShuffleBenchmark extends SqlBasedBenchmark with CHSqlBasedBenchma
     // Get the `FileSourceScanExecTransformer`
     val fileScan = executedPlan.collect { case scan: FileSourceScanExecTransformer => scan }.head
     val scanStage = WholeStageTransformer(fileScan)(
-      ColumnarCollapseTransformStages.transformStageCounter.incrementAndGet())
+      ColumnarCollapseTransformStages
+        .getTransformStageCounter(fileScan)
+        .incrementAndGet()
+    )
     val scanStageRDD = scanStage.executeColumnar()
 
     // Get the total row count
@@ -200,7 +203,9 @@ object CHAggAndShuffleBenchmark extends SqlBasedBenchmark with CHSqlBasedBenchma
     val projectFilter = executedPlan.collect { case project: ProjectExecTransformer => project }
     if (projectFilter.nonEmpty) {
       val projectFilterStage = WholeStageTransformer(projectFilter.head)(
-        ColumnarCollapseTransformStages.transformStageCounter.incrementAndGet())
+        ColumnarCollapseTransformStages
+          .getTransformStageCounter(projectFilter.head)
+          .incrementAndGet())
       val projectFilterStageRDD = projectFilterStage.executeColumnar()
 
       chAllStagesBenchmark.addCase(s"Project Stage", executedCnt) {

@@ -28,9 +28,6 @@ import org.apache.spark.sql.execution.datasources.v2.{LeafV2CommandExec, Offload
 class VeloxDelta33WriteComponent extends Component {
   override def name(): String = "velox-delta33-write"
 
-  override def buildInfo(): Component.BuildInfo =
-    Component.BuildInfo("VeloxDelta33Write", "N/A", "N/A", "N/A")
-
   override def dependencies(): Seq[Class[_ <: Component]] = classOf[VeloxDeltaComponent] :: Nil
 
   override def injectRules(injector: Injector): Unit = {

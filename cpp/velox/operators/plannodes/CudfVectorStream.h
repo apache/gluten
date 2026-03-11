@@ -18,21 +18,90 @@
 #pragma once
 
 #include "CudfVectorStream.h"
-#include "velox/experimental/cudf/exec/NvtxHelper.h"
+#include "compute/ResultIterator.h"
+#include "memory/VeloxColumnarBatch.h"
+#include "velox/exec/Driver.h"
+#include "velox/exec/Operator.h"
+#include "velox/exec/Task.h"
+#include "velox/experimental/cudf/exec/CudfOperator.h"
 #include "velox/experimental/cudf/exec/Utilities.h"
 #include "velox/experimental/cudf/exec/VeloxCudfInterop.h"
 #include "velox/experimental/cudf/vector/CudfVector.h"
 
 namespace gluten {
 
-class CudfVectorStream : public RowVectorStream {
+class CudfVectorStreamBase {
+ public:
+  virtual ~CudfVectorStreamBase() = default;
+
+  explicit CudfVectorStreamBase(
+      facebook::velox::exec::DriverCtx* driverCtx,
+      facebook::velox::memory::MemoryPool* pool,
+      ResultIterator* iterator,
+      const facebook::velox::RowTypePtr& outputType)
+      : driverCtx_(driverCtx), pool_(pool), outputType_(outputType), iterator_(iterator) {}
+
+  bool hasNext();
+
+  // Convert arrow batch to row vector, construct the new Rowvector with new outputType.
+  virtual facebook::velox::RowVectorPtr next();
+
+ protected:
+  // Get the next batch from iterator_.
+  std::shared_ptr<ColumnarBatch> nextInternal();
+
+  facebook::velox::exec::DriverCtx* driverCtx_;
+  facebook::velox::memory::MemoryPool* pool_;
+  const facebook::velox::RowTypePtr outputType_;
+  ResultIterator* iterator_;
+
+  bool finished_{false};
+};
+
+class ValueStreamNode final : public facebook::velox::core::PlanNode {
+ public:
+  ValueStreamNode(
+      const facebook::velox::core::PlanNodeId& id,
+      const facebook::velox::RowTypePtr& outputType,
+      std::shared_ptr<ResultIterator> iterator)
+      : facebook::velox::core::PlanNode(id), outputType_(outputType), iterator_(std::move(iterator)) {}
+
+  const facebook::velox::RowTypePtr& outputType() const override {
+    return outputType_;
+  }
+
+  const std::vector<facebook::velox::core::PlanNodePtr>& sources() const override {
+    return kEmptySources_;
+  };
+
+  ResultIterator* iterator() const {
+    return iterator_.get();
+  }
+
+  std::string_view name() const override {
+    return "ValueStream";
+  }
+
+  folly::dynamic serialize() const override {
+    VELOX_UNSUPPORTED("ValueStream plan node is not serializable");
+  }
+
+ private:
+  void addDetails(std::stringstream& stream) const override{};
+
+  const facebook::velox::RowTypePtr outputType_;
+  std::shared_ptr<ResultIterator> iterator_;
+  const std::vector<facebook::velox::core::PlanNodePtr> kEmptySources_;
+};
+
+class CudfVectorStream : public CudfVectorStreamBase {
  public:
   CudfVectorStream(
       facebook::velox::exec::DriverCtx* driverCtx,
       facebook::velox::memory::MemoryPool* pool,
       ResultIterator* iterator,
       const facebook::velox::RowTypePtr& outputType)
-      : RowVectorStream(driverCtx, pool, iterator, outputType) {}
+      : CudfVectorStreamBase(driverCtx, pool, iterator, outputType) {}
 
   // Convert arrow batch to row vector and use new output columns
   facebook::velox::RowVectorPtr next() override {
@@ -93,8 +162,8 @@ class CudfValueStreamNode final : public facebook::velox::core::PlanNode {
   const std::vector<facebook::velox::core::PlanNodePtr> kEmptySources_;
 };
 
-// Extends NvtxHelper to identify it as GPU node, so not add CudfFormVelox operator.
-class CudfValueStream : public facebook::velox::exec::SourceOperator, public facebook::velox::cudf_velox::NvtxHelper {
+// Extends CudfOperator to identify it as GPU node, so not add CudfFormVelox operator.
+class CudfValueStream : public facebook::velox::exec::SourceOperator, public facebook::velox::cudf_velox::CudfOperator {
  public:
   CudfValueStream(
       int32_t operatorId,
@@ -106,10 +175,7 @@ class CudfValueStream : public facebook::velox::exec::SourceOperator, public fac
             operatorId,
             valueStreamNode->id(),
             valueStreamNode->name().data()),
-        facebook::velox::cudf_velox::NvtxHelper(
-            nvtx3::rgb{160, 82, 45}, // Sienna
-            operatorId,
-            fmt::format("[{}]", valueStreamNode->id())) {
+        facebook::velox::cudf_velox::CudfOperator(operatorId, valueStreamNode->id()) {
     ResultIterator* itr = valueStreamNode->iterator();
     rvStream_ = std::make_unique<CudfVectorStream>(driverCtx, pool(), itr, outputType_);
   }
@@ -136,7 +202,7 @@ class CudfValueStream : public facebook::velox::exec::SourceOperator, public fac
 
  private:
   bool finished_ = false;
-  std::unique_ptr<RowVectorStream> rvStream_;
+  std::unique_ptr<CudfVectorStream> rvStream_;
 };
 
 class CudfVectorStreamOperatorTranslator : public facebook::velox::exec::Operator::PlanNodeTranslator {

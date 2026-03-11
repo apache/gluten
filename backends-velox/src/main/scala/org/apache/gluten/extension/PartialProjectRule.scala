@@ -17,37 +17,36 @@
 package org.apache.gluten.extension
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.ColumnarPartialProjectExec
+import org.apache.gluten.execution.{ColumnarPartialProjectExec, WholeStageTransformer}
 import org.apache.gluten.utils.PlanUtil
 
-import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
 
-case class PartialProjectRule(spark: SparkSession) extends Rule[SparkPlan] {
+case class PartialProjectRule() extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = {
     if (!GlutenConfig.get.enableColumnarPartialProject) {
       return plan
     }
 
-    val newPlan = plan match {
-      // If the root node of the plan is a ProjectExec and its child is a gluten columnar op,
-      // we try to add a ColumnarPartialProjectExec
-      case p: ProjectExec if PlanUtil.isGlutenColumnarOp(p.child) =>
-        tryAddColumnarPartialProjectExec(p)
-      case _ => plan
-    }
+    // Wrap a WholeStageTransformer to check if the top node supports partial fallback.
+    // It will be removed afterward.
+    val wrapped = WholeStageTransformer(plan)(-1)
 
-    newPlan.transformUp {
-      case parent: SparkPlan
-          if parent.children.exists(_.isInstanceOf[ProjectExec]) &&
-            PlanUtil.isGlutenColumnarOp(parent) =>
-        parent.mapChildren {
-          case p: ProjectExec if PlanUtil.isGlutenColumnarOp(p.child) =>
-            tryAddColumnarPartialProjectExec(p)
-          case other => other
-        }
-    }
+    wrapped
+      .transformUp {
+        case parent: SparkPlan
+            if parent.children.exists(_.isInstanceOf[ProjectExec]) &&
+              (PlanUtil.isGlutenColumnarOp(parent) || PartialFallback.supportPartialFallback(
+                parent)) =>
+          parent.mapChildren {
+            case p: ProjectExec if PlanUtil.isGlutenColumnarOp(p.child) =>
+              tryAddColumnarPartialProjectExec(p)
+            case other => other
+          }
+      }
+      .children
+      .head
   }
 
   private def tryAddColumnarPartialProjectExec(plan: ProjectExec): SparkPlan = {

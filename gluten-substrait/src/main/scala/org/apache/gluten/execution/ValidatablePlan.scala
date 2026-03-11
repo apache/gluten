@@ -85,6 +85,12 @@ trait ValidatablePlan extends GlutenPlan with LogLevelUtil {
               s" consider enabling the spark.sql.legacy.allowHashOnMapType " +
               s"setting to resolve this issue."
           ValidationResult.failed(message)
+        case e: IllegalArgumentException =>
+          // SchemaValidation throws IllegalArgumentException in Join validation
+          // when join type is unsupported. For example,
+          // LeftSingle join in BroadcastHashJoinExecTransformer.
+          ValidationResult.failed(
+            s"Failed to retrieve schema for ${this.nodeName}, due to: ${e.getMessage}")
       }
 
     if (!schemaValidationResult.ok()) {

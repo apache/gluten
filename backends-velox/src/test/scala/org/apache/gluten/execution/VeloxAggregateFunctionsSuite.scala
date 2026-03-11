@@ -176,6 +176,15 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
               }) == 4)
         }
     }
+
+    // Test duplicate field project.
+    runQueryAndCompare("""
+                         |select l_orderkey, sum(l_partkey), sum(l_partkey1) from
+                         | (select l_orderkey, l_partkey, l_partkey as l_partkey1 from lineitem)
+                         | group by l_orderkey
+                         |""".stripMargin) {
+      checkGlutenPlan[HashAggregateExecTransformer]
+    }
   }
 
   test("min and max") {
@@ -389,7 +398,7 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
-  testWithMinSparkVersion("regr_r2", "3.3") {
+  test("regr_r2") {
     runQueryAndCompare("""
                          |select regr_r2(l_partkey, l_suppkey) from lineitem;
                          |""".stripMargin) {

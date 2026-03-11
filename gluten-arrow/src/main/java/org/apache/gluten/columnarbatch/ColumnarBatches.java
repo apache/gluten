@@ -21,7 +21,7 @@ import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.Runtimes;
 import org.apache.gluten.utils.ArrowAbiUtil;
 import org.apache.gluten.utils.ArrowUtil;
-import org.apache.gluten.utils.InternalRowUtl;
+import org.apache.gluten.utils.InternalRowUtil;
 import org.apache.gluten.vectorized.ArrowColumnarBatch;
 import org.apache.gluten.vectorized.ArrowWritableColumnVector;
 
@@ -412,7 +412,7 @@ public final class ColumnarBatches {
   public static String toString(ColumnarBatch batch, int start, int length) {
     ColumnarBatch loadedBatch = ensureLoaded(ArrowBufferAllocators.contextInstance(), batch);
     StructType type = SparkArrowUtil.fromArrowSchema(ArrowUtil.toSchema(loadedBatch));
-    return InternalRowUtl.toString(
+    return InternalRowUtil.toString(
         type,
         JavaConverters.<InternalRow>asScalaIterator(loadedBatch.rowIterator()),
         start,

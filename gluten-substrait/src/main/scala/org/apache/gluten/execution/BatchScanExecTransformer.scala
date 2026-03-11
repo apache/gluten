@@ -113,7 +113,6 @@ abstract class BatchScanExecTransformerBase(
     case fileScan: FileScan => fileScan.dataFilters
     case _ =>
       // todo: support other DSv2 scan
-      logInfo(s"${scan.getClass.toString} does not support extracting scan filters.")
       Seq.empty
   }
 

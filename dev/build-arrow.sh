@@ -33,6 +33,7 @@ function prepare_arrow_build() {
   patch -p1 < $CURRENT_DIR/../ep/build-velox/src/modify_arrow.patch
   patch -p1 < $CURRENT_DIR/../ep/build-velox/src/modify_arrow_dataset_scan_option.patch
   patch -p1 < $CURRENT_DIR/../ep/build-velox/src/cmake-compatibility.patch
+  patch -p1 < $CURRENT_DIR/../ep/build-velox/src/support_ibm_power.patch
   popd
 }
 
@@ -77,6 +78,9 @@ function build_arrow_cpp() {
 function build_arrow_java() {
     ARROW_INSTALL_DIR="${ARROW_PREFIX}/install"
 
+    # Use Gluten's Maven wrapper
+    MVN_CMD="${CURRENT_DIR}/../build/mvn"
+
     # set default number of threads as cpu cores minus 2
     if [[ "$(uname)" == "Darwin" ]]; then
         physical_cpu_cores=$(sysctl -n hw.physicalcpu)
@@ -94,23 +98,23 @@ function build_arrow_java() {
 
     pushd $ARROW_PREFIX/java
     # Because arrow-bom module need the -DprocessAllModules
-    mvn versions:set -DnewVersion=15.0.0-gluten -DprocessAllModules
+    ${MVN_CMD} versions:set -DnewVersion=15.0.0-gluten -DprocessAllModules
 
-    mvn clean install -pl bom,maven/module-info-compiler-maven-plugin,vector -am \
+    ${MVN_CMD} clean install -pl bom,maven/module-info-compiler-maven-plugin,vector -am \
           -DskipTests -Drat.skip -Dmaven.gitcommitid.skip -Dcheckstyle.skip -Dassembly.skipAssembly
 
     # Arrow C Data Interface CPP libraries
-    mvn generate-resources -P generate-libs-cdata-all-os -Darrow.c.jni.dist.dir=$ARROW_INSTALL_DIR \
+    ${MVN_CMD} generate-resources -P generate-libs-cdata-all-os -Darrow.c.jni.dist.dir=$ARROW_INSTALL_DIR \
       -Dmaven.test.skip -Drat.skip -Dmaven.gitcommitid.skip -Dcheckstyle.skip -N
 
     # Arrow JNI Date Interface CPP libraries
     export PKG_CONFIG_PATH="${INSTALL_PREFIX}"/lib64/pkgconfig:"${INSTALL_PREFIX}"/lib/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}
-    mvn generate-resources -Pgenerate-libs-jni-macos-linux -N -Darrow.dataset.jni.dist.dir=$ARROW_INSTALL_DIR \
+    ${MVN_CMD} generate-resources -Pgenerate-libs-jni-macos-linux -N -Darrow.dataset.jni.dist.dir=$ARROW_INSTALL_DIR \
       -DARROW_GANDIVA=OFF -DARROW_JAVA_JNI_ENABLE_GANDIVA=OFF -DARROW_ORC=OFF -DARROW_JAVA_JNI_ENABLE_ORC=OFF \
 	    -Dmaven.test.skip -Drat.skip -Dmaven.gitcommitid.skip -Dcheckstyle.skip -N
 
     # Arrow Java libraries
-    mvn install -Parrow-jni -P arrow-c-data -pl c,dataset -am \
+    ${MVN_CMD} install -Parrow-jni -P arrow-c-data -pl c,dataset -am \
       -Darrow.c.jni.dist.dir=$ARROW_INSTALL_DIR/lib -Darrow.dataset.jni.dist.dir=$ARROW_INSTALL_DIR/lib -Darrow.cpp.build.dir=$ARROW_INSTALL_DIR/lib \
       -Dmaven.test.skip -Drat.skip -Dmaven.gitcommitid.skip -Dcheckstyle.skip -Dassembly.skipAssembly
     popd

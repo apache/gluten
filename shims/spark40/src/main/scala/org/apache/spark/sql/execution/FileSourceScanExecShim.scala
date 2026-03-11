@@ -107,7 +107,7 @@ abstract class FileSourceScanExecShim(
     val dynamicDataFilters = dataFilters.filter(isDynamicPruningFilter)
     val dynamicPartitionFilters =
       partitionFilters.filter(isDynamicPruningFilter)
-    if (dynamicPartitionFilters.nonEmpty) {
+    val selected = if (dynamicPartitionFilters.nonEmpty) {
       GlutenTimeMetric.withMillisTime {
         // call the file index for the files matching all filters except dynamic partition filters
         val boundedFilters = dynamicPartitionFilters.map {
@@ -127,15 +127,17 @@ abstract class FileSourceScanExecShim(
     } else {
       selectedPartitions
     }
+    sendDriverMetrics()
+    selected
   }
 
   def getPartitionArray: Array[PartitionDirectory] = {
-    // TODO: fix the value of partiton directories in dynamic pruning
-    val staticDataFilters = dataFilters.filterNot(isDynamicPruningFilter)
-    val staticPartitionFilters = partitionFilters.filterNot(isDynamicPruningFilter)
-    val partitionDirectories =
-      relation.location.listFiles(staticPartitionFilters, staticDataFilters)
-    partitionDirectories.toArray
+    // Use dynamicallySelectedPartitions which triggers selectedPartitions evaluation,
+    // ensuring driver metrics (numFiles, filesSize, etc.) are properly set.
+    // Convert ScanFileListing to Array[PartitionDirectory] via filePartitionIterator.
+    dynamicallySelectedPartitions.filePartitionIterator.map {
+      listing => PartitionDirectory(listing.values, listing.files.toSeq)
+    }.toArray
   }
 
   /**

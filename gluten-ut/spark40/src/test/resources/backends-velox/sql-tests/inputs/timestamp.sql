@@ -41,6 +41,14 @@ select TIMESTAMP_SECONDS(0.1234567);
 -- truncation is OK for float/double
 select TIMESTAMP_SECONDS(0.1234567d), TIMESTAMP_SECONDS(FLOAT(0.1234567));
 
+-- [SPARK-22333]: timeFunctionCall has conflicts with columnReference
+set spark.sql.optimizer.excludedRules=org.apache.spark.sql.catalyst.optimizer.ConvertToLocalRelation,org.apache.spark.sql.catalyst.optimizer.NullPropagation;
+create temporary view ttf1 as select * from values
+  (1, 2),
+  (2, 3)
+  as ttf1(`current_date`, `current_timestamp`);
+select typeof(current_date), typeof(current_timestamp) from ttf1;
+
 create temporary view ttf2 as select * from values
   (1, 2),
   (2, 3)
@@ -75,15 +83,23 @@ select to_timestamp('2019-10-06 10:11:12.123', 'yyyy-MM-dd HH:mm:ss[.SSSSSS]');
 select to_timestamp('2019-10-06 10:11:12', 'yyyy-MM-dd HH:mm:ss[.SSSSSS]');
 select to_timestamp('2019-10-06 10:11:12.12', 'yyyy-MM-dd HH:mm[:ss.SSSSSS]');
 select to_timestamp('2019-10-06 10:11', 'yyyy-MM-dd HH:mm[:ss.SSSSSS]');
+select to_timestamp("2019-10-06S10:11:12.12345", "yyyy-MM-dd'S'HH:mm:ss.SSSSSS");
+select to_timestamp("12.12342019-10-06S10:11", "ss.SSSSyyyy-MM-dd'S'HH:mm");
+select to_timestamp("12.1232019-10-06S10:11", "ss.SSSSyyyy-MM-dd'S'HH:mm");
+select to_timestamp("12.1232019-10-06S10:11", "ss.SSSSyy-MM-dd'S'HH:mm");
+select to_timestamp("12.1234019-10-06S10:11", "ss.SSSSy-MM-dd'S'HH:mm");
 
 select to_timestamp("2019-10-06S", "yyyy-MM-dd'S'");
 select to_timestamp("S2019-10-06", "'S'yyyy-MM-dd");
 
+select to_timestamp("2019-10-06T10:11:12'12", "yyyy-MM-dd'T'HH:mm:ss''SSSS"); -- middle
 select to_timestamp("2019-10-06T10:11:12'", "yyyy-MM-dd'T'HH:mm:ss''"); -- tail
 select to_timestamp("'2019-10-06T10:11:12", "''yyyy-MM-dd'T'HH:mm:ss"); -- head
 select to_timestamp("P2019-10-06T10:11:12", "'P'yyyy-MM-dd'T'HH:mm:ss"); -- head but as single quote
 
 -- missing fields
+select to_timestamp("16", "dd");
+select to_timestamp("02-29", "MM-dd");
 select to_timestamp("2019 40", "yyyy mm");
 select to_timestamp("2019 10:10:10", "yyyy hh:mm:ss");
 
@@ -123,6 +139,9 @@ select date '2012-01-01' - interval 3 hours,
 
 -- Unsupported narrow text style
 select to_timestamp('2019-10-06 A', 'yyyy-MM-dd GGGGG');
+select to_timestamp('22 05 2020 Friday', 'dd MM yyyy EEEEEE');
+select to_timestamp('22 05 2020 Friday', 'dd MM yyyy EEEEE');
+select unix_timestamp('22 05 2020 Friday', 'dd MM yyyy EEEEE');
 select from_json('{"t":"26/October/2015"}', 't Timestamp', map('timestampFormat', 'dd/MMMMM/yyyy'));
 select from_csv('26/October/2015', 't Timestamp', map('timestampFormat', 'dd/MMMMM/yyyy'));
 
@@ -143,3 +162,11 @@ select timestampdiff(SECOND, date'2022-02-15', timestamp'2022-02-14 23:59:59');
 
 select timestampdiff('MINUTE', timestamp'2022-02-14 01:02:03', timestamp'2022-02-14 02:00:03');
 select timestampdiff('YEAR', date'2022-02-15', date'2023-02-15');
+
+select timediff(QUARTER, timestamp'2023-08-10 01:02:03', timestamp'2022-01-14 01:02:03');
+select timediff(HOUR, timestamp'2022-02-14 01:02:03', timestamp'2022-02-14 12:00:03');
+select timediff(DAY, date'2022-02-15', date'2023-02-15');
+select timediff(SECOND, date'2022-02-15', timestamp'2022-02-14 23:59:59');
+
+select timediff('MINUTE', timestamp'2023-02-14 01:02:03', timestamp'2023-02-14 02:00:03');
+select timediff('YEAR', date'2020-02-15', date'2023-02-15');

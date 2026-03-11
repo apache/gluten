@@ -16,8 +16,57 @@
  */
 package org.apache.spark.sql.execution
 
+import org.apache.gluten.execution.WindowGroupLimitExecTransformer
+
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
+import org.apache.spark.sql.functions.lit
 
 class GlutenRemoveRedundantWindowGroupLimitsSuite
   extends RemoveRedundantWindowGroupLimitsSuite
-  with GlutenSQLTestsBaseTrait {}
+  with GlutenSQLTestsBaseTrait {
+  private def checkNumWindowGroupLimits(df: DataFrame, count: Int): Unit = {
+    val plan = df.queryExecution.executedPlan
+    assert(collectWithSubqueries(plan) {
+      case exec: WindowGroupLimitExecTransformer => exec
+    }.length == count)
+  }
+
+  private def checkWindowGroupLimits(query: String, count: Int): Unit = {
+    val df = sql(query)
+    checkNumWindowGroupLimits(df, count)
+    val result = df.collect()
+    checkAnswer(df, result)
+  }
+
+  testGluten("remove redundant WindowGroupLimits") {
+    withTempView("t") {
+      spark.range(0, 100).withColumn("value", lit(1)).createOrReplaceTempView("t")
+      val query1 =
+        """
+          |SELECT *
+          |FROM (
+          |    SELECT id, rank() OVER w AS rn
+          |    FROM t
+          |    GROUP BY id
+          |    WINDOW w AS (PARTITION BY id ORDER BY max(value))
+          |)
+          |WHERE rn < 3
+          |""".stripMargin
+      checkWindowGroupLimits(query1, 1)
+
+      val query2 =
+        """
+          |SELECT *
+          |FROM (
+          |    SELECT id, rank() OVER w AS rn
+          |    FROM t
+          |    GROUP BY id
+          |    WINDOW w AS (ORDER BY max(value))
+          |)
+          |WHERE rn < 3
+          |""".stripMargin
+      checkWindowGroupLimits(query2, 2)
+    }
+  }
+}

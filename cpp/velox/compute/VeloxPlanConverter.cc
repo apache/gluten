@@ -18,27 +18,25 @@
 #include "VeloxPlanConverter.h"
 #include <filesystem>
 
-#include "compute/ResultIterator.h"
 #include "config/GlutenConfig.h"
 #include "iceberg/IcebergPlanConverter.h"
-#include "velox/common/file/FileSystems.h"
+#include "operators/plannodes/IteratorSplit.h"
 
 namespace gluten {
 
 using namespace facebook;
 
 VeloxPlanConverter::VeloxPlanConverter(
-    const std::vector<std::shared_ptr<ResultIterator>>& inputIters,
     velox::memory::MemoryPool* veloxPool,
     const facebook::velox::config::ConfigBase* veloxCfg,
+    const std::vector<std::shared_ptr<ResultIterator>>& rowVectors,
     const std::optional<std::string> writeFilesTempPath,
     const std::optional<std::string> writeFileName,
     bool validationMode)
     : validationMode_(validationMode),
       veloxCfg_(veloxCfg),
-      substraitVeloxPlanConverter_(veloxPool, veloxCfg, writeFilesTempPath, writeFileName, validationMode) {
+      substraitVeloxPlanConverter_(veloxPool, veloxCfg, rowVectors, writeFilesTempPath, writeFileName, validationMode) {
   VELOX_USER_CHECK_NOT_NULL(veloxCfg_);
-  substraitVeloxPlanConverter_.setInputIters(std::move(inputIters));
 }
 
 namespace {
@@ -48,6 +46,7 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
   using SubstraitFileFormatCase = ::substrait::ReadRel_LocalFiles_FileOrFiles::FileFormatCase;
 
   auto splitInfo = std::make_shared<SplitInfo>();
+  splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
   splitInfo->paths.reserve(fileList.size());
   splitInfo->starts.reserve(fileList.size());
   splitInfo->lengths.reserve(fileList.size());
@@ -136,7 +135,6 @@ void parseLocalFileNodes(
   splitInfos.reserve(localFiles.size());
   for (const auto& localFile : localFiles) {
     const auto& fileList = localFile.items();
-
     splitInfos.push_back(parseScanSplitInfo(veloxCfg, fileList));
   }
 

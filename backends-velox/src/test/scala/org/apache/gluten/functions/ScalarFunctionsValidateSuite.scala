@@ -158,7 +158,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("null input for array_size", "3.3") {
+  test("null input for array_size") {
     withTempPath {
       path =>
         Seq[Array[Int]](
@@ -303,7 +303,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("map_contains_key", "3.3") {
+  test("map_contains_key") {
     withTempPath {
       path =>
         Seq(

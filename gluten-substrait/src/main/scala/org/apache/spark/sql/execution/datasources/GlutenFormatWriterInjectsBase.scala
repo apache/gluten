@@ -23,7 +23,6 @@ import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.transition.{InsertTransitions, RemoveTransitions}
 
 import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, SparkPlan}
-import org.apache.spark.sql.execution.ColumnarCollapseTransformStages.transformStageCounter
 
 trait GlutenFormatWriterInjectsBase extends GlutenFormatWriterInjects {
   private lazy val transform = HeuristicTransform.static()
@@ -66,7 +65,7 @@ trait GlutenFormatWriterInjectsBase extends GlutenFormatWriterInjects {
     // and cannot provide const-ness.
     val transformedWithAdapter = injectAdapter(transformed)
     val wst = WholeStageTransformer(transformedWithAdapter, materializeInput = true)(
-      transformStageCounter.incrementAndGet())
+      ColumnarCollapseTransformStages.getTransformStageCounter(transformed).incrementAndGet())
     val wstWithTransitions = BackendsApiManager.getSparkPlanExecApiInstance.genColumnarToCarrierRow(
       InsertTransitions.create(outputsColumnar = true, wst.batchType()).apply(wst))
     wstWithTransitions

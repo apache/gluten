@@ -25,6 +25,8 @@ import org.apache.gluten.integration.stat.RamStat
 
 import org.apache.spark.sql.{SparkSession, TestUtils}
 
+import java.io.PrintStream
+
 case class QueriesCompare(
     queries: QuerySelector,
     explain: Boolean,
@@ -40,7 +42,7 @@ case class QueriesCompare(
     val sessionSwitcher = suite.sessionSwitcher
 
     sessionSwitcher.useSession("baseline", "Run Baseline Queries")
-    runner.createTables(suite.tableCreator(), sessionSwitcher.spark())
+    runner.createTables(suite.tableCreator(), suite.tableAnalyzer(), sessionSwitcher.spark())
     val baselineResults = (0 until iterations).flatMap {
       iteration =>
         querySet.queries.map {
@@ -56,14 +58,17 @@ case class QueriesCompare(
             } finally {
               if (noSessionReuse) {
                 sessionSwitcher.renewSession()
-                runner.createTables(suite.tableCreator(), sessionSwitcher.spark())
+                runner.createTables(
+                  suite.tableCreator(),
+                  suite.tableAnalyzer(),
+                  sessionSwitcher.spark())
               }
             }
         }
     }.toList
 
     sessionSwitcher.useSession("test", "Run Test Queries")
-    runner.createTables(suite.tableCreator(), sessionSwitcher.spark())
+    runner.createTables(suite.tableCreator(), suite.tableAnalyzer(), sessionSwitcher.spark())
     val testResults = (0 until iterations).flatMap {
       iteration =>
         querySet.queries.map {
@@ -79,7 +84,10 @@ case class QueriesCompare(
             } finally {
               if (noSessionReuse) {
                 sessionSwitcher.renewSession()
-                runner.createTables(suite.tableCreator(), sessionSwitcher.spark())
+                runner.createTables(
+                  suite.tableCreator(),
+                  suite.tableAnalyzer(),
+                  sessionSwitcher.spark())
               }
             }
         }
@@ -98,19 +106,6 @@ case class QueriesCompare(
     val succeededQueries = results.filter(_.testPassed())
     val failedQueries = results.filter(!_.testPassed)
 
-    println()
-
-    if (failedQueries.nonEmpty) {
-      println(s"There are failed queries.")
-      if (!suppressFailureMessages) {
-        println()
-        failedQueries.foreach {
-          failedQuery =>
-            println(s"Query ${failedQuery.queryId} failed by error: ${failedQuery.error()}")
-        }
-      }
-    }
-
     // RAM stats
     println("Performing GC to collect RAM statistics... ")
     System.gc()
@@ -121,12 +116,27 @@ case class QueriesCompare(
       RamStat.getJvmHeapTotal(),
       RamStat.getProcessRamUsed()
     )
+    println()
 
-    println("")
-    println("Test report: ")
-    println("")
-    printf("Summary: %d out of %d queries passed. \n", passedCount, count)
-    println("")
+    // Write out test report.
+    val reportAppender = suite.getReporter().actionAppender(getClass.getSimpleName)
+    if (failedQueries.nonEmpty) {
+      reportAppender.err.println(s"There are failed queries.")
+      if (!suppressFailureMessages) {
+        reportAppender.err.println()
+        failedQueries.foreach {
+          failedQuery =>
+            reportAppender.err.println(
+              s"Query ${failedQuery.queryId} failed by error: ${failedQuery.error()}")
+        }
+      }
+    }
+
+    reportAppender.out.println()
+    reportAppender.out.println("Test report: ")
+    reportAppender.out.println()
+    reportAppender.out.println("Summary: %d out of %d queries passed.".format(passedCount, count))
+    reportAppender.out.println()
     val all = succeededQueries match {
       case Nil => None
       case several =>
@@ -134,17 +144,18 @@ case class QueriesCompare(
         val allActual = several.map(_.actual).asSuccesses().agg("all actual").get
         Some(TestResultLine("all", allExpected, allActual))
     }
-    QueriesCompare.printResults(succeededQueries ++ all)
-    println("")
+    QueriesCompare.printResults(reportAppender.out, succeededQueries ++ all)
+    reportAppender.out.println()
 
     if (failedQueries.isEmpty) {
-      println("No failed queries. ")
-      println("")
+      reportAppender.out.println("No failed queries. ")
+      reportAppender.out.println()
     } else {
-      println("Failed queries (a failed query with correct row count indicates value mismatches): ")
-      println("")
-      QueriesCompare.printResults(failedQueries)
-      println("")
+      reportAppender.err.println(
+        "Failed queries (a failed query with correct row count indicates value mismatches): ")
+      reportAppender.err.println()
+      QueriesCompare.printResults(reportAppender.err, failedQueries)
+      reportAppender.err.println()
     }
 
     if (passedCount != count) {
@@ -204,7 +215,7 @@ object QueriesCompare {
     }
   }
 
-  private def printResults(results: Seq[TestResultLine]): Unit = {
+  private def printResults(out: PrintStream, results: Seq[TestResultLine]): Unit = {
     import org.apache.gluten.integration.action.TableRender.Field._
 
     val render = TableRender.create[TestResultLine](
@@ -218,7 +229,7 @@ object QueriesCompare {
 
     results.foreach(line => render.appendRow(line))
 
-    render.print(System.out)
+    render.print(out)
   }
 
   private def runBaselineQuery(

@@ -418,7 +418,7 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
         s"from $LINEITEM_TABLE where l_comment rlike '%$$##@@#&&' limit $LENGTH") { _ => }
   }
 
-  testWithMinSparkVersion("ilike", "3.3") {
+  test("ilike") {
     runQueryAndCompare(
       s"select l_orderkey, l_comment, ilike(l_comment, 'a*') " +
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
@@ -544,7 +544,8 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
         s"from $LINEITEM_TABLE limit 5") { _ => }
   }
 
-  testWithMinSparkVersion("split", "3.4") {
+  // TODO: fix on spark-4.1
+  testWithSpecifiedSparkVersion("split", "3.4", "3.5") {
     runQueryAndCompare(
       s"select l_orderkey, l_comment, split(l_comment, '') " +
         s"from $LINEITEM_TABLE limit 5") {

@@ -20,18 +20,19 @@ import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.metric.SQLMetric
 
 trait MetricMapper {
-  def map(node: SparkPlan, key: String, metric: SQLMetric): Seq[MetricTag[_]]
+  def map(node: SparkPlan, key: String, metric: SQLMetric): Seq[MetricTag]
 }
 
 object MetricMapper {
   val dummy: MetricMapper = (node: SparkPlan, key: String, metric: SQLMetric) => Nil
 
-  case class SelfTimeMapper(selfTimeKeys: Map[String, Set[String]]) extends MetricMapper {
-    override def map(node: SparkPlan, key: String, metric: SQLMetric): Seq[MetricTag[_]] = {
+  case class SimpleMetricMapper(tags: Seq[MetricTag], selfTimeKeys: Map[String, Set[String]])
+    extends MetricMapper {
+    override def map(node: SparkPlan, key: String, metric: SQLMetric): Seq[MetricTag] = {
       val className = node.getClass.getSimpleName
       if (selfTimeKeys.contains(className)) {
         if (selfTimeKeys(className).contains(key)) {
-          return Seq(MetricTag.IsSelfTime())
+          return tags
         }
       }
       Nil
@@ -52,7 +53,7 @@ object MetricMapper {
 
   private class ChainedTypeMetricMapper(val mappers: Seq[MetricMapper]) extends MetricMapper {
     assert(!mappers.exists(_.isInstanceOf[ChainedTypeMetricMapper]))
-    override def map(node: SparkPlan, key: String, metric: SQLMetric): Seq[MetricTag[_]] = {
+    override def map(node: SparkPlan, key: String, metric: SQLMetric): Seq[MetricTag] = {
       mappers.flatMap(m => m.map(node, key, metric))
     }
   }

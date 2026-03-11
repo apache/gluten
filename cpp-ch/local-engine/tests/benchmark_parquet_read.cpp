@@ -88,8 +88,10 @@ void BM_ColumnIndexRead_Old(benchmark::State & state)
     {
         ReadBufferFromFilePRead fileReader(file);
         auto global_context = local_engine::QueryContext::globalContext();
-        auto parser_group = std::make_shared<FormatParserGroup>(global_context->getSettingsRef(), 1, nullptr, global_context);
-        auto format = std::make_shared<ParquetBlockInputFormat>(fileReader, header, format_settings, parser_group, 8192);
+        auto parser_group = std::make_shared<FormatFilterInfo>(nullptr, global_context, nullptr);
+        auto parser_shared_resources
+            = std::make_shared<FormatParserSharedResources>(global_context->getSettingsRef(), /*num_streams_=*/1);
+        auto format = std::make_shared<ParquetBlockInputFormat>(*in, header, format_settings, parser_shared_resources, parser_group, 8192);
         auto pipeline = QueryPipeline(std::move(format));
         auto reader = std::make_unique<PullingPipelineExecutor>(pipeline);
         while (reader->pull(res))
@@ -113,8 +115,10 @@ void BM_ParquetReadDate32(benchmark::State & state)
     {
         auto in = std::make_unique<ReadBufferFromFile>(file);
         auto global_context = local_engine::QueryContext::globalContext();
-        auto parser_group = std::make_shared<FormatParserGroup>(global_context->getSettingsRef(), 1, nullptr, global_context);
-        auto format = std::make_shared<ParquetBlockInputFormat>(*in, header, format_settings, parser_group, 8192);
+        auto parser_group = std::make_shared<FormatFilterInfo>(nullptr, global_context, nullptr);
+        auto parser_shared_resources
+            = std::make_shared<FormatParserSharedResources>(global_context->getSettingsRef(), /*num_streams_=*/1);
+        auto format = std::make_shared<ParquetBlockInputFormat>(fileReader, header, format_settings, parser_shared_resources, parser_group, 8192);
         auto pipeline = QueryPipeline(std::move(format));
         auto reader = std::make_unique<PullingPipelineExecutor>(pipeline);
         while (reader->pull(res))

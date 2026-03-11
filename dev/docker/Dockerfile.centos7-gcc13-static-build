@@ -34,7 +34,7 @@ RUN set -ex; \
        -e 's/^#baseurl/baseurl/' \
        -e 's/mirror\.centos\.org/vault.centos.org/' \
        /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo; \
-    yum install -y git patch wget sudo java-1.8.0-openjdk-devel ccache; \
+    yum install -y git patch sudo java-1.8.0-openjdk-devel ccache; \
     git clone --depth=1 https://github.com/apache/incubator-gluten /opt/gluten; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh; \
@@ -45,7 +45,7 @@ RUN set -ex; \
     cd /opt/gluten; \
     bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --enable_s3=ON --enable_gcs=ON \
                                        --enable_hdfs=ON --enable_abfs=ON  build_arrow; \
-    mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
+    ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
     dnf clean all; \
     rm -rf /opt/gluten; \
     rm -rf /root/.cache/ccache;

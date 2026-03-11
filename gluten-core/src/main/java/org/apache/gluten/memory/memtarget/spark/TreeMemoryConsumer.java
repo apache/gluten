@@ -29,9 +29,8 @@ import org.apache.spark.util.Utils;
 
 import java.io.IOException;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -50,7 +49,7 @@ import java.util.stream.Collectors;
 public class TreeMemoryConsumer extends MemoryConsumer implements TreeMemoryTarget {
 
   private final SimpleMemoryUsageRecorder recorder = new SimpleMemoryUsageRecorder();
-  private final Map<String, TreeMemoryTarget> children = new HashMap<>();
+  private final Map<String, TreeMemoryTarget> children = new ConcurrentHashMap<>();
   private final String name = MemoryTargetUtil.toUniqueName("Gluten.Tree");
 
   TreeMemoryConsumer(TaskMemoryManager taskMemoryManager, MemoryMode mode) {
@@ -97,17 +96,10 @@ public class TreeMemoryConsumer extends MemoryConsumer implements TreeMemoryTarg
 
   @Override
   public MemoryUsageStats stats() {
-    Set<Map.Entry<String, TreeMemoryTarget>> entries = children.entrySet();
     Map<String, MemoryUsageStats> childrenStats =
-        entries.stream()
-            .collect(Collectors.toMap(e -> e.getValue().name(), e -> e.getValue().stats()));
-
-    Preconditions.checkState(childrenStats.size() == children.size());
-    MemoryUsageStats stats = recorder.toStats(childrenStats);
-    Preconditions.checkState(
-        stats.getCurrent() == getUsed(),
-        "Used bytes mismatch between gluten memory consumer and Spark task memory manager");
-    return stats;
+        children.values().stream()
+            .collect(Collectors.toMap(TreeMemoryTarget::name, TreeMemoryTarget::stats));
+    return recorder.toStats(childrenStats);
   }
 
   @Override
@@ -123,10 +115,10 @@ public class TreeMemoryConsumer extends MemoryConsumer implements TreeMemoryTarg
       Spiller spiller,
       Map<String, MemoryUsageStatsBuilder> virtualChildren) {
     final TreeMemoryTarget child = new Node(this, name, capacity, spiller, virtualChildren);
-    if (children.containsKey(child.name())) {
+    TreeMemoryTarget existing = children.putIfAbsent(child.name(), child);
+    if (existing != null) {
       throw new IllegalArgumentException("Child already registered: " + child.name());
     }
-    children.put(child.name(), child);
     return child;
   }
 
@@ -153,7 +145,7 @@ public class TreeMemoryConsumer extends MemoryConsumer implements TreeMemoryTarg
   }
 
   public static class Node implements TreeMemoryTarget, KnownNameAndStats {
-    private final Map<String, Node> children = new HashMap<>();
+    private final Map<String, Node> children = new ConcurrentHashMap<>();
     private final TreeMemoryTarget parent;
     private final String name;
     private final long capacity;
@@ -251,11 +243,8 @@ public class TreeMemoryConsumer extends MemoryConsumer implements TreeMemoryTarg
     @Override
     public MemoryUsageStats stats() {
       final Map<String, MemoryUsageStats> childrenStats =
-          new HashMap<>(
-              children.entrySet().stream()
-                  .collect(Collectors.toMap(e -> e.getValue().name(), e -> e.getValue().stats())));
-
-      Preconditions.checkState(childrenStats.size() == children.size());
+          children.values().stream()
+              .collect(Collectors.toMap(TreeMemoryTarget::name, TreeMemoryTarget::stats));
 
       // add virtual children
       for (Map.Entry<String, MemoryUsageStatsBuilder> entry : virtualChildren.entrySet()) {
@@ -275,10 +264,10 @@ public class TreeMemoryConsumer extends MemoryConsumer implements TreeMemoryTarg
         Map<String, MemoryUsageStatsBuilder> virtualChildren) {
       final Node child =
           new Node(this, name, Math.min(this.capacity, capacity), spiller, virtualChildren);
-      if (children.containsKey(child.name())) {
+      Node existing = children.putIfAbsent(child.name(), child);
+      if (existing != null) {
         throw new IllegalArgumentException("Child already registered: " + child.name());
       }
-      children.put(child.name(), child);
       return child;
     }
 

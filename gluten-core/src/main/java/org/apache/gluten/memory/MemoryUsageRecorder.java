@@ -17,9 +17,11 @@
 package org.apache.gluten.memory;
 
 public interface MemoryUsageRecorder extends MemoryUsageStatsBuilder {
+  // spotless:off
   void inc(long bytes);
   // peak used bytes
   long peak();
   // current used bytes
   long current();
+  // spotless:on
 }

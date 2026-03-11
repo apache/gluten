@@ -24,11 +24,11 @@
   </parent>
   <groupId>org.apache.gluten</groupId>
   <artifactId>gluten-parent</artifactId>
-  <version>1.6.0-SNAPSHOT</version>
+  <version>1.7.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>Gluten Parent Pom</name>
-  <description>Apache Gluten(incubating)</description>
+  <description>Apache Gluten</description>
   <url>https://github.com/apache/incubator-gluten.git</url>
 
   <organization>
@@ -64,7 +64,7 @@
     <maven.compiler.target>${java.version}</maven.compiler.target>
     <caffeine.version>2.9.3</caffeine.version>
     <scala.binary.version>2.12</scala.binary.version>
-    <scala.version>2.12.15</scala.version>
+    <scala.version>2.12.18</scala.version>
     <scala-xml.version>2.1.0</scala-xml.version>
     <javax.servlet.version>3.1.0</javax.servlet.version>
     <spark.major.version>3</spark.major.version>
@@ -73,10 +73,12 @@
     <spark.version>3.5.5</spark.version>
     <sparkshim.artifactId>spark-sql-columnar-shims-spark35</sparkshim.artifactId>
     <iceberg.version>1.10.0</iceberg.version>
+    <iceberg.binary.version>10</iceberg.binary.version>
     <paimon.version>1.2.0</paimon.version>
     <delta.package.name>delta-spark</delta.package.name>
     <delta.version>3.3.2</delta.version>
     <delta.binary.version>33</delta.binary.version>
+    <aws-java-sdk-dynamodb.version>1.12.262</aws-java-sdk-dynamodb.version>
     <celeborn.version>0.6.1</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
     <arrow.version>15.0.0</arrow.version>
@@ -99,6 +101,8 @@
     <!-- For unit tests -->
     <fasterxml.version>2.15.0</fasterxml.version>
     <junit.version>4.13.1</junit.version>
+    <!-- Maven version for build/mvn wrapper script -->
+    <maven.version>3.9.12</maven.version>
     <junit5.version>5.11.4</junit5.version>
     <flexmark.version>0.62.2</flexmark.version>
 
@@ -110,6 +114,7 @@
     <guava.version>32.0.1-jre</guava.version>
     <!--spotless-->
     <spotless.version>2.27.2</spotless.version>
+    <googlejavaformat.version>1.7</googlejavaformat.version>
     <spotless.scalafmt.version>3.8.3</spotless.scalafmt.version>
     <spotless.delimiter>package</spotless.delimiter>
     <!-- spotless:off -->
@@ -135,11 +140,12 @@
 
     <!-- plugin version-->
     <build-helper-maven-plugin.version>3.6.0</build-helper-maven-plugin.version>
-    <scala.compiler.version>4.8.0</scala.compiler.version>
-    <maven.compiler.plugin>3.12.1</maven.compiler.plugin>
+    <scala.compiler.version>4.9.2</scala.compiler.version>
+    <maven.compiler.plugin>3.14.1</maven.compiler.plugin>
     <maven.jar.plugin>3.2.2</maven.jar.plugin>
     <scalastyle.version>1.0.0</scalastyle.version>
     <scalatest-maven-plugin.version>2.2.0</scalatest-maven-plugin.version>
+    <bloop-maven-plugin.version>2.0.3</bloop-maven-plugin.version>
     <argLine/>
     <!-- Required since there is extensive setting of spark home through argLine-->
     <extraJavaTestArgs>
@@ -478,6 +484,57 @@
     </dependencies>
   </dependencyManagement>
 
+  <!-- Use Google Cloud Storage mirror for faster Maven Central downloads -->
+  <repositories>
+    <repository>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>gcs-maven-central-mirror</id>
+      <name>GCS Maven Central mirror</name>
+      <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+    </repository>
+    <repository>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>central</id>
+      <name>Maven Central</name>
+      <url>https://repo.maven.apache.org/maven2</url>
+    </repository>
+  </repositories>
+
+  <pluginRepositories>
+    <pluginRepository>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>gcs-maven-central-mirror</id>
+      <name>GCS Maven Central mirror</name>
+      <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+    </pluginRepository>
+    <pluginRepository>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>central</id>
+      <name>Maven Plugin Repository</name>
+      <url>https://repo.maven.apache.org/maven2</url>
+    </pluginRepository>
+  </pluginRepositories>
+
   <build>
     <resources>
       <resource>
@@ -514,10 +571,6 @@
           <configuration>
             <encoding>UTF-8</encoding>
             <maxmem>1024m</maxmem>
-            <fork>true</fork>
-            <compilerArgs>
-              <arg>-Xlint:all,-serial,-path</arg>
-            </compilerArgs>
           </configuration>
         </plugin>
         <plugin>
@@ -572,12 +625,15 @@
             </dependencies>
             <recompileMode>${scala.recompile.mode}</recompileMode>
             <args>
-              <arg>-Wconf:msg=While parsing annotations in:silent,any:e</arg>
+              <arg>-Wconf:any:e</arg>
+              <arg>-Wconf:msg=While parsing annotations in:silent</arg>
+              <arg>-Wconf:cat=deprecation:wv</arg>
               <arg>-Ywarn-unused:imports</arg>
               <arg>-deprecation</arg>
               <arg>-feature</arg>
-              <arg>-Wconf:cat=deprecation:wv,any:e</arg>
               <arg>-P:wartremover:traverser:io.github.zhztheplayer.scalawarts.InheritFromCaseClass</arg>
+              <arg>-Ybackend-parallelism</arg>
+              <arg>8</arg>
             </args>
           </configuration>
           <executions>
@@ -678,7 +734,7 @@
         </plugin>
         <plugin>
           <artifactId>maven-shade-plugin</artifactId>
-          <version>3.4.1</version>
+          <version>3.6.1</version>
           <configuration>
             <createDependencyReducedPom>false</createDependencyReducedPom>
           </configuration>
@@ -696,7 +752,7 @@
             <java>
               <toggleOffOn/>
               <googleJavaFormat>
-                <version>1.7</version>
+                <version>${googlejavaformat.version}</version>
               </googleJavaFormat>
 
               <!-- \# refers to the static imports -->
@@ -845,7 +901,7 @@
         <plugin>
           <groupId>org.xolstice.maven.plugins</groupId>
           <artifactId>protobuf-maven-plugin</artifactId>
-          <version>0.5.1</version>
+          <version>0.6.1</version>
         </plugin>
         <plugin>
           <groupId>org.antlr</groupId>
@@ -856,6 +912,11 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-enforcer-plugin</artifactId>
           <version>3.3.0</version>
+        </plugin>
+        <plugin>
+          <groupId>ch.epfl.scala</groupId>
+          <artifactId>bloop-maven-plugin</artifactId>
+          <version>${bloop-maven-plugin.version}</version>
         </plugin>
       </plugins>
     </pluginManagement>
@@ -906,6 +967,10 @@
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>
       </plugin>
+      <plugin>
+        <groupId>ch.epfl.scala</groupId>
+        <artifactId>bloop-maven-plugin</artifactId>
+      </plugin>
     </plugins>
     <extensions>
       <!-- provides os.detected.classifier (i.e. linux-x86_64, osx-x86_64) property -->
@@ -928,14 +993,14 @@
          SPARK-34774 Add this property to ensure change-scala-version.sh can replace the public `scala.version`
          property correctly.
         -->
-        <scala.version>2.12.15</scala.version>
+        <scala.version>2.12.18</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
       </properties>
     </profile>
     <profile>
       <id>scala-2.13</id>
       <properties>
-        <scala.version>2.13.16</scala.version>
+        <scala.version>2.13.17</scala.version>
         <scala.binary.version>2.13</scala.binary.version>
         <spotless.scalafmt.version>3.8.3</spotless.scalafmt.version>
       </properties>
@@ -966,14 +1031,14 @@
                   <arg>-deprecation</arg>
                   <arg>-feature</arg>
                   <arg>-explaintypes</arg>
-                  <arg>-release:8</arg>
-                  <arg>-Wconf:cat=deprecation:wv,any:e</arg>
+                  <arg>-release:${java.version}</arg>
+                  <arg>-Wconf:any:e</arg>
+                  <arg>-Wconf:cat=deprecation:wv</arg>
                   <arg>-Wunused:imports</arg>
                   <!--
                     TODO(SPARK-33805): Undo the corresponding deprecated usage suppression rule after fixed
                   -->
                   <arg>-Wconf:cat=scaladoc:wv</arg>
-                  <arg>-Wconf:cat=lint-multiarg-infix:wv</arg>
                   <arg>-Wconf:cat=other-nullary-override:wv</arg>
                   <!--
                     SPARK-33775 Suppress compilation warnings that contain the following contents.
@@ -1002,6 +1067,8 @@
                   <arg>-Wconf:cat=unchecked&amp;msg=eliminated by erasure:s</arg>
                   <arg>-Wconf:msg=^(?=.*?a value of type)(?=.*?cannot also be).+$:s</arg>
                   <arg>-P:wartremover:traverser:io.github.zhztheplayer.scalawarts.InheritFromCaseClass</arg>
+                  <arg>-Ybackend-parallelism</arg>
+                  <arg>8</arg>
                 </args>
               </configuration>
               <executions>
@@ -1033,6 +1100,9 @@
       </activation>
       <properties>
         <java.version>1.8</java.version>
+        <!-- scala-maven-plugin 4.9.2 injects '-release 1.8' into scalac args,
+             which fails under JDK 8. Pin to 4.8.0 where this bug does not exist. -->
+        <scala.compiler.version>4.8.0</scala.compiler.version>
       </properties>
     </profile>
     <profile>
@@ -1056,29 +1126,16 @@
       </properties>
     </profile>
     <profile>
-      <id>spark-3.2</id>
+      <id>java-21</id>
+      <activation>
+        <jdk>21</jdk>
+      </activation>
       <properties>
-        <sparkbundle.version>3.2</sparkbundle.version>
-        <spark.plain.version>32</spark.plain.version>
-        <sparkshim.artifactId>spark-sql-columnar-shims-spark32</sparkshim.artifactId>
-        <spark.version>3.2.2</spark.version>
-        <iceberg.version>1.3.1</iceberg.version>
-        <delta.package.name>delta-core</delta.package.name>
-        <delta.version>2.0.1</delta.version>
-        <delta.binary.version>20</delta.binary.version>
-        <antlr4.version>4.8</antlr4.version>
-        <hudi.version>0.15.0</hudi.version>
-        <slf4j.version>1.7.30</slf4j.version>
-        <log4j.version>1.2.17</log4j.version>
+        <java.version>21</java.version>
+        <caffeine.version>3.1.8</caffeine.version>
+        <spotless.version>2.44.2</spotless.version>
+        <googlejavaformat.version>1.17.0</googlejavaformat.version>
       </properties>
-      <dependencies>
-        <dependency>
-          <groupId>log4j</groupId>
-          <artifactId>log4j</artifactId>
-          <version>${log4j.version}</version>
-          <scope>provided</scope>
-        </dependency>
-      </dependencies>
     </profile>
     <profile>
       <id>spark-3.3</id>
@@ -1088,6 +1145,7 @@
         <sparkshim.artifactId>spark-sql-columnar-shims-spark33</sparkshim.artifactId>
         <spark.version>3.3.1</spark.version>
         <iceberg.version>1.5.0</iceberg.version>
+        <iceberg.binary.version>5</iceberg.binary.version>
         <delta.package.name>delta-core</delta.package.name>
         <delta.version>2.3.0</delta.version>
         <delta.binary.version>23</delta.binary.version>
@@ -1192,6 +1250,7 @@
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <arrow.version>18.1.0</arrow.version>
         <arrow-gluten.version>18.1.0</arrow-gluten.version>
+        <scala.compiler.version>4.9.2</scala.compiler.version>
       </properties>
       <dependencies>
         <dependency>
@@ -1214,7 +1273,7 @@
             <artifactId>maven-enforcer-plugin</artifactId>
             <executions>
               <execution>
-                <id>enforce-java-17</id>
+                <id>enforce-java-17+</id>
                 <goals>
                   <goal>enforce</goal>
                 </goals>
@@ -1222,8 +1281,9 @@
                   <rules>
                     <requireActiveProfile>
                       <!-- Spark 4.0 requires Java 17+ -->
-                      <profiles>java-17</profiles>
-                      <message>"-P spark-4.0" requires JDK 17</message>
+                      <profiles>java-17,java-21</profiles>
+                      <all>false</all>
+                      <message>"-P spark-4.0" requires JDK 17+</message>
                     </requireActiveProfile>
                   </rules>
                 </configuration>
@@ -1239,6 +1299,87 @@
                       <!-- Spark 4.0 requires Scala 2.13 -->
                       <profiles>scala-2.13</profiles>
                       <message>"-P spark-4.0" requires Scala 2.13</message>
+                    </requireActiveProfile>
+                  </rules>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>spark-4.1</id>
+      <properties>
+        <sparkbundle.version>4.1</sparkbundle.version>
+        <sparkshim.artifactId>spark-sql-columnar-shims-spark41</sparkshim.artifactId>
+        <spark.version>4.1.1</spark.version>
+        <iceberg.version>1.10.0</iceberg.version>
+        <delta.package.name>delta-spark</delta.package.name>
+        <delta.version>4.0.0</delta.version>
+        <delta.binary.version>40</delta.binary.version>
+        <hudi.version>1.1.0</hudi.version>
+        <paimon.version>1.3.0</paimon.version>
+        <fasterxml.version>2.18.2</fasterxml.version>
+        <fasterxml.jackson.version>2.18.2</fasterxml.jackson.version>
+        <fasterxml.jackson.databind.version>2.18.2</fasterxml.jackson.databind.version>
+        <hadoop.version>3.4.1</hadoop.version>
+        <antlr4.version>4.13.1</antlr4.version>
+        <guava.version>33.4.0-jre</guava.version>
+        <slf4j.version>2.0.16</slf4j.version>
+        <log4j.version>2.24.3</log4j.version>
+        <commons-lang3.version>3.17.0</commons-lang3.version>
+        <arrow.version>18.1.0</arrow.version>
+        <arrow-gluten.version>18.1.0</arrow-gluten.version>
+        <scala.compiler.version>4.9.5</scala.compiler.version>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-api</artifactId>
+          <version>${slf4j.version}</version>
+          <scope>provided</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.logging.log4j</groupId>
+          <artifactId>log4j-slf4j2-impl</artifactId>
+          <version>${log4j.version}</version>
+          <scope>provided</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>enforce-java-17+</id>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireActiveProfile>
+                      <!-- Spark 4.1 requires Java 17+ -->
+                      <profiles>java-17,java-21</profiles>
+                      <all>false</all>
+                      <message>"-P spark-4.1" requires JDK 17+</message>
+                    </requireActiveProfile>
+                  </rules>
+                </configuration>
+              </execution>
+              <execution>
+                <id>enforce-scala-213</id>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireActiveProfile>
+                      <!-- Spark 4.1 requires Scala 2.13 -->
+                      <profiles>scala-2.13</profiles>
+                      <message>"-P spark-4.1" requires Scala 2.13</message>
                     </requireActiveProfile>
                   </rules>
                 </configuration>
@@ -1606,6 +1747,8 @@
                   <sources>
                     <source>${project.basedir}/src-iceberg/main/scala</source>
                     <source>${project.basedir}/src-iceberg/main/java</source>
+                    <source>${project.basedir}/src-iceberg${iceberg.binary.version}/main/scala</source>
+                    <source>${project.basedir}/src-iceberg${iceberg.binary.version}/main/java</source>
                     <source>${project.basedir}/src-iceberg-spark${spark.plain.version}/main/scala</source>
                     <source>${project.basedir}/src-iceberg-spark${spark.plain.version}/main/java</source>
                   </sources>
@@ -1635,6 +1778,8 @@
                   <sources>
                     <source>${project.basedir}/src-iceberg/test/scala</source>
                     <source>${project.basedir}/src-iceberg/test/java</source>
+                    <source>${project.basedir}/src-iceberg${iceberg.binary.version}/test/scala</source>
+                    <source>${project.basedir}/src-iceberg${iceberg.binary.version}/test/java</source>
                   </sources>
                 </configuration>
               </execution>
@@ -1648,6 +1793,7 @@
                   <resources>
                     <resource>
                       <directory>${project.basedir}/src-iceberg/test/resources</directory>
+                      <directory>${project.basedir}/src-iceberg${iceberg.binary.version}/test/resources</directory>
                     </resource>
                   </resources>
                 </configuration>
@@ -1996,6 +2142,39 @@
             </executions>
           </plugin>
         </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>fast-build</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <properties>
+        <!-- Skip style checks for faster local builds -->
+        <spotless.check.skip>true</spotless.check.skip>
+        <scalastyle.skip>true</scalastyle.skip>
+        <checkstyle.skip>true</checkstyle.skip>
+        <maven.gitcommitid.skip>true</maven.gitcommitid.skip>
+        <remoteresources.skip>true</remoteresources.skip>
+        <!-- Use incremental Scala compilation (Zinc state is warm in local/dev contexts) -->
+        <scala.recompile.mode>incremental</scala.recompile.mode>
+      </properties>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-compiler-plugin</artifactId>
+              <configuration>
+                <!-- Skip javac entirely. In incremental mode (recompileMode=incremental),
+                     Zinc compiles both Scala and Java sources together, making
+                     maven-compiler-plugin redundant. Same approach as Apache Spark. -->
+                <skipMain>true</skipMain>
+                <skip>true</skip>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
       </build>
     </profile>
 

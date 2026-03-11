@@ -62,7 +62,7 @@ trait Component {
 
   /** Base information. */
   def name(): String
-  def buildInfo(): BuildInfo
+  def info(): Map[String, String] = Map.empty
   def dependencies(): Seq[Class[_ <: Component]]
 
   /** Spark listeners. */

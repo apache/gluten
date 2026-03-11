@@ -76,7 +76,7 @@ object Runtime {
 
     }
 
-    override def priority(): Int = 20
+    override def priority(): Int = 30
 
     override def resourceName(): String = s"runtime"
   }

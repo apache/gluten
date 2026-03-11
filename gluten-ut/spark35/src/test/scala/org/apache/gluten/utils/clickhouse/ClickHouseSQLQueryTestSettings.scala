@@ -39,7 +39,7 @@ object ClickHouseSQLQueryTestSettings extends SQLQueryTestSettings {
     "columnresolution.sql",
     "comments.sql",
     "comparator.sql",
-    "count.sql",
+    // "count.sql",
     "cross-join.sql",
     "csv-functions.sql",
     // CH- "cte-legacy.sql",

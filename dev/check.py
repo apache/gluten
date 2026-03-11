@@ -168,7 +168,7 @@ def header_command(commit, files, fix):
 
 
 def tidy_command(commit, files, fix):
-    files = [file for file in files if regex.match(r".*\.cpp$", file)]
+    files = [file for file in files if regex.match(r".*\.(cc|cpp|h)$", file)]
 
     if not files:
         return 0
@@ -177,7 +177,7 @@ def tidy_command(commit, files, fix):
     fix = "--fix" if fix == "fix" else ""
 
     status, stdout, stderr = util.run(
-        f"{SCRIPTS}/run-clang-tidy.py {commit} {fix} -", input=files
+        f"{SCRIPTS}/run-clang-tidy.py {commit} {fix} ", input=files
     )
 
     if stdout != "":

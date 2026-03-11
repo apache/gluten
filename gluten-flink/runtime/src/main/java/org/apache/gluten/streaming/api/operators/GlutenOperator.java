@@ -30,4 +30,8 @@ public interface GlutenOperator {
   public Map<String, RowType> getOutputTypes();
 
   public String getId();
+
+  public default String getDescription() {
+    return "";
+  }
 }

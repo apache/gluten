@@ -1994,11 +1994,13 @@ public abstract class TestIcebergSourceTablesBase extends SparkTestBase {
         .mode("append")
         .save(loadLocation(tableIdentifier));
 
+    // spotless:off
     List<Integer> actual =
         spark.read().format("iceberg").load(loadLocation(tableIdentifier, "files"))
             .sort(DataFile.SPEC_ID.name()).collectAsList().stream()
             .map(r -> (Integer) r.getAs(DataFile.SPEC_ID.name()))
             .collect(Collectors.toList());
+    // spotless:on
 
     Assert.assertEquals("Should have two partition specs", ImmutableList.of(spec0, spec1), actual);
   }

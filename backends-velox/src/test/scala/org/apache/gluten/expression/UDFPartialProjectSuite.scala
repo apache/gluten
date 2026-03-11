@@ -118,6 +118,21 @@ abstract class UDFPartialProjectSuite extends WholeStageTransformerSuite {
     }
   }
 
+  testWithMinSparkVersion("test plus_one in nested project lists", "3.4") {
+    val sql = """
+                |select plus_one(col1) as col2, l_partkey from (
+                | select plus_one(l_orderkey) as col1, l_partkey from lineitem
+                |)""".stripMargin
+    runQueryAndCompare(sql) {
+      checkGlutenPlan[ColumnarPartialProjectExec]
+    }
+
+    val df = spark.sql(sql)
+    assert(df.queryExecution.executedPlan.collect {
+      case p: ColumnarPartialProjectExec => p
+    }.size == 2)
+  }
+
   test("test plus_one with many columns in project") {
     runQueryAndCompare("SELECT plus_one(cast(l_orderkey as long)), hash(l_partkey) from lineitem") {
       checkGlutenPlan[ColumnarPartialProjectExec]

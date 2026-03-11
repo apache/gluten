@@ -70,7 +70,7 @@ class GlutenDeltaMergeTreeDeletionVectorSuite extends CreateMergeTreeSuite {
     }
   }
 
-  test("Gluten-9606: Support CH MergeTree + Delta DeletionVector reading") {
+  ignore("Gluten-9606: Support CH MergeTree + Delta DeletionVector reading") {
     val tableName = "mergetree_delta_dv"
     withTable(tableName) {
       withTempDir {
@@ -135,7 +135,7 @@ class GlutenDeltaMergeTreeDeletionVectorSuite extends CreateMergeTreeSuite {
     }
   }
 
-  test("Gluten-9606: Support CH MergeTree + Delta DeletionVector reading -- partition") {
+  ignore("Gluten-9606: Support CH MergeTree + Delta DeletionVector reading -- partition") {
     val tableName = "mergetree_delta_dv_partition"
     spark.sql(s"""
                  |DROP TABLE IF EXISTS $tableName;

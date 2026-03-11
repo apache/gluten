@@ -81,7 +81,7 @@ more-itertools==8.10.0
 mypy-extensions==1.0.0
 nbclassic==1.1.0
 nbclient==0.10.0
-nbconvert==7.16.4
+nbconvert==7.17.0
 nbdime==4.0.1
 nbformat==5.10.4
 nest-asyncio==1.6.0
@@ -100,8 +100,8 @@ papermill==2.6.0
 parso==0.8.4
 pathspec==0.12.1
 pexpect==4.8.0
-pillow==10.3.0
-pip==24.2
+pillow==12.1.1
+pip==26.0
 platformdirs==4.2.2
 prometheus_client==0.20.0
 prompt_toolkit==3.0.45
@@ -166,7 +166,7 @@ wcwidth==0.2.13
 webcolors==1.13
 webencodings==0.5.1
 websocket-client==1.8.0
-wheel==0.44.0
+wheel==0.46.2
 widgetsnbextension==4.0.11
 zipp>=3.19.1
 zope.interface==5.4.0

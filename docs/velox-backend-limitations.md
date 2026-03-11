@@ -123,25 +123,15 @@ spark.range(100).toDF("id")
 Gluten supports writes of HiveFileFormat when the output file type is of type `parquet` only
 
 #### NaN support
+
 Velox does NOT support NaN. So unexpected result can be obtained for a few cases, e.g., comparing a number with NaN.
 
 #### Configuration
 
-Parquet write only support three configs, other will not take effect.
-
-- compression code:
-  - sql conf: `spark.sql.parquet.compression.codec`
-  - option: `compression.codec`
-- block size
-  - sql conf: `spark.gluten.sql.columnar.parquet.write.blockSize`
-  - option: `parquet.block.size`
-- block rows
-  - sql conf: `spark.gluten.sql.native.parquet.write.blockRows`
-  - option: `parquet.block.rows`
-
-
+Not all parquet configurations are honored by Gluten. Check docs/velox-parquet-write-configuration.md for details.
 
 ### Fetal error caused by Spark's columnar reading
+
 If the user enables Spark's columnar reading, error can occur due to Spark's columnar vector is not compatible with
 Gluten's.
 

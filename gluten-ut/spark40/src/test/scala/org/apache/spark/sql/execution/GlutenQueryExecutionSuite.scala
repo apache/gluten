@@ -69,7 +69,7 @@ class GlutenQueryExecutionSuite extends QueryExecutionSuite with GlutenSQLTestsB
             "",
             "(1) ColumnarRange",
             "Output [1]: [id#xL]",
-            "Arguments: 0, 10, 1, 2, 10, [id#xL]",
+            "Arguments: Range (0, 10, step=1, splits=Some(2))",
             "",
             "(2) ColumnarToRow [codegen id : 1]",
             "Input [1]: [id#xL]",

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 package org.apache.spark.sql.execution.datasources.parquet
+
 import org.apache.gluten.execution.{BatchScanExecTransformer, FileSourceScanExecTransformer}
 
 import org.apache.spark.SparkConf

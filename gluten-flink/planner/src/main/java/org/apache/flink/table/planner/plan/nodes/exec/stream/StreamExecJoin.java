@@ -19,7 +19,7 @@ package org.apache.flink.table.planner.plan.nodes.exec.stream;
 import org.apache.gluten.rexnode.RexConversionContext;
 import org.apache.gluten.rexnode.RexNodeConverter;
 import org.apache.gluten.rexnode.Utils;
-import org.apache.gluten.table.runtime.operators.GlutenVectorTwoInputOperator;
+import org.apache.gluten.table.runtime.operators.GlutenTwoInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
@@ -308,13 +308,16 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
                 outputType,
                 1024);
         operator =
-            new GlutenVectorTwoInputOperator(
+            new GlutenTwoInputOperator(
                 new StatefulPlanNode(join.getId(), join),
                 leftInput.getId(),
                 rightInput.getId(),
                 leftInputType,
                 rightInputType,
-                Map.of(join.getId(), outputType));
+                Map.of(join.getId(), outputType),
+                RowData.class,
+                RowData.class,
+                "StreamExecJoin");
         // --- End Gluten-specific code changes ---
       }
     }

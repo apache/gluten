@@ -205,8 +205,9 @@ ParquetFormatFile::createInputFormat(const Block & header, const std::shared_ptr
             // We need to disable fiter push down and read all row groups, so that we can get correct row index.
             format_settings.parquet.filter_push_down = false;
         }
-        auto parser_group = std::make_shared<FormatParserGroup>(context->getSettingsRef(), 1, filter_actions_dag, context);
-        auto input = std::make_shared<ParquetBlockInputFormat>(*read_buffer_, read_header, format_settings, parser_group, 8192);
+        auto parser_group = std::make_shared<FormatFilterInfo>(filter_actions_dag, context, nullptr);
+        auto parser_shared_resources = std::make_shared<FormatParserSharedResources>(context->getSettingsRef(), /*num_streams_=*/1);
+        auto input = std::make_shared<ParquetBlockInputFormat>(*read_buffer_, read_header, format_settings, parser_shared_resources, parser_group, 8192);
         return std::make_shared<ParquetInputFormat>(std::move(read_buffer_), input, std::move(provider), *read_header, header);
     };
 

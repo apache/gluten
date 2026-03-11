@@ -38,8 +38,6 @@ trait WithDummyBackend extends BeforeAndAfterAll {
 object WithDummyBackend {
   object DummyBackend extends Backend {
     override def name(): String = "dummy-backend"
-    override def buildInfo(): Component.BuildInfo =
-      Component.BuildInfo("DUMMY_BACKEND", "N/A", "N/A", "N/A")
     override def injectRules(injector: Injector): Unit = {}
     override def costers(): Seq[LongCoster] = Seq(new LongCoster {
       override def kind(): LongCostModel.Kind = Legacy

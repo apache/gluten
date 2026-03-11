@@ -49,7 +49,7 @@ case class InsertTransitions(convReq: ConventionReq) extends Rule[SparkPlan] {
           child
         } else {
           val transition =
-            Transition.factory.findTransition(from, convReq, Transition.notFound(node))
+            Transition.factory.findTransitionOrThrow(from, convReq)(Transition.notFound(node))
           val newChild = transition.apply(child)
           newChild
         }
@@ -98,7 +98,7 @@ object Transitions {
     val convFunc = ConventionFunc.create()
     val removed = RemoveTransitions.removeForNode(plan)
     val transition = Transition.factory
-      .findTransition(convFunc.conventionOf(removed), req, Transition.notFound(removed, req))
+      .findTransitionOrThrow(convFunc.conventionOf(removed), req)(Transition.notFound(removed, req))
     val out = transition.apply(removed)
     out
   }

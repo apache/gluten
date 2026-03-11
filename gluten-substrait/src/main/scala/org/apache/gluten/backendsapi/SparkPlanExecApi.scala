@@ -726,14 +726,7 @@ trait SparkPlanExecApi {
       plan: SparkPlan,
       offset: Int): ColumnarCollectLimitBaseExec
 
-  def genColumnarRangeExec(
-      start: Long,
-      end: Long,
-      step: Long,
-      numSlices: Int,
-      numElements: BigInt,
-      outputAttributes: Seq[Attribute],
-      child: Seq[SparkPlan]): ColumnarRangeBaseExec
+  def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec
 
   def genColumnarTailExec(limit: Int, plan: SparkPlan): ColumnarCollectTailBaseExec
 

@@ -358,20 +358,20 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           a)
       case a: AttributeReference =>
         if (attributeSeq == null) {
-          throw new UnsupportedOperationException(s"attributeSeq should not be null.")
+          throw new UnsupportedOperationException("attributeSeq should not be null.")
         }
-        try {
-          val bindReference =
-            BindReferences.bindReference(expr, attributeSeq, allowFailures = false)
-          val b = bindReference.asInstanceOf[BoundReference]
-          AttributeReferenceTransformer(substraitExprName, a, b)
-        } catch {
-          case e: IllegalStateException =>
-            // This situation may need developers to fix, although we just throw the below
-            // exception to let the corresponding operator fall back.
-            throw new UnsupportedOperationException(
-              s"Failed to bind reference for $expr: ${e.getMessage}")
+        val input = AttributeSeq(attributeSeq)
+        if (input.indexOf(a.exprId) == -1) {
+          // This situation may need developers to fix, although we just throw the below
+          // exception to let the corresponding operator fall back.
+          throw new UnsupportedOperationException(
+            "Failed to bind reference: " +
+              s"couldn't find $a in ${input.attrs.mkString("[", ",", "]")}")
         }
+        val b = BindReferences
+          .bindReference(expr, input, allowFailures = false)
+          .asInstanceOf[BoundReference]
+        AttributeReferenceTransformer(substraitExprName, a, b)
       case b: BoundReference =>
         BoundReferenceTransformer(substraitExprName, b)
       case l: Literal =>
@@ -831,7 +831,14 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       case t: TransformKeys =>
         // default is `EXCEPTION`
         val mapKeyDedupPolicy = SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)
-        if (mapKeyDedupPolicy == SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+
+        // Calling `.toString` on both sides ensures compatibility across all Spark versions.
+        // Starting from Spark 4.1, `SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)` returns
+        // an enum instead of a String. Without `.toString`, the comparison
+        // `mapKeyDedupPolicy == SQLConf.MapKeyDedupPolicy.LAST_WIN.toString` would silently fail
+        // in tests, producing only a "Comparing unrelated types" warning in IntelliJ IDEA,
+        // but no compile-time error.
+        if (mapKeyDedupPolicy.toString == SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
           // TODO: Remove after fix ready for
           //  https://github.com/facebookincubator/velox/issues/10219
           throw new GlutenNotSupportException(
@@ -855,13 +862,6 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           substraitExprName,
           dateAdd.children,
           dateAdd
-        )
-      case timeAdd: TimeAdd =>
-        BackendsApiManager.getSparkPlanExecApiInstance.genDateAddTransformer(
-          attributeSeq,
-          substraitExprName,
-          timeAdd.children,
-          timeAdd
         )
       case ss: StringSplit =>
         BackendsApiManager.getSparkPlanExecApiInstance.genStringSplitTransformer(

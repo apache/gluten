@@ -105,10 +105,15 @@ std::shared_ptr<GpuBufferColumnarBatch> GpuBufferColumnarBatch::compose(
 
   std::vector<std::shared_ptr<arrow::Buffer>> returnBuffers;
   returnBuffers.reserve(bufferSize);
-  for (auto size : bufferSizes) {
+  for (auto i = 0; i < bufferSize; ++i) {
+    // Defer the null buffer to really contains null.
+    if (bufferTypes[i] == BufferType::kNull) {
+      returnBuffers.emplace_back(nullptr);
+      continue;
+    }
     std::shared_ptr<arrow::Buffer> buffer;
     // May optimize to reuse the first batch buffer.
-    GLUTEN_ASSIGN_OR_THROW(buffer, arrow::AllocateResizableBuffer(size, pool));
+    GLUTEN_ASSIGN_OR_THROW(buffer, arrow::AllocateResizableBuffer(bufferSizes[i], pool));
     returnBuffers.emplace_back(std::move(buffer));
   }
 
@@ -123,11 +128,21 @@ std::shared_ptr<GpuBufferColumnarBatch> GpuBufferColumnarBatch::compose(
         continue;
       }
       // Combine the null buffer
-      // The last byte may still have space to write when nullBitsRemainder != 0.
-      auto* dst = returnBuffers[bufferIdx]->mutable_data();
-      if (batch->bufferAt(bufferIdx) == nullptr) {
-        arrow::bit_util::SetBitsTo(dst, rowNumber, batch->numRows(), true);
+      if (batch->bufferAt(bufferIdx) == nullptr || batch->bufferAt(bufferIdx)->size() == 0) {
+        if (returnBuffers[bufferIdx] != nullptr) {
+          auto* dst = returnBuffers[bufferIdx]->mutable_data();
+          arrow::bit_util::SetBitsTo(dst, rowNumber, batch->numRows(), true);
+        }
       } else {
+        // Need to allocate null buffer.
+        if (returnBuffers[bufferIdx] == nullptr) {
+          std::shared_ptr<arrow::Buffer> buffer;
+          GLUTEN_ASSIGN_OR_THROW(buffer, arrow::AllocateResizableBuffer(bufferSizes[bufferIdx], pool));
+          returnBuffers[bufferIdx] = buffer;
+          // Set all the previous rows to not null.
+          arrow::bit_util::SetBitsTo(buffer->mutable_data(), 0, rowNumber, true);
+        }
+        auto* dst = returnBuffers[bufferIdx]->mutable_data();
         arrow::internal::CopyBitmap(batch->bufferAt(bufferIdx)->data(), 0, batch->numRows(), dst, rowNumber);
       }
 

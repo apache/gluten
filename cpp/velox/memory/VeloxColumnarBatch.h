@@ -29,6 +29,13 @@ class VeloxColumnarBatch final : public ColumnarBatch {
   VeloxColumnarBatch(facebook::velox::RowVectorPtr rowVector)
       : ColumnarBatch(rowVector->childrenSize(), rowVector->size()), rowVector_(rowVector) {}
 
+#ifdef GLUTEN_ENABLE_GPU
+  // The batch may be CudfVector, it's childrenSize is not correct, many tests failed if correcting the value
+  // https://github.com/facebookincubator/velox/pull/15629#discussion_r2581655771
+  VeloxColumnarBatch(facebook::velox::RowVectorPtr rowVector, int32_t numColumns)
+      : ColumnarBatch(numColumns, rowVector->size()), rowVector_(rowVector) {}
+#endif
+
   std::string getType() const override {
     return kType;
   }

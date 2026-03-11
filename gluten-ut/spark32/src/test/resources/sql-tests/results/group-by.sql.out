@@ -662,5 +662,5 @@ GROUP BY a IS NULL
 -- !query schema
 struct<(IF((NOT (a IS NULL)), rand(0), 1)):double,c:bigint>
 -- !query output
-0.5488135024422883	7
+0.7604953758285915	7
 1.0	2

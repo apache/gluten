@@ -25,7 +25,8 @@ import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 
 import org.apache.hadoop.fs.LocalFileSystem
 
-class SparkSessionSwitcher(val masterUrl: String, val logLevel: String) extends AutoCloseable {
+class SparkSessionSwitcher(val appName: String, val masterUrl: String, val logLevel: String)
+  extends AutoCloseable {
 
   private val testDefaults = new SparkConf(false)
     .setWarningOnOverriding("spark.hadoop.fs.file.impl", classOf[LocalFileSystem].getName)
@@ -68,8 +69,8 @@ class SparkSessionSwitcher(val masterUrl: String, val logLevel: String) extends 
     return token
   }
 
-  def useSession(token: String, appName: String = "gluten-app"): Unit = synchronized {
-    useSession(SessionDesc(SessionToken(token), appName))
+  def useSession(token: String, description: String): Unit = synchronized {
+    useSession(SessionDesc(SessionToken(token), s"$appName / $description"))
   }
 
   def renewSession(): Unit = synchronized {

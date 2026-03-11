@@ -57,6 +57,12 @@ object IcebergWriteUtil {
     field
   }
 
+  private lazy val queryIdField = {
+    val field = classOf[SparkWrite].getDeclaredField("queryId")
+    field.setAccessible(true)
+    field
+  }
+
   def supportsWrite(write: Write): Boolean = {
     write.isInstanceOf[SparkWrite]
   }
@@ -96,6 +102,10 @@ object IcebergWriteUtil {
 
   def getFileFormat(write: Write): FileFormat = {
     fileFormatField.get(write).asInstanceOf[FileFormat]
+  }
+
+  def getQueryId(write: Write): String = {
+    queryIdField.get(write).asInstanceOf[String]
   }
 
   def getDirectory(write: Write): String = {

@@ -18,11 +18,11 @@
 #pragma once
 
 #include <velox/common/memory/MemoryPool.h>
-#include "compute/ResultIterator.h"
-#include "memory/VeloxMemoryManager.h"
+#include <velox/core/PlanNode.h>
+#include <velox/exec/Split.h>
+
 #include "substrait/SubstraitToVeloxPlan.h"
 #include "substrait/plan.pb.h"
-#include "velox/core/PlanNode.h"
 
 namespace gluten {
 
@@ -30,9 +30,9 @@ namespace gluten {
 class VeloxPlanConverter {
  public:
   explicit VeloxPlanConverter(
-      const std::vector<std::shared_ptr<ResultIterator>>& inputIters,
       facebook::velox::memory::MemoryPool* veloxPool,
       const facebook::velox::config::ConfigBase* veloxCfg,
+      const std::vector<std::shared_ptr<ResultIterator>>& rowVectors,
       const std::optional<std::string> writeFilesTempPath = std::nullopt,
       const std::optional<std::string> writeFileName = std::nullopt,
       bool validationMode = false);
@@ -43,6 +43,12 @@ class VeloxPlanConverter {
 
   const std::unordered_map<facebook::velox::core::PlanNodeId, std::shared_ptr<SplitInfo>>& splitInfos() {
     return substraitVeloxPlanConverter_.splitInfos();
+  }
+
+  /// The input iterators not inlined to VeloxPlan. They should be then manually added to the Velox task
+  /// via WholeStageResultIterator#addIteratorSplits. Empty if no input iterators remaining.
+  const std::vector<std::shared_ptr<ResultIterator>>& remainingInputIterators() const {
+    return substraitVeloxPlanConverter_.remainingInputIterators();
   }
 
  private:

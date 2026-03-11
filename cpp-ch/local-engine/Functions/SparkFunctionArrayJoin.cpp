@@ -131,7 +131,7 @@ public:
                 }
                 else
                 {
-                    const StringRef s(&string_data[data_pos], string_offsets[j + array_pos] - data_pos - 1);
+                    const StringRef s(&string_data[data_pos], string_offsets[j + array_pos] - data_pos);
                     res += s.toString();
                     last_not_null_pos = res.size();
                     if (j != array_size - 1)

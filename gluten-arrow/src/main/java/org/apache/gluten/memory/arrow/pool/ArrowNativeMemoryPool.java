@@ -61,7 +61,7 @@ public class ArrowNativeMemoryPool implements TaskResource {
 
   @Override
   public int priority() {
-    return 0;
+    return 10;
   }
 
   @Override

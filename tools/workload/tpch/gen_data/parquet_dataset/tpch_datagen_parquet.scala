@@ -24,7 +24,12 @@ val numPartitions = 200  // how many dsdgen partitions to run - number of input 
 
 val format = "parquet" // valid spark format like parquet "parquet".
 val rootDir = "/PATH/TO/TPCH_PARQUET_PATH" // root directory of location to create data in.
-val dbgenDir = "/PATH/TO/TPCH_DBGEN" // location of dbgen
+
+/**
+ * Location of dbgen.
+ * Please compile with https://github.com/databricks/tpch-dbgen.git.
+ */
+val dbgenDir = "/PATH/TO/TPCH_DBGEN"
 
 val tables = new TPCHTables(spark.sqlContext,
     dbgenDir = dbgenDir,

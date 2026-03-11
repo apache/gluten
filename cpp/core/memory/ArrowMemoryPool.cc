@@ -20,12 +20,6 @@
 
 namespace gluten {
 
-ArrowMemoryPool::~ArrowMemoryPool() {
-  if (releaser_ != nullptr) {
-    releaser_(this);
-  }
-}
-
 arrow::Status ArrowMemoryPool::Allocate(int64_t size, int64_t alignment, uint8_t** out) {
   if (!allocator_->allocateAligned(alignment, size, reinterpret_cast<void**>(out))) {
     return arrow::Status::Invalid("WrappedMemoryPool: Error allocating " + std::to_string(size) + " bytes");

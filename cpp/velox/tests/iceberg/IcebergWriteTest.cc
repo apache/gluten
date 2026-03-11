@@ -58,6 +58,9 @@ TEST_F(VeloxIcebergWriteTest, write) {
       1,
       tmpPath + "/iceberg_write_test_table",
       common::CompressionKind::CompressionKind_ZSTD,
+      0, // partitionId
+      0, // taskId
+      folly::to<std::string>(folly::Random::rand64()), // operationId
       partitionSpec,
       root,
       std::unordered_map<std::string, std::string>(),

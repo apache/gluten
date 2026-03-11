@@ -1,5 +1,6 @@
 create temporary view t as select * from values 0, 1, 2 as t(id);
 create temporary view t2 as select * from values 0, 1 as t(id);
+create temporary view t3 as select * from t;
 
 -- WITH clause should not fall into infinite loop by referencing self
 WITH s AS (SELECT 1 FROM s) SELECT * FROM s;
@@ -9,6 +10,9 @@ SELECT * FROM r;
 
 -- WITH clause should reference the base table
 WITH t AS (SELECT 1 FROM t) SELECT * FROM t;
+
+-- Table `t` referenced by a view should take precedence over the top CTE `t`
+WITH t AS (SELECT 1) SELECT * FROM t3;
 
 -- WITH clause should not allow cross reference
 WITH s1 AS (SELECT 1 FROM s2), s2 AS (SELECT 1 FROM s1) SELECT * FROM s1, s2;
@@ -95,13 +99,11 @@ WITH same_name(x) AS (SELECT 42)
 SELECT same_name.x FROM (SELECT 10) AS same_name(x), same_name;
 
 set spark.sql.optimizer.excludedRules=org.apache.spark.sql.catalyst.optimizer.ConvertToLocalRelation,org.apache.spark.sql.catalyst.optimizer.NullPropagation;
-
 -- Test behavior with an unknown-type literal in the WITH
 WITH q AS (SELECT 'foo' AS x)
 SELECT x, typeof(x) FROM q;
 
 set spark.sql.optimizer.excludedRules=org.apache.spark.sql.catalyst.optimizer.ConvertToLocalRelation,org.apache.spark.sql.catalyst.optimizer.ConstantFolding,org.apache.spark.sql.catalyst.optimizer.NullPropagation;
-
 -- The following tests are ported from ZetaSQL
 -- Alias inside the with hides the underlying column name, should fail
 with cte as (select id as id_alias from t)
@@ -179,3 +181,4 @@ with cte as (select * from cte) select * from cte;
 -- Clean up
 DROP VIEW IF EXISTS t;
 DROP VIEW IF EXISTS t2;
+DROP VIEW IF EXISTS t3;

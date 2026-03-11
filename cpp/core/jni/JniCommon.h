@@ -99,6 +99,9 @@ static inline jmethodID getMethodId(JNIEnv* env, jclass thisClass, const char* n
 }
 
 static inline jmethodID getMethodIdOrError(JNIEnv* env, jclass thisClass, const char* name, const char* sig) {
+  if (thisClass == nullptr) {
+    throw gluten::GlutenException("Unable to find class while looking up method " + std::string(name));
+  }
   jmethodID ret = getMethodId(env, thisClass, name, sig);
   if (ret == nullptr) {
     std::string errorMessage = "Unable to find method " + std::string(name) + " within signature" + std::string(sig);
@@ -233,6 +236,7 @@ class SafeNativeArray {
  public:
   virtual ~SafeNativeArray() {
     PrimitiveArray::release(env_, javaArray_, nativeArray_);
+    env_->DeleteLocalRef(javaArray_);
   }
 
   SafeNativeArray(const SafeNativeArray&) = delete;
@@ -255,7 +259,7 @@ class SafeNativeArray {
 
  private:
   SafeNativeArray(JNIEnv* env, JavaArrayType javaArray, JniNativeArrayType nativeArray)
-      : env_(env), javaArray_(javaArray), nativeArray_(nativeArray){};
+      : env_(env), javaArray_(static_cast<JavaArrayType>(env_->NewLocalRef(javaArray))), nativeArray_(nativeArray){};
 
   JNIEnv* env_;
   JavaArrayType javaArray_;
@@ -375,6 +379,10 @@ class SparkAllocationListener final : public gluten::AllocationListener {
     JNIEnv* env;
     attachCurrentThreadAsDaemonOrThrow(vm_, &env);
     jListenerGlobalRef_ = env->NewGlobalRef(jListenerLocalRef);
+    GLUTEN_CHECK(jListenerGlobalRef_ != nullptr, "Failed to create global reference for reservation listener.");
+    // Resolve JNI symbols on the creator thread to avoid first-touch initialization from IO threads.
+    (void)reserveMemoryMethod(env);
+    (void)unreserveMemoryMethod(env);
   }
 
   SparkAllocationListener(const SparkAllocationListener&) = delete;
@@ -502,9 +510,12 @@ class JavaRssClient : public RssClient {
       return;
     }
     env->DeleteGlobalRef(javaRssShuffleWriter_);
-    jbyte* byteArray = env->GetByteArrayElements(array_, NULL);
-    env->ReleaseByteArrayElements(array_, byteArray, JNI_ABORT);
-    env->DeleteGlobalRef(array_);
+    // array_ may be nullptr when failed to allocate new byte array in pushPartitionData
+    if (array_ != nullptr) {
+      jbyte* byteArray = env->GetByteArrayElements(array_, NULL);
+      env->ReleaseByteArrayElements(array_, byteArray, JNI_ABORT);
+      env->DeleteGlobalRef(array_);
+    }
   }
 
   int32_t pushPartitionData(int32_t partitionId, const char* bytes, int64_t size) override {

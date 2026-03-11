@@ -16,8 +16,9 @@
  */
 package org.apache.gluten.streaming.api.operators;
 
-import org.apache.gluten.table.runtime.operators.GlutenVectorSourceFunction;
+import org.apache.gluten.table.runtime.operators.GlutenSourceFunction;
 import org.apache.gluten.util.ReflectUtils;
+import org.apache.gluten.util.Utils;
 
 import io.github.zhztheplayer.velox4j.connector.ConnectorSplit;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
@@ -31,11 +32,24 @@ import java.util.Map;
 
 /** Legacy stream source operator in gluten, which will call Velox to run. */
 public class GlutenStreamSource extends StreamSource implements GlutenOperator {
-  private final GlutenVectorSourceFunction sourceFunction;
+  private final GlutenSourceFunction sourceFunction;
+  private final String description;
 
-  public GlutenStreamSource(GlutenVectorSourceFunction function) {
+  public GlutenStreamSource(GlutenSourceFunction function) {
     super(function);
     sourceFunction = function;
+    this.description = "";
+  }
+
+  public GlutenStreamSource(GlutenSourceFunction function, String description) {
+    super(function);
+    sourceFunction = function;
+    this.description = description;
+  }
+
+  @Override
+  public String getDescription() {
+    return description;
   }
 
   @Override
@@ -73,7 +87,7 @@ public class GlutenStreamSource extends StreamSource implements GlutenOperator {
         ReflectUtils.getObjectField(StreamSource.class, this, "ctx");
   }
 
-  @SuppressWarnings({"rawtypes"})
+  @SuppressWarnings({"rawtypes", "unchecked"})
   @Override
   public void notifyCheckpointComplete(long checkpointId) throws Exception {
     super.notifyCheckpointComplete(checkpointId);
@@ -82,7 +96,14 @@ public class GlutenStreamSource extends StreamSource implements GlutenOperator {
     TaskInfo taskInfo = getRuntimeContext().getTaskInfo();
     if (sourceContext != null
         && committed != null
-        && taskInfo.getTaskName().contains("StreamingFileWriter")) {}
+        && taskInfo.getTaskName().contains("StreamingFileWriter")) {
+      sourceContext.collect(
+          Utils.constructCommitInfo(
+              checkpointId,
+              taskInfo.getIndexOfThisSubtask(),
+              taskInfo.getNumberOfParallelSubtasks(),
+              committed));
+    }
   }
 
   @Override

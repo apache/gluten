@@ -24,6 +24,7 @@ import org.apache.spark.sql.execution._
 import org.apache.spark.sql.test.SharedSparkSession
 
 class TransitionSuite extends SharedSparkSession with TransitionSuiteBase with WithDummyBackend {
+
   import TransitionSuite._
   import TransitionSuiteBase._
 

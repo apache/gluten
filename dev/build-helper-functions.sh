@@ -74,7 +74,52 @@ function get_cxx_flags {
     ;;
 
     "aarch64")
-      echo -n "-mcpu=neoverse-n1 -std=c++20 $ADDITIONAL_FLAGS"
+      # Follow Velox's ARM CPU detection logic to ensure consistent compiler flags
+      # between Gluten and Velox, preventing xsimd initialization issues, see GLUTEN-11390.
+      # Reference: function get_cxx_flags in Velox's setup-helper-functions.sh.
+
+      # Read Arm MIDR_EL1 register to detect Arm cpu.
+      # https://developer.arm.com/documentation/100616/0301/register-descriptions/aarch64-system-registers/midr-el1--main-id-register--el1
+      ARM_CPU_FILE="/sys/devices/system/cpu/cpu0/regs/identification/midr_el1"
+      ARM_BUILD_TARGET="${ARM_BUILD_TARGET:-local}"
+
+      # https://gitlab.arm.com/telemetry-solution/telemetry-solution/-/blob/main/data/pmu/cpu/neoverse/neoverse-n1.json#L13
+      # N1:d0c; N2:d49; V1:d40; V2:d4f
+      Neoverse_N1="d0c"
+      Neoverse_N2="d49"
+      Neoverse_V1="d40"
+      Neoverse_V2="d4f"
+
+      if [ -f "$ARM_CPU_FILE" ] && [ "$ARM_BUILD_TARGET" = "local" ]; then
+        hex_ARM_CPU_DETECT=$(cat $ARM_CPU_FILE)
+        # PartNum, [15:4]: The primary part number such as Neoverse N1/N2 core.
+        ARM_CPU_PRODUCT=${hex_ARM_CPU_DETECT: -4:3}
+
+        if [ "$ARM_CPU_PRODUCT" = "$Neoverse_N1" ]; then
+          echo -n "-mcpu=neoverse-n1 -std=c++20 $ADDITIONAL_FLAGS"
+        elif [ "$ARM_CPU_PRODUCT" = "$Neoverse_N2" ]; then
+          echo -n "-mcpu=neoverse-n2 -std=c++20 $ADDITIONAL_FLAGS"
+        elif [ "$ARM_CPU_PRODUCT" = "$Neoverse_V1" ]; then
+          echo -n "-mcpu=neoverse-v1 -std=c++20 $ADDITIONAL_FLAGS"
+        elif [ "$ARM_CPU_PRODUCT" = "$Neoverse_V2" ]; then
+          # Read the JEDEC JEP-106 manufacturer ID to distinguish different Neoverse V2 cores
+          # https://developer.arm.com/documentation/ka001301/latest/
+          SOC_ID_FILE="/sys/devices/soc0/soc_id"
+          GRACE_SOC_ID="jep106:036b:0241"
+          # Check for NVIDIA Grace which has various extensions
+          if [ -f "$SOC_ID_FILE" ] && [ "$(cat $SOC_ID_FILE)" = "$GRACE_SOC_ID" ]; then
+            echo -n "-mcpu=neoverse-v2+crypto+sha3+sm4+sve2-aes+sve2-sha3+sve2-sm4 -std=c++20 $ADDITIONAL_FLAGS"
+          else
+            echo -n "-mcpu=neoverse-v2 -std=c++20 $ADDITIONAL_FLAGS"
+          fi
+        else
+          # Fallback to generic ARMv8-A for compatibility with unknown ARM CPUs
+          echo -n "-march=armv8-a+crc+crypto -std=c++20 $ADDITIONAL_FLAGS"
+        fi
+      else
+        # Fallback to generic ARMv8-A for compatibility when CPU detection is not available
+        echo -n "-march=armv8-a+crc+crypto -std=c++20 $ADDITIONAL_FLAGS"
+      fi
     ;;
   *)
     echo -n "Architecture not supported!"
@@ -219,6 +264,8 @@ function setup_linux {
   elif [[ "$LINUX_DISTRIBUTION" == "rhel" ]]; then
     case "$LINUX_VERSION_ID" in
     9.6)
+       $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh ;;
+    9.7)
        $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh ;;
     *)
       echo "Unsupported rhel version: $LINUX_VERSION_ID"

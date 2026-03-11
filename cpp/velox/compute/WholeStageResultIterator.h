@@ -18,7 +18,7 @@
 
 #include "compute/Runtime.h"
 #include "iceberg/IcebergPlanConverter.h"
-#include "memory/ColumnarBatchIterator.h"
+#include "memory/SplitAwareColumnarBatchIterator.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "substrait/SubstraitToVeloxPlan.h"
 #include "substrait/plan.pb.h"
@@ -33,7 +33,7 @@
 
 namespace gluten {
 
-class WholeStageResultIterator : public ColumnarBatchIterator {
+class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
  public:
   WholeStageResultIterator(
       VeloxMemoryManager* memoryManager,
@@ -69,13 +69,27 @@ class WholeStageResultIterator : public ColumnarBatchIterator {
     return metrics_.get();
   }
 
-  const facebook::velox::exec::Task* task() const {
-    return task_.get();
-  }
-
   const facebook::velox::core::PlanNode* veloxPlan() const {
     return veloxPlan_.get();
   }
+
+  /// Get the underlying Velox task for direct manipulation
+  facebook::velox::exec::Task* task() {
+    return task_.get();
+  }
+
+  /// Add iterator-based splits from input iterators
+  void addIteratorSplits(const std::vector<std::shared_ptr<ResultIterator>>& inputIterators) override;
+
+  /// Signal that no more splits will be added.
+  /// This is required for proper task completion and enables future barrier support.
+  void noMoreSplits() override;
+
+  /// Request a barrier in the Velox task execution.
+  /// This signals the task to finish processing all currently queued splits
+  /// and drain all stateful operators before continuing.
+  /// @see https://facebookincubator.github.io/velox/develop/task-barrier.html
+  void requestBarrier() override;
 
  private:
   /// Get the Spark confs to Velox query context.
@@ -93,9 +107,6 @@ class WholeStageResultIterator : public ColumnarBatchIterator {
   void constructPartitionColumns(
       std::unordered_map<std::string, std::optional<std::string>>&,
       const std::unordered_map<std::string, std::string>&);
-
-  /// Add splits to task. Skip if already added.
-  void tryAddSplitsToTask();
 
   /// Collect Velox metrics.
   void collectMetrics();
@@ -134,7 +145,7 @@ class WholeStageResultIterator : public ColumnarBatchIterator {
   std::vector<std::shared_ptr<SplitInfo>> scanInfos_;
   std::vector<facebook::velox::core::PlanNodeId> streamIds_;
   std::vector<std::vector<facebook::velox::exec::Split>> splits_;
-  bool noMoreSplits_ = false;
+  bool allSplitsAdded_ = false;
 
   int64_t loadLazyVectorTime_ = 0;
 };

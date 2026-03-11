@@ -18,7 +18,6 @@ FROM centos:8
 
 ENV JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
 ENV PATH=$JAVA_HOME/bin:$PATH
-ENV PATH=${PATH}:/usr/lib/maven/bin
 
 # An actual path used for vcpkg cache.
 ENV VCPKG_PATH=/var/cache/vcpkg
@@ -31,7 +30,7 @@ RUN set -ex; \
     yum update -y && yum install -y epel-release sudo dnf && yum install -y ccache; \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-11; \
     echo "check_certificate = off" >> ~/.wgetrc; \
-    yum install -y java-1.8.0-openjdk-devel patch wget git perl; \
+    yum install -y java-1.8.0-openjdk-devel patch git perl; \
     rpm -qa | grep tzdata; \
     dnf clean all; \
     git clone --depth=1 https://github.com/apache/incubator-gluten /opt/gluten; \
@@ -47,6 +46,6 @@ RUN set -ex; \
     export SSL_VERIFY=false; \
     bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --enable_s3=ON --enable_gcs=ON \
                                     --enable_hdfs=ON --enable_abfs=ON  build_arrow; \
-    mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
+    ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
     rm -rf /opt/gluten; \
     rm -rf /root/.cache/ccache;

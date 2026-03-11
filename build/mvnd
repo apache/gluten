@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This script downloads and installs Maven Daemon (mvnd) if it's not already installed.
+# mvnd keeps a persistent JVM that preserves Zinc's JIT-optimized code and
+# classloader caches across builds, significantly speeding up incremental compilation.
+# Usage: build/mvnd <maven-args>
+#
+
+# Determine the current working directory
+GLUTEN_HOME="$(cd "$(dirname "$0")"/.. && pwd)" || exit 1
+DOWNLOAD_DIR="${GLUTEN_HOME}/build"
+MVND_DOWNLOAD_DIR="${DOWNLOAD_DIR}/.mvnd"
+
+# mvnd version to download if not found on system
+MVND_VERSION="1.0.3"
+
+# Global variable for mvnd binary path
+MVND_BIN=""
+
+# Detect OS and architecture for mvnd download
+detect_platform() {
+    local os arch
+    os="$(uname -s)"
+    arch="$(uname -m)"
+
+    case "$os" in
+        Linux)  os="linux" ;;
+        Darwin) os="darwin" ;;
+        *)
+            echo "ERROR: Unsupported OS: $os. mvnd binaries are available for Linux and macOS." >&2
+            exit 1
+            ;;
+    esac
+
+    case "$arch" in
+        x86_64|amd64)   arch="amd64" ;;
+        aarch64|arm64)   arch="aarch64" ;;
+        *)
+            echo "ERROR: Unsupported architecture: $arch. mvnd binaries are available for amd64 and aarch64." >&2
+            exit 1
+            ;;
+    esac
+
+    echo "${os}-${arch}"
+}
+
+install_mvnd() {
+    # Check for system mvnd first
+    local SYSTEM_MVND
+    SYSTEM_MVND="$(command -v mvnd)"
+
+    if [ -n "$SYSTEM_MVND" ]; then
+        local MVND_DETECTED_VERSION
+        MVND_DETECTED_VERSION="$(mvnd --version 2>/dev/null | grep -i 'mvnd' | head -1 | awk '{print $NF}')"
+        echo "Using system mvnd: $SYSTEM_MVND (version $MVND_DETECTED_VERSION)" >&2
+        MVND_BIN="$SYSTEM_MVND"
+        return 0
+    fi
+
+    # Detect platform
+    local PLATFORM
+    PLATFORM="$(detect_platform)"
+
+    local MVND_DIR_NAME="maven-mvnd-${MVND_VERSION}-${PLATFORM}"
+    local MVND_LOCAL_BIN="${MVND_DOWNLOAD_DIR}/${MVND_DIR_NAME}/bin/mvnd"
+
+    if [ ! -f "${MVND_LOCAL_BIN}" ]; then
+        echo "mvnd ${MVND_VERSION} not found locally. Downloading..." >&2
+
+        # Create download directory
+        mkdir -p "${MVND_DOWNLOAD_DIR}"
+
+        local MVND_TAR="${MVND_DOWNLOAD_DIR}/${MVND_DIR_NAME}.tar.gz"
+
+        if [ ! -f "${MVND_TAR}" ]; then
+            # Download from Apache
+            local DOWNLOAD_URL="https://downloads.apache.org/maven/mvnd/${MVND_VERSION}/${MVND_DIR_NAME}.tar.gz"
+
+            echo "Downloading mvnd ${MVND_VERSION} for ${PLATFORM}..." >&2
+            echo "URL: ${DOWNLOAD_URL}" >&2
+
+            if command -v curl > /dev/null 2>&1; then
+                curl -f -L --retry 3 --retry-delay 3 \
+                     --connect-timeout 30 --max-time 600 \
+                     -o "${MVND_TAR}" "${DOWNLOAD_URL}" || {
+                    echo "ERROR: Failed to download mvnd from ${DOWNLOAD_URL}" >&2
+                    rm -f "${MVND_TAR}"
+                    exit 1
+                }
+            elif command -v wget > /dev/null 2>&1; then
+                wget --tries=3 --waitretry=3 \
+                     --connect-timeout=30 --read-timeout=600 \
+                     -O "${MVND_TAR}" "${DOWNLOAD_URL}" || {
+                    echo "ERROR: Failed to download mvnd from ${DOWNLOAD_URL}" >&2
+                    rm -f "${MVND_TAR}"
+                    exit 1
+                }
+            else
+                echo "ERROR: Neither curl nor wget found. Please install one of them or install mvnd manually." >&2
+                exit 1
+            fi
+
+            echo "Download completed successfully" >&2
+        fi
+
+        # Extract mvnd
+        echo "Extracting mvnd to ${MVND_DOWNLOAD_DIR}..." >&2
+        if ! tar -xzf "${MVND_TAR}" -C "${MVND_DOWNLOAD_DIR}"; then
+            echo "ERROR: Failed to extract mvnd" >&2
+            rm -f "${MVND_TAR}"
+            exit 1
+        fi
+
+        # Clean up tar file
+        rm -f "${MVND_TAR}"
+
+        # Configure mvnd daemon JVM settings for Scala compilation
+        # ReservedCodeCacheSize=2g: Scala compiler generates enormous JIT code;
+        # default 240M fills up, causing ~10x slowdown in interpreted mode.
+        local MVND_PROPS="${MVND_DOWNLOAD_DIR}/${MVND_DIR_NAME}/conf/mvnd.properties"
+        if [ -f "${MVND_PROPS}" ]; then
+            echo "" >> "${MVND_PROPS}"
+            echo "# Gluten: tuned for Scala compilation workloads" >> "${MVND_PROPS}"
+            echo "mvnd.maxHeapSize = 30G" >> "${MVND_PROPS}"
+            echo "mvnd.threadStackSize = 128M" >> "${MVND_PROPS}"
+            echo "mvnd.jvmArgs = -XX:ReservedCodeCacheSize=2g" >> "${MVND_PROPS}"
+            echo "Configured mvnd daemon JVM settings in ${MVND_PROPS}" >&2
+        fi
+
+        echo "mvnd ${MVND_VERSION} installed successfully to ${MVND_DOWNLOAD_DIR}/${MVND_DIR_NAME}" >&2
+    else
+        echo "Using downloaded mvnd: ${MVND_LOCAL_BIN} (version ${MVND_VERSION})" >&2
+    fi
+
+    # Set global variable
+    MVND_BIN="${MVND_LOCAL_BIN}"
+}
+
+# Install mvnd if needed
+install_mvnd
+
+# Verify mvnd binary is set
+if [ -z "${MVND_BIN}" ]; then
+    echo "ERROR: mvnd binary not found. Please install mvnd or check your installation." >&2
+    exit 1
+fi
+
+# Verify mvnd binary exists
+if [ ! -f "${MVND_BIN}" ]; then
+    echo "ERROR: mvnd binary does not exist: ${MVND_BIN}" >&2
+    exit 1
+fi
+
+_COMPILE_JVM_OPTS="-Xss128m -Xmx4g -XX:ReservedCodeCacheSize=2g"
+# Set any `mvn` options if not already present
+export MAVEN_OPTS=${MAVEN_OPTS:-"$_COMPILE_JVM_OPTS"}
+
+echo "MAVEN_OPTS: ${MAVEN_OPTS}" >&2
+
+"${MVND_BIN}" "$@"
+
+MVND_RETCODE=$?
+
+exit $MVND_RETCODE

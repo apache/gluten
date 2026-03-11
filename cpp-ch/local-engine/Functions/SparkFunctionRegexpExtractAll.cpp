@@ -169,16 +169,14 @@ namespace
                 const auto & match = matches[match_index];
                 if (match.offset != std::string::npos)
                 {
-                    res_strings_chars.resize_exact(res_strings_offset + match.length + 1);
+                    res_strings_chars.resize_exact(res_strings_offset + match.length);
                     memcpySmallAllowReadWriteOverflow15(&res_strings_chars[res_strings_offset], pos + match.offset, match.length);
                     res_strings_offset += match.length;
                 }
                 else
-                    res_strings_chars.resize_exact(res_strings_offset + 1);
+                    res_strings_chars.resize_exact(res_strings_offset);
 
                 /// Update offsets of Column:String
-                res_strings_chars[res_strings_offset] = 0;
-                ++res_strings_offset;
                 res_strings_offsets.push_back(res_strings_offset);
                 ++i;
 
@@ -221,7 +219,7 @@ namespace
             for (size_t cur_offset : offsets)
             {
                 Pos start = reinterpret_cast<const char *>(&data[prev_offset]);
-                Pos end = start + (cur_offset - prev_offset - 1);
+                Pos end = start + (cur_offset - prev_offset);
                 saveMatchs(
                     start,
                     end,
@@ -272,7 +270,7 @@ namespace
 
                 size_t cur_offset = offsets[i];
                 Pos start = reinterpret_cast<const char *>(&data[prev_offset]);
-                Pos end = start + (cur_offset - prev_offset - 1);
+                Pos end = start + (cur_offset - prev_offset);
                 saveMatchs(
                     start,
                     end,
@@ -356,16 +354,14 @@ namespace
                     /// Append matched segment into res_strings_chars
                     if (match.offset != std::string::npos)
                     {
-                        res_strings_chars.resize_exact(res_strings_offset + match.length + 1);
+                        res_strings_chars.resize_exact(res_strings_offset + match.length);
                         memcpySmallAllowReadWriteOverflow15(&res_strings_chars[res_strings_offset], start + match.offset, match.length);
                         res_strings_offset += match.length;
                     }
                     else
-                        res_strings_chars.resize_exact(res_strings_offset + 1);
+                        res_strings_chars.resize_exact(res_strings_offset);
 
                     /// Update offsets of Column:String
-                    res_strings_chars[res_strings_offset] = 0;
-                    ++res_strings_offset;
                     res_strings_offsets.push_back(res_strings_offset);
                 }
 

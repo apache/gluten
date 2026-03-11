@@ -69,6 +69,7 @@ struct Metrics {
     kNumReplacedWithDynamicFilterRows,
     kFlushRowCount,
     kLoadedToValueHook,
+    kBloomFilterBlocksByteSize,
     kScanTime,
     kSkippedSplits,
     kProcessedSplits,

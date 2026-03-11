@@ -38,7 +38,7 @@ body:
     attributes:
       label: Bug description
       description: Please describe the issue and the expected behavior.
-      value: "[Expected behavior] and [actual behavior]."
+      value: "[Expected behavior] and [actual behavior]. If this issue was written with the assistance of AI, please note that at the end of the description."
     validations:
       required: true
 

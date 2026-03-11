@@ -30,6 +30,77 @@ using namespace facebook::velox::connector::hive;
 using namespace facebook::velox::connector::hive::iceberg;
 namespace {
 
+// Custom Iceberg file name generator for Gluten
+class GlutenIcebergFileNameGenerator : public connector::hive::FileNameGenerator {
+ public:
+  GlutenIcebergFileNameGenerator(
+      int32_t partitionId,
+      int64_t taskId,
+      const std::string& operationId,
+      dwio::common::FileFormat fileFormat)
+      : partitionId_(partitionId),
+        taskId_(taskId),
+        operationId_(operationId),
+        fileFormat_(fileFormat),
+        fileCount_(0) {}
+
+  std::pair<std::string, std::string> gen(
+      std::optional<uint32_t> bucketId,
+      const std::shared_ptr<const connector::hive::HiveInsertTableHandle> insertTableHandle,
+      const connector::ConnectorQueryCtx& connectorQueryCtx,
+      bool commitRequired) const override {
+    auto targetFileName = insertTableHandle->locationHandle()->targetFileName();
+    if (targetFileName.empty()) {
+      // Generate file name following Iceberg format:
+      // {partitionId:05d}-{taskId}-{operationId}-{fileCount:05d}{suffix}
+      fileCount_++;
+
+      std::string fileExtension;
+      switch (fileFormat_) {
+        case dwio::common::FileFormat::PARQUET:
+          fileExtension = ".parquet";
+          break;
+        case dwio::common::FileFormat::ORC:
+          fileExtension = ".orc";
+          break;
+        default:
+          fileExtension = ".parquet";
+      }
+
+      char buffer[256];
+      snprintf(
+          buffer,
+          sizeof(buffer),
+          "%05d-%" PRId64 "-%s-%05d%s",
+          partitionId_,
+          taskId_,
+          operationId_.c_str(),
+          fileCount_,
+          fileExtension.c_str());
+      targetFileName = std::string(buffer);
+    }
+
+    return {targetFileName, targetFileName};
+  }
+
+  folly::dynamic serialize() const override {
+    VELOX_UNREACHABLE("Unexpected code path, implement serialize() first.");
+  }
+
+  std::string toString() const override {
+    return fmt::format(
+        "GlutenIcebergFileNameGenerator(partitionId={}, taskId={}, operationId={})",
+        partitionId_, taskId_, operationId_);
+  }
+
+ private:
+  int32_t partitionId_;
+  int64_t taskId_;
+  std::string operationId_;
+  dwio::common::FileFormat fileFormat_;
+  mutable int32_t fileCount_;
+};
+
 iceberg::IcebergNestedField convertToIcebergNestedField(const gluten::IcebergNestedField& protoField) {
   IcebergNestedField result;
   result.id = protoField.id();
@@ -48,6 +119,9 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
     const std::string& outputDirectoryPath,
     dwio::common::FileFormat fileFormat,
     facebook::velox::common::CompressionKind compressionKind,
+    int32_t partitionId,
+    int64_t taskId,
+    const std::string& operationId,
     std::shared_ptr<const IcebergPartitionSpec> spec,
     const iceberg::IcebergNestedField& nestedField,
     facebook::velox::memory::MemoryPool* pool) {
@@ -80,12 +154,17 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
               nestedField.children[i]));
     }
   }
+  
+  auto fileNameGenerator = std::make_shared<const GlutenIcebergFileNameGenerator>(
+      partitionId, taskId, operationId, fileFormat);
+  
   std::shared_ptr<const connector::hive::LocationHandle> locationHandle =
       std::make_shared<connector::hive::LocationHandle>(
           outputDirectoryPath, outputDirectoryPath, connector::hive::LocationHandle::TableType::kExisting);
   const std::vector<IcebergSortingColumn> sortedBy;
+  const std::unordered_map<std::string, std::string> serdeParameters;
   return std::make_shared<connector::hive::iceberg::IcebergInsertTableHandle>(
-      columnHandles, locationHandle, spec, pool, fileFormat, sortedBy, compressionKind);
+      columnHandles, locationHandle, spec, pool, fileFormat, sortedBy, compressionKind, serdeParameters, fileNameGenerator);
 }
 
 } // namespace
@@ -96,12 +175,15 @@ IcebergWriter::IcebergWriter(
     int32_t format,
     const std::string& outputDirectory,
     facebook::velox::common::CompressionKind compressionKind,
+    int32_t partitionId,
+    int64_t taskId,
+    const std::string& operationId,
     std::shared_ptr<const iceberg::IcebergPartitionSpec> spec,
     const gluten::IcebergNestedField& field,
     const std::unordered_map<std::string, std::string>& sparkConfs,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool,
     std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool)
-    : rowType_(rowType), field_(convertToIcebergNestedField(field)), pool_(memoryPool), connectorPool_(connectorPool), createTimeNs_(getCurrentTimeNano()) {
+    : rowType_(rowType), field_(convertToIcebergNestedField(field)), partitionId_(partitionId), taskId_(taskId), operationId_(operationId), pool_(memoryPool), connectorPool_(connectorPool), createTimeNs_(getCurrentTimeNano()) {
   auto veloxCfg =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(sparkConfs));
   connectorSessionProperties_ = createHiveConnectorSessionConfig(veloxCfg);
@@ -123,7 +205,7 @@ IcebergWriter::IcebergWriter(
   dataSink_ = std::make_unique<IcebergDataSink>(
       rowType_,
       createIcebergInsertTableHandle(
-          rowType_, outputDirectory, icebergFormatToVelox(format), compressionKind, spec, field_, pool_.get()),
+          rowType_, outputDirectory, icebergFormatToVelox(format), compressionKind, partitionId_, taskId_, operationId_, spec, field_, pool_.get()),
       connectorQueryCtx_.get(),
       facebook::velox::connector::CommitStrategy::kNoCommit,
       connectorConfig_);

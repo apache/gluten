@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 package org.apache.gluten.metrics
+
 import org.apache.spark.sql.execution.metric.SQLMetric
 
 case class InputIteratorMetricsUpdater(metrics: Map[String, SQLMetric], forBroadcast: Boolean)

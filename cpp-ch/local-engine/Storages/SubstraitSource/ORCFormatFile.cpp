@@ -72,7 +72,7 @@ ORCFormatFile::createInputFormat(const DB::Block & header, const std::shared_ptr
         format_settings.orc.reader_time_zone_name = mapped_timezone;
     }
     //TODO: support prefetch
-    auto parser_group = std::make_shared<DB::FormatParserGroup>(context->getSettingsRef(), 1, filter_actions_dag, context);
+    auto parser_group = std::make_shared<DB::FormatFilterInfo>(filter_actions_dag, context, nullptr);
     auto input_format
         = std::make_shared<DB::NativeORCBlockInputFormat>(*read_buffer, toShared(header), format_settings, false, 0, parser_group);
     return std::make_shared<InputFormat>(std::move(read_buffer), input_format);

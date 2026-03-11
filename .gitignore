@@ -28,6 +28,8 @@ CMakeCache.txt
 CTestTestfile.cmake
 cmake_install.cmake
 build/
+!build/mvn
+!build/mvnd
 *-build/
 Testing/
 cmake-build-*/
@@ -70,3 +72,17 @@ dist/
 metastore_db/
 
 .ipynb_checkpoints
+.worktrees/
+
+# GitHub Copilot config (allow local customization)
+.github/copilot-instructions.md
+.github/copilot-setup-steps.yml
+
+# Dev script build cache
+.run-scala-test-cache/
+
+# Maven profiler reports
+.profiler/
+
+# Maven extensions (local config)
+.mvn/

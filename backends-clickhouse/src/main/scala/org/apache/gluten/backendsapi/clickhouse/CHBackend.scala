@@ -18,7 +18,6 @@ package org.apache.gluten.backendsapi.clickhouse
 
 import org.apache.gluten.GlutenBuildInfo._
 import org.apache.gluten.backendsapi._
-import org.apache.gluten.component.Component.BuildInfo
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ValidationResult
 import org.apache.gluten.execution.WriteFilesExecTransformer
@@ -53,8 +52,12 @@ import scala.util.control.Breaks.{break, breakable}
 class CHBackend extends SubstraitBackend {
   import CHBackend._
   override def name(): String = CHConfig.BACKEND_NAME
-  override def buildInfo(): BuildInfo =
-    BuildInfo("ClickHouse", CH_BRANCH, CH_COMMIT, "UNKNOWN")
+  override def info(): Map[String, String] = {
+    Map(
+      "ch_branch" -> CH_BRANCH,
+      "ch_revision" -> CH_COMMIT
+    )
+  }
   override def iteratorApi(): IteratorApi = new CHIteratorApi
   override def sparkPlanExecApi(): SparkPlanExecApi = new CHSparkPlanExecApi
   override def transformerApi(): TransformerApi = new CHTransformerApi

@@ -164,6 +164,42 @@ target_link_libraries(
 
 target_link_libraries(${LOCALENGINE_SHARED_LIB} PUBLIC ch_parquet)
 
+# Wrap the malloc/free and other C-style functions with our own ones to inject
+# memory tracking mechanism into them. Sanitizers have their own way of
+# intercepting the allocations and deallocations, so we skip this step for them.
+# Define a macro to wrap memory allocation/deallocation functions for memory
+# tracking Param: target_lib - The target library to apply these wrappers to
+macro(add_memory_tracking_wrappers target_lib)
+  # Only apply these wrappers when not using sanitizers and not on macOS or
+  # FreeBSD
+  if(NOT
+     (SANITIZE
+      OR SANITIZE_COVERAGE
+      OR OS_DARWIN
+      OR OS_FREEBSD))
+    # Add linker options to wrap standard C memory allocation functions
+    target_link_options(
+      ${target_lib}
+      PRIVATE
+      "LINKER:--wrap=malloc"
+      "LINKER:--wrap=free"
+      "LINKER:--wrap=calloc"
+      "LINKER:--wrap=realloc"
+      "LINKER:--wrap=aligned_alloc"
+      "LINKER:--wrap=posix_memalign"
+      "LINKER:--wrap=valloc"
+      "LINKER:--wrap=memalign"
+      "LINKER:--wrap=reallocarray")
+
+    # Wrap pvalloc only when not using MUSL C library
+    if(NOT USE_MUSL)
+      target_link_options(${target_lib} PRIVATE "LINKER:--wrap=pvalloc")
+    endif()
+  endif()
+endmacro()
+
+add_memory_tracking_wrappers(${LOCALENGINE_SHARED_LIB})
+
 if(NOT APPLE)
   if(ENABLE_JEMALLOC)
     target_link_options(

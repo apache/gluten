@@ -185,9 +185,6 @@ object ComponentSuite {
     with DependencyBuilder
     with CompatibilityHelper {
 
-    override def buildInfo(): Component.BuildInfo =
-      Component.BuildInfo(name, "N/A", "N/A", "N/A")
-
     /** Query planner rules. */
     override def injectRules(injector: Injector): Unit = {}
   }
@@ -195,9 +192,6 @@ object ComponentSuite {
   abstract private class DummyBackend(override val name: String)
     extends Backend
     with CompatibilityHelper {
-
-    override def buildInfo(): Component.BuildInfo =
-      Component.BuildInfo(name, "N/A", "N/A", "N/A")
 
     /** Query planner rules. */
     override def injectRules(injector: Injector): Unit = {}

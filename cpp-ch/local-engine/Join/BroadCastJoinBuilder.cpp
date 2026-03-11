@@ -174,7 +174,7 @@ std::shared_ptr<StorageJoinFromReadBuffer> buildJoin(
     DB::JoinKind kind;
     DB::JoinStrictness strictness;
     bool is_cross_rel_join = isCrossRelJoin(key);
-    assert(is_cross_rel_join && key_names.empty()); // cross rel join should not have join keys
+    if (is_cross_rel_join) assert(key_names.empty()); // cross rel join should not have join keys
 
     if (is_cross_rel_join)
         std::tie(kind, strictness) = JoinUtil::getCrossJoinKindAndStrictness(static_cast<substrait::CrossRel_JoinType>(join_type));

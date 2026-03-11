@@ -155,7 +155,7 @@ trait UnaryTransformSupport extends TransformSupport with UnaryExecNode {
 }
 
 case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = false)(
-    val transformStageId: Int
+    var transformStageId: Int
 ) extends WholeStageTransformerGenerateTreeStringShim
   with UnaryTransformSupport {
 

@@ -46,7 +46,7 @@ OutputFormatFile::OutputFormatPtr ParquetOutputFormatFile::createOutputFormat(co
     auto new_header = toShared(createHeaderWithPreferredSchema(header));
     // TODO: align all spark parquet config with ch parquet config
     auto format_settings = DB::getFormatSettings(context);
-    auto output_format = std::make_shared<DB::ParquetBlockOutputFormat>(*(res->write_buffer), new_header, format_settings);
+    auto output_format = std::make_shared<DB::ParquetBlockOutputFormat>(*(res->write_buffer), new_header, format_settings, nullptr);
     res->output = output_format;
     return res;
 }

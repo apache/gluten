@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 package org.apache.gluten.spi
+
 import org.apache.gluten.jni.JniLibLoader
 
 class SharedLibraryLoaderMacOS extends SharedLibraryLoader {

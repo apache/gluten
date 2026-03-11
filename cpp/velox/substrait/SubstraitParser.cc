@@ -289,6 +289,22 @@ bool SubstraitParser::configSetInOptimization(
   return false;
 }
 
+bool SubstraitParser::checkWindowFunction(
+    const ::substrait::extensions::AdvancedExtension& extension,
+    const std::string& targetFunction) {
+  const std::string config = "window_function=";
+  if (extension.has_optimization()) {
+    google::protobuf::StringValue msg;
+    extension.optimization().UnpackTo(&msg);
+    std::size_t pos = msg.value().find(config);
+    if ((pos != std::string::npos) && (msg.value().size() >= targetFunction.size()) &&
+        (msg.value().substr(pos + config.size(), targetFunction.size()) == targetFunction)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 std::vector<TypePtr> SubstraitParser::sigToTypes(const std::string& signature) {
   std::vector<std::string> typeStrs = SubstraitParser::getSubFunctionTypes(signature);
   std::vector<TypePtr> types;

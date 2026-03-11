@@ -41,7 +41,7 @@ import org.apache.spark.shuffle.utils.CHShuffleUtil
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, CollectList, CollectSet}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, BloomFilterAggregate, CollectList, CollectSet}
 import org.apache.spark.sql.catalyst.optimizer.BuildSide
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.physical.{BroadcastMode, HashPartitioning, Partitioning, RangePartitioning}
@@ -56,7 +56,7 @@ import org.apache.spark.sql.execution.joins.{BuildSideRelation, ClickHouseBuildS
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.utils.{CHExecUtil, PushDownUtil}
 import org.apache.spark.sql.execution.window._
-import org.apache.spark.sql.types.{DecimalType, StructType}
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.SparkVersionUtil
 
@@ -514,7 +514,9 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
           val childWithAdapter = ColumnarCollapseTransformStages.wrapInputIteratorTransformer(child)
           WholeStageTransformer(
             ProjectExecTransformer(child.output ++ appendedProjections, childWithAdapter))(
-            ColumnarCollapseTransformStages.transformStageCounter.incrementAndGet()
+            ColumnarCollapseTransformStages
+              .getTransformStageCounter(childWithAdapter)
+              .incrementAndGet()
           )
         }
 
@@ -600,7 +602,10 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
       CHFlattenedExpression.sigOr
     ) ++
       ExpressionExtensionTrait.expressionExtensionSigList ++
-      SparkShimLoader.getSparkShims.bloomFilterExpressionMappings()
+      Seq(
+        Sig[BloomFilterMightContain](ExpressionNames.MIGHT_CONTAIN),
+        Sig[BloomFilterAggregate](ExpressionNames.BLOOM_FILTER_AGG)
+      )
   }
 
   /** Define backend-specific expression converter. */
@@ -938,12 +943,6 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
 
   override def genPostProjectForGenerate(generate: GenerateExec): SparkPlan = generate
 
-  override def genDecimalRoundExpressionOutput(
-      decimalType: DecimalType,
-      toScale: Int): DecimalType = {
-    SparkShimLoader.getSparkShims.genDecimalRoundExpressionOutput(decimalType, toScale)
-  }
-
   override def genWindowGroupLimitTransformer(
       partitionSpec: Seq[Expression],
       orderSpec: Seq[SortOrder],
@@ -976,15 +975,8 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
   override def genColumnarTailExec(limit: Int, child: SparkPlan): ColumnarCollectTailBaseExec =
     CHColumnarCollectTailExec(limit, child)
 
-  override def genColumnarRangeExec(
-      start: Long,
-      end: Long,
-      step: Long,
-      numSlices: Int,
-      numElements: BigInt,
-      outputAttributes: Seq[Attribute],
-      child: Seq[SparkPlan]): ColumnarRangeBaseExec =
-    CHRangeExecTransformer(start, end, step, numSlices, numElements, outputAttributes, child)
+  override def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec =
+    CHRangeExecTransformer(rangeExec.range)
 
   override def expressionFlattenSupported(expr: Expression): Boolean = expr match {
     case ca: FlattenedAnd => CHFlattenedExpression.supported(ca.name)

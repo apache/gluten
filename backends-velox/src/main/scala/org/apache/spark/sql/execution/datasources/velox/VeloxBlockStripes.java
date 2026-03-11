@@ -22,19 +22,42 @@ import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 import org.apache.spark.sql.execution.datasources.BlockStripe;
 import org.apache.spark.sql.execution.datasources.BlockStripes;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.Iterator;
 
 public class VeloxBlockStripes extends BlockStripes {
+  private final BlockStripe[] blockStripes;
+
   public VeloxBlockStripes(BlockStripes bs) {
     super(bs.originBlockAddress,
         bs.blockAddresses, bs.headingRowIndice, bs.originBlockNumColumns,
         bs.headingRowBytes);
+    blockStripes = new BlockStripe[blockAddresses.length];
+    for (int i = 0; i < blockStripes.length; i++) {
+      final long blockAddress = blockAddresses[i];
+      final byte[] headingRowByteArray = headingRowBytes[i];
+      blockStripes[i] = new BlockStripe() {
+        private final ColumnarBatch batch = ColumnarBatches.create(blockAddress);
+        private final UnsafeRow headingRow = new UnsafeRow(originBlockNumColumns);
+        {
+          headingRow.pointTo(headingRowByteArray, headingRowByteArray.length);
+        }
+
+        @Override
+        public ColumnarBatch getColumnarBatch() {
+          return batch;
+        }
+
+        @Override
+        public InternalRow getHeadingRow() {
+          return headingRow;
+        }
+      };
+    }
   }
 
   @Override
-  public @NotNull Iterator<BlockStripe> iterator() {
+  public Iterator<BlockStripe> iterator() {
     return new Iterator<BlockStripe>() {
       private int index = 0;
 
@@ -45,23 +68,8 @@ public class VeloxBlockStripes extends BlockStripes {
 
       @Override
       public BlockStripe next() {
-        final BlockStripe nextStripe = new BlockStripe() {
-          private final long blockAddress = blockAddresses[index];
-          private final byte[] headingRowByteArray = headingRowBytes[index];
-
-          @Override
-          public ColumnarBatch getColumnarBatch() {
-            return ColumnarBatches.create(blockAddress);
-          }
-
-          @Override
-          public InternalRow getHeadingRow() {
-            UnsafeRow row = new UnsafeRow(originBlockNumColumns);
-            row.pointTo(headingRowByteArray, headingRowByteArray.length);
-            return row;
-          }
-        };
-        index += 1;
+        final BlockStripe nextStripe = blockStripes[index];
+        index++;
         return nextStripe;
       }
     };
@@ -70,7 +78,6 @@ public class VeloxBlockStripes extends BlockStripes {
 
   @Override
   public void release() {
-
+    // Do nothing. We rely on the caller to call #close API on columnar batches returned to them.
   }
 }
-

@@ -16,8 +16,12 @@
 # limitations under the License.
 #
 
+BASEDIR=$(dirname "$0")
+# Use Gluten's Maven wrapper
+MVN_CMD="${BASEDIR}/../build/mvn"
+
 GLUTEN_UPDATE="${GLUTEN_UPDATE:-1}" \
-mvn clean test \
+${MVN_CMD} clean test \
   -Pbackends-velox -pl backends-velox -am \
   -Dtest=none \
   -DfailIfNoTests=false \

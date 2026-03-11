@@ -1408,8 +1408,11 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
             |(8, '4Z+i4Z+g4Z+i4Z+lLeGfoeGfoS3hn6Hhn6M='),
             |(9, null),
             |(10, '4Keo4Kem4Keo4KerLeCnp+Cnpy3gp6fgp6k='),
-            |(11, 'MjAyNS0xMS0xMg==')
+            |(11, 'MjAyNS0xMS0xMg=='),
+            |(12, '4LmS4LmQ4LmS4LmVLeC5keC5kS3guZHguZM=')
             |""".stripMargin)
+      // base64 inputs decode to local digit dates:
+      // 1-3 Arabic-Indic, 5 Persian, 7 Devanagari, 8 Khmer, 10 Bengali, 11 ASCII, 12 Thai
       var query_sql = """
                         |select
                         |from_unixtime(unix_timestamp(cast(unbase64(d) as string), 'yyyy-MM-dd')),
@@ -1430,6 +1433,28 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
 
       query_sql = """
                     |select from_unixtime(unix_timestamp('2020-01-01', 'yyyy-MM-dd'))
+                    |""".stripMargin
+      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+
+      query_sql = """
+                    |select from_unixtime(
+                    | unix_timestamp(
+                    |   regexp_replace(
+                    |     cast(unbase64('4LmS4LmQ4LmS4LmVLeC5keC5kS3guZHguZM=') as string),
+                    |     '-0', '-'),
+                    |   'yyyy-MM-dd'),
+                    | 'yyyy-MM-dd')
+                    |""".stripMargin
+      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+
+      query_sql = """
+                    |select from_unixtime(
+                    | unix_timestamp(
+                    |   regexp_replace(
+                    |     cast(unbase64('4Z+i4Z+g4Z+i4Z+lLeGfoeGfoS3hn6Hhn6M=') as string),
+                    |     '-0', '-'),
+                    |   'yyyy-MM-dd'),
+                    | 'yyyy-MM-dd')
                     |""".stripMargin
       compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
 

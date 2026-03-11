@@ -20,8 +20,7 @@ The Gluten is responsible for validating whether the operators of the Spark plan
 transforms Spark plan to Substrait plan, and then send the Substrait plan to the native engine.
 
 The Gluten codes consist of two parts: the C++ codes and the Java/Scala codes. 
-1. All C++ codes are placed under the directory of `${GLUTEN_HOME}/cpp`, the Java/Scala codes are placed under several directories, such as
-  `${GLUTEN_HOME}/gluten-substrait` `${GLUTEN_HOME}/gluten-data` `${GLUTEN_HOME}/backends-velox`.
+1. All C++ codes are placed under the directory of `${GLUTEN_HOME}/cpp`, the Java/Scala codes are located elsewhere.
 2. The Java/Scala codes are responsible for validating and transforming the execution plan. Source data should also be provided, the source data may
   come from files or other forms such as networks.
 3. The C++ codes take the Substrait plan and the source data as inputs and transform the Substrait plan to the corresponding backend plan. If the backend
@@ -196,7 +195,7 @@ Here we will explain how to run TPC-H on Velox backend with the Parquet file for
 
 # How to run TPC-DS
 
-wait to add
+Please refer to `${GLUTEN_HOME}/tools/workload/tpcds/README.md`.
 
 # How to track the memory exhaust problem
 

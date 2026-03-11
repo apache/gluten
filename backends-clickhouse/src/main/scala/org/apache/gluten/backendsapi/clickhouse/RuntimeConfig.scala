@@ -19,6 +19,7 @@ package org.apache.gluten.backendsapi.clickhouse
 import org.apache.spark.sql.internal.SQLConf
 
 object RuntimeConfig {
+
   import CHConfig.runtimeConfig
   import SQLConf._
 

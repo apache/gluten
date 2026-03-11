@@ -243,6 +243,42 @@ To check Surefire reports:
 
 ![](../image/surefire-report.png)  
 
+### Mac development
+
+#### Compile
+Gluten does not provide a prebuilt JAR for macOS. However, you can compile it yourself and run or debug it locally using an IDE.
+
+First, set the installation prefix for dependencies:
+```bash
+export INSTALL_PREFIX=$HOME/velox/deps-install
+```
+
+All Velox-related libraries will be installed under the directory specified by `INSTALL_PREFIX`.
+
+Use the following commands to build Gluten. Note that on macOS you must disable tests (--build_tests=OFF), as some tests do not run successfully.
+
+```bash
+# Build velox and gluten-cpp
+./dev/builddeps-veloxbe.sh --run_setup_script=ON --build_arrow=ON --build_tests=OFF
+# Build java code
+mvn clean install -Pbackends-velox -Pspark-3.4 -DskipTests
+```
+
+Note: follow the steps in [build-gluten-with-velox-backend](../get-started/Velox.md#build-gluten-with-velox-backend).
+
+After the build completes, you can use your IDE to run and debug Gluten locally.
+
+#### Intellij debug
+
+Intellij requires two extra config to execute the unit test.
+1. Set the JDK to Azul zulu - aarch64
+
+![](../image/IDEA-jdk.png)
+
+2. Set scala compiler `Incrementality type` to `IDEA`
+
+![](../image/IDEA-scala-compiler.png)
+
 ## Debug C++ Code with Core Dump
 
 ```bash

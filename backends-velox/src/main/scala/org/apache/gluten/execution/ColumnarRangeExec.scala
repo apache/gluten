@@ -22,8 +22,10 @@ import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.vectorized.ArrowWritableColumnVector
 
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.catalyst.expressions.SortOrder
+import org.apache.spark.sql.catalyst.plans.logical.{Range => LogicalRange}
+import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, RangePartitioning, SinglePartition, UnknownPartitioning}
+import org.apache.spark.sql.execution.{ColumnarRangeBaseExec, SparkPlan}
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
 /**
@@ -31,37 +33,35 @@ import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
  * operation and supports columnar processing. It generates columnar batches for the specified
  * range.
  *
- * @param start
- *   Starting value of the range.
- * @param end
- *   Ending value of the range.
- * @param step
- *   Step size for the range.
- * @param numSlices
- *   Number of slices for partitioning the range.
- * @param numElements
- *   Total number of elements in the range.
- * @param outputAttributes
- *   Attributes defining the output schema of the operator.
- * @param child
- *   Child SparkPlan nodes for this operator, if any.
+ * @param range
+ *   The logical Range plan containing start, end, step, and numSlices information.
  */
-case class ColumnarRangeExec(
-    start: Long,
-    end: Long,
-    step: Long,
-    numSlices: Int,
-    numElements: BigInt,
-    outputAttributes: Seq[Attribute],
-    child: Seq[SparkPlan]
-) extends ColumnarRangeBaseExec(start, end, step, numSlices, numElements, outputAttributes, child) {
+case class ColumnarRangeExec(range: LogicalRange) extends ColumnarRangeBaseExec {
+
+  override def outputOrdering: Seq[SortOrder] = range.outputOrdering
+
+  override def outputPartitioning: Partitioning = {
+    if (numElements > 0) {
+      if (numSlices == 1) {
+        SinglePartition
+      } else {
+        RangePartitioning(outputOrdering, numSlices)
+      }
+    } else {
+      UnknownPartitioning(0)
+    }
+  }
+
+  override def doCanonicalize(): SparkPlan = {
+    ColumnarRangeExec(range.canonicalized.asInstanceOf[LogicalRange])
+  }
 
   override def batchType(): Convention.BatchType = {
     ArrowJavaBatchType
   }
 
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = {
-    if (start == end || (start < end ^ 0 < step)) {
+    if (isEmptyRange) {
       sparkContext.emptyRDD[ColumnarBatch]
     } else {
       sparkContext
@@ -76,9 +76,6 @@ case class ColumnarRangeExec(
               if (value.isValidLong) value.toLong
               else if (value > 0) Long.MaxValue
               else Long.MinValue
-
-            val partitionStart = getSafeMargin(safePartitionStart)
-            val partitionEnd = getSafeMargin(safePartitionEnd)
 
             /**
              * Generates the columnar batches for the specified range. Each batch contains a subset

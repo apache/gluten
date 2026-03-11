@@ -16,6 +16,7 @@
  */
 package org.apache.iceberg.spark.source
 
+import org.apache.gluten.ContentFileUtil
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.SparkDataSourceRDDPartition
@@ -67,7 +68,7 @@ object GlutenIcebergSourceUtil {
           task =>
             paths.add(
               BackendsApiManager.getTransformerApiInstance
-                .encodeFilePathIfNeed(task.file().path().toString))
+                .encodeFilePathIfNeed(ContentFileUtil.getFilePath(task.file())))
             starts.add(task.start())
             lengths.add(task.length())
             partitionColumns.add(getPartitionColumns(task, readPartitionSchema))

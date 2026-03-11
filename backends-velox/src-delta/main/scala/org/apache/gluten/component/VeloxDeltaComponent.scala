@@ -29,8 +29,7 @@ import org.apache.spark.util.SparkReflectionUtil
 
 class VeloxDeltaComponent extends Component {
   override def name(): String = "velox-delta"
-  override def buildInfo(): Component.BuildInfo =
-    Component.BuildInfo("VeloxDelta", "N/A", "N/A", "N/A")
+
   override def dependencies(): Seq[Class[_ <: Component]] = classOf[VeloxBackend] :: Nil
 
   override def isRuntimeCompatible: Boolean = {

@@ -101,30 +101,23 @@ public class ResourceUtil {
 
   private static void getResourcesFromJarFile(
       final File jarFile, final String dir, final Pattern pattern, final List<String> buffer) {
-    final ZipFile zf;
-    try {
-      zf = new ZipFile(jarFile);
+    try (ZipFile zf = new ZipFile(jarFile)) {
+      final Enumeration<? extends ZipEntry> e = zf.entries();
+      while (e.hasMoreElements()) {
+        final ZipEntry ze = e.nextElement();
+        final String fileName = ze.getName();
+        if (!fileName.startsWith(dir)) {
+          continue;
+        }
+        final String relativeFileName =
+            new File(dir).toURI().relativize(new File(fileName).toURI()).getPath();
+        final boolean accept = pattern.matcher(relativeFileName).matches();
+        if (accept) {
+          buffer.add(relativeFileName);
+        }
+      }
     } catch (final IOException e) {
       throw new GlutenException(e);
-    }
-    final Enumeration<? extends ZipEntry> e = zf.entries();
-    while (e.hasMoreElements()) {
-      final ZipEntry ze = e.nextElement();
-      final String fileName = ze.getName();
-      if (!fileName.startsWith(dir)) {
-        continue;
-      }
-      final String relativeFileName =
-          new File(dir).toURI().relativize(new File(fileName).toURI()).getPath();
-      final boolean accept = pattern.matcher(relativeFileName).matches();
-      if (accept) {
-        buffer.add(relativeFileName);
-      }
-    }
-    try {
-      zf.close();
-    } catch (final IOException e1) {
-      throw new GlutenException(e1);
     }
   }
 

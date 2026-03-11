@@ -8,6 +8,7 @@ spark.sql.optimizer.excludedRules	org.apache.spark.sql.catalyst.optimizer.Conver
 
 
 -- !query
+
 select typeof(null)
 -- !query schema
 struct<typeof(NULL):string>
@@ -84,8 +85,14 @@ SELECT assert_true(false)
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
-'false' is not true!
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "USER_RAISED_EXCEPTION",
+  "sqlState" : "P0001",
+  "messageParameters" : {
+    "errorMessage" : "'false' is not true!"
+  }
+}
 
 
 -- !query
@@ -93,8 +100,14 @@ SELECT assert_true(boolean(0))
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
-'cast(0 as boolean)' is not true!
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "USER_RAISED_EXCEPTION",
+  "sqlState" : "P0001",
+  "messageParameters" : {
+    "errorMessage" : "'cast(0 as boolean)' is not true!"
+  }
+}
 
 
 -- !query
@@ -102,8 +115,14 @@ SELECT assert_true(null)
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
-'null' is not true!
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "USER_RAISED_EXCEPTION",
+  "sqlState" : "P0001",
+  "messageParameters" : {
+    "errorMessage" : "'null' is not true!"
+  }
+}
 
 
 -- !query
@@ -111,8 +130,14 @@ SELECT assert_true(boolean(null))
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
-'cast(null as boolean)' is not true!
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "USER_RAISED_EXCEPTION",
+  "sqlState" : "P0001",
+  "messageParameters" : {
+    "errorMessage" : "'cast(null as boolean)' is not true!"
+  }
+}
 
 
 -- !query
@@ -120,8 +145,14 @@ SELECT assert_true(false, 'custom error message')
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
-custom error message
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "USER_RAISED_EXCEPTION",
+  "sqlState" : "P0001",
+  "messageParameters" : {
+    "errorMessage" : "custom error message"
+  }
+}
 
 
 -- !query
@@ -137,8 +168,14 @@ SELECT raise_error('error message')
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
-error message
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "USER_RAISED_EXCEPTION",
+  "sqlState" : "P0001",
+  "messageParameters" : {
+    "errorMessage" : "error message"
+  }
+}
 
 
 -- !query
@@ -146,5 +183,150 @@ SELECT if(v > 5, raise_error('too big: ' || v), v + 1) FROM tbl_misc
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
-too big: 8
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "USER_RAISED_EXCEPTION",
+  "sqlState" : "P0001",
+  "messageParameters" : {
+    "errorMessage" : "too big: 8"
+  }
+}
+
+
+-- !query
+SELECT raise_error('error message', Map())
+-- !query schema
+struct<>
+-- !query output
+org.apache.spark.sql.AnalysisException
+{
+  "errorClass" : "WRONG_NUM_ARGS.WITHOUT_SUGGESTION",
+  "sqlState" : "42605",
+  "messageParameters" : {
+    "actualNum" : "2",
+    "docroot" : "https://spark.apache.org/docs/latest",
+    "expectedNum" : "1",
+    "functionName" : "`raise_error`"
+  },
+  "queryContext" : [ {
+    "objectType" : "",
+    "objectName" : "",
+    "startIndex" : 8,
+    "stopIndex" : 42,
+    "fragment" : "raise_error('error message', Map())"
+  } ]
+}
+
+
+-- !query
+SELECT raise_error('error message', 'some args')
+-- !query schema
+struct<>
+-- !query output
+org.apache.spark.sql.AnalysisException
+{
+  "errorClass" : "WRONG_NUM_ARGS.WITHOUT_SUGGESTION",
+  "sqlState" : "42605",
+  "messageParameters" : {
+    "actualNum" : "2",
+    "docroot" : "https://spark.apache.org/docs/latest",
+    "expectedNum" : "1",
+    "functionName" : "`raise_error`"
+  },
+  "queryContext" : [ {
+    "objectType" : "",
+    "objectName" : "",
+    "startIndex" : 8,
+    "stopIndex" : 48,
+    "fragment" : "raise_error('error message', 'some args')"
+  } ]
+}
+
+
+-- !query
+SELECT raise_error()
+-- !query schema
+struct<>
+-- !query output
+org.apache.spark.sql.AnalysisException
+{
+  "errorClass" : "WRONG_NUM_ARGS.WITHOUT_SUGGESTION",
+  "sqlState" : "42605",
+  "messageParameters" : {
+    "actualNum" : "0",
+    "docroot" : "https://spark.apache.org/docs/latest",
+    "expectedNum" : "1",
+    "functionName" : "`raise_error`"
+  },
+  "queryContext" : [ {
+    "objectType" : "",
+    "objectName" : "",
+    "startIndex" : 8,
+    "stopIndex" : 20,
+    "fragment" : "raise_error()"
+  } ]
+}
+
+
+-- !query
+SELECT raise_error(NULL)
+-- !query schema
+struct<>
+-- !query output
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "USER_RAISED_EXCEPTION",
+  "sqlState" : "P0001",
+  "messageParameters" : {
+    "errorMessage" : "null"
+  }
+}
+
+
+-- !query
+SELECT raise_error(1)
+-- !query schema
+struct<>
+-- !query output
+org.apache.spark.SparkRuntimeException
+{
+  "errorClass" : "USER_RAISED_EXCEPTION",
+  "sqlState" : "P0001",
+  "messageParameters" : {
+    "errorMessage" : "1"
+  }
+}
+
+
+-- !query
+SET spark.sql.legacy.raiseErrorWithoutErrorClass=true
+-- !query schema
+struct<key:string,value:string>
+-- !query output
+spark.sql.legacy.raiseErrorWithoutErrorClass	true
+
+
+-- !query
+SELECT assert_true(false)
+-- !query schema
+struct<>
+-- !query output
+java.lang.RuntimeException
+'false' is not true!
+
+
+-- !query
+SELECT raise_error('hello')
+-- !query schema
+struct<>
+-- !query output
+java.lang.RuntimeException
+hello
+
+
+-- !query
+SET spark.sql.legacy.raiseErrorWithoutErrorClass=false
+-- !query schema
+struct<key:string,value:string>
+-- !query output
+spark.sql.legacy.raiseErrorWithoutErrorClass	false

@@ -26,8 +26,8 @@ import org.apache.gluten.substrait.rel.{RelBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
-import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.catalyst.plans.logical.{Range => LogicalRange}
+import org.apache.spark.sql.execution.{ColumnarRangeBaseExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.clickhouse.ExtensionTableBuilder
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 
@@ -36,16 +36,13 @@ import io.substrait.proto.NamedStruct
 
 import scala.collection.JavaConverters;
 
-case class CHRangeExecTransformer(
-    start: Long,
-    end: Long,
-    step: Long,
-    numSlices: Int,
-    numElements: BigInt,
-    outputAttributes: Seq[Attribute],
-    child: Seq[SparkPlan])
-  extends ColumnarRangeBaseExec(start, end, step, numSlices, numElements, outputAttributes, child)
+case class CHRangeExecTransformer(range: LogicalRange)
+  extends ColumnarRangeBaseExec
   with LeafTransformSupport {
+
+  override def doCanonicalize(): SparkPlan = {
+    CHRangeExecTransformer(range.canonicalized.asInstanceOf[LogicalRange])
+  }
 
   override def getSplitInfos: Seq[SplitInfo] = {
     (0 until numSlices).map {
@@ -83,7 +80,6 @@ case class CHRangeExecTransformer(
   override protected def doValidateInternal(): ValidationResult = ValidationResult.succeeded
 
   override def doTransform(context: SubstraitContext): TransformContext = {
-    val output = outputAttributes
     val typeNodes = ConverterUtils.collectAttributeTypeNodes(output)
     val nameList = ConverterUtils.collectAttributeNamesWithoutExprId(output)
     val columnTypeNodes = JavaConverters
