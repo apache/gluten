@@ -237,6 +237,8 @@ trait SparkShims {
 
   def isParquetFileEncrypted(footer: ParquetMetadata): Boolean
 
+  def shouldFallbackForParquetVariantAnnotation(footer: ParquetMetadata): Boolean = false
+
   def getOtherConstantMetadataColumnValues(file: PartitionedFile): JMap[String, Object] =
     Map.empty[String, Any].asJava.asInstanceOf[JMap[String, Object]]
 

@@ -53,7 +53,7 @@ import org.apache.spark.sql.types._
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.parquet.hadoop.metadata.{CompressionCodecName, ParquetMetadata}
 import org.apache.parquet.hadoop.metadata.FileMetaData.EncryptionType
-import org.apache.parquet.schema.MessageType
+import org.apache.parquet.schema.{GroupType, LogicalTypeAnnotation, MessageType}
 
 import java.time.ZoneOffset
 import java.util.{Map => JMap}
@@ -568,6 +568,23 @@ class Spark41Shims extends SparkShims {
         true
       case _ =>
         false
+    }
+  }
+
+  override def shouldFallbackForParquetVariantAnnotation(footer: ParquetMetadata): Boolean = {
+    if (SQLConf.get.getConf(SQLConf.PARQUET_IGNORE_VARIANT_ANNOTATION)) {
+      false
+    } else {
+      containsVariantAnnotation(footer.getFileMetaData.getSchema)
+    }
+  }
+
+  private def containsVariantAnnotation(groupType: GroupType): Boolean = {
+    groupType.getFields.asScala.exists {
+      field =>
+        Option(field.getLogicalTypeAnnotation)
+          .exists(_.isInstanceOf[LogicalTypeAnnotation.VariantLogicalTypeAnnotation]) ||
+        (!field.isPrimitive && containsVariantAnnotation(field.asGroupType()))
     }
   }
 

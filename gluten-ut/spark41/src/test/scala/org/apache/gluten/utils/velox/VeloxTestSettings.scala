@@ -399,7 +399,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("parquet widening conversion ShortType -> DecimalType(20,0)")
     .exclude("parquet widening conversion ShortType -> DecimalType(38,0)")
     .exclude("parquet widening conversion ShortType -> DoubleType")
-  // TODO: 4.x enableSuite[GlutenParquetVariantShreddingSuite]  // 1 failure
+  enableSuite[GlutenParquetVariantShreddingSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.text
   // TODO: 4.x enableSuite[GlutenWholeTextFileV1Suite]  // 1 failure
   // TODO: 4.x enableSuite[GlutenWholeTextFileV2Suite]  // 1 failure
@@ -822,8 +822,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenUDTRegistrationSuite]
   enableSuite[GlutenUnsafeRowSuite]
   enableSuite[GlutenUserDefinedTypeSuite]
-  // TODO: 4.x enableSuite[GlutenVariantEndToEndSuite]  // 3 failures
-  // TODO: 4.x enableSuite[GlutenVariantShreddingSuite]  // 8 failures
+  enableSuite[GlutenVariantEndToEndSuite]
+  enableSuite[GlutenVariantShreddingSuite]
   enableSuite[GlutenVariantSuite]
   enableSuite[GlutenVariantWriteShreddingSuite]
   enableSuite[GlutenXmlFunctionsSuite]

@@ -209,10 +209,9 @@ object VeloxBackendSettings extends BackendSettingsApi {
       }
       val fileLimit = GlutenConfig.get.parquetMetadataFallbackFileLimit
       val parquetOptions = new ParquetOptions(CaseInsensitiveMap(properties), SQLConf.get)
-      val parquetMetadataValidationResult =
-        ParquetMetadataUtils.validateMetadata(rootPaths, hadoopConf, parquetOptions, fileLimit)
-      parquetMetadataValidationResult.map(
-        reason => s"Detected unsupported metadata in parquet files: $reason")
+      ParquetMetadataUtils
+        .validateMetadata(rootPaths, hadoopConf, parquetOptions, fileLimit)
+        .map(reason => s"Detected unsupported metadata in parquet files: $reason")
     }
 
     def validateDataSchema(): Option[String] = {

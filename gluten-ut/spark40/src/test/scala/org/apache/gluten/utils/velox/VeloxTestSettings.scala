@@ -857,8 +857,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenUDTRegistrationSuite]
   enableSuite[GlutenUnsafeRowSuite]
   enableSuite[GlutenUserDefinedTypeSuite]
-  // TODO: 4.x enableSuite[GlutenVariantEndToEndSuite]  // 3 failures
-  // TODO: 4.x enableSuite[GlutenVariantShreddingSuite]  // 8 failures
+  enableSuite[GlutenVariantEndToEndSuite]
+  enableSuite[GlutenVariantShreddingSuite]
   enableSuite[GlutenVariantSuite]
   enableSuite[GlutenVariantWriteShreddingSuite]
   enableSuite[GlutenXmlFunctionsSuite]

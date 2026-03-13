@@ -167,6 +167,7 @@
       --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
       -Djdk.reflect.useDirectMethodHandle=false
       -Dio.netty.tryReflectionSetAccessible=true
+      -Dfile.encoding=UTF-8
     </extraJavaTestArgs>
     <log4j.conf>file:src/test/resources/log4j2.properties</log4j.conf>
   </properties>
