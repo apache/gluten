@@ -22,7 +22,7 @@ import org.apache.spark._
 import org.apache.spark.internal.{config, Logging}
 import org.apache.spark.io.CompressionCodec
 import org.apache.spark.serializer.SerializerManager
-import org.apache.spark.storage.{BlockId, BlockManager, BlockManagerId, ShuffleBlockFetcherIterator}
+import org.apache.spark.storage.{BlockId, BlockManager, BlockManagerId, GlutenShuffleBlockFetcherIterator}
 import org.apache.spark.util.CompletionIterator
 
 /**
@@ -70,7 +70,7 @@ class ColumnarShuffleReader[K, C](
 
   /** Read the combined key-values for this reduce task */
   override def read(): Iterator[Product2[K, C]] = {
-    val wrappedStreams = new ShuffleBlockFetcherIterator(
+    val wrappedStreams = new GlutenShuffleBlockFetcherIterator(
       context,
       blockManager.blockStoreClient,
       blockManager,

@@ -17,19 +17,24 @@
 
 #pragma once
 
+#include "memory/GpuBufferColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
 #include "shuffle/Payload.h"
 #include "shuffle/ShuffleReader.h"
+#include "utils/CachedBatchQueue.h"
 
-#include "velox/serializers/PrestoSerializer.h"
 #include "velox/type/Type.h"
 #include "velox/vector/ComplexVector.h"
+
+#include <atomic>
+#include <mutex>
+#include <thread>
+#include <vector>
 
 namespace gluten {
 
 /// Convert the buffers to cudf table.
-/// Add a lock after reader produces the Vector, relase the lock after the thread processes all the batches.
-/// After move the shuffle read operation to gpu, move the lock to start read.
+/// Multi-threaded deserializer that uses producer threads to pre-fetch and deserialize batches.
 class VeloxGpuHashShuffleReaderDeserializer final : public ColumnarBatchIterator {
  public:
   VeloxGpuHashShuffleReaderDeserializer(
@@ -42,12 +47,13 @@ class VeloxGpuHashShuffleReaderDeserializer final : public ColumnarBatchIterator
       int64_t& deserializeTime,
       int64_t& decompressTime);
 
+  ~VeloxGpuHashShuffleReaderDeserializer() override;
+
   std::shared_ptr<ColumnarBatch> next() override;
 
  private:
-  bool resolveNextBlockType();
-
-  void loadNextStream();
+  // Reader thread function that deserializes batches.
+  void read();
 
   std::shared_ptr<StreamReader> streamReader_;
   std::shared_ptr<arrow::Schema> schema_;
@@ -59,9 +65,14 @@ class VeloxGpuHashShuffleReaderDeserializer final : public ColumnarBatchIterator
   int64_t& deserializeTime_;
   int64_t& decompressTime_;
 
-  std::shared_ptr<arrow::io::InputStream> in_{nullptr};
+  std::atomic<int64_t> deserializeTimeCounter_{0};
+  std::atomic<int64_t> decompressTimeCounter_{0};
 
-  bool reachedEos_{false};
-  bool blockTypeResolved_{false};
+  std::vector<std::thread> readerThreads_;
+  std::unique_ptr<CachedBatchQueue<GpuBufferColumnarBatch>> batchQueue_;
+  std::atomic<bool> stopReaders_{false};
+  std::atomic<int> activeReaders_{0};
+
+  std::mutex mtx_;
 };
 } // namespace gluten

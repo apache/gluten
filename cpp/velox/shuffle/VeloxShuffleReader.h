@@ -20,10 +20,15 @@
 #include "shuffle/Payload.h"
 #include "shuffle/ShuffleReader.h"
 #include "shuffle/VeloxSortShuffleWriter.h"
+#include "utils/CachedBatchQueue.h"
 
 #include "velox/serializers/PrestoSerializer.h"
 #include "velox/type/Type.h"
 #include "velox/vector/ComplexVector.h"
+
+#include <atomic>
+#include <thread>
+#include <vector>
 
 namespace gluten {
 
@@ -39,12 +44,13 @@ class VeloxHashShuffleReaderDeserializer final : public ColumnarBatchIterator {
       int64_t& deserializeTime,
       int64_t& decompressTime);
 
+  ~VeloxHashShuffleReaderDeserializer() override;
+
   std::shared_ptr<ColumnarBatch> next() override;
 
  private:
-  bool resolveNextBlockType();
-
-  void loadNextStream();
+  // Reader thread function that deserializes batches.
+  void read();
 
   std::shared_ptr<StreamReader> streamReader_;
   std::shared_ptr<arrow::Schema> schema_;
@@ -56,12 +62,15 @@ class VeloxHashShuffleReaderDeserializer final : public ColumnarBatchIterator {
   int64_t& deserializeTime_;
   int64_t& decompressTime_;
 
-  std::shared_ptr<arrow::io::InputStream> in_{nullptr};
+  std::atomic<int64_t> deserializeTimeCounter_{0};
+  std::atomic<int64_t> decompressTimeCounter_{0};
 
-  bool reachedEos_{false};
+  std::vector<std::thread> readerThreads_;
+  std::unique_ptr<CachedBatchQueue<ColumnarBatch>> batchQueue_;
+  std::atomic<bool> stopReaders_{false};
+  std::atomic<int> activeReaders_{0};
 
-  std::vector<int32_t> dictionaryFields_{};
-  std::vector<facebook::velox::VectorPtr> dictionaries_{};
+  std::mutex mtx_;
 };
 
 class VeloxSortShuffleReaderDeserializer final : public ColumnarBatchIterator {
@@ -128,7 +137,9 @@ class VeloxRssSortShuffleReaderDeserializer : public ColumnarBatchIterator {
       facebook::velox::common::CompressionKind veloxCompressionType,
       int64_t& deserializeTime);
 
-  std::shared_ptr<ColumnarBatch> next();
+  ~VeloxRssSortShuffleReaderDeserializer() override;
+
+  std::shared_ptr<ColumnarBatch> next() override;
 
  private:
   class VeloxInputStream;

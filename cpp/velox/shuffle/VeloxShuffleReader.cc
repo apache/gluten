@@ -21,10 +21,12 @@
 #include <arrow/io/buffered.h>
 #include <velox/common/caching/AsyncDataCache.h>
 
+#include "memory/ColumnarBatch.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "shuffle/GlutenByteStream.h"
 #include "shuffle/Payload.h"
 #include "shuffle/Utils.h"
+#include "utils/CachedBatchQueue.h"
 #include "utils/Common.h"
 #include "utils/Macros.h"
 #include "utils/Timer.h"
@@ -44,6 +46,7 @@
 using namespace facebook::velox;
 
 namespace gluten {
+
 namespace {
 
 arrow::Result<BlockType> readBlockType(arrow::io::InputStream* inputStream) {
@@ -455,91 +458,134 @@ VeloxHashShuffleReaderDeserializer::VeloxHashShuffleReaderDeserializer(
       readerBufferSize_(readerBufferSize),
       memoryManager_(memoryManager),
       deserializeTime_(deserializeTime),
-      decompressTime_(decompressTime) {}
+      decompressTime_(decompressTime) {
+  batchQueue_ = std::make_unique<CachedBatchQueue<ColumnarBatch>>(1L << 30);
 
-bool VeloxHashShuffleReaderDeserializer::resolveNextBlockType() {
-  GLUTEN_ASSIGN_OR_THROW(auto blockType, readBlockType(in_.get()));
-  switch (blockType) {
-    case BlockType::kEndOfStream:
-      return false;
-    case BlockType::kDictionary: {
-      VeloxDictionaryReader reader(rowType_, memoryManager_->getLeafMemoryPool().get(), codec_.get());
-      GLUTEN_ASSIGN_OR_THROW(dictionaryFields_, reader.readFields(in_.get()));
-      GLUTEN_ASSIGN_OR_THROW(dictionaries_, reader.readDictionaries(in_.get(), dictionaryFields_));
+  const size_t numThreads = std::max(1u, std::thread::hardware_concurrency());
+  activeReaders_.store(numThreads);
+  LOG(WARNING) << "Using " << numThreads << " threads for deserialization";
 
-      GLUTEN_ASSIGN_OR_THROW(blockType, readBlockType(in_.get()));
-      GLUTEN_CHECK(blockType == BlockType::kDictionaryPayload, "Invalid block type for dictionary payload");
-    } break;
-    case BlockType::kDictionaryPayload: {
-      GLUTEN_CHECK(
-          !dictionaryFields_.empty() && !dictionaries_.empty(),
-          "Dictionaries cannot be empty when reading dictionary payload");
-    } break;
-    case BlockType::kPlainPayload: {
-      if (!dictionaryFields_.empty()) {
-        // Clear previous dictionaries if the next block is a plain payload.
-        dictionaryFields_.clear();
-        dictionaries_.clear();
-      }
-    } break;
-    default:
-      throw GlutenException(fmt::format("Unsupported block type: {}", static_cast<int32_t>(blockType)));
+  // Create multiple producer threads
+  readerThreads_.reserve(numThreads);
+  for (size_t i = 0; i < numThreads; ++i) {
+    readerThreads_.emplace_back([this]() { read(); });
   }
-  return true;
 }
 
-void VeloxHashShuffleReaderDeserializer::loadNextStream() {
-  if (reachedEos_) {
-    return;
-  }
+VeloxHashShuffleReaderDeserializer::~VeloxHashShuffleReaderDeserializer() {
+  decompressTime_ += decompressTimeCounter_.load(std::memory_order_relaxed);
+  deserializeTime_ += deserializeTimeCounter_.load(std::memory_order_relaxed);
+  stopReaders_.store(true, std::memory_order_release);
 
-  auto in = streamReader_->readNextStream(memoryManager_->defaultArrowMemoryPool());
-  if (in == nullptr) {
-    reachedEos_ = true;
-    return;
+  for (auto& thread : readerThreads_) {
+    if (thread.joinable()) {
+      thread.join();
+    }
   }
+}
 
-  if (readerBufferSize_ > 0) {
+void VeloxHashShuffleReaderDeserializer::read() {
+  // Each thread has its own stream and dictionary state
+  std::shared_ptr<arrow::io::InputStream> inputStream = nullptr;
+  std::vector<int32_t> dictionaryFields;
+  std::vector<VectorPtr> dictionaries;
+
+  while (!stopReaders_.load(std::memory_order_acquire)) {
+    // Load next stream for this thread
+    if (inputStream == nullptr) {
+      std::lock_guard<std::mutex> lockGuard(mtx_);
+      auto rawStream = streamReader_->readNextStream(memoryManager_->defaultArrowMemoryPool());
+      if (rawStream == nullptr) {
+        // No more streams available
+        break;
+      }
+
+      if (readerBufferSize_ > 0) {
+        GLUTEN_ASSIGN_OR_THROW(
+            inputStream,
+            arrow::io::BufferedInputStream::Create(
+                readerBufferSize_, memoryManager_->defaultArrowMemoryPool(), std::move(rawStream)));
+      } else {
+        inputStream = std::move(rawStream);
+      }
+    }
+
+    GLUTEN_ASSIGN_OR_THROW(auto blockType, readBlockType(inputStream.get()));
+
+    if (blockType == BlockType::kEndOfStream) {
+      GLUTEN_THROW_NOT_OK(inputStream->Close());
+      inputStream = nullptr;
+      continue;
+    }
+
+    // Handle dictionary blocks.
+    if (blockType == BlockType::kDictionary) {
+      VeloxDictionaryReader reader(rowType_, memoryManager_->getLeafMemoryPool().get(), codec_.get());
+      GLUTEN_ASSIGN_OR_THROW(dictionaryFields, reader.readFields(inputStream.get()));
+      GLUTEN_ASSIGN_OR_THROW(dictionaries, reader.readDictionaries(inputStream.get(), dictionaryFields));
+
+      GLUTEN_ASSIGN_OR_THROW(blockType, readBlockType(inputStream.get()));
+      GLUTEN_CHECK(blockType == BlockType::kDictionaryPayload, "Invalid block type for dictionary payload");
+    } else if (blockType == BlockType::kDictionaryPayload) {
+      GLUTEN_CHECK(
+          !dictionaryFields.empty() && !dictionaries.empty(),
+          "Dictionaries cannot be empty when reading dictionary payload");
+    } else if (blockType == BlockType::kPlainPayload) {
+      if (!dictionaryFields.empty()) {
+        // Clear previous dictionaries if the next block is a plain payload.
+        dictionaryFields.clear();
+        dictionaries.clear();
+      }
+    } else {
+      throw GlutenException(fmt::format("Unsupported block type: {}", static_cast<int32_t>(blockType)));
+    }
+
+    // Deserialize batch.
+    uint32_t numRows = 0;
+    int64_t localDeserializeTime = 0;
+    int64_t localDecompressTime = 0;
+
     GLUTEN_ASSIGN_OR_THROW(
-          in_,
-          arrow::io::BufferedInputStream::Create(
-              readerBufferSize_, memoryManager_->defaultArrowMemoryPool(), std::move(in)));
-  } else {
-    in_ = std::move(in);
+        auto arrowBuffers,
+        BlockPayload::deserialize(
+            inputStream.get(),
+            codec_,
+            memoryManager_->defaultArrowMemoryPool(),
+            numRows,
+            localDeserializeTime,
+            localDecompressTime));
+
+    // Update atomic timing statistics.
+    deserializeTimeCounter_.fetch_add(localDeserializeTime, std::memory_order_relaxed);
+    decompressTimeCounter_.fetch_add(localDecompressTime, std::memory_order_relaxed);
+
+    auto batch = makeColumnarBatch(
+        rowType_,
+        numRows,
+        std::move(arrowBuffers),
+        dictionaryFields,
+        dictionaries,
+        memoryManager_->getLeafMemoryPool().get(),
+        localDeserializeTime);
+
+    // Put batch into queue.
+    batchQueue_->put(batch);
+  }
+
+  // Close input stream if it's still open.
+  if (inputStream != nullptr) {
+    GLUTEN_THROW_NOT_OK(inputStream->Close());
+  }
+
+  // Decrement active producers count.
+  if (activeReaders_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    // Last producer to finish.
+    batchQueue_->noMoreBatches();
   }
 }
 
 std::shared_ptr<ColumnarBatch> VeloxHashShuffleReaderDeserializer::next() {
-  if (in_ == nullptr) {
-    loadNextStream();
-
-    if (reachedEos_) {
-      return nullptr;
-    }
-  }
-
-  while (!resolveNextBlockType()) {
-    loadNextStream();
-
-    if (reachedEos_) {
-      return nullptr;
-    }
-  }
-
-  uint32_t numRows = 0;
-  GLUTEN_ASSIGN_OR_THROW(
-      auto arrowBuffers,
-      BlockPayload::deserialize(
-          in_.get(), codec_, memoryManager_->defaultArrowMemoryPool(), numRows, deserializeTime_, decompressTime_));
-
-  return makeColumnarBatch(
-      rowType_,
-      numRows,
-      std::move(arrowBuffers),
-      dictionaryFields_,
-      dictionaries_,
-      memoryManager_->getLeafMemoryPool().get(),
-      deserializeTime_);
+  return batchQueue_->get();
 }
 
 VeloxSortShuffleReaderDeserializer::VeloxSortShuffleReaderDeserializer(
@@ -565,8 +611,13 @@ VeloxSortShuffleReaderDeserializer::VeloxSortShuffleReaderDeserializer(
       memoryManager_(memoryManager) {}
 
 VeloxSortShuffleReaderDeserializer::~VeloxSortShuffleReaderDeserializer() {
-  if (auto in = std::dynamic_pointer_cast<CompressedInputStream>(in_)) {
-    decompressTime_ += in->decompressTime();
+  if (in_ != nullptr) {
+    if (auto in = std::dynamic_pointer_cast<CompressedInputStream>(in_)) {
+      decompressTime_ += in->decompressTime();
+    }
+    if (auto status = in_->Close(); !status.ok()) {
+      LOG(WARNING) << "Input stream is not closed properly. Error: " << status.message();
+    }
   }
 }
 
@@ -596,6 +647,7 @@ std::shared_ptr<ColumnarBatch> VeloxSortShuffleReaderDeserializer::next() {
   while (cachedRows_ < batchSize_) {
     GLUTEN_ASSIGN_OR_THROW(auto bytes, in_->Read(sizeof(RowSizeType), &lastRowSize_));
     while (bytes == 0) {
+      GLUTEN_THROW_NOT_OK(in_->Close());
       // Current stream has no more data. Try to load the next stream.
       loadNextStream();
       if (reachedEos_) {
@@ -737,6 +789,14 @@ VeloxRssSortShuffleReaderDeserializer::VeloxRssSortShuffleReaderDeserializer(
   serdeOptions_ = {false, veloxCompressionType_};
 }
 
+VeloxRssSortShuffleReaderDeserializer::~VeloxRssSortShuffleReaderDeserializer() {
+  if (arrowIn_ != nullptr) {
+    if (auto status = arrowIn_->Close(); !status.ok()) {
+      LOG(WARNING) << "Input stream is not closed properly. Error: " << status.message();
+    }
+  }
+}
+
 std::shared_ptr<ColumnarBatch> VeloxRssSortShuffleReaderDeserializer::next() {
   if (in_ == nullptr || !in_->hasNext()) {
     do {
@@ -772,6 +832,9 @@ void VeloxRssSortShuffleReaderDeserializer::loadNextStream() {
     return;
   }
 
+  if (arrowIn_ != nullptr) {
+    GLUTEN_THROW_NOT_OK(arrowIn_->Close());
+  }
   arrowIn_ = streamReader_->readNextStream(memoryManager_->defaultArrowMemoryPool());
 
   if (arrowIn_ == nullptr) {

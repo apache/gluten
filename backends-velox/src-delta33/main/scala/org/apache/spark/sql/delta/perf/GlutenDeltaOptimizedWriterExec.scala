@@ -317,7 +317,7 @@ private class GlutenOptimizedWriterShuffleReader(
       case _ =>
         SparkEnv.get.serializerManager
     }
-    val wrappedStreams = new ShuffleBlockFetcherIterator(
+    val wrappedStreams = new GlutenShuffleBlockFetcherIterator(
       context,
       SparkEnv.get.blockManager.blockStoreClient,
       SparkEnv.get.blockManager,
