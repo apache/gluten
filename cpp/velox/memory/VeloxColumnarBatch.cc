@@ -50,12 +50,8 @@ void VeloxColumnarBatch::ensureFlattened() {
     return;
   }
   ScopedTimer timer(&exportNanos_);
+  facebook::velox::BaseVector::flattenVector(rowVector_);
   for (auto& child : rowVector_->children()) {
-    facebook::velox::BaseVector::flattenVector(child);
-    if (child->isLazy()) {
-      child = child->as<facebook::velox::LazyVector>()->loadedVectorShared();
-      VELOX_DCHECK_NOT_NULL(child);
-    }
     // In case of output from Limit, RowVector size can be smaller than its children size.
     if (child->size() > rowVector_->size()) {
       child = child->slice(0, rowVector_->size());
