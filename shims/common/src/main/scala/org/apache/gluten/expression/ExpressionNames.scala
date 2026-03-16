@@ -348,6 +348,7 @@ object ExpressionNames {
   final val VERSION = "version"
   final val AT_LEAST_N_NON_NULLS = "at_least_n_non_nulls"
   final val ASSERT_TRUE = "assert_true"
+  final val ASSERT_NOT_NULL = "assert_not_null"
   final val NULLIF = "nullif"
   final val NVL = "nvl"
   final val NVL2 = "nvl2"

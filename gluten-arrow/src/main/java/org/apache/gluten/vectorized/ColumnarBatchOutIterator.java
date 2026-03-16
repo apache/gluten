@@ -17,10 +17,12 @@
 package org.apache.gluten.vectorized;
 
 import org.apache.gluten.columnarbatch.ColumnarBatches;
+import org.apache.gluten.exception.GlutenException;
 import org.apache.gluten.iterator.ClosableIterator;
 import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.RuntimeAware;
 
+import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupportedException;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 import java.io.IOException;
@@ -128,6 +130,41 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       throw new IllegalStateException("Cannot call requestBarrier on a closed iterator");
     }
     nativeRequestBarrier(iterHandle);
+  }
+
+  /**
+   * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
+   * Returns null if the message does not indicate a type conversion error.
+   */
+  private static RuntimeException translateToSchemaException(String msg) {
+    if (msg.contains("not allowed for requested type") || msg.contains("Not a valid type for")) {
+      return new SchemaColumnConvertNotSupportedException("unknown", msg, "unknown");
+    }
+    return null;
+  }
+
+  @Override
+  protected RuntimeException translateException(Exception e) {
+    String msg = findFirstNonNullMessage(e);
+    if (msg != null) {
+      RuntimeException schemaEx = translateToSchemaException(msg);
+      if (schemaEx != null) {
+        schemaEx.initCause(e);
+        return schemaEx;
+      }
+    }
+    return new GlutenException(e);
+  }
+
+  private static String findFirstNonNullMessage(Throwable t) {
+    while (t != null) {
+      String msg = t.getMessage();
+      if (msg != null) {
+        return msg;
+      }
+      t = t.getCause();
+    }
+    return null;
   }
 
   @Override

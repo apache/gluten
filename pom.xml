@@ -28,7 +28,7 @@
   <packaging>pom</packaging>
 
   <name>Gluten Parent Pom</name>
-  <description>Apache Gluten(incubating)</description>
+  <description>Apache Gluten</description>
   <url>https://github.com/apache/incubator-gluten.git</url>
 
   <organization>
@@ -49,7 +49,6 @@
     <module>gluten-ui</module>
     <module>package</module>
     <module>shims</module>
-    <module>gluten-ras</module>
   </modules>
 
   <scm>
@@ -64,7 +63,7 @@
     <maven.compiler.target>${java.version}</maven.compiler.target>
     <caffeine.version>2.9.3</caffeine.version>
     <scala.binary.version>2.12</scala.binary.version>
-    <scala.version>2.12.15</scala.version>
+    <scala.version>2.12.18</scala.version>
     <scala-xml.version>2.1.0</scala-xml.version>
     <javax.servlet.version>3.1.0</javax.servlet.version>
     <spark.major.version>3</spark.major.version>
@@ -993,7 +992,7 @@
          SPARK-34774 Add this property to ensure change-scala-version.sh can replace the public `scala.version`
          property correctly.
         -->
-        <scala.version>2.12.15</scala.version>
+        <scala.version>2.12.18</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
       </properties>
     </profile>

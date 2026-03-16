@@ -43,8 +43,9 @@ export CC=/opt/rh/gcc-toolset-11/root/bin/gcc
 export CXX=/opt/rh/gcc-toolset-11/root/bin/g++
 DEPENDENCY_DIR=${DEPENDENCY_DIR:-$(pwd)/deps-download}
 
-FB_OS_VERSION="v2024.07.01.00"
-FMT_VERSION="10.1.1"
+FB_OS_VERSION="v2026.01.05.00"
+FMT_VERSION="11.2.0"
+FAST_FLOAT_VERSION="v8.0.2"
 BOOST_VERSION="boost-1.84.0"
 GEOS_VERSION="3.10.7"
 
@@ -58,7 +59,7 @@ function install_build_prerequisites {
   dnf_install epel-release dnf-plugins-core # For ccache, ninja
   dnf config-manager --set-enabled powertools
   dnf update -y
-  dnf_install ninja-build curl ccache gcc-toolset-11 git wget which
+  dnf_install ninja-build curl ccache gcc-toolset-11 git wget which expat-devel gettext-devel
   dnf_install yasm
   dnf_install autoconf automake python39 python39-devel python39-pip libtool
   pip3.9 install cmake==3.28.3
@@ -78,6 +79,24 @@ function install_conda {
   dnf_install conda
 }
 
+function install_git {
+  # Remove an older version if present.
+  dnf remove -y git
+  wget_and_untar https://github.com/git/git/archive/v2.52.0.tar.gz git
+  (
+    cd ${DEPENDENCY_DIR}/git
+    make prefix=/usr/local all -j$(nproc)
+    make prefix=/usr/local install
+  )
+}
+
+function install_xxhash {
+  wget_and_untar https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.1.tar.gz xxhash
+  (
+    cd ${DEPENDENCY_DIR}/xxhash
+    make && make install
+  )
+}
 
 function install_gflags {
   # Remove an older version if present.
@@ -136,6 +155,11 @@ function install_fizz {
   cmake_install_dir fizz/fizz -DBUILD_TESTS=OFF
 }
 
+function install_fast_float {
+  wget_and_untar https://github.com/fastfloat/fast_float/archive/refs/tags/"${FAST_FLOAT_VERSION}".tar.gz fast_float
+  cmake_install_dir fast_float -DBUILD_TESTS=OFF
+}
+
 function install_folly {
   wget_and_untar https://github.com/facebook/folly/archive/refs/tags/${FB_OS_VERSION}.tar.gz folly
   cmake_install_dir folly -DFOLLY_HAVE_INT128_T=ON -DFOLLY_NO_EXCEPTION_TRACER=ON
@@ -160,7 +184,7 @@ function install_duckdb {
   if $BUILD_DUCKDB ; then
     echo 'Building DuckDB'
     wget_and_untar https://github.com/duckdb/duckdb/archive/refs/tags/v0.8.1.tar.gz duckdb
-    cmake_install_dir duckdb -DBUILD_UNITTESTS=OFF -DENABLE_SANITIZER=OFF -DENABLE_UBSAN=OFF -DBUILD_SHELL=OFF -DEXPORT_DLL_SYMBOLS=OFF -DCMAKE_BUILD_TYPE=Release
+    cmake_install_dir duckdb -DGIT_COMMIT_HASH="6536a77" -DBUILD_UNITTESTS=OFF -DENABLE_SANITIZER=OFF -DENABLE_UBSAN=OFF -DBUILD_SHELL=OFF -DEXPORT_DLL_SYMBOLS=OFF -DCMAKE_BUILD_TYPE=Release
   fi
 }
 
@@ -179,6 +203,7 @@ function install_geos {
 
 function install_velox_deps {
   run_and_time install_velox_deps_from_dnf
+  run_and_time install_git
   run_and_time install_conda
   run_and_time install_gflags
   run_and_time install_glog
@@ -187,6 +212,8 @@ function install_velox_deps {
   run_and_time install_boost
   run_and_time install_protobuf
   run_and_time install_fmt
+  run_and_time install_fast_float
+  run_and_time install_xxhash
   run_and_time install_folly
   run_and_time install_fizz
   run_and_time install_wangle

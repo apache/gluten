@@ -42,7 +42,7 @@ case class ApplyResourceProfileExec(child: SparkPlan, resourceProfile: ResourceP
     Convention.get(child).batchType
   }
 
-  override def rowType0(): Convention.RowType = {
+  override def rowType(): Convention.RowType = {
     Convention.get(child).rowType
   }
 

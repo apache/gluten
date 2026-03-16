@@ -215,7 +215,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
   public void initializeState(FunctionInitializationContext context) throws Exception {
     initSession();
     // TODO: implement it
-    this.task.initializeState(0);
+    this.task.initializeState(0, null);
   }
 
   public String[] notifyCheckpointComplete(long checkpointId) throws Exception {

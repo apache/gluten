@@ -18,9 +18,9 @@ package org.apache.spark.task
 
 import org.apache.gluten.config.GlutenCoreConfig
 import org.apache.gluten.memory.SimpleMemoryUsageRecorder
-import org.apache.gluten.task.TaskListener
+import org.apache.gluten.task.{TaskErrorLogger, TaskListener}
 
-import org.apache.spark.{TaskContext, TaskFailedReason, TaskKilledException, UnknownReason}
+import org.apache.spark.{TaskContext, TaskFailedReason, UnknownReason}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.{SparkTaskUtil, TaskCompletionListener, TaskFailureListener}
@@ -204,16 +204,14 @@ object TaskResources extends TaskListener with Logging {
       }
       val registry = new TaskResourceRegistry
       RESOURCE_REGISTRIES.put(tc, registry)
+      // TODO: Propose upstream Spark changes for resilient error logging when
+      // CompletionListener crashes. Using TaskErrorLogger as workaround
       tc.addTaskFailureListener(
         // in case of crashing in task completion listener, errors may be swallowed
         new TaskFailureListener {
           override def onTaskFailure(context: TaskContext, error: Throwable): Unit = {
-            // TODO:
-            // The general duty of printing error message should not reside in memory module
-            error match {
-              case e: TaskKilledException if e.reason == "another attempt succeeded" =>
-              case _ => logError(s"Task ${context.taskAttemptId()} failed by error: ", error)
-            }
+            // Delegate error logging to TaskErrorLogger utility
+            TaskErrorLogger.logTaskFailure(context, error)
           }
         })
       tc.addTaskCompletionListener(new TaskCompletionListener {

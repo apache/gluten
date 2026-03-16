@@ -56,6 +56,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataSourceV2FunctionSuite]
   enableSuite[GlutenDataSourceV2SQLSessionCatalogSuite]
   enableSuite[GlutenDataSourceV2SQLSuiteV1Filter]
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("CreateTableAsSelect: nullable schema")
   enableSuite[GlutenDataSourceV2SQLSuiteV2Filter]
   enableSuite[GlutenDataSourceV2Suite]
     // Rewrite the following tests in GlutenDataSourceV2Suite.
@@ -333,7 +335,70 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenParquetAvroCompatibilitySuite]
   enableSuite[GlutenParquetCommitterSuite]
   enableSuite[GlutenParquetFieldIdSchemaSuite]
-  // TODO: 4.x enableSuite[GlutenParquetTypeWideningSuite]  // 74 failures - MAJOR ISSUE
+  enableSuite[GlutenParquetTypeWideningSuite]
+    .exclude("parquet decimal precision change Decimal(20, 2) -> Decimal(22, 2)")
+    .exclude("parquet decimal precision and scale change Decimal(20, 7) -> Decimal(22, 5)")
+    .exclude("parquet decimal precision and scale change Decimal(20, 5) -> Decimal(22, 8)")
+    .exclude("parquet decimal precision and scale change Decimal(20, 2) -> Decimal(22, 4)")
+    .exclude("parquet decimal precision and scale change Decimal(10, 4) -> Decimal(12, 7)")
+    .exclude("parquet decimal precision and scale change Decimal(10, 6) -> Decimal(12, 4)")
+    .exclude("parquet decimal precision and scale change Decimal(10, 7) -> Decimal(5, 2)")
+    .exclude("parquet decimal precision and scale change Decimal(12, 4) -> Decimal(10, 2)")
+    .exclude("parquet decimal precision and scale change Decimal(12, 4) -> Decimal(10, 6)")
+    .exclude("parquet decimal precision and scale change Decimal(20, 17) -> Decimal(10, 2)")
+    .exclude("parquet decimal precision and scale change Decimal(20, 17) -> Decimal(5, 2)")
+    .exclude("parquet decimal precision and scale change Decimal(22, 4) -> Decimal(20, 2)")
+    .exclude("parquet decimal precision and scale change Decimal(22, 5) -> Decimal(20, 7)")
+    .exclude("parquet decimal precision and scale change Decimal(5, 2) -> Decimal(6, 4)")
+    .exclude("parquet decimal precision and scale change Decimal(7, 4) -> Decimal(5, 2)")
+    .exclude("parquet decimal precision and scale change Decimal(10, 2) -> Decimal(12, 4)")
+    .exclude("parquet decimal precision and scale change Decimal(10, 2) -> Decimal(20, 12)")
+    .exclude("parquet decimal precision and scale change Decimal(5, 2) -> Decimal(10, 7)")
+    .exclude("parquet decimal precision and scale change Decimal(5, 2) -> Decimal(20, 17)")
+    .exclude("parquet decimal precision and scale change Decimal(5, 2) -> Decimal(7, 4)")
+    .exclude("parquet decimal precision change Decimal(10, 2) -> Decimal(5, 2)")
+    .exclude("parquet decimal precision change Decimal(12, 2) -> Decimal(10, 2)")
+    .exclude("parquet decimal precision change Decimal(20, 2) -> Decimal(10, 2)")
+    .exclude("parquet decimal precision change Decimal(20, 2) -> Decimal(5, 2)")
+    .exclude("parquet decimal precision change Decimal(22, 2) -> Decimal(20, 2)")
+    .exclude("parquet decimal precision change Decimal(7, 2) -> Decimal(5, 2)")
+    .exclude("parquet decimal precision change Decimal(10, 2) -> Decimal(12, 2)")
+    .exclude("parquet decimal precision change Decimal(10, 2) -> Decimal(20, 2)")
+    .exclude("parquet decimal precision change Decimal(5, 2) -> Decimal(10, 2)")
+    .exclude("parquet decimal precision change Decimal(5, 2) -> Decimal(20, 2)")
+    .exclude("parquet decimal precision change Decimal(5, 2) -> Decimal(7, 2)")
+    .exclude("parquet decimal type change Decimal(5, 2) -> Decimal(3, 2) overflows with parquet-mr")
+    .exclude("unsupported parquet conversion ByteType -> DecimalType(1,0)")
+    .exclude("unsupported parquet conversion ByteType -> DecimalType(2,0)")
+    .exclude("unsupported parquet conversion ByteType -> DecimalType(3,0)")
+    .exclude("unsupported parquet conversion ByteType -> DecimalType(3,1)")
+    .exclude("unsupported parquet conversion ByteType -> DecimalType(4,1)")
+    .exclude("unsupported parquet conversion IntegerType -> DecimalType(10,1)")
+    .exclude("unsupported parquet conversion IntegerType -> DecimalType(5,0)")
+    .exclude("unsupported parquet conversion IntegerType -> DecimalType(9,0)")
+    .exclude("unsupported parquet conversion LongType -> DateType")
+    .exclude("unsupported parquet conversion LongType -> DecimalType(10,0)")
+    .exclude("unsupported parquet conversion LongType -> DecimalType(19,0)")
+    .exclude("unsupported parquet conversion LongType -> DecimalType(20,1)")
+    .exclude("unsupported parquet conversion LongType -> IntegerType")
+    .exclude("unsupported parquet conversion ShortType -> DecimalType(3,0)")
+    .exclude("unsupported parquet conversion ShortType -> DecimalType(4,0)")
+    .exclude("unsupported parquet conversion ShortType -> DecimalType(5,0)")
+    .exclude("unsupported parquet conversion ShortType -> DecimalType(5,1)")
+    .exclude("unsupported parquet conversion ShortType -> DecimalType(6,1)")
+    .exclude("parquet widening conversion ByteType -> DecimalType(11,1)")
+    .exclude("parquet widening conversion ByteType -> DecimalType(20,0)")
+    .exclude("parquet widening conversion IntegerType -> DecimalType(11,1)")
+    .exclude("parquet widening conversion IntegerType -> DecimalType(20,0)")
+    .exclude("parquet widening conversion IntegerType -> DecimalType(38,0)")
+    .exclude("parquet widening conversion IntegerType -> DoubleType")
+    .exclude("parquet widening conversion LongType -> DecimalType(20,0)")
+    .exclude("parquet widening conversion LongType -> DecimalType(21,1)")
+    .exclude("parquet widening conversion LongType -> DecimalType(38,0)")
+    .exclude("parquet widening conversion ShortType -> DecimalType(11,1)")
+    .exclude("parquet widening conversion ShortType -> DecimalType(20,0)")
+    .exclude("parquet widening conversion ShortType -> DecimalType(38,0)")
+    .exclude("parquet widening conversion ShortType -> DoubleType")
   // TODO: 4.x enableSuite[GlutenParquetVariantShreddingSuite]  // 1 failure
   // Generated suites for org.apache.spark.sql.execution.datasources.text
   // TODO: 4.x enableSuite[GlutenWholeTextFileV1Suite]  // 1 failure
@@ -688,6 +753,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenFilteredScanSuite]
   enableSuite[GlutenFiltersSuite]
   enableSuite[GlutenInsertSuite]
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("SPARK-24583 Wrong schema type in InsertIntoDataSourceCommand")
     // the native write staing dir is differnt with vanilla Spark for coustom partition paths
     .exclude("SPARK-35106: Throw exception when rename custom partition paths returns false")
     .exclude("Stop task set if FileAlreadyExistsException was thrown")
@@ -717,7 +784,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // Generated suites for org.apache.spark.sql
   enableSuite[GlutenCacheManagerSuite]
   enableSuite[GlutenDataFrameShowSuite]
-  // TODO: 4.x enableSuite[GlutenDataFrameSubquerySuite]  // 1 failure
+  enableSuite[GlutenDataFrameSubquerySuite]
   enableSuite[GlutenDataFrameTableValuedFunctionsSuite]
   enableSuite[GlutenDataFrameTransposeSuite]
   enableSuite[GlutenDeprecatedDatasetAggregatorSuite]
@@ -759,7 +826,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenVariantShreddingSuite]  // 8 failures
   enableSuite[GlutenVariantSuite]
   enableSuite[GlutenVariantWriteShreddingSuite]
-  // TODO: 4.x enableSuite[GlutenXmlFunctionsSuite]  // 10 failures
+  enableSuite[GlutenXmlFunctionsSuite]
   enableSuite[GlutenApproxCountDistinctForIntervalsQuerySuite]
   enableSuite[GlutenAddMetadataColumnsSuite]
   enableSuite[GlutenAlwaysPersistedConfigsSuite]
@@ -1026,21 +1093,39 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenBitmapExpressionsQuerySuite]
   enableSuite[GlutenEmptyInSuite]
   enableSuite[GlutenRuntimeNullChecksV2Writes]
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("NOT NULL checks for atomic top-level fields (byName)")
+    .exclude("NOT NULL checks for atomic top-level fields (byPosition)")
+    .exclude("NOT NULL checks for nested struct fields (byName)")
+    .exclude("NOT NULL checks for nested struct fields (byPosition)")
+    .exclude("NOT NULL checks for nested structs, arrays, maps (byName)")
+    .exclude("NOT NULL checks for nullable array with required element (byPosition)")
+    .exclude("not null checks for fields inside nullable array (byPosition)")
   enableSuite[GlutenTableOptionsConstantFoldingSuite]
   enableSuite[GlutenDeltaBasedMergeIntoTableSuite]
     // Replaced by Gluten versions that handle wrapped exceptions
     .excludeByPrefix("merge cardinality check with")
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("merge with NOT NULL checks")
   enableSuite[GlutenDeltaBasedMergeIntoTableUpdateAsDeleteAndInsertSuite]
     // Replaced by Gluten versions that handle wrapped exceptions
     .excludeByPrefix("merge cardinality check with")
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("merge with NOT NULL checks")
   enableSuite[GlutenDeltaBasedUpdateAsDeleteAndInsertTableSuite]
     // FIXME: complex type result mismatch
     .exclude("update nested struct fields")
     .exclude("update char/varchar columns")
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("update with NOT NULL checks")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("update with NOT NULL checks")
   enableSuite[GlutenGroupBasedMergeIntoTableSuite]
     // Replaced by Gluten versions that handle wrapped exceptions
     .excludeByPrefix("merge cardinality check with")
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("merge with NOT NULL checks")
   enableSuite[GlutenFileSourceCustomMetadataStructSuite]
   enableSuite[GlutenParquetFileMetadataStructRowIndexSuite]
   enableSuite[GlutenTableLocationSuite]

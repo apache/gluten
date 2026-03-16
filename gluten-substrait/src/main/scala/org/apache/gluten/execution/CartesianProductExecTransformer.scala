@@ -46,7 +46,7 @@ import java.io.{IOException, ObjectOutputStream}
 case class ColumnarCartesianProductBridge(child: SparkPlan) extends UnaryExecNode with GlutenPlan {
   override def output: Seq[Attribute] = child.output
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
   override protected def doExecute(): RDD[InternalRow] =
     throw new UnsupportedOperationException()
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = child.executeColumnar()

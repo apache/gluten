@@ -65,7 +65,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   private transient GlutenSessionResource sessionResource;
   private transient Query query;
   private transient ExternalStreams.BlockingQueue inputQueue;
-  private transient SerialTask task;
+  protected transient SerialTask task;
   private final Class<IN> inClass;
   private final Class<OUT> outClass;
   private transient VectorInputBridge<IN> inputBridge;
@@ -191,6 +191,18 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
     }
   }
 
+  public <NIN, NOUT> GlutenOneInputOperator<NIN, NOUT> cloneWithInputOutputClasses(
+      Class<NIN> newInClass, Class<NOUT> newOutClass) {
+    return new GlutenOneInputOperator<>(
+        this.glutenPlan,
+        this.id,
+        this.inputType,
+        this.outputTypes,
+        newInClass,
+        newOutClass,
+        this.description);
+  }
+
   @Override
   public void processWatermark(Watermark mark) throws Exception {
     task.notifyWatermark(mark.getTimestamp());
@@ -260,8 +272,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
     if (task == null) {
       initSession();
     }
-    // TODO: implement it
-    task.initializeState(0);
+    task.initializeState(0, null);
     super.initializeState(context);
   }
 

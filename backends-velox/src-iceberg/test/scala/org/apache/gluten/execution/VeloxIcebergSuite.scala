@@ -16,7 +16,4 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.tags.SkipTest
-
-@SkipTest
 class VeloxIcebergSuite extends IcebergSuite

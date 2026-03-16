@@ -37,7 +37,7 @@ class VeloxToSubstraitTypeTest : public ::testing::Test {
         << "Expected: " << type->toString() << ", but got: " << sameType->toString();
   }
 
-  std::shared_ptr<VeloxToSubstraitTypeConvertor> typeConvertor_;
+  std::shared_ptr<VeloxToSubstraitTypeConvertor> typeConvertor_ = std::make_shared<VeloxToSubstraitTypeConvertor>();
 };
 
 TEST_F(VeloxToSubstraitTypeTest, basic) {

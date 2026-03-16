@@ -31,7 +31,8 @@ function echo_revision_info() {
   echo revision=$(git rev-parse HEAD)
   echo revision_time=$(git show -s --format=%ci HEAD)
   echo date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  echo url=$(git config --get remote.origin.url)
+  # Strip embedded credentials (user:pass@) from the URL to avoid exposing them in the build info.
+  echo url=$(git config --get remote.origin.url | sed 's|://[^:@]*:[^@]*@|://|')
 }
 
 function echo_velox_revision_info() {

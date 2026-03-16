@@ -56,7 +56,7 @@ trait ColumnarV2TableWriteExec extends V2TableWriteExec with ValidatablePlan {
 
   override def batchType(): Convention.BatchType = Convention.BatchType.None
 
-  override def rowType0(): Convention.RowType = RowType.VanillaRowType
+  override def rowType(): Convention.RowType = RowType.VanillaRowType
 
   override def requiredChildConvention(): Seq[ConventionReq] = Seq(
     ConventionReq.ofBatch(

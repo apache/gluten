@@ -16,12 +16,11 @@
  */
 package org.apache.gluten.expression
 
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.VeloxBloomFilter
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, BloomFilterMightContain, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.types.DataType
@@ -43,8 +42,7 @@ case class VeloxBloomFilterMightContain(
   extends BinaryExpression {
   import VeloxBloomFilterMightContain._
 
-  private val delegate =
-    SparkShimLoader.getSparkShims.newMightContain(bloomFilterExpression, valueExpression)
+  private val delegate = BloomFilterMightContain(bloomFilterExpression, valueExpression)
 
   override def prettyName: String = "velox_might_contain"
 

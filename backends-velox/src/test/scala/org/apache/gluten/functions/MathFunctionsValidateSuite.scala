@@ -23,20 +23,6 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.internal.SQLConf
 
-class MathFunctionsValidateSuiteRasOff extends MathFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "false")
-  }
-}
-
-class MathFunctionsValidateSuiteRasOn extends MathFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
-
 class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
 
   override protected def sparkConf: SparkConf = {

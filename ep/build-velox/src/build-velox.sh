@@ -102,7 +102,7 @@ function compile {
   # maintain compatibility, but it prints a diagnostic note about the unknown flag if a true warning
   # or error occurs.
   CXX_FLAGS='-Wno-error=stringop-overflow -Wno-error=cpp -Wno-missing-field-initializers \
-    -Wno-error=uninitialized -Wno-unknown-warning-option'
+    -Wno-error=uninitialized -Wno-unknown-warning-option -Wno-deprecated-declarations'
 
   COMPILE_OPTION="-DCMAKE_CXX_FLAGS=\"$CXX_FLAGS\" -DVELOX_ENABLE_PARQUET=ON -DVELOX_BUILD_TESTING=OFF \
       -DVELOX_MONO_LIBRARY=ON -DVELOX_BUILD_RUNNER=OFF -DVELOX_SIMDJSON_SKIPUTF8VALIDATION=ON \
@@ -134,7 +134,7 @@ function compile {
   if [ $ENABLE_GPU == "ON" ]; then
     # the cuda default options are for Centos9 image from Meta
     echo "enable GPU support."
-    COMPILE_OPTION="$COMPILE_OPTION -DVELOX_ENABLE_GPU=ON -DVELOX_ENABLE_CUDF=ON -DCMAKE_CUDA_ARCHITECTURES=75 \
+    COMPILE_OPTION="$COMPILE_OPTION -DVELOX_ENABLE_CUDF=ON -DCMAKE_CUDA_ARCHITECTURES=75 \
         -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc"
   fi
   if [ -n "${GLUTEN_VCPKG_ENABLED:-}" ]; then
@@ -171,12 +171,6 @@ function compile {
         sudo cmake --install xsimd-build/
       elif [ $OS == 'Darwin' ]; then
         sudo cmake --install xsimd-build/
-      fi
-    fi
-    if [ -d cudf-build ]; then
-      echo "INSTALL cudf."
-      if [ $OS == 'Linux' ]; then
-        sudo cmake --install cudf-build/
       fi
     fi
     if [ -d googletest-build ]; then

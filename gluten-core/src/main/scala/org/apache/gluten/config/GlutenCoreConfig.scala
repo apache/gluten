@@ -32,9 +32,7 @@ class GlutenCoreConfig(conf: SQLConf) extends Logging {
 
   def enableGluten: Boolean = getConf(GLUTEN_ENABLED)
 
-  def enableRas: Boolean = getConf(RAS_ENABLED)
-
-  def rasCostModel: String = getConf(RAS_COST_MODEL)
+  def costModel: String = getConf(GLUTEN_COST_MODEL)
 
   def memoryUntracked: Boolean = getConf(COLUMNAR_MEMORY_UNTRACKED)
 
@@ -80,24 +78,11 @@ object GlutenCoreConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
-  // Options used by RAS.
-  val RAS_ENABLED =
-    buildConf("spark.gluten.ras.enabled")
-      .doc(
-        "Enables RAS (relational algebra selector) during physical " +
-          "planning to generate more efficient query plan. Note, this feature doesn't bring " +
-          "performance profits by default. Try exploring option `spark.gluten.ras.costModel` " +
-          "for advanced usage.")
-      .booleanConf
-      .createWithDefault(false)
-
-  // FIXME: This option is no longer only used by RAS. Should change key to
-  //  `spark.gluten.costModel` or something similar.
-  val RAS_COST_MODEL =
-    buildConf("spark.gluten.ras.costModel")
+  val GLUTEN_COST_MODEL =
+    buildConf("spark.gluten.costModel")
       .doc(
         "The class name of user-defined cost model that will be used by Gluten's transition " +
-          "planner as well as by RAS. If not specified, a legacy built-in cost model will be " +
+          "planner. If not specified, a legacy built-in cost model will be " +
           "used. The legacy cost model helps RAS planner exhaustively offload computations, and " +
           "helps transition planner choose columnar-to-columnar transition over others.")
       .stringConf

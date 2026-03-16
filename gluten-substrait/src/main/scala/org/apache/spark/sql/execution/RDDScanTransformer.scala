@@ -29,7 +29,7 @@ abstract class RDDScanTransformer(
     override val outputOrdering: Seq[SortOrder]
 ) extends ValidatablePlan {
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
   override def output: Seq[Attribute] = {
     outputAttributes

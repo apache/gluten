@@ -120,6 +120,7 @@ object MetricsUtil extends Logging {
     var numDynamicFiltersProduced: Long = 0
     var numDynamicFiltersAccepted: Long = 0
     var numReplacedWithDynamicFilterRows: Long = 0
+    var numDynamicFilterInputRows: Long = 0
     var flushRowCount: Long = 0
     var loadedToValueHook: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
@@ -155,6 +156,7 @@ object MetricsUtil extends Logging {
       numDynamicFiltersProduced += metrics.numDynamicFiltersProduced
       numDynamicFiltersAccepted += metrics.numDynamicFiltersAccepted
       numReplacedWithDynamicFilterRows += metrics.numReplacedWithDynamicFilterRows
+      numDynamicFilterInputRows += metrics.numDynamicFilterInputRows
       flushRowCount += metrics.flushRowCount
       loadedToValueHook += metrics.loadedToValueHook
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
@@ -197,6 +199,7 @@ object MetricsUtil extends Logging {
       numDynamicFiltersProduced,
       numDynamicFiltersAccepted,
       numReplacedWithDynamicFilterRows,
+      numDynamicFilterInputRows,
       flushRowCount,
       loadedToValueHook,
       bloomFilterBlocksByteSize,

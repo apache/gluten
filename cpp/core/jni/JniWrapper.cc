@@ -273,7 +273,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
       env,
       metricsBuilderClass,
       "<init>",
-      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
+      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
 
   nativeColumnarToRowInfoClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/NativeColumnarToRowInfo;");
@@ -589,6 +589,7 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
       longArray[Metrics::kNumDynamicFiltersProduced],
       longArray[Metrics::kNumDynamicFiltersAccepted],
       longArray[Metrics::kNumReplacedWithDynamicFilterRows],
+      longArray[Metrics::kNumDynamicFilterInputRows],
       longArray[Metrics::kFlushRowCount],
       longArray[Metrics::kLoadedToValueHook],
       longArray[Metrics::kBloomFilterBlocksByteSize],

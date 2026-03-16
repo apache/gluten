@@ -147,12 +147,12 @@ fi
 
 # Step 2: Build Velox
 step 2 "Building Velox (incremental)"
-cmake --build "$VELOX_BUILD_DIR" -j $NUM_THREADS
+cmake --build "$VELOX_BUILD_DIR" --target velox -j $NUM_THREADS
 echo "[Step 2/4] Velox build complete."
 
 # Step 3: Build Gluten C++
 step 3 "Building Gluten C++ (incremental)"
-cmake --build "$GLUTEN_BUILD_DIR" -j $NUM_THREADS
+cmake --build "$GLUTEN_BUILD_DIR" --target gluten velox -j $NUM_THREADS
 echo "[Step 3/4] Gluten C++ build complete."
 
 # Step 4: Copy libraries

@@ -266,4 +266,12 @@
 
    Apache Hive(https://github.com/apache/hive)
    ./backends-clickhouse/src/test/resources/udfs/hive-test-udfs.jar
+
+   This product bundles the following binary test data files, which are
+   self-generated Delta Lake deletion vector fixtures used for testing,
+   under the Apache Software License 2.0.
+
+   ./cpp-ch/local-engine/tests/data/deletion_vector_long_values.bin
+   ./cpp-ch/local-engine/tests/data/deletion_vector_multiple.bin
+   ./cpp-ch/local-engine/tests/data/deletion_vector_only_one.bin
    

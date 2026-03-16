@@ -67,7 +67,6 @@ trait SubstraitBackend extends Backend with Logging {
   }
   final override def injectRules(injector: Injector): Unit = {
     injector.gluten.legacy.injectRuleWrapper(r => new LoggedRule(r))
-    injector.gluten.ras.injectRuleWrapper(r => new LoggedRule(r))
     ruleApi().injectRules(injector)
   }
 

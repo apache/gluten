@@ -26,9 +26,7 @@ import org.apache.spark.sql.execution.SparkPlan
 /**
  * Replace ColumnarUnionExec with UnionExecTransformer if possible.
  *
- * The rule is not included in [[org.apache.gluten.extension.columnar.heuristic.HeuristicTransform]]
- * or [[org.apache.gluten.extension.columnar.enumerated.EnumeratedTransform]] because it relies on
- * children's output partitioning to be fully provided.
+ * The rule relies on children's output partitioning to be fully provided.
  */
 case class UnionTransformerRule() extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = {

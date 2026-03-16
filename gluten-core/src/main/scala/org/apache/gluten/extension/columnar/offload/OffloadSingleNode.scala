@@ -99,7 +99,7 @@ object OffloadSingleNode {
     private lazy val conv: Convention = Convention.get(hiddenPlan)
 
     override def batchType(): Convention.BatchType = conv.batchType
-    override def rowType0(): Convention.RowType = conv.rowType
+    override def rowType(): Convention.RowType = conv.rowType
     override def output: Seq[Attribute] = hiddenPlan.output
     override def outputPartitioning: Partitioning = hiddenPlan.outputPartitioning
     override def outputOrdering: Seq[SortOrder] = hiddenPlan.outputOrdering

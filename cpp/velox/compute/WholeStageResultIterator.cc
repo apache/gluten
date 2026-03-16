@@ -43,6 +43,7 @@ namespace {
 const std::string kDynamicFiltersProduced = "dynamicFiltersProduced";
 const std::string kDynamicFiltersAccepted = "dynamicFiltersAccepted";
 const std::string kReplacedWithDynamicFilterRows = "replacedWithDynamicFilterRows";
+const std::string kDynamicFilterInputRows = "dynamicFilterInputRows";
 const std::string kFlushRowCount = "flushRowCount";
 const std::string kLoadedToValueHook = "loadedToValueHook";
 const std::string kBloomFilterBlocksByteSize = "bloomFilterSize";
@@ -51,7 +52,7 @@ const std::string kSkippedSplits = "skippedSplits";
 const std::string kProcessedSplits = "processedSplits";
 const std::string kSkippedStrides = "skippedStrides";
 const std::string kProcessedStrides = "processedStrides";
-const std::string kRemainingFilterTime = "totalRemainingFilterTime";
+const std::string kRemainingFilterTime = "totalRemainingFilterWallNanos";
 const std::string kIoWaitTime = "ioWaitWallNanos";
 const std::string kStorageReadBytes = "storageReadBytes";
 const std::string kLocalReadBytes = "localReadBytes";
@@ -490,6 +491,8 @@ void WholeStageResultIterator::collectMetrics() {
           runtimeMetric("sum", second->customStats, kDynamicFiltersAccepted);
       metrics_->get(Metrics::kNumReplacedWithDynamicFilterRows)[metricIndex] =
           runtimeMetric("sum", second->customStats, kReplacedWithDynamicFilterRows);
+      metrics_->get(Metrics::kNumDynamicFilterInputRows)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kDynamicFilterInputRows);
       metrics_->get(Metrics::kFlushRowCount)[metricIndex] = runtimeMetric("sum", second->customStats, kFlushRowCount);
       metrics_->get(Metrics::kLoadedToValueHook)[metricIndex] =
           runtimeMetric("sum", second->customStats, kLoadedToValueHook);
@@ -639,17 +642,25 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     } else {
       configs[velox::core::QueryConfig::kSpillCompressionKind] = "none";
     }
-    configs[velox::core::QueryConfig::kSparkBloomFilterExpectedNumItems] =
-        std::to_string(veloxCfg_->get<int64_t>(kBloomFilterExpectedNumItems, 1000000));
-    configs[velox::core::QueryConfig::kSparkBloomFilterNumBits] =
-        std::to_string(veloxCfg_->get<int64_t>(kBloomFilterNumBits, 8388608));
-    configs[velox::core::QueryConfig::kSparkBloomFilterMaxNumBits] =
-        std::to_string(veloxCfg_->get<int64_t>(kBloomFilterMaxNumBits, 4194304));
 
     configs[velox::core::QueryConfig::kHashProbeDynamicFilterPushdownEnabled] =
         std::to_string(veloxCfg_->get<bool>(kHashProbeDynamicFilterPushdownEnabled, true));
     configs[velox::core::QueryConfig::kHashProbeBloomFilterPushdownMaxSize] =
         std::to_string(veloxCfg_->get<uint64_t>(kHashProbeBloomFilterPushdownMaxSize, 0));
+
+    if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterExpectedNumItems)) {
+      configs[velox::core::QueryConfig::kSparkBloomFilterExpectedNumItems] = opt.value();
+    }
+    if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterNumBits)) {
+      configs[velox::core::QueryConfig::kSparkBloomFilterNumBits] = opt.value();
+    }
+    if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterMaxNumBits)) {
+      // Velox will check memory cannot exceed 4194304.
+      configs[velox::core::QueryConfig::kSparkBloomFilterMaxNumBits] = opt.value();
+    }
+    if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterMaxNumItems)) {
+      configs[velox::core::QueryConfig::kSparkBloomFilterMaxNumItems] = opt.value();
+    }
     // spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver takes no effect if
     // spark.gluten.sql.columnar.backend.velox.IOThreads is set to 0
     configs[velox::core::QueryConfig::kMaxSplitPreloadPerDriver] =

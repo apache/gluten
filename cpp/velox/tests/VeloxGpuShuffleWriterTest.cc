@@ -29,6 +29,7 @@
 #include "memory/GpuBufferColumnarBatch.h"
 #include "utils/GpuBufferBatchResizer.h"
 
+#include "velox/experimental/cudf/CudfNoDefaults.h"
 #include "velox/experimental/cudf/exec/VeloxCudfInterop.h"
 #include "velox/experimental/cudf/vector/CudfVector.h"
 #include "velox/vector/tests/utils/VectorTestBase.h"
@@ -115,6 +116,7 @@ RowVectorPtr mergeBufferColumnarBatches(std::vector<std::shared_ptr<GpuBufferCol
       getDefaultMemoryManager()->defaultArrowMemoryPool(),
       getDefaultMemoryManager()->getLeafMemoryPool().get(),
       1200, // output one batch
+      102400000, // prefetch up to 100MB data
       std::make_unique<ColumnarBatchArray>(bufferBatches));
   auto cb = resizer.next();
   auto batch = std::dynamic_pointer_cast<VeloxColumnarBatch>(cb);
@@ -126,7 +128,7 @@ RowVectorPtr mergeBufferColumnarBatches(std::vector<std::shared_ptr<GpuBufferCol
 
   // Convert back to Velox
   return cudf_velox::with_arrow::toVeloxColumn(
-      tableView, getDefaultMemoryManager()->getLeafMemoryPool().get(), "", vector->stream());
+      tableView, getDefaultMemoryManager()->getLeafMemoryPool().get(), "", vector->stream(), cudf_velox::get_temp_mr());
 }
 
 std::vector<GpuShuffleTestParams> getTestParams() {

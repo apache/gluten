@@ -17,9 +17,8 @@
 
 #include "GpuBufferBatchResizer.h"
 #include "cudf/GpuLock.h"
-#include "memory/GpuBufferColumnarBatch.h"
 #include "utils/Timer.h"
-#include "velox/experimental/cudf/exec/Utilities.h"
+#include "velox/experimental/cudf/exec/GpuResources.h"
 #include "velox/experimental/cudf/exec/VeloxCudfInterop.h"
 #include "velox/experimental/cudf/vector/CudfVector.h"
 #include "velox/vector/FlatVector.h"
@@ -168,41 +167,82 @@ GpuBufferBatchResizer::GpuBufferBatchResizer(
     arrow::MemoryPool* arrowPool,
     facebook::velox::memory::MemoryPool* pool,
     int32_t minOutputBatchSize,
+    int64_t maxPrefetchSize,
     std::unique_ptr<ColumnarBatchIterator> in)
     : arrowPool_(arrowPool),
       pool_(pool),
       minOutputBatchSize_(minOutputBatchSize),
+      maxPrefetchSize_(maxPrefetchSize),
       in_(std::move(in)) {
   VELOX_CHECK_GT(minOutputBatchSize_, 0, "minOutputBatchSize should be larger than 0");
+  VELOX_CHECK_GT(maxPrefetchSize_, 0, "maxPrefetchSize should be larger than 0");
 }
 
-std::shared_ptr<ColumnarBatch> GpuBufferBatchResizer::next() {
+std::shared_ptr<GpuBufferColumnarBatch> GpuBufferBatchResizer::fetchAndComposeBatch() {
   std::vector<std::shared_ptr<GpuBufferColumnarBatch>> cachedBatches;
   int32_t cachedRows = 0;
   while (cachedRows < minOutputBatchSize_) {
     auto nextCb = in_->next();
     if (!nextCb) {
-      // No more input.
       break;
     }
 
     auto nextBatch = std::dynamic_pointer_cast<GpuBufferColumnarBatch>(nextCb);
     VELOX_CHECK_NOT_NULL(nextBatch);
     if (nextBatch->numRows() == 0) {
-        continue;
+      continue;
     }
 
     cachedRows += nextBatch->numRows();
     cachedBatches.push_back(std::move(nextBatch));
   }
+
   if (cachedRows == 0) {
     return nullptr;
   }
 
-  // Compose all cached batches into one
-  auto batch = GpuBufferColumnarBatch::compose(arrowPool_, cachedBatches, cachedRows);
+  return GpuBufferColumnarBatch::compose(arrowPool_, cachedBatches, cachedRows);
+}
 
-  lockGpu();
+std::shared_ptr<ColumnarBatch> GpuBufferBatchResizer::next() {
+  // Ensure at least one batch is in the prefetch queue.
+  if (prefetchQueue_.empty()) {
+    auto batch = fetchAndComposeBatch();
+    if (batch) {
+      prefetchedBytes_ += batch->numBytes();
+      prefetchQueue_.push_back(std::move(batch));
+    }
+  }
+
+  if (prefetchQueue_.empty()) {
+    return nullptr;
+  }
+
+  // Try to acquire the GPU lock non-blockingly. While we can't get it,
+  // keep prefetching more batches into CPU memory within the budget.
+  while (!tryLockGpu()) {
+    if (prefetchedBytes_ < maxPrefetchSize_) {
+      auto batch = fetchAndComposeBatch();
+      if (batch) {
+        prefetchedBytes_ += batch->numBytes();
+        prefetchQueue_.push_back(std::move(batch));
+      } else {
+        // All the batches consumed.
+        LOG(WARNING) << "Prefetched " << prefetchQueue_.size() << " batches (" << prefetchedBytes_ << " bytes) before blocking on GPU lock.";
+        lockGpu();
+        break;
+      }
+    } else {
+      LOG(WARNING) << "Prefetched " << prefetchQueue_.size() << " batches (" << prefetchedBytes_ << " bytes) before blocking on GPU lock.";
+      lockGpu();
+      break;
+    }
+  }
+
+  // GPU lock acquired. Pop one batch and convert to cuDF on GPU.
+  auto batch = std::move(prefetchQueue_.front());
+  prefetchQueue_.pop_front();
+  prefetchedBytes_ -= batch->numBytes();
 
   return makeCudfTable(batch->getRowType(), batch->numRows(), batch->buffers(), pool_);
 }

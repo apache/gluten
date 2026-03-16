@@ -27,7 +27,7 @@ import org.apache.gluten.extension.columnar.rewrite._
 import org.apache.gluten.extension.columnar.transition.{InsertTransitions, RemoveTransitions}
 import org.apache.gluten.extension.columnar.validator.{Validator, Validators}
 import org.apache.gluten.extension.injector.{Injector, SparkInjector}
-import org.apache.gluten.extension.injector.GlutenInjector.{LegacyInjector, RasInjector}
+import org.apache.gluten.extension.injector.GlutenInjector.LegacyInjector
 import org.apache.gluten.parser.{GlutenCacheFilesSqlParser, GlutenClickhouseSqlParser}
 import org.apache.gluten.sql.shims.SparkShimLoader
 
@@ -46,7 +46,6 @@ class CHRuleApi extends RuleApi {
   override def injectRules(injector: Injector): Unit = {
     injectSpark(injector.spark)
     injectLegacy(injector.gluten.legacy)
-    injectRas(injector.gluten.ras)
   }
 }
 
@@ -54,7 +53,7 @@ object CHRuleApi {
 
   /**
    * Registers Spark rules or extensions, except for Gluten's columnar rules that are supposed to be
-   * injected through [[injectLegacy]] / [[injectRas]].
+   * injected through [[injectLegacy]].
    */
   private def injectSpark(injector: SparkInjector): Unit = {
     // Inject the regular Spark rules directly.
@@ -162,22 +161,6 @@ object CHRuleApi {
     injector.injectFinal(c => RemoveGlutenTableCacheColumnarToRow(c.session))
     injector.injectFinal(c => GlutenFallbackReporter(new GlutenConfig(c.sqlConf), c.session))
     injector.injectFinal(_ => RemoveFallbackTagRule())
-  }
-
-  /**
-   * Registers Gluten's columnar rules. These rules will be executed only when RAS (relational
-   * algebra selector) is enabled by spark.gluten.ras.enabled=true.
-   *
-   * These rules are covered by CI test job spark-test-spark35-ras.
-   */
-  private def injectRas(injector: RasInjector): Unit = {
-    // CH backend doesn't work with RAS at the moment. Inject a rule that aborts any
-    // execution calls.
-    injector.injectPreTransform(
-      _ =>
-        new SparkPlanRules.AbortRule(
-          "Clickhouse backend doesn't yet have RAS support, please try disabling RAS and" +
-            " rerunning the application"))
   }
 
   /**

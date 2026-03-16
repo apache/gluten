@@ -21,14 +21,9 @@
 
 namespace gluten {
 
-/**
- * @brief Acquire the GPU lock (reentrant within the same thread)
- */
+/// Acquire the GPU lock, blocking until available. Reentrant for the same thread.
 void lockGpu();
-
-/**
- * @brief Release the GPU lock (must be called by the owning thread)
- */
+bool tryLockGpu();
 void unlockGpu();
 
 } // namespace gluten

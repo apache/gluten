@@ -85,6 +85,7 @@ trait IteratorApi {
       updateNativeMetrics: IMetrics => Unit,
       partitionIndex: Int,
       materializeInput: Boolean = false,
-      enableCudf: Boolean = false): Iterator[ColumnarBatch]
+      enableCudf: Boolean = false,
+      supportsValueStreamDynamicFilter: Boolean = true): Iterator[ColumnarBatch]
   // scalastyle:on argcount
 }

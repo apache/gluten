@@ -22,6 +22,7 @@ import org.apache.gluten.exception.{GlutenExceptionUtil, GlutenNotSupportExcepti
 import org.apache.gluten.execution._
 import org.apache.gluten.expression._
 import org.apache.gluten.expression.aggregate.{HLLAdapter, VeloxBloomFilterAggregate, VeloxCollectList, VeloxCollectSet}
+import org.apache.gluten.extension.JoinKeysTag
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.shuffle.NeedCustomColumnarBatchSerializer
 import org.apache.gluten.sql.shims.SparkShimLoader
@@ -29,6 +30,7 @@ import org.apache.gluten.vectorized.{ColumnarBatchSerializer, ColumnarBatchSeria
 
 import org.apache.spark.{ShuffleDependency, SparkEnv, SparkException}
 import org.apache.spark.api.python.{ColumnarArrowEvalPythonExec, PullOutArrowEvalPythonPreProjectHelper}
+import org.apache.spark.internal.Logging
 import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
@@ -38,14 +40,15 @@ import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, CollectList, CollectSet}
-import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
+import org.apache.spark.sql.catalyst.expressions.objects.{AssertNotNull, StaticInvoke}
 import org.apache.spark.sql.catalyst.optimizer.BuildSide
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution._
+import org.apache.spark.sql.execution.adaptive.AQEShuffleReadExec
 import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
-import org.apache.spark.sql.execution.joins.{BuildSideRelation, HashedRelationBroadcastMode}
+import org.apache.spark.sql.execution.joins.{BuildSideRelation, HashedRelationBroadcastMode, SparkHashJoinUtils}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
@@ -64,8 +67,9 @@ import javax.ws.rs.core.UriBuilder
 import java.util.Locale
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable.ArrayBuffer
 
-class VeloxSparkPlanExecApi extends SparkPlanExecApi {
+class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
 
   /** Transform GetArrayItem to Substrait. */
   override def genGetArrayItemTransformer(
@@ -678,9 +682,136 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi {
       child: SparkPlan,
       numOutputRows: SQLMetric,
       dataSize: SQLMetric): BuildSideRelation = {
+
+    val buildKeys = mode match {
+      case mode1: HashedRelationBroadcastMode =>
+        mode1.key
+      case _ =>
+        // IdentityBroadcastMode
+        Seq.empty
+    }
+    var offload = true
+    val (newChild, newOutput, newBuildKeys) =
+      if (VeloxConfig.get.enableBroadcastBuildOncePerExecutor) {
+
+        // Try to lookup from TreeNodeTag using child's logical plan
+        // Need to recursively find logicalLink in case of AQE or other wrappers
+        @scala.annotation.tailrec
+        def findLogicalLink(
+            plan: SparkPlan): Option[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan] = {
+          plan.logicalLink match {
+            case some @ Some(_) => some
+            case None =>
+              plan.children match {
+                case Seq(child) => findLogicalLink(child)
+                case _ => None
+              }
+          }
+        }
+
+        val newBuildKeys = findLogicalLink(child)
+          .flatMap(_.getTagValue(JoinKeysTag.ORIGINAL_JOIN_KEYS))
+          .getOrElse {
+            if (SparkHashJoinUtils.canRewriteAsLongType(buildKeys) && buildKeys.nonEmpty) {
+              SparkHashJoinUtils.getOriginalKeysFromPacked(buildKeys.head)
+            } else {
+              buildKeys
+            }
+          }
+
+        val noNeedPreOp = newBuildKeys.forall {
+          case _: AttributeReference | _: BoundReference => true
+          case _ => false
+        }
+
+        if (noNeedPreOp) {
+          (child, child.output, Seq.empty[Expression])
+        } else {
+          // pre projection in case of expression join keys
+          val appendedProjections = new ArrayBuffer[NamedExpression]()
+          val preProjectionBuildKeys = newBuildKeys.zipWithIndex.map {
+            case (e, idx) =>
+              e match {
+                case b: BoundReference => child.output(b.ordinal)
+                case a: AttributeReference => a
+                case o: Expression =>
+                  val newExpr = Alias(o, "col_" + idx)()
+                  appendedProjections += newExpr
+                  newExpr
+              }
+          }
+
+          def wrapChild(child: SparkPlan): SparkPlan = {
+            val childWithAdapter =
+              ColumnarCollapseTransformStages.wrapInputIteratorTransformer(child)
+            val projectExecTransformer =
+              ProjectExecTransformer(child.output ++ appendedProjections, childWithAdapter)
+            val validationResult = projectExecTransformer.doValidate()
+            if (validationResult.ok()) {
+              WholeStageTransformer(
+                ProjectExecTransformer(child.output ++ appendedProjections, childWithAdapter))(
+                ColumnarCollapseTransformStages
+                  .getTransformStageCounter(childWithAdapter)
+                  .incrementAndGet()
+              )
+            } else {
+              offload = false
+              child
+            }
+          }
+
+          val newChild = child match {
+            case wt: WholeStageTransformer =>
+              val projectTransformer =
+                ProjectExecTransformer(child.output ++ appendedProjections, wt.child)
+              if (projectTransformer.doValidate().ok()) {
+                wt.withNewChildren(
+                  Seq(ProjectExecTransformer(child.output ++ appendedProjections, wt.child)))
+
+              } else {
+                offload = false
+                child
+              }
+            case w: WholeStageCodegenExec =>
+              w.withNewChildren(Seq(ProjectExec(child.output ++ appendedProjections, w.child)))
+            case r: AQEShuffleReadExec if r.supportsColumnar =>
+              // when aqe is open
+              // TODO: remove this after pushdowning preprojection
+              wrapChild(r)
+            case r2c: RowToVeloxColumnarExec =>
+              wrapChild(r2c)
+            case union: ColumnarUnionExec =>
+              wrapChild(union)
+            case ordered: TakeOrderedAndProjectExecTransformer =>
+              wrapChild(ordered)
+            case a2v: ArrowColumnarToVeloxColumnarExec =>
+              wrapChild(a2v)
+            case other =>
+              offload = false
+              logWarning(
+                "Not supported operator " + other.nodeName +
+                  " for BroadcastRelation and fallback to shuffle hash join")
+              child
+          }
+
+          if (offload) {
+            (
+              newChild,
+              (child.output ++ appendedProjections).map(_.toAttribute),
+              preProjectionBuildKeys)
+          } else {
+            (child, child.output, Seq.empty[Expression])
+          }
+        }
+      } else {
+        offload = false
+        (child, child.output, buildKeys)
+      }
+
     val useOffheapBroadcastBuildRelation =
       VeloxConfig.get.enableBroadcastBuildRelationInOffheap
-    val serialized: Seq[ColumnarBatchSerializeResult] = child
+
+    val serialized: Seq[ColumnarBatchSerializeResult] = newChild
       .executeColumnar()
       .mapPartitions(itr => Iterator(BroadcastUtils.serializeStream(itr)))
       .filter(_.numRows != 0)
@@ -694,18 +825,23 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi {
     }
     numOutputRows += serialized.map(_.numRows).sum
     dataSize += rawSize
+
     if (useOffheapBroadcastBuildRelation) {
       TaskResources.runUnsafe {
         UnsafeColumnarBuildSideRelation(
-          child.output,
+          newOutput,
           serialized.flatMap(_.offHeapData().asScala),
-          mode)
+          mode,
+          newBuildKeys,
+          offload)
       }
     } else {
       ColumnarBuildSideRelation(
-        child.output,
+        newOutput,
         serialized.flatMap(_.onHeapData().asScala).toArray,
-        mode)
+        mode,
+        newBuildKeys,
+        offload)
     }
   }
 
@@ -958,6 +1094,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi {
       Sig[VeloxBloomFilterMightContain](ExpressionNames.MIGHT_CONTAIN),
       Sig[VeloxBloomFilterAggregate](ExpressionNames.BLOOM_FILTER_AGG),
       Sig[MapFilter](ExpressionNames.MAP_FILTER),
+      Sig[AssertNotNull](ExpressionNames.ASSERT_NOT_NULL),
       // For test purpose.
       Sig[VeloxDummyExpression](VeloxDummyExpression.VELOX_DUMMY_EXPRESSION)
     )

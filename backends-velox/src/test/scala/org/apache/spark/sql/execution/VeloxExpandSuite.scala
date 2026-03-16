@@ -32,7 +32,6 @@ class VeloxExpandSuite extends VeloxWholeStageTransformerSuite {
 
   override def sparkConf: SparkConf = {
     super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "false")
       .set(GlutenConfig.GLUTEN_UI_ENABLED.key, "true")
       // The gluten ui event test suite expects the spark ui to be enable
       .set(UI_ENABLED, true)

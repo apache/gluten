@@ -19,25 +19,11 @@ package org.apache.gluten.functions
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{BatchScanExecTransformer, FilterExecTransformer, ProjectExecTransformer}
 
-import org.apache.spark.{SparkConf, SparkException}
+import org.apache.spark.SparkException
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.optimizer.NullPropagation
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.types._
-
-class ScalarFunctionsValidateSuiteRasOff extends ScalarFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "false")
-  }
-}
-
-class ScalarFunctionsValidateSuiteRasOn extends ScalarFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
 
 abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   disableFallbackCheck

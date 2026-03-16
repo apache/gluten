@@ -16,11 +16,14 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.config.VeloxConfig
+
 import org.apache.spark.rdd.RDD
+import org.apache.spark.rpc.GlutenDriverEndpoint
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.optimizer.BuildSide
+import org.apache.spark.sql.catalyst.optimizer.{BuildRight, BuildSide}
 import org.apache.spark.sql.catalyst.plans._
-import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.{SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -99,6 +102,9 @@ case class BroadcastHashJoinExecTransformer(
     right,
     isNullAwareAntiJoin) {
 
+  // Unique ID for built table
+  lazy val buildBroadcastTableId: String = buildPlan.id.toString
+
   override protected lazy val substraitJoinType: JoinRel.JoinType = joinType match {
     case _: InnerLike =>
       JoinRel.JoinType.JOIN_TYPE_INNER
@@ -125,9 +131,52 @@ case class BroadcastHashJoinExecTransformer(
 
   override def columnarInputRDDs: Seq[RDD[ColumnarBatch]] = {
     val streamedRDD = getColumnarInputRDDs(streamedPlan)
+    val executionId = sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
+    if (executionId != null) {
+      logWarning(
+        s"Trace broadcast table data $buildBroadcastTableId" + " " +
+          "and the execution id is " + executionId)
+      GlutenDriverEndpoint.collectResources(executionId, buildBroadcastTableId)
+    } else {
+      logWarning(
+        s"Can not trace broadcast table data $buildBroadcastTableId" +
+          s" because execution id is null." +
+          s" Will clean up until expire time.")
+    }
+
     val broadcast = buildPlan.executeBroadcast[BuildSideRelation]()
-    val broadcastRDD = VeloxBroadcastBuildSideRDD(sparkContext, broadcast)
+    val bloomFilterPushdownSize = if (VeloxConfig.get.hashProbeDynamicFilterPushdownEnabled) {
+      VeloxConfig.get.hashProbeBloomFilterPushdownMaxSize
+    } else {
+      -1
+    }
+    val context =
+      BroadcastHashJoinContext(
+        buildKeyExprs,
+        substraitJoinType,
+        buildSide == BuildRight,
+        condition.isDefined,
+        joinType.isInstanceOf[ExistenceJoin],
+        buildPlan.output,
+        buildBroadcastTableId,
+        isNullAwareAntiJoin,
+        bloomFilterPushdownSize,
+        VeloxConfig.get.veloxBroadcastHashTableBuildThreads
+      )
+    val broadcastRDD = VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
     // FIXME: Do we have to make build side a RDD?
     streamedRDD :+ broadcastRDD
   }
 }
+
+case class BroadcastHashJoinContext(
+    buildSideJoinKeys: Seq[Expression],
+    substraitJoinType: JoinRel.JoinType,
+    buildRight: Boolean,
+    hasMixedFiltCondition: Boolean,
+    isExistenceJoin: Boolean,
+    buildSideStructure: Seq[Attribute],
+    buildHashTableId: String,
+    isNullAwareAntiJoin: Boolean = false,
+    bloomFilterPushdownSize: Long,
+    broadcastHashTableBuildThreads: Int)

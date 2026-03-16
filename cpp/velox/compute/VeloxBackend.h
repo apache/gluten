@@ -28,6 +28,7 @@
 #include "velox/common/config/Config.h"
 #include "velox/common/memory/MmapAllocator.h"
 
+#include "jni/JniHashTable.h"
 #include "memory/VeloxMemoryManager.h"
 
 namespace gluten {
@@ -54,6 +55,10 @@ class VeloxBackend {
 
   VeloxMemoryManager* getGlobalMemoryManager() const {
     return globalMemoryManager_.get();
+  }
+
+  folly::Executor* executor() const {
+    return ioExecutor_.get();
   }
 
   void tearDown();

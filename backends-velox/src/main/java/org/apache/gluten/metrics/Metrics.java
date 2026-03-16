@@ -40,6 +40,7 @@ public class Metrics implements IMetrics {
   public long[] numDynamicFiltersProduced;
   public long[] numDynamicFiltersAccepted;
   public long[] numReplacedWithDynamicFilterRows;
+  public long[] numDynamicFilterInputRows;
   public long[] flushRowCount;
   public long[] loadedToValueHook;
   public long[] bloomFilterBlocksByteSize;
@@ -90,6 +91,7 @@ public class Metrics implements IMetrics {
       long[] numDynamicFiltersProduced,
       long[] numDynamicFiltersAccepted,
       long[] numReplacedWithDynamicFilterRows,
+      long[] numDynamicFilterInputRows,
       long[] flushRowCount,
       long[] loadedToValueHook,
       long[] bloomFilterBlocksByteSize,
@@ -134,6 +136,7 @@ public class Metrics implements IMetrics {
     this.numDynamicFiltersProduced = numDynamicFiltersProduced;
     this.numDynamicFiltersAccepted = numDynamicFiltersAccepted;
     this.numReplacedWithDynamicFilterRows = numReplacedWithDynamicFilterRows;
+    this.numDynamicFilterInputRows = numDynamicFilterInputRows;
     this.flushRowCount = flushRowCount;
     this.loadedToValueHook = loadedToValueHook;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
@@ -184,6 +187,7 @@ public class Metrics implements IMetrics {
         numDynamicFiltersProduced[index],
         numDynamicFiltersAccepted[index],
         numReplacedWithDynamicFilterRows[index],
+        numDynamicFilterInputRows[index],
         flushRowCount[index],
         loadedToValueHook[index],
         bloomFilterBlocksByteSize[index],

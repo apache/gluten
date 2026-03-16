@@ -26,7 +26,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 case class CHColumnarToCarrierRowExec(override val child: SparkPlan)
   extends ColumnarToCarrierRowExecBase {
   override protected def fromBatchType(): Convention.BatchType = CHBatchType
-  override def rowType0(): Convention.RowType = CHCarrierRowType
+  override def rowType(): Convention.RowType = CHCarrierRowType
   override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
     copy(child = newChild)
   // Since https://github.com/apache/incubator-gluten/pull/1595.

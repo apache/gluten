@@ -33,7 +33,7 @@ RUN set -ex; \
     pip3 install cmake; \
     rpm -qa | grep tzdata; \
     dnf clean all; \
-    git clone --depth=1 https://github.com/apache/incubator-gluten /opt/gluten; \
+    git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
     mkdir -p ${VCPKG_PATH}; \
     echo "Build arrow, then install the native libs to system paths and jar package to .m2/ directory."; \
     if [ "$(uname -m)" = "aarch64" ]; then \

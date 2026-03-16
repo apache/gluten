@@ -32,6 +32,7 @@ public class JoinRelNode implements RelNode, Serializable {
   private final ExpressionNode expression;
   private final ExpressionNode postJoinFilter;
   private final AdvancedExtensionNode extensionNode;
+  private final String hashTableId;
 
   JoinRelNode(
       RelNode left,
@@ -39,12 +40,14 @@ public class JoinRelNode implements RelNode, Serializable {
       JoinRel.JoinType joinType,
       ExpressionNode expression,
       ExpressionNode postJoinFilter,
+      String hashTableId,
       AdvancedExtensionNode extensionNode) {
     this.left = left;
     this.right = right;
     this.joinType = joinType;
     this.expression = expression;
     this.postJoinFilter = postJoinFilter;
+    this.hashTableId = hashTableId;
     this.extensionNode = extensionNode;
   }
 
@@ -71,6 +74,8 @@ public class JoinRelNode implements RelNode, Serializable {
     if (extensionNode != null) {
       joinBuilder.setAdvancedExtension(extensionNode.toProtobuf());
     }
+
+    joinBuilder.setHashTableId(hashTableId);
 
     return Rel.newBuilder().setJoin(joinBuilder.build()).build();
   }

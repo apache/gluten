@@ -30,14 +30,18 @@
 #include "config/GlutenConfig.h"
 #include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
+#include "jni/JniHashTable.h"
+#include "memory/AllocationListener.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
+#include "operators/hashjoin/HashTableBuilder.h"
 #include "shuffle/rss/RssPartitionWriter.h"
 #include "substrait/SubstraitToVeloxPlanValidator.h"
 #include "utils/ObjectStore.h"
 #include "utils/VeloxBatchResizer.h"
 #include "velox/common/base/BloomFilter.h"
 #include "velox/common/file/FileSystems.h"
+#include "velox/exec/HashTable.h"
 
 #ifdef GLUTEN_ENABLE_GPU
 #include "cudf/CudfPlanValidator.h"
@@ -76,6 +80,7 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
   getJniErrorState()->ensureInitialized(env);
   initVeloxJniFileSystem(env);
   initVeloxJniUDF(env);
+  initVeloxJniHashTable(env, vm);
 
   infoCls = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/validate/NativePlanValidationInfo;");
   infoClsInitMethod = getMethodIdOrError(env, infoCls, "<init>", "(ILjava/lang/String;)V");
@@ -84,8 +89,7 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
       createGlobalClassReferenceOrError(env, "Lorg/apache/spark/sql/execution/datasources/BlockStripes;");
   blockStripesConstructor = getMethodIdOrError(env, blockStripesClass, "<init>", "(J[J[II[[B)V");
 
-  batchWriteMetricsClass =
-    createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/BatchWriteMetrics;");
+  batchWriteMetricsClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/BatchWriteMetrics;");
   batchWriteMetricsConstructor = getMethodIdOrError(env, batchWriteMetricsClass, "<init>", "(JIJJ)V");
 
   DLOG(INFO) << "Loaded Velox backend.";
@@ -102,6 +106,7 @@ void JNI_OnUnload(JavaVM* vm, void*) {
 
   finalizeVeloxJniUDF(env);
   finalizeVeloxJniFileSystem(env);
+  finalizeVeloxJniHashTable(env);
   getJniErrorState()->close();
   getJniCommonState()->close();
   google::ShutdownGoogleLogging();
@@ -183,8 +188,7 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeValidateWithFail
   JNI_METHOD_END(nullptr)
 }
 
-JNIEXPORT jboolean JNICALL
-Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeValidateExpression( // NOLINT
+JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeValidateExpression( // NOLINT
     JNIEnv* env,
     jobject wrapper,
     jbyteArray exprArray,
@@ -439,8 +443,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_utils_VeloxBatchResizerJniWrapper
   auto ctx = getRuntime(env, wrapper);
   auto pool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->getLeafMemoryPool();
   auto iter = makeJniColumnarBatchIterator(env, jIter, ctx);
-  auto appender = std::make_shared<ResultIterator>(
-      std::make_unique<VeloxBatchResizer>(pool.get(), minOutputBatchSize, maxOutputBatchSize, preferredBatchBytes, std::move(iter)));
+  auto appender = std::make_shared<ResultIterator>(std::make_unique<VeloxBatchResizer>(
+      pool.get(), minOutputBatchSize, maxOutputBatchSize, preferredBatchBytes, std::move(iter)));
   return ctx->saveObject(appender);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -450,6 +454,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_utils_GpuBufferBatchResizerJniWra
     JNIEnv* env,
     jobject wrapper,
     jint minOutputBatchSize,
+    jlong maxPrefetchBatchBytes,
     jobject jIter) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
@@ -457,7 +462,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_utils_GpuBufferBatchResizerJniWra
   auto pool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->getLeafMemoryPool();
   auto iter = makeJniColumnarBatchIterator(env, jIter, ctx);
   auto appender = std::make_shared<ResultIterator>(
-      std::make_unique<GpuBufferBatchResizer>(arrowPool, pool.get(), minOutputBatchSize, std::move(iter)));
+      std::make_unique<GpuBufferBatchResizer>(arrowPool, pool.get(), minOutputBatchSize, maxPrefetchBatchBytes, std::move(iter)));
   return ctx->saveObject(appender);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -583,12 +588,15 @@ Java_org_apache_gluten_datasource_VeloxDataSourceJniWrapper_splitBlockByPartitio
   const auto numRows = inputRowVector->size();
 
   connector::hive::PartitionIdGenerator idGen(
-      asRowType(inputRowVector->type()), partitionColIndicesVec, 65536, pool.get()
+      asRowType(inputRowVector->type()),
+      partitionColIndicesVec,
+      65536,
+      pool.get()
 #ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
-      ,
+          ,
       true
-#endif    
-    );
+#endif
+  );
   raw_vector<uint64_t> partitionIds{};
   idGen.run(inputRowVector, partitionIds);
   GLUTEN_CHECK(partitionIds.size() == numRows, "Mismatched number of partition ids");
@@ -914,18 +922,190 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrappe
   auto writer = ObjectStore::retrieve<IcebergWriter>(writerHandle);
   auto writeStats = writer->writeStats();
   jobject writeMetrics = env->NewObject(
-    batchWriteMetricsClass,
-    batchWriteMetricsConstructor,
-    writeStats.numWrittenBytes,
-    writeStats.numWrittenFiles,
-    writeStats.writeIOTimeNs,
-    writeStats.writeWallNs);
+      batchWriteMetricsClass,
+      batchWriteMetricsConstructor,
+      writeStats.numWrittenBytes,
+      writeStats.numWrittenFiles,
+      writeStats.writeIOTimeNs,
+      writeStats.writeWallNs);
   return writeMetrics;
 
   JNI_METHOD_END(nullptr)
 }
 #endif
 
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_nativeBuild( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jstring tableId,
+    jlongArray batchHandles,
+    jobjectArray joinKeys,
+    jint joinType,
+    jboolean hasMixedJoinCondition,
+    jboolean isExistenceJoin,
+    jbyteArray namedStruct,
+    jboolean isNullAwareAntiJoin,
+    jlong bloomFilterPushdownSize,
+    jint broadcastHashTableBuildThreads) {
+  JNI_METHOD_START
+  const auto hashTableId = jStringToCString(env, tableId);
+
+  // Convert Java String array to C++ vector<string>
+  std::vector<std::string> hashJoinKeys;
+  jsize joinKeysCount = env->GetArrayLength(joinKeys);
+  hashJoinKeys.reserve(joinKeysCount);
+  for (jsize i = 0; i < joinKeysCount; ++i) {
+    jstring jkey = (jstring)env->GetObjectArrayElement(joinKeys, i);
+    hashJoinKeys.emplace_back(jStringToCString(env, jkey));
+  }
+
+  const auto inputType = gluten::getByteArrayElementsSafe(env, namedStruct);
+  std::string structString{
+      reinterpret_cast<const char*>(inputType.elems()), static_cast<std::string::size_type>(inputType.length())};
+
+  substrait::NamedStruct substraitStruct;
+  substraitStruct.ParseFromString(structString);
+
+  std::vector<facebook::velox::TypePtr> veloxTypeList;
+  veloxTypeList = SubstraitParser::parseNamedStruct(substraitStruct);
+
+  const auto& substraitNames = substraitStruct.names();
+
+  std::vector<std::string> names;
+  names.reserve(substraitNames.size());
+  for (const auto& name : substraitNames) {
+    names.emplace_back(name);
+  }
+
+  std::vector<std::shared_ptr<ColumnarBatch>> cb;
+  int handleCount = env->GetArrayLength(batchHandles);
+  auto safeArray = getLongArrayElementsSafe(env, batchHandles);
+  for (int i = 0; i < handleCount; ++i) {
+    int64_t handle = safeArray.elems()[i];
+    cb.push_back(ObjectStore::retrieve<ColumnarBatch>(handle));
+  }
+
+  size_t maxThreads = broadcastHashTableBuildThreads > 0
+      ? std::min((size_t)broadcastHashTableBuildThreads, (size_t)32)
+      : std::min((size_t)std::thread::hardware_concurrency(), (size_t)32);
+
+  // Heuristic: Each thread should process at least a certain number of batches to justify parallelism overhead.
+  // 32 batches is roughly 128k rows, which is a reasonable granularity for a single thread.
+  constexpr size_t kMinBatchesPerThread = 32;
+  size_t numThreads = std::min(maxThreads, (handleCount + kMinBatchesPerThread - 1) / kMinBatchesPerThread);
+  numThreads = std::max((size_t)1, numThreads);
+
+  if (numThreads <= 1) {
+    auto builder = nativeHashTableBuild(
+        hashJoinKeys,
+        names,
+        veloxTypeList,
+        joinType,
+        hasMixedJoinCondition,
+        isExistenceJoin,
+        isNullAwareAntiJoin,
+        bloomFilterPushdownSize,
+        cb,
+        defaultLeafVeloxMemoryPool());
+
+    auto mainTable = builder->uniqueTable();
+    mainTable->prepareJoinTable(
+        {},
+        facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
+        1'000'000,
+        builder->dropDuplicates(),
+        nullptr);
+    builder->setHashTable(std::move(mainTable));
+
+    return gluten::getHashTableObjStore()->save(builder);
+  }
+
+  std::vector<std::thread> threads;
+
+  std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(numThreads);
+  std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(numThreads);
+
+  for (size_t t = 0; t < numThreads; ++t) {
+    size_t start = (handleCount * t) / numThreads;
+    size_t end = (handleCount * (t + 1)) / numThreads;
+
+    threads.emplace_back([&, t, start, end]() {
+      std::vector<std::shared_ptr<gluten::ColumnarBatch>> threadBatches;
+      for (size_t i = start; i < end; ++i) {
+        threadBatches.push_back(cb[i]);
+      }
+
+      auto builder = nativeHashTableBuild(
+          hashJoinKeys,
+          names,
+          veloxTypeList,
+          joinType,
+          hasMixedJoinCondition,
+          isExistenceJoin,
+          isNullAwareAntiJoin,
+          bloomFilterPushdownSize,
+          threadBatches,
+          defaultLeafVeloxMemoryPool());
+
+      hashTableBuilders[t] = std::move(builder);
+      otherTables[t] = std::move(hashTableBuilders[t]->uniqueTable());
+    });
+  }
+
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  auto mainTable = std::move(otherTables[0]);
+  std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> tables;
+  for (int i = 1; i < numThreads; ++i) {
+    tables.push_back(std::move(otherTables[i]));
+  }
+
+  // TODO: Get accurate signal if parallel join build is going to be applied
+  //  from hash table. Currently there is still a chance inside hash table that
+  //  it might decide it is not going to trigger parallel join build.
+  const bool allowParallelJoinBuild = !tables.empty();
+
+  mainTable->prepareJoinTable(
+      std::move(tables),
+      facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
+      1'000'000,
+      hashTableBuilders[0]->dropDuplicates(),
+      allowParallelJoinBuild ? VeloxBackend::get()->executor() : nullptr);
+
+  for (int i = 1; i < numThreads; ++i) {
+    if (hashTableBuilders[i]->joinHasNullKeys()) {
+      hashTableBuilders[0]->setJoinHasNullKeys(true);
+      break;
+    }
+  }
+
+  hashTableBuilders[0]->setHashTable(std::move(mainTable));
+  return gluten::getHashTableObjStore()->save(hashTableBuilders[0]);
+  JNI_METHOD_END(kInvalidObjectHandle)
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_cloneHashTable( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong tableHandler) {
+  JNI_METHOD_START
+  auto hashTableHandler = ObjectStore::retrieve<gluten::HashTableBuilder>(tableHandler);
+  return gluten::getHashTableObjStore()->save(hashTableHandler);
+  JNI_METHOD_END(kInvalidObjectHandle)
+}
+
+JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_clearHashTable( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong tableHandler) {
+  JNI_METHOD_START
+  auto hashTableHandler = ObjectStore::retrieve<gluten::HashTableBuilder>(tableHandler);
+  hashTableHandler->hashTable()->clear(true);
+  ObjectStore::release(tableHandler);
+  JNI_METHOD_END()
+}
 #ifdef __cplusplus
 }
 #endif

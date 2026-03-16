@@ -878,6 +878,13 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenBitmapExpressionsQuerySuite]
   enableSuite[GlutenEmptyInSuite]
   enableSuite[GlutenRuntimeNullChecksV2Writes]
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("NOT NULL checks for atomic top-level fields (byName)")
+    .exclude("NOT NULL checks for atomic top-level fields (byPosition)")
+    .exclude("NOT NULL checks for nested struct fields (byName)")
+    .exclude("NOT NULL checks for nested struct fields (byPosition)")
+    .exclude("NOT NULL checks for nullable array with required element (byPosition)")
+    .exclude("not null checks for fields inside nullable array (byPosition)")
   enableSuite[GlutenTableOptionsConstantFoldingSuite]
   enableSuite[GlutenDeltaBasedMergeIntoTableSuite]
   enableSuite[GlutenDeltaBasedMergeIntoTableUpdateAsDeleteAndInsertSuite]

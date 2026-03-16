@@ -21,6 +21,8 @@ import io.github.zhztheplayer.velox4j.memory.AllocationListener;
 import io.github.zhztheplayer.velox4j.memory.MemoryManager;
 import io.github.zhztheplayer.velox4j.session.Session;
 
+import org.apache.flink.runtime.state.KeyedStateBackend;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 
@@ -29,6 +31,7 @@ class GlutenSessionResource {
   private Session session;
   private MemoryManager memoryManager;
   private BufferAllocator allocator;
+  private KeyedStateBackend<?> keyedStateBackend;
 
   public GlutenSessionResource() {
     this.memoryManager = MemoryManager.create(AllocationListener.NOOP);
@@ -61,5 +64,13 @@ class GlutenSessionResource {
 
   public BufferAllocator getAllocator() {
     return allocator;
+  }
+
+  public KeyedStateBackend<?> getKeyedStateBackend() {
+    return keyedStateBackend;
+  }
+
+  public void setKeyedStateBackend(KeyedStateBackend<?> keyedStateBackend) {
+    this.keyedStateBackend = keyedStateBackend;
   }
 }

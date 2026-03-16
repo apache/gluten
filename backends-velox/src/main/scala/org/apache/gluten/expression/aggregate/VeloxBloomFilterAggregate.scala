@@ -16,13 +16,12 @@
  */
 package org.apache.gluten.expression.aggregate
 
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.VeloxBloomFilter
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.catalyst.expressions.aggregate.TypedImperativeAggregate
+import org.apache.spark.sql.catalyst.expressions.aggregate.{BloomFilterAggregate, TypedImperativeAggregate}
 import org.apache.spark.sql.catalyst.trees.TernaryLike
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
@@ -47,12 +46,12 @@ case class VeloxBloomFilterAggregate(
   extends TypedImperativeAggregate[BloomFilter]
   with TernaryLike[Expression] {
 
-  private val delegate = SparkShimLoader.getSparkShims.newBloomFilterAggregate[BloomFilter](
+  private val delegate = BloomFilterAggregate(
     child,
     estimatedNumItemsExpression,
     numBitsExpression,
     mutableAggBufferOffset,
-    inputAggBufferOffset)
+    inputAggBufferOffset).asInstanceOf[TypedImperativeAggregate[BloomFilter]]
 
   override def prettyName: String = "velox_bloom_filter_agg"
 

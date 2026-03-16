@@ -62,7 +62,7 @@ jobs:
           sudo yum install https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/tzdata-2025a-1.el9.noarch.rpm -y
           sudo .github/workflows/util/install-flink-resources.sh
           git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
-          cd velox4j && git reset --hard 288d181a1b05c47f1f17339eb498dd6375f7aec8
+          cd velox4j && git reset --hard 889bafcf2fa04e8c31a30edbdf40fe203ef58484
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..

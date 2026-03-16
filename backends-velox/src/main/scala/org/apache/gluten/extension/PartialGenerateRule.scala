@@ -17,7 +17,7 @@
 package org.apache.gluten.extension
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{ColumnarPartialGenerateExec, GenerateExecTransformer}
+import org.apache.gluten.execution.{ColumnarPartialGenerateExec, GenerateExecTransformer, WholeStageTransformer}
 import org.apache.gluten.utils.PlanUtil
 
 import org.apache.spark.sql.catalyst.expressions.UserDefinedExpression
@@ -29,23 +29,23 @@ case class PartialGenerateRule() extends Rule[SparkPlan] {
     if (!GlutenConfig.get.enableColumnarPartialGenerate) {
       return plan
     }
-    val newPlan = plan match {
-      // If the root node of the plan is a GenerateExec and its child is a gluten columnar op,
-      // we try to add a ColumnarPartialGenerateExec
-      case plan: GenerateExec if PlanUtil.isGlutenColumnarOp(plan.child) =>
-        tryAddColumnarPartialGenerateExec(plan)
-      case _ => plan
-    }
-    newPlan.transformUp {
-      case parent: SparkPlan
-          if parent.children.exists(_.isInstanceOf[GenerateExec]) &&
-            PlanUtil.isGlutenColumnarOp(parent) =>
-        parent.mapChildren {
-          case plan: GenerateExec if PlanUtil.isGlutenColumnarOp(plan.child) =>
-            tryAddColumnarPartialGenerateExec(plan)
-          case other => other
-        }
-    }
+    // Wrap a WholeStageTransformer to check if the top node supports partial fallback.
+    // It will be removed afterward.
+    val wrapped = WholeStageTransformer(plan)(-1)
+    wrapped
+      .transformUp {
+        case parent: SparkPlan
+            if parent.children.exists(_.isInstanceOf[GenerateExec]) &&
+              (PlanUtil.isGlutenColumnarOp(parent) || PartialFallback.supportPartialFallback(
+                parent)) =>
+          parent.mapChildren {
+            case plan: GenerateExec if PlanUtil.isGlutenColumnarOp(plan.child) =>
+              tryAddColumnarPartialGenerateExec(plan)
+            case other => other
+          }
+      }
+      .children
+      .head
   }
 
   private def tryAddColumnarPartialGenerateExec(plan: GenerateExec): SparkPlan = {

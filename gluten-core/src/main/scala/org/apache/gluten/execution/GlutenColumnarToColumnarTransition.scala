@@ -30,7 +30,7 @@ trait GlutenColumnarToColumnarTransition extends ColumnarToColumnarTransition wi
 
   override def batchType(): Convention.BatchType = to
 
-  override def rowType0(): Convention.RowType = {
+  override def rowType(): Convention.RowType = {
     Convention.RowType.None
   }
 

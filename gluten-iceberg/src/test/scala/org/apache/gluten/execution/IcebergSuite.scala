@@ -664,4 +664,32 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
       assert(result.head.getString(1) == "test_data")
     }
   }
+
+  test("assert_not_null with iceberg table") {
+    withTable("iceberg_not_null") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_not_null (id BIGINT NOT NULL, name STRING NOT NULL)
+                  |USING iceberg
+                  |""".stripMargin)
+      // Insert non-null values should succeed with AssertNotNull offloaded.
+      spark.sql("INSERT INTO iceberg_not_null VALUES (1, 'a'), (2, 'b')")
+      runQueryAndCompare("SELECT * FROM iceberg_not_null") {
+        checkGlutenPlan[IcebergScanTransformer]
+      }
+
+      // Insert from a query with nullable source columns.
+      spark.sql(
+        "INSERT INTO iceberg_not_null SELECT id + 10, CAST(id AS STRING) FROM iceberg_not_null")
+      val df = runQueryAndCompare("SELECT * FROM iceberg_not_null ORDER BY id") { _ => }
+      assert(df.count() == 4)
+
+      // Insert null into NOT NULL column should throw.
+      val e = intercept[Exception] {
+        spark.sql("INSERT INTO iceberg_not_null VALUES (null, 'c')").collect()
+      }
+      assert(
+        e.getMessage.contains("null") || e.getMessage.contains("NOT_NULL") ||
+          e.getCause != null && e.getCause.getMessage.contains("null"))
+    }
+  }
 }

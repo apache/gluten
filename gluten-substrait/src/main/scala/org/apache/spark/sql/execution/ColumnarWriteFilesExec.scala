@@ -70,7 +70,7 @@ abstract class ColumnarWriteFilesExec protected (
    * Since https://github.com/apache/incubator-gluten/pull/6745.
    */
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
-  override def rowType0(): RowType = {
+  override def rowType(): RowType = {
     RowType.VanillaRowType
   }
 

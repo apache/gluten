@@ -19,19 +19,36 @@ package org.apache.gluten.test;
 import org.apache.gluten.backendsapi.ListenerApi;
 import org.apache.gluten.backendsapi.velox.VeloxListenerApi;
 
+import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.test.TestSparkSession;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 
 public abstract class VeloxBackendTestBase {
   private static final ListenerApi API = new VeloxListenerApi();
+  private static SparkSession sparkSession = null;
 
   @BeforeClass
   public static void setup() {
+    if (sparkSession == null) {
+      sparkSession =
+          TestSparkSession.builder()
+              .appName("VeloxBackendTest")
+              .master("local[1]")
+              .config(MockVeloxBackend.mockPluginContext().conf())
+              .getOrCreate();
+    }
+
     API.onExecutorStart(MockVeloxBackend.mockPluginContext());
   }
 
   @AfterClass
   public static void tearDown() {
     API.onExecutorShutdown();
+
+    if (sparkSession != null) {
+      sparkSession.stop();
+      sparkSession = null;
+    }
   }
 }

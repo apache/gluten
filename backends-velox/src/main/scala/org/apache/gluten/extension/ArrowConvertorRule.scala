@@ -19,14 +19,13 @@ package org.apache.gluten.extension
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.datasource.ArrowCSVFileFormat
 import org.apache.gluten.datasource.v2.ArrowCSVTable
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.csv.CSVOptions
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.catalyst.util.PermissiveMode
+import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, PermissiveMode}
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
 import org.apache.spark.sql.execution.datasources.csv.CSVFileFormat
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
@@ -102,6 +101,7 @@ case class ArrowConvertorRule(session: SparkSession) extends Rule[LogicalPlan] {
   }
 
   private def checkCsvOptions(csvOptions: CSVOptions, timeZone: String): Boolean = {
+    val default = new CSVOptions(CaseInsensitiveMap(Map()), csvOptions.columnPruning, timeZone)
     csvOptions.headerFlag && !csvOptions.multiLine &&
     csvOptions.delimiter.length == 1 &&
     csvOptions.quote == '\"' &&
@@ -112,7 +112,9 @@ case class ArrowConvertorRule(session: SparkSession) extends Rule[LogicalPlan] {
     csvOptions.nullValue == "" &&
     csvOptions.emptyValueInRead == "" && csvOptions.comment == '\u0000' &&
     csvOptions.columnPruning &&
-    SparkShimLoader.getSparkShims.dateTimestampFormatInReadIsDefaultValue(csvOptions, timeZone)
+    csvOptions.dateFormatInRead == default.dateFormatInRead &&
+    csvOptions.timestampFormatInRead == default.timestampFormatInRead &&
+    csvOptions.timestampNTZFormatInRead == default.timestampNTZFormatInRead
   }
 
 }

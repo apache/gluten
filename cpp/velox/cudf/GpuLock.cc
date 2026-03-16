@@ -55,6 +55,19 @@ void lockGpu() {
     getGpuLockState().gGpuOwner = tid;
 }
 
+bool tryLockGpu() {
+    std::thread::id tid = std::this_thread::get_id();
+    std::unique_lock<std::mutex> lock(getGpuLockState().gGpuMutex);
+    if (getGpuLockState().gGpuOwner == tid) {
+        return true;
+    }
+    if (getGpuLockState().gGpuOwner.has_value()) {
+        return false;
+    }
+    getGpuLockState().gGpuOwner = tid;
+    return true;
+}
+
 void unlockGpu() {
     std::thread::id tid = std::this_thread::get_id();
     std::unique_lock<std::mutex> lock(getGpuLockState().gGpuMutex);

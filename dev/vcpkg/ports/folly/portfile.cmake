@@ -13,6 +13,7 @@ vcpkg_from_github(
         disable-uninitialized-resize-on-new-stl.patch
         fix-unistd-include.patch
         fix-absolute-dir.patch
+        adding-api.patch
 )
 file(REMOVE "${SOURCE_PATH}/CMake/FindFastFloat.cmake")
 file(REMOVE "${SOURCE_PATH}/CMake/FindFmt.cmake")

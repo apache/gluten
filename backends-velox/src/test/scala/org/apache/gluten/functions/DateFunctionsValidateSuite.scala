@@ -16,30 +16,14 @@
  */
 package org.apache.gluten.functions
 
-import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 
-import org.apache.spark.SparkConf
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.types.Decimal
 
 import java.sql.Timestamp
 
-class DateFunctionsValidateSuiteRasOff extends DateFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "false")
-  }
-}
-
-class DateFunctionsValidateSuiteRasOn extends DateFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
-
-abstract class DateFunctionsValidateSuite extends FunctionsValidateSuite {
+class DateFunctionsValidateSuite extends FunctionsValidateSuite {
   disableFallbackCheck
 
   import testImplicits._

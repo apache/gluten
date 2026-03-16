@@ -302,10 +302,6 @@ object Validators {
   /**
    * A validator that doesn't involve native validation.
    *
-   * This is typically RAS planner that does native validation inline without relying on tags. Thus,
-   * validator `#fallbackByNativeValidation` is not required. See
-   * [[org.apache.gluten.extension.columnar.enumerated.RasOffload]].
-   *
    * This could also be used in legacy planner for doing trivial offload without the help of rewrite
    * rules.
    */

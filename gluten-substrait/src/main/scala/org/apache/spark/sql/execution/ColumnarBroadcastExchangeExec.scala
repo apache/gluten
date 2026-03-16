@@ -128,12 +128,10 @@ case class ColumnarBroadcastExchangeExec(mode: BroadcastMode, child: SparkPlan)
 
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 
   override def doCanonicalize(): SparkPlan = {
-    val canonicalized =
-      BackendsApiManager.getSparkPlanExecApiInstance.doCanonicalizeForBroadcastMode(mode)
-    ColumnarBroadcastExchangeExec(canonicalized, child.canonicalized)
+    ColumnarBroadcastExchangeExec(mode.canonicalized, child.canonicalized)
   }
 
   override def doPrepare(): Unit = {

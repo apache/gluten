@@ -407,7 +407,7 @@ spark-shell --name run_gluten \
  --conf spark.plugins=org.apache.gluten.GlutenPlugin \
  --conf spark.memory.offHeap.enabled=true \
  --conf spark.memory.offHeap.size=20g \
- --jars https://dlcdn.apache.org/incubator/gluten/1.4.0-incubating/apache-gluten-1.4.0-incubating-bin-spark35.tar.gz \
+ --jars https://dlcdn.apache.org/gluten/1.6.0/apache-gluten-1.6.0-bin-spark-3.5.tar.gz \
  --conf spark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager
 ```
 

@@ -58,7 +58,7 @@ class SQLQuerySuite extends WholeStageTransformerSuite {
         val df = spark.createDataFrame(data).toDF("key", "value")
         df.createOrReplaceTempView("src")
 
-        // decimal
+        // decimal with fractional truncation
         sql("create table dynparttest2 (value int) partitioned by (pdec decimal(5, 1))")
         sql("""
               |insert into table dynparttest2 partition(pdec)
@@ -67,6 +67,62 @@ class SQLQuerySuite extends WholeStageTransformerSuite {
         checkAnswer(
           sql("select * from dynparttest2"),
           Seq(Row(6, new java.math.BigDecimal("100.1"))))
+      }
+
+      // small decimal with scale > 0
+      withTable("dynparttest_small") {
+        sql("create table dynparttest_small (value int) partitioned by (pdec decimal(3, 2))")
+        sql("""
+              |insert into table dynparttest_small partition(pdec)
+              | select count(*), cast('1.23' as decimal(3, 2)) as pdec from src
+          """.stripMargin)
+        checkAnswer(
+          sql("select * from dynparttest_small"),
+          Seq(Row(6, new java.math.BigDecimal("1.23"))))
+      }
+
+      // zero scale with no fractional part
+      withTable("dynparttest_zero_scale") {
+        sql("create table dynparttest_zero_scale (value int) partitioned by (pdec decimal(10, 0))")
+        sql("""
+              |insert into table dynparttest_zero_scale partition(pdec)
+              | select count(*), cast('42' as decimal(10, 0)) as pdec from src
+          """.stripMargin)
+        checkAnswer(
+          sql("select * from dynparttest_zero_scale"),
+          Seq(Row(6, new java.math.BigDecimal("42"))))
+      }
+
+      // negative value with scale
+      withTable("dynparttest_neg") {
+        sql("create table dynparttest_neg (value int) partitioned by (pdec decimal(5, 2))")
+        sql("""
+              |insert into table dynparttest_neg partition(pdec)
+              | select count(*), cast('-3.14' as decimal(5, 2)) as pdec from src
+          """.stripMargin)
+        checkAnswer(
+          sql("select * from dynparttest_neg"),
+          Seq(Row(6, new java.math.BigDecimal("-3.14"))))
+      }
+
+      // multiple distinct partition values
+      withTable("dynparttest_multi") {
+        sql("create table dynparttest_multi (value int) partitioned by (pdec decimal(4, 1))")
+        sql("""
+              |insert into table dynparttest_multi partition(pdec)
+              | select count(*), cast('10.5' as decimal(4, 1)) as pdec from src
+          """.stripMargin)
+        sql("""
+              |insert into table dynparttest_multi partition(pdec)
+              | select count(*), cast('20.3' as decimal(4, 1)) as pdec from src
+          """.stripMargin)
+        checkAnswer(
+          sql("select * from dynparttest_multi order by pdec"),
+          Seq(Row(6, new java.math.BigDecimal("10.5")), Row(6, new java.math.BigDecimal("20.3"))))
+        // partition pruning
+        checkAnswer(
+          sql("select * from dynparttest_multi where pdec = 10.5"),
+          Seq(Row(6, new java.math.BigDecimal("10.5"))))
       }
     }
   }

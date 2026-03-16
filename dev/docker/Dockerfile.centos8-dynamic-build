@@ -36,13 +36,13 @@ RUN set -ex; \
     wget -nv ${mirror_host}/celeborn/celeborn-0.6.1/apache-celeborn-0.6.1-bin.tgz?action=download -O /opt/apache-celeborn-0.6.1-bin.tgz; \
     wget -nv ${mirror_host}/uniffle/0.10.0/apache-uniffle-0.10.0-bin.tar.gz?action=download -O /opt/apache-uniffle-0.10.0-bin.tar.gz; \
     wget -nv ${mirror_host}/hadoop/common/hadoop-2.8.5/hadoop-2.8.5.tar.gz?action=download -O /opt/hadoop-2.8.5.tar.gz; \
-    git clone --depth=1 https://github.com/apache/incubator-gluten /opt/gluten; \
+    git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
     cd /opt/gluten/.github/workflows/util/; \
-    ./install-spark-resources.sh 3.3; \
-    ./install-spark-resources.sh 3.4; \
-    ./install-spark-resources.sh 3.5; \
-    ./install-spark-resources.sh 3.5-scala2.13; \
-    ./install-spark-resources.sh 4.0; \
+    ./install-resources.sh 3.3; \
+    ./install-resources.sh 3.4; \
+    ./install-resources.sh 3.5; \
+    ./install-resources.sh 3.5-scala2.13; \
+    ./install-resources.sh 4.0; \
     if [ "$(uname -m)" = "aarch64" ]; then \
         export CPU_TARGET="aarch64"; \
     fi; \

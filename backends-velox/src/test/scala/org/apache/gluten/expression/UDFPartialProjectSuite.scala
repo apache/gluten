@@ -30,21 +30,7 @@ case class MyStruct(a: Long, b: Array[Long])
 
 case class MyStructWithNullValue(a: Option[Long], b: Array[Long])
 
-class UDFPartialProjectSuiteRasOff extends UDFPartialProjectSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "false")
-  }
-}
-
-class UDFPartialProjectSuiteRasOn extends UDFPartialProjectSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
-
-abstract class UDFPartialProjectSuite extends WholeStageTransformerSuite {
+class UDFPartialProjectSuite extends WholeStageTransformerSuite {
   disableFallbackCheck
   override protected val resourcePath: String = "/tpch-data-parquet"
   override protected val fileFormat: String = "parquet"
@@ -116,6 +102,21 @@ abstract class UDFPartialProjectSuite extends WholeStageTransformerSuite {
         "where l_orderkey < 3") {
       checkGlutenPlan[ColumnarPartialProjectExec]
     }
+  }
+
+  testWithMinSparkVersion("test plus_one in nested project lists", "3.4") {
+    val sql = """
+                |select plus_one(col1) as col2, l_partkey from (
+                | select plus_one(l_orderkey) as col1, l_partkey from lineitem
+                |)""".stripMargin
+    runQueryAndCompare(sql) {
+      checkGlutenPlan[ColumnarPartialProjectExec]
+    }
+
+    val df = spark.sql(sql)
+    assert(df.queryExecution.executedPlan.collect {
+      case p: ColumnarPartialProjectExec => p
+    }.size == 2)
   }
 
   test("test plus_one with many columns in project") {

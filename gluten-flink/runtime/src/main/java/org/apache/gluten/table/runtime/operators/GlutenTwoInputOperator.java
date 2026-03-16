@@ -253,7 +253,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   public void initializeState(StateInitializationContext context) throws Exception {
     initSession();
     // TODO: implement it
-    task.initializeState(0);
+    task.initializeState(0, null);
     super.initializeState(context);
   }
 

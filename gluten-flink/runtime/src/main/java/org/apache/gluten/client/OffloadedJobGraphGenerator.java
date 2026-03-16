@@ -240,14 +240,7 @@ public class OffloadedJobGraphGenerator {
     Class<?> inClass = supportsVectorInput ? StatefulRecord.class : RowData.class;
     Class<?> outClass = supportsVectorOutput ? StatefulRecord.class : RowData.class;
     GlutenOneInputOperator<?, ?> newOneInputOp =
-        new GlutenOneInputOperator<>(
-            planNode,
-            sourceOperator.getId(),
-            sourceOperator.getInputType(),
-            sourceOperator.getOutputTypes(),
-            inClass,
-            outClass,
-            sourceOperator.getDescription());
+        sourceOperator.cloneWithInputOutputClasses(inClass, outClass);
     offloadedOpConfig.setStreamOperator(newOneInputOp);
     if (supportsVectorOutput) {
       setOffloadedOutputSerializer(offloadedOpConfig, sourceOperator);

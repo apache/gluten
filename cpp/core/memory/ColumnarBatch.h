@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "arrow/c/bridge.h"
 #include "arrow/c/helpers.h"
@@ -59,6 +60,8 @@ class ColumnarBatch {
 
  protected:
   int64_t exportNanos_;
+  // If the batch is immutable batch, the numBytes_ should be a fixed value, lazy set it.
+  std::optional<int64_t> numBytes_;
 };
 
 class ArrowColumnarBatch final : public ColumnarBatch {

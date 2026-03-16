@@ -38,7 +38,7 @@ clone the repository of Gluten with a specific git tag that you want to build on
 We are taking `v1.6.0-example-rc3` as an example git tag in this guide.
 
 ```bash
-git clone --branch v1.6.0-example-rc3 https://github.com/apache/incubator-gluten.git /workspace
+git clone --branch v1.6.0-example-rc3 https://github.com/apache/gluten.git /workspace
 ```
 
 ### Build
@@ -55,7 +55,7 @@ bash dev/release/build-release.sh
 ```bash
 cd /workspace
 mkdir -p release
-copy -R package/target/* release/
+cp -R package/target/* release/
 ```
 
 ### Package the release sources and binaries
@@ -78,17 +78,17 @@ Confirm that all the needed sources and binaries are successfully created at the
 ```bash
 [root@8de83f716f0f workspace]# ls -l release/
 total 481628
--rw-r--r--. 1 root root  74396439 Oct 14 14:19 apache-gluten-1.6.0-example-incubating-src.tar.gz
--rw-r--r--. 1 root root 104790092 Oct 14 14:19 apache-gluten-1.6.0-example-incubating-bin-spark-3.2.tar.gz
--rw-r--r--. 1 root root 104767582 Oct 14 14:19 apache-gluten-1.6.0-example-incubating-bin-spark-3.3.tar.gz
--rw-r--r--. 1 root root 104625356 Oct 14 14:19 apache-gluten-1.6.0-example-incubating-bin-spark-3.4.tar.gz
--rw-r--r--. 1 root root 104595103 Oct 14 14:19 apache-gluten-1.6.0-example-incubating-bin-spark-3.5.tar.gz
+-rw-r--r--. 1 root root  74396439 Oct 14 14:19 apache-gluten-1.6.0-example-src.tar.gz
+-rw-r--r--. 1 root root 104790092 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.2.tar.gz
+-rw-r--r--. 1 root root 104767582 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.3.tar.gz
+-rw-r--r--. 1 root root 104625356 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.4.tar.gz
+-rw-r--r--. 1 root root 104595103 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.5.tar.gz
 ```
 
-<!--- Moved from https://github.com/apache/incubator-gluten-site/blob/main/_docs/v1.3.0/developers/HowToRelease.md --->
+<!--- Moved from https://github.com/apache/gluten-site/blob/main/_docs/v1.3.0/developers/HowToRelease.md --->
 # Publish the Release
 
-This section outlines the steps for releasing Apache Gluten (incubating) according to the Apache release guidelines.
+This section outlines the steps for releasing Apache Gluten according to the Apache release guidelines.
 All projects under the Apache umbrella must adhere to the [Apache Release Policy](https://www.apache.org/legal/release-policy.html). This guide is designed to assist you in comprehending the policy and navigating the process of releasing projects at Apache.
 
 ## Release Process
@@ -124,7 +124,7 @@ All projects under the Apache umbrella must adhere to the [Apache Release Policy
 3. Sign the release artifacts with the GPG key.
 
 ```bash
-# create a GPG key, after executing this command, select the first one RSA 和 RSA
+# create a GPG key, after executing this command, select "RSA and RSA"
 $ gpg --full-generate-key
 
 # list the GPG keys
@@ -136,7 +136,7 @@ $ gpg --keyserver keyserver.ubuntu.com --send-key xxx
 
 # append the GPG key to the KEYS file the svn repository
 # [IMPORTANT] Don't replace the KEYS file, just append the GPG key to the KEYS file. 
-$ svn co https://dist.apache.org/repos/dist/release/incubator/gluten/
+$ svn co https://dist.apache.org/repos/dist/release/gluten/
 $ (gpg --list-sigs xxx@apache.org && gpg --export --armor xxx@apache.org) >> KEYS 
 $ svn ci -m "add gpg key" 
 
@@ -156,26 +156,26 @@ $ for i in *.tar.gz; do echo $i; sha512sum  $i > $i.sha512 ; done
 ### Upload the release artifacts to the SVN repository.
 
 1. Create a project directory in the SVN repository (1st time only).
-   `https://dist.apache.org/repos/dist/dev/incubator/gluten/`
+   `https://dist.apache.org/repos/dist/dev/gluten/`
 
 2. Create a directory for the release artifacts in the SVN repository.
-   `https://dist.apache.org/repos/dist/dev/incubator/gluten/{release-version}`
+   `https://dist.apache.org/repos/dist/dev/gluten/{release-version}`
    release-version format: apache-gluten-#.#.#-rc#
 
 3. Upload the release artifacts to the SVN repository.
 ```bash
-$ svn co https://dist.apache.org/repos/dist/dev/incubator/gluten/
+$ svn co https://dist.apache.org/repos/dist/dev/gluten/
 $ cp /path/to/release/artifacts/* ./{release-version}/
 $ svn add ./{release-version}/*
 $ svn commit -m "add Apache Gluten release artifacts for {release-version}"
 ```
 
-4. After the upload, please visit the link `https://dist.apache.org/repos/dist/dev/incubator/gluten/{release-version}` to verify if the file upload is successful or not.
+4. After the upload, please visit the link `https://dist.apache.org/repos/dist/dev/gluten/{release-version}` to verify if the file upload is successful or not.
    The upload release artifacts should be include
 ```bash
-* apache-gluten-#.#.#-incubating-src.tar.gz
-* apache-gluten-#.#.#-incubating-src.tar.gz.asc
-* apache-gluten-#.#.#-incubating-src.tar.gz.sha512
+* apache-gluten-#.#.#-src.tar.gz
+* apache-gluten-#.#.#-src.tar.gz.asc
+* apache-gluten-#.#.#-src.tar.gz.sha512
 ```
 
 
@@ -202,7 +202,7 @@ Please follow below steps to verify the signatures.
 
 ```bash
 # download KEYS
-$ curl https://dist.apache.org/repos/dist/release/incubator/gluten/KEYS > KEYS
+$ curl https://dist.apache.org/repos/dist/release/gluten/KEYS > KEYS
 
 # import KEYS and trust the key, please replace the email address with the one you want to trust.
 $ gpg --import KEYS
@@ -230,28 +230,21 @@ Please follow below steps to verify the checksums
 $ for i in *.tar.gz; do echo $i; sha512sum --check  $i.sha512; done
 ```
 
-
 ### Initiate a release vote.
 
-1. Email a vote request to dev@gluten.apache.org, requiring at least 3 PPMC +1s.
+1. Email a vote request to dev@gluten.apache.org, requiring at least 3 PMC +1s.
 
 2. Allow 72 hours or until enough votes are collected.
 
 3. Share the vote outcome on the dev list.
 
-4. If successful, request a vote on general@incubator.apache.org, needing 3 PMC +1s.
-
-5. Wait 72 hours or for sufficient votes.
-
-6. Announce the results on the general list.
-
 Vote Email Template
 ```
-[VOTE] Release Apache Gluten (Incubating) {release-version}
+[VOTE] Release Apache Gluten {release-version}
 
 Hello,
 
-    This is a call for vote to release Apache Gluten (Incubating) version {release-version}.
+    This is a call for vote to release Apache Gluten version {release-version}.
 
     The vote thread:
         https://lists.apache.org/thread/{id}
@@ -260,19 +253,19 @@ Hello,
         https://lists.apache.org/thread/{id}
 
     The release candidates:
-        https://dist.apache.org/repos/dist/dev/incubator/gluten/{release-version}/
+        https://dist.apache.org/repos/dist/dev/gluten/{release-version}/
     
     Release notes:
-        https://github.com/apache/incubator-gluten/releases/tag/{release-version}
+        https://github.com/apache/gluten/releases/tag/{release-version}
 
     Git tag for the release:
-        https://github.com/apache/incubator-gluten/releases/tag/{release-version}
+        https://github.com/apache/gluten/releases/tag/{release-version}
     
     Git commit id for the release:
-        https://github.com/apache/incubator-gluten/commit/{id}
+        https://github.com/apache/gluten/commit/{id}
 
     Keys to verify the Release Candidate:
-        https://downloads.apache.org/incubator/gluten/KEYS
+        https://downloads.apache.org/gluten/KEYS
         
     The vote will be open for at least 72 hours or until the necessary number of votes are reached.
 
@@ -293,7 +286,7 @@ Hello,
 
     To compile from the source, please refer to:
     
-    https://github.com/apache/incubator-gluten#building-from-source
+    https://github.com/apache/gluten#building-from-source
 
 Thanks,
 <YOUR NAME>
@@ -306,19 +299,18 @@ Announce Email Template
 ```
 Hello everyone,
 
-The Apache Gluten (Incubating) {release-version} has been released!
+The Apache Gluten {release-version} has been released!
 
-Apache Gluten is a Q&A platform software for teams at any scale.
-Whether it's a community forum, help center, or knowledge management platform, you can always count on Apache Gluten.
+Apache Gluten is a middle layer responsible for offloading JVM-based SQL engines' execution to native engines.
 
-Download Links: https://downloads.apache.org/incubator/gluten/
+Download Links: https://downloads.apache.org/gluten/
 
-Release Notes: https://github.com/apache/incubator-gluten/releases/tag/{release-version}
+Release Notes: https://github.com/apache/gluten/releases/tag/{release-version}
 
 Website: https://gluten.apache.org/
 
 Resources:
-- Issue: https://github.com/apache/incubator-gluten/issues
+- Issue: https://github.com/apache/gluten/issues
 - Mailing list: dev@gluten.apache.org
 
 Thanks,
@@ -330,5 +322,5 @@ Thanks,
 
 After the vote has passed, you need to migrate the RC build release to an official release by moving the artifacts from Apache SVN's dev directory to the release directory. Please follow the steps below to upload the artifacts:
 ```
-$ svn mv https://dist.apache.org/repos/dist/dev/incubator/gluten/{release-version} https://dist.apache.org/repos/dist/release/incubator/gluten/{release-version} -m "transfer packages for gluten {release-version}"
+$ svn mv https://dist.apache.org/repos/dist/dev/gluten/{release-version} https://dist.apache.org/repos/dist/release/gluten/{release-version} -m "transfer packages for gluten {release-version}"
 ```

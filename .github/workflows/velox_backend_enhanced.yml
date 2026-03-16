@@ -44,6 +44,8 @@ env:
   MVN_CMD: 'build/mvn -ntp'
   WGET_CMD: 'wget -nv'
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
+  # spark.sql.ansi.enabled defaults to false.
+  SPARK_ANSI_SQL_MODE: false
 
 concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
@@ -240,6 +242,63 @@ jobs:
           $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
           -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-report
+          path: '**/surefire-reports/TEST-*.xml'
+      - name: Upload unit tests log files
+        if: ${{ !success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-test-log
+          path: |
+            **/target/*.log
+            **/gluten-ut/**/hs_err_*.log
+            **/gluten-ut/**/core.*
+
+  spark-test-spark40:
+    needs: build-native-lib-centos-7
+    runs-on: ubuntu-22.04
+    env:
+      SPARK_TESTING: true
+    container: apache/gluten:centos-8-jdk17
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: velox-native-lib-enhanced-centos-7-${{github.sha}}
+          path: ./cpp/build/releases/
+      - name: Download Arrow Jars
+        uses: actions/download-artifact@v4
+        with:
+          name: arrow-jars-enhanced-centos-7-${{github.sha}}
+          path: /root/.m2/repository/org/apache/arrow/
+      - name: Prepare
+        run: |
+          dnf module -y install python39 && \
+          alternatives --set python3 /usr/bin/python3.9 && \
+          pip3 install setuptools==77.0.3 && \
+          pip3 install pyspark==3.5.5 cython && \
+          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Prepare Spark Resources for Spark 4.0.1 #TODO remove after image update
+        run: |
+          rm -rf /opt/shims/spark40
+          bash .github/workflows/util/install-resources.sh 4.0
+          mv /opt/shims/spark40/spark_home/assembly/target/scala-2.12 /opt/shims/spark40/spark_home/assembly/target/scala-2.13
+      - name: Build and Run unit test for Spark 4.0.0 with scala-2.13 (other tests)
+        run: |
+          cd $GITHUB_WORKSPACE/
+          export SPARK_SCALA_VERSION=2.13
+          yum install -y java-17-openjdk-devel
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          java -version
+          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg \
+          -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4

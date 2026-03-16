@@ -104,7 +104,7 @@ class VeloxToSubstraitPlanConvertor {
 
   /// The Type converter used to conver velox representation into Substrait
   /// type.
-  std::shared_ptr<VeloxToSubstraitTypeConvertor> typeConvertor_;
+  std::shared_ptr<VeloxToSubstraitTypeConvertor> typeConvertor_ = std::make_shared<VeloxToSubstraitTypeConvertor>();
 
   /// The Extension collector storing the relations between the function
   /// signature and the function reference number.

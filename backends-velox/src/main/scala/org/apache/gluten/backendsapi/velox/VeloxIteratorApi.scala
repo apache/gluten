@@ -83,9 +83,9 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     val locations = filePartitions.flatMap(p => SoftAffinity.getFilePartitionLocations(p))
     val (paths, starts, lengths) = getPartitionedFileInfo(partitionFiles).unzip3
     val (fileSizes, modificationTimes) = partitionFiles
-      .map(f => SparkShimLoader.getSparkShims.getFileSizeAndModificationTime(f))
+      .map(f => (f.fileSize, f.modificationTime))
       .collect {
-        case (Some(size), Some(time)) =>
+        case (size, time) =>
           (JLong.valueOf(size), JLong.valueOf(time))
       }
       .unzip
@@ -161,7 +161,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
               case _: DateType =>
                 DateFormatter.apply().format(pv.asInstanceOf[Integer])
               case _: DecimalType =>
-                pv.asInstanceOf[Decimal].toJavaBigInteger.toString
+                pv.asInstanceOf[Decimal].toJavaBigDecimal.unscaledValue().toString
               case _: TimestampType =>
                 TimestampFormatter
                   .getFractionFormatter(ZoneOffset.UTC)
@@ -247,8 +247,13 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       updateNativeMetrics: IMetrics => Unit,
       partitionIndex: Int,
       materializeInput: Boolean,
-      enableCudf: Boolean = false): Iterator[ColumnarBatch] = {
-    val extraConf = Map(GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> enableCudf.toString).asJava
+      enableCudf: Boolean = false,
+      supportsValueStreamDynamicFilter: Boolean = true): Iterator[ColumnarBatch] = {
+    val extraConfMap = mutable.Map(GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> enableCudf.toString)
+    if (!supportsValueStreamDynamicFilter) {
+      extraConfMap(VeloxConfig.VALUE_STREAM_DYNAMIC_FILTER_ENABLED.key) = "false"
+    }
+    val extraConf = extraConfMap.asJava
     val transKernel = NativePlanEvaluator.create(BackendsApiManager.getBackendName, extraConf)
     val columnarNativeIterator =
       inputIterators.map {

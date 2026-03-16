@@ -16,8 +16,6 @@
  */
 package org.apache.spark.sql.execution.datasources.v2.clickhouse
 
-import org.apache.gluten.sql.shims.SparkShimLoader
-
 import org.apache.spark.sql.{AnalysisException, DataFrame, SparkSession}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.{NoSuchDatabaseException, NoSuchNamespaceException, NoSuchTableException}
@@ -35,6 +33,7 @@ import org.apache.spark.sql.delta.metering.DeltaLogging
 import org.apache.spark.sql.delta.sources.{DeltaSourceUtils, DeltaSQLConf}
 import org.apache.spark.sql.execution.datasources.{DataSource, PartitioningUtils}
 import org.apache.spark.sql.execution.datasources.v2.clickhouse.utils.CHDataSourceUtils
+import org.apache.spark.sql.execution.datasources.v2.utils.CatalogUtil
 import org.apache.spark.sql.sources.InsertableRelation
 import org.apache.spark.sql.types.StructType
 
@@ -119,7 +118,7 @@ class ClickHouseSparkCatalog
       sourceQuery: Option[DataFrame],
       operation: TableCreationModes.CreationMode): Table = {
     val (partitionColumns, maybeBucketSpec) =
-      SparkShimLoader.getSparkShims.convertPartitionTransforms(partitions)
+      CatalogUtil.convertPartitionTransforms(partitions)
     var newSchema = schema
     var newPartitionColumns = partitionColumns
     var newBucketSpec = maybeBucketSpec
@@ -232,7 +231,7 @@ class ClickHouseSparkCatalog
       case _ => true
     }.toMap
     val (partitionColumns, maybeBucketSpec) =
-      SparkShimLoader.getSparkShims.convertPartitionTransforms(partitions)
+      CatalogUtil.convertPartitionTransforms(partitions)
     var newSchema = schema
     var newPartitionColumns = partitionColumns
     var newBucketSpec = maybeBucketSpec

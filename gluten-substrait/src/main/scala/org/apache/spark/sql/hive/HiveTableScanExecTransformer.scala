@@ -77,7 +77,16 @@ case class HiveTableScanExecTransformer(
     partitionWithReadFileFormats
 
   override def getDistinctPartitionReadFileFormats: Set[ReadFileFormat] =
-    distinctReadFileFormats
+    if (
+      relation.isPartitioned &&
+      basePrunedPartitions.exists(_.getInputFormatClass != tableDesc.getInputFileFormatClass)
+    ) {
+      basePrunedPartitions.map {
+        partition => getReadFileFormat(HiveClientImpl.fromHivePartition(partition).storage)
+      }.toSet
+    } else {
+      Set(fileFormat)
+    }
 
   override def getPartitionSchema: StructType = relation.tableMeta.partitionSchema
 
@@ -119,9 +128,6 @@ case class HiveTableScanExecTransformer(
     }
 
   @transient private lazy val partitions: Seq[Partition] = partitionWithReadFileFormats.unzip._1
-
-  @transient private lazy val distinctReadFileFormats: Set[ReadFileFormat] =
-    partitionWithReadFileFormats.iterator.map(_._2).toSet
 
   @transient override lazy val fileFormat: ReadFileFormat =
     getReadFileFormat(relation.tableMeta.storage)

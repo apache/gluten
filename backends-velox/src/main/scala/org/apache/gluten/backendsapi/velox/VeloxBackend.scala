@@ -97,6 +97,11 @@ object VeloxBackendSettings extends BackendSettingsApi {
   val GLUTEN_VELOX_INTERNAL_UDF_LIB_PATHS = VeloxBackend.CONF_PREFIX + ".internal.udfLibraryPaths"
   val GLUTEN_VELOX_UDF_ALLOW_TYPE_CONVERSION = VeloxBackend.CONF_PREFIX + ".udfAllowTypeConversion"
 
+  val GLUTEN_VELOX_BROADCAST_CACHE_EXPIRED_TIME: String =
+    VeloxBackend.CONF_PREFIX + ("broadcast.cache.expired.time")
+  // unit: SECONDS, default 1 day
+  val GLUTEN_VELOX_BROADCAST_CACHE_EXPIRED_TIME_DEFAULT: Int = 86400
+
   override def primaryBatchType: Convention.BatchType = VeloxBatchType
 
   override def validateScanExec(
@@ -492,13 +497,17 @@ object VeloxBackendSettings extends BackendSettingsApi {
     allSupported
   }
 
+  override def enableJoinKeysRewrite(): Boolean = false
+
   override def supportColumnarShuffleExec(): Boolean = {
     val conf = GlutenConfig.get
     conf.enableColumnarShuffle &&
     (conf.isUseGlutenShuffleManager || conf.shuffleManagerSupportsColumnarShuffle)
   }
 
-  override def enableJoinKeysRewrite(): Boolean = false
+  override def enableHashTableBuildOncePerExecutor(): Boolean = {
+    VeloxConfig.get.enableBroadcastBuildOncePerExecutor
+  }
 
   override def supportHashBuildJoinTypeOnLeft: JoinType => Boolean = {
     t =>

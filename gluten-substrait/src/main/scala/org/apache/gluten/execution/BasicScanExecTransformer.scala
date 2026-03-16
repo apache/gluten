@@ -27,7 +27,6 @@ import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.types.DecimalType
 
 import com.google.protobuf.StringValue
 import io.substrait.proto.NamedStruct
@@ -137,10 +136,6 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       )
     if (!validationResult.ok()) {
       return validationResult
-    }
-
-    if (getPartitionSchema.fields.exists(_.dataType.isInstanceOf[DecimalType])) {
-      return ValidationResult.failed(s"Unsupported decimal partition column in native scan.")
     }
 
     val substraitContext = new SubstraitContext

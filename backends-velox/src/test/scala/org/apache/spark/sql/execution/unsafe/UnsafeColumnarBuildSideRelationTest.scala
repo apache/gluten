@@ -188,4 +188,30 @@ class UnsafeColumnarBuildSideRelationTest extends SharedSparkSession {
       newUnsafeRelationWithHashMode(ByteUnit.MiB.toKiB(50).toInt)
     }
   }
+
+  test("Verify offload field serialization") {
+    val relation = UnsafeColumnarBuildSideRelation(
+      output,
+      Seq(sampleUnsafeByteArrayInKb(1)),
+      IdentityBroadcastMode,
+      Seq.empty,
+      offload = true
+    )
+
+    // Java Serialization
+    val javaSerializer = new JavaSerializer(SparkEnv.get.conf).newInstance()
+    val javaBuffer = javaSerializer.serialize(relation)
+    val javaObj = javaSerializer.deserialize[UnsafeColumnarBuildSideRelation](javaBuffer)
+    assert(javaObj.isOffload, "Java deserialization failed to restore offload=true")
+
+    // Kryo Serialization
+    val kryoSerializer = new KryoSerializer(SparkEnv.get.conf).newInstance()
+    val kryoBuffer = kryoSerializer.serialize(relation)
+    val kryoObj = kryoSerializer.deserialize[UnsafeColumnarBuildSideRelation](kryoBuffer)
+    assert(kryoObj.isOffload, "Kryo deserialization failed to restore offload=true")
+
+    // Create another relation with offload=false to compare byte size if possible,
+    // but boolean only takes 1 byte, might be hard to distinguish from metadata noise.
+    // Instead, trust the assertion above.
+  }
 }

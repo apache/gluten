@@ -63,6 +63,12 @@
       <version>${flink.version}</version>
       <scope>provided</scope>
     </dependency>
+    <dependency>
+      <groupId>org.apache.flink</groupId>
+      <artifactId>flink-statebackend-rocksdb</artifactId>
+      <version>${flink.version}</version>
+      <scope>provided</scope>
+    </dependency>
   </dependencies>
 
   <build>

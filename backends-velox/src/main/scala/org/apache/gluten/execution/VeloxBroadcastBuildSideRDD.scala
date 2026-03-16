@@ -19,19 +19,36 @@ package org.apache.gluten.execution
 import org.apache.gluten.iterator.Iterators
 
 import org.apache.spark.{broadcast, SparkContext}
+import org.apache.spark.sql.execution.ColumnarBuildSideRelation
 import org.apache.spark.sql.execution.joins.BuildSideRelation
+import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 case class VeloxBroadcastBuildSideRDD(
     @transient private val sc: SparkContext,
-    broadcasted: broadcast.Broadcast[BuildSideRelation])
+    broadcasted: broadcast.Broadcast[BuildSideRelation],
+    broadcastContext: BroadcastHashJoinContext,
+    isBNL: Boolean = false)
   extends BroadcastBuildSideRDD(sc, broadcasted) {
 
   override def genBroadcastBuildSideIterator(): Iterator[ColumnarBatch] = {
-    val relation = broadcasted.value.asReadOnlyCopy()
-    Iterators
-      .wrap(relation.deserialized)
-      .recyclePayload(batch => batch.close())
-      .create()
+    val offload = broadcasted.value.asReadOnlyCopy() match {
+      case columnar: ColumnarBuildSideRelation =>
+        columnar.offload
+      case unsafe: UnsafeColumnarBuildSideRelation =>
+        unsafe.isOffload
+    }
+    val output = if (isBNL || !offload) {
+      val relation = broadcasted.value.asReadOnlyCopy()
+      Iterators
+        .wrap(relation.deserialized)
+        .recyclePayload(batch => batch.close())
+        .create()
+    } else {
+      VeloxBroadcastBuildSideCache.getOrBuildBroadcastHashTable(broadcasted, broadcastContext)
+      Iterator.empty
+    }
+
+    output
   }
 }
