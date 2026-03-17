@@ -164,22 +164,6 @@ object CHRuleApi {
   }
 
   /**
-   * Registers Gluten's columnar rules. These rules will be executed only when RAS (relational
-   * algebra selector) is enabled by spark.gluten.ras.enabled=true.
-   *
-   * These rules are covered by CI test job spark-test-spark35-ras.
-   */
-  private def injectRas(injector: RasInjector): Unit = {
-    // CH backend doesn't work with RAS at the moment. Inject a rule that aborts any
-    // execution calls.
-    injector.injectPreTransform(
-      _ =>
-        new SparkPlanRules.AbortRule(
-          "Clickhouse backend doesn't yet have RAS support, please try disabling RAS and" +
-            " rerunning the application"))
-  }
-
-  /**
    * Since https://github.com/apache/gluten/pull/883.
    *
    * TODO: Remove this since tricky to maintain.
