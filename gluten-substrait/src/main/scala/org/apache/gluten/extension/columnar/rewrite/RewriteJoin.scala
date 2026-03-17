@@ -20,7 +20,6 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.extension.columnar.offload.OffloadJoin
 
 import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildRight, BuildSide, JoinSelectionHelper}
-import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.joins.{ShuffledHashJoinExec, SortMergeJoinExec}
 
@@ -45,17 +44,11 @@ object RewriteJoin extends RewriteSingleNode with JoinSelectionHelper {
     if (!rightBuildable) {
       return Some(BuildLeft)
     }
-    val side = join.logicalLink
-      .flatMap {
-        case join: Join => Some(OffloadJoin.getOptimalBuildSide(join))
-        case _ => None
-      }
-      .getOrElse {
-        // If smj has no logical link, or its logical link is not a join,
-        // then we always choose left as build side.
-        BuildLeft
-      }
-    Some(side)
+    OffloadJoin
+      .getOptimalBuildSide(join)
+      // If neither runtime stats nor logical link is available,
+      // then we always choose left as build side.
+      .orElse(Some(BuildLeft))
   }
 
   override def rewrite(plan: SparkPlan): SparkPlan = plan match {
