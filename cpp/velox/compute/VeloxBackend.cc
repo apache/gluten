@@ -177,7 +177,8 @@ void VeloxBackend::init(
         {velox::cudf_velox::CudfConfig::kCudfMemoryResource,
          backendConf_->get(kCudfMemoryResource, kCudfMemoryResourceDefault)},
         {velox::cudf_velox::CudfConfig::kCudfMemoryPercent,
-         backendConf_->get(kCudfMemoryPercent, kCudfMemoryPercentDefault)}};
+         backendConf_->get(kCudfMemoryPercent, kCudfMemoryPercentDefault)},
+        {velox::cudf_velox::CudfConfig::kCudfFunctionEngine, "spark"}};
     auto& cudfConfig = velox::cudf_velox::CudfConfig::getInstance();
     cudfConfig.initialize(std::move(options));
     velox::cudf_velox::registerCudf();
