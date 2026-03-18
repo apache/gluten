@@ -97,6 +97,7 @@
     <os.full.name>unknown</os.full.name>
     <!-- To build built-in backend c++ codes -->
     <scala.recompile.mode>all</scala.recompile.mode>
+    <scala.release.version>${java.version}</scala.release.version>
     <!-- For unit tests -->
     <fasterxml.version>2.15.0</fasterxml.version>
     <junit.version>4.13.1</junit.version>
@@ -1030,7 +1031,7 @@
                   <arg>-deprecation</arg>
                   <arg>-feature</arg>
                   <arg>-explaintypes</arg>
-                  <arg>-release:${java.version}</arg>
+                  <arg>-release:${scala.release.version}</arg>
                   <arg>-Wconf:any:e</arg>
                   <arg>-Wconf:cat=deprecation:wv</arg>
                   <arg>-Wunused:imports</arg>
@@ -1099,9 +1100,7 @@
       </activation>
       <properties>
         <java.version>1.8</java.version>
-        <!-- scala-maven-plugin 4.9.2 injects '-release 1.8' into scalac args,
-             which fails under JDK 8. Pin to 4.8.0 where this bug does not exist. -->
-        <scala.compiler.version>4.8.0</scala.compiler.version>
+        <scala.release.version>8</scala.release.version>
       </properties>
     </profile>
     <profile>
