@@ -30,6 +30,7 @@ import org.apache.gluten.memory.{MemoryUsageRecorder, SimpleMemoryUsageRecorder}
 import org.apache.gluten.memory.listener.ReservationListener
 import org.apache.gluten.memory.memtarget.MemoryTarget
 import org.apache.gluten.monitor.VeloxMemoryProfiler
+import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.udf.UdfJniWrapper
 import org.apache.gluten.utils._
 
@@ -238,8 +239,12 @@ class VeloxListenerApi extends ListenerApi with Logging {
 
     // Inject backend-specific implementations to override spark classes.
     GlutenFormatFactory.register(new VeloxParquetWriterInjects)
-    GlutenFormatFactory.injectPostRuleFactory(
-      session => GlutenWriterColumnarRules.NativeWritePostRule(session))
+    // Only register VeloxParquetWriterInjects and NativeWritePostRule for Spark 3.2 and 3.3
+    val sparkVersion = SparkShimLoader.getSparkVersion
+    if (sparkVersion.startsWith("3.2") || sparkVersion.startsWith("3.3")) {
+      GlutenFormatFactory.injectPostRuleFactory(
+        session => GlutenWriterColumnarRules.NativeWritePostRule(session))
+    }
     GlutenFormatFactory.register(new VeloxRowSplitter())
   }
 
