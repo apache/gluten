@@ -30,15 +30,11 @@ import org.apache.hadoop.mapreduce.{Job, TaskAttemptContext}
 import org.apache.parquet.hadoop.ParquetOutputFormat
 import org.apache.parquet.hadoop.codec.CodecConfig
 import org.apache.parquet.hadoop.util.ContextUtil
-import org.slf4j.LoggerFactory
-
 class GlutenParquetFileFormat
   extends ParquetFileFormat
   with DataSourceRegister
   with Logging
   with Serializable {
-
-  private val logger = LoggerFactory.getLogger(classOf[GlutenParquetFileFormat])
 
   override def shortName(): String = "gluten-parquet"
 

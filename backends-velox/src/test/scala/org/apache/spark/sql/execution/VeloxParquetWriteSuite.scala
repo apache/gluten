@@ -63,7 +63,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
     withTempPath {
       f =>
         val path = f.getCanonicalPath
-        // TODO: maybe remove constant complex type restriction in WriteFilesExecTransformer (Spark 3.4+)
+        // TODO: maybe remove constant complex type restriction (Spark 3.4+)
         checkNativeWrite(
           s"INSERT OVERWRITE DIRECTORY '$path' USING PARQUET SELECT array(struct(1), null) as var1",
           expectNative = !isSparkVersionGE("3.4"))
@@ -135,7 +135,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
   test("test insert into with array type") {
     withTable("t", "src") {
       spark.sql("CREATE TABLE src (ids ARRAY<INT>) USING PARQUET")
-      // TODO: maybe remove constant complex type restriction in WriteFilesExecTransformer (Spark 3.4+)
+      // TODO: maybe remove constant complex type restriction (Spark 3.4+)
       checkNativeWrite(
         "INSERT INTO src SELECT array(1, 2, 3)",
         expectNative = !isSparkVersionGE("3.4"))
@@ -148,7 +148,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
   test("test insert into with map type") {
     withTable("t", "src") {
       spark.sql("CREATE TABLE src (kv MAP<STRING, INT>) USING PARQUET")
-      // TODO: maybe remove constant complex type restriction in WriteFilesExecTransformer (Spark 3.4+)
+      // TODO: maybe remove constant complex type restriction (Spark 3.4+)
       checkNativeWrite(
         "INSERT INTO src SELECT map('a', 1, 'b', 2)",
         expectNative = !isSparkVersionGE("3.4"))
