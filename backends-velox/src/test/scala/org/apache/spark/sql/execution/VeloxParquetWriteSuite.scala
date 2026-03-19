@@ -63,9 +63,10 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
     withTempPath {
       f =>
         val path = f.getCanonicalPath
+        // TODO: maybe remove constant complex type restriction in WriteFilesExecTransformer (Spark 3.4+)
         checkNativeWrite(
           s"INSERT OVERWRITE DIRECTORY '$path' USING PARQUET SELECT array(struct(1), null) as var1",
-          expectNative = false)
+          expectNative = !isSparkVersionGE("3.4"))
     }
   }
 
@@ -134,8 +135,10 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
   test("test insert into with array type") {
     withTable("t", "src") {
       spark.sql("CREATE TABLE src (ids ARRAY<INT>) USING PARQUET")
-      // todo: support native write with constant array
-      checkNativeWrite("INSERT INTO src SELECT array(1, 2, 3)", expectNative = false)
+      // TODO: maybe remove constant complex type restriction in WriteFilesExecTransformer (Spark 3.4+)
+      checkNativeWrite(
+        "INSERT INTO src SELECT array(1, 2, 3)",
+        expectNative = !isSparkVersionGE("3.4"))
       spark.sql("CREATE TABLE t (ids ARRAY<INT>) USING PARQUET")
       checkNativeWrite("INSERT INTO t SELECT ids FROM src")
       checkAnswer(spark.table("t"), Row(Seq(1, 2, 3)))
@@ -145,8 +148,10 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
   test("test insert into with map type") {
     withTable("t", "src") {
       spark.sql("CREATE TABLE src (kv MAP<STRING, INT>) USING PARQUET")
-      // todo: support native write with constant map
-      checkNativeWrite("INSERT INTO src SELECT map('a', 1, 'b', 2)", expectNative = false)
+      // TODO: maybe remove constant complex type restriction in WriteFilesExecTransformer (Spark 3.4+)
+      checkNativeWrite(
+        "INSERT INTO src SELECT map('a', 1, 'b', 2)",
+        expectNative = !isSparkVersionGE("3.4"))
       spark.sql("CREATE TABLE t (kv MAP<STRING, INT>) USING PARQUET")
       checkNativeWrite("INSERT INTO t SELECT kv FROM src")
       checkAnswer(spark.table("t"), Row(Map("a" -> 1, "b" -> 2)))

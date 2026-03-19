@@ -342,27 +342,20 @@ object VeloxBackendSettings extends BackendSettingsApi {
     }
 
     def validateDataTypes(): Option[String] = {
-      val unsupportedTypes = format match {
-        case _: ParquetFileFormat =>
-          fields.flatMap {
-            case StructField(_, _: YearMonthIntervalType, _, _) =>
-              Some("YearMonthIntervalType")
-            case _ => None
-          }
-        case _ =>
-          fields.flatMap {
-            field =>
-              field.dataType match {
-                case _: StructType => Some("StructType")
-                case _: ArrayType => Some("ArrayType")
-                case _: MapType => Some("MapType")
-                case _: YearMonthIntervalType => Some("YearMonthIntervalType")
-                case _ => None
-              }
-          }
+      def hasUnsupportedType(dt: DataType): Boolean = dt match {
+        case _: YearMonthIntervalType => true
+        case st: StructType => st.fields.exists(f => hasUnsupportedType(f.dataType))
+        case at: ArrayType => hasUnsupportedType(at.elementType)
+        case mt: MapType => hasUnsupportedType(mt.keyType) || hasUnsupportedType(mt.valueType)
+        case _ => false
       }
-      if (unsupportedTypes.nonEmpty) {
-        Some(unsupportedTypes.mkString("Found unsupported type:", ",", ""))
+
+      val unsupported = fields.filter(f => hasUnsupportedType(f.dataType))
+      if (unsupported.nonEmpty) {
+        Some(
+          unsupported
+            .map(_.dataType.simpleString)
+            .mkString("Found unsupported type:", ",", ""))
       } else {
         None
       }
