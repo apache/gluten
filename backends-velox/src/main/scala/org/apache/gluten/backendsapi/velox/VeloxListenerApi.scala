@@ -239,9 +239,8 @@ class VeloxListenerApi extends ListenerApi with Logging {
 
     // Inject backend-specific implementations to override spark classes.
     GlutenFormatFactory.register(new VeloxParquetWriterInjects)
-    // Only register VeloxParquetWriterInjects and NativeWritePostRule for Spark 3.2 and 3.3
-    val sparkVersion = SparkShimLoader.getSparkVersion
-    if (sparkVersion.startsWith("3.2") || sparkVersion.startsWith("3.3")) {
+    // Only register NativeWritePostRule for Spark 3.3
+    if (SparkShimLoader.getSparkVersion.startsWith("3.3")) {
       GlutenFormatFactory.injectPostRuleFactory(
         session => GlutenWriterColumnarRules.NativeWritePostRule(session))
     }
