@@ -59,8 +59,6 @@ trait BackendSettingsApi {
       isPartitionedTable: Boolean,
       options: Map[String, String]): ValidationResult = ValidationResult.succeeded
 
-  def supportNativeWrite(fields: Array[StructField]): Boolean = true
-
   def supportNativeMetadataColumns(): Boolean = true
 
   def supportNativeRowIndexColumn(): Boolean = true

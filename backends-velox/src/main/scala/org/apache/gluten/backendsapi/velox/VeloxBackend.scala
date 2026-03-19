@@ -285,49 +285,68 @@ object VeloxBackendSettings extends BackendSettingsApi {
       isPartitionedTable: Boolean,
       options: Map[String, String]): ValidationResult = {
 
-    // Validate if HiveFileFormat write is supported based on output file type
-    def validateHiveFileFormat(hiveFileFormat: HiveFileFormat): Option[String] = {
-      // Reflect to get access to fileSinkConf which contains the output file format
-      val fileSinkConfField = format.getClass.getDeclaredField("fileSinkConf")
-      fileSinkConfField.setAccessible(true)
-      val fileSinkConf = fileSinkConfField.get(hiveFileFormat)
-      val tableInfoField = fileSinkConf.getClass.getDeclaredField("tableInfo")
-      tableInfoField.setAccessible(true)
-      val tableInfo = tableInfoField.get(fileSinkConf)
-      val getOutputFileFormatClassNameMethod = tableInfo.getClass
-        .getDeclaredMethod("getOutputFileFormatClassName")
-      val outputFileFormatClassName = getOutputFileFormatClassNameMethod.invoke(tableInfo)
-
-      // Match based on the output file format class name
-      outputFileFormatClassName match {
-        case "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat" =>
-          None
-        case _ =>
-          Some(
-            "HiveFileFormat is supported only with Parquet as the output file type"
-          ) // Unsupported format
+    def validateFileFormat(): Option[String] = {
+      format match {
+        case _: ParquetFileFormat => None
+        case h: HiveFileFormat if GlutenConfig.get.enableHiveFileFormatWriter =>
+          // Validate HiveFileFormat is backed by Parquet
+          val fileSinkConfField = format.getClass.getDeclaredField("fileSinkConf")
+          fileSinkConfField.setAccessible(true)
+          val fileSinkConf = fileSinkConfField.get(h)
+          val tableInfoField = fileSinkConf.getClass.getDeclaredField("tableInfo")
+          tableInfoField.setAccessible(true)
+          val tableInfo = tableInfoField.get(fileSinkConf)
+          val outputFormat = tableInfo.getClass
+            .getDeclaredMethod("getOutputFileFormatClassName")
+            .invoke(tableInfo)
+          outputFormat match {
+            case "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat" => None
+            case _ => Some("HiveFileFormat is supported only with Parquet as the output file type")
+          }
+        case _ => Some("Only ParquetFileFormat and HiveFileFormat are supported.")
       }
     }
 
     def validateCompressionCodec(): Option[String] = {
-      val unSupportedCompressions = Set("brotli", "lzo", "lz4raw", "lz4_raw")
-      val compressionCodec = WriteFilesExecTransformer.getCompressionCodec(options)
-      if (unSupportedCompressions.contains(compressionCodec)) {
-        Some(s"$compressionCodec compression codec is unsupported in Velox backend.")
+      val unsupported = Set("brotli", "lzo", "lz4raw", "lz4_raw")
+      val codec = WriteFilesExecTransformer.getCompressionCodec(options)
+      if (unsupported.contains(codec)) {
+        Some(s"$codec compression codec is unsupported in Velox backend.")
       } else {
         None
       }
     }
 
-    // Validate if all types are supported.
+    def validateWriteFilesOptions(): Option[String] = {
+      val maxRecordsPerFile = options
+        .get("maxRecordsPerFile")
+        .map(_.toLong)
+        .getOrElse(SQLConf.get.maxRecordsPerFile)
+      if (maxRecordsPerFile > 0) {
+        Some("Unsupported native write: maxRecordsPerFile not supported.")
+      } else {
+        None
+      }
+    }
+
+    def validateBucketSpec(): Option[String] = {
+      if (
+        bucketSpec.nonEmpty && !options
+          .getOrElse("__hive_compatible_bucketed_table_insertion__", "false")
+          .equals("true")
+      ) {
+        Some("Unsupported native write: non-compatible hive bucket write is not supported.")
+      } else {
+        None
+      }
+    }
+
     def validateDataTypes(): Option[String] = {
       val unsupportedTypes = format match {
         case _: ParquetFileFormat =>
           fields.flatMap {
             case StructField(_, _: YearMonthIntervalType, _, _) =>
               Some("YearMonthIntervalType")
-            case StructField(_, _: StructType, _, _) =>
-              Some("StructType")
             case _ => None
           }
         case _ =>
@@ -356,47 +375,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
       }
     }
 
-    def validateFileFormat(): Option[String] = {
-      format match {
-        case _: ParquetFileFormat => None // Parquet is directly supported
-        case h: HiveFileFormat if GlutenConfig.get.enableHiveFileFormatWriter =>
-          validateHiveFileFormat(h) // Parquet via Hive SerDe
-        case _ =>
-          Some(
-            "Only ParquetFileFormat and HiveFileFormat are supported."
-          ) // Unsupported format
-      }
-    }
-
-    def validateWriteFilesOptions(): Option[String] = {
-      val maxRecordsPerFile = options
-        .get("maxRecordsPerFile")
-        .map(_.toLong)
-        .getOrElse(SQLConf.get.maxRecordsPerFile)
-      if (maxRecordsPerFile > 0) {
-        Some("Unsupported native write: maxRecordsPerFile not supported.")
-      } else {
-        None
-      }
-    }
-
-    def validateBucketSpec(): Option[String] = {
-      val isHiveCompatibleBucketTable = bucketSpec.nonEmpty && options
-        .getOrElse("__hive_compatible_bucketed_table_insertion__", "false")
-        .equals("true")
-      // Currently, the velox backend only supports bucketed tables compatible with Hive and
-      // is limited to partitioned tables. Therefore, we should add this condition restriction.
-      // After velox supports bucketed non-partitioned tables, we can remove the restriction on
-      // partitioned tables.
-      if (bucketSpec.isEmpty || isHiveCompatibleBucketTable) {
-        None
-      } else {
-        Some("Unsupported native write: non-compatible hive bucket write is not supported.")
-      }
-    }
-
-    validateCompressionCodec()
-      .orElse(validateFileFormat())
+    validateFileFormat()
+      .orElse(validateCompressionCodec())
       .orElse(validateFieldMetadata())
       .orElse(validateDataTypes())
       .orElse(validateWriteFilesOptions())
@@ -404,14 +384,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
       case Some(reason) => ValidationResult.failed(reason)
       case _ => ValidationResult.succeeded
     }
-  }
-
-  override def supportNativeWrite(fields: Array[StructField]): Boolean = {
-    def isNotSupported(dataType: DataType): Boolean = dataType match {
-      case _: StructType | _: ArrayType | _: MapType => true
-      case _ => false
-    }
-    !fields.exists(field => isNotSupported(field.dataType))
   }
 
   override def supportExpandExec(): Boolean = true

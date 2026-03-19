@@ -34,7 +34,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, DateTimeUtils}
 import org.apache.spark.sql.connector.write.WriterCommitMessage
-import org.apache.spark.sql.delta.{DeltaOptions, GlutenParquetFileFormat}
+import org.apache.spark.sql.delta.DeltaOptions
 import org.apache.spark.sql.delta.logging.DeltaLogKeys
 import org.apache.spark.sql.delta.stats.GlutenDeltaJobStatsTracker
 import org.apache.spark.sql.errors.QueryExecutionErrors
@@ -126,7 +126,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     val dataSchema = dataColumns.toStructType
     DataSourceUtils.verifySchema(fileFormat, dataSchema)
     DataSourceUtils.checkFieldNames(fileFormat, dataSchema)
-    val isNativeWritable = GlutenParquetFileFormat.isNativeWritable(dataSchema)
+    val isNativeWritable = true
 
     val outputDataColumns =
       if (caseInsensitiveOptions.get(DeltaOptions.WRITE_PARTITION_COLUMNS).contains("true")) {
