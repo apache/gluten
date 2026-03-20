@@ -16,28 +16,67 @@
  */
 package org.apache.spark.sql
 
+import org.apache.spark.sql.catalyst.util.resourceToString
+import org.apache.spark.sql.execution.exchange.ValidateRequirements
+import org.apache.spark.sql.internal.SQLConf
+
+/**
+ * Gluten plan stability suites verify that Gluten-transformed plans satisfy Spark's distribution
+ * and ordering requirements (via ValidateRequirements). Golden file comparison against vanilla
+ * Spark plans is skipped because Gluten intentionally produces different physical plans using
+ * native Transformer operators.
+ */
+trait GlutenPlanStabilityTestTrait {
+  self: PlanStabilitySuite =>
+
+  override protected def testQuery(tpcdsGroup: String, query: String, suffix: String = ""): Unit = {
+    val queryString = resourceToString(
+      s"$tpcdsGroup/$query.sql",
+      classLoader = Thread.currentThread().getContextClassLoader)
+    withSQLConf(
+      SQLConf.READ_SIDE_CHAR_PADDING.key -> "false",
+      SQLConf.LEGACY_NO_CHAR_PADDING_IN_PREDICATE.key -> "true",
+      SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "10MB") {
+      val qe = sql(queryString).queryExecution
+      val plan = qe.executedPlan
+      assert(
+        ValidateRequirements.validate(plan),
+        s"ValidateRequirements failed for $tpcdsGroup/$query$suffix")
+    }
+  }
+}
+
 class GlutenTPCDSV1_4_PlanStabilitySuite
   extends TPCDSV1_4_PlanStabilitySuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait
+  with GlutenPlanStabilityTestTrait {}
 
 class GlutenTPCDSV1_4_PlanStabilityWithStatsSuite
   extends TPCDSV1_4_PlanStabilityWithStatsSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait
+  with GlutenPlanStabilityTestTrait {}
 
 class GlutenTPCDSV2_7_PlanStabilitySuite
   extends TPCDSV2_7_PlanStabilitySuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait
+  with GlutenPlanStabilityTestTrait {}
 
 class GlutenTPCDSV2_7_PlanStabilityWithStatsSuite
   extends TPCDSV2_7_PlanStabilityWithStatsSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait
+  with GlutenPlanStabilityTestTrait {}
 
 class GlutenTPCDSModifiedPlanStabilitySuite
   extends TPCDSModifiedPlanStabilitySuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait
+  with GlutenPlanStabilityTestTrait {}
 
 class GlutenTPCDSModifiedPlanStabilityWithStatsSuite
   extends TPCDSModifiedPlanStabilityWithStatsSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait
+  with GlutenPlanStabilityTestTrait {}
 
-class GlutenTPCHPlanStabilitySuite extends TPCHPlanStabilitySuite with GlutenTestsCommonTrait {}
+class GlutenTPCHPlanStabilitySuite
+  extends TPCHPlanStabilitySuite
+  with GlutenSQLTestsBaseTrait
+  with GlutenPlanStabilityTestTrait {}

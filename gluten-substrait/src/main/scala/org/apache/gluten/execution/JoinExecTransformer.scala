@@ -371,7 +371,15 @@ abstract class BroadcastHashJoinExecTransformerBase(
     JoinUtils.getDirectJoinOutputSeq(joinType, left.output, right.output, getClass.getSimpleName)
 
   override def requiredChildDistribution: Seq[Distribution] = {
-    val mode = HashedRelationBroadcastMode(buildKeyExprs, isNullAwareAntiJoin)
+    // Use the same bound+rewritten keys as Spark's BroadcastHashJoinExec to ensure
+    // the mode matches the BroadcastExchange created by EnsureRequirements.
+    val (bKeys, bOutput) = buildSide match {
+      case BuildLeft => (leftKeys, left.output)
+      case BuildRight => (rightKeys, right.output)
+    }
+    val boundBuildKeys =
+      BindReferences.bindReferences(HashJoin.rewriteKeyExpr(bKeys), bOutput)
+    val mode = HashedRelationBroadcastMode(boundBuildKeys, isNullAwareAntiJoin)
     buildSide match {
       case BuildLeft =>
         BroadcastDistribution(mode) :: UnspecifiedDistribution :: Nil
