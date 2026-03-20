@@ -60,4 +60,13 @@ abstract class ColumnarToRowExecBase(child: SparkPlan)
   override def doExecute(): RDD[InternalRow] = {
     doExecuteInternal()
   }
+
+  override def executeCollect(): Array[InternalRow] = {
+    child match {
+      case l: ColumnarCollectLimitBaseExec =>
+        l.executeCollect()
+      case _ =>
+        super.executeCollect()
+    }
+  }
 }

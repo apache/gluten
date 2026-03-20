@@ -19,6 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.columnarbatch.VeloxColumnarBatches
 
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -94,6 +95,23 @@ case class ColumnarCollectLimitExec(
         false
       }
     }
+  }
+
+  override def executeCollect(): Array[InternalRow] = {
+    if (limit <= 0) {
+      return Array.empty
+    }
+    val adjusted = math.max(0, limit - math.max(0, offset))
+    if (adjusted == 0) {
+      return Array.empty
+    }
+    val rowsRdd = child.executeColumnar().mapPartitions {
+      it =>
+        val rows = VeloxColumnarToRowExec.toRowIterator(it)
+        rows.map(_.copy())
+    }
+    val taken = rowsRdd.take(offset + adjusted)
+    if (offset > 0) taken.drop(offset) else taken
   }
 
   override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
