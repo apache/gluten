@@ -825,6 +825,10 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenVariantEndToEndSuite]  // 3 failures
   // TODO: 4.x enableSuite[GlutenVariantShreddingSuite]  // 8 failures
   enableSuite[GlutenVariantSuite]
+    // TODO: Velox parquet writer marks all struct fields as OPTIONAL (nullable),
+    //  but Spark's variant type requires REQUIRED fields. Needs Velox-side fix.
+    .exclude("SPARK-47546: invalid variant binary")
+    .exclude("SPARK-47546: valid variant binary")
   enableSuite[GlutenVariantWriteShreddingSuite]
   enableSuite[GlutenXmlFunctionsSuite]
   enableSuite[GlutenApproxCountDistinctForIntervalsQuerySuite]
