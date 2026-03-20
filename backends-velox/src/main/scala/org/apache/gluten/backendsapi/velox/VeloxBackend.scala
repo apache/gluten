@@ -308,10 +308,10 @@ object VeloxBackendSettings extends BackendSettingsApi {
     }
 
     def validateCompressionCodec(): Option[String] = {
-      val unsupported = Set("brotli", "lzo", "lz4raw", "lz4_raw")
-      val codec = WriteFilesExecTransformer.getCompressionCodec(options)
-      if (unsupported.contains(codec)) {
-        Some(s"$codec compression codec is unsupported in Velox backend.")
+      val unSupportedCompressions = Set("brotli", "lzo", "lz4raw", "lz4_raw")
+      val compressionCodec = WriteFilesExecTransformer.getCompressionCodec(options)
+      if (unSupportedCompressions.contains(compressionCodec)) {
+        Some(s"$compressionCodec compression codec is unsupported in Velox backend.")
       } else {
         None
       }
@@ -330,14 +330,17 @@ object VeloxBackendSettings extends BackendSettingsApi {
     }
 
     def validateBucketSpec(): Option[String] = {
-      if (
-        bucketSpec.nonEmpty && !options
-          .getOrElse("__hive_compatible_bucketed_table_insertion__", "false")
-          .equals("true")
-      ) {
-        Some("Unsupported native write: non-compatible hive bucket write is not supported.")
-      } else {
+      val isHiveCompatibleBucketTable = bucketSpec.nonEmpty && options
+        .getOrElse("__hive_compatible_bucketed_table_insertion__", "false")
+        .equals("true")
+      // Currently, the velox backend only supports bucketed tables compatible with Hive and
+      // is limited to partitioned tables. Therefore, we should add this condition restriction.
+      // After velox supports bucketed non-partitioned tables, we can remove the restriction on
+      // partitioned tables.
+      if (bucketSpec.isEmpty || isHiveCompatibleBucketTable) {
         None
+      } else {
+        Some("Unsupported native write: non-compatible hive bucket write is not supported.")
       }
     }
 

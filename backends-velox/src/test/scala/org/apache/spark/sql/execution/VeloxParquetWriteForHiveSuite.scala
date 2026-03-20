@@ -199,6 +199,42 @@ class VeloxParquetWriteForHiveSuite extends GlutenQueryTest with SQLTestUtils wi
     }
   }
 
+  test("test hive write with struct type") {
+    withTable("t", "src") {
+      withSQLConf("spark.sql.hive.convertMetastoreParquet" -> "false") {
+        spark.sql("CREATE TABLE src (info STRUCT<name: STRING, age: INT>) STORED AS PARQUET")
+        spark.sql("INSERT INTO src SELECT named_struct('name', 'alice', 'age', 30)")
+        spark.sql("CREATE TABLE t (info STRUCT<name: STRING, age: INT>) STORED AS PARQUET")
+        checkNativeWrite("INSERT INTO t SELECT info FROM src")
+        checkAnswer(spark.table("t"), Row(Row("alice", 30)))
+      }
+    }
+  }
+
+  test("test hive write with array type") {
+    withTable("t", "src") {
+      withSQLConf("spark.sql.hive.convertMetastoreParquet" -> "false") {
+        spark.sql("CREATE TABLE src (ids ARRAY<INT>) STORED AS PARQUET")
+        spark.sql("INSERT INTO src SELECT array(1, 2, 3)")
+        spark.sql("CREATE TABLE t (ids ARRAY<INT>) STORED AS PARQUET")
+        checkNativeWrite("INSERT INTO t SELECT ids FROM src")
+        checkAnswer(spark.table("t"), Row(Seq(1, 2, 3)))
+      }
+    }
+  }
+
+  test("test hive write with map type") {
+    withTable("t", "src") {
+      withSQLConf("spark.sql.hive.convertMetastoreParquet" -> "false") {
+        spark.sql("CREATE TABLE src (kv MAP<STRING, INT>) STORED AS PARQUET")
+        spark.sql("INSERT INTO src SELECT map('a', 1, 'b', 2)")
+        spark.sql("CREATE TABLE t (kv MAP<STRING, INT>) STORED AS PARQUET")
+        checkNativeWrite("INSERT INTO t SELECT kv FROM src")
+        checkAnswer(spark.table("t"), Row(Map("a" -> 1, "b" -> 2)))
+      }
+    }
+  }
+
   test("test hive write dir") {
     withTempPath {
       f =>
