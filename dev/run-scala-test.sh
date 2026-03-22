@@ -669,16 +669,19 @@ log_info "  Review classpath: unzip -p ${PATHING_JAR} META-INF/classpath.txt"
 JAVA_CMD="${JAVA_HOME}/bin/java"
 [[ ! -x "$JAVA_CMD" ]] && JAVA_CMD="java"
 
+SPARK_TEST_HOME_ARG=""
+[[ -n "$SPARK_HOME" ]] && SPARK_TEST_HOME_ARG="-Dspark.test.home=${SPARK_HOME}"
+
 JAVA_ARGS=(
   ${JVM_ARGS}
   "-Dlog4j.configurationFile=file:${GLUTEN_HOME}/${MODULE}/src/test/resources/log4j2.properties"
+  ${SPARK_TEST_HOME_ARG}
   -cp "${PATHING_JAR}"
   org.scalatest.tools.Runner
   -oDF
   -s "${SUITE}"
 )
 [[ -n "$TEST_METHOD" ]] && JAVA_ARGS+=(-t "${TEST_METHOD}")
-
 # =============================================================================
 # Step 3.6: Export-only mode (if requested)
 # =============================================================================
