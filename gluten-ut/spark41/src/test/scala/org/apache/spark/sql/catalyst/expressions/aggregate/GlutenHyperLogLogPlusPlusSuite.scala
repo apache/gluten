@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.catalyst.expressions.aggregate
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenHyperLogLogPlusPlusSuite extends HyperLogLogPlusPlusSuite with GlutenTestsCommonTrait {}
+class GlutenHyperLogLogPlusPlusSuite extends HyperLogLogPlusPlusSuite with GlutenTestsTrait {}

@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.connector
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenDataSourceV2UtilsSuite extends DataSourceV2UtilsSuite with GlutenTestsCommonTrait {}
+class GlutenDataSourceV2UtilsSuite extends DataSourceV2UtilsSuite with GlutenTestsTrait {}

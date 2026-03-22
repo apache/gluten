@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenUDTRegistrationSuite extends UDTRegistrationSuite with GlutenTestsCommonTrait {}
+class GlutenUDTRegistrationSuite extends UDTRegistrationSuite with GlutenTestsTrait {}

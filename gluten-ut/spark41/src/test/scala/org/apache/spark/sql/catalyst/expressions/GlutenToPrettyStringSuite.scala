@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenToPrettyStringSuite extends ToPrettyStringSuite with GlutenTestsCommonTrait {}
+class GlutenToPrettyStringSuite extends ToPrettyStringSuite with GlutenTestsTrait {}

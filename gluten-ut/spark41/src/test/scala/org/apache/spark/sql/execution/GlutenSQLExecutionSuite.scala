@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenSQLExecutionSuite extends SQLExecutionSuite with GlutenTestsCommonTrait {}
+class GlutenSQLExecutionSuite extends SQLExecutionSuite with GlutenTestsTrait {}

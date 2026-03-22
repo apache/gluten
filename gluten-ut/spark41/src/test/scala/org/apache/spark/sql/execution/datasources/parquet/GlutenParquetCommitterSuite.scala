@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.execution.datasources.parquet
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenParquetCommitterSuite extends ParquetCommitterSuite with GlutenTestsCommonTrait {}
+class GlutenParquetCommitterSuite extends ParquetCommitterSuite with GlutenTestsTrait {}

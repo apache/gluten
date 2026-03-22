@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenRandomDataGeneratorSuite extends RandomDataGeneratorSuite with GlutenTestsCommonTrait {}
+class GlutenRandomDataGeneratorSuite extends RandomDataGeneratorSuite with GlutenTestsTrait {}
