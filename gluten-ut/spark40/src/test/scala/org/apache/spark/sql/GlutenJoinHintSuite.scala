@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenJoinHintSuite extends JoinHintSuite with GlutenTestsCommonTrait {}
+class GlutenJoinHintSuite extends JoinHintSuite with GlutenSQLTestsBaseTrait {}

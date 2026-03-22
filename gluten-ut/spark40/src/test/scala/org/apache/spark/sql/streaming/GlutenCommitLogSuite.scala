@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
-class GlutenCommitLogSuite extends CommitLogSuite with GlutenTestsCommonTrait {}
+class GlutenCommitLogSuite extends CommitLogSuite with GlutenSQLTestsBaseTrait {}

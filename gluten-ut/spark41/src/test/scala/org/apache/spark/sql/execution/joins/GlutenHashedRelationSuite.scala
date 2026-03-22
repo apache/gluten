@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.execution.joins
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
-class GlutenHashedRelationSuite extends HashedRelationSuite with GlutenTestsCommonTrait {}
+class GlutenHashedRelationSuite extends HashedRelationSuite with GlutenSQLTestsBaseTrait {}

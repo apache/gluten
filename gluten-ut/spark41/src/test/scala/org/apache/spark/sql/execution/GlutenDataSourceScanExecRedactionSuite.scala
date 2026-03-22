@@ -16,12 +16,12 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenDataSourceScanExecRedactionSuite
   extends DataSourceScanExecRedactionSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}
 
 class GlutenDataSourceV2ScanExecRedactionSuite
   extends DataSourceV2ScanExecRedactionSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}

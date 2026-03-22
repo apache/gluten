@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution.datasources.text
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenWholeTextFileV1Suite extends WholeTextFileV1Suite with GlutenTestsCommonTrait {}
+class GlutenWholeTextFileV1Suite extends WholeTextFileV1Suite with GlutenSQLTestsTrait {}
 
-class GlutenWholeTextFileV2Suite extends WholeTextFileV2Suite with GlutenTestsCommonTrait {}
+class GlutenWholeTextFileV2Suite extends WholeTextFileV2Suite with GlutenSQLTestsTrait {}

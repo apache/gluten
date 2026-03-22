@@ -16,10 +16,10 @@
  */
 package org.apache.spark.sql.connector
 
-import org.apache.spark.sql.{GlutenSQLTestsTrait, GlutenTestsCommonTrait}
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenV1WriteFallbackSuite extends V1WriteFallbackSuite with GlutenSQLTestsTrait {}
 
 class GlutenV1WriteFallbackSessionCatalogSuite
   extends V1WriteFallbackSessionCatalogSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}

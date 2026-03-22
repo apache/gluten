@@ -18,4 +18,4 @@ package org.apache.spark.sql
 
 class GlutenVariantWriteShreddingSuite
   extends VariantWriteShreddingSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait {}

@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenMemorySourceStressSuite extends MemorySourceStressSuite with GlutenTestsCommonTrait {}
+class GlutenMemorySourceStressSuite extends MemorySourceStressSuite with GlutenSQLTestsTrait {}

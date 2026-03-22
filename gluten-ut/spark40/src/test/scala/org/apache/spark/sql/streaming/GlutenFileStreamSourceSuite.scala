@@ -16,10 +16,10 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenFileStreamSourceSuite extends FileStreamSourceSuite with GlutenTestsCommonTrait {}
+class GlutenFileStreamSourceSuite extends FileStreamSourceSuite with GlutenSQLTestsTrait {}
 
 class GlutenFileStreamSourceStressTestSuite
   extends FileStreamSourceStressTestSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}

@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenLogicalPlanTagInSparkPlanSuite
   extends LogicalPlanTagInSparkPlanSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}

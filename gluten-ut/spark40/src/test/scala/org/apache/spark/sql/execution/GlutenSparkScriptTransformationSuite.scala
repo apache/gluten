@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
 class GlutenSparkScriptTransformationSuite
   extends SparkScriptTransformationSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait {}

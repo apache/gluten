@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenQueryPlanningTrackerEndToEndSuite
   extends QueryPlanningTrackerEndToEndSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}

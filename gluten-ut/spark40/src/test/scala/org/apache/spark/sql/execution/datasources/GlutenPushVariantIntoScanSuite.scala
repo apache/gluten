@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.execution.datasources
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
-class GlutenPushVariantIntoScanSuite extends PushVariantIntoScanSuite with GlutenTestsCommonTrait {}
+class GlutenPushVariantIntoScanSuite
+  extends PushVariantIntoScanSuite
+  with GlutenSQLTestsBaseTrait {}

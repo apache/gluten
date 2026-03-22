@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.execution.python
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenPythonDataSourceSuite extends PythonDataSourceSuite with GlutenTestsCommonTrait {}
+class GlutenPythonDataSourceSuite extends PythonDataSourceSuite with GlutenSQLTestsTrait {}
