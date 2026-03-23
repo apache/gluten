@@ -551,12 +551,6 @@ object VeloxConfig extends ConfigRegistry {
       .stringConf
       .createWithDefault("legacy")
 
-  val AWS_S3_CONNECT_TIMEOUT =
-    buildConf("spark.gluten.velox.fs.s3a.connect.timeout")
-      .doc("Timeout for AWS s3 connection.")
-      .stringConf
-      .createWithDefault("200s")
-
   val VELOX_ORC_SCAN_ENABLED =
     buildConf("spark.gluten.sql.columnar.backend.velox.orc.scan.enabled")
       .doc("Enable velox orc scan. If disabled, vanilla spark orc scan will be used.")

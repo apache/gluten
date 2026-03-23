@@ -494,7 +494,6 @@ object GlutenConfig extends ConfigRegistry {
     SPARK_S3_CONNECTION_MAXIMUM,
     SPARK_S3_ENDPOINT_REGION,
     SPARK_S3_AWS_IMDS_ENABLED,
-    "spark.gluten.velox.fs.s3a.connect.timeout",
     "spark.gluten.velox.fs.s3a.retry.mode",
     "spark.gluten.velox.awsSdkLogLevel",
     "spark.gluten.velox.s3UseProxyFromEnv",
@@ -604,7 +603,6 @@ object GlutenConfig extends ConfigRegistry {
       (SPARK_S3_USE_INSTANCE_CREDENTIALS, "false"),
       (SPARK_S3_RETRY_MAX_ATTEMPTS, "20"),
       (SPARK_S3_CONNECTION_MAXIMUM, "15"),
-      ("spark.gluten.velox.fs.s3a.connect.timeout", "200s"),
       ("spark.gluten.velox.fs.s3a.retry.mode", "legacy"),
       (
         "spark.gluten.sql.columnar.backend.velox.IOThreads",
