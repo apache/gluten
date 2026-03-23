@@ -8,7 +8,7 @@ attrs==23.2.0
 Babel>=2.9.1
 bcrypt==3.2.0
 beautifulsoup4==4.12.3
-black==24.4.2
+black==26.3.1
 bleach==6.1.0
 blinker==1.4
 certifi>=2023.7.22
