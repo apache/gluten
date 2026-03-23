@@ -1,0 +1,310 @@
+== Physical Plan ==
+VeloxColumnarToRow (59)
++- ^ ProjectExecTransformer (57)
+   +- ^ RegularHashAggregateExecTransformer (56)
+      +- ^ RegularHashAggregateExecTransformer (55)
+         +- ^ RegularHashAggregateExecTransformer (54)
+            +- ^ RegularHashAggregateExecTransformer (53)
+               +- ^ ProjectExecTransformer (52)
+                  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (51)
+                     :- ^ ProjectExecTransformer (43)
+                     :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (42)
+                     :     :- ^ ProjectExecTransformer (34)
+                     :     :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (33)
+                     :     :     :- ^ ShuffledHashJoinExecTransformer LeftAnti BuildRight (25)
+                     :     :     :  :- ^ ProjectExecTransformer (17)
+                     :     :     :  :  +- ^ ShuffledHashJoinExecTransformer LeftSemi BuildRight (16)
+                     :     :     :  :     :- ^ InputIteratorTransformer (8)
+                     :     :     :  :     :  +- ColumnarExchange (6)
+                     :     :     :  :     :     +- VeloxResizeBatches (5)
+                     :     :     :  :     :        +- ^ ProjectExecTransformer (3)
+                     :     :     :  :     :           +- ^ FilterExecTransformer (2)
+                     :     :     :  :     :              +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.catalog_sales (1)
+                     :     :     :  :     +- ^ InputIteratorTransformer (15)
+                     :     :     :  :        +- ColumnarExchange (13)
+                     :     :     :  :           +- VeloxResizeBatches (12)
+                     :     :     :  :              +- ^ ProjectExecTransformer (10)
+                     :     :     :  :                 +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.catalog_sales (9)
+                     :     :     :  +- ^ InputIteratorTransformer (24)
+                     :     :     :     +- ColumnarExchange (22)
+                     :     :     :        +- VeloxResizeBatches (21)
+                     :     :     :           +- ^ ProjectExecTransformer (19)
+                     :     :     :              +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.catalog_returns (18)
+                     :     :     +- ^ InputIteratorTransformer (32)
+                     :     :        +- ColumnarBroadcastExchange (30)
+                     :     :           +- ^ ProjectExecTransformer (28)
+                     :     :              +- ^ FilterExecTransformer (27)
+                     :     :                 +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (26)
+                     :     +- ^ InputIteratorTransformer (41)
+                     :        +- ColumnarBroadcastExchange (39)
+                     :           +- ^ ProjectExecTransformer (37)
+                     :              +- ^ FilterExecTransformer (36)
+                     :                 +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.customer_address (35)
+                     +- ^ InputIteratorTransformer (50)
+                        +- ColumnarBroadcastExchange (48)
+                           +- ^ ProjectExecTransformer (46)
+                              +- ^ FilterExecTransformer (45)
+                                 +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.call_center (44)
+
+
+(1) FileSourceScanExecTransformer parquet spark_catalog.default.catalog_sales
+Output [8]: [cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7, cs_sold_date_sk#8]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/catalog_sales]
+PushedFilters: [IsNotNull(cs_ship_date_sk), IsNotNull(cs_ship_addr_sk), IsNotNull(cs_call_center_sk)]
+ReadSchema: struct<cs_ship_date_sk:int,cs_ship_addr_sk:int,cs_call_center_sk:int,cs_warehouse_sk:int,cs_order_number:int,cs_ext_ship_cost:decimal(7,2),cs_net_profit:decimal(7,2)>
+
+(2) FilterExecTransformer
+Input [8]: [cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7, cs_sold_date_sk#8]
+Arguments: ((isnotnull(cs_ship_date_sk#1) AND isnotnull(cs_ship_addr_sk#2)) AND isnotnull(cs_call_center_sk#3))
+
+(3) ProjectExecTransformer
+Output [8]: [hash(cs_order_number#5, 42) AS hash_partition_key#9, cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
+Input [8]: [cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7, cs_sold_date_sk#8]
+
+(4) WholeStageCodegenTransformer (1)
+Input [8]: [hash_partition_key#9, cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
+Arguments: false
+
+(5) VeloxResizeBatches
+Input [8]: [hash_partition_key#9, cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
+Arguments: 1024, 2147483647, 10485760
+
+(6) ColumnarExchange
+Input [8]: [hash_partition_key#9, cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
+Arguments: hashpartitioning(cs_order_number#5, 1), ENSURE_REQUIREMENTS, [cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7], [plan_id=1], [shuffle_writer_type=hash]
+
+(7) InputAdapter
+Input [7]: [cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
+
+(8) InputIteratorTransformer
+Input [7]: [cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
+
+(9) FileSourceScanExecTransformer parquet spark_catalog.default.catalog_sales
+Output [3]: [cs_warehouse_sk#10, cs_order_number#11, cs_sold_date_sk#12]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/catalog_sales]
+ReadSchema: struct<cs_warehouse_sk:int,cs_order_number:int>
+
+(10) ProjectExecTransformer
+Output [3]: [hash(cs_order_number#11, 42) AS hash_partition_key#13, cs_warehouse_sk#10, cs_order_number#11]
+Input [3]: [cs_warehouse_sk#10, cs_order_number#11, cs_sold_date_sk#12]
+
+(11) WholeStageCodegenTransformer (2)
+Input [3]: [hash_partition_key#13, cs_warehouse_sk#10, cs_order_number#11]
+Arguments: false
+
+(12) VeloxResizeBatches
+Input [3]: [hash_partition_key#13, cs_warehouse_sk#10, cs_order_number#11]
+Arguments: 1024, 2147483647, 10485760
+
+(13) ColumnarExchange
+Input [3]: [hash_partition_key#13, cs_warehouse_sk#10, cs_order_number#11]
+Arguments: hashpartitioning(cs_order_number#11, 1), ENSURE_REQUIREMENTS, [cs_warehouse_sk#10, cs_order_number#11], [plan_id=2], [shuffle_writer_type=hash]
+
+(14) InputAdapter
+Input [2]: [cs_warehouse_sk#10, cs_order_number#11]
+
+(15) InputIteratorTransformer
+Input [2]: [cs_warehouse_sk#10, cs_order_number#11]
+
+(16) ShuffledHashJoinExecTransformer
+Left keys [1]: [cs_order_number#5]
+Right keys [1]: [cs_order_number#11]
+Join type: LeftSemi
+Join condition: NOT (cs_warehouse_sk#4 = cs_warehouse_sk#10)
+
+(17) ProjectExecTransformer
+Output [6]: [cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
+Input [7]: [cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
+
+(18) FileSourceScanExecTransformer parquet spark_catalog.default.catalog_returns
+Output [2]: [cr_order_number#14, cr_returned_date_sk#15]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/catalog_returns]
+ReadSchema: struct<cr_order_number:int>
+
+(19) ProjectExecTransformer
+Output [2]: [hash(cr_order_number#14, 42) AS hash_partition_key#16, cr_order_number#14]
+Input [2]: [cr_order_number#14, cr_returned_date_sk#15]
+
+(20) WholeStageCodegenTransformer (3)
+Input [2]: [hash_partition_key#16, cr_order_number#14]
+Arguments: false
+
+(21) VeloxResizeBatches
+Input [2]: [hash_partition_key#16, cr_order_number#14]
+Arguments: 1024, 2147483647, 10485760
+
+(22) ColumnarExchange
+Input [2]: [hash_partition_key#16, cr_order_number#14]
+Arguments: hashpartitioning(cr_order_number#14, 1), ENSURE_REQUIREMENTS, [cr_order_number#14], [plan_id=3], [shuffle_writer_type=hash]
+
+(23) InputAdapter
+Input [1]: [cr_order_number#14]
+
+(24) InputIteratorTransformer
+Input [1]: [cr_order_number#14]
+
+(25) ShuffledHashJoinExecTransformer
+Left keys [1]: [cs_order_number#5]
+Right keys [1]: [cr_order_number#14]
+Join type: LeftAnti
+Join condition: None
+
+(26) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
+Output [2]: [d_date_sk#17, d_date#18]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
+PushedFilters: [IsNotNull(d_date), GreaterThanOrEqual(d_date,2002-02-01), LessThanOrEqual(d_date,2002-04-02), IsNotNull(d_date_sk)]
+ReadSchema: struct<d_date_sk:int,d_date:date>
+
+(27) FilterExecTransformer
+Input [2]: [d_date_sk#17, d_date#18]
+Arguments: (((isnotnull(d_date#18) AND (d_date#18 >= 2002-02-01)) AND (d_date#18 <= 2002-04-02)) AND isnotnull(d_date_sk#17))
+
+(28) ProjectExecTransformer
+Output [1]: [d_date_sk#17]
+Input [2]: [d_date_sk#17, d_date#18]
+
+(29) WholeStageCodegenTransformer (4)
+Input [1]: [d_date_sk#17]
+Arguments: false
+
+(30) ColumnarBroadcastExchange
+Input [1]: [d_date_sk#17]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=4]
+
+(31) InputAdapter
+Input [1]: [d_date_sk#17]
+
+(32) InputIteratorTransformer
+Input [1]: [d_date_sk#17]
+
+(33) BroadcastHashJoinExecTransformer
+Left keys [1]: [cs_ship_date_sk#1]
+Right keys [1]: [d_date_sk#17]
+Join type: Inner
+Join condition: None
+
+(34) ProjectExecTransformer
+Output [5]: [cs_ship_addr_sk#2, cs_call_center_sk#3, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
+Input [7]: [cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7, d_date_sk#17]
+
+(35) FileSourceScanExecTransformer parquet spark_catalog.default.customer_address
+Output [2]: [ca_address_sk#19, ca_state#20]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
+PushedFilters: [IsNotNull(ca_state), EqualTo(ca_state,GA), IsNotNull(ca_address_sk)]
+ReadSchema: struct<ca_address_sk:int,ca_state:string>
+
+(36) FilterExecTransformer
+Input [2]: [ca_address_sk#19, ca_state#20]
+Arguments: ((isnotnull(ca_state#20) AND (ca_state#20 = GA)) AND isnotnull(ca_address_sk#19))
+
+(37) ProjectExecTransformer
+Output [1]: [ca_address_sk#19]
+Input [2]: [ca_address_sk#19, ca_state#20]
+
+(38) WholeStageCodegenTransformer (5)
+Input [1]: [ca_address_sk#19]
+Arguments: false
+
+(39) ColumnarBroadcastExchange
+Input [1]: [ca_address_sk#19]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=5]
+
+(40) InputAdapter
+Input [1]: [ca_address_sk#19]
+
+(41) InputIteratorTransformer
+Input [1]: [ca_address_sk#19]
+
+(42) BroadcastHashJoinExecTransformer
+Left keys [1]: [cs_ship_addr_sk#2]
+Right keys [1]: [ca_address_sk#19]
+Join type: Inner
+Join condition: None
+
+(43) ProjectExecTransformer
+Output [4]: [cs_call_center_sk#3, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
+Input [6]: [cs_ship_addr_sk#2, cs_call_center_sk#3, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7, ca_address_sk#19]
+
+(44) FileSourceScanExecTransformer parquet spark_catalog.default.call_center
+Output [2]: [cc_call_center_sk#21, cc_county#22]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/call_center]
+PushedFilters: [IsNotNull(cc_county), EqualTo(cc_county,Williamson County), IsNotNull(cc_call_center_sk)]
+ReadSchema: struct<cc_call_center_sk:int,cc_county:string>
+
+(45) FilterExecTransformer
+Input [2]: [cc_call_center_sk#21, cc_county#22]
+Arguments: ((isnotnull(cc_county#22) AND (cc_county#22 = Williamson County)) AND isnotnull(cc_call_center_sk#21))
+
+(46) ProjectExecTransformer
+Output [1]: [cc_call_center_sk#21]
+Input [2]: [cc_call_center_sk#21, cc_county#22]
+
+(47) WholeStageCodegenTransformer (6)
+Input [1]: [cc_call_center_sk#21]
+Arguments: false
+
+(48) ColumnarBroadcastExchange
+Input [1]: [cc_call_center_sk#21]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=6]
+
+(49) InputAdapter
+Input [1]: [cc_call_center_sk#21]
+
+(50) InputIteratorTransformer
+Input [1]: [cc_call_center_sk#21]
+
+(51) BroadcastHashJoinExecTransformer
+Left keys [1]: [cs_call_center_sk#3]
+Right keys [1]: [cc_call_center_sk#21]
+Join type: Inner
+Join condition: None
+
+(52) ProjectExecTransformer
+Output [3]: [cs_order_number#5, UnscaledValue(cs_ext_ship_cost#6) AS _pre_1#23, UnscaledValue(cs_net_profit#7) AS _pre_2#24]
+Input [5]: [cs_call_center_sk#3, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7, cc_call_center_sk#21]
+
+(53) RegularHashAggregateExecTransformer
+Input [3]: [cs_order_number#5, _pre_1#23, _pre_2#24]
+Keys [1]: [cs_order_number#5]
+Functions [2]: [partial_sum(_pre_1#23), partial_sum(_pre_2#24)]
+Aggregate Attributes [2]: [sum(UnscaledValue(cs_ext_ship_cost#6))#25, sum(UnscaledValue(cs_net_profit#7))#26]
+Results [3]: [cs_order_number#5, sum#27, sum#28]
+
+(54) RegularHashAggregateExecTransformer
+Input [3]: [cs_order_number#5, sum#27, sum#28]
+Keys [1]: [cs_order_number#5]
+Functions [2]: [merge_sum(UnscaledValue(cs_ext_ship_cost#6)), merge_sum(UnscaledValue(cs_net_profit#7))]
+Aggregate Attributes [2]: [sum(UnscaledValue(cs_ext_ship_cost#6))#25, sum(UnscaledValue(cs_net_profit#7))#26]
+Results [3]: [cs_order_number#5, sum#27, sum#28]
+
+(55) RegularHashAggregateExecTransformer
+Input [3]: [cs_order_number#5, sum#27, sum#28]
+Keys: []
+Functions [3]: [merge_sum(UnscaledValue(cs_ext_ship_cost#6)), merge_sum(UnscaledValue(cs_net_profit#7)), partial_count(distinct cs_order_number#5)]
+Aggregate Attributes [3]: [sum(UnscaledValue(cs_ext_ship_cost#6))#25, sum(UnscaledValue(cs_net_profit#7))#26, count(cs_order_number#5)#29]
+Results [3]: [sum#27, sum#28, count#30]
+
+(56) RegularHashAggregateExecTransformer
+Input [3]: [sum#27, sum#28, count#30]
+Keys: []
+Functions [3]: [sum(UnscaledValue(cs_ext_ship_cost#6)), sum(UnscaledValue(cs_net_profit#7)), count(distinct cs_order_number#5)]
+Aggregate Attributes [3]: [sum(UnscaledValue(cs_ext_ship_cost#6))#25, sum(UnscaledValue(cs_net_profit#7))#26, count(cs_order_number#5)#29]
+Results [3]: [sum(UnscaledValue(cs_ext_ship_cost#6))#25, sum(UnscaledValue(cs_net_profit#7))#26, count(cs_order_number#5)#29]
+
+(57) ProjectExecTransformer
+Output [3]: [count(cs_order_number#5)#29 AS order count #31, MakeDecimal(sum(UnscaledValue(cs_ext_ship_cost#6))#25,17,2) AS total shipping cost #32, MakeDecimal(sum(UnscaledValue(cs_net_profit#7))#26,17,2) AS total net profit #33]
+Input [3]: [sum(UnscaledValue(cs_ext_ship_cost#6))#25, sum(UnscaledValue(cs_net_profit#7))#26, count(cs_order_number#5)#29]
+
+(58) WholeStageCodegenTransformer (7)
+Input [3]: [order count #31, total shipping cost #32, total net profit #33]
+Arguments: false
+
+(59) VeloxColumnarToRow
+Input [3]: [order count #31, total shipping cost #32, total net profit #33]
+

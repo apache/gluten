@@ -1,0 +1,102 @@
+== Physical Plan ==
+VeloxColumnarToRow (20)
++- ^ SortExecTransformer (18)
+   +- ^ InputIteratorTransformer (17)
+      +- ColumnarExchange (15)
+         +- VeloxResizeBatches (14)
+            +- ^ ProjectExecTransformer (12)
+               +- ^ RegularHashAggregateExecTransformer (11)
+                  +- ^ InputIteratorTransformer (10)
+                     +- ColumnarExchange (8)
+                        +- VeloxResizeBatches (7)
+                           +- ^ ProjectExecTransformer (5)
+                              +- ^ FlushableHashAggregateExecTransformer (4)
+                                 +- ^ ProjectExecTransformer (3)
+                                    +- ^ FilterExecTransformer (2)
+                                       +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.lineitem (1)
+
+
+(1) FileSourceScanExecTransformer parquet spark_catalog.default.lineitem
+Output [7]: [l_quantity#1, l_extendedprice#2, l_discount#3, l_tax#4, l_returnflag#5, l_linestatus#6, l_shipdate#7]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/lineitem]
+PushedFilters: [IsNotNull(l_shipdate), LessThanOrEqual(l_shipdate,1998-09-02)]
+ReadSchema: struct<l_quantity:decimal(10,0),l_extendedprice:decimal(10,0),l_discount:decimal(10,0),l_tax:decimal(10,0),l_returnflag:string,l_linestatus:string,l_shipdate:date>
+
+(2) FilterExecTransformer
+Input [7]: [l_quantity#1, l_extendedprice#2, l_discount#3, l_tax#4, l_returnflag#5, l_linestatus#6, l_shipdate#7]
+Arguments: (isnotnull(l_shipdate#7) AND (l_shipdate#7 <= 1998-09-02))
+
+(3) ProjectExecTransformer
+Output [9]: [l_quantity#1, l_extendedprice#2, l_returnflag#5, l_linestatus#6, (l_extendedprice#2 * (1 - l_discount#3)) AS _pre_1#8, ((l_extendedprice#2 * (1 - l_discount#3)) * (1 + l_tax#4)) AS _pre_2#9, UnscaledValue(l_quantity#1) AS _pre_3#10, UnscaledValue(l_extendedprice#2) AS _pre_4#11, UnscaledValue(l_discount#3) AS _pre_5#12]
+Input [7]: [l_quantity#1, l_extendedprice#2, l_discount#3, l_tax#4, l_returnflag#5, l_linestatus#6, l_shipdate#7]
+
+(4) FlushableHashAggregateExecTransformer
+Input [9]: [l_quantity#1, l_extendedprice#2, l_returnflag#5, l_linestatus#6, _pre_1#8, _pre_2#9, _pre_3#10, _pre_4#11, _pre_5#12]
+Keys [2]: [l_returnflag#5, l_linestatus#6]
+Functions [8]: [partial_sum(l_quantity#1), partial_sum(l_extendedprice#2), partial_sum(_pre_1#8), partial_sum(_pre_2#9), partial_avg(_pre_3#10), partial_avg(_pre_4#11), partial_avg(_pre_5#12), partial_count(1)]
+Aggregate Attributes [15]: [sum#13, isEmpty#14, sum#15, isEmpty#16, sum#17, isEmpty#18, sum#19, isEmpty#20, sum#21, count#22, sum#23, count#24, sum#25, count#26, count#27]
+Results [17]: [l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
+
+(5) ProjectExecTransformer
+Output [18]: [hash(l_returnflag#5, l_linestatus#6, 42) AS hash_partition_key#43, l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
+Input [17]: [l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
+
+(6) WholeStageCodegenTransformer (1)
+Input [18]: [hash_partition_key#43, l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
+Arguments: false
+
+(7) VeloxResizeBatches
+Input [18]: [hash_partition_key#43, l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
+Arguments: 1024, 2147483647, 10485760
+
+(8) ColumnarExchange
+Input [18]: [hash_partition_key#43, l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
+Arguments: hashpartitioning(l_returnflag#5, l_linestatus#6, 1), ENSURE_REQUIREMENTS, [l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42], [plan_id=1], [shuffle_writer_type=hash]
+
+(9) InputAdapter
+Input [17]: [l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
+
+(10) InputIteratorTransformer
+Input [17]: [l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
+
+(11) RegularHashAggregateExecTransformer
+Input [17]: [l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
+Keys [2]: [l_returnflag#5, l_linestatus#6]
+Functions [8]: [sum(l_quantity#1), sum(l_extendedprice#2), sum((l_extendedprice#2 * (1 - l_discount#3))), sum(((l_extendedprice#2 * (1 - l_discount#3)) * (1 + l_tax#4))), avg(UnscaledValue(l_quantity#1)), avg(UnscaledValue(l_extendedprice#2)), avg(UnscaledValue(l_discount#3)), count(1)]
+Aggregate Attributes [8]: [sum(l_quantity#1)#44, sum(l_extendedprice#2)#45, sum((l_extendedprice#2 * (1 - l_discount#3)))#46, sum(((l_extendedprice#2 * (1 - l_discount#3)) * (1 + l_tax#4)))#47, avg(UnscaledValue(l_quantity#1))#48, avg(UnscaledValue(l_extendedprice#2))#49, avg(UnscaledValue(l_discount#3))#50, count(1)#51]
+Results [10]: [l_returnflag#5, l_linestatus#6, sum(l_quantity#1)#44, sum(l_extendedprice#2)#45, sum((l_extendedprice#2 * (1 - l_discount#3)))#46, sum(((l_extendedprice#2 * (1 - l_discount#3)) * (1 + l_tax#4)))#47, avg(UnscaledValue(l_quantity#1))#48, avg(UnscaledValue(l_extendedprice#2))#49, avg(UnscaledValue(l_discount#3))#50, count(1)#51]
+
+(12) ProjectExecTransformer
+Output [10]: [l_returnflag#5, l_linestatus#6, sum(l_quantity#1)#44 AS sum_qty#52, sum(l_extendedprice#2)#45 AS sum_base_price#53, sum((l_extendedprice#2 * (1 - l_discount#3)))#46 AS sum_disc_price#54, sum(((l_extendedprice#2 * (1 - l_discount#3)) * (1 + l_tax#4)))#47 AS sum_charge#55, cast((avg(UnscaledValue(l_quantity#1))#48 / 1.0) as decimal(14,4)) AS avg_qty#56, cast((avg(UnscaledValue(l_extendedprice#2))#49 / 1.0) as decimal(14,4)) AS avg_price#57, cast((avg(UnscaledValue(l_discount#3))#50 / 1.0) as decimal(14,4)) AS avg_disc#58, count(1)#51 AS count_order#59]
+Input [10]: [l_returnflag#5, l_linestatus#6, sum(l_quantity#1)#44, sum(l_extendedprice#2)#45, sum((l_extendedprice#2 * (1 - l_discount#3)))#46, sum(((l_extendedprice#2 * (1 - l_discount#3)) * (1 + l_tax#4)))#47, avg(UnscaledValue(l_quantity#1))#48, avg(UnscaledValue(l_extendedprice#2))#49, avg(UnscaledValue(l_discount#3))#50, count(1)#51]
+
+(13) WholeStageCodegenTransformer (2)
+Input [10]: [l_returnflag#5, l_linestatus#6, sum_qty#52, sum_base_price#53, sum_disc_price#54, sum_charge#55, avg_qty#56, avg_price#57, avg_disc#58, count_order#59]
+Arguments: false
+
+(14) VeloxResizeBatches
+Input [10]: [l_returnflag#5, l_linestatus#6, sum_qty#52, sum_base_price#53, sum_disc_price#54, sum_charge#55, avg_qty#56, avg_price#57, avg_disc#58, count_order#59]
+Arguments: 1024, 2147483647, 10485760
+
+(15) ColumnarExchange
+Input [10]: [l_returnflag#5, l_linestatus#6, sum_qty#52, sum_base_price#53, sum_disc_price#54, sum_charge#55, avg_qty#56, avg_price#57, avg_disc#58, count_order#59]
+Arguments: rangepartitioning(l_returnflag#5 ASC NULLS FIRST, l_linestatus#6 ASC NULLS FIRST, 1), ENSURE_REQUIREMENTS, [plan_id=2], [shuffle_writer_type=hash]
+
+(16) InputAdapter
+Input [10]: [l_returnflag#5, l_linestatus#6, sum_qty#52, sum_base_price#53, sum_disc_price#54, sum_charge#55, avg_qty#56, avg_price#57, avg_disc#58, count_order#59]
+
+(17) InputIteratorTransformer
+Input [10]: [l_returnflag#5, l_linestatus#6, sum_qty#52, sum_base_price#53, sum_disc_price#54, sum_charge#55, avg_qty#56, avg_price#57, avg_disc#58, count_order#59]
+
+(18) SortExecTransformer
+Input [10]: [l_returnflag#5, l_linestatus#6, sum_qty#52, sum_base_price#53, sum_disc_price#54, sum_charge#55, avg_qty#56, avg_price#57, avg_disc#58, count_order#59]
+Arguments: [l_returnflag#5 ASC NULLS FIRST, l_linestatus#6 ASC NULLS FIRST], true, 0
+
+(19) WholeStageCodegenTransformer (3)
+Input [10]: [l_returnflag#5, l_linestatus#6, sum_qty#52, sum_base_price#53, sum_disc_price#54, sum_charge#55, avg_qty#56, avg_price#57, avg_disc#58, count_order#59]
+Arguments: false
+
+(20) VeloxColumnarToRow
+Input [10]: [l_returnflag#5, l_linestatus#6, sum_qty#52, sum_base_price#53, sum_disc_price#54, sum_charge#55, avg_qty#56, avg_price#57, avg_disc#58, count_order#59]
+

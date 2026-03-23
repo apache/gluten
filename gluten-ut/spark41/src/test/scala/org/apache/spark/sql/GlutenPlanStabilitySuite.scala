@@ -133,18 +133,6 @@ trait GlutenPlanStabilityTestTrait {
       Files.writeString(actualSimplifiedFile.toPath(), actualSimplified, StandardCharsets.UTF_8)
       Files.writeString(actualExplainFile.toPath(), explain, StandardCharsets.UTF_8)
 
-      // Also write to target/ for CI artifact collection
-      val targetDir = new File("target/gluten-plan-stability-actual")
-      targetDir.mkdirs()
-      Files.writeString(
-        new File(targetDir, s"$name.actual.explain.txt").toPath(),
-        explain,
-        StandardCharsets.UTF_8)
-      Files.writeString(
-        new File(targetDir, s"$name.actual.simplified.txt").toPath(),
-        actualSimplified,
-        StandardCharsets.UTF_8)
-
       fail(s"""
               |Plans did not match:
               |last approved simplified plan: ${approvedSimplifiedFile.getAbsolutePath}

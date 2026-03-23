@@ -1,0 +1,462 @@
+== Physical Plan ==
+VeloxColumnarToRow (85)
++- TakeOrderedAndProjectExecTransformer (84)
+   +- ^ ProjectExecTransformer (82)
+      +- ^ RegularHashAggregateExecTransformer (81)
+         +- ^ InputIteratorTransformer (80)
+            +- ColumnarExchange (78)
+               +- VeloxResizeBatches (77)
+                  +- ^ ProjectExecTransformer (75)
+                     +- ^ FlushableHashAggregateExecTransformer (74)
+                        +- ^ ProjectExecTransformer (73)
+                           +- ^ ShuffledHashJoinExecTransformer Inner BuildRight (72)
+                              :- ^ InputIteratorTransformer (20)
+                              :  +- ColumnarExchange (18)
+                              :     +- VeloxResizeBatches (17)
+                              :        +- ^ ProjectExecTransformer (15)
+                              :           +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (14)
+                              :              :- ^ ProjectExecTransformer (7)
+                              :              :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (6)
+                              :              :     :- ^ FilterExecTransformer (2)
+                              :              :     :  +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (1)
+                              :              :     +- ^ InputIteratorTransformer (5)
+                              :              :        +- ReusedExchange (3)
+                              :              +- ^ InputIteratorTransformer (13)
+                              :                 +- ColumnarBroadcastExchange (11)
+                              :                    +- ^ FilterExecTransformer (9)
+                              :                       +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store (8)
+                              +- ^ InputIteratorTransformer (71)
+                                 +- ColumnarExchange (69)
+                                    +- VeloxResizeBatches (68)
+                                       +- ^ ProjectExecTransformer (66)
+                                          +- ^ RegularHashAggregateExecTransformer (65)
+                                             +- ^ InputIteratorTransformer (64)
+                                                +- ColumnarExchange (62)
+                                                   +- VeloxResizeBatches (61)
+                                                      +- ^ ProjectExecTransformer (59)
+                                                         +- ^ FlushableHashAggregateExecTransformer (58)
+                                                            +- ^ BroadcastHashJoinExecTransformer LeftSemi BuildRight (57)
+                                                               :- ^ ProjectExecTransformer (23)
+                                                               :  +- ^ FilterExecTransformer (22)
+                                                               :     +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.customer_address (21)
+                                                               +- ^ InputIteratorTransformer (56)
+                                                                  +- ColumnarBroadcastExchange (54)
+                                                                     +- ^ ProjectExecTransformer (52)
+                                                                        +- ^ FilterExecTransformer (51)
+                                                                           +- ^ ProjectExecTransformer (50)
+                                                                              +- ^ RegularHashAggregateExecTransformer (49)
+                                                                                 +- ^ InputIteratorTransformer (48)
+                                                                                    +- ColumnarExchange (46)
+                                                                                       +- VeloxResizeBatches (45)
+                                                                                          +- ^ ProjectExecTransformer (43)
+                                                                                             +- ^ FlushableHashAggregateExecTransformer (42)
+                                                                                                +- ^ ProjectExecTransformer (41)
+                                                                                                   +- ^ ShuffledHashJoinExecTransformer Inner BuildRight (40)
+                                                                                                      :- ^ InputIteratorTransformer (31)
+                                                                                                      :  +- ColumnarExchange (29)
+                                                                                                      :     +- VeloxResizeBatches (28)
+                                                                                                      :        +- ^ ProjectExecTransformer (26)
+                                                                                                      :           +- ^ FilterExecTransformer (25)
+                                                                                                      :              +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.customer_address (24)
+                                                                                                      +- ^ InputIteratorTransformer (39)
+                                                                                                         +- ColumnarExchange (37)
+                                                                                                            +- VeloxResizeBatches (36)
+                                                                                                               +- ^ ProjectExecTransformer (34)
+                                                                                                                  +- ^ FilterExecTransformer (33)
+                                                                                                                     +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.customer (32)
+
+
+(1) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [3]: [ss_store_sk#1, ss_net_profit#2, ss_sold_date_sk#3]
+Batched: true
+Location: InMemoryFileIndex []
+PartitionFilters: [isnotnull(ss_sold_date_sk#3), dynamicpruningexpression(ss_sold_date_sk#3 IN dynamicpruning#4)]
+PushedFilters: [IsNotNull(ss_store_sk)]
+ReadSchema: struct<ss_store_sk:int,ss_net_profit:decimal(7,2)>
+
+(2) FilterExecTransformer
+Input [3]: [ss_store_sk#1, ss_net_profit#2, ss_sold_date_sk#3]
+Arguments: isnotnull(ss_store_sk#1)
+
+(3) ReusedExchange [Reuses operator id: 90]
+Output [1]: [d_date_sk#5]
+
+(4) InputAdapter
+Input [1]: [d_date_sk#5]
+
+(5) InputIteratorTransformer
+Input [1]: [d_date_sk#5]
+
+(6) BroadcastHashJoinExecTransformer
+Left keys [1]: [ss_sold_date_sk#3]
+Right keys [1]: [d_date_sk#5]
+Join type: Inner
+Join condition: None
+
+(7) ProjectExecTransformer
+Output [2]: [ss_store_sk#1, ss_net_profit#2]
+Input [4]: [ss_store_sk#1, ss_net_profit#2, ss_sold_date_sk#3, d_date_sk#5]
+
+(8) FileSourceScanExecTransformer parquet spark_catalog.default.store
+Output [3]: [s_store_sk#6, s_store_name#7, s_zip#8]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/store]
+PushedFilters: [IsNotNull(s_store_sk), IsNotNull(s_zip)]
+ReadSchema: struct<s_store_sk:int,s_store_name:string,s_zip:string>
+
+(9) FilterExecTransformer
+Input [3]: [s_store_sk#6, s_store_name#7, s_zip#8]
+Arguments: (isnotnull(s_store_sk#6) AND isnotnull(s_zip#8))
+
+(10) WholeStageCodegenTransformer (3)
+Input [3]: [s_store_sk#6, s_store_name#7, s_zip#8]
+Arguments: false
+
+(11) ColumnarBroadcastExchange
+Input [3]: [s_store_sk#6, s_store_name#7, s_zip#8]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, false] as bigint)),false), [plan_id=1]
+
+(12) InputAdapter
+Input [3]: [s_store_sk#6, s_store_name#7, s_zip#8]
+
+(13) InputIteratorTransformer
+Input [3]: [s_store_sk#6, s_store_name#7, s_zip#8]
+
+(14) BroadcastHashJoinExecTransformer
+Left keys [1]: [ss_store_sk#1]
+Right keys [1]: [s_store_sk#6]
+Join type: Inner
+Join condition: None
+
+(15) ProjectExecTransformer
+Output [4]: [hash(substr(s_zip#8, 1, 2), 42) AS hash_partition_key#9, ss_net_profit#2, s_store_name#7, s_zip#8]
+Input [5]: [ss_store_sk#1, ss_net_profit#2, s_store_sk#6, s_store_name#7, s_zip#8]
+
+(16) WholeStageCodegenTransformer (4)
+Input [4]: [hash_partition_key#9, ss_net_profit#2, s_store_name#7, s_zip#8]
+Arguments: false
+
+(17) VeloxResizeBatches
+Input [4]: [hash_partition_key#9, ss_net_profit#2, s_store_name#7, s_zip#8]
+Arguments: 1024, 2147483647, 10485760
+
+(18) ColumnarExchange
+Input [4]: [hash_partition_key#9, ss_net_profit#2, s_store_name#7, s_zip#8]
+Arguments: hashpartitioning(substr(s_zip#8, 1, 2), 1), ENSURE_REQUIREMENTS, [ss_net_profit#2, s_store_name#7, s_zip#8], [plan_id=2], [shuffle_writer_type=hash]
+
+(19) InputAdapter
+Input [3]: [ss_net_profit#2, s_store_name#7, s_zip#8]
+
+(20) InputIteratorTransformer
+Input [3]: [ss_net_profit#2, s_store_name#7, s_zip#8]
+
+(21) FileSourceScanExecTransformer parquet spark_catalog.default.customer_address
+Output [1]: [ca_zip#10]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
+ReadSchema: struct<ca_zip:string>
+
+(22) FilterExecTransformer
+Input [1]: [ca_zip#10]
+Arguments: (substr(ca_zip#10, 1, 5) INSET 10144, 10336, 10390, 10445, 10516, 10567, 11101, 11356, 11376, 11489, 11634, 11928, 12305, 13354, 13375, 13376, 13394, 13595, 13695, 13955, 14060, 14089, 14171, 14328, 14663, 14867, 14922, 15126, 15146, 15371, 15455, 15559, 15723, 15734, 15765, 15798, 15882, 16021, 16725, 16807, 17043, 17183, 17871, 17879, 17920, 18119, 18270, 18376, 18383, 18426, 18652, 18767, 18799, 18840, 18842, 18845, 18906, 19430, 19505, 19512, 19515, 19736, 19769, 19849, 20004, 20260, 20548, 21076, 21195, 21286, 21309, 21337, 21756, 22152, 22245, 22246, 22351, 22437, 22461, 22685, 22744, 22752, 22927, 23006, 23470, 23932, 23968, 24128, 24206, 24317, 24610, 24671, 24676, 24996, 25003, 25103, 25280, 25486, 25631, 25733, 25782, 25858, 25989, 26065, 26105, 26231, 26233, 26653, 26689, 26859, 27068, 27156, 27385, 27700, 28286, 28488, 28545, 28577, 28587, 28709, 28810, 28898, 28915, 29178, 29741, 29839, 30010, 30122, 30431, 30450, 30469, 30625, 30903, 31016, 31029, 31387, 31671, 31880, 32213, 32754, 33123, 33282, 33515, 33786, 34102, 34322, 34425, 35258, 35458, 35474, 35576, 35850, 35942, 36233, 36420, 36446, 36495, 36634, 37125, 37126, 37930, 38122, 38193, 38415, 38607, 38935, 39127, 39192, 39371, 39516, 39736, 39861, 39972, 40081, 40162, 40558, 40604, 41248, 41367, 41368, 41766, 41918, 42029, 42666, 42961, 43285, 43848, 43933, 44165, 44438, 45200, 45266, 45375, 45549, 45692, 45721, 45748, 46081, 46136, 46820, 47305, 47537, 47770, 48033, 48425, 48583, 49130, 49156, 49448, 50016, 50298, 50308, 50412, 51061, 51103, 51200, 51211, 51622, 51649, 51650, 51798, 51949, 52867, 53179, 53268, 53535, 53672, 54364, 54601, 54917, 55253, 55307, 55565, 56240, 56458, 56529, 56571, 56575, 56616, 56691, 56910, 57047, 57647, 57665, 57834, 57855, 58048, 58058, 58078, 58263, 58470, 58943, 59166, 59402, 60099, 60279, 60576, 61265, 61547, 61810, 61860, 62377, 62496, 62878, 62971, 63089, 63193, 63435, 63792, 63837, 63981, 64034, 64147, 64457, 64528, 64544, 65084, 65164, 66162, 66708, 66864, 67030, 67301, 67467, 67473, 67853, 67875, 67897, 68014, 68100, 68101, 68309, 68341, 68621, 68786, 68806, 68880, 68893, 68908, 69035, 69399, 69913, 69952, 70372, 70466, 70738, 71256, 71286, 71791, 71954, 72013, 72151, 72175, 72305, 72325, 72425, 72550, 72823, 73134, 73171, 73241, 73273, 73520, 73650, 74351, 75691, 76107, 76231, 76232, 76614, 76638, 76698, 77191, 77556, 77610, 77721, 78451, 78567, 78668, 78890, 79077, 79777, 79994, 81019, 81096, 81312, 81426, 82136, 82276, 82636, 83041, 83144, 83444, 83849, 83921, 83926, 83933, 84093, 84935, 85816, 86057, 86198, 86284, 86379, 87343, 87501, 87816, 88086, 88190, 88424, 88885, 89091, 89360, 90225, 90257, 90578, 91068, 91110, 91137, 91393, 92712, 94167, 94627, 94898, 94945, 94983, 96451, 96576, 96765, 96888, 96976, 97189, 97789, 98025, 98235, 98294, 98359, 98569, 99076, 99543 AND isnotnull(substr(ca_zip#10, 1, 5)))
+
+(23) ProjectExecTransformer
+Output [1]: [substr(ca_zip#10, 1, 5) AS ca_zip#11]
+Input [1]: [ca_zip#10]
+
+(24) FileSourceScanExecTransformer parquet spark_catalog.default.customer_address
+Output [2]: [ca_address_sk#12, ca_zip#13]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
+PushedFilters: [IsNotNull(ca_address_sk)]
+ReadSchema: struct<ca_address_sk:int,ca_zip:string>
+
+(25) FilterExecTransformer
+Input [2]: [ca_address_sk#12, ca_zip#13]
+Arguments: isnotnull(ca_address_sk#12)
+
+(26) ProjectExecTransformer
+Output [3]: [hash(ca_address_sk#12, 42) AS hash_partition_key#14, ca_address_sk#12, ca_zip#13]
+Input [2]: [ca_address_sk#12, ca_zip#13]
+
+(27) WholeStageCodegenTransformer (5)
+Input [3]: [hash_partition_key#14, ca_address_sk#12, ca_zip#13]
+Arguments: false
+
+(28) VeloxResizeBatches
+Input [3]: [hash_partition_key#14, ca_address_sk#12, ca_zip#13]
+Arguments: 1024, 2147483647, 10485760
+
+(29) ColumnarExchange
+Input [3]: [hash_partition_key#14, ca_address_sk#12, ca_zip#13]
+Arguments: hashpartitioning(ca_address_sk#12, 1), ENSURE_REQUIREMENTS, [ca_address_sk#12, ca_zip#13], [plan_id=3], [shuffle_writer_type=hash]
+
+(30) InputAdapter
+Input [2]: [ca_address_sk#12, ca_zip#13]
+
+(31) InputIteratorTransformer
+Input [2]: [ca_address_sk#12, ca_zip#13]
+
+(32) FileSourceScanExecTransformer parquet spark_catalog.default.customer
+Output [2]: [c_current_addr_sk#15, c_preferred_cust_flag#16]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/customer]
+PushedFilters: [IsNotNull(c_preferred_cust_flag), EqualTo(c_preferred_cust_flag,Y), IsNotNull(c_current_addr_sk)]
+ReadSchema: struct<c_current_addr_sk:int,c_preferred_cust_flag:string>
+
+(33) FilterExecTransformer
+Input [2]: [c_current_addr_sk#15, c_preferred_cust_flag#16]
+Arguments: ((isnotnull(c_preferred_cust_flag#16) AND (c_preferred_cust_flag#16 = Y)) AND isnotnull(c_current_addr_sk#15))
+
+(34) ProjectExecTransformer
+Output [2]: [hash(c_current_addr_sk#15, 42) AS hash_partition_key#17, c_current_addr_sk#15]
+Input [2]: [c_current_addr_sk#15, c_preferred_cust_flag#16]
+
+(35) WholeStageCodegenTransformer (6)
+Input [2]: [hash_partition_key#17, c_current_addr_sk#15]
+Arguments: false
+
+(36) VeloxResizeBatches
+Input [2]: [hash_partition_key#17, c_current_addr_sk#15]
+Arguments: 1024, 2147483647, 10485760
+
+(37) ColumnarExchange
+Input [2]: [hash_partition_key#17, c_current_addr_sk#15]
+Arguments: hashpartitioning(c_current_addr_sk#15, 1), ENSURE_REQUIREMENTS, [c_current_addr_sk#15], [plan_id=4], [shuffle_writer_type=hash]
+
+(38) InputAdapter
+Input [1]: [c_current_addr_sk#15]
+
+(39) InputIteratorTransformer
+Input [1]: [c_current_addr_sk#15]
+
+(40) ShuffledHashJoinExecTransformer
+Left keys [1]: [ca_address_sk#12]
+Right keys [1]: [c_current_addr_sk#15]
+Join type: Inner
+Join condition: None
+
+(41) ProjectExecTransformer
+Output [1]: [ca_zip#13]
+Input [3]: [ca_address_sk#12, ca_zip#13, c_current_addr_sk#15]
+
+(42) FlushableHashAggregateExecTransformer
+Input [1]: [ca_zip#13]
+Keys [1]: [ca_zip#13]
+Functions [1]: [partial_count(1)]
+Aggregate Attributes [1]: [count#18]
+Results [2]: [ca_zip#13, count#19]
+
+(43) ProjectExecTransformer
+Output [3]: [hash(ca_zip#13, 42) AS hash_partition_key#20, ca_zip#13, count#19]
+Input [2]: [ca_zip#13, count#19]
+
+(44) WholeStageCodegenTransformer (7)
+Input [3]: [hash_partition_key#20, ca_zip#13, count#19]
+Arguments: false
+
+(45) VeloxResizeBatches
+Input [3]: [hash_partition_key#20, ca_zip#13, count#19]
+Arguments: 1024, 2147483647, 10485760
+
+(46) ColumnarExchange
+Input [3]: [hash_partition_key#20, ca_zip#13, count#19]
+Arguments: hashpartitioning(ca_zip#13, 1), ENSURE_REQUIREMENTS, [ca_zip#13, count#19], [plan_id=5], [shuffle_writer_type=hash]
+
+(47) InputAdapter
+Input [2]: [ca_zip#13, count#19]
+
+(48) InputIteratorTransformer
+Input [2]: [ca_zip#13, count#19]
+
+(49) RegularHashAggregateExecTransformer
+Input [2]: [ca_zip#13, count#19]
+Keys [1]: [ca_zip#13]
+Functions [1]: [count(1)]
+Aggregate Attributes [1]: [count(1)#21]
+Results [2]: [ca_zip#13, count(1)#21]
+
+(50) ProjectExecTransformer
+Output [2]: [substr(ca_zip#13, 1, 5) AS ca_zip#22, count(1)#21 AS cnt#23]
+Input [2]: [ca_zip#13, count(1)#21]
+
+(51) FilterExecTransformer
+Input [2]: [ca_zip#22, cnt#23]
+Arguments: (cnt#23 > 10)
+
+(52) ProjectExecTransformer
+Output [1]: [ca_zip#22]
+Input [2]: [ca_zip#22, cnt#23]
+
+(53) WholeStageCodegenTransformer (8)
+Input [1]: [ca_zip#22]
+Arguments: false
+
+(54) ColumnarBroadcastExchange
+Input [1]: [ca_zip#22]
+Arguments: HashedRelationBroadcastMode(List(coalesce(input[0, string, true], ), isnull(input[0, string, true])),false), [plan_id=6]
+
+(55) InputAdapter
+Input [1]: [ca_zip#22]
+
+(56) InputIteratorTransformer
+Input [1]: [ca_zip#22]
+
+(57) BroadcastHashJoinExecTransformer
+Left keys [2]: [coalesce(ca_zip#11, ), isnull(ca_zip#11)]
+Right keys [2]: [coalesce(ca_zip#22, ), isnull(ca_zip#22)]
+Join type: LeftSemi
+Join condition: None
+
+(58) FlushableHashAggregateExecTransformer
+Input [1]: [ca_zip#11]
+Keys [1]: [ca_zip#11]
+Functions: []
+Aggregate Attributes: []
+Results [1]: [ca_zip#11]
+
+(59) ProjectExecTransformer
+Output [2]: [hash(ca_zip#11, 42) AS hash_partition_key#24, ca_zip#11]
+Input [1]: [ca_zip#11]
+
+(60) WholeStageCodegenTransformer (9)
+Input [2]: [hash_partition_key#24, ca_zip#11]
+Arguments: false
+
+(61) VeloxResizeBatches
+Input [2]: [hash_partition_key#24, ca_zip#11]
+Arguments: 1024, 2147483647, 10485760
+
+(62) ColumnarExchange
+Input [2]: [hash_partition_key#24, ca_zip#11]
+Arguments: hashpartitioning(ca_zip#11, 1), ENSURE_REQUIREMENTS, [ca_zip#11], [plan_id=7], [shuffle_writer_type=hash]
+
+(63) InputAdapter
+Input [1]: [ca_zip#11]
+
+(64) InputIteratorTransformer
+Input [1]: [ca_zip#11]
+
+(65) RegularHashAggregateExecTransformer
+Input [1]: [ca_zip#11]
+Keys [1]: [ca_zip#11]
+Functions: []
+Aggregate Attributes: []
+Results [1]: [ca_zip#11]
+
+(66) ProjectExecTransformer
+Output [2]: [hash(substr(ca_zip#11, 1, 2), 42) AS hash_partition_key#25, ca_zip#11]
+Input [1]: [ca_zip#11]
+
+(67) WholeStageCodegenTransformer (10)
+Input [2]: [hash_partition_key#25, ca_zip#11]
+Arguments: false
+
+(68) VeloxResizeBatches
+Input [2]: [hash_partition_key#25, ca_zip#11]
+Arguments: 1024, 2147483647, 10485760
+
+(69) ColumnarExchange
+Input [2]: [hash_partition_key#25, ca_zip#11]
+Arguments: hashpartitioning(substr(ca_zip#11, 1, 2), 1), ENSURE_REQUIREMENTS, [ca_zip#11], [plan_id=8], [shuffle_writer_type=hash]
+
+(70) InputAdapter
+Input [1]: [ca_zip#11]
+
+(71) InputIteratorTransformer
+Input [1]: [ca_zip#11]
+
+(72) ShuffledHashJoinExecTransformer
+Left keys [1]: [substr(s_zip#8, 1, 2)]
+Right keys [1]: [substr(ca_zip#11, 1, 2)]
+Join type: Inner
+Join condition: None
+
+(73) ProjectExecTransformer
+Output [2]: [s_store_name#7, UnscaledValue(ss_net_profit#2) AS _pre_1#26]
+Input [4]: [ss_net_profit#2, s_store_name#7, s_zip#8, ca_zip#11]
+
+(74) FlushableHashAggregateExecTransformer
+Input [2]: [s_store_name#7, _pre_1#26]
+Keys [1]: [s_store_name#7]
+Functions [1]: [partial_sum(_pre_1#26)]
+Aggregate Attributes [1]: [sum#27]
+Results [2]: [s_store_name#7, sum#28]
+
+(75) ProjectExecTransformer
+Output [3]: [hash(s_store_name#7, 42) AS hash_partition_key#29, s_store_name#7, sum#28]
+Input [2]: [s_store_name#7, sum#28]
+
+(76) WholeStageCodegenTransformer (11)
+Input [3]: [hash_partition_key#29, s_store_name#7, sum#28]
+Arguments: false
+
+(77) VeloxResizeBatches
+Input [3]: [hash_partition_key#29, s_store_name#7, sum#28]
+Arguments: 1024, 2147483647, 10485760
+
+(78) ColumnarExchange
+Input [3]: [hash_partition_key#29, s_store_name#7, sum#28]
+Arguments: hashpartitioning(s_store_name#7, 1), ENSURE_REQUIREMENTS, [s_store_name#7, sum#28], [plan_id=9], [shuffle_writer_type=hash]
+
+(79) InputAdapter
+Input [2]: [s_store_name#7, sum#28]
+
+(80) InputIteratorTransformer
+Input [2]: [s_store_name#7, sum#28]
+
+(81) RegularHashAggregateExecTransformer
+Input [2]: [s_store_name#7, sum#28]
+Keys [1]: [s_store_name#7]
+Functions [1]: [sum(UnscaledValue(ss_net_profit#2))]
+Aggregate Attributes [1]: [sum(UnscaledValue(ss_net_profit#2))#30]
+Results [2]: [s_store_name#7, sum(UnscaledValue(ss_net_profit#2))#30]
+
+(82) ProjectExecTransformer
+Output [2]: [s_store_name#7, MakeDecimal(sum(UnscaledValue(ss_net_profit#2))#30,17,2) AS sum(ss_net_profit)#31]
+Input [2]: [s_store_name#7, sum(UnscaledValue(ss_net_profit#2))#30]
+
+(83) WholeStageCodegenTransformer (12)
+Input [2]: [s_store_name#7, sum(ss_net_profit)#31]
+Arguments: false
+
+(84) TakeOrderedAndProjectExecTransformer
+Input [2]: [s_store_name#7, sum(ss_net_profit)#31]
+Arguments: 100, [s_store_name#7 ASC NULLS FIRST], [s_store_name#7, sum(ss_net_profit)#31], 0
+
+(85) VeloxColumnarToRow
+Input [2]: [s_store_name#7, sum(ss_net_profit)#31]
+
+===== Subqueries =====
+
+Subquery:1 Hosting operator id = 1 Hosting Expression = ss_sold_date_sk#3 IN dynamicpruning#4
+ColumnarBroadcastExchange (90)
++- ^ ProjectExecTransformer (88)
+   +- ^ FilterExecTransformer (87)
+      +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (86)
+
+
+(86) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
+Output [3]: [d_date_sk#5, d_year#32, d_qoy#33]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
+PushedFilters: [IsNotNull(d_qoy), IsNotNull(d_year), EqualTo(d_qoy,2), EqualTo(d_year,1998), IsNotNull(d_date_sk)]
+ReadSchema: struct<d_date_sk:int,d_year:int,d_qoy:int>
+
+(87) FilterExecTransformer
+Input [3]: [d_date_sk#5, d_year#32, d_qoy#33]
+Arguments: ((((isnotnull(d_qoy#33) AND isnotnull(d_year#32)) AND (d_qoy#33 = 2)) AND (d_year#32 = 1998)) AND isnotnull(d_date_sk#5))
+
+(88) ProjectExecTransformer
+Output [1]: [d_date_sk#5]
+Input [3]: [d_date_sk#5, d_year#32, d_qoy#33]
+
+(89) WholeStageCodegenTransformer (1)
+Input [1]: [d_date_sk#5]
+Arguments: false
+
+(90) ColumnarBroadcastExchange
+Input [1]: [d_date_sk#5]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=10]
+
+

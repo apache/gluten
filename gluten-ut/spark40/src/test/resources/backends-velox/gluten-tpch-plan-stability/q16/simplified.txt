@@ -1,0 +1,42 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (6)
+    SortExecTransformer [supplier_cnt,p_brand,p_type,p_size]
+      InputIteratorTransformer
+        InputAdapter
+          ColumnarExchange [supplier_cnt,p_brand,p_type,p_size] #1
+            VeloxResizeBatches
+              WholeStageCodegenTransformer (5)
+                RegularHashAggregateExecTransformer [p_brand,p_type,p_size,count] [count(ps_suppkeyL),supplier_cnt,count]
+                  InputIteratorTransformer
+                    InputAdapter
+                      ColumnarExchange [p_brand,p_type,p_size,count] #2
+                        VeloxResizeBatches
+                          WholeStageCodegenTransformer (4)
+                            ProjectExecTransformer [p_brand,p_type,p_size,count]
+                              FlushableHashAggregateExecTransformer [p_brand,p_type,p_size,ps_suppkey] [count(ps_suppkeyL),count,count]
+                                RegularHashAggregateExecTransformer [p_brand,p_type,p_size,ps_suppkey]
+                                  InputIteratorTransformer
+                                    InputAdapter
+                                      ColumnarExchange [p_brand,p_type,p_size,ps_suppkey] #3
+                                        VeloxResizeBatches
+                                          WholeStageCodegenTransformer (3)
+                                            ProjectExecTransformer [p_brand,p_type,p_size,ps_suppkey]
+                                              FlushableHashAggregateExecTransformer [p_brand,p_type,p_size,ps_suppkey]
+                                                ProjectExecTransformer [ps_suppkey,p_brand,p_type,p_size]
+                                                  BroadcastHashJoinExecTransformer [ps_partkey,p_partkey]
+                                                    BroadcastHashJoinExecTransformer [ps_suppkey,s_suppkey]
+                                                      FilterExecTransformer [ps_partkey]
+                                                        FileSourceScanExecTransformer parquet spark_catalog.default.partsupp [ps_partkey,ps_suppkey]
+                                                      InputIteratorTransformer
+                                                        InputAdapter
+                                                          ColumnarBroadcastExchange #4
+                                                            WholeStageCodegenTransformer (1)
+                                                              ProjectExecTransformer [s_suppkey]
+                                                                FilterExecTransformer [s_comment]
+                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.supplier [s_suppkey,s_comment]
+                                                    InputIteratorTransformer
+                                                      InputAdapter
+                                                        ColumnarBroadcastExchange #5
+                                                          WholeStageCodegenTransformer (2)
+                                                            FilterExecTransformer [p_brand,p_type,p_size,p_partkey]
+                                                              FileSourceScanExecTransformer parquet spark_catalog.default.part [p_partkey,p_brand,p_type,p_size]
