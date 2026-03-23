@@ -98,20 +98,21 @@ case class ColumnarCollectLimitExec(
   }
 
   override def executeCollect(): Array[InternalRow] = {
-    if (limit <= 0) {
-      return Array.empty
-    }
-    val adjusted = math.max(0, limit - math.max(0, offset))
-    if (adjusted == 0) {
-      return Array.empty
-    }
     val rowsRdd = child.executeColumnar().mapPartitions {
       it =>
         val rows = VeloxColumnarToRowExec.toRowIterator(it)
         rows.map(_.copy())
     }
-    val taken = rowsRdd.take(offset + adjusted)
-    if (offset > 0) taken.drop(offset) else taken
+
+    if (limit >= 0) {
+      if (offset > 0) {
+        rowsRdd.take(limit).drop(offset)
+      } else {
+        rowsRdd.take(limit)
+      }
+    } else {
+      rowsRdd.collect().drop(offset)
+    }
   }
 
   override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
