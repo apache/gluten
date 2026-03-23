@@ -263,7 +263,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataSourceV2OptionSuite]
   enableSuite[GlutenDataSourceV2UtilsSuite]
   // TODO: 4.x enableSuite[GlutenGroupBasedUpdateTableSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenMergeIntoDataFrameSuite]  // 1 failure
+  enableSuite[GlutenMergeIntoDataFrameSuite]
   enableSuite[GlutenProcedureSuite]
   enableSuite[GlutenPushablePredicateSuite]
   enableSuite[GlutenV1ReadFallbackWithCatalogSuite]
@@ -804,7 +804,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSessionStateSuite]
   // TODO: 4.x enableSuite[GlutenSetCommandSuite]  // 1 failure
   enableSuite[GlutenSparkSessionBuilderSuite]
-  // TODO: 4.x enableSuite[GlutenSparkSessionJobTaggingAndCancellationSuite]  // 1 failure
+  enableSuite[GlutenSparkSessionJobTaggingAndCancellationSuite]
   enableSuite[GlutenTPCDSCollationQueryTestSuite]
   enableSuite[GlutenTPCDSModifiedPlanStabilitySuite]
   enableSuite[GlutenTPCDSModifiedPlanStabilityWithStatsSuite]
