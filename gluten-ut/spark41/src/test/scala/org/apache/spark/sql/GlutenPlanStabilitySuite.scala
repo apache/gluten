@@ -34,7 +34,38 @@ import scala.collection.mutable
 /**
  * Gluten plan stability suites verify that Gluten-transformed plans satisfy Spark's distribution
  * and ordering requirements (via ValidateRequirements) and compare plans against Gluten-specific
- * golden files. Golden file generation is triggered by setting SPARK_GENERATE_GOLDEN_FILES=1.
+ * golden files.
+ *
+ * Golden files are stored under: gluten-ut/sparkXX/src/test/resources/backends-{backendName}/
+ * tpcds-plan-stability/gluten-approved-plans-{version}/{query}/{simplified,explain}.txt
+ * gluten-tpch-plan-stability/{query}/{simplified,explain}.txt
+ *
+ * To generate or update golden files:
+ * {{{
+ *   export SPARK_GENERATE_GOLDEN_FILES=1
+ *   export SPARK_ANSI_SQL_MODE=false
+ *   export SPARK_TESTING=true
+ *   export SPARK_HOME=/opt/shims/spark41/spark_home
+ *   export SPARK_SCALA_VERSION=2.13
+ *
+ *   # Generate all 7 suites at once (recommended for consistency)
+ *   ./dev/run-scala-test.sh --mvnd --clean \
+ *     -Pjava-17,spark-4.1,scala-2.13,backends-velox,hadoop-3.3,spark-ut,delta \
+ *     -pl gluten-ut/spark41 \
+ *     -s org.apache.spark.sql.GlutenTPCDSV1_4_PlanStabilitySuite \
+ *     -s org.apache.spark.sql.GlutenTPCDSV1_4_PlanStabilityWithStatsSuite \
+ *     -s org.apache.spark.sql.GlutenTPCDSV2_7_PlanStabilitySuite \
+ *     -s org.apache.spark.sql.GlutenTPCDSV2_7_PlanStabilityWithStatsSuite \
+ *     -s org.apache.spark.sql.GlutenTPCDSModifiedPlanStabilitySuite \
+ *     -s org.apache.spark.sql.GlutenTPCDSModifiedPlanStabilityWithStatsSuite \
+ *     -s org.apache.spark.sql.GlutenTPCHPlanStabilitySuite
+ * }}}
+ *
+ * For Spark 4.0, replace spark-4.1 with spark-4.0, spark41 with spark40, and SPARK_HOME
+ * accordingly.
+ *
+ * Note: Running all suites together in one JVM is recommended to avoid ExprId normalization issues
+ * where string constants (e.g., Brand#23 in TPCH q19) may collide with ExprId numbers.
  */
 trait GlutenPlanStabilityTestTrait {
   self: PlanStabilitySuite =>
