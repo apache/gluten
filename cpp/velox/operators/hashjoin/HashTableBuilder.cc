@@ -127,6 +127,7 @@ void HashTableBuilder::setupTable() {
         dependentTypes,
         true, // allowDuplicates
         true, // hasProbedFlag
+        false, // hasCountFlag
         1'000, // operatorCtx_->driverCtx()->queryConfig().minTableRowsForParallelJoinBuild()
         pool_,
         true);
@@ -137,6 +138,7 @@ void HashTableBuilder::setupTable() {
         !withFilter_ && (isLeftSemiFilterJoin(joinType_) || isLeftSemiProjectJoin(joinType_) || isAntiJoin(joinType_));
     // Right semi join needs to tag build rows that were probed.
     const bool needProbedFlag = isRightSemiFilterJoin(joinType_);
+    const bool hasCountFlag = facebook::velox::core::isCountingJoin(joinType_);
     if (isLeftNullAwareJoinWithFilter(joinType_, nullAware_, withFilter_)) {
       // We need to check null key rows in build side in case of null-aware anti
       // or left semi project join with filter set.
@@ -145,6 +147,7 @@ void HashTableBuilder::setupTable() {
           dependentTypes,
           !dropDuplicates_, // allowDuplicates
           needProbedFlag, // hasProbedFlag
+          hasCountFlag, // hasCountFlag
           1'000, // operatorCtx_->driverCtx()->queryConfig().minTableRowsForParallelJoinBuild()
           pool_,
           true);
@@ -155,6 +158,7 @@ void HashTableBuilder::setupTable() {
           dependentTypes,
           !dropDuplicates_, // allowDuplicates
           needProbedFlag, // hasProbedFlag
+          hasCountFlag, // hasCountFlag
           1'000, // operatorCtx_->driverCtx()->queryConfig().minTableRowsForParallelJoinBuild()
           pool_,
           bloomFilterPushdownSize_);
