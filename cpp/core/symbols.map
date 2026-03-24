@@ -11,6 +11,5 @@
       *google::*;
       fL*::FLAGS_*;
       gflags_mutex_namespace::*;
-      glog_internal_namespace_::*;
     };
 };

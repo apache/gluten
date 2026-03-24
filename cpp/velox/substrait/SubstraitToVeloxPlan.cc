@@ -279,6 +279,7 @@ std::string SubstraitToVeloxPlanConverter::toAggregationFunctionName(
       break;
     case core::AggregationNode::Step::kFinal: {
       auto functionName = baseName + "_merge_extract";
+      if (baseName == "collect_set") functionName += "_array_t";
       auto signatures = exec::getAggregateFunctionSignatures(functionName);
       if (signatures.has_value() && signatures.value().size() > 0) {
         // The merge_extract function is registered without suffix.
