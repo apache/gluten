@@ -279,18 +279,14 @@ std::string SubstraitToVeloxPlanConverter::toAggregationFunctionName(
       break;
     case core::AggregationNode::Step::kFinal: {
       auto functionName = baseName + "_merge_extract";
-      // Special handling for collect_set: after Velox PR #16416, it's always registered with suffix
-      // as "collect_set_merge_extract_array_t" instead of "collect_set_merge_extract"
-      if (baseName != "collect_set") {
-        auto signatures = exec::getAggregateFunctionSignatures(functionName);
-        if (signatures.has_value() && signatures.value().size() > 0) {
-          // The merge_extract function is registered without suffix.
-          return functionName;
-        }
+      auto signatures = exec::getAggregateFunctionSignatures(functionName);
+      if (signatures.has_value() && signatures.value().size() > 0) {
+        // The merge_extract function is registered without suffix.
+        return functionName;
       }
       // The merge_extract function must be registered with suffix based on result type.
       functionName += ("_" + companionFunctionSuffix(resultType));
-      auto signatures = exec::getAggregateFunctionSignatures(functionName);
+      signatures = exec::getAggregateFunctionSignatures(functionName);
       VELOX_CHECK(
           signatures.has_value() && signatures.value().size() > 0,
           "Cannot find function signature for {} in final aggregation step.",
