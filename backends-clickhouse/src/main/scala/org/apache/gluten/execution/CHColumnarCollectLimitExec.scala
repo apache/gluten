@@ -66,6 +66,7 @@ case class CHColumnarCollectLimitExec(limit: Int, offset: Int, child: SparkPlan)
 
           if (rowsToSkip >= batchSize) {
             rowsToSkip -= batchSize
+            batch.close()
           } else {
             val startIndex = rowsToSkip
             val leftoverAfterSkip = batchSize - startIndex
