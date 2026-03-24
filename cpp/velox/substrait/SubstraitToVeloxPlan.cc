@@ -536,7 +536,17 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
     auto aggVeloxType = SubstraitParser::parseType(aggFunction.output_type());
     auto baseFuncName = SubstraitParser::findVeloxFunction(functionMap_, aggFunction.function_reference());
-    auto funcName = toAggregationFunctionName(baseFuncName, toAggregationFunctionStep(aggFunction), aggVeloxType);
+    auto aggStep = toAggregationFunctionStep(aggFunction);
+    auto funcName = toAggregationFunctionName(baseFuncName, aggStep, aggVeloxType);
+
+    // Velox's collect_set requires an additional ignoreNulls parameter (default: true)
+    // See: https://github.com/facebookincubator/velox/pull/16416
+    // Only add for partial and single steps (not for intermediate/final merge steps)
+    if (baseFuncName == "collect_set" &&
+        (aggStep == core::AggregationNode::Step::kPartial || aggStep == core::AggregationNode::Step::kSingle)) {
+      // Add ignoreNulls parameter as true (Spark's collect_set ignores nulls by default)
+      aggParams.emplace_back(std::make_shared<core::ConstantTypedExpr>(BOOLEAN(), true));
+    }
 
     auto aggExpr = std::make_shared<const core::CallTypedExpr>(aggVeloxType, std::move(aggParams), funcName);
     std::vector<TypePtr> rawInputTypes =
@@ -1114,6 +1124,14 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       windowParams.emplace_back(exprConverter_->toVeloxExpr(arg.value(), inputType));
     }
     auto windowVeloxType = SubstraitParser::parseType(windowFunction.output_type());
+    
+    // Velox's collect_set requires an additional ignoreNulls parameter (default: true)
+    // See: https://github.com/facebookincubator/velox/pull/16416
+    if (funcName == "collect_set") {
+      // Add ignoreNulls parameter as true (Spark's collect_set ignores nulls by default)
+      windowParams.emplace_back(std::make_shared<core::ConstantTypedExpr>(BOOLEAN(), true));
+    }
+    
     auto windowCall = std::make_shared<const core::CallTypedExpr>(windowVeloxType, std::move(windowParams), funcName);
     auto upperBound = windowFunction.upper_bound();
     auto lowerBound = windowFunction.lower_bound();
