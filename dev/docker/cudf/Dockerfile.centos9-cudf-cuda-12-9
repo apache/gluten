@@ -37,7 +37,7 @@ RUN yum install -y sudo patch perl java-${JAVA_VERSION}-openjdk-devel && \
     cd /opt/gluten && \
     source /opt/rh/gcc-toolset-14/enable && \
     bash ./dev/buildbundle-veloxbe.sh --run_setup_script=OFF --build_arrow=ON --spark_version=3.4 --build_tests=ON --build_benchmarks=ON --enable_gpu=ON && \
-    cd ep/build-velox/build/velox_ep/_build/release/_deps/cudf-build/ && cmake --install ./ && cd / \
+    cd ep/build-velox/build/velox_ep/_build/release/_deps/cudf-build/ && cmake --install ./ && cd / && \
     rm -rf /opt/gluten && \
     rm -rf /root/.cache/ccache
     
