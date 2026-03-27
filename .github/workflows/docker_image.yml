@@ -111,8 +111,8 @@ jobs:
           file: dev/docker/cudf/Dockerfile
           push: true
           tags: ${{ env.DOCKERHUB_REPO }}:centos-9-jdk8-cudf
-          
-  build-centos-9-jdk17-cudf-cuda-12-9:
+
+  build-centos-9-jdk17-cuda12_9-cudf:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
 
@@ -139,9 +139,9 @@ jobs:
         with:
           context: .
           build-args: JAVA_VERSION=17
-          file: dev/docker/cudf/Dockerfile.centos9-cudf-cuda-12-9
+          file: dev/docker/cudf/Dockerfile.centos-9-jdk17-cuda12.9-cudf
           push: true
-          tags: ${{ env.DOCKERHUB_REPO }}:centos-9-jdk17-cudf-cuda-12-9
+          tags: ${{ env.DOCKERHUB_REPO }}:centos-9-jdk17-cuda12.9-cudf
 
   build-vcpkg-centos-8:
     if: ${{ startsWith(github.repository, 'apache/') }}
