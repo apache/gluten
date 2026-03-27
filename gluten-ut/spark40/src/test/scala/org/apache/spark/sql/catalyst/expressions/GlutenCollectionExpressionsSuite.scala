@@ -21,6 +21,7 @@ import org.apache.spark.sql.GlutenTestsTrait
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
+import org.apache.spark.sql.catalyst.util.TypeUtils.ordinalNumber
 import org.apache.spark.sql.types._
 
 import scala.util.Random
@@ -158,7 +159,7 @@ class GlutenCollectionExpressionsSuite extends CollectionExpressionsSuite with G
         DataTypeMismatch(
           errorSubClass = "UNEXPECTED_INPUT_TYPE",
           messageParameters = Map(
-            "paramIndex" -> "1",
+            "paramIndex" -> ordinalNumber(0),
             "inputSql" -> "\"1\"",
             "inputType" -> "\"INT\"",
             "requiredType" -> "\"ARRAY\" of pair \"STRUCT\""
