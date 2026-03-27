@@ -50,6 +50,7 @@ trait SubstraitBackend extends Backend with Logging {
     }
 
     postBuildInfoEvent(sc)
+    setBuildInfoConfig(conf)
 
     setPredefinedConfigs(conf)
 
@@ -123,6 +124,13 @@ object SubstraitBackend extends Logging {
       val event = GlutenBuildInfoEvent(glutenBuildInfo.toMap)
       GlutenUIUtils.postEvent(sc, event)
     }
+  }
+
+  private def setBuildInfoConfig(conf: SparkConf): Unit = {
+    conf.set("spark.gluten.branch", GlutenBuildInfo.BRANCH)
+    conf.set("spark.gluten.revision", GlutenBuildInfo.REVISION)
+    conf.set("spark.gluten.revisionTime", GlutenBuildInfo.REVISION_TIME)
+    conf.set("spark.gluten.buildTime", GlutenBuildInfo.BUILD_DATE)
   }
 
   private def setPredefinedConfigs(conf: SparkConf): Unit = {
