@@ -16,8 +16,6 @@
  */
 package org.apache.spark.sql
 
-import org.apache.spark.sql.shim.GlutenTestsTrait
-
 class GlutenSparkSessionJobTaggingAndCancellationSuite
   extends SparkSessionJobTaggingAndCancellationSuite
-  with GlutenTestsTrait {}
+  with GlutenTestSetWithSystemPropertyTrait {}
