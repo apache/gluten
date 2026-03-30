@@ -192,6 +192,8 @@ const std::string kQueryTraceTaskRegExp = "spark.gluten.sql.columnar.backend.vel
 const std::string kOpTraceDirectoryCreateConfig =
     "spark.gluten.sql.columnar.backend.velox.opTraceDirectoryCreateConfig";
 
+const std::string kVeloxSparkAnsiModeEnabled = "spark.sql.ansi.enabled";
+
 // Cudf config.
 // GPU RMM memory resource
 const std::string kCudfMemoryResource = "spark.gluten.sql.columnar.backend.velox.cudf.memoryResource";

@@ -45,10 +45,12 @@ case class CastTransformer(substraitExprName: String, child: ExpressionTransform
   extends UnaryExpressionTransformer {
   override def doTransform(context: SubstraitContext): ExpressionNode = {
     val typeNode = ConverterUtils.getTypeNode(dataType, original.nullable)
+    val shims = SparkShimLoader.getSparkShims
     ExpressionBuilder.makeCast(
       typeNode,
       child.doTransform(context),
-      SparkShimLoader.getSparkShims.withTryEvalMode(original))
+      shims.withTryEvalMode(original),
+      shims.withAnsiEvalMode(original))
   }
 }
 

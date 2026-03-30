@@ -17,8 +17,8 @@
 package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.sql.GlutenTestsTrait
-import org.apache.spark.sql.catalyst.util.DateTimeTestUtils.{withDefaultTimeZone, ALL_TIMEZONES, UTC, UTC_OPT}
-import org.apache.spark.sql.catalyst.util.DateTimeUtils.{fromJavaTimestamp, millisToMicros, TimeZoneUTC}
+import org.apache.spark.sql.catalyst.util.DateTimeTestUtils.{ALL_TIMEZONES, UTC, UTC_OPT, withDefaultTimeZone}
+import org.apache.spark.sql.catalyst.util.DateTimeUtils.{TimeZoneUTC, fromJavaTimestamp, millisToMicros}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.util.DebuggableThreadUtils

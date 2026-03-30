@@ -239,7 +239,21 @@ public class ExpressionBuilder {
 
   public static CastNode makeCast(
       TypeNode typeNode, ExpressionNode expressionNode, boolean isTryCast) {
-    return new CastNode(typeNode, expressionNode, isTryCast);
+    // Backward-compatible: isTryCast=true → RETURN_NULL(1), false → THROW_EXCEPTION(2)
+    return new CastNode(typeNode, expressionNode, isTryCast ? 1 : 2);
+  }
+
+  public static CastNode makeCast(
+      TypeNode typeNode, ExpressionNode expressionNode, boolean isTryCast, boolean isAnsiCast) {
+    int failureBehavior;
+    if (isTryCast) {
+      failureBehavior = 1; // RETURN_NULL
+    } else if (isAnsiCast) {
+      failureBehavior = 2; // THROW_EXCEPTION
+    } else {
+      failureBehavior = 0; // UNSPECIFIED (legacy)
+    }
+    return new CastNode(typeNode, expressionNode, failureBehavior);
   }
 
   public static StringMapNode makeStringMap(Map<String, String> values) {
