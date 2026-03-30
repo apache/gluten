@@ -790,14 +790,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSaveLoadSuite]
   enableSuite[GlutenTableScanSuite]
   // Generated suites for org.apache.spark.sql.sources
-  // TODO: 4.x enableSuite[GlutenBucketedReadWithHiveSupportSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenBucketedWriteWithHiveSupportSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenCommitFailureTestRelationSuite]  // 2 failures
   enableSuite[GlutenDataSourceAnalysisSuite]
-  // TODO: 4.x enableSuite[GlutenDisableUnnecessaryBucketedScanWithHiveSupportSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenJsonHadoopFsRelationSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenParquetHadoopFsRelationSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenSimpleTextHadoopFsRelationSuite]  // 2 failures
   // Generated suites for org.apache.spark.sql
   enableSuite[GlutenCacheManagerSuite]
   enableSuite[GlutenDataFrameShowSuite]
