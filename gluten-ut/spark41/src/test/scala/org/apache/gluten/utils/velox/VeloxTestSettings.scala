@@ -233,7 +233,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenCodeGeneratorWithInterpretedFallbackSuite]
   enableSuite[GlutenCollationExpressionSuite]
   // TODO: 4.x enableSuite[GlutenCollationRegexpExpressionsSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenCsvExpressionsSuite]  // failures with GlutenPlugin
+  enableSuite[GlutenCsvExpressionsSuite]
   enableSuite[GlutenDynamicPruningSubquerySuite]
   enableSuite[GlutenExprIdSuite]
   // TODO: 4.x enableSuite[GlutenExpressionEvalHelperSuite]  // 2 failures
