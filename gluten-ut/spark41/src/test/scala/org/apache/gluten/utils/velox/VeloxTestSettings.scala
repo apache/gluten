@@ -682,7 +682,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSQLJsonProtocolSuite]
   enableSuite[GlutenShufflePartitionsUtilSuite]
   // TODO: 4.x enableSuite[GlutenSimpleSQLViewSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenSparkPlanSuite]  // 1 failure
+  enableSuite[GlutenSparkPlanSuite]
+    .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
   enableSuite[GlutenSparkScriptTransformationSuite]
   enableSuite[GlutenSparkSqlParserSuite]
