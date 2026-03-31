@@ -3,10 +3,10 @@ layout: default
 title: Home
 nav_order: 1
 permalink: /
-description: This site serves as a collection of documentation about the Gluten, a plugin to Double SparkSQL's Performance
+description: This site serves as a collection of documentation about Gluten, a middle layer for offloading JVM-based SQL engines' execution to native engines
 ---
 # Overview
-Gluten: Plugin to Double SparkSQL's Performance.
+Gluten: A Middle Layer for Offloading JVM-based SQL Engines' Execution to Native Engines.
 
 # 1 Introduction
 
@@ -61,4 +61,4 @@ There are several key components in Gluten:
 * **Columnar Shuffle**: shuffles Gluten columnar data. The shuffle service still reuses the one in Spark core. A kind of columnar exchange operator is implemented to support Gluten columnar data format.
 * **Fallback Mechanism**: supports falling back to Vanilla spark for unsupported operators. Gluten ColumnarToRow (C2R) and RowToColumnar (R2C) will convert Gluten columnar data and Spark's internal row data if needed. Both C2R and R2C are implemented in native code as well
 * **Metrics**: collected from Gluten native engine to help identify bugs, performance bottlenecks, etc. The metrics are displayed in Spark UI.
-* **Shim Layer**: supports multiple Spark versions. We plan to only support Spark's latest 2 or 3 releases. Currently, Spark-3.2, Spark-3.3 & Spark-3.4 (experimental) are supported.
+* **Shim Layer**: supports multiple Spark versions. We plan to only support Spark's latest 3-4 releases. Currently, Spark 3.3, 3.4, 3.5, 4.0, and 4.1 are supported.

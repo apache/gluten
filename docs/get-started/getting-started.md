@@ -24,7 +24,7 @@ Gluten supports two native backends:
 
 - **OS**: Ubuntu 20.04/22.04 or CentOS 7/8 (other Linux distros may work with static build but are not officially tested)
 - **JDK**: OpenJDK 8 or 17 (Spark 4.0 requires JDK 17+)
-- **Spark**: 3.2.2, 3.3.1, 3.4.4, 3.5.5, or 4.0.0-preview
+- **Spark**: 3.3.1, 3.4.4, 3.5.5, 4.0.1, or 4.1.1
 - **Scala**: 2.12 (Spark 4.0 requires Scala 2.13)
 
 ### 2. Build

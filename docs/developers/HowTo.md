@@ -53,7 +53,7 @@ ${GLUTEN_HOME}/dev/builddeps-veloxbe.sh --build_tests=ON --build_benchmarks=ON -
 
 ```
 cd ${GLUTEN_HOME}
-mvn test -Pspark-3.2 -Pbackends-velox -pl backends-velox \
+mvn test -Pspark-3.5 -Pbackends-velox -pl backends-velox \
 -am -DtagsToInclude="org.apache.gluten.tags.GenerateExample" \
 -Dtest=none -DfailIfNoTests=false \
 -Dexec.skip
@@ -61,7 +61,7 @@ mvn test -Pspark-3.2 -Pbackends-velox -pl backends-velox \
 
 - After the above operations, the example files are generated under `${GLUTEN_HOME}/backends-velox`
 - You can check it by the command `tree ${GLUTEN_HOME}/backends-velox/generated-native-benchmark/`
-- You may replace `-Pspark-3.2` with `-Pspark-3.3` if your spark's version is 3.3
+- You may replace `-Pspark-3.5` with `-Pspark-3.3` or `-Pspark-3.4` for earlier Spark versions
 
 ```shell
 $ tree ${GLUTEN_HOME}/backends-velox/generated-native-benchmark/

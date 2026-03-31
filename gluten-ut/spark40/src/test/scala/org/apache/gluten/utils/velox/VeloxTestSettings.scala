@@ -704,7 +704,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHiveResultSuite]
   // TODO: 4.x enableSuite[GlutenInsertSortForLimitAndOffsetSuite]  // 6 failures
   enableSuite[GlutenLocalTempViewTestSuite]
-  // TODO: 4.x enableSuite[GlutenLogicalPlanTagInSparkPlanSuite]  // RUN ABORTED
+  enableSuite[GlutenLogicalPlanTagInSparkPlanSuite]
   enableSuite[GlutenOptimizeMetadataOnlyQuerySuite]
   enableSuite[GlutenPersistedViewTestSuite]
   // TODO: 4.x enableSuite[GlutenPlannerSuite]  // 1 failure

@@ -56,7 +56,7 @@ Gluten's key components:
 * **Columnar Shuffle**: Handles shuffling of Gluten's columnar data. The shuffle service of Spark core is reused, while a columnar exchange operator is implemented to support Gluten's columnar data format.
 * **Fallback Mechanism**: Provides fallback to vanilla Spark for unsupported operators. Gluten's ColumnarToRow (C2R) and RowToColumnar (R2C) convert data between Gluten's columnar format and Spark's internal row format to support fallback transitions.
 * **Metrics**: Collected from Gluten native engine to help monitor execution, identify bugs, and diagnose performance bottlenecks. The metrics are displayed in Spark UI.
-* **Shim Layer**: Ensures compatibility with multiple Spark versions. Gluten supports the latest 3–4 Spark releases during its development cycle, and currently supports Spark 3.2, 3.3, 3.4, and 3.5.
+* **Shim Layer**: Ensures compatibility with multiple Spark versions. Gluten supports the latest 3–4 Spark releases during its development cycle, and currently supports Spark 3.3, 3.4, 3.5, 4.0, and 4.1.
 
 ## 3. User Guide
 
@@ -113,7 +113,7 @@ Welcome to contribute to the Gluten project! See [CONTRIBUTING.md](CONTRIBUTING.
 
 ## 6. Community
 
-Gluten successfully became an Apache Incubator project in March 2024. Here are several ways to connect with the community.
+Gluten successfully became an Apache Incubator project in March 2024 and graduated as an Apache Top-Level Project in March 2026. Here are several ways to connect with the community.
 
 ### GitHub
 
