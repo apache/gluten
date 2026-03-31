@@ -366,6 +366,9 @@ void VeloxBackend::tearDown() {
     filesystem->close();
   }
 #endif
+#ifdef ENABLE_S3
+  velox::filesystems::finalizeS3FileSystem();
+#endif
 
   // Destruct IOThreadPoolExecutor will join all threads.
   // On threads exit, thread local variables can be constructed with referencing global variables.
