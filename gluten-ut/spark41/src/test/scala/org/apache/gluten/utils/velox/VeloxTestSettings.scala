@@ -666,7 +666,13 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenGlobalTempViewTestSuite]
   enableSuite[GlutenGroupedIteratorSuite]
   // TODO: 4.x enableSuite[GlutenHiveResultSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenInsertSortForLimitAndOffsetSuite]  // 6 failures
+  enableSuite[GlutenInsertSortForLimitAndOffsetSuite]
+    .exclude("root LIMIT preserves data ordering with top-K sort")
+    .exclude("middle LIMIT preserves data ordering with top-K sort")
+    .exclude("root LIMIT preserves data ordering with CollectLimitExec")
+    .exclude("middle LIMIT preserves data ordering with the extra sort")
+    .exclude("root OFFSET preserves data ordering with CollectLimitExec")
+    .exclude("middle OFFSET preserves data ordering with the extra sort")
   enableSuite[GlutenLocalTempViewTestSuite]
   enableSuite[GlutenLogicalPlanTagInSparkPlanSuite]
   enableSuite[GlutenOptimizeMetadataOnlyQuerySuite]
