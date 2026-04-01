@@ -337,6 +337,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenJsonParsingOptionsSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.parquet
   enableSuite[GlutenParquetAvroCompatibilitySuite]
+    // TODO: https://github.com/apache/gluten/issues/11865
+    .exclude("various complex types")
   enableSuite[GlutenParquetCommitterSuite]
   enableSuite[GlutenParquetFieldIdSchemaSuite]
   enableSuite[GlutenParquetTypeWideningSuite]
