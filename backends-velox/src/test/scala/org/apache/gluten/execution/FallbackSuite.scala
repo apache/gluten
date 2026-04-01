@@ -354,39 +354,37 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   }
 
   test("fallback when nested loop join has unsupported expression") {
-    withSQLConf(GlutenConfig.RAS_ENABLED.key -> "false") {
-      val events = new ArrayBuffer[GlutenPlanFallbackEvent]
-      val listener = new SparkListener {
-        override def onOtherEvent(event: SparkListenerEvent): Unit = {
-          event match {
-            case e: GlutenPlanFallbackEvent => events.append(e)
-            case _ =>
-          }
+    val events = new ArrayBuffer[GlutenPlanFallbackEvent]
+    val listener = new SparkListener {
+      override def onOtherEvent(event: SparkListenerEvent): Unit = {
+        event match {
+          case e: GlutenPlanFallbackEvent => events.append(e)
+          case _ =>
         }
       }
-      spark.sparkContext.addSparkListener(listener)
+    }
+    spark.sparkContext.addSparkListener(listener)
 
-      try {
-        val df = spark.sql("""
-                             |select tmp1.c1, tmp1.c2 from tmp1
-                             |left join tmp2 on (
-                             |  tmp1.c1 = regexp_extract(tmp2.c1, '(?<=@)[^.]+(?=\.)', 0)
-                             |  or tmp2.c1 > 10
-                             |)
-                             |""".stripMargin)
-        df.collect()
-        GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+    try {
+      val df = spark.sql("""
+                           |select tmp1.c1, tmp1.c2 from tmp1
+                           |left join tmp2 on (
+                           |  tmp1.c1 = regexp_extract(tmp2.c1, '(?<=@)[^.]+(?=\.)', 0)
+                           |  or tmp2.c1 > 10
+                           |)
+                           |""".stripMargin)
+      df.collect()
+      GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
 
-        val nestedLoopJoin = find(df.queryExecution.executedPlan) {
-          _.isInstanceOf[BroadcastNestedLoopJoinExec]
-        }
-        assert(nestedLoopJoin.isDefined)
-        val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
-        assert(fallbackReasons.nonEmpty)
-        assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
-      } finally {
-        spark.sparkContext.removeSparkListener(listener)
+      val nestedLoopJoin = find(df.queryExecution.executedPlan) {
+        _.isInstanceOf[BroadcastNestedLoopJoinExec]
       }
+      assert(nestedLoopJoin.isDefined)
+      val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
+      assert(fallbackReasons.nonEmpty)
+      assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
+    } finally {
+      spark.sparkContext.removeSparkListener(listener)
     }
   }
 }
