@@ -70,7 +70,6 @@ object VeloxBroadcastBuildSideCache
               unsafe.buildHashTable(broadcastContext)
           }
 
-          logWarning(s"Create bhj $broadcast_id = $pointer")
           BroadcastHashTable(pointer, relation)
         }
       )
@@ -96,7 +95,6 @@ object VeloxBroadcastBuildSideCache
 
   override def onRemoval(key: String, value: BroadcastHashTable, cause: RemovalCause): Unit = {
     synchronized {
-      logWarning(s"Remove bhj $key = ${value.pointer}")
       if (value.relation != null) {
         value.relation match {
           case columnar: ColumnarBuildSideRelation =>

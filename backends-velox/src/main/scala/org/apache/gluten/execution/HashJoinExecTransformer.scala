@@ -133,9 +133,6 @@ case class BroadcastHashJoinExecTransformer(
     val streamedRDD = getColumnarInputRDDs(streamedPlan)
     val executionId = sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
     if (executionId != null) {
-      logWarning(
-        s"Trace broadcast table data $buildBroadcastTableId" + " " +
-          "and the execution id is " + executionId)
       GlutenDriverEndpoint.collectResources(executionId, buildBroadcastTableId)
     } else {
       logWarning(
