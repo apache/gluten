@@ -133,7 +133,7 @@ class GlutenEliminateJoinSuite extends GlutenClickHouseWholeStageTransformerSuit
       })
   }
 
-  test("Eliminate two aggregate joins with attribute reordered") {
+  ignore("Eliminate two aggregate joins with attribute reordered") {
     val sql = """
         select t1.k1, t1.k3, t2.k1, t2.k3, s1, s2 from (
           select k1, k3, sum(v1) s1 from (

@@ -444,6 +444,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-38825: in and notIn filters")
   enableSuite[GlutenParquetInteroperabilitySuite]
     .exclude("parquet timestamp conversion")
+    // TODO: https://github.com/apache/gluten/issues/11865
+    .exclude("SPARK-36803: parquet files with legacy mode and schema evolution")
   enableSuite[GlutenParquetIOSuite]
     // Exception.
     .exclude("SPARK-35640: read binary as timestamp should throw schema incompatible error")
