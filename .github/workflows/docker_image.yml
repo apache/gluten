@@ -38,19 +38,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           file: dev/docker/Dockerfile.centos7-static-build
@@ -63,19 +63,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           file: dev/docker/Dockerfile.centos7-gcc13-static-build
@@ -95,18 +95,18 @@ jobs:
       - run: df -h | sort -k 5 -nr # check disk space for debug
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           file: dev/docker/cudf/Dockerfile
@@ -119,19 +119,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           file: dev/docker/ubuntu/Dockerfile.ubuntu22-m2-cache
@@ -150,18 +150,18 @@ jobs:
           sudo docker builder prune -a
       - run: df -h | sort -k 5 -nr # check disk space for debug
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           build-args: JAVA_VERSION=17
@@ -178,7 +178,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Docker meta
         id: meta
@@ -188,17 +188,17 @@ jobs:
           tags: vcpkg-centos-8
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           file: dev/docker/Dockerfile.centos8-static-build
@@ -228,7 +228,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Docker meta
         id: meta
@@ -238,17 +238,17 @@ jobs:
           tags: vcpkg-centos-8-gcc13
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           file: dev/docker/Dockerfile.centos8-gcc13-static-build
@@ -278,7 +278,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Docker meta
         id: meta
@@ -288,17 +288,17 @@ jobs:
           tags: vcpkg-centos-9
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           file: dev/docker/Dockerfile.centos9-static-build
@@ -330,7 +330,7 @@ jobs:
       JDK_VERSION: 1.8.0
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Docker meta
         id: meta
@@ -350,17 +350,17 @@ jobs:
           fi
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           build-args: JAVA_VERSION=${{ env.JDK_VERSION }}
@@ -393,7 +393,7 @@ jobs:
       JDK_VERSION: 1.8.0
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Docker meta
         id: meta
@@ -413,17 +413,17 @@ jobs:
           fi
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           build-args: JAVA_VERSION=${{ env.JDK_VERSION }}
@@ -464,13 +464,13 @@ jobs:
           merge-multiple: true
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Docker meta
         id: meta
@@ -506,13 +506,13 @@ jobs:
           merge-multiple: true
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Docker meta
         id: meta
@@ -549,13 +549,13 @@ jobs:
           merge-multiple: true
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Docker meta
         id: meta
