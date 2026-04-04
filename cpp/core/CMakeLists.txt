@@ -227,9 +227,28 @@ if(DEFINED ENV{HADOOP_HOME})
 else()
   set(LIBHDFS3_DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
+find_package(ZLIB REQUIRED)
 
-target_link_libraries(gluten PUBLIC Arrow::arrow
-                                    Arrow::arrow_bundled_dependencies)
+find_library(LZ4_LIBRARY NAMES lz4 liblz4)
+find_library(ZSTD_LIBRARY NAMES zstd libzstd)
+find_library(SNAPPY_LIBRARY NAMES snappy libsnappy)
+
+set(ARROW_EXTRA_DEPS "")
+if(LZ4_LIBRARY)
+  list(APPEND ARROW_EXTRA_DEPS ${LZ4_LIBRARY})
+endif()
+if(ZSTD_LIBRARY)
+  list(APPEND ARROW_EXTRA_DEPS ${ZSTD_LIBRARY})
+endif()
+if(SNAPPY_LIBRARY)
+  list(APPEND ARROW_EXTRA_DEPS ${SNAPPY_LIBRARY})
+endif()
+list(APPEND ARROW_EXTRA_DEPS ZLIB::ZLIB)
+
+target_link_libraries(
+  gluten
+  PUBLIC Arrow::arrow Arrow::arrow_bundled_dependencies
+  PRIVATE ${ARROW_EXTRA_DEPS})
 target_link_libraries(gluten PRIVATE google::glog)
 
 install(TARGETS gluten DESTINATION ${CMAKE_INSTALL_LIBDIR})
@@ -241,8 +260,16 @@ add_custom_command(
   POST_BUILD
   COMMAND ld $<TARGET_FILE:gluten> || true
   COMMENT "Checking ld result of libgluten.so")
-add_custom_command(
-  TARGET gluten
-  POST_BUILD
-  COMMAND ldd $<TARGET_FILE:gluten> || true
-  COMMENT "Checking ldd result of libgluten.so")
+if(APPLE)
+  add_custom_command(
+    TARGET gluten
+    POST_BUILD
+    COMMAND otool -L $<TARGET_FILE:gluten> || true
+    COMMENT "Checking shared library dependencies of gluten")
+elseif(UNIX)
+  add_custom_command(
+    TARGET gluten
+    POST_BUILD
+    COMMAND ldd $<TARGET_FILE:gluten> || true
+    COMMENT "Checking shared library dependencies of gluten")
+endif()
