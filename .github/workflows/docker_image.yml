@@ -182,7 +182,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf
         with:
           images: ${{ env.DOCKERHUB_REPO }}
           tags: vcpkg-centos-8
@@ -232,7 +232,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf
         with:
           images: ${{ env.DOCKERHUB_REPO }}
           tags: vcpkg-centos-8-gcc13
@@ -282,7 +282,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf
         with:
           images: ${{ env.DOCKERHUB_REPO }}
           tags: vcpkg-centos-9
@@ -334,7 +334,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf
         with:
           images: ${{ env.DOCKERHUB_REPO }}
           tags: centos-8-${{ matrix.jdk }}
@@ -397,7 +397,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf
         with:
           images: ${{ env.DOCKERHUB_REPO }}
           tags: centos-9-${{ matrix.jdk }}
@@ -474,7 +474,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf
         with:
           images: ${{ env.DOCKERHUB_REPO }}
           tags: ${{ matrix.digests }}
@@ -516,7 +516,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf
         with:
           images: ${{ env.DOCKERHUB_REPO }}
           tags: ${{ matrix.digests }}
@@ -559,7 +559,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf
         with:
           images: ${{ env.DOCKERHUB_REPO }}
           tags: ${{ matrix.digests }}
