@@ -42,6 +42,7 @@ static constexpr int64_t kDefaultReadBufferSize = 1 << 20;
 static constexpr int64_t kDefaultDeserializerBufferSize = 1 << 20;
 static constexpr int64_t kDefaultShuffleFileBufferSize = 32 << 10;
 static constexpr bool kDefaultEnableDictionary = false;
+static constexpr bool kDefaultEnableTypeAwareCompress = false;
 
 enum class ShuffleWriterType { kHashShuffle, kSortShuffle, kRssSortShuffle, kGpuHashShuffle };
 
@@ -175,6 +176,7 @@ struct LocalPartitionWriterOptions {
   int32_t numSubDirs = kDefaultNumSubDirs; // spark.diskStore.subDirectories
 
   bool enableDictionary = kDefaultEnableDictionary;
+  bool enableTypeAwareCompress = kDefaultEnableTypeAwareCompress;
 
   LocalPartitionWriterOptions() = default;
 
@@ -185,14 +187,16 @@ struct LocalPartitionWriterOptions {
       int32_t mergeBufferSize,
       double mergeThreshold,
       int32_t numSubDirs,
-      bool enableDictionary)
+      bool enableDictionary,
+      bool enableTypeAwareCompress = kDefaultEnableTypeAwareCompress)
       : shuffleFileBufferSize(shuffleFileBufferSize),
         compressionBufferSize(compressionBufferSize),
         compressionThreshold(compressionThreshold),
         mergeBufferSize(mergeBufferSize),
         mergeThreshold(mergeThreshold),
         numSubDirs(numSubDirs),
-        enableDictionary(enableDictionary) {}
+        enableDictionary(enableDictionary),
+        enableTypeAwareCompress(enableTypeAwareCompress) {}
 };
 
 struct RssPartitionWriterOptions {
