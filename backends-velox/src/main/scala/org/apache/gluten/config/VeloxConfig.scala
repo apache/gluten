@@ -99,6 +99,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def valueStreamDynamicFilterEnabled: Boolean =
     getConf(VALUE_STREAM_DYNAMIC_FILTER_ENABLED)
+
+  def enableTimestampNtzValidation: Boolean = getConf(ENABLE_TIMESTAMP_NTZ_VALIDATION)
 }
 
 object VeloxConfig extends ConfigRegistry {
@@ -753,6 +755,15 @@ object VeloxConfig extends ConfigRegistry {
   val PARQUET_USE_COLUMN_NAMES =
     buildConf("spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames")
       .doc("Maps table field names to file field names using names, not indices for Parquet files.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val ENABLE_TIMESTAMP_NTZ_VALIDATION =
+    buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")
+      .doc(
+        "Enable validation fallback for TimestampNTZ type. When true (default), any plan " +
+          "containing TimestampNTZ will fall back to Spark execution. Set to false during " +
+          "development/testing of TimestampNTZ support to allow native execution.")
       .booleanConf
       .createWithDefault(true)
 }
