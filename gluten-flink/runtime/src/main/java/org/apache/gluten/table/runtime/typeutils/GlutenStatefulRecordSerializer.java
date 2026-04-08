@@ -17,7 +17,7 @@
 package org.apache.gluten.table.runtime.typeutils;
 
 import org.apache.gluten.streaming.api.operators.GlutenOperator;
-import org.apache.gluten.table.runtime.config.VeloxSessionConfig;
+import org.apache.gluten.table.runtime.operators.GlutenSessionResources;
 
 import io.github.zhztheplayer.velox4j.data.RowVector;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
@@ -67,7 +67,7 @@ public class GlutenStatefulRecordSerializer extends TypeSerializer<StatefulRecor
     byte[] str = new byte[len];
     source.readFully(str);
     RowVector rowVector =
-        VeloxSessionConfig.getSessionConfig()
+        GlutenSessionResources.getInstance()
             .getSession(operator.getId())
             .baseVectorOps()
             .deserializeOne(new String(str))

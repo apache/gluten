@@ -279,6 +279,11 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             .map(x -> x.getLogicalType())
             .collect(Collectors.toList())
             .toArray(new LogicalType[] {});
+    // For TVF windows (Tumbling, Hopping, Cumulative, Session), the window namespace
+    // is identified by the window end timestamp (Long). If count-based windows are
+    // supported in the future, a different serializer may be needed.
+    final org.apache.flink.api.common.typeutils.TypeSerializer<Long> windowSerializer =
+        org.apache.flink.api.common.typeutils.base.LongSerializer.INSTANCE;
     final OneInputStreamOperator<RowData, RowData> windowOperator =
         new org.apache.gluten.table.runtime.operators.WindowAggOperator<RowData, RowData, Long>(
             new StatefulPlanNode(windowAgg.getId(), windowAgg),
@@ -290,7 +295,8 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             "StreamExecWindowAggregate",
             selector.getProducedType(),
             aggInfoList.getAggNames(),
-            accTypes);
+            accTypes,
+            windowSerializer);
     // --- End Gluten-specific code changes ---
 
     final OneInputTransformation<RowData, RowData> transform =

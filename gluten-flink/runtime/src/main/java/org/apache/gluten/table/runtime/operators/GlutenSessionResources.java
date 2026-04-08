@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.table.runtime.operators;
 
+import org.apache.gluten.streaming.api.operators.GlutenOperator;
+
 import io.github.zhztheplayer.velox4j.Velox4j;
 import io.github.zhztheplayer.velox4j.memory.AllocationListener;
 import io.github.zhztheplayer.velox4j.memory.MemoryManager;
@@ -25,6 +27,11 @@ import org.apache.flink.runtime.state.KeyedStateBackend;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.HashMap;
+import java.util.Map;
 
 // Manage the session and resource for Velox.
 class GlutenSessionResource {
@@ -72,5 +79,39 @@ class GlutenSessionResource {
 
   public void setKeyedStateBackend(KeyedStateBackend<?> keyedStateBackend) {
     this.keyedStateBackend = keyedStateBackend;
+  }
+}
+
+public class GlutenSessionResources {
+  private static final Logger LOG = LoggerFactory.getLogger(GlutenSessionResources.class);
+  private static final GlutenSessionResources instance = new GlutenSessionResources();
+  private Map<String, GlutenSessionResource> sessionResources = new HashMap<>();
+  private Map<String, GlutenOperator> operators = new HashMap<>();
+
+  private GlutenSessionResources() {}
+
+  public static GlutenSessionResources getInstance() {
+    return instance;
+  }
+
+  public GlutenSessionResource getSessionResource(String id) {
+    return sessionResources.get(id);
+  }
+
+  public void addSessionResource(String id, GlutenSessionResource sessionResource) {
+    sessionResources.put(id, sessionResource);
+  }
+
+  public Session getSession(String id) {
+    return sessionResources.get(id).getSession();
+  }
+
+  public void addOperator(String id, GlutenOperator operator) {
+    operators.put(id, operator);
+  }
+
+  public GlutenOperator getOperator(String id) {
+    LOG.info("getOperator: {}, {}", id, operators.keySet());
+    return operators.get(id);
   }
 }
