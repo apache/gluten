@@ -75,7 +75,8 @@ case class ColumnarBroadcastExchangeExec(mode: BroadcastMode, child: SparkPlan)
               mode,
               child,
               longMetric("numOutputRows"),
-              longMetric("dataSize"))
+              longMetric("dataSize"),
+              longMetric("buildThreads"))
         }
 
         val broadcasted = GlutenTimeMetric.millis(longMetric("broadcastTime")) {
