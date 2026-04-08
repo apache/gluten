@@ -32,7 +32,9 @@
 #include "operators/plannodes/CudfVectorStream.h"
 #include "velox/experimental/cudf/CudfConfig.h"
 #include "velox/experimental/cudf/connectors/hive/CudfHiveConnector.h"
+#include "velox/experimental/cudf/exec/SparkAggregateFunctions.h"
 #include "velox/experimental/cudf/exec/ToCudf.h"
+#include "velox/experimental/cudf/expression/SparkFunctions.h"
 #endif
 
 #include "compute/VeloxRuntime.h"
@@ -184,6 +186,8 @@ void VeloxBackend::init(
     cudfConfig.initialize(std::move(options));
     velox::cudf_velox::registerCudf();
     velox::exec::Operator::registerOperator(std::make_unique<CudfVectorStreamOperatorTranslator>());
+    velox::cudf_velox::registerSparkFunctions("");
+    velox::cudf_velox::registerSparkAggregateFunctions("");
   }
 #endif
 
