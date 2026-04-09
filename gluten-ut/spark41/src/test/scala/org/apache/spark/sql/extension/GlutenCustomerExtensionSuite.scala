@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.extension
 
+import org.apache.gluten.backendsapi.clickhouse.CHConfig
 import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.SparkConf
@@ -27,10 +28,10 @@ class GlutenCustomerExtensionSuite extends GlutenSQLTestsTrait {
     super.sparkConf
       .set("spark.sql.adaptive.enabled", "false")
       .set(
-        GlutenConfig.EXTENDED_COLUMNAR_TRANSFORM_RULES.key,
+        CHConfig.EXTENDED_COLUMNAR_TRANSFORM_RULES.key,
         "org.apache.spark.sql" +
           ".extension.CustomerColumnarPreRules")
-      .set(GlutenConfig.EXTENDED_COLUMNAR_POST_RULES.key, "")
+      .set(CHConfig.EXTENDED_COLUMNAR_POST_RULES.key, "")
   }
 
   testGluten("test customer column rules") {
