@@ -399,24 +399,32 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   } else if (
       sJoin.has_advanced_extension() &&
       SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isBHJ=")) {
+    bool hashTableBuildOncePerExecutorEnabled =
+        veloxCfg_->get<bool>(kHashTableBuildOncePerExecutor, kHashTableBuildOncePerExecutorDefault);
+
     std::string hashTableId = sJoin.hashtableid();
 
     std::shared_ptr<core::OpaqueHashTable> opaqueSharedHashTable = nullptr;
     bool joinHasNullKeys = false;
 
-    try {
-      auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(getJoin(hashTableId));
-      joinHasNullKeys = hashTableBuilder->joinHasNullKeys();
-      auto originalShared = hashTableBuilder->hashTable();
-      opaqueSharedHashTable = std::shared_ptr<core::OpaqueHashTable>(
-          originalShared, reinterpret_cast<core::OpaqueHashTable*>(originalShared.get()));
+    if (hashTableBuildOncePerExecutorEnabled) {
+      std::cout << "the hashTableBuildOncePerExecutorEnabled is set" << "\n";
+      try {
+        auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(getJoin(hashTableId));
+        joinHasNullKeys = hashTableBuilder->joinHasNullKeys();
+        auto originalShared = hashTableBuilder->hashTable();
+        opaqueSharedHashTable = std::shared_ptr<core::OpaqueHashTable>(
+            originalShared, reinterpret_cast<core::OpaqueHashTable*>(originalShared.get()));
 
-      LOG(INFO) << "Successfully retrieved and aliased HashTable for reuse. ID: " << hashTableId;
-    } catch (const std::exception& e) {
-      LOG(WARNING)
-          << "Error retrieving HashTable from ObjectStore: " << e.what()
-          << ". Falling back to building new table. To ensure correct results, please verify that spark.gluten.velox.buildHashTableOncePerExecutor.enabled is set to false.";
-      opaqueSharedHashTable = nullptr;
+        LOG(INFO) << "Successfully retrieved and aliased HashTable for reuse. ID: " << hashTableId;
+      } catch (const std::exception& e) {
+        throw GlutenException(
+            "Error retrieving HashTable from ObjectStore: " + std::string(e.what()) +
+            " You can set spark.gluten.velox.buildHashTableOncePerExecutor.enabled"
+            " to false as workaround.");
+      }
+    } else {
+      std::cout << "the hashTableBuildOncePerExecutorEnabled is false" << "\n";
     }
 
     // Create HashJoinNode node
