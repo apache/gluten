@@ -208,7 +208,10 @@ object VeloxConfig extends ConfigRegistry {
 
   val COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_TARGET_BYTES =
     buildStaticConf("spark.gluten.velox.broadcast.build.targetBytesPerThread")
-      .doc("It is used to calculate the number of hash table build threads.")
+      .doc(
+        "It is used to calculate the number of hash table build threads. Based on our testing" +
+          " across various thresholds (1MB to 128MB), we recommend a value of 32MB or 64MB," +
+          " as these consistently provided the most significant performance gains.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("32MB")
 
