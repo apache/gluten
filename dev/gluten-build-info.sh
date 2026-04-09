@@ -21,6 +21,14 @@ GLUTEN_ROOT=$(cd $(dirname -- $0)/..; pwd -P)
 
 EXTRA_RESOURCE_DIR=$GLUTEN_ROOT/gluten-core/target/generated-resources
 BUILD_INFO="$EXTRA_RESOURCE_DIR"/gluten-build-info.properties
+BACKEND_HOME=""
+BACKEND_TYPE=""
+GLUTEN_VERSION=""
+JAVA_VERSION=""
+SCALA_VERSION=""
+SPARK_VERSION=""
+HADOOP_VERSION=""
+WRITE_REVISION="false"
 
 # Delete old build-info file before regenerating
 rm -f "$BUILD_INFO"
@@ -38,9 +46,9 @@ function echo_revision_info() {
 function echo_velox_revision_info() {
   BACKEND_HOME=$1
   echo gcc_version=$(strings $GLUTEN_ROOT/cpp/build/releases/libgluten.so | grep "GCC:" | head -n 1)
-  echo velox_branch=$(git -C $BACKEND_HOME rev-parse --abbrev-ref HEAD)
-  echo velox_revision=$(git -C $BACKEND_HOME rev-parse HEAD)
-  echo velox_revision_time=$(git -C $BACKEND_HOME show -s --format=%ci HEAD)
+  echo velox_branch=$(git -C "$BACKEND_HOME" rev-parse --abbrev-ref HEAD)
+  echo velox_revision=$(git -C "$BACKEND_HOME" rev-parse HEAD)
+  echo velox_revision_time=$(git -C "$BACKEND_HOME" show -s --format=%ci HEAD)
 }
 
 function echo_clickhouse_revision_info() {
@@ -49,39 +57,62 @@ function echo_clickhouse_revision_info() {
   echo ch_commit=$(cat $GLUTEN_ROOT/cpp-ch/clickhouse.version | grep -oP '(?<=^CH_COMMIT=).*')
 }
 
+function read_cmake_cache_path() {
+  CACHE_FILE="$GLUTEN_ROOT/cpp/build/CMakeCache.txt"
+  CACHE_KEY="$1"
+  if [ -f "$CACHE_FILE" ]; then
+    grep "^${CACHE_KEY}:PATH=" "$CACHE_FILE" | cut -d= -f2- | head -n 1
+  fi
+}
+
+function resolve_velox_home() {
+  if [ -n "$BACKEND_HOME" ]; then
+    echo "$BACKEND_HOME"
+    return
+  fi
+
+  if [ -n "${VELOX_HOME:-}" ]; then
+    echo "$VELOX_HOME"
+    return
+  fi
+
+  CACHED_VELOX_HOME=$(read_cmake_cache_path VELOX_HOME)
+  if [ -n "$CACHED_VELOX_HOME" ]; then
+    echo "$CACHED_VELOX_HOME"
+    return
+  fi
+
+  echo "$GLUTEN_ROOT/ep/build-velox/build/velox_ep"
+}
+
 while (( "$#" )); do
   echo "$1"
   case $1 in
     --version)
-      echo gluten_version="$2" >> "$BUILD_INFO"
+      GLUTEN_VERSION="$2"
       ;;
     --backend)
       BACKEND_TYPE="$2"
-      echo backend_type="$BACKEND_TYPE" >> "$BUILD_INFO"
-      # Compute backend home path based on type
-      if [ "velox" = "$BACKEND_TYPE" ]; then
-        BACKEND_HOME="$GLUTEN_ROOT/ep/build-velox/build/velox_ep"
-        echo_velox_revision_info "$BACKEND_HOME" >> "$BUILD_INFO"
-      elif [ "ch" = "$BACKEND_TYPE" ] || [ "clickhouse" = "$BACKEND_TYPE" ]; then
-        echo_clickhouse_revision_info >> "$BUILD_INFO"
+      ;;
+    --backend_home|--velox_home)
+      if [ -n "$2" ]; then
+        BACKEND_HOME="$2"
       fi
       ;;
     --java)
-      echo java_version="$2" >> "$BUILD_INFO"
+      JAVA_VERSION="$2"
       ;;
     --scala)
-      echo scala_version="$2" >> "$BUILD_INFO"
+      SCALA_VERSION="$2"
       ;;
     --spark)
-      echo spark_version="$2" >> "$BUILD_INFO"
+      SPARK_VERSION="$2"
       ;;
     --hadoop)
-      echo hadoop_version="$2" >> "$BUILD_INFO"
+      HADOOP_VERSION="$2"
       ;;
     --revision)
-      if [ "true" = "$2" ]; then
-        echo_revision_info >> "$BUILD_INFO"
-      fi
+      WRITE_REVISION="$2"
       ;;
     *)
       echo "Error: $1 is not supported"
@@ -89,3 +120,37 @@ while (( "$#" )); do
   esac
   shift 2
 done
+
+if [ -n "$GLUTEN_VERSION" ]; then
+  echo gluten_version="$GLUTEN_VERSION" >> "$BUILD_INFO"
+fi
+
+if [ -n "$BACKEND_TYPE" ]; then
+  echo backend_type="$BACKEND_TYPE" >> "$BUILD_INFO"
+  if [ "velox" = "$BACKEND_TYPE" ]; then
+    BACKEND_HOME=$(resolve_velox_home)
+    echo_velox_revision_info "$BACKEND_HOME" >> "$BUILD_INFO"
+  elif [ "ch" = "$BACKEND_TYPE" ] || [ "clickhouse" = "$BACKEND_TYPE" ]; then
+    echo_clickhouse_revision_info >> "$BUILD_INFO"
+  fi
+fi
+
+if [ -n "$JAVA_VERSION" ]; then
+  echo java_version="$JAVA_VERSION" >> "$BUILD_INFO"
+fi
+
+if [ -n "$SCALA_VERSION" ]; then
+  echo scala_version="$SCALA_VERSION" >> "$BUILD_INFO"
+fi
+
+if [ -n "$SPARK_VERSION" ]; then
+  echo spark_version="$SPARK_VERSION" >> "$BUILD_INFO"
+fi
+
+if [ -n "$HADOOP_VERSION" ]; then
+  echo hadoop_version="$HADOOP_VERSION" >> "$BUILD_INFO"
+fi
+
+if [ "true" = "$WRITE_REVISION" ]; then
+  echo_revision_info >> "$BUILD_INFO"
+fi
