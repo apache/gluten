@@ -171,11 +171,33 @@ trait SparkShims {
   def generateMetadataColumns(
       file: PartitionedFile,
       metadataColumnNames: Seq[String] = Seq.empty): Map[String, String] = {
-    Map(
-      InputFileName().prettyName -> file.filePath.toString,
-      InputFileBlockStart().prettyName -> file.start.toString,
-      InputFileBlockLength().prettyName -> file.length.toString
-    )
+    if (metadataColumnNames == null || metadataColumnNames.isEmpty) {
+      return Map.empty
+    }
+
+    val inputFileName = InputFileName().prettyName
+    val inputFileBlockStart = InputFileBlockStart().prettyName
+    val inputFileBlockLength = InputFileBlockLength().prettyName
+
+    if (
+      !metadataColumnNames.contains(inputFileName) &&
+      !metadataColumnNames.contains(inputFileBlockStart) &&
+      !metadataColumnNames.contains(inputFileBlockLength)
+    ) {
+      return Map.empty
+    }
+
+    var metadataColumn = Map.empty[String, String]
+    if (metadataColumnNames.contains(inputFileName)) {
+      metadataColumn += (inputFileName -> file.filePath.toString)
+    }
+    if (metadataColumnNames.contains(inputFileBlockStart)) {
+      metadataColumn += (inputFileBlockStart -> file.start.toString)
+    }
+    if (metadataColumnNames.contains(inputFileBlockLength)) {
+      metadataColumn += (inputFileBlockLength -> file.length.toString)
+    }
+    metadataColumn
   }
 
   // For compatibility with Spark-3.5.
