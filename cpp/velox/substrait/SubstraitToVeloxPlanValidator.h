@@ -19,7 +19,6 @@
 
 #include <unordered_map>
 #include "SubstraitToVeloxPlan.h"
-#include "config/GlutenConfig.h"
 #include "velox/core/QueryCtx.h"
 
 using namespace facebook;
@@ -30,15 +29,10 @@ namespace gluten {
 /// a Substrait plan is supported in Velox.
 class SubstraitToVeloxPlanValidator {
  public:
-  explicit SubstraitToVeloxPlanValidator(
-      memory::MemoryPool* pool,
-      const std::unordered_map<std::string, std::string>& confMap = {}) {
-    const auto it = confMap.find(kSessionTimezone);
-    const auto sessionTimezone =
-        normalizeSessionTimezone(it == confMap.end() ? std::string_view("UTC") : std::string_view(it->second));
+  SubstraitToVeloxPlanValidator(memory::MemoryPool* pool) {
     std::unordered_map<std::string, std::string> configs{
         {velox::core::QueryConfig::kSparkPartitionId, "0"},
-        {velox::core::QueryConfig::kSessionTimezone, sessionTimezone}};
+        {velox::core::QueryConfig::kSessionTimezone, "UTC"}};
     veloxCfg_ = std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
     planConverter_ = std::make_unique<SubstraitToVeloxPlanConverter>(
         pool, veloxCfg_.get(), std::vector<std::shared_ptr<ResultIterator>>{}, std::nullopt, std::nullopt, true);
