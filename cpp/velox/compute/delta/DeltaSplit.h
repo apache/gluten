@@ -39,7 +39,7 @@ enum class DeltaRowIndexFilterType {
 enum class DeltaDeletionVectorStorageType {
   kUuidPath,    // 'u' - UUID-based relative path
   kFilePath,    // 'p' - Absolute path
-  kInlineData,  // 'i' - Inline base64 data
+  kInlineData,  // 'i' - Inline Base85 data
 };
 
 /// Protocol version information for a Delta table.

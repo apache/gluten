@@ -78,13 +78,15 @@ class DeltaDeletionVectorReader {
       std::optional<uint64_t> sizeInBytes = std::nullopt,
       std::optional<uint64_t> expectedCardinality = std::nullopt);
 
-  /// Loads a deletion vector from inline base64-encoded data.
+  /// Loads a deletion vector from inline Base85-encoded data.
   /// Used for small DVs stored directly in the Delta log.
-  /// @param inlineData Base64-encoded serialized roaring bitmap
+  /// @param inlineData Base85-encoded serialized roaring bitmap
+  /// @param sizeInBytes Optional decoded payload size required by the Delta inline format
   /// @param expectedCardinality Optional expected cardinality for validation
   /// @throws VeloxException if data cannot be decoded or format is invalid
   void loadInlineDeletionVector(
       const std::string& inlineData,
+      std::optional<uint64_t> sizeInBytes = std::nullopt,
       std::optional<uint64_t> expectedCardinality = std::nullopt);
 
   /// Checks if a specific row position is marked as deleted.

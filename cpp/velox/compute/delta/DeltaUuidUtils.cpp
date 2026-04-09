@@ -16,10 +16,12 @@
 
 #include "compute/delta/DeltaUuidUtils.h"
 
+#include <cstring>
 #include <iomanip>
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 
 #include "velox/common/base/Exceptions.h"
 
@@ -83,6 +85,29 @@ std::string DeltaUuidUtils::encodeUuidToZ85(const Uuid& uuid) {
   return result;
 }
 
+std::string DeltaUuidUtils::encodeBytesToBase85(std::string_view data) {
+  if (data.empty()) {
+    return "";
+  }
+
+  const size_t paddedSize = ((data.size() + 3) / 4) * 4;
+  std::string result((paddedSize / 4) * 5, '\0');
+  std::array<uint8_t, 4> block{};
+
+  for (size_t blockIndex = 0; blockIndex < paddedSize / 4; ++blockIndex) {
+    block.fill(0);
+    const size_t inputOffset = blockIndex * 4;
+    const size_t bytesToCopy =
+        inputOffset < data.size() ? std::min<size_t>(4, data.size() - inputOffset) : 0;
+    if (bytesToCopy > 0) {
+      std::memcpy(block.data(), data.data() + inputOffset, bytesToCopy);
+    }
+    encodeZ85Block(block.data(), result.data() + (blockIndex * 5));
+  }
+
+  return result;
+}
+
 DeltaUuidUtils::Uuid DeltaUuidUtils::decodeZ85ToUuid(const std::string& z85) {
   VELOX_CHECK_EQ(
       z85.length(),
@@ -99,6 +124,40 @@ DeltaUuidUtils::Uuid DeltaUuidUtils::decodeZ85ToUuid(const std::string& z85) {
   }
   
   return uuid;
+}
+
+std::string DeltaUuidUtils::decodeBase85ToBytes(
+    std::string_view encoded,
+    size_t decodedSize) {
+  if (encoded.empty()) {
+    VELOX_CHECK_EQ(
+        decodedSize,
+        0,
+        "Expected decoded Base85 size to be 0 for empty input");
+    return "";
+  }
+
+  VELOX_CHECK_EQ(
+      encoded.size() % 5,
+      0,
+      "Base85 encoded payload must be aligned to 5-character blocks");
+
+  const size_t maxDecodedSize = (encoded.size() / 5) * 4;
+  VELOX_CHECK_LE(
+      decodedSize,
+      maxDecodedSize,
+      "Requested decoded size {} exceeds Base85 payload capacity {}",
+      decodedSize,
+      maxDecodedSize);
+
+  std::string decoded(maxDecodedSize, '\0');
+  for (size_t blockIndex = 0; blockIndex < encoded.size() / 5; ++blockIndex) {
+    decodeZ85Block(
+        encoded.data() + (blockIndex * 5),
+        reinterpret_cast<uint8_t*>(decoded.data() + (blockIndex * 4)));
+  }
+  decoded.resize(decodedSize);
+  return decoded;
 }
 
 void DeltaUuidUtils::encodeZ85Block(
@@ -191,4 +250,3 @@ std::string DeltaUuidUtils::reconstructUuidPath(
 }
 
 } // namespace gluten::delta
-

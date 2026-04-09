@@ -178,6 +178,7 @@ find_package(Threads REQUIRED)
 find_package(JNI REQUIRED)
 
 find_package(glog REQUIRED)
+find_package(Roaring REQUIRED)
 
 if(BUILD_TESTS)
   set(GLUTEN_GTEST_MIN_VERSION "1.13.0")

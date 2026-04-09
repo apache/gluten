@@ -17,7 +17,9 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <string>
+#include <string_view>
 
 namespace gluten::delta {
 
@@ -44,6 +46,14 @@ class DeltaUuidUtils {
 
   /// Decode Z85 string back to UUID.
   static Uuid decodeZ85ToUuid(const std::string& z85);
+
+  /// Encode arbitrary bytes using Delta's Base85-compatible alphabet.
+  static std::string encodeBytesToBase85(std::string_view data);
+
+  /// Decode arbitrary bytes encoded with Delta's Base85-compatible alphabet.
+  static std::string decodeBase85ToBytes(
+      std::string_view encoded,
+      size_t decodedSize);
 
   /// Extract UUID and random prefix from Z85-encoded string.
   /// Returns pair of (randomPrefix, uuid).
@@ -77,5 +87,3 @@ class DeltaUuidUtils {
 };
 
 } // namespace gluten::delta
-
-// Made with Bob

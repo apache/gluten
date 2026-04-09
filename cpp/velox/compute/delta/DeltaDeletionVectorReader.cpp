@@ -19,10 +19,10 @@
 #include <cstring>
 #include <limits>
 
+#include "compute/delta/DeltaUuidUtils.h"
 #include "velox/common/base/BitUtil.h"
 #include "velox/common/base/Crc.h"
 #include "velox/common/base/Exceptions.h"
-#include "velox/common/encode/Base64.h"
 #include "velox/common/file/File.h"
 
 namespace gluten::delta {
@@ -305,9 +305,12 @@ void DeltaDeletionVectorReader::loadDeletionVector(
 
 void DeltaDeletionVectorReader::loadInlineDeletionVector(
     const std::string& inlineData,
+    std::optional<uint64_t> sizeInBytes,
     std::optional<uint64_t> expectedCardinality) {
   try {
-    std::string decoded = encoding::Base64::decode(inlineData);
+    const auto decodedSize = sizeInBytes.value_or((inlineData.size() / 5) * 4);
+    std::string decoded =
+        DeltaUuidUtils::decodeBase85ToBytes(inlineData, decodedSize);
 
     VELOX_USER_CHECK_GT(
         decoded.size(), 0, "Decoded inline deletion vector is empty");

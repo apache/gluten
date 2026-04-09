@@ -157,7 +157,7 @@ void DeltaSplitReader::prepareSplit(
 
   if (descriptor.isInline()) {
     deletionVectorReader_->loadInlineDeletionVector(
-        dvPath, descriptor.cardinality);
+        dvPath, descriptor.sizeInBytes, descriptor.cardinality);
   } else {
     deletionVectorReader_->loadDeletionVector(
         dvPath,

@@ -15,19 +15,18 @@
  */
 
 #include "compute/delta/DeltaDeletionVectorReader.h"
+#include "compute/delta/DeltaUuidUtils.h"
+#include "compute/delta/RoaringBitmapArray.h"
 #include "velox/common/base/Crc.h"
 #include "velox/common/base/tests/GTestUtils.h"
-#include "velox/common/encode/Base64.h"
 #include "velox/common/file/File.h"
 #include "velox/common/file/FileSystems.h"
 #include "velox/exec/tests/utils/TempDirectoryPath.h"
-#include "velox/functions/delta/RoaringBitmapArray.h"
 
 #include <gtest/gtest.h>
 
 using namespace facebook::velox;
 using namespace gluten::delta;
-using namespace facebook::velox::functions::delta;
 
 class DeltaDeletionVectorReaderTest : public ::testing::Test {
  protected:
@@ -86,7 +85,7 @@ class DeltaDeletionVectorReaderTest : public ::testing::Test {
     auto buffer = AlignedBuffer::allocate<char>(serializedSize, pool_.get());
     bitmap.serialize(buffer->asMutable<char>());
 
-    return encoding::Base64::encode(
+    return DeltaUuidUtils::encodeBytesToBase85(
         std::string_view(buffer->as<char>(), serializedSize));
   }
 
