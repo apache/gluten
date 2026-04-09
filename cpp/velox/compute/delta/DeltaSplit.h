@@ -1,4 +1,20 @@
 /*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/*
  * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,9 +53,9 @@ enum class DeltaRowIndexFilterType {
 };
 
 enum class DeltaDeletionVectorStorageType {
-  kUuidPath,    // 'u' - UUID-based relative path
-  kFilePath,    // 'p' - Absolute path
-  kInlineData,  // 'i' - Inline Base85 data
+  kUuidPath, // 'u' - UUID-based relative path
+  kFilePath, // 'p' - Absolute path
+  kInlineData, // 'i' - Inline Base85 data
 };
 
 /// Protocol version information for a Delta table.
@@ -64,10 +80,7 @@ struct DeltaProtocolInfo {
     if (!readerFeatures.has_value()) {
       return false;
     }
-    return std::find(
-               readerFeatures->begin(),
-               readerFeatures->end(),
-               "deletionVectors") != readerFeatures->end();
+    return std::find(readerFeatures->begin(), readerFeatures->end(), "deletionVectors") != readerFeatures->end();
   }
 };
 
@@ -96,10 +109,9 @@ struct DeltaDeletionVectorDescriptor {
         storageTypeChar = 'i';
         break;
     }
-    
+
     if (offset.has_value()) {
-      return std::string(1, storageTypeChar) + pathOrInlineData + "@" +
-             std::to_string(offset.value());
+      return std::string(1, storageTypeChar) + pathOrInlineData + "@" + std::to_string(offset.value());
     }
     return std::string(1, storageTypeChar) + pathOrInlineData;
   }
@@ -107,12 +119,7 @@ struct DeltaDeletionVectorDescriptor {
   static DeltaDeletionVectorDescriptor inlineData(
       std::string data,
       std::optional<uint64_t> cardinality = std::nullopt) {
-    return {
-        DeltaDeletionVectorStorageType::kInlineData,
-        std::move(data),
-        std::nullopt,
-        std::nullopt,
-        cardinality};
+    return {DeltaDeletionVectorStorageType::kInlineData, std::move(data), std::nullopt, std::nullopt, cardinality};
   }
 
   static DeltaDeletionVectorDescriptor uuidPath(
@@ -120,12 +127,7 @@ struct DeltaDeletionVectorDescriptor {
       std::optional<uint64_t> offset = std::nullopt,
       std::optional<uint64_t> sizeInBytes = std::nullopt,
       std::optional<uint64_t> cardinality = std::nullopt) {
-    return {
-        DeltaDeletionVectorStorageType::kUuidPath,
-        std::move(z85EncodedUuid),
-        offset,
-        sizeInBytes,
-        cardinality};
+    return {DeltaDeletionVectorStorageType::kUuidPath, std::move(z85EncodedUuid), offset, sizeInBytes, cardinality};
   }
 
   static DeltaDeletionVectorDescriptor filePath(
@@ -133,12 +135,7 @@ struct DeltaDeletionVectorDescriptor {
       std::optional<uint64_t> offset = std::nullopt,
       std::optional<uint64_t> sizeInBytes = std::nullopt,
       std::optional<uint64_t> cardinality = std::nullopt) {
-    return {
-        DeltaDeletionVectorStorageType::kFilePath,
-        std::move(path),
-        offset,
-        sizeInBytes,
-        cardinality};
+    return {DeltaDeletionVectorStorageType::kFilePath, std::move(path), offset, sizeInBytes, cardinality};
   }
 
   bool isInline() const {
@@ -168,8 +165,7 @@ struct DeltaFileStatistics {
   /// Calculate the logical row count accounting for deletion vectors.
   /// Returns the number of valid (non-deleted) rows.
   /// Returns -1 if numRecords is not available.
-  int64_t logicalRowCount(
-      const std::optional<DeltaDeletionVectorDescriptor>& dv) const {
+  int64_t logicalRowCount(const std::optional<DeltaDeletionVectorDescriptor>& dv) const {
     if (!numRecords.has_value()) {
       return -1; // Unknown
     }
@@ -192,15 +188,13 @@ struct HiveDeltaSplit : public connector::hive::HiveConnectorSplit {
       dwio::common::FileFormat fileFormat,
       uint64_t start = 0,
       uint64_t length = std::numeric_limits<uint64_t>::max(),
-      const std::unordered_map<std::string, std::optional<std::string>>&
-          partitionKeys = {},
+      const std::unordered_map<std::string, std::optional<std::string>>& partitionKeys = {},
       std::optional<int32_t> tableBucketNumber = std::nullopt,
       const std::unordered_map<std::string, std::string>& customSplitInfo = {},
       const std::shared_ptr<std::string>& extraFileInfo = {},
       const std::unordered_map<std::string, std::string>& serdeParameters = {},
       bool cacheable = true,
-      std::optional<DeltaDeletionVectorDescriptor> deletionVector =
-          std::nullopt,
+      std::optional<DeltaDeletionVectorDescriptor> deletionVector = std::nullopt,
       std::optional<DeltaProtocolInfo> protocolInfo = std::nullopt,
       std::optional<DeltaFileStatistics> statistics = std::nullopt,
       DeltaRowIndexFilterType filterType = DeltaRowIndexFilterType::kKeepAll,

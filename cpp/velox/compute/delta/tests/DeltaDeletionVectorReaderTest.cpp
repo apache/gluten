@@ -1,4 +1,20 @@
 /*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/*
  * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -85,13 +101,10 @@ class DeltaDeletionVectorReaderTest : public ::testing::Test {
     auto buffer = AlignedBuffer::allocate<char>(serializedSize, pool_.get());
     bitmap.serialize(buffer->asMutable<char>());
 
-    return DeltaUuidUtils::encodeBytesToBase85(
-        std::string_view(buffer->as<char>(), serializedSize));
+    return DeltaUuidUtils::encodeBytesToBase85(std::string_view(buffer->as<char>(), serializedSize));
   }
 
-  DeltaStoredDVLocation createDeltaStoredDVFile(
-      const std::vector<int64_t>& deletedRows,
-      bool corruptChecksum = false) {
+  DeltaStoredDVLocation createDeltaStoredDVFile(const std::vector<int64_t>& deletedRows, bool corruptChecksum = false) {
     RoaringBitmapArray bitmap;
     for (auto row : deletedRows) {
       bitmap.addSafe(row);
@@ -130,10 +143,7 @@ class DeltaDeletionVectorReaderTest : public ::testing::Test {
     writeFile->append(payload);
     writeFile->close();
 
-    return DeltaStoredDVLocation{
-        dvPath,
-        static_cast<uint64_t>(offset),
-        static_cast<uint64_t>(serializedSize)};
+    return DeltaStoredDVLocation{dvPath, static_cast<uint64_t>(offset), static_cast<uint64_t>(serializedSize)};
   }
 
   std::shared_ptr<memory::MemoryPool> pool_;
@@ -147,8 +157,7 @@ TEST_F(DeltaDeletionVectorReaderTest, LoadFromFile) {
 
   // Load DV
   auto fs = filesystems::getFileSystem(dvPath, nullptr);
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
   reader->loadDeletionVector(dvPath);
 
   // Verify deleted rows
@@ -169,10 +178,8 @@ TEST_F(DeltaDeletionVectorReaderTest, LoadFromDeltaStoredRange) {
   const auto storedDv = createDeltaStoredDVFile({5, 10, 15});
 
   auto fs = filesystems::getFileSystem(storedDv.path, nullptr);
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
-  reader->loadDeletionVector(
-      storedDv.path, storedDv.offset, storedDv.sizeInBytes);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+  reader->loadDeletionVector(storedDv.path, storedDv.offset, storedDv.sizeInBytes);
 
   EXPECT_TRUE(reader->isRowDeleted(5));
   EXPECT_TRUE(reader->isRowDeleted(10));
@@ -186,58 +193,18 @@ TEST_F(DeltaDeletionVectorReaderTest, LoadFromDeltaStoredRange) {
 
 TEST_F(DeltaDeletionVectorReaderTest, LoadFromRealDeltaPortableStoredRange) {
   // Captured from a Delta 3.3.2 table after `DELETE WHERE id < 10`.
-  const std::vector<uint8_t> storedDvBytes = {
-      0x01,
-      0x00,
-      0x00,
-      0x00,
-      0x1f,
-      0xd1,
-      0xd3,
-      0x39,
-      0x64,
-      0x01,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      0x3b,
-      0x30,
-      0x00,
-      0x00,
-      0x01,
-      0x00,
-      0x00,
-      0x09,
-      0x00,
-      0x01,
-      0x00,
-      0x00,
-      0x00,
-      0x09,
-      0x00,
-      0x56,
-      0x05,
-      0xea,
-      0x77};
+  const std::vector<uint8_t> storedDvBytes = {0x01, 0x00, 0x00, 0x00, 0x1f, 0xd1, 0xd3, 0x39, 0x64, 0x01,
+                                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                              0x00, 0x3b, 0x30, 0x00, 0x00, 0x01, 0x00, 0x00, 0x09, 0x00,
+                                              0x01, 0x00, 0x00, 0x00, 0x09, 0x00, 0x56, 0x05, 0xea, 0x77};
 
   auto dvPath = tempDir_->getPath() + "/real_delta_stored_dv.bin";
   auto fs = filesystems::getFileSystem(dvPath, nullptr);
   auto writeFile = fs->openFileForWrite(dvPath);
-  writeFile->append(std::string_view(
-      reinterpret_cast<const char*>(storedDvBytes.data()),
-      storedDvBytes.size()));
+  writeFile->append(std::string_view(reinterpret_cast<const char*>(storedDvBytes.data()), storedDvBytes.size()));
   writeFile->close();
 
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
   reader->loadDeletionVector(dvPath, 1, 31, 10);
 
   for (uint64_t deleted = 0; deleted < 10; ++deleted) {
@@ -254,8 +221,7 @@ TEST_F(DeltaDeletionVectorReaderTest, LoadInline) {
   auto inlineData = createInlineDVData({2, 7, 12});
 
   // Load inline DV
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
   reader->loadInlineDeletionVector(inlineData);
 
   // Verify deleted rows
@@ -275,13 +241,11 @@ TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilter) {
   // Create DV with rows 2, 5, 8 deleted
   auto inlineData = createInlineDVData({2, 5, 8});
 
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
   reader->loadInlineDeletionVector(inlineData);
 
   // Apply filter to batch [0, 10)
-  auto deleteBitmap =
-      AlignedBuffer::allocate<uint64_t>(bits::nwords(10), pool_.get());
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(10), pool_.get());
   reader->applyDeletionFilter(0, 10, deleteBitmap);
 
   // Check bitmap - deleted rows should be marked
@@ -304,13 +268,11 @@ TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterWithOffset) {
   // Create DV with rows 10, 15, 20 deleted
   auto inlineData = createInlineDVData({10, 15, 20});
 
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
   reader->loadInlineDeletionVector(inlineData);
 
   // Apply filter to batch [10, 25) - should catch rows 10, 15, 20
-  auto deleteBitmap =
-      AlignedBuffer::allocate<uint64_t>(bits::nwords(15), pool_.get());
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(15), pool_.get());
   reader->applyDeletionFilter(10, 15, deleteBitmap);
 
   // Check bitmap (relative to batch start)
@@ -328,8 +290,7 @@ TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterWithOffset) {
 
 TEST_F(DeltaDeletionVectorReaderTest, EmptyDV) {
   // Create reader without loading any DV
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
 
   // Should report as empty
   EXPECT_TRUE(reader->empty());
@@ -340,8 +301,7 @@ TEST_F(DeltaDeletionVectorReaderTest, EmptyDV) {
   EXPECT_FALSE(reader->isRowDeleted(1000));
 
   // Apply filter should mark no rows as deleted
-  auto deleteBitmap =
-      AlignedBuffer::allocate<uint64_t>(bits::nwords(10), pool_.get());
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(10), pool_.get());
   reader->applyDeletionFilter(0, 10, deleteBitmap);
 
   auto* rawBitmap = deleteBitmap->as<uint64_t>();
@@ -361,8 +321,7 @@ TEST_F(DeltaDeletionVectorReaderTest, LargeDV) {
 
   // Load DV
   auto fs = filesystems::getFileSystem(dvPath, nullptr);
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
   reader->loadDeletionVector(dvPath);
 
   // Verify some deleted rows
@@ -388,13 +347,11 @@ TEST_F(DeltaDeletionVectorReaderTest, BatchFilteringLargeDV) {
   }
 
   auto inlineData = createInlineDVData(deletedRows);
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
   reader->loadInlineDeletionVector(inlineData);
 
   // Apply filter to batch [0, 100)
-  auto deleteBitmap =
-      AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
   reader->applyDeletionFilter(0, 100, deleteBitmap);
 
   // Verify deleted rows (0, 10, 20, ..., 90)
@@ -410,35 +367,27 @@ TEST_F(DeltaDeletionVectorReaderTest, BatchFilteringLargeDV) {
 
 TEST_F(DeltaDeletionVectorReaderTest, InvalidFileThrows) {
   auto fs = filesystems::getFileSystem(tempDir_->getPath(), nullptr);
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
 
   // Non-existent file should throw
   VELOX_ASSERT_THROW(
-      reader->loadDeletionVector(tempDir_->getPath() + "/nonexistent.bin"),
-      "Failed to load deletion vector");
+      reader->loadDeletionVector(tempDir_->getPath() + "/nonexistent.bin"), "Failed to load deletion vector");
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, DeltaStoredRangeChecksumMismatchThrows) {
   const auto storedDv = createDeltaStoredDVFile({1, 2, 3}, true);
   auto fs = filesystems::getFileSystem(storedDv.path, nullptr);
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
 
   VELOX_ASSERT_THROW(
-      reader->loadDeletionVector(
-          storedDv.path, storedDv.offset, storedDv.sizeInBytes),
-      "checksum mismatch");
+      reader->loadDeletionVector(storedDv.path, storedDv.offset, storedDv.sizeInBytes), "checksum mismatch");
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, InvalidInlineDataThrows) {
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
 
   // Invalid base64 should throw
-  VELOX_ASSERT_THROW(
-      reader->loadInlineDeletionVector("not-valid-base64!!!"),
-      "Failed to load inline deletion vector");
+  VELOX_ASSERT_THROW(reader->loadInlineDeletionVector("not-valid-base64!!!"), "Failed to load inline deletion vector");
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, EmptyFileThrows) {
@@ -448,12 +397,10 @@ TEST_F(DeltaDeletionVectorReaderTest, EmptyFileThrows) {
   auto writeFile = fs->openFileForWrite(dvPath);
   writeFile->close();
 
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
 
   // Empty file should throw
-  VELOX_ASSERT_THROW(
-      reader->loadDeletionVector(dvPath), "Deletion vector file is empty");
+  VELOX_ASSERT_THROW(reader->loadDeletionVector(dvPath), "Deletion vector file is empty");
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, CorruptedMagicNumberThrows) {
@@ -464,17 +411,13 @@ TEST_F(DeltaDeletionVectorReaderTest, CorruptedMagicNumberThrows) {
 
   // Write wrong magic number
   int32_t wrongMagic = 12345678;
-  writeFile->append(
-      std::string_view(
-          reinterpret_cast<const char*>(&wrongMagic), sizeof(wrongMagic)));
+  writeFile->append(std::string_view(reinterpret_cast<const char*>(&wrongMagic), sizeof(wrongMagic)));
   writeFile->close();
 
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
 
   // Should throw on deserialization
-  VELOX_ASSERT_THROW(
-      reader->loadDeletionVector(dvPath), "Unexpected magic number");
+  VELOX_ASSERT_THROW(reader->loadDeletionVector(dvPath), "Unexpected magic number");
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, MultipleLoadsOverwrite) {
@@ -482,8 +425,7 @@ TEST_F(DeltaDeletionVectorReaderTest, MultipleLoadsOverwrite) {
   auto inlineData1 = createInlineDVData({1, 2, 3});
   auto inlineData2 = createInlineDVData({10, 20, 30});
 
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
 
   // Load first DV
   reader->loadInlineDeletionVector(inlineData1);
@@ -504,8 +446,7 @@ TEST_F(DeltaDeletionVectorReaderTest, IOStatisticsTracking) {
   auto readFile = fs->openFileForRead(dvPath);
   auto fileSize = readFile->size();
 
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
 
   // Load DV
   reader->loadDeletionVector(dvPath);
@@ -518,8 +459,7 @@ TEST_F(DeltaDeletionVectorReaderTest, IOStatisticsTracking) {
 TEST_F(DeltaDeletionVectorReaderTest, EstimatedDeletedRowCount) {
   auto inlineData = createInlineDVData({1, 2, 3, 4, 5});
 
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
 
   // Empty reader should return 0
   EXPECT_EQ(reader->estimatedDeletedRowCount(), 0);
@@ -533,8 +473,7 @@ TEST_F(DeltaDeletionVectorReaderTest, SparseDeletes) {
   // Create DV with sparse deletes (rows 0, 1000, 2000, 3000)
   auto inlineData = createInlineDVData({0, 1000, 2000, 3000});
 
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
   reader->loadInlineDeletionVector(inlineData);
 
   // Verify sparse deletes
@@ -558,13 +497,11 @@ TEST_F(DeltaDeletionVectorReaderTest, BatchFilteringNoOverlap) {
   }
   auto inlineData = createInlineDVData(deletedRows);
 
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
   reader->loadInlineDeletionVector(inlineData);
 
   // Apply filter to batch [0, 50) - no overlap with deleted rows
-  auto deleteBitmap =
-      AlignedBuffer::allocate<uint64_t>(bits::nwords(50), pool_.get());
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(50), pool_.get());
   reader->applyDeletionFilter(0, 50, deleteBitmap);
 
   // No rows should be marked as deleted
@@ -582,13 +519,11 @@ TEST_F(DeltaDeletionVectorReaderTest, BatchFilteringPartialOverlap) {
   }
   auto inlineData = createInlineDVData(deletedRows);
 
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
   reader->loadInlineDeletionVector(inlineData);
 
   // Apply filter to batch [40, 60) - partial overlap
-  auto deleteBitmap =
-      AlignedBuffer::allocate<uint64_t>(bits::nwords(20), pool_.get());
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(20), pool_.get());
   reader->applyDeletionFilter(40, 20, deleteBitmap);
 
   // Check bitmap
@@ -618,13 +553,11 @@ TEST_F(DeltaDeletionVectorReaderTest, AllRowsDeleted) {
   }
   auto inlineData = createInlineDVData(deletedRows);
 
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
   reader->loadInlineDeletionVector(inlineData);
 
   // Apply filter to batch [0, 100)
-  auto deleteBitmap =
-      AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
   reader->applyDeletionFilter(0, 100, deleteBitmap);
 
   // All rows should be marked as deleted
@@ -636,13 +569,12 @@ TEST_F(DeltaDeletionVectorReaderTest, AllRowsDeleted) {
 TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationSuccess) {
   // Create DV with known cardinality
   auto inlineData = createInlineDVData({1, 2, 3, 4, 5});
-  
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
-  
+
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
+
   // Should succeed with correct cardinality
   EXPECT_NO_THROW(reader->loadInlineDeletionVector(inlineData, 5));
-  
+
   // Verify cardinality
   EXPECT_EQ(reader->estimatedDeletedRowCount(), 5);
 }
@@ -650,54 +582,44 @@ TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationSuccess) {
 TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationMismatchThrows) {
   // Create DV with 5 deleted rows
   auto inlineData = createInlineDVData({1, 2, 3, 4, 5});
-  
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
-  
+
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
+
   // Should throw with incorrect cardinality
-  EXPECT_THROW(
-      reader->loadInlineDeletionVector(inlineData, 3),
-      VeloxUserError);
+  EXPECT_THROW(reader->loadInlineDeletionVector(inlineData, 3), VeloxUserError);
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationFileSuccess) {
   // Create DV file with known cardinality
   const auto storedDv = createDeltaStoredDVFile({10, 20, 30});
-  
+
   auto fs = filesystems::getFileSystem(storedDv.path, nullptr);
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
-  
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+
   // Should succeed with correct cardinality
-  EXPECT_NO_THROW(reader->loadDeletionVector(
-      storedDv.path, storedDv.offset, storedDv.sizeInBytes, 3));
-  
+  EXPECT_NO_THROW(reader->loadDeletionVector(storedDv.path, storedDv.offset, storedDv.sizeInBytes, 3));
+
   EXPECT_EQ(reader->estimatedDeletedRowCount(), 3);
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationFileMismatchThrows) {
   // Create DV file with 3 deleted rows
   const auto storedDv = createDeltaStoredDVFile({10, 20, 30});
-  
+
   auto fs = filesystems::getFileSystem(storedDv.path, nullptr);
-  auto reader =
-      std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
-  
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(fs, pool_.get(), ioStats_);
+
   // Should throw with incorrect cardinality
-  EXPECT_THROW(
-      reader->loadDeletionVector(
-          storedDv.path, storedDv.offset, storedDv.sizeInBytes, 5),
-      VeloxUserError);
+  EXPECT_THROW(reader->loadDeletionVector(storedDv.path, storedDv.offset, storedDv.sizeInBytes, 5), VeloxUserError);
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, EstimatedDeletedRowCountUsesCardinality) {
   // Create DV with sparse deletes
   auto inlineData = createInlineDVData({0, 1000, 2000, 3000, 4000});
-  
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
+
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
   reader->loadInlineDeletionVector(inlineData);
-  
+
   // Should return actual cardinality (5), not estimated from size
   EXPECT_EQ(reader->estimatedDeletedRowCount(), 5);
 }
@@ -708,15 +630,13 @@ TEST_F(DeltaDeletionVectorReaderTest, LargeCardinalityValidation) {
   for (int i = 0; i < 10000; i += 10) {
     deletedRows.push_back(i);
   }
-  
+
   auto inlineData = createInlineDVData(deletedRows);
-  auto reader = std::make_unique<DeltaDeletionVectorReader>(
-      nullptr, pool_.get(), ioStats_);
-  
+  auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
+
   // Should succeed with correct cardinality
   EXPECT_NO_THROW(reader->loadInlineDeletionVector(inlineData, 1000));
   EXPECT_EQ(reader->estimatedDeletedRowCount(), 1000);
 }
-
 
 // Made with Bob

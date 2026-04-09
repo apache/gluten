@@ -1,4 +1,20 @@
 /*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/*
  * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,35 +55,26 @@ constexpr uint32_t kDeltaNativeBitmapArrayMagicNumber = 1681511376;
 
 uint32_t readUint32BigEndian(const char* data) {
   const auto* bytes = reinterpret_cast<const uint8_t*>(data);
-  return (static_cast<uint32_t>(bytes[0]) << 24) |
-      (static_cast<uint32_t>(bytes[1]) << 16) |
+  return (static_cast<uint32_t>(bytes[0]) << 24) | (static_cast<uint32_t>(bytes[1]) << 16) |
       (static_cast<uint32_t>(bytes[2]) << 8) | static_cast<uint32_t>(bytes[3]);
 }
 
 uint32_t readUint32LittleEndian(const char* data) {
   const auto* bytes = reinterpret_cast<const uint8_t*>(data);
-  return static_cast<uint32_t>(bytes[0]) |
-      (static_cast<uint32_t>(bytes[1]) << 8) |
-      (static_cast<uint32_t>(bytes[2]) << 16) |
-      (static_cast<uint32_t>(bytes[3]) << 24);
+  return static_cast<uint32_t>(bytes[0]) | (static_cast<uint32_t>(bytes[1]) << 8) |
+      (static_cast<uint32_t>(bytes[2]) << 16) | (static_cast<uint32_t>(bytes[3]) << 24);
 }
 
 uint64_t readUint64LittleEndian(const char* data) {
   const auto* bytes = reinterpret_cast<const uint8_t*>(data);
-  return static_cast<uint64_t>(bytes[0]) |
-      (static_cast<uint64_t>(bytes[1]) << 8) |
-      (static_cast<uint64_t>(bytes[2]) << 16) |
-      (static_cast<uint64_t>(bytes[3]) << 24) |
-      (static_cast<uint64_t>(bytes[4]) << 32) |
-      (static_cast<uint64_t>(bytes[5]) << 40) |
-      (static_cast<uint64_t>(bytes[6]) << 48) |
-      (static_cast<uint64_t>(bytes[7]) << 56);
+  return static_cast<uint64_t>(bytes[0]) | (static_cast<uint64_t>(bytes[1]) << 8) |
+      (static_cast<uint64_t>(bytes[2]) << 16) | (static_cast<uint64_t>(bytes[3]) << 24) |
+      (static_cast<uint64_t>(bytes[4]) << 32) | (static_cast<uint64_t>(bytes[5]) << 40) |
+      (static_cast<uint64_t>(bytes[6]) << 48) | (static_cast<uint64_t>(bytes[7]) << 56);
 }
 
-std::string_view extractStoredPayload(
-    std::string_view serializedRange,
-    uint32_t expectedPayloadSize,
-    const std::string& dvPath) {
+std::string_view
+extractStoredPayload(std::string_view serializedRange, uint32_t expectedPayloadSize, const std::string& dvPath) {
   VELOX_USER_CHECK_GE(
       serializedRange.size(),
       kDeltaStoredPayloadLengthBytes + kDeltaStoredChecksumBytes,
@@ -83,8 +90,8 @@ std::string_view extractStoredPayload(
       expectedPayloadSize,
       storedPayloadSize);
 
-  const auto expectedRangeSize = kDeltaStoredPayloadLengthBytes +
-      static_cast<uint64_t>(expectedPayloadSize) + kDeltaStoredChecksumBytes;
+  const auto expectedRangeSize =
+      kDeltaStoredPayloadLengthBytes + static_cast<uint64_t>(expectedPayloadSize) + kDeltaStoredChecksumBytes;
   VELOX_USER_CHECK_EQ(
       serializedRange.size(),
       expectedRangeSize,
@@ -93,10 +100,8 @@ std::string_view extractStoredPayload(
       expectedRangeSize,
       serializedRange.size());
 
-  const auto payload = serializedRange.substr(
-      kDeltaStoredPayloadLengthBytes, expectedPayloadSize);
-  const auto storedChecksum =
-      readUint32BigEndian(payload.data() + payload.size());
+  const auto payload = serializedRange.substr(kDeltaStoredPayloadLengthBytes, expectedPayloadSize);
+  const auto storedChecksum = readUint32BigEndian(payload.data() + payload.size());
 
   bits::Crc32 crc;
   crc.process_bytes(payload.data(), payload.size());
@@ -111,9 +116,7 @@ std::string_view extractStoredPayload(
   return payload;
 }
 
-roaring::Roaring64Map deserializeDeltaBitmapArray(
-    std::string_view serializedPayload,
-    const std::string& dvPath) {
+roaring::Roaring64Map deserializeDeltaBitmapArray(std::string_view serializedPayload, const std::string& dvPath) {
   VELOX_USER_CHECK_GE(
       serializedPayload.size(),
       kDeltaBitmapArrayMagicBytes,
@@ -122,10 +125,8 @@ roaring::Roaring64Map deserializeDeltaBitmapArray(
 
   const auto magic = readUint32LittleEndian(serializedPayload.data());
   if (magic == kDeltaPortableBitmapArrayMagicNumber) {
-    const auto portablePayload =
-        serializedPayload.substr(kDeltaBitmapArrayMagicBytes);
-    return roaring::Roaring64Map::readSafe(
-        portablePayload.data(), portablePayload.size());
+    const auto portablePayload = serializedPayload.substr(kDeltaBitmapArrayMagicBytes);
+    return roaring::Roaring64Map::readSafe(portablePayload.data(), portablePayload.size());
   }
 
   if (magic == kDeltaNativeBitmapArrayMagicNumber) {
@@ -135,10 +136,8 @@ roaring::Roaring64Map deserializeDeltaBitmapArray(
         "Deletion vector payload is too small for Delta native bitmap array: {}",
         dvPath);
 
-    const auto bitmapCount = readUint32LittleEndian(
-        serializedPayload.data() + kDeltaBitmapArrayMagicBytes);
-    size_t offset =
-        kDeltaBitmapArrayMagicBytes + kDeltaNativeBitmapArrayLengthBytes;
+    const auto bitmapCount = readUint32LittleEndian(serializedPayload.data() + kDeltaBitmapArrayMagicBytes);
+    size_t offset = kDeltaBitmapArrayMagicBytes + kDeltaNativeBitmapArrayLengthBytes;
     roaring::Roaring64Map result;
 
     for (uint64_t bitmapIndex = 0; bitmapIndex < bitmapCount; ++bitmapIndex) {
@@ -149,8 +148,7 @@ roaring::Roaring64Map deserializeDeltaBitmapArray(
           bitmapIndex,
           dvPath);
 
-      const auto bitmapSize =
-          readUint32LittleEndian(serializedPayload.data() + offset);
+      const auto bitmapSize = readUint32LittleEndian(serializedPayload.data() + offset);
       offset += kDeltaStoredPayloadLengthBytes;
 
       VELOX_USER_CHECK_LE(
@@ -160,8 +158,7 @@ roaring::Roaring64Map deserializeDeltaBitmapArray(
           bitmapIndex,
           dvPath);
 
-      auto bitmap = roaring::Roaring::readSafe(
-          serializedPayload.data() + offset, bitmapSize);
+      auto bitmap = roaring::Roaring::readSafe(serializedPayload.data() + offset, bitmapSize);
       VELOX_USER_CHECK_EQ(
           bitmap.getSizeInBytes(true),
           bitmapSize,
@@ -187,10 +184,7 @@ roaring::Roaring64Map deserializeDeltaBitmapArray(
     return result;
   }
 
-  VELOX_USER_FAIL(
-      "Unexpected Delta bitmap array magic number {} for {}",
-      magic,
-      dvPath);
+  VELOX_USER_FAIL("Unexpected Delta bitmap array magic number {} for {}", magic, dvPath);
 }
 
 } // namespace
@@ -199,9 +193,7 @@ DeltaDeletionVectorReader::DeltaDeletionVectorReader(
     std::shared_ptr<filesystems::FileSystem> fileSystem,
     memory::MemoryPool* pool,
     std::shared_ptr<io::IoStatistics> ioStats)
-    : fileSystem_(std::move(fileSystem)),
-      pool_(pool),
-      ioStats_(std::move(ioStats)) {}
+    : fileSystem_(std::move(fileSystem)), pool_(pool), ioStats_(std::move(ioStats)) {}
 
 void DeltaDeletionVectorReader::loadDeletionVector(
     const std::string& dvPath,
@@ -214,18 +206,12 @@ void DeltaDeletionVectorReader::loadDeletionVector(
     auto readFile = fileSystem_->openFileForRead(dvPath);
     auto fileSize = readFile->size();
 
-    VELOX_USER_CHECK_GT(
-        fileSize, 0, "Deletion vector file is empty: {}", dvPath);
+    VELOX_USER_CHECK_GT(fileSize, 0, "Deletion vector file is empty: {}", dvPath);
 
     const auto startOffset = offset.value_or(0);
     const auto readsStoredRange = offset.has_value() || sizeInBytes.has_value();
     VELOX_USER_CHECK_LE(
-        startOffset,
-        fileSize,
-        "Deletion vector offset {} exceeds file size {} for {}",
-        startOffset,
-        fileSize,
-        dvPath);
+        startOffset, fileSize, "Deletion vector offset {} exceeds file size {} for {}", startOffset, fileSize, dvPath);
 
     auto payloadSize = sizeInBytes;
     if (readsStoredRange && !payloadSize.has_value()) {
@@ -235,8 +221,7 @@ void DeltaDeletionVectorReader::loadDeletionVector(
           "Deletion vector payload size prefix exceeds file size {} for {}",
           fileSize,
           dvPath);
-      const auto payloadSizeBuffer =
-          readFile->pread(startOffset, kDeltaStoredPayloadLengthBytes);
+      const auto payloadSizeBuffer = readFile->pread(startOffset, kDeltaStoredPayloadLengthBytes);
       VELOX_CHECK_EQ(
           payloadSizeBuffer.size(),
           kDeltaStoredPayloadLengthBytes,
@@ -245,9 +230,9 @@ void DeltaDeletionVectorReader::loadDeletionVector(
       payloadSize = readUint32BigEndian(payloadSizeBuffer.data());
     }
 
-    const auto bytesToRead = readsStoredRange ? kDeltaStoredPayloadLengthBytes +
-            payloadSize.value() + kDeltaStoredChecksumBytes
-                                              : fileSize - startOffset;
+    const auto bytesToRead = readsStoredRange
+        ? kDeltaStoredPayloadLengthBytes + payloadSize.value() + kDeltaStoredChecksumBytes
+        : fileSize - startOffset;
     VELOX_USER_CHECK_LE(
         startOffset + bytesToRead,
         fileSize,
@@ -256,8 +241,7 @@ void DeltaDeletionVectorReader::loadDeletionVector(
         startOffset + bytesToRead,
         fileSize,
         dvPath);
-    VELOX_USER_CHECK_GT(
-        bytesToRead, 0, "Deletion vector range is empty: {}", dvPath);
+    VELOX_USER_CHECK_GT(bytesToRead, 0, "Deletion vector range is empty: {}", dvPath);
 
     auto buffer = AlignedBuffer::allocate<char>(bytesToRead, pool_);
     const auto bytesRead = readFile->pread(startOffset, bytesToRead);
@@ -273,10 +257,7 @@ void DeltaDeletionVectorReader::loadDeletionVector(
     std::memcpy(buffer->asMutable<char>(), bytesRead.data(), bytesRead.size());
 
     const auto serializedPayload = readsStoredRange
-        ? extractStoredPayload(
-              std::string_view(buffer->as<char>(), bytesRead.size()),
-              payloadSize.value(),
-              dvPath)
+        ? extractStoredPayload(std::string_view(buffer->as<char>(), bytesRead.size()), payloadSize.value(), dvPath)
         : std::string_view(buffer->as<char>(), bytesRead.size());
 
     deletionBitmap_ = deserializeDeltaBitmapArray(serializedPayload, dvPath);
@@ -298,8 +279,7 @@ void DeltaDeletionVectorReader::loadDeletionVector(
       ioStats_->queryThreadIoLatencyUs().increment(1);
     }
   } catch (const std::exception& e) {
-    VELOX_USER_FAIL(
-        "Failed to load deletion vector from {}: {}", dvPath, e.what());
+    VELOX_USER_FAIL("Failed to load deletion vector from {}: {}", dvPath, e.what());
   }
 }
 
@@ -309,14 +289,11 @@ void DeltaDeletionVectorReader::loadInlineDeletionVector(
     std::optional<uint64_t> expectedCardinality) {
   try {
     const auto decodedSize = sizeInBytes.value_or((inlineData.size() / 5) * 4);
-    std::string decoded =
-        DeltaUuidUtils::decodeBase85ToBytes(inlineData, decodedSize);
+    std::string decoded = DeltaUuidUtils::decodeBase85ToBytes(inlineData, decodedSize);
 
-    VELOX_USER_CHECK_GT(
-        decoded.size(), 0, "Decoded inline deletion vector is empty");
+    VELOX_USER_CHECK_GT(decoded.size(), 0, "Decoded inline deletion vector is empty");
 
-    deletionBitmap_ =
-        deserializeDeltaBitmapArray(decoded, "inline deletion vector");
+    deletionBitmap_ = deserializeDeltaBitmapArray(decoded, "inline deletion vector");
 
     // Validate cardinality if provided
     if (expectedCardinality.has_value()) {
@@ -341,10 +318,7 @@ bool DeltaDeletionVectorReader::isRowDeleted(uint64_t rowPosition) {
   return deletionBitmap_->contains(rowPosition);
 }
 
-void DeltaDeletionVectorReader::applyDeletionFilter(
-    uint64_t baseReadOffset,
-    uint64_t size,
-    BufferPtr deleteBitmap) {
+void DeltaDeletionVectorReader::applyDeletionFilter(uint64_t baseReadOffset, uint64_t size, BufferPtr deleteBitmap) {
   VELOX_CHECK_NOT_NULL(deleteBitmap, "Delete bitmap buffer is required");
 
   if (!deletionBitmap_.has_value()) {
@@ -367,8 +341,7 @@ void DeltaDeletionVectorReader::applyDeletionFilter(
     }
   }
 
-  deleteBitmap->setSize(
-      hasDeletedRows ? bits::nbytes(highestDeletedIndex + 1) : 0);
+  deleteBitmap->setSize(hasDeletedRows ? bits::nbytes(highestDeletedIndex + 1) : 0);
 }
 
 uint64_t DeltaDeletionVectorReader::estimatedDeletedRowCount() const {
