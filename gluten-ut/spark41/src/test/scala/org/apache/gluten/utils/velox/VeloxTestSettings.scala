@@ -395,8 +395,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("parquet widening conversion ShortType -> DoubleType")
   enableSuite[GlutenParquetVariantShreddingSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.text
-  // TODO: 4.x enableSuite[GlutenWholeTextFileV1Suite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenWholeTextFileV2Suite]  // 1 failure
+  enableSuite[GlutenWholeTextFileV1Suite]
+  enableSuite[GlutenWholeTextFileV2Suite]
   // Generated suites for org.apache.spark.sql.execution.datasources.v2
   enableSuite[GlutenFileWriterFactorySuite]
   enableSuite[GlutenV2SessionCatalogNamespaceSuite]
