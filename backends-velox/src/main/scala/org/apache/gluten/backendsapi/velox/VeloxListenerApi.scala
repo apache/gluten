@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.ListenerApi
 import org.apache.gluten.backendsapi.arrow.ArrowBatchTypes.{ArrowJavaBatchType, ArrowNativeBatchType}
 import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig, VeloxConfig}
 import org.apache.gluten.config.VeloxConfig._
+import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.execution.VeloxBroadcastBuildSideCache
 import org.apache.gluten.execution.datasource.GlutenFormatFactory
 import org.apache.gluten.expression.UDFMappings
@@ -53,8 +54,11 @@ import org.apache.spark.util.{SparkDirectoryUtil, SparkResourceUtil, SparkShutdo
 
 import org.apache.commons.lang3.StringUtils
 
+import java.io.FileNotFoundException
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+
+import scala.collection.JavaConverters._
 
 class VeloxListenerApi extends ListenerApi with Logging {
   import VeloxListenerApi._
@@ -225,8 +229,8 @@ class VeloxListenerApi extends ListenerApi with Logging {
     val libPath = conf.get(GlutenConfig.GLUTEN_LIB_PATH)
     if (StringUtils.isBlank(libPath)) {
       val baseLibName = conf.get(GlutenConfig.GLUTEN_LIB_NAME)
-      loader.load(s"$platformLibDir/${System.mapLibraryName(baseLibName)}")
-      loader.load(s"$platformLibDir/${System.mapLibraryName(VeloxBackend.BACKEND_NAME)}")
+      loadBundledLibrary(loader, baseLibName)
+      loadBundledLibrary(loader, VeloxBackend.BACKEND_NAME)
     } else {
       // Path based load. Ignore all other loaderes.
       JniLibLoader.loadFromPath(libPath)
@@ -274,16 +278,51 @@ object VeloxListenerApi {
   //  As spark conf may change when active Spark session is recreated.
   private val driverInitialized: AtomicBoolean = new AtomicBoolean(false)
   private val executorInitialized: AtomicBoolean = new AtomicBoolean(false)
-  private val platformLibDir: String = {
-    val osName = System.getProperty("os.name") match {
+  private val platformLibDirs: Seq[String] = {
+    platformLibDirCandidates(System.getProperty("os.name"), System.getProperty("os.arch"))
+  }
+
+  def platformLibDirCandidatesForTests(osName: String, arch: String): java.util.List[String] = {
+    platformLibDirCandidates(osName, arch).asJava
+  }
+
+  private def platformLibDirCandidates(osName: String, arch: String): Seq[String] = {
+    val normalizedOsName = osName match {
       case n if n.contains("Linux") => "linux"
       case n if n.contains("Mac") => "darwin"
       case _ =>
         // Default to linux
         "linux"
     }
-    val arch = System.getProperty("os.arch")
-    s"$osName/$arch"
+    val archCandidates = arch match {
+      case "amd64" => Seq("amd64", "x86_64")
+      case "x86_64" => Seq("x86_64", "amd64")
+      case "aarch64" => Seq("aarch64", "arm64")
+      case "arm64" => Seq("arm64", "aarch64")
+      case other => Seq(other)
+    }
+    archCandidates.map(candidate => s"$normalizedOsName/$candidate").distinct
+  }
+
+  private def loadBundledLibrary(loader: JniLibLoader, libraryName: String): Unit = {
+    val mappedLibraryName = System.mapLibraryName(libraryName)
+    var lastFileNotFound: GlutenException = null
+    platformLibDirs.foreach {
+      platformLibDir =>
+        try {
+          loader.load(s"$platformLibDir/$mappedLibraryName")
+          return
+        } catch {
+          case e: GlutenException if e.getCause.isInstanceOf[FileNotFoundException] =>
+            lastFileNotFound = e
+        }
+    }
+    if (lastFileNotFound != null) {
+      throw lastFileNotFound
+    }
+    throw new GlutenException(
+      s"Failed to load bundled native library $mappedLibraryName from: " +
+        platformLibDirs.mkString(", "))
   }
 
   private def inLocalMode(conf: SparkConf): Boolean = {

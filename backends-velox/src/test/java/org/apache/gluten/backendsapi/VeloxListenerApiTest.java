@@ -17,9 +17,13 @@
 package org.apache.gluten.backendsapi;
 
 import org.apache.gluten.backendsapi.velox.VeloxListenerApi;
+import org.apache.gluten.backendsapi.velox.VeloxListenerApi$;
 
 import org.apache.spark.SparkConf;
 import org.junit.Test;
+
+import java.util.Arrays;
+import java.util.List;
 
 import scala.collection.immutable.Map;
 
@@ -37,5 +41,16 @@ public class VeloxListenerApiTest {
     assertEquals(
         "52428800",
         parsed.get("spark.gluten.sql.columnar.backend.velox.filePreloadThreshold").get());
+  }
+
+  @Test
+  public void testPlatformLibDirCandidates() {
+    List<String> x86Dirs =
+        VeloxListenerApi$.MODULE$.platformLibDirCandidatesForTests("Linux", "x86_64");
+    assertEquals(Arrays.asList("linux/x86_64", "linux/amd64"), x86Dirs);
+
+    List<String> armDirs =
+        VeloxListenerApi$.MODULE$.platformLibDirCandidatesForTests("Mac OS X", "arm64");
+    assertEquals(Arrays.asList("darwin/arm64", "darwin/aarch64"), armDirs);
   }
 }
