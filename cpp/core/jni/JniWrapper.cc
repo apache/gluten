@@ -103,7 +103,11 @@ class JavaInputStreamAdaptor final : public arrow::io::InputStream {
     env->CallVoidMethod(jniIn_, jniByteInputStreamClose);
     checkException(env);
     env->DeleteGlobalRef(jniIn_);
-    vm_->DetachCurrentThread();
+    // Do NOT call DetachCurrentThread() here.
+    // libhdfs.so caches JNIEnv* in thread-local storage after AttachCurrentThread.
+    // If we detach, libhdfs's TLS cache becomes stale — the next HDFS call via
+    // libhdfs returns the stale env, causing SIGSEGV in jni_NewStringUTF.
+    // Daemon-attached threads are safe to leave attached; they won't block JVM shutdown.
     closed_ = true;
     return arrow::Status::OK();
   }
