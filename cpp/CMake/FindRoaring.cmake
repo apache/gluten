@@ -13,12 +13,6 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
-# Check if roaring target already exists.
-if(TARGET roaring)
-  message(STATUS "Target roaring was already found.")
-  return()
-endif()
-
 set(_roaring_pkgconfig_hints "")
 set(_roaring_include_hints "")
 set(_roaring_library_hints "")
@@ -48,6 +42,24 @@ list(REMOVE_DUPLICATES _roaring_pkgconfig_hints)
 list(REMOVE_DUPLICATES _roaring_include_hints)
 list(REMOVE_DUPLICATES _roaring_library_hints)
 
+function(_gluten_roaring_add_cpp_headers target_name)
+  find_path(
+    Roaring_CPP_INCLUDE_DIR
+    NAMES roaring/roaring64map.hh
+    HINTS ${_roaring_include_hints})
+  if(Roaring_CPP_INCLUDE_DIR)
+    target_include_directories(${target_name}
+                               INTERFACE "${Roaring_CPP_INCLUDE_DIR}")
+  endif()
+endfunction()
+
+# Check if roaring target already exists.
+if(TARGET roaring)
+  _gluten_roaring_add_cpp_headers(roaring)
+  message(STATUS "Target roaring was already found.")
+  return()
+endif()
+
 find_package(PkgConfig QUIET)
 
 if(PkgConfig_FOUND)
@@ -66,7 +78,9 @@ if(PkgConfig_FOUND)
 endif()
 
 if(Roaring_FOUND)
-  add_library(roaring ALIAS PkgConfig::Roaring)
+  add_library(roaring INTERFACE)
+  target_link_libraries(roaring INTERFACE PkgConfig::Roaring)
+  _gluten_roaring_add_cpp_headers(roaring)
   message(STATUS "Found roaring via pkg-config.")
   return()
 endif()
@@ -93,6 +107,7 @@ if(Roaring_INCLUDE_DIR
     PROPERTIES IMPORTED_LOCATION "${Roaring_LIBRARY}"
                INTERFACE_INCLUDE_DIRECTORIES
                "${Roaring_INCLUDE_DIR};${Roaring_CPP_INCLUDE_DIR}")
+  _gluten_roaring_add_cpp_headers(roaring)
   message(STATUS "Found roaring via direct library lookup.")
   return()
 endif()
@@ -113,6 +128,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(roaring_fetch)
 
 if(TARGET roaring)
+  _gluten_roaring_add_cpp_headers(roaring)
   message(STATUS "Found roaring via FetchContent.")
   return()
 endif()
