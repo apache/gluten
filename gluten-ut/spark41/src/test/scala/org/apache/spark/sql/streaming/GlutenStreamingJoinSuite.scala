@@ -16,16 +16,16 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenStreamingInnerJoinSuite extends StreamingInnerJoinSuite with GlutenTestsCommonTrait {}
+class GlutenStreamingInnerJoinSuite extends StreamingInnerJoinSuite with GlutenSQLTestsTrait {}
 
-class GlutenStreamingOuterJoinSuite extends StreamingOuterJoinSuite with GlutenTestsCommonTrait {}
+class GlutenStreamingOuterJoinSuite extends StreamingOuterJoinSuite with GlutenSQLTestsTrait {}
 
 class GlutenStreamingFullOuterJoinSuite
   extends StreamingFullOuterJoinSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}
 
 class GlutenStreamingLeftSemiJoinSuite
   extends StreamingLeftSemiJoinSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}

@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenRuntimeConfigSuite extends RuntimeConfigSuite with GlutenTestsCommonTrait {}
+class GlutenRuntimeConfigSuite extends RuntimeConfigSuite with GlutenTestsTrait {}

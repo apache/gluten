@@ -56,7 +56,8 @@ object UnsafeColumnarBuildSideRelation {
       batches: Seq[UnsafeByteArray],
       mode: BroadcastMode,
       newBuildKeys: Seq[Expression] = Seq.empty,
-      offload: Boolean = false): UnsafeColumnarBuildSideRelation = {
+      offload: Boolean = false,
+      buildThreads: Int = 1): UnsafeColumnarBuildSideRelation = {
     val boundMode = mode match {
       case HashedRelationBroadcastMode(keys, isNullAware) =>
         // Bind each key to the build-side output so simple cols become BoundReference
@@ -71,7 +72,8 @@ object UnsafeColumnarBuildSideRelation {
       batches,
       BroadcastModeUtils.toSafe(boundMode),
       newBuildKeys,
-      offload)
+      offload,
+      buildThreads)
   }
 }
 
@@ -91,7 +93,8 @@ class UnsafeColumnarBuildSideRelation(
     private var batches: Seq[UnsafeByteArray],
     private var safeBroadcastMode: SafeBroadcastMode,
     private var newBuildKeys: Seq[Expression],
-    private var offload: Boolean)
+    private var offload: Boolean,
+    private var buildThreads: Int)
   extends BuildSideRelation
   with Externalizable
   with Logging
@@ -113,7 +116,7 @@ class UnsafeColumnarBuildSideRelation(
 
   /** needed for serialization. */
   def this() = {
-    this(null, null, null, Seq.empty, false)
+    this(null, null, null, Seq.empty, false, 1)
   }
 
   private[unsafe] def getBatches(): Seq[UnsafeByteArray] = {
@@ -125,6 +128,7 @@ class UnsafeColumnarBuildSideRelation(
   def buildHashTable(broadcastContext: BroadcastHashJoinContext): (Long, BuildSideRelation) =
     synchronized {
       if (hashTableData == 0) {
+        val startTime = System.nanoTime()
         val runtime = Runtimes.contextInstance(
           BackendsApiManager.getBackendName,
           "UnsafeColumnarBuildSideRelation#buildHashTable")
@@ -167,30 +171,33 @@ class UnsafeColumnarBuildSideRelation(
           )
         }
 
-        val joinKey = keys.asScala
-          .map {
-            key =>
-              val attr = ConverterUtils.getAttrFromExpr(key)
-              ConverterUtils.genColumnNameWithExprId(attr)
-          }
-          .mkString(",")
+        val joinKeys = keys.asScala.map {
+          key =>
+            val attr = ConverterUtils.getAttrFromExpr(key)
+            ConverterUtils.genColumnNameWithExprId(attr)
+        }.toArray
 
         // Build the hash table
         hashTableData = HashJoinBuilder
           .nativeBuild(
             broadcastContext.buildHashTableId,
             batchArray.toArray,
-            joinKey,
+            joinKeys,
             broadcastContext.substraitJoinType.ordinal(),
             broadcastContext.hasMixedFiltCondition,
             broadcastContext.isExistenceJoin,
             SubstraitUtil.toNameStruct(newOutput).toByteArray,
             broadcastContext.isNullAwareAntiJoin,
             broadcastContext.bloomFilterPushdownSize,
-            broadcastContext.broadcastHashTableBuildThreads
+            buildThreads
           )
 
         jniWrapper.close(serializeHandle)
+
+        // Update build hash table time metric
+        val elapsedTime = System.nanoTime() - startTime
+        broadcastContext.buildHashTableTimeMetric.foreach(_ += elapsedTime / 1000000)
+
         (hashTableData, this)
       } else {
         (HashJoinBuilder.cloneHashTable(hashTableData), null)
@@ -207,6 +214,7 @@ class UnsafeColumnarBuildSideRelation(
     out.writeObject(batches.toArray)
     out.writeObject(newBuildKeys)
     out.writeBoolean(offload)
+    out.writeInt(buildThreads)
   }
 
   override def write(kryo: Kryo, out: Output): Unit = Utils.tryOrIOException {
@@ -215,6 +223,7 @@ class UnsafeColumnarBuildSideRelation(
     kryo.writeClassAndObject(out, batches.toArray)
     kryo.writeClassAndObject(out, newBuildKeys)
     out.writeBoolean(offload)
+    out.writeInt(buildThreads)
   }
 
   override def readExternal(in: ObjectInput): Unit = Utils.tryOrIOException {
@@ -223,6 +232,7 @@ class UnsafeColumnarBuildSideRelation(
     batches = in.readObject().asInstanceOf[Array[UnsafeByteArray]].toSeq
     newBuildKeys = in.readObject().asInstanceOf[Seq[Expression]]
     offload = in.readBoolean()
+    buildThreads = in.readInt()
   }
 
   override def read(kryo: Kryo, in: Input): Unit = Utils.tryOrIOException {
@@ -231,6 +241,7 @@ class UnsafeColumnarBuildSideRelation(
     batches = kryo.readClassAndObject(in).asInstanceOf[Array[UnsafeByteArray]].toSeq
     newBuildKeys = kryo.readClassAndObject(in).asInstanceOf[Seq[Expression]]
     offload = in.readBoolean()
+    buildThreads = in.readInt()
   }
 
   private def transformProjection: UnsafeProjection = safeBroadcastMode match {

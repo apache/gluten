@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.execution.datasources.orc
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenOrcEncryptionSuite extends OrcEncryptionSuite with GlutenTestsCommonTrait {}
+class GlutenOrcEncryptionSuite extends OrcEncryptionSuite with GlutenSQLTestsTrait {}

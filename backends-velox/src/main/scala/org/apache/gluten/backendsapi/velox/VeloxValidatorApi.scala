@@ -17,6 +17,7 @@
 package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.{BackendsApiManager, ValidatorApi}
+import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.execution.ValidationResult
 import org.apache.gluten.substrait.`type`.TypeNode
 import org.apache.gluten.substrait.SubstraitContext
@@ -90,11 +91,11 @@ class VeloxValidatorApi extends ValidatorApi {
       child: SparkPlan): Option[String] = {
     if (!BackendsApiManager.getSettings.supportEmptySchemaColumnarShuffle()) {
       if (outputAttributes.isEmpty) {
-        // See: https://github.com/apache/incubator-gluten/issues/7600.
+        // See: https://github.com/apache/gluten/issues/7600.
         return Some("Shuffle with empty output schema is not supported")
       }
       if (child.output.isEmpty) {
-        // See: https://github.com/apache/incubator-gluten/issues/7600.
+        // See: https://github.com/apache/gluten/issues/7600.
         return Some("Shuffle with empty input schema is not supported")
       }
     }
@@ -104,10 +105,17 @@ class VeloxValidatorApi extends ValidatorApi {
 
 object VeloxValidatorApi {
   private def isPrimitiveType(dataType: DataType): Boolean = {
+    val enableTimestampNtzValidation = VeloxConfig.get.enableTimestampNtzValidation
     dataType match {
       case BooleanType | ByteType | ShortType | IntegerType | LongType | FloatType | DoubleType |
           StringType | BinaryType | _: DecimalType | DateType | TimestampType |
           YearMonthIntervalType.DEFAULT | NullType =>
+        true
+      case dt
+          if !enableTimestampNtzValidation &&
+            dt.getClass.getSimpleName == "TimestampNTZType" =>
+        // Allow TimestampNTZ when validation is disabled (for development/testing)
+        // Use reflection to avoid compile-time dependency on Spark 3.4+ TimestampNTZType
         true
       case _ => false
     }
@@ -121,6 +129,15 @@ object VeloxValidatorApi {
       case map: MapType =>
         validateSchema(map.keyType).orElse(validateSchema(map.valueType))
       case struct: StructType =>
+        // Detect variant shredded struct produced by Spark's PushVariantIntoScan.
+        // These structs have all fields annotated with __VARIANT_METADATA_KEY metadata.
+        // Velox cannot read the variant shredding encoding in Parquet files.
+        if (
+          struct.fields.nonEmpty &&
+          struct.fields.forall(_.metadata.contains("__VARIANT_METADATA_KEY"))
+        ) {
+          return Some(s"Variant shredded struct is not supported: $struct")
+        }
         struct.foreach {
           field =>
             val reason = validateSchema(field.dataType)

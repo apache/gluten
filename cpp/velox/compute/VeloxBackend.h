@@ -21,7 +21,7 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
-#include <folly/executors/IOThreadPoolExecutor.h>
+#include <folly/executors/ThreadPoolExecutor.h>
 #include <filesystem>
 
 #include "velox/common/caching/AsyncDataCache.h"
@@ -89,8 +89,8 @@ class VeloxBackend {
   // Instance of AsyncDataCache used for all large allocations.
   std::shared_ptr<facebook::velox::cache::AsyncDataCache> asyncDataCache_;
 
-  std::unique_ptr<folly::IOThreadPoolExecutor> ssdCacheExecutor_;
-  std::unique_ptr<folly::IOThreadPoolExecutor> ioExecutor_;
+  std::unique_ptr<folly::Executor> ssdCacheExecutor_;
+  std::unique_ptr<folly::Executor> ioExecutor_;
   std::shared_ptr<facebook::velox::memory::MmapAllocator> cacheAllocator_;
 
   std::string cachePathPrefix_;

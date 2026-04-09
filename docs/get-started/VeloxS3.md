@@ -65,4 +65,109 @@ You can set the log location by setting the `spark.gluten.velox.s3LogLocation` c
 
 # Local Caching support
 
-Velox supports a local cache when reading data from S3. Please refer [Velox Local Cache](VeloxLocalCache.md) part for more detailed configurations.
+Velox supports a local cache when reading data from S3 but not strictly tested and there are several limitations. Please refer [Velox Local Cache](VeloxLocalCache.md) part for more detailed configurations.
+
+# Configurations:
+
+All configurations starts with `spark.hadoop.fs.s3a.`
+
+✅ Supported
+❌ Not Supported
+⚠️ Partial Support
+🔄 In Progress
+🚫 Not applied or transparent to Gluten
+
+Here is the list of hadoop s3 file system configurations:
+
+| Name | Default Value | Gluten Honored |
+|------|---------------|----------------|
+| aws.credentials.provider | (empty) |⚠️|
+| security.credential.provider.path | (empty) |❌|
+| assumed.role.arn | (empty) |❌|
+| assumed.role.session.name | (empty) |❌|
+| assumed.role.policy | (empty) |❌|
+| assumed.role.session.duration | 30m |❌|
+| assumed.role.sts.endpoint | (empty) |❌|
+| assumed.role.sts.endpoint.region | (empty) |❌|
+| assumed.role.credentials.provider | org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider |❌|
+| delegation.token.binding | (empty) |❌|
+| attempts.maximum | 5 |❌|
+| socket.send.buffer | 8192 |❌|
+| socket.recv.buffer | 8192 |❌|
+| paging.maximum | 5000 |❌|
+| multipart.size | 64M |❌|
+| multipart.threshold | 128M |❌|
+| multiobjectdelete.enable | true |❌|
+| acl.default | (empty) |❌|
+| multipart.purge | false |❌|
+| multipart.purge.age | 86400 |❌|
+| encryption.algorithm | (empty) |❌|
+| encryption.key | (empty) |❌|
+| signing-algorithm | (empty) |❌|
+| block.size | 32M |❌|
+| buffer.dir | ${env.LOCAL_DIRS:-${hadoop.tmp.dir}}/s3a |❌|
+| fast.upload.buffer | disk |❌|
+| fast.upload.active.blocks | 4 |❌|
+| readahead.range | 64K |❌|
+| user.agent.prefix | (empty) | |
+| impl | org.apache.hadoop.fs.s3a.S3AFileSystem |❌|
+| retry.limit | 7 |✅|
+| retry.interval | 500ms |❌|
+| retry.throttle.limit | 20 |❌|
+| retry.throttle.interval | 100ms |❌|
+| committer.name | file |🚫|
+| committer.magic.enabled | true |🚫|
+| committer.threads | 8 |🚫|
+| committer.staging.tmp.path | tmp/staging |🚫|
+| committer.staging.unique-filenames | true |🚫|
+| committer.staging.conflict-mode | append |🚫|
+| committer.abort.pending.uploads | true |🚫|
+| list.version | 2 |🚫|
+| etag.checksum.enabled | false |❌|
+| change.detection.source | etag |❌|
+| change.detection.mode | server |❌|
+| change.detection.version.required | true |❌|
+| ssl.channel.mode | default_jsse |❌|
+| downgrade.syncable.exceptions | true |❌|
+| create.checksum.algorithm | (empty) |❌|
+| audit.enabled | true |❌|
+| vectored.read.min.seek.size|128K|❌|
+| vectored.read.max.merged.size|2M|❌|
+| vectored.active.ranged.reads|4|❌|
+|experimental.input.fadvise|random|❌|
+|threads.max|96|❌|
+|threads.keepalivetime|60s|❌|
+|executor.capacity|16|❌|
+|max.total.tasks|16|❌|
+| connection.maximum | 25 |✅|
+| connection.keepalive | false | ❌ |
+| connection.acquisition.timeout | 60s | ❌ |
+| connection.establish.timeout | 30s |❌|
+| connection.idle.time | 60s | ❌ |
+| connection.request.timeout | 60s |❌|
+| connection.timeout | 200s |✅|
+| connection.ttl | 5m |❌|
+
+Gluten new parameters:
+| Name | Default Value | 
+|------|---------------|
+| access.key | (none) |
+| secret.key | (none) |
+| endpoint | (none) |
+| connection.ssl.enabled | false |
+| path.style.access | false |
+| retry.limit | (none) |
+| retry.mode | legacy |
+| instance.credentials | false |
+| iam.role | (none) |
+| iam.role.session.name | gluten-session |
+| endpoint.region | (none) |
+| aws.imds.enabled | true |
+
+Gluten configures:
+| Name | Default Value | 
+|------|---------------|
+|spark.gluten.velox.awsSdkLogLevel|FATAL|
+|spark.gluten.velox.s3UseProxyFromEnv|false|
+|spark.gluten.velox.s3PayloadSigningPolicy|Never|
+|spark.gluten.velox.s3LogLocation|(none)|

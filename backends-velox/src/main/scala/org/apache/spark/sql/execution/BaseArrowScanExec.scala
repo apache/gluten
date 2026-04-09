@@ -25,5 +25,5 @@ trait BaseArrowScanExec extends GlutenPlan {
     ArrowBatchTypes.ArrowJavaBatchType
   }
 
-  final override def rowType0(): Convention.RowType = Convention.RowType.None
+  final override def rowType(): Convention.RowType = Convention.RowType.None
 }

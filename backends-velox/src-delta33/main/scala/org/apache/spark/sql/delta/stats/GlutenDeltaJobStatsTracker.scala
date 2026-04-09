@@ -331,7 +331,7 @@ object GlutenDeltaJobStatsTracker extends Logging {
     with LeafExecNode {
     override def output: Seq[Attribute] = keySchema ++ dataSchema
     override def batchType(): Convention.BatchType = VeloxBatchType
-    override def rowType0(): Convention.RowType = Convention.RowType.None
+    override def rowType(): Convention.RowType = Convention.RowType.None
     override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
     override protected def doExecuteColumnar(): RDD[ColumnarBatch] =
       throw new UnsupportedOperationException()

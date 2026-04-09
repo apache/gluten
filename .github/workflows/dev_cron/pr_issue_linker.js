@@ -29,7 +29,7 @@ function detectIssueID(title) {
 }
 
 async function appendToPRDescription(github, context, pullRequestNumber, issuesID) {
-  const issueURL = `https://github.com/apache/incubator-gluten/issues/${issuesID}`;
+  const issueURL = `https://github.com/apache/gluten/issues/${issuesID}`;
   const issueReference = `#${issuesID}`
 
   // Fetch the current PR description.

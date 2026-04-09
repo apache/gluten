@@ -427,6 +427,14 @@ class GlutenClickHouseTPCHSuite extends MergeTreeSuite {
 
   }
 
+  test("var_samp returns null instead of NaN") {
+    val sql1 = "select var_samp(id) from range(1)"
+    val sql2 = "select covar_samp(id, id) from range(1)"
+
+    compareResultsAgainstVanillaSpark(sql1, true, { _ => })
+    compareResultsAgainstVanillaSpark(sql2, true, { _ => })
+  }
+
   test("existence join") {
     spark.sql("create table t1(a int, b int) using parquet")
     spark.sql("create table t2(a int, b int) using parquet")

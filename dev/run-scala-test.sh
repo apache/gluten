@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.
@@ -23,7 +23,7 @@
 # due to the conflict between -Dsuites and -am parameters.
 #
 # Usage:
-#   ./dev/run-scala-test.sh [options] -P<profiles> -pl <module> -s <suite> [-t "test name"]
+#   ./dev/run-scala-test.sh [options] -P<profiles> -pl <module> -s <suite> [-s <suite2> ...] [-t "test name"]
 #
 # Examples:
 #   # Run entire suite
@@ -39,26 +39,30 @@
 #     -s org.apache.spark.sql.GlutenDeprecatedDatasetAggregatorSuite \
 #     -t "typed aggregation: class input with reordering"
 #
-#   # With Maven Daemon (mvnd) for faster builds
+#   # Run multiple suites in one JVM
 #   ./dev/run-scala-test.sh \
-#     -Pjava-17,spark-4.0,scala-2.13,backends-velox,hadoop-3.3,spark-ut \
+#     -Pjava-17,spark-4.0,scala-2.13,backends-velox,hadoop-3.3,spark-ut,delta \
 #     -pl gluten-ut/spark40 \
-#     -s org.apache.spark.sql.GlutenDeprecatedDatasetAggregatorSuite \
-#     --mvnd
+#     -s org.apache.spark.sql.GlutenTPCDSV1_4_PlanStabilitySuite \
+#     -s org.apache.spark.sql.GlutenTPCHPlanStabilitySuite
 #
-#   # With Maven profiler enabled
-#   ./dev/run-scala-test.sh \
+#   # With Maven Daemon (mvnd) for faster builds
+#   ./dev/run-scala-test.sh --mvnd \
 #     -Pjava-17,spark-4.0,scala-2.13,backends-velox,hadoop-3.3,spark-ut \
 #     -pl gluten-ut/spark40 \
-#     -s org.apache.spark.sql.GlutenDeprecatedDatasetAggregatorSuite \
-#     --profile
+#     -s org.apache.spark.sql.GlutenDeprecatedDatasetAggregatorSuite
+#
+#   # Clean build (required when switching Maven profiles)
+#   ./dev/run-scala-test.sh --mvnd --clean \
+#     -Pjava-17,spark-4.1,scala-2.13,backends-velox,hadoop-3.3,spark-ut \
+#     -pl gluten-ut/spark41 \
+#     -s org.apache.spark.sql.GlutenTPCDSV1_4_PlanStabilitySuite
 #
 #   # Export classpath only (no test execution)
-#   ./dev/run-scala-test.sh \
+#   ./dev/run-scala-test.sh --export-only \
 #     -Pjava-17,spark-4.0,scala-2.13,backends-velox,hadoop-3.3,spark-ut \
 #     -pl gluten-ut/spark40 \
-#     -s org.apache.spark.sql.GlutenDeprecatedDatasetAggregatorSuite \
-#     --export-only
+#     -s org.apache.spark.sql.GlutenDeprecatedDatasetAggregatorSuite
 #
 # =============================================================================
 
@@ -197,17 +201,17 @@ declare -A MODULE_MAP=(
 
 print_usage() {
   cat << EOF
-Usage: $0 [options] -P<profiles> -pl <module> -s <suite> [-t "test name"]
+Usage: $0 [options] -P<profiles> -pl <module> -s <suite> [-s <suite2> ...] [-t "test name"]
 
 Required:
   -P<profiles>      Maven profiles (e.g., -Pjava-17,spark-4.0,scala-2.13,backends-velox)
   -pl <module>      Target module (e.g., gluten-ut/spark40)
-  -s <suite>        Full suite class name
+  -s <suite>        Full suite class name (can specify multiple -s for multiple suites)
 
 Optional:
   -t "test name"    Specific test method name to run
   --mvnd            Use Maven Daemon (mvnd) instead of ./build/mvn
-  --clean           Run 'mvn clean' before compiling
+  --clean           Run 'mvn clean' before compiling (use when switching profiles)
   --force           Force Maven rebuild, bypass build cache
   --profile         Enable Maven profiler (reports in .profiler/)
   --export-only     Export classpath and exit (no test execution)
@@ -224,6 +228,12 @@ Examples:
      -pl gluten-ut/spark40 \\
      -s org.apache.spark.sql.GlutenDeprecatedDatasetAggregatorSuite \\
      -t "typed aggregation: class input with reordering"
+
+  # Run multiple suites in one JVM
+  $0 -Pjava-17,spark-4.0,scala-2.13,backends-velox,hadoop-3.3,spark-ut,delta \\
+     -pl gluten-ut/spark40 \\
+     -s org.apache.spark.sql.GlutenTPCDSV1_4_PlanStabilitySuite \\
+     -s org.apache.spark.sql.GlutenTPCHPlanStabilitySuite
 EOF
 }
 
@@ -330,7 +340,7 @@ replace_gluten_paths() {
 
 PROFILES=""
 MODULE=""
-SUITE=""
+SUITES=()
 TEST_METHOD=""
 EXTRA_MVN_ARGS=""
 ENABLE_PROFILER=false
@@ -350,7 +360,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -s)
-      SUITE="$2"
+      SUITES+=("$2")
       shift 2
       ;;
     -t)
@@ -402,7 +412,7 @@ if [[ -z "$MODULE" ]]; then
   exit 1
 fi
 
-if [[ -z "$SUITE" ]]; then
+if [[ ${#SUITES[@]} -eq 0 ]]; then
   log_error "Missing required argument: -s <suite>"
   print_usage
   exit 1
@@ -669,16 +679,21 @@ log_info "  Review classpath: unzip -p ${PATHING_JAR} META-INF/classpath.txt"
 JAVA_CMD="${JAVA_HOME}/bin/java"
 [[ ! -x "$JAVA_CMD" ]] && JAVA_CMD="java"
 
+SPARK_TEST_HOME_ARG=""
+[[ -n "$SPARK_HOME" ]] && SPARK_TEST_HOME_ARG="-Dspark.test.home=${SPARK_HOME}"
+
 JAVA_ARGS=(
   ${JVM_ARGS}
   "-Dlog4j.configurationFile=file:${GLUTEN_HOME}/${MODULE}/src/test/resources/log4j2.properties"
+  ${SPARK_TEST_HOME_ARG}
   -cp "${PATHING_JAR}"
   org.scalatest.tools.Runner
   -oDF
-  -s "${SUITE}"
 )
+for s in "${SUITES[@]}"; do
+  JAVA_ARGS+=(-s "$s")
+done
 [[ -n "$TEST_METHOD" ]] && JAVA_ARGS+=(-t "${TEST_METHOD}")
-
 # =============================================================================
 # Step 3.6: Export-only mode (if requested)
 # =============================================================================
@@ -698,7 +713,7 @@ fi
 
 log_step "Step 4: Running ScalaTest..."
 
-log_info "Suite: ${SUITE}"
+log_info "Suite(s): ${SUITES[*]}"
 [[ -n "$TEST_METHOD" ]] && log_info "Test method: ${TEST_METHOD}"
 
 echo ""

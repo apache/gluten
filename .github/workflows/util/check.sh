@@ -15,6 +15,9 @@
 # limitations under the License.
 
 export BASE_COMMIT=$1
+
+RESULT=0
+
 ./.github/workflows/util/check.py header branch
 if [ $? -ne 0 ]; then
   ./.github/workflows/util/check.py header branch --fix
@@ -22,6 +25,20 @@ if [ $? -ne 0 ]; then
   echo "patch -p1 \<<EOF"
   git --no-pager diff
   echo "EOF"
-  false
+  RESULT=1
 fi
+
+# Check that shell scripts use #!/usr/bin/env bash instead of #!/bin/bash
+BAD_SHEBANGS=$(git diff --relative --name-only --diff-filter='ACM' "$BASE_COMMIT" -- '*.sh' | while read -r f; do
+  [ -f "$f" ] && head -1 "$f" | grep -q '^#!/bin/bash' && echo "$f"
+done)
+
+if [ -n "$BAD_SHEBANGS" ]; then
+  echo -e "\n==== The following scripts use #!/bin/bash instead of #!/usr/bin/env bash:"
+  echo "$BAD_SHEBANGS"
+  echo "Please replace '#!/bin/bash' with '#!/usr/bin/env bash' for portability."
+  RESULT=1
+fi
+
+exit $RESULT
 

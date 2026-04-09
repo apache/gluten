@@ -1,0 +1,179 @@
+== Physical Plan ==
+VeloxColumnarToRow (34)
++- TakeOrderedAndProjectExecTransformer (33)
+   +- ^ RegularHashAggregateExecTransformer (31)
+      +- ^ InputIteratorTransformer (30)
+         +- ColumnarExchange (28)
+            +- VeloxResizeBatches (27)
+               +- ^ ProjectExecTransformer (25)
+                  +- ^ FlushableHashAggregateExecTransformer (24)
+                     +- ^ ProjectExecTransformer (23)
+                        +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (22)
+                           :- ^ ProjectExecTransformer (3)
+                           :  +- ^ FilterExecTransformer (2)
+                           :     +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.item (1)
+                           +- ^ InputIteratorTransformer (21)
+                              +- ColumnarBroadcastExchange (19)
+                                 +- ^ ProjectExecTransformer (17)
+                                    +- ^ FilterExecTransformer (16)
+                                       +- ^ ProjectExecTransformer (15)
+                                          +- ^ RegularHashAggregateExecTransformer (14)
+                                             +- ^ InputIteratorTransformer (13)
+                                                +- ColumnarExchange (11)
+                                                   +- VeloxResizeBatches (10)
+                                                      +- ^ ProjectExecTransformer (8)
+                                                         +- ^ FlushableHashAggregateExecTransformer (7)
+                                                            +- ^ ProjectExecTransformer (6)
+                                                               +- ^ FilterExecTransformer (5)
+                                                                  +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.item (4)
+
+
+(1) FileSourceScanExecTransformer parquet spark_catalog.default.item
+Output [3]: [i_manufact_id#1, i_manufact#2, i_product_name#3]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/item]
+PushedFilters: [IsNotNull(i_manufact_id), GreaterThanOrEqual(i_manufact_id,738), LessThanOrEqual(i_manufact_id,778), IsNotNull(i_manufact)]
+ReadSchema: struct<i_manufact_id:int,i_manufact:string,i_product_name:string>
+
+(2) FilterExecTransformer
+Input [3]: [i_manufact_id#1, i_manufact#2, i_product_name#3]
+Arguments: (((isnotnull(i_manufact_id#1) AND (i_manufact_id#1 >= 738)) AND (i_manufact_id#1 <= 778)) AND isnotnull(i_manufact#2))
+
+(3) ProjectExecTransformer
+Output [2]: [i_manufact#2, i_product_name#3]
+Input [3]: [i_manufact_id#1, i_manufact#2, i_product_name#3]
+
+(4) FileSourceScanExecTransformer parquet spark_catalog.default.item
+Output [5]: [i_category#4, i_manufact#5, i_size#6, i_color#7, i_units#8]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/item]
+PushedFilters: [Or(Or(And(EqualTo(i_category,Women                                             ),Or(And(And(Or(EqualTo(i_color,powder              ),EqualTo(i_color,khaki               )),Or(EqualTo(i_units,Ounce     ),EqualTo(i_units,Oz        ))),Or(EqualTo(i_size,medium              ),EqualTo(i_size,extra large         ))),And(And(Or(EqualTo(i_color,brown               ),EqualTo(i_color,honeydew            )),Or(EqualTo(i_units,Bunch     ),EqualTo(i_units,Ton       ))),Or(EqualTo(i_size,N/A                 ),EqualTo(i_size,small               ))))),And(EqualTo(i_category,Men                                               ),Or(And(And(Or(EqualTo(i_color,floral              ),EqualTo(i_color,deep                )),Or(EqualTo(i_units,N/A       ),EqualTo(i_units,Dozen     ))),Or(EqualTo(i_size,petite              ),EqualTo(i_size,large               ))),And(And(Or(EqualTo(i_color,light               ),EqualTo(i_color,cornflower          )),Or(EqualTo(i_units,Box       ),EqualTo(i_units,Pound     ))),Or(EqualTo(i_size,medium              ),EqualTo(i_size,extra large         )))))),Or(And(EqualTo(i_category,Women                                             ),Or(And(And(Or(EqualTo(i_color,midnight            ),EqualTo(i_color,snow                )),Or(EqualTo(i_units,Pallet    ),EqualTo(i_units,Gross     ))),Or(EqualTo(i_size,medium              ),EqualTo(i_size,extra large         ))),And(And(Or(EqualTo(i_color,cyan                ),EqualTo(i_color,papaya              )),Or(EqualTo(i_units,Cup       ),EqualTo(i_units,Dram      ))),Or(EqualTo(i_size,N/A                 ),EqualTo(i_size,small               ))))),And(EqualTo(i_category,Men                                               ),Or(And(And(Or(EqualTo(i_color,orange              ),EqualTo(i_color,frosted             )),Or(EqualTo(i_units,Each      ),EqualTo(i_units,Tbl       ))),Or(EqualTo(i_size,petite              ),EqualTo(i_size,large               ))),And(And(Or(EqualTo(i_color,forest              ),EqualTo(i_color,ghost               )),Or(EqualTo(i_units,Lb        ),EqualTo(i_units,Bundle    ))),Or(EqualTo(i_size,medium              ),EqualTo(i_size,extra large         ))))))), IsNotNull(i_manufact)]
+ReadSchema: struct<i_category:string,i_manufact:string,i_size:string,i_color:string,i_units:string>
+
+(5) FilterExecTransformer
+Input [5]: [i_category#4, i_manufact#5, i_size#6, i_color#7, i_units#8]
+Arguments: (((((i_category#4 = Women                                             ) AND (((((i_color#7 = powder              ) OR (i_color#7 = khaki               )) AND ((i_units#8 = Ounce     ) OR (i_units#8 = Oz        ))) AND ((i_size#6 = medium              ) OR (i_size#6 = extra large         ))) OR ((((i_color#7 = brown               ) OR (i_color#7 = honeydew            )) AND ((i_units#8 = Bunch     ) OR (i_units#8 = Ton       ))) AND ((i_size#6 = N/A                 ) OR (i_size#6 = small               ))))) OR ((i_category#4 = Men                                               ) AND (((((i_color#7 = floral              ) OR (i_color#7 = deep                )) AND ((i_units#8 = N/A       ) OR (i_units#8 = Dozen     ))) AND ((i_size#6 = petite              ) OR (i_size#6 = large               ))) OR ((((i_color#7 = light               ) OR (i_color#7 = cornflower          )) AND ((i_units#8 = Box       ) OR (i_units#8 = Pound     ))) AND ((i_size#6 = medium              ) OR (i_size#6 = extra large         )))))) OR (((i_category#4 = Women                                             ) AND (((((i_color#7 = midnight            ) OR (i_color#7 = snow                )) AND ((i_units#8 = Pallet    ) OR (i_units#8 = Gross     ))) AND ((i_size#6 = medium              ) OR (i_size#6 = extra large         ))) OR ((((i_color#7 = cyan                ) OR (i_color#7 = papaya              )) AND ((i_units#8 = Cup       ) OR (i_units#8 = Dram      ))) AND ((i_size#6 = N/A                 ) OR (i_size#6 = small               ))))) OR ((i_category#4 = Men                                               ) AND (((((i_color#7 = orange              ) OR (i_color#7 = frosted             )) AND ((i_units#8 = Each      ) OR (i_units#8 = Tbl       ))) AND ((i_size#6 = petite              ) OR (i_size#6 = large               ))) OR ((((i_color#7 = forest              ) OR (i_color#7 = ghost               )) AND ((i_units#8 = Lb        ) OR (i_units#8 = Bundle    ))) AND ((i_size#6 = medium              ) OR (i_size#6 = extra large         ))))))) AND isnotnull(i_manufact#5))
+
+(6) ProjectExecTransformer
+Output [1]: [i_manufact#5]
+Input [5]: [i_category#4, i_manufact#5, i_size#6, i_color#7, i_units#8]
+
+(7) FlushableHashAggregateExecTransformer
+Input [1]: [i_manufact#5]
+Keys [1]: [i_manufact#5]
+Functions [1]: [partial_count(1)]
+Aggregate Attributes [1]: [count#9]
+Results [2]: [i_manufact#5, count#10]
+
+(8) ProjectExecTransformer
+Output [3]: [hash(i_manufact#5, 42) AS hash_partition_key#11, i_manufact#5, count#10]
+Input [2]: [i_manufact#5, count#10]
+
+(9) WholeStageCodegenTransformer (1)
+Input [3]: [hash_partition_key#11, i_manufact#5, count#10]
+Arguments: false
+
+(10) VeloxResizeBatches
+Input [3]: [hash_partition_key#11, i_manufact#5, count#10]
+Arguments: 1024, 2147483647, 10485760
+
+(11) ColumnarExchange
+Input [3]: [hash_partition_key#11, i_manufact#5, count#10]
+Arguments: hashpartitioning(i_manufact#5, 1), ENSURE_REQUIREMENTS, [i_manufact#5, count#10], [plan_id=1], [shuffle_writer_type=hash]
+
+(12) InputAdapter
+Input [2]: [i_manufact#5, count#10]
+
+(13) InputIteratorTransformer
+Input [2]: [i_manufact#5, count#10]
+
+(14) RegularHashAggregateExecTransformer
+Input [2]: [i_manufact#5, count#10]
+Keys [1]: [i_manufact#5]
+Functions [1]: [count(1)]
+Aggregate Attributes [1]: [count(1)#12]
+Results [2]: [i_manufact#5, count(1)#12]
+
+(15) ProjectExecTransformer
+Output [2]: [count(1)#12 AS item_cnt#13, i_manufact#5]
+Input [2]: [i_manufact#5, count(1)#12]
+
+(16) FilterExecTransformer
+Input [2]: [item_cnt#13, i_manufact#5]
+Arguments: (item_cnt#13 > 0)
+
+(17) ProjectExecTransformer
+Output [1]: [i_manufact#5]
+Input [2]: [item_cnt#13, i_manufact#5]
+
+(18) WholeStageCodegenTransformer (2)
+Input [1]: [i_manufact#5]
+Arguments: false
+
+(19) ColumnarBroadcastExchange
+Input [1]: [i_manufact#5]
+Arguments: HashedRelationBroadcastMode(List(input[0, string, true]),false), [plan_id=2]
+
+(20) InputAdapter
+Input [1]: [i_manufact#5]
+
+(21) InputIteratorTransformer
+Input [1]: [i_manufact#5]
+
+(22) BroadcastHashJoinExecTransformer
+Left keys [1]: [i_manufact#2]
+Right keys [1]: [i_manufact#5]
+Join type: Inner
+Join condition: None
+
+(23) ProjectExecTransformer
+Output [1]: [i_product_name#3]
+Input [3]: [i_manufact#2, i_product_name#3, i_manufact#5]
+
+(24) FlushableHashAggregateExecTransformer
+Input [1]: [i_product_name#3]
+Keys [1]: [i_product_name#3]
+Functions: []
+Aggregate Attributes: []
+Results [1]: [i_product_name#3]
+
+(25) ProjectExecTransformer
+Output [2]: [hash(i_product_name#3, 42) AS hash_partition_key#14, i_product_name#3]
+Input [1]: [i_product_name#3]
+
+(26) WholeStageCodegenTransformer (3)
+Input [2]: [hash_partition_key#14, i_product_name#3]
+Arguments: false
+
+(27) VeloxResizeBatches
+Input [2]: [hash_partition_key#14, i_product_name#3]
+Arguments: 1024, 2147483647, 10485760
+
+(28) ColumnarExchange
+Input [2]: [hash_partition_key#14, i_product_name#3]
+Arguments: hashpartitioning(i_product_name#3, 1), ENSURE_REQUIREMENTS, [i_product_name#3], [plan_id=3], [shuffle_writer_type=hash]
+
+(29) InputAdapter
+Input [1]: [i_product_name#3]
+
+(30) InputIteratorTransformer
+Input [1]: [i_product_name#3]
+
+(31) RegularHashAggregateExecTransformer
+Input [1]: [i_product_name#3]
+Keys [1]: [i_product_name#3]
+Functions: []
+Aggregate Attributes: []
+Results [1]: [i_product_name#3]
+
+(32) WholeStageCodegenTransformer (4)
+Input [1]: [i_product_name#3]
+Arguments: false
+
+(33) TakeOrderedAndProjectExecTransformer
+Input [1]: [i_product_name#3]
+Arguments: 100, [i_product_name#3 ASC NULLS FIRST], [i_product_name#3], 0
+
+(34) VeloxColumnarToRow
+Input [1]: [i_product_name#3]
+

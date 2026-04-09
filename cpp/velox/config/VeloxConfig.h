@@ -82,6 +82,10 @@ const std::string kHashProbeDynamicFilterPushdownEnabled =
 const std::string kHashProbeBloomFilterPushdownMaxSize =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterPushdown.maxSize";
 
+const std::string kValueStreamDynamicFilterEnabled =
+    "spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled";
+const bool kValueStreamDynamicFilterEnabledDefault = false;
+
 const std::string kShowTaskMetricsWhenFinished = "spark.gluten.sql.columnar.backend.velox.showTaskMetricsWhenFinished";
 const bool kShowTaskMetricsWhenFinishedDefault = false;
 
@@ -161,9 +165,11 @@ const std::string kMemoryPoolCapacityTransferAcrossTasks =
     "spark.gluten.sql.columnar.backend.velox.memoryPoolCapacityTransferAcrossTasks";
 const std::string kOrcUseColumnNames = "spark.gluten.sql.columnar.backend.velox.orcUseColumnNames";
 const std::string kParquetUseColumnNames = "spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames";
+const std::string kAllowInt32Narrowing = "spark.gluten.sql.columnar.backend.velox.allowInt32Narrowing";
 
 // write fies
 const std::string kMaxPartitions = "spark.gluten.sql.columnar.backend.velox.maxPartitionsPerWritersSession";
+const std::string kMaxTargetFileSize = "spark.gluten.sql.columnar.backend.velox.maxTargetFileSize";
 
 const std::string kGlogVerboseLevel = "spark.gluten.sql.columnar.backend.velox.glogVerboseLevel";
 const uint32_t kGlogVerboseLevelDefault = 0;
@@ -204,6 +210,8 @@ const std::string kVeloxPreferredBatchBytes = "spark.gluten.sql.columnar.backend
 const std::string kCudfEnableTableScan = "spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan";
 const bool kCudfEnableTableScanDefault = false;
 const std::string kCudfHiveConnectorId = "cudf-hive";
+const std::string kCudfShuffleMaxPrefetchBytes = "spark.gluten.sql.columnar.backend.velox.cudf.shuffleMaxPrefetchBytes";
+const int64_t kCudfShuffleMaxPrefetchBytesDefault = 1028L * 1024 * 1024; // 1028MB
 
 const std::string kStaticBackendConfPrefix = "spark.gluten.velox.";
 const std::string kDynamicBackendConfPrefix = "spark.gluten.sql.columnar.backend.velox.";

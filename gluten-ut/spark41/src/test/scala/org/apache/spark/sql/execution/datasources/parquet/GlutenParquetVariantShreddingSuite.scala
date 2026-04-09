@@ -16,8 +16,15 @@
  */
 package org.apache.spark.sql.execution.datasources.parquet
 
+import org.apache.gluten.config.GlutenConfig
+
 import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenParquetVariantShreddingSuite
   extends ParquetVariantShreddingSuite
-  with GlutenSQLTestsTrait {}
+  with GlutenSQLTestsTrait {
+
+  override def sparkConf: org.apache.spark.SparkConf = {
+    super.sparkConf.set(GlutenConfig.PARQUET_UNEXPECTED_METADATA_FALLBACK_ENABLED.key, "true")
+  }
+}

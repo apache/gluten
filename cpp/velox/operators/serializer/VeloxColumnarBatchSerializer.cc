@@ -60,7 +60,7 @@ void VeloxColumnarBatchSerializer::append(const std::shared_ptr<ColumnarBatch>& 
   auto rowVector = VeloxColumnarBatch::from(veloxPool_.get(), batch)->getRowVector();
   if (serializer_ == nullptr) {
     // Using first batch's schema to create the Velox serializer. This logic was introduced in
-    // https://github.com/apache/incubator-gluten/pull/1568. It's a bit suboptimal because the schemas
+    // https://github.com/apache/gluten/pull/1568. It's a bit suboptimal because the schemas
     // across different batches may vary.
     auto numRows = rowVector->size();
     auto rowType = asRowType(rowVector->type());

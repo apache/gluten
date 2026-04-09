@@ -170,7 +170,7 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
       .equals("org.apache.spark.shuffle.sort.ColumnarShuffleManager")
 
   // Whether to use CelebornShuffleManager.
-  // TODO: Deprecate the API: https://github.com/apache/incubator-gluten/issues/10107.
+  // TODO: Deprecate the API: https://github.com/apache/gluten/issues/10107.
   def isUseCelebornShuffleManager: Boolean =
     conf
       .getConfString("spark.shuffle.manager", "sort")
@@ -494,7 +494,6 @@ object GlutenConfig extends ConfigRegistry {
     SPARK_S3_CONNECTION_MAXIMUM,
     SPARK_S3_ENDPOINT_REGION,
     SPARK_S3_AWS_IMDS_ENABLED,
-    "spark.gluten.velox.fs.s3a.connect.timeout",
     "spark.gluten.velox.fs.s3a.retry.mode",
     "spark.gluten.velox.awsSdkLogLevel",
     "spark.gluten.velox.s3UseProxyFromEnv",
@@ -604,7 +603,6 @@ object GlutenConfig extends ConfigRegistry {
       (SPARK_S3_USE_INSTANCE_CREDENTIALS, "false"),
       (SPARK_S3_RETRY_MAX_ATTEMPTS, "20"),
       (SPARK_S3_CONNECTION_MAXIMUM, "15"),
-      ("spark.gluten.velox.fs.s3a.connect.timeout", "200s"),
       ("spark.gluten.velox.fs.s3a.retry.mode", "legacy"),
       (
         "spark.gluten.sql.columnar.backend.velox.IOThreads",
@@ -663,10 +661,6 @@ object GlutenConfig extends ConfigRegistry {
   }
 
   val GLUTEN_ENABLED = GlutenCoreConfig.GLUTEN_ENABLED
-
-  val RAS_ENABLED = GlutenCoreConfig.RAS_ENABLED
-
-  val RAS_COST_MODEL = GlutenCoreConfig.RAS_COST_MODEL
 
   val GLUTEN_UI_ENABLED = buildStaticConf("spark.gluten.ui.enabled")
     .doc(

@@ -1,6 +1,6 @@
 # Portable Test Environment of Gluten (gluten-te)
 
-Build and run [gluten](https://github.com/apache/incubator-gluten) and [gluten-it](https://github.com/apache/incubator-gluten/tree/main/tools/gluten-it) in a portable docker container, from scratch.
+Build and run [gluten](https://github.com/apache/gluten) and [gluten-it](https://github.com/apache/gluten/tree/main/tools/gluten-it) in a portable docker container, from scratch.
 
 # Prerequisites
 
@@ -9,7 +9,7 @@ Only Linux and MacOS are currently supported. Before running the scripts, make s
 # Getting Started (Build Gluten code, Velox backend)
 
 ```sh
-git clone -b main https://github.com/apache/incubator-gluten.git gluten # Gluten main code
+git clone -b main https://github.com/apache/gluten.git gluten # Gluten main code
 
 export HTTP_PROXY_HOST=myproxy.example.com # in case you are behind http proxy
 export HTTP_PROXY_PORT=55555 # in case you are behind http proxy
@@ -21,7 +21,7 @@ tools/gluten-te/ubuntu/examples/buildhere-veloxbe/run.sh
 # Getting Started (TPC, Velox backend)
 
 ```sh
-git clone -b main https://github.com/apache/incubator-gluten.git gluten # Gluten main code
+git clone -b main https://github.com/apache/gluten.git gluten # Gluten main code
 
 export HTTP_PROXY_HOST=myproxy.example.com # in case you are behind http proxy
 export HTTP_PROXY_PORT=55555 # in case you are behind http proxy
@@ -32,7 +32,7 @@ cd gluten/gluten-te
 
 # Configurations
 
-See the [config file](https://github.com/apache/incubator-gluten/blob/main/tools/gluten-te/ubuntu/defaults.conf). You can modify the file to configure gluten-te, or pass env variables during running the scripts.
+See the [config file](https://github.com/apache/gluten/blob/main/tools/gluten-te/ubuntu/defaults.conf). You can modify the file to configure gluten-te, or pass env variables during running the scripts.
 
 # Example Usages
 

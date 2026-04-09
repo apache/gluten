@@ -19,6 +19,7 @@
 #include "memory/VeloxColumnarBatch.h"
 #include "velox/exec/Driver.h"
 #include "velox/exec/Operator.h"
+#include "velox/exec/OperatorUtils.h"
 #include "velox/exec/Task.h"
 #include "velox/vector/arrow/Bridge.h"
 
@@ -59,7 +60,7 @@ bool RowVectorStream::hasNext() {
     // driver to make the current task open to spilling.
     //
     // When a task is getting spilled, it should have been suspended so has zero running threads, otherwise there's
-    // possibility that this spill call hangs. See https://github.com/apache/incubator-gluten/issues/7243.
+    // possibility that this spill call hangs. See https://github.com/apache/gluten/issues/7243.
     // As of now, non-zero running threads usually happens when:
     // 1. Task A spills task B;
     // 2. Task A tries to grow buffers created by task B, during which spill is requested on task A again.
@@ -113,7 +114,9 @@ ValueStreamDataSource::ValueStreamDataSource(
     const facebook::velox::connector::ColumnHandleMap& columnHandles,
     facebook::velox::connector::ConnectorQueryCtx* connectorQueryCtx)
     : outputType_(outputType),
-      pool_(connectorQueryCtx->memoryPool()) {}
+      pool_(connectorQueryCtx->memoryPool()),
+      dynamicFilterEnabled_(
+          std::dynamic_pointer_cast<const ValueStreamTableHandle>(tableHandle)->dynamicFilterEnabled()) {}
 
 void ValueStreamDataSource::addSplit(std::shared_ptr<facebook::velox::connector::ConnectorSplit> split) {
   // Cast to IteratorConnectorSplit to extract the iterator
@@ -166,7 +169,116 @@ std::optional<facebook::velox::RowVectorPtr> ValueStreamDataSource::next(
   completedRows_ += rowVector->size();
   completedBytes_ += rowVector->estimateFlatSize();
 
+  // Apply dynamic filters if any have been pushed down.
+  if (!dynamicFilters_.empty()) {
+    rowVector = applyDynamicFilters(rowVector);
+    if (!rowVector) {
+      // All rows filtered out, try next batch.
+      return next(size, future);
+    }
+  }
+
   return rowVector;
+}
+
+facebook::velox::RowVectorPtr ValueStreamDataSource::applyDynamicFilters(
+    const facebook::velox::RowVectorPtr& input) {
+  using namespace facebook::velox;
+
+  const auto numRows = input->size();
+  if (numRows == 0) {
+    return input;
+  }
+
+  SelectivityVector rows(numRows, true);
+
+  for (const auto& [channel, filter] : dynamicFilters_) {
+    if (!filter || channel >= input->childrenSize()) {
+      continue;
+    }
+    applyFilterOnColumn(filter, input->childAt(channel), rows);
+    if (!rows.hasSelections()) {
+      dynamicFilterInputRows_ += numRows;
+      return nullptr;
+    }
+  }
+
+  const auto passedCount = rows.countSelected();
+  if (passedCount == numRows) {
+    return input;
+  }
+
+  dynamicFilterInputRows_ += numRows;
+
+  BufferPtr indices = allocateIndices(passedCount, pool_);
+  auto* rawIndices = indices->asMutable<vector_size_t>();
+  vector_size_t idx = 0;
+  rows.applyToSelected([&](auto row) { rawIndices[idx++] = row; });
+
+  return exec::wrap(passedCount, std::move(indices), input);
+}
+
+void ValueStreamDataSource::applyFilterOnColumn(
+    const std::shared_ptr<facebook::velox::common::Filter>& filter,
+    const facebook::velox::VectorPtr& vector,
+    facebook::velox::SelectivityVector& rows) {
+  using namespace facebook::velox;
+
+  DecodedVector decoded(*vector, rows);
+
+  rows.applyToSelected([&](auto row) {
+    if (decoded.isNullAt(row)) {
+      if (!filter->testNull()) {
+        rows.setValid(row, false);
+      }
+      return;
+    }
+
+    bool pass = false;
+    switch (vector->typeKind()) {
+      case TypeKind::BOOLEAN:
+        pass = filter->testBool(decoded.valueAt<bool>(row));
+        break;
+      case TypeKind::TINYINT:
+        pass = filter->testInt64(decoded.valueAt<int8_t>(row));
+        break;
+      case TypeKind::SMALLINT:
+        pass = filter->testInt64(decoded.valueAt<int16_t>(row));
+        break;
+      case TypeKind::INTEGER:
+        pass = filter->testInt64(decoded.valueAt<int32_t>(row));
+        break;
+      case TypeKind::BIGINT:
+        pass = filter->testInt64(decoded.valueAt<int64_t>(row));
+        break;
+      case TypeKind::HUGEINT:
+        pass = filter->testInt128(decoded.valueAt<int128_t>(row));
+        break;
+      case TypeKind::REAL:
+        pass = filter->testFloat(decoded.valueAt<float>(row));
+        break;
+      case TypeKind::DOUBLE:
+        pass = filter->testDouble(decoded.valueAt<double>(row));
+        break;
+      case TypeKind::VARCHAR:
+      case TypeKind::VARBINARY: {
+        auto sv = decoded.valueAt<StringView>(row);
+        pass = filter->testBytes(sv.data(), sv.size());
+        break;
+      }
+      case TypeKind::TIMESTAMP:
+        pass = filter->testTimestamp(decoded.valueAt<Timestamp>(row));
+        break;
+      default:
+        // For unsupported types, let the row pass through.
+        pass = true;
+        break;
+    }
+    if (!pass) {
+      rows.setValid(row, false);
+    }
+  });
+  rows.updateBounds();
 }
 
 } // namespace gluten

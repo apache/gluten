@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenTestsTrait
 
-class GlutenCoGroupedIteratorSuite extends CoGroupedIteratorSuite with GlutenTestsCommonTrait {}
+class GlutenCoGroupedIteratorSuite extends CoGroupedIteratorSuite with GlutenTestsTrait {}

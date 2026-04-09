@@ -20,6 +20,7 @@ import org.apache.gluten.integration.Constants.TYPE_MODIFIER_DECIMAL_AS_DOUBLE
 import org.apache.gluten.integration.action.Action
 import org.apache.gluten.integration.metrics.MetricMapper
 import org.apache.gluten.integration.report.TestReporter
+import org.apache.gluten.integration.table.{TableAnalyzer, TableCreator}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.deploy.history.HistoryServerHelper
@@ -263,7 +264,7 @@ abstract class Suite(
     testMetricMapper
   }
 
-  private[integration] def typeModifiers(): List[TypeModifier] = {
+  private[integration] def typeModifiers(): Seq[TypeModifier] = {
     if (decimalAsDouble) List(TYPE_MODIFIER_DECIMAL_AS_DOUBLE) else List()
   }
 

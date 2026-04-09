@@ -18,10 +18,9 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig, VeloxConfig}
 import org.apache.gluten.expression.VeloxDummyExpression
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.{AnalysisException, DataFrame, Row}
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ShuffleQueryStageExec}
 import org.apache.spark.sql.execution.joins.BaseJoinExec
@@ -583,6 +582,55 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("native union_all with two level union keeps distinct output columns") {
+    withTempView("union_src_a", "union_src_b", "union_src_c") {
+      Seq(
+        ("valueA", "value1", "value11", "value111"),
+        ("valueA", "value2", "value22", "value222")
+      ).toDF("col1", "col2", "col3", "col4")
+        .createOrReplaceTempView("union_src_a")
+      Seq(
+        ("valueB", "value3", "value33", "value333"),
+        ("valueB", "value4", "value44", "value444")
+      ).toDF("col1", "col2", "col3", "col4")
+        .createOrReplaceTempView("union_src_b")
+
+      withSQLConf(GlutenConfig.NATIVE_UNION_ENABLED.key -> "true") {
+        compareDfResultsAgainstVanillaSpark(
+          () =>
+            spark.sql("""
+                        |with deduplicated_data as (
+                        |  select col1, col2, col3, col4
+                        |  from (
+                        |    select
+                        |      u.col1,
+                        |      u.col2,
+                        |      u.col3,
+                        |      u.col4,
+                        |      row_number() over (partition by u.col2 order by u.col5 desc) as rn
+                        |    from (
+                        |      select col1, col2, col3, col4, 98 as col5 from union_src_a
+                        |      union all
+                        |      select col1, col2, col3, col4, 100 as col5 from union_src_b
+                        |    ) u
+                        |  ) t
+                        |  where t.rn = 1
+                        |)
+                        |select col1, col2, col3, col4
+                        |from deduplicated_data
+                        |where col1 != 'valueC'
+                        |union all
+                        |select col1, col2, col3, col4
+                        |from deduplicated_data
+                        |where col1 = 'valueC'
+                        |""".stripMargin),
+          compareResult = true,
+          checkGlutenPlan[UnionExecTransformer]
+        )
+      }
+    }
+  }
+
   test("union two tables") {
     runQueryAndCompare("""
                          |select count(orderkey) from (
@@ -911,18 +959,9 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
 
   test("Verify parquet field name with special character") {
     withTable("t") {
-
-      // https://github.com/apache/spark/pull/35229 Spark remove parquet field name check after 3.2
-      if (!SparkShimLoader.getSparkVersion.startsWith("3.2")) {
-        sql("create table t using parquet as select sum(l_partkey) from lineitem")
-        runQueryAndCompare("select * from t") {
-          checkGlutenPlan[FileSourceScanExecTransformer]
-        }
-      } else {
-        val msg = intercept[AnalysisException] {
-          sql("create table t using parquet as select sum(l_partkey) from lineitem")
-        }.message
-        assert(msg.contains("contains invalid character"))
+      sql("create table t using parquet as select sum(l_partkey) from lineitem")
+      runQueryAndCompare("select * from t") {
+        checkGlutenPlan[FileSourceScanExecTransformer]
       }
     }
   }
@@ -1998,7 +2037,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
-  // Enable the test after fixing https://github.com/apache/incubator-gluten/issues/6827
+  // Enable the test after fixing https://github.com/apache/gluten/issues/6827
   ignore("Test round expression") {
     val df1 = runQueryAndCompare("SELECT round(cast(0.5549999999999999 as double), 2)") { _ => }
     checkLengthAndPlan(df1, 1)
@@ -2032,7 +2071,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
-  // Since https://github.com/apache/incubator-gluten/pull/7330.
+  // Since https://github.com/apache/gluten/pull/7330.
   test("field names contain non-ASCII characters") {
     withTempPath {
       path =>

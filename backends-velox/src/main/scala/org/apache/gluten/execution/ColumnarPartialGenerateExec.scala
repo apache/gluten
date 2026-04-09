@@ -385,7 +385,7 @@ case class ColumnarPartialGenerateExec(generateExec: GenerateExec, child: SparkP
 
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 
   final override def doExecute(): RDD[InternalRow] = {
     throw new UnsupportedOperationException(

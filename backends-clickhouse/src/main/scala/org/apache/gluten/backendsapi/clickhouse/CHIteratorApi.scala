@@ -319,7 +319,8 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
       updateNativeMetrics: IMetrics => Unit,
       partitionIndex: Int,
       materializeInput: Boolean,
-      enableCudf: Boolean): Iterator[ColumnarBatch] = {
+      enableCudf: Boolean,
+      supportsValueStreamDynamicFilter: Boolean): Iterator[ColumnarBatch] = {
     // scalastyle:on argcount
 
     // Final iterator does not contain scan split, so pass empty split info to native here.

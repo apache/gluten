@@ -92,6 +92,15 @@ case class VeloxColumnarToRowExec(child: SparkPlan) extends ColumnarToRowExecBas
       VeloxColumnarToRowExec.toRowIterator(_, numOutputRows, numInputBatches, convertTime))
   }
 
+  override def executeCollect(): Array[InternalRow] = {
+    child match {
+      case l: ColumnarCollectLimitExec =>
+        l.executeCollect()
+      case _ =>
+        super.executeCollect()
+    }
+  }
+
   protected def withNewChildInternal(newChild: SparkPlan): VeloxColumnarToRowExec =
     copy(child = newChild)
 }

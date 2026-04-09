@@ -61,5 +61,5 @@ case class VeloxResizeBatchesExec(
 
   override def batchType(): Convention.BatchType = VeloxBatchType
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 }

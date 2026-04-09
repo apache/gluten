@@ -29,7 +29,7 @@
 
   <name>Gluten Parent Pom</name>
   <description>Apache Gluten</description>
-  <url>https://github.com/apache/incubator-gluten.git</url>
+  <url>https://github.com/apache/gluten.git</url>
 
   <organization>
     <name>Apache Software Foundation</name>
@@ -49,13 +49,12 @@
     <module>gluten-ui</module>
     <module>package</module>
     <module>shims</module>
-    <module>gluten-ras</module>
   </modules>
 
   <scm>
-    <connection>scm:git:git://github.com/apache/incubator-gluten.git</connection>
-    <developerConnection>scm:git:ssh://github.com:apache/incubator-gluten.git</developerConnection>
-    <url>https://github.com/apache/incubator-gluten/tree/main</url>
+    <connection>scm:git:git://github.com/apache/gluten.git</connection>
+    <developerConnection>scm:git:ssh://github.com:apache/gluten.git</developerConnection>
+    <url>https://github.com/apache/gluten/tree/main</url>
   </scm>
 
   <properties>
@@ -98,6 +97,7 @@
     <os.full.name>unknown</os.full.name>
     <!-- To build built-in backend c++ codes -->
     <scala.recompile.mode>all</scala.recompile.mode>
+    <scala.release.version>${java.version}</scala.release.version>
     <!-- For unit tests -->
     <fasterxml.version>2.15.0</fasterxml.version>
     <junit.version>4.13.1</junit.version>
@@ -167,6 +167,7 @@
       --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
       -Djdk.reflect.useDirectMethodHandle=false
       -Dio.netty.tryReflectionSetAccessible=true
+      -Dfile.encoding=UTF-8
     </extraJavaTestArgs>
     <log4j.conf>file:src/test/resources/log4j2.properties</log4j.conf>
   </properties>
@@ -1031,7 +1032,7 @@
                   <arg>-deprecation</arg>
                   <arg>-feature</arg>
                   <arg>-explaintypes</arg>
-                  <arg>-release:${java.version}</arg>
+                  <arg>-release:${scala.release.version}</arg>
                   <arg>-Wconf:any:e</arg>
                   <arg>-Wconf:cat=deprecation:wv</arg>
                   <arg>-Wunused:imports</arg>
@@ -1100,9 +1101,7 @@
       </activation>
       <properties>
         <java.version>1.8</java.version>
-        <!-- scala-maven-plugin 4.9.2 injects '-release 1.8' into scalac args,
-             which fails under JDK 8. Pin to 4.8.0 where this bug does not exist. -->
-        <scala.compiler.version>4.8.0</scala.compiler.version>
+        <scala.release.version>8</scala.release.version>
       </properties>
     </profile>
     <profile>

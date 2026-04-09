@@ -17,24 +17,24 @@
 package org.apache.spark.sql
 
 import org.apache.gluten.integration.Query
-import org.apache.gluten.integration.metrics.{MetricMapper, MetricTag, PlanMetric}
+import org.apache.gluten.integration.metrics.{MetricMapper, PlanMetric}
 
 import org.apache.spark.{SparkContext, Success, TaskKilled}
 import org.apache.spark.executor.ExecutorMetrics
-import org.apache.spark.scheduler.{SparkListener, SparkListenerExecutorMetricsUpdate, SparkListenerTaskEnd, SparkListenerTaskStart}
-import org.apache.spark.sql.KillTaskListener.INIT_WAIT_TIME_MS
+import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent, SparkListenerExecutorMetricsUpdate, SparkListenerTaskEnd, SparkListenerTaskStart}
 import org.apache.spark.sql.catalyst.QueryPlanningTracker
 import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, QueryStageExec}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
+import org.apache.spark.sql.execution.ui.{SparkListenerSQLExecutionEnd, SparkListenerSQLExecutionStart}
 
-import com.google.common.base.Preconditions
 import org.apache.commons.lang3.RandomUtils
 
-import java.io.ByteArrayOutputStream
-import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
+import scala.collection.JavaConverters._
+import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 
 object SparkQueryRunner {
@@ -74,10 +74,18 @@ object SparkQueryRunner {
     val sc = spark.sparkContext
     sc.setJobDescription(desc)
 
+    // Wait until all SparkListener events are processed before we start executing the query, to make sure
+    // the metrics we collect are accurate.
+    sc.listenerBus.waitUntilEmpty()
+
     // Executor metrics listener.
     val em = new ExecutorMetrics()
     val metricsListener = new MetricsListener(em)
     sc.addSparkListener(metricsListener)
+
+    // Execution time listener.
+    val executionTimeListener = new ExecutionTimeListener()
+    sc.addSparkListener(executionTimeListener)
 
     // kill task listener.
     val killTaskListener: Option[KillTaskListener] = if (randomKillTasks) {
@@ -89,33 +97,28 @@ object SparkQueryRunner {
 
     println(s"Executing SQL query from resource path ${query.path}...")
     try {
-      val tracker = new QueryPlanningTracker
-      val prev = System.nanoTime()
+      val otherTracker = new QueryPlanningTracker
       val df = spark.sql(query.sql)
-      val rows = QueryPlanningTracker.withTracker(tracker) {
+      val rows = QueryPlanningTracker.withTracker(otherTracker) {
         df.collect()
       }
-      val totalMillis = (System.nanoTime() - prev) / 1000000L
       if (explain) {
         df.explain(extended = true)
       }
+      // TODO: sparkTracker and otherTracker include planning time information,
+      //  while they are not accurate enough so we paused on using them for now.
       val sparkTracker = df.queryExecution.tracker
-      val sparkRulesMillis =
-        sparkTracker.rules.map(_._2.totalTimeNs).sum / 1000000L
-      val otherRulesMillis =
-        tracker.rules.map(_._2.totalTimeNs).sum / 1000000L
-      val planMillis = sparkRulesMillis + otherRulesMillis
+      // This makes sure all the SparkListenerSQLExecutionEnd event is processed before we
+      // get the execution time and metrics.
+      sc.listenerBus.waitUntilEmpty()
+      val totalMillis = executionTimeListener.wallMillis()
       val collectedExecutorMetrics =
         executorMetrics.map(name => (name, em.getMetricValue(name))).toMap
       val collectedSQLMetrics = collectSQLMetrics(query.path, metricMapper, df.queryExecution)
-      RunResult(
-        rows,
-        planMillis,
-        totalMillis - planMillis,
-        collectedSQLMetrics,
-        collectedExecutorMetrics)
+      RunResult(rows, totalMillis, collectedSQLMetrics, collectedExecutorMetrics)
     } finally {
       sc.removeSparkListener(metricsListener)
+      sc.removeSparkListener(executionTimeListener)
       killTaskListener.foreach(
         l => {
           sc.removeSparkListener(l)
@@ -153,7 +156,7 @@ object SparkQueryRunner {
         p.metrics.map {
           case keyValue @ (k, m) =>
             val tags = mapper.map(p, k, m)
-            PlanMetric(queryPath, p, k, m, tags.toSet)
+            PlanMetric(queryPath, p.id, p.nodeName, k, m, tags.toSet)
         }
     }
     all.toSeq
@@ -162,7 +165,6 @@ object SparkQueryRunner {
 
 case class RunResult(
     rows: Seq[Row],
-    planningTimeMillis: Long,
     executionTimeMillis: Long,
     sqlMetrics: Seq[PlanMetric],
     executorMetrics: Map[String, Long])
@@ -201,7 +203,7 @@ class KillTaskListener(val sc: SparkContext) extends SparkListener {
               val total = Math.min(
                 stageKillMaxWaitTimeLookup.computeIfAbsent(taskStart.stageId, _ => Long.MaxValue),
                 stageKillWaitTimeLookup
-                  .computeIfAbsent(taskStart.stageId, _ => INIT_WAIT_TIME_MS)
+                  .computeIfAbsent(taskStart.stageId, _ => KillTaskListener.INIT_WAIT_TIME_MS)
               )
               val elapsed = System.currentTimeMillis() - startMs
               val remaining = total - elapsed
@@ -262,4 +264,25 @@ class KillTaskListener(val sc: SparkContext) extends SparkListener {
 
 object KillTaskListener {
   private val INIT_WAIT_TIME_MS: Long = 50L
+}
+
+class ExecutionTimeListener extends SparkListener {
+  private val executionStart = new ConcurrentHashMap[Long, Long]().asScala
+  private val executionEnd = new ConcurrentHashMap[Long, Long]().asScala
+
+  override def onOtherEvent(event: SparkListenerEvent): Unit = event match {
+    case e: SparkListenerSQLExecutionStart =>
+      executionStart(e.executionId) = e.time
+    case e: SparkListenerSQLExecutionEnd =>
+      executionEnd(e.executionId) = e.time
+    case _ =>
+  }
+
+  def wallMillis(): Long = {
+    executionEnd.map {
+      case (executionId, endTime) =>
+        val startTime = executionStart(executionId)
+        endTime - startTime
+    }.sum
+  }
 }

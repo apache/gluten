@@ -41,6 +41,8 @@ import org.apache.iceberg.types.{Type, Types}
 import org.apache.iceberg.types.Type.TypeID
 import org.apache.iceberg.types.Types.{ListType, MapType, NestedField}
 
+import java.util.Locale
+
 case class IcebergScanTransformer(
     override val output: Seq[AttributeReference],
     @transient override val scan: Scan,
@@ -72,7 +74,7 @@ case class IcebergScanTransformer(
   }
 
   override def doValidateInternal(): ValidationResult = {
-    val validationResult = super.doValidateInternal();
+    val validationResult = super.doValidateInternal()
     if (!validationResult.ok()) {
       return validationResult
     }
@@ -95,11 +97,16 @@ case class IcebergScanTransformer(
       if (notSupport) {
         return ValidationResult.failed("Contains not supported data type or metadata column")
       }
-      // Delete from command read the _file metadata, which may be not successful.
-      val readMetadata =
-        scan.readSchema().fieldNames.exists(f => MetadataColumns.isMetadataColumn(f))
-      if (readMetadata) {
-        return ValidationResult.failed(s"Read the metadata column")
+      // Allow input_file_name() and related metadata functions
+      val allowedMetadataColumns =
+        IcebergScanTransformer.InputFileRelatedMetadataColumnNames
+      val hasUnsupportedMetadata = scan.readSchema().fieldNames.exists {
+        f =>
+          MetadataColumns.isMetadataColumn(f) &&
+          !allowedMetadataColumns.contains(f.toLowerCase(Locale.ROOT))
+      }
+      if (hasUnsupportedMetadata) {
+        return ValidationResult.failed("Read unsupported metadata column")
       }
       val containsEqualityDelete = table match {
         case t: SparkTable =>
@@ -155,7 +162,7 @@ case class IcebergScanTransformer(
         return ValidationResult.failed("Delete file format puffin is not supported")
       }
     }
-    // https://github.com/apache/incubator-gluten/issues/11135
+    // https://github.com/apache/gluten/issues/11135
     if (metadata.propertyAsBoolean(TableProperties.SPARK_WRITE_ACCEPT_ANY_SCHEMA, false)) {
       return ValidationResult.failed("Not support read the file with accept any schema")
     }
@@ -171,17 +178,37 @@ case class IcebergScanTransformer(
   // TODO: get root paths from table.
   override def getRootPathsInternal: Seq[String] = Seq.empty
 
+  private lazy val readSchemaFields =
+    scan.readSchema().fieldNames.map(_.toLowerCase(Locale.ROOT)).toSet
+
+  private lazy val inputFileRelatedMetadataColumns = output.filter {
+    attr =>
+      val name = attr.name.toLowerCase(Locale.ROOT)
+      IcebergScanTransformer.InputFileRelatedMetadataColumnNames.contains(name) &&
+      !readSchemaFields.contains(name)
+  }
+
+  override def getMetadataColumns(): Seq[AttributeReference] = {
+    val extraMetadataColumns = inputFileRelatedMetadataColumns.filterNot {
+      metadataAttr => metadataColumns.exists(_.name.equalsIgnoreCase(metadataAttr.name))
+    }
+    metadataColumns ++ extraMetadataColumns
+  }
+
   override lazy val fileFormat: ReadFileFormat = GlutenIcebergSourceUtil.getFileFormat(scan)
 
   override def getSplitInfosFromPartitions(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
-    partitions.map { case (partition, _) => partitionToSplitInfo(partition) }
+    val metadataColumnNames = getMetadataColumns().map(_.name)
+    partitions.map { case (partition, _) => partitionToSplitInfo(partition, metadataColumnNames) }
   }
 
-  private def partitionToSplitInfo(partition: Partition): SplitInfo = {
+  private def partitionToSplitInfo(
+      partition: Partition,
+      metadataColumnNames: Seq[String]): SplitInfo = {
     val splitInfo = partition match {
       case p: SparkDataSourceRDDPartition =>
-        GlutenIcebergSourceUtil.genSplitInfo(p, getPartitionSchema)
+        GlutenIcebergSourceUtil.genSplitInfo(p, getPartitionSchema, metadataColumnNames)
       case _ => throw new GlutenNotSupportException()
     }
     numSplits.add(splitInfo.asInstanceOf[LocalFilesNode].getPaths.size())
@@ -196,6 +223,10 @@ case class IcebergScanTransformer(
         output),
       pushDownFilters = pushDownFilters.map(QueryPlan.normalizePredicates(_, output))
     )
+  }
+
+  override def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase = {
+    this.copy(output = newOutput)
   }
   // Needed for tests
   private[execution] def getKeyGroupPartitioning: Option[Seq[Expression]] = keyGroupedPartitioning
@@ -279,6 +310,9 @@ case class IcebergScanTransformer(
 }
 
 object IcebergScanTransformer {
+  private val InputFileRelatedMetadataColumnNames =
+    Set("input_file_name", "input_file_block_start", "input_file_block_length")
+
   def apply(batchScan: BatchScanExec): IcebergScanTransformer = {
     new IcebergScanTransformer(
       batchScan.output.map(a => a.withName(AvroSchemaUtil.makeCompatibleName(a.name))),

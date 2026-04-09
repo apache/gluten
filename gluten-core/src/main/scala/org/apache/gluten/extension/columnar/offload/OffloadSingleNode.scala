@@ -43,6 +43,21 @@ object OffloadSingleNode {
   implicit class OffloadSingleNodeOps(rule: OffloadSingleNode) {
 
     /**
+     * Offloads the plan node and propagates LOGICAL_PLAN_TAG from the original node to the
+     * offloaded node (non-recursive). Uses setTagValue directly to avoid setLogicalLink's recursive
+     * propagation to children, which would incorrectly tag Exchange nodes.
+     */
+    def offloadAndPropagateTag(node: SparkPlan): SparkPlan = {
+      val offloaded = rule.offload(node)
+      if (offloaded ne node) {
+        node.getTagValue(SparkPlan.LOGICAL_PLAN_TAG).foreach {
+          lp => offloaded.setTagValue(SparkPlan.LOGICAL_PLAN_TAG, lp)
+        }
+      }
+      offloaded
+    }
+
+    /**
      * Converts the [[OffloadSingleNode]] rule to a strict version.
      *
      * In the strict version of the rule, all children of the input query plan node will be replaced
@@ -99,7 +114,7 @@ object OffloadSingleNode {
     private lazy val conv: Convention = Convention.get(hiddenPlan)
 
     override def batchType(): Convention.BatchType = conv.batchType
-    override def rowType0(): Convention.RowType = conv.rowType
+    override def rowType(): Convention.RowType = conv.rowType
     override def output: Seq[Attribute] = hiddenPlan.output
     override def outputPartitioning: Partitioning = hiddenPlan.outputPartitioning
     override def outputOrdering: Seq[SortOrder] = hiddenPlan.outputOrdering

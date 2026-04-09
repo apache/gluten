@@ -87,11 +87,11 @@ public final class MemoryTargets {
       // We don't need to retry on OOM in the case one single task occupies the whole executor.
       return consumer;
     }
-    // Since https://github.com/apache/incubator-gluten/pull/8132.
+    // Since https://github.com/apache/gluten/pull/8132.
     // Retry of spilling is needed in multi-slot and legacy mode (formerly named as share mode)
     // because the maxMemoryPerTask defined by vanilla Spark's ExecutionMemoryPool is dynamic.
     //
-    // See the original issue https://github.com/apache/incubator-gluten/issues/8128.
+    // See the original issue https://github.com/apache/gluten/issues/8128.
     return new RetryOnOomMemoryTarget(
         consumer,
         () -> {

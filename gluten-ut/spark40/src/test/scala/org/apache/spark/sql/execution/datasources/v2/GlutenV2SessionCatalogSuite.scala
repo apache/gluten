@@ -16,12 +16,12 @@
  */
 package org.apache.spark.sql.execution.datasources.v2
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
 class GlutenV2SessionCatalogTableSuite
   extends V2SessionCatalogTableSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait {}
 
 class GlutenV2SessionCatalogNamespaceSuite
   extends V2SessionCatalogNamespaceSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait {}

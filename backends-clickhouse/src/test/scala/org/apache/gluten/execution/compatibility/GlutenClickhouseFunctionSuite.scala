@@ -72,7 +72,7 @@ class GlutenClickhouseFunctionSuite extends ParquetSuite {
     }
   }
 
-  test("https://github.com/apache/incubator-gluten/issues/6938") {
+  test("https://github.com/apache/gluten/issues/6938") {
     val testSQL =
       s"""
          |select * from (
@@ -372,7 +372,7 @@ class GlutenClickhouseFunctionSuite extends ParquetSuite {
     }
   }
 
-  test("GLUTEN-7545: https://github.com/apache/incubator-gluten/issues/7545") {
+  test("GLUTEN-7545: https://github.com/apache/gluten/issues/7545") {
     withTable("regexp_test") {
       sql("create table if not exists regexp_test (id string) using parquet")
       sql("insert into regexp_test values('1999-6-1')")

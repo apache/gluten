@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenSessionStateSuite extends SessionStateSuite with GlutenTestsCommonTrait {}
+class GlutenSessionStateSuite extends SessionStateSuite with GlutenTestsTrait {}

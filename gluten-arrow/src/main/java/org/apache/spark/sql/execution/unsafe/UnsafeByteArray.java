@@ -31,8 +31,11 @@ import java.io.ObjectOutput;
 
 /** A serializable unsafe byte array. */
 public class UnsafeByteArray implements Externalizable, KryoSerializable {
+  private static final int CHUNK_SIZE = 8 * 1024;
+
   private ArrowBuf buffer;
   private long size;
+  private transient byte[] chunkBuf;
 
   UnsafeByteArray(ArrowBuf buffer, long size) {
     this.buffer = buffer;
@@ -41,6 +44,13 @@ public class UnsafeByteArray implements Externalizable, KryoSerializable {
   }
 
   public UnsafeByteArray() {}
+
+  private byte[] chunkBuf() {
+    if (chunkBuf == null) {
+      chunkBuf = new byte[CHUNK_SIZE];
+    }
+    return chunkBuf;
+  }
 
   public long address() {
     return buffer.memoryAddress();
@@ -66,13 +76,12 @@ public class UnsafeByteArray implements Externalizable, KryoSerializable {
     output.writeLong(size);
 
     // stream bytes out of ArrowBuf
-    final int chunkSize = 8 * 1024;
-    byte[] tmp = new byte[chunkSize];
+    byte[] tmp = chunkBuf();
 
     long remaining = size;
     int index = 0;
     while (remaining > 0) {
-      int chunk = (int) Math.min(chunkSize, remaining);
+      int chunk = (int) Math.min(CHUNK_SIZE, remaining);
       buffer.getBytes(index, tmp, 0, chunk);
       output.write(tmp, 0, chunk);
       index += chunk;
@@ -93,13 +102,12 @@ public class UnsafeByteArray implements Externalizable, KryoSerializable {
     this.buffer = ArrowBufferAllocators.globalInstance().buffer((int) size);
 
     // stream bytes into ArrowBuf
-    final int chunkSize = 8 * 1024;
-    byte[] tmp = new byte[chunkSize];
+    byte[] tmp = chunkBuf();
 
     long remaining = size;
     int index = 0;
     while (remaining > 0) {
-      int chunk = (int) Math.min(chunkSize, remaining);
+      int chunk = (int) Math.min(CHUNK_SIZE, remaining);
       input.readBytes(tmp, 0, chunk);
       buffer.setBytes(index, tmp, 0, chunk);
       index += chunk;
@@ -114,13 +122,12 @@ public class UnsafeByteArray implements Externalizable, KryoSerializable {
     // write length first
     out.writeLong(size);
 
-    final int chunkSize = 8 * 1024;
-    byte[] tmp = new byte[chunkSize];
+    byte[] tmp = chunkBuf();
 
     long remaining = size;
     int index = 0;
     while (remaining > 0) {
-      int chunk = (int) Math.min(chunkSize, remaining);
+      int chunk = (int) Math.min(CHUNK_SIZE, remaining);
       buffer.getBytes(index, tmp, 0, chunk);
       out.write(tmp, 0, chunk);
       index += chunk;
@@ -138,13 +145,12 @@ public class UnsafeByteArray implements Externalizable, KryoSerializable {
 
     this.buffer = ArrowBufferAllocators.globalInstance().buffer((int) size);
 
-    final int chunkSize = 8 * 1024;
-    byte[] tmp = new byte[chunkSize];
+    byte[] tmp = chunkBuf();
 
     long remaining = size;
     int index = 0;
     while (remaining > 0) {
-      int chunk = (int) Math.min(chunkSize, remaining);
+      int chunk = (int) Math.min(CHUNK_SIZE, remaining);
       // ObjectInput extends DataInput, so we can use readFully
       in.readFully(tmp, 0, chunk);
       buffer.setBytes(index, tmp, 0, chunk);
@@ -157,7 +163,7 @@ public class UnsafeByteArray implements Externalizable, KryoSerializable {
    * It's needed once the broadcast variable is garbage collected. Since now, we don't have an
    * elegant way to free the underlying memory in off-heap.
    *
-   * <p>Since: https://github.com/apache/incubator-gluten/pull/8127.
+   * <p>Since: https://github.com/apache/gluten/pull/8127.
    */
   public void finalize() throws Throwable {
     release();

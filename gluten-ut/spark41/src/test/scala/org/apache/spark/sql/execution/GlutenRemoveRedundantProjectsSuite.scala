@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenRemoveRedundantProjectsSuite
   extends RemoveRedundantProjectsSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}

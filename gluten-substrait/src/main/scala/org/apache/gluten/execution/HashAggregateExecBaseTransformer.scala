@@ -196,7 +196,27 @@ object HashAggregateExecBaseTransformer {
         agg.child
       )
   }
+
+  def fromSortAggregate(agg: BaseAggregateExec): HashAggregateExecBaseTransformer = {
+    BackendsApiManager.getSparkPlanExecApiInstance
+      .genSortAggregateExecTransformer(
+        agg.requiredChildDistributionExpressions,
+        agg.groupingExpressions,
+        agg.aggregateExpressions,
+        agg.aggregateAttributes,
+        getInitialInputBufferOffset(agg),
+        agg.resultExpressions,
+        agg.child
+      )
+  }
 }
+
+/**
+ * Marker trait for hash aggregate transformers that were offloaded from a SortAggregateExec. This
+ * allows sort elimination rules to distinguish aggregates that were originally sort-based (and thus
+ * can safely eliminate their upstream sort) from regular hash aggregates (which must not).
+ */
+trait SortAggregateExecTransformer extends HashAggregateExecBaseTransformer {}
 
 trait HashAggregateExecPullOutBaseHelper {
   // The direct outputs of Aggregation.

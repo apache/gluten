@@ -28,7 +28,7 @@ Please set them via `--`, e.g. `--build_type=Release`.
 | build_velox_tests      | Build Velox tests.                                                                            | OFF     |
 | build_velox_benchmarks | Build Velox benchmarks (velox_tests and connectors will be disabled if ON)                    | OFF     |
 | build_arrow            | Build arrow java/cpp and install the libs in local. Can turn it OFF after first build.        | ON      |
-| spark_version          | Build for specified version of Spark(3.3, 3.4, 3.5, ALL). `ALL` means build for all versions. | ALL     |
+| spark_version          | Build for specified version of Spark(3.3, 3.4, 3.5, 4.0, 4.1, ALL). `ALL` means build for all versions. | ALL     |
 
 ### Velox build parameters for build-velox.sh
 Please set them via `--`, e.g., `--velox_home=/YOUR/PATH`.
@@ -61,6 +61,8 @@ The below parameters can be set via `-P` for mvn.
 | spark-3.3           | Build Gluten for Spark 3.3.           | disabled       |
 | spark-3.4           | Build Gluten for Spark 3.4.           | disabled      |
 | spark-3.5           | Build Gluten for Spark 3.5.           | enabled      |
+| spark-4.0           | Build Gluten for Spark 4.0. Requires JDK 17+ and Scala 2.13. | disabled      |
+| spark-4.1           | Build Gluten for Spark 4.1. Requires JDK 17+ and Scala 2.13. | disabled      |
 
 ## Gluten Jar for Deployment
 The gluten jar built out is under `GLUTEN_SRC/package/target/`.
@@ -71,3 +73,5 @@ It's name pattern is `gluten-<backend_type>-bundle-spark<spark.bundle.version>_<
 | 3.3.1         | 3.3                  | 2.12                 |
 | 3.4.4         | 3.4                  | 2.12                 |
 | 3.5.5         | 3.5                  | 2.12                 |
+| 4.0.1         | 4.0                  | 2.13                 |
+| 4.1.1         | 4.1                  | 2.13                 |

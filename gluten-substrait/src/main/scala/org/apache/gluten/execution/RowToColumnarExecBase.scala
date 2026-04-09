@@ -47,7 +47,7 @@ abstract class RowToColumnarExecBase(child: SparkPlan)
 
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 
   override def requiredChildConvention(): Seq[ConventionReq] = {
     Seq(ConventionReq.vanillaRow)

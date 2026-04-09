@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
 class GlutenSubexpressionEliminationSuite
   extends SubexpressionEliminationSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenTestsTrait {}

@@ -18,4 +18,4 @@ package org.apache.spark.sql
 
 class GlutenSparkSessionJobTaggingAndCancellationSuite
   extends SparkSessionJobTaggingAndCancellationSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenTestsTrait {}

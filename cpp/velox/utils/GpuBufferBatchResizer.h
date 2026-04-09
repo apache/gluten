@@ -15,7 +15,12 @@
  * limitations under the License.
  */
 
+#pragma once
+
+#include <deque>
+
 #include "memory/ColumnarBatchIterator.h"
+#include "memory/GpuBufferColumnarBatch.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "utils/Exception.h"
 #include "velox/common/memory/MemoryPool.h"
@@ -28,6 +33,7 @@ class GpuBufferBatchResizer : public ColumnarBatchIterator {
       arrow::MemoryPool* arrowPool,
       facebook::velox::memory::MemoryPool* pool,
       int32_t minOutputBatchSize,
+      int64_t maxPrefetchSize,
       std::unique_ptr<ColumnarBatchIterator> in);
 
   std::shared_ptr<ColumnarBatch> next() override;
@@ -35,10 +41,18 @@ class GpuBufferBatchResizer : public ColumnarBatchIterator {
   int64_t spillFixedSize(int64_t size) override;
 
  private:
+  /// Read and compose one batch from the input iterator (CPU-only work).
+  /// Returns nullptr if input is exhausted.
+  std::shared_ptr<GpuBufferColumnarBatch> fetchAndComposeBatch();
+
   arrow::MemoryPool* arrowPool_;
   facebook::velox::memory::MemoryPool* pool_;
   const int32_t minOutputBatchSize_;
+  const int64_t maxPrefetchSize_;
   std::unique_ptr<ColumnarBatchIterator> in_;
+
+  std::deque<std::shared_ptr<GpuBufferColumnarBatch>> prefetchQueue_;
+  int64_t prefetchedBytes_ = 0;
 };
 
 } // namespace gluten

@@ -25,6 +25,7 @@ import org.apache.spark.sql.catalyst.optimizer.{BuildRight, BuildSide}
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.execution.{SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.joins.BuildSideRelation
+import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import io.substrait.proto.JoinRel
@@ -133,9 +134,6 @@ case class BroadcastHashJoinExecTransformer(
     val streamedRDD = getColumnarInputRDDs(streamedPlan)
     val executionId = sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
     if (executionId != null) {
-      logWarning(
-        s"Trace broadcast table data $buildBroadcastTableId" + " " +
-          "and the execution id is " + executionId)
       GlutenDriverEndpoint.collectResources(executionId, buildBroadcastTableId)
     } else {
       logWarning(
@@ -161,7 +159,7 @@ case class BroadcastHashJoinExecTransformer(
         buildBroadcastTableId,
         isNullAwareAntiJoin,
         bloomFilterPushdownSize,
-        VeloxConfig.get.veloxBroadcastHashTableBuildThreads
+        metrics.get("buildHashTableTime")
       )
     val broadcastRDD = VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
     // FIXME: Do we have to make build side a RDD?
@@ -179,4 +177,4 @@ case class BroadcastHashJoinContext(
     buildHashTableId: String,
     isNullAwareAntiJoin: Boolean = false,
     bloomFilterPushdownSize: Long,
-    broadcastHashTableBuildThreads: Int)
+    buildHashTableTimeMetric: Option[SQLMetric] = None)

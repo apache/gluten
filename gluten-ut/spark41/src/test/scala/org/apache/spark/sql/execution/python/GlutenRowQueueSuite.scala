@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.execution.python
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenRowQueueSuite extends RowQueueSuite with GlutenTestsCommonTrait {}
+class GlutenRowQueueSuite extends RowQueueSuite with GlutenTestsTrait {}

@@ -91,6 +91,10 @@ case class MicroBatchScanExecTransformer(
     MicroBatchScanExecTransformer.supportsBatchScan(scan)
   }
 
+  override def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase = {
+    this.copy(output = newOutput)
+  }
+
   override def getSplitInfosFromPartitions(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
     val groupedPartitions = filteredPartitions.flatten

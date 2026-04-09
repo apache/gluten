@@ -197,6 +197,8 @@
                 <exclude>*spark3.3*</exclude>
                 <exclude>*spark3.4*</exclude>
                 <exclude>*spark3.5*</exclude>
+                <exclude>*spark4.0*</exclude>
+                <exclude>*spark4.1*</exclude>
               </excludes>
               <followSymlinks>false</followSymlinks>
             </fileset>
@@ -269,12 +271,6 @@
                     <ignoreClass>org.apache.spark.sql.execution.datasources.orc.OrcFileFormat*</ignoreClass>
                     <ignoreClass>org.apache.spark.sql.execution.datasources.FileFormatWriter$OutputSpec$</ignoreClass>
                     <ignoreClass>org.apache.spark.sql.execution.datasources.FileFormatWriter$</ignoreClass>
-                    <ignoreClass>org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter</ignoreClass>
-                    <ignoreClass>org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter$</ignoreClass>
-                    <ignoreClass>org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter$SpillableIterator</ignoreClass>
-                    <ignoreClass>org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter$ChainedIterator</ignoreClass>
-                    <ignoreClass>org.apache.spark.memory.MemoryConsumer</ignoreClass>
-                    <ignoreClass>org.apache.spark.memory.TaskMemoryManager</ignoreClass>
                     <!-- guava -->
                     <ignoreClass>com.google.thirdparty.publicsuffix*</ignoreClass>
                   </ignoreClasses>

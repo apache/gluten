@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution.datasources.parquet
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
 class GlutenParquetFieldIdSchemaSuite
   extends ParquetFieldIdSchemaSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait {}

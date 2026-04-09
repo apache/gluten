@@ -318,24 +318,21 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
 
   test("delta: filter should be offloaded with scan") {
     withSQLConf("spark.gluten.sql.columnar.scanOnly" -> "true") {
-      // TODO: When RAS is enabled, filter is not offloaded along with scan.
-      withSQLConf("spark.gluten.ras.enabled" -> "false") {
-        withTable("delta_pf") {
-          spark.sql(s"""
-                       |create table test (id int, name string) using delta
-                       |""".stripMargin)
-          spark.sql(s"""
-                       |insert into test values (1, "v1"), (2, "v2"), (3, "v1"), (4, "v2")
-                       |""".stripMargin)
-          runQueryAndCompare(
-            "select id from test where name > 'v1'",
-            compareResult = true,
-            noFallBack = false) {
-            df =>
-              val plan = df.queryExecution.executedPlan
-              assert(plan.collect { case node: BasicScanExecTransformer => node }.nonEmpty)
-              assert(plan.collect { case node: FilterExecTransformerBase => node }.nonEmpty)
-          }
+      withTable("delta_pf") {
+        spark.sql(s"""
+                     |create table test (id int, name string) using delta
+                     |""".stripMargin)
+        spark.sql(s"""
+                     |insert into test values (1, "v1"), (2, "v2"), (3, "v1"), (4, "v2")
+                     |""".stripMargin)
+        runQueryAndCompare(
+          "select id from test where name > 'v1'",
+          compareResult = true,
+          noFallBack = false) {
+          df =>
+            val plan = df.queryExecution.executedPlan
+            assert(plan.collect { case node: BasicScanExecTransformer => node }.nonEmpty)
+            assert(plan.collect { case node: FilterExecTransformerBase => node }.nonEmpty)
         }
       }
     }

@@ -373,28 +373,6 @@ class VeloxTPCHV2BhjSuite extends VeloxTPCHSuite {
   }
 }
 
-class VeloxTPCHV1RasSuite extends VeloxTPCHSuite {
-  override def subType(): String = "v1-ras"
-
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set("spark.sql.sources.useV1SourceList", "parquet")
-      .set("spark.sql.autoBroadcastJoinThreshold", "-1")
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
-
-class VeloxTPCHV1BhjRasSuite extends VeloxTPCHSuite {
-  override def subType(): String = "v1-bhj-ras"
-
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set("spark.sql.sources.useV1SourceList", "parquet")
-      .set("spark.sql.autoBroadcastJoinThreshold", "30M")
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
-
 class VeloxPartitionedTableTPCHSuite extends VeloxTPCHSuite {
   override def subType(): String = "partitioned"
 

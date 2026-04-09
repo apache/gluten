@@ -30,21 +30,7 @@ case class MyStruct(a: Long, b: Array[Long])
 
 case class MyStructWithNullValue(a: Option[Long], b: Array[Long])
 
-class UDFPartialProjectSuiteRasOff extends UDFPartialProjectSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "false")
-  }
-}
-
-class UDFPartialProjectSuiteRasOn extends UDFPartialProjectSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
-
-abstract class UDFPartialProjectSuite extends WholeStageTransformerSuite {
+class UDFPartialProjectSuite extends WholeStageTransformerSuite {
   disableFallbackCheck
   override protected val resourcePath: String = "/tpch-data-parquet"
   override protected val fileFormat: String = "parquet"

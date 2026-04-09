@@ -62,6 +62,7 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
 
     val components = Component.sorted()
     printComponentInfo(components)
+    setComponentInfoConfig(conf, components)
     components.foreach(_.onDriverStart(sc, pluginContext))
     Collections.emptyMap()
   }
@@ -170,6 +171,16 @@ private object GlutenDriverPlugin extends Logging {
       )
     logInfo(loggingInfo)
   }
+
+  private def setComponentInfoConfig(conf: SparkConf, components: Seq[Component]): Unit = {
+    components.foreach {
+      c =>
+        c.info().foreach {
+          case (k, v) =>
+            conf.set(s"spark.gluten.component.$k", v)
+        }
+    }
+  }
 }
 
 private[gluten] class GlutenExecutorPlugin extends ExecutorPlugin {
@@ -200,5 +211,3 @@ private[gluten] class GlutenExecutorPlugin extends ExecutorPlugin {
     taskListeners.reverse.foreach(_.onTaskFailed(failureReason))
   }
 }
-
-private object GlutenPlugin {}

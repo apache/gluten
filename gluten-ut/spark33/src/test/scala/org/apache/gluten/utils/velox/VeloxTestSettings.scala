@@ -123,6 +123,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite in Gluten to replace Seq with Array
     .exclude("Shuffle")
     .excludeGlutenTest("Shuffle")
+    // Rewrite.
+    .exclude("MapFromEntries")
   enableSuite[GlutenConditionalExpressionSuite]
   enableSuite[GlutenDateExpressionsSuite]
     // Has exception in fallback execution when we use resultDF.collect in evaluation.
@@ -153,9 +155,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenGeneratorExpressionSuite]
   enableSuite[GlutenIntervalExpressionsSuite]
   enableSuite[GlutenJsonExpressionsSuite]
-    // https://github.com/apache/incubator-gluten/issues/8102
+    // https://github.com/apache/gluten/issues/8102
     .exclude("$.store.book")
-    // https://github.com/apache/incubator-gluten/issues/10948
+    // https://github.com/apache/gluten/issues/10948
     .exclude("$['key with spaces']")
     .exclude("$")
     .exclude("$.store.book[0]")
@@ -442,6 +444,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-38825: in and notIn filters")
   enableSuite[GlutenParquetInteroperabilitySuite]
     .exclude("parquet timestamp conversion")
+    // TODO: https://github.com/apache/gluten/issues/11865
+    .exclude("SPARK-36803: parquet files with legacy mode and schema evolution")
   enableSuite[GlutenParquetIOSuite]
     // Exception.
     .exclude("SPARK-35640: read binary as timestamp should throw schema incompatible error")
@@ -803,7 +807,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("File source v2: support passing data filters to FileScan without partitionFilters")
     // DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type
     .exclude("File source v2: support partition pruning")
-    // https://github.com/apache/incubator-gluten/pull/9145.
+    // https://github.com/apache/gluten/pull/9145.
     .excludeGlutenTest("SPARK-25237 compute correct input metrics in FileScanRDD")
   enableSuite[GlutenFileScanSuite]
   enableSuite[GlutenGeneratorFunctionSuite]
@@ -845,9 +849,9 @@ class VeloxTestSettings extends BackendTestSettings {
     // Not useful and time consuming.
     .exclude("SPARK-33084: Add jar support Ivy URI in SQL")
     .exclude("SPARK-33084: Add jar support Ivy URI in SQL -- jar contains udf class")
-    // https://github.com/apache/incubator-gluten/pull/9145.
+    // https://github.com/apache/gluten/pull/9145.
     .exclude("SPARK-17515: CollectLimit.execute() should perform per-partition limits")
-    // https://github.com/apache/incubator-gluten/pull/9145.
+    // https://github.com/apache/gluten/pull/9145.
     .exclude("SPARK-19650: An action on a Command should not trigger a Spark job")
   enableSuite[GlutenSQLQueryTestSuite]
   enableSuite[GlutenStatisticsCollectionSuite]

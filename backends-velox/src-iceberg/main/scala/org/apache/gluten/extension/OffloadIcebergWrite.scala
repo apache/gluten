@@ -18,7 +18,6 @@ package org.apache.gluten.extension
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
-import org.apache.gluten.extension.columnar.enumerated.RasOffload
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 import org.apache.gluten.extension.columnar.validator.Validators
@@ -86,17 +85,5 @@ object OffloadIcebergWrite {
           offload
         )
     }
-
-    val offloads: Seq[RasOffload] = Seq(
-      RasOffload.from[AppendDataExec](OffloadIcebergAppend()),
-      RasOffload.from[ReplaceDataExec](OffloadIcebergReplaceData()),
-      RasOffload.from[OverwriteByExpressionExec](OffloadIcebergOverwrite()),
-      RasOffload.from[OverwritePartitionsDynamicExec](OffloadIcebergOverwritePartitionsDynamic()),
-      RasOffload.from[WriteToDataSourceV2Exec](OffloadIcebergWriteToDataSourceV2())
-    )
-    offloads.foreach(
-      offload =>
-        injector.gluten.ras.injectRasRule(
-          c => RasOffload.Rule(offload, Validators.newValidator(new GlutenConfig(c.sqlConf)), Nil)))
   }
 }

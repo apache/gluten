@@ -63,7 +63,7 @@ void getS3HiveConfig(
       {S3Config::Keys::kPathStyleAccess, std::make_pair("path.style.access", "false")},
       {S3Config::Keys::kMaxAttempts, std::make_pair("retry.limit", std::nullopt)},
       {S3Config::Keys::kRetryMode, std::make_pair("retry.mode", "legacy")},
-      {S3Config::Keys::kMaxConnections, std::make_pair("connection.maximum", "15")},
+      {S3Config::Keys::kMaxConnections, std::make_pair("connection.maximum", "25")},
       {S3Config::Keys::kSocketTimeout, std::make_pair("connection.timeout", "200s")},
       {S3Config::Keys::kConnectTimeout, std::make_pair("connection.establish.timeout", "30s")},
       {S3Config::Keys::kUseInstanceCredentials, std::make_pair("instance.credentials", "false")},
@@ -233,10 +233,14 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
   configs[facebook::velox::connector::hive::HiveConfig::kReadTimestampUnitSession] = std::string("6");
   configs[facebook::velox::connector::hive::HiveConfig::kMaxPartitionsPerWritersSession] =
       conf->get<std::string>(kMaxPartitions, "10000");
+  configs[facebook::velox::connector::hive::HiveConfig::kMaxTargetFileSize] =
+      conf->get<std::string>(kMaxTargetFileSize, "0B"); // 0 means no limit on target file size
   configs[facebook::velox::connector::hive::HiveConfig::kIgnoreMissingFilesSession] =
       conf->get<bool>(kIgnoreMissingFiles, false) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kParquetUseColumnNamesSession] =
       conf->get<bool>(kParquetUseColumnNames, true) ? "true" : "false";
+  configs[facebook::velox::connector::hive::HiveConfig::kAllowInt32NarrowingSession] =
+      conf->get<bool>(kAllowInt32Narrowing, true) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kOrcUseColumnNamesSession] =
       conf->get<bool>(kOrcUseColumnNames, true) ? "true" : "false";
 

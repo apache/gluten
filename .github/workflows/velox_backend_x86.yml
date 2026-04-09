@@ -321,20 +321,6 @@ jobs:
             --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
           GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
-      - name: Run TPC-H / TPC-DS with RAS
-        run: |
-          echo "JAVA_HOME: $JAVA_HOME"
-          cd $GITHUB_WORKSPACE/tools/gluten-it
-          SPARK41_CONF=""
-          if [ "${{ matrix.spark }}" = "spark-4.1" ]; then
-            SPARK41_CONF="--extra-conf=spark.sql.unionOutputPartitioning=false"
-          fi
-          GLUTEN_IT_JVM_ARGS=-Xmx5G sbin/gluten-it.sh queries-compare \
-            --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
-            --extra-conf=spark.gluten.ras.enabled=true $SPARK41_CONF \
-          && GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
-            --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
-            --extra-conf=spark.gluten.ras.enabled=true $SPARK41_CONF 
 
   tpc-test-centos7:
     needs: build-native-lib-centos-7
@@ -382,15 +368,6 @@ jobs:
               --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
             GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
               --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
-
-            # Run TPC-H / TPC-DS with RAS
-            cd /work/tools/gluten-it
-            GLUTEN_IT_JVM_ARGS=-Xmx5G sbin/gluten-it.sh queries-compare \
-              --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
-              --extra-conf=spark.gluten.ras.enabled=true \
-            && GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
-              --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
-              --extra-conf=spark.gluten.ras.enabled=true 
           "
 
   tpc-test-ubuntu-oom:
@@ -1030,100 +1007,6 @@ jobs:
           -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ github.job }}-report
-          path: '**/surefire-reports/TEST-*.xml'
-      - name: Upload unit tests log files
-        if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ github.job }}-test-log
-          path: |
-            **/target/*.log
-            **/gluten-ut/**/hs_err_*.log
-            **/gluten-ut/**/core.*
-
-  spark-test-spark35-ras:
-    needs: build-native-lib-centos-7
-    runs-on: ubuntu-22.04
-    env:
-      SPARK_TESTING: true
-    container: apache/gluten:centos-8-jdk8
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
-      - name: Prepare
-        run: |
-          dnf module -y install python39 && \
-          alternatives --set python3 /usr/bin/python3.9 && \
-          pip3 install setuptools==77.0.3 && \
-          pip3 install pyspark==3.5.5 cython && \
-          pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Build and Run unit test for Spark 3.5.5 (other tests)
-        run: |
-          cd $GITHUB_WORKSPACE/
-          export SPARK_SCALA_VERSION=2.12
-          yum install -y java-17-openjdk-devel
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
-          export PATH=$JAVA_HOME/bin:$PATH
-          java -version
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Ppaimon -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.ras.enabled=true" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
-      - name: Upload test report
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ github.job }}-report
-          path: '**/surefire-reports/TEST-*.xml'
-      - name: Upload unit tests log files
-        if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ github.job }}-test-log
-          path: |
-            **/target/*.log
-            **/gluten-ut/**/hs_err_*.log
-            **/gluten-ut/**/core.*
-
-  spark-test-spark35-slow-ras:
-    needs: build-native-lib-centos-7
-    runs-on: ubuntu-22.04
-    env:
-      SPARK_TESTING: true
-    container: apache/gluten:centos-8-jdk8
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
-      - name: Build and Run unit test for Spark 3.5.5 (slow tests)
-        run: |
-          cd $GITHUB_WORKSPACE/
-          yum install -y java-17-openjdk-devel
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
-          export PATH=$JAVA_HOME/bin:$PATH
-          java -version
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Ppaimon -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.ras.enabled=true" \
-          -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
-      - name: Upload test report
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.job }}-report

@@ -38,7 +38,7 @@ clone the repository of Gluten with a specific git tag that you want to build on
 We are taking `v1.6.0-example-rc3` as an example git tag in this guide.
 
 ```bash
-git clone --branch v1.6.0-example-rc3 https://github.com/apache/incubator-gluten.git /workspace
+git clone --branch v1.6.0-example-rc3 https://github.com/apache/gluten.git /workspace
 ```
 
 ### Build
@@ -85,7 +85,7 @@ total 481628
 -rw-r--r--. 1 root root 104595103 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.5.tar.gz
 ```
 
-<!--- Moved from https://github.com/apache/incubator-gluten-site/blob/main/_docs/v1.3.0/developers/HowToRelease.md --->
+<!--- Moved from https://github.com/apache/gluten-site/blob/main/_docs/v1.3.0/developers/HowToRelease.md --->
 # Publish the Release
 
 This section outlines the steps for releasing Apache Gluten according to the Apache release guidelines.
@@ -232,17 +232,11 @@ $ for i in *.tar.gz; do echo $i; sha512sum --check  $i.sha512; done
 
 ### Initiate a release vote.
 
-1. Email a vote request to dev@gluten.apache.org, requiring at least 3 PPMC +1s.
+1. Email a vote request to dev@gluten.apache.org, requiring at least 3 PMC +1s.
 
 2. Allow 72 hours or until enough votes are collected.
 
 3. Share the vote outcome on the dev list.
-
-4. If successful, request a vote on general@incubator.apache.org, needing 3 PMC +1s.
-
-5. Wait 72 hours or for sufficient votes.
-
-6. Announce the results on the general list.
 
 Vote Email Template
 ```
@@ -262,13 +256,13 @@ Hello,
         https://dist.apache.org/repos/dist/dev/gluten/{release-version}/
     
     Release notes:
-        https://github.com/apache/incubator-gluten/releases/tag/{release-version}
+        https://github.com/apache/gluten/releases/tag/{release-version}
 
     Git tag for the release:
-        https://github.com/apache/incubator-gluten/releases/tag/{release-version}
+        https://github.com/apache/gluten/releases/tag/{release-version}
     
     Git commit id for the release:
-        https://github.com/apache/incubator-gluten/commit/{id}
+        https://github.com/apache/gluten/commit/{id}
 
     Keys to verify the Release Candidate:
         https://downloads.apache.org/gluten/KEYS
@@ -292,7 +286,7 @@ Hello,
 
     To compile from the source, please refer to:
     
-    https://github.com/apache/incubator-gluten#building-from-source
+    https://github.com/apache/gluten#building-from-source
 
 Thanks,
 <YOUR NAME>
@@ -307,17 +301,16 @@ Hello everyone,
 
 The Apache Gluten {release-version} has been released!
 
-Apache Gluten is a Q&A platform software for teams at any scale.
-Whether it's a community forum, help center, or knowledge management platform, you can always count on Apache Gluten.
+Apache Gluten is a middle layer responsible for offloading JVM-based SQL engines' execution to native engines.
 
 Download Links: https://downloads.apache.org/gluten/
 
-Release Notes: https://github.com/apache/incubator-gluten/releases/tag/{release-version}
+Release Notes: https://github.com/apache/gluten/releases/tag/{release-version}
 
 Website: https://gluten.apache.org/
 
 Resources:
-- Issue: https://github.com/apache/incubator-gluten/issues
+- Issue: https://github.com/apache/gluten/issues
 - Mailing list: dev@gluten.apache.org
 
 Thanks,

@@ -17,6 +17,7 @@
 package org.apache.gluten.extension.columnar.heuristic
 
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
+import org.apache.gluten.extension.columnar.offload.OffloadSingleNode._
 import org.apache.gluten.logging.LogLevelUtil
 
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -25,7 +26,9 @@ import org.apache.spark.sql.execution.SparkPlan
 class LegacyOffload(rules: Seq[OffloadSingleNode]) extends Rule[SparkPlan] with LogLevelUtil {
   def apply(plan: SparkPlan): SparkPlan = {
     val out =
-      rules.foldLeft(plan)((p, rule) => p.transformUp { case p => rule.offload(p) })
+      rules.foldLeft(plan) {
+        (p, rule) => p.transformUp { case node => rule.offloadAndPropagateTag(node) }
+      }
     out
   }
 }

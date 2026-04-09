@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenTestsTrait
 
-class GlutenV2ExpressionUtilsSuite extends V2ExpressionUtilsSuite with GlutenTestsCommonTrait {}
+class GlutenV2ExpressionUtilsSuite extends V2ExpressionUtilsSuite with GlutenTestsTrait {}

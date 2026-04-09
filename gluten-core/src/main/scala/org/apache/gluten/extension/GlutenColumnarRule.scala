@@ -95,7 +95,7 @@ case class GlutenColumnarRule(
       case _ =>
         throw new IllegalStateException(
           "This should not happen. Please leave an issue at" +
-            " https://github.com/apache/incubator-gluten.")
+            " https://github.com/apache/gluten.")
     }
     val vanillaPlan = Transitions.insert(originalPlan, outputsColumnar)
     val applier = applierBuilder.apply(session)

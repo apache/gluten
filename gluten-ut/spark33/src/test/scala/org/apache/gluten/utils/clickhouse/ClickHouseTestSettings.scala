@@ -399,7 +399,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
   enableSuite[GlutenJsonExpressionsSuite]
     .exclude(
       "$.store.basket[0][*].b"
-    ) // issue: https://github.com/apache/incubator-gluten/issues/8529
+    ) // issue: https://github.com/apache/gluten/issues/8529
     .exclude("from_json - invalid data")
     .exclude("from_json - input=object, schema=array, output=array of single row")
     .exclude("from_json - input=empty object, schema=array, output=array of single row with null")
@@ -749,7 +749,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("DATE_FROM_UNIX_DATE")
     .exclude("UNIX_SECONDS")
     .exclude("TIMESTAMP_SECONDS") // refer to https://github.com/ClickHouse/ClickHouse/issues/69280
-    .exclude("TIMESTAMP_MICROS") // refer to https://github.com/apache/incubator-gluten/issues/7127
+    .exclude("TIMESTAMP_MICROS") // refer to https://github.com/apache/gluten/issues/7127
     .exclude("SPARK-33498: GetTimestamp,UnixTimestamp,ToUnixTimestamp with parseError")
     .exclude("SPARK-34739,SPARK-35889: add a year-month interval to a timestamp")
     .exclude("SPARK-34761,SPARK-35889: add a day-time interval to a timestamp")
@@ -797,9 +797,9 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("default")
     .exclude("SPARK-37967: Literal.create support ObjectType")
   enableSuite[GlutenMathExpressionsSuite]
-    .exclude("unhex") // https://github.com/apache/incubator-gluten/issues/7232
-    .exclude("round/bround/floor/ceil") // https://github.com/apache/incubator-gluten/issues/7233
-    .exclude("atan2") // https://github.com/apache/incubator-gluten/issues/7233
+    .exclude("unhex") // https://github.com/apache/gluten/issues/7232
+    .exclude("round/bround/floor/ceil") // https://github.com/apache/gluten/issues/7233
+    .exclude("atan2") // https://github.com/apache/gluten/issues/7233
   enableSuite[GlutenMiscExpressionsSuite]
   enableSuite[GlutenNondeterministicSuite]
     .exclude("MonotonicallyIncreasingID")
@@ -856,7 +856,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("REPEAT")
     .exclude("ParseUrl")
     .exclude("SPARK-33468: ParseUrl in ANSI mode should fail if input string is not a valid url")
-    .exclude("FORMAT") // refer https://github.com/apache/incubator-gluten/issues/6765
+    .exclude("FORMAT") // refer https://github.com/apache/gluten/issues/6765
     .exclude(
       "soundex unit test"
     ) // CH and spark returns different results when input non-ASCII characters

@@ -44,7 +44,7 @@ abstract class ColumnarRangeBaseExec extends LeafExecNode with ValidatablePlan {
       s"${output.mkString("[", ", ", "]")}"
   }
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 
   override protected def doExecute(): RDD[InternalRow] = {
     throw new UnsupportedOperationException(s"This operator doesn't support doExecute().")

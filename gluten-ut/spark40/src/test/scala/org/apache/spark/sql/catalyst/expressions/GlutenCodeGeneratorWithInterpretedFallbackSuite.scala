@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenTestsTrait
 
 class GlutenCodeGeneratorWithInterpretedFallbackSuite
   extends CodeGeneratorWithInterpretedFallbackSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenTestsTrait {}

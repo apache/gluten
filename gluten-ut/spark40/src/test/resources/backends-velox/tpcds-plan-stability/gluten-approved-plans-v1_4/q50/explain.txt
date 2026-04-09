@@ -1,0 +1,252 @@
+== Physical Plan ==
+VeloxColumnarToRow (42)
++- TakeOrderedAndProjectExecTransformer (41)
+   +- ^ RegularHashAggregateExecTransformer (39)
+      +- ^ InputIteratorTransformer (38)
+         +- ColumnarExchange (36)
+            +- VeloxResizeBatches (35)
+               +- ^ ProjectExecTransformer (33)
+                  +- ^ FlushableHashAggregateExecTransformer (32)
+                     +- ^ ProjectExecTransformer (31)
+                        +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (30)
+                           :- ^ ProjectExecTransformer (26)
+                           :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (25)
+                           :     :- ^ ProjectExecTransformer (18)
+                           :     :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (17)
+                           :     :     :- ^ ProjectExecTransformer (10)
+                           :     :     :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (9)
+                           :     :     :     :- ^ FilterExecTransformer (2)
+                           :     :     :     :  +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (1)
+                           :     :     :     +- ^ InputIteratorTransformer (8)
+                           :     :     :        +- ColumnarBroadcastExchange (6)
+                           :     :     :           +- ^ FilterExecTransformer (4)
+                           :     :     :              +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_returns (3)
+                           :     :     +- ^ InputIteratorTransformer (16)
+                           :     :        +- ColumnarBroadcastExchange (14)
+                           :     :           +- ^ FilterExecTransformer (12)
+                           :     :              +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store (11)
+                           :     +- ^ InputIteratorTransformer (24)
+                           :        +- ColumnarBroadcastExchange (22)
+                           :           +- ^ FilterExecTransformer (20)
+                           :              +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (19)
+                           +- ^ InputIteratorTransformer (29)
+                              +- ReusedExchange (27)
+
+
+(1) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [5]: [ss_item_sk#1, ss_customer_sk#2, ss_store_sk#3, ss_ticket_number#4, ss_sold_date_sk#5]
+Batched: true
+Location: InMemoryFileIndex []
+PartitionFilters: [isnotnull(ss_sold_date_sk#5)]
+PushedFilters: [IsNotNull(ss_ticket_number), IsNotNull(ss_item_sk), IsNotNull(ss_customer_sk), IsNotNull(ss_store_sk)]
+ReadSchema: struct<ss_item_sk:int,ss_customer_sk:int,ss_store_sk:int,ss_ticket_number:int>
+
+(2) FilterExecTransformer
+Input [5]: [ss_item_sk#1, ss_customer_sk#2, ss_store_sk#3, ss_ticket_number#4, ss_sold_date_sk#5]
+Arguments: (((isnotnull(ss_ticket_number#4) AND isnotnull(ss_item_sk#1)) AND isnotnull(ss_customer_sk#2)) AND isnotnull(ss_store_sk#3))
+
+(3) FileSourceScanExecTransformer parquet spark_catalog.default.store_returns
+Output [4]: [sr_item_sk#6, sr_customer_sk#7, sr_ticket_number#8, sr_returned_date_sk#9]
+Batched: true
+Location: InMemoryFileIndex []
+PartitionFilters: [isnotnull(sr_returned_date_sk#9), dynamicpruningexpression(sr_returned_date_sk#9 IN dynamicpruning#10)]
+PushedFilters: [IsNotNull(sr_ticket_number), IsNotNull(sr_item_sk), IsNotNull(sr_customer_sk)]
+ReadSchema: struct<sr_item_sk:int,sr_customer_sk:int,sr_ticket_number:int>
+
+(4) FilterExecTransformer
+Input [4]: [sr_item_sk#6, sr_customer_sk#7, sr_ticket_number#8, sr_returned_date_sk#9]
+Arguments: ((isnotnull(sr_ticket_number#8) AND isnotnull(sr_item_sk#6)) AND isnotnull(sr_customer_sk#7))
+
+(5) WholeStageCodegenTransformer (2)
+Input [4]: [sr_item_sk#6, sr_customer_sk#7, sr_ticket_number#8, sr_returned_date_sk#9]
+Arguments: false
+
+(6) ColumnarBroadcastExchange
+Input [4]: [sr_item_sk#6, sr_customer_sk#7, sr_ticket_number#8, sr_returned_date_sk#9]
+Arguments: HashedRelationBroadcastMode(List(input[2, int, false], input[0, int, false], input[1, int, false]),false), [plan_id=1]
+
+(7) InputAdapter
+Input [4]: [sr_item_sk#6, sr_customer_sk#7, sr_ticket_number#8, sr_returned_date_sk#9]
+
+(8) InputIteratorTransformer
+Input [4]: [sr_item_sk#6, sr_customer_sk#7, sr_ticket_number#8, sr_returned_date_sk#9]
+
+(9) BroadcastHashJoinExecTransformer
+Left keys [3]: [ss_ticket_number#4, ss_item_sk#1, ss_customer_sk#2]
+Right keys [3]: [sr_ticket_number#8, sr_item_sk#6, sr_customer_sk#7]
+Join type: Inner
+Join condition: None
+
+(10) ProjectExecTransformer
+Output [3]: [ss_store_sk#3, ss_sold_date_sk#5, sr_returned_date_sk#9]
+Input [9]: [ss_item_sk#1, ss_customer_sk#2, ss_store_sk#3, ss_ticket_number#4, ss_sold_date_sk#5, sr_item_sk#6, sr_customer_sk#7, sr_ticket_number#8, sr_returned_date_sk#9]
+
+(11) FileSourceScanExecTransformer parquet spark_catalog.default.store
+Output [11]: [s_store_sk#11, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/store]
+PushedFilters: [IsNotNull(s_store_sk)]
+ReadSchema: struct<s_store_sk:int,s_store_name:string,s_company_id:int,s_street_number:string,s_street_name:string,s_street_type:string,s_suite_number:string,s_city:string,s_county:string,s_state:string,s_zip:string>
+
+(12) FilterExecTransformer
+Input [11]: [s_store_sk#11, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+Arguments: isnotnull(s_store_sk#11)
+
+(13) WholeStageCodegenTransformer (3)
+Input [11]: [s_store_sk#11, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+Arguments: false
+
+(14) ColumnarBroadcastExchange
+Input [11]: [s_store_sk#11, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, false] as bigint)),false), [plan_id=2]
+
+(15) InputAdapter
+Input [11]: [s_store_sk#11, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+
+(16) InputIteratorTransformer
+Input [11]: [s_store_sk#11, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+
+(17) BroadcastHashJoinExecTransformer
+Left keys [1]: [ss_store_sk#3]
+Right keys [1]: [s_store_sk#11]
+Join type: Inner
+Join condition: None
+
+(18) ProjectExecTransformer
+Output [12]: [ss_sold_date_sk#5, sr_returned_date_sk#9, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+Input [14]: [ss_store_sk#3, ss_sold_date_sk#5, sr_returned_date_sk#9, s_store_sk#11, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+
+(19) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
+Output [1]: [d_date_sk#22]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
+PushedFilters: [IsNotNull(d_date_sk)]
+ReadSchema: struct<d_date_sk:int>
+
+(20) FilterExecTransformer
+Input [1]: [d_date_sk#22]
+Arguments: isnotnull(d_date_sk#22)
+
+(21) WholeStageCodegenTransformer (4)
+Input [1]: [d_date_sk#22]
+Arguments: false
+
+(22) ColumnarBroadcastExchange
+Input [1]: [d_date_sk#22]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, false] as bigint)),false), [plan_id=3]
+
+(23) InputAdapter
+Input [1]: [d_date_sk#22]
+
+(24) InputIteratorTransformer
+Input [1]: [d_date_sk#22]
+
+(25) BroadcastHashJoinExecTransformer
+Left keys [1]: [ss_sold_date_sk#5]
+Right keys [1]: [d_date_sk#22]
+Join type: Inner
+Join condition: None
+
+(26) ProjectExecTransformer
+Output [12]: [ss_sold_date_sk#5, sr_returned_date_sk#9, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+Input [13]: [ss_sold_date_sk#5, sr_returned_date_sk#9, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, d_date_sk#22]
+
+(27) ReusedExchange [Reuses operator id: 47]
+Output [1]: [d_date_sk#23]
+
+(28) InputAdapter
+Input [1]: [d_date_sk#23]
+
+(29) InputIteratorTransformer
+Input [1]: [d_date_sk#23]
+
+(30) BroadcastHashJoinExecTransformer
+Left keys [1]: [sr_returned_date_sk#9]
+Right keys [1]: [d_date_sk#23]
+Join type: Inner
+Join condition: None
+
+(31) ProjectExecTransformer
+Output [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, CASE WHEN ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 30) THEN 1 ELSE 0 END AS _pre_1#24, CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 30) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 60)) THEN 1 ELSE 0 END AS _pre_2#25, CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 60) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 90)) THEN 1 ELSE 0 END AS _pre_3#26, CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 90) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 120)) THEN 1 ELSE 0 END AS _pre_4#27, CASE WHEN ((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 120) THEN 1 ELSE 0 END AS _pre_5#28]
+Input [13]: [ss_sold_date_sk#5, sr_returned_date_sk#9, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, d_date_sk#23]
+
+(32) FlushableHashAggregateExecTransformer
+Input [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, _pre_1#24, _pre_2#25, _pre_3#26, _pre_4#27, _pre_5#28]
+Keys [10]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+Functions [5]: [partial_sum(_pre_1#24), partial_sum(_pre_2#25), partial_sum(_pre_3#26), partial_sum(_pre_4#27), partial_sum(_pre_5#28)]
+Aggregate Attributes [5]: [sum#29, sum#30, sum#31, sum#32, sum#33]
+Results [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]
+
+(33) ProjectExecTransformer
+Output [16]: [hash(s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, 42) AS hash_partition_key#39, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]
+Input [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]
+
+(34) WholeStageCodegenTransformer (6)
+Input [16]: [hash_partition_key#39, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]
+Arguments: false
+
+(35) VeloxResizeBatches
+Input [16]: [hash_partition_key#39, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]
+Arguments: 1024, 2147483647, 10485760
+
+(36) ColumnarExchange
+Input [16]: [hash_partition_key#39, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]
+Arguments: hashpartitioning(s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, 1), ENSURE_REQUIREMENTS, [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38], [plan_id=4], [shuffle_writer_type=hash]
+
+(37) InputAdapter
+Input [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]
+
+(38) InputIteratorTransformer
+Input [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]
+
+(39) RegularHashAggregateExecTransformer
+Input [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]
+Keys [10]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21]
+Functions [5]: [sum(CASE WHEN ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 30) THEN 1 ELSE 0 END), sum(CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 30) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 60)) THEN 1 ELSE 0 END), sum(CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 60) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 90)) THEN 1 ELSE 0 END), sum(CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 90) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 120)) THEN 1 ELSE 0 END), sum(CASE WHEN ((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 120) THEN 1 ELSE 0 END)]
+Aggregate Attributes [5]: [sum(CASE WHEN ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 30) THEN 1 ELSE 0 END)#40, sum(CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 30) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 60)) THEN 1 ELSE 0 END)#41, sum(CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 60) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 90)) THEN 1 ELSE 0 END)#42, sum(CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 90) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 120)) THEN 1 ELSE 0 END)#43, sum(CASE WHEN ((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 120) THEN 1 ELSE 0 END)#44]
+Results [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum(CASE WHEN ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 30) THEN 1 ELSE 0 END)#40 AS 30 days #45, sum(CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 30) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 60)) THEN 1 ELSE 0 END)#41 AS 31 - 60 days #46, sum(CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 60) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 90)) THEN 1 ELSE 0 END)#42 AS 61 - 90 days #47, sum(CASE WHEN (((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 90) AND ((sr_returned_date_sk#9 - ss_sold_date_sk#5) <= 120)) THEN 1 ELSE 0 END)#43 AS 91 - 120 days #48, sum(CASE WHEN ((sr_returned_date_sk#9 - ss_sold_date_sk#5) > 120) THEN 1 ELSE 0 END)#44 AS >120 days #49]
+
+(40) WholeStageCodegenTransformer (7)
+Input [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, 30 days #45, 31 - 60 days #46, 61 - 90 days #47, 91 - 120 days #48, >120 days #49]
+Arguments: false
+
+(41) TakeOrderedAndProjectExecTransformer
+Input [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, 30 days #45, 31 - 60 days #46, 61 - 90 days #47, 91 - 120 days #48, >120 days #49]
+Arguments: 100, [s_store_name#12 ASC NULLS FIRST, s_company_id#13 ASC NULLS FIRST, s_street_number#14 ASC NULLS FIRST, s_street_name#15 ASC NULLS FIRST, s_street_type#16 ASC NULLS FIRST, s_suite_number#17 ASC NULLS FIRST, s_city#18 ASC NULLS FIRST, s_county#19 ASC NULLS FIRST, s_state#20 ASC NULLS FIRST, s_zip#21 ASC NULLS FIRST], [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, 30 days #45, 31 - 60 days #46, 61 - 90 days #47, 91 - 120 days #48, >120 days #49], 0
+
+(42) VeloxColumnarToRow
+Input [15]: [s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, 30 days #45, 31 - 60 days #46, 61 - 90 days #47, 91 - 120 days #48, >120 days #49]
+
+===== Subqueries =====
+
+Subquery:1 Hosting operator id = 3 Hosting Expression = sr_returned_date_sk#9 IN dynamicpruning#10
+ColumnarBroadcastExchange (47)
++- ^ ProjectExecTransformer (45)
+   +- ^ FilterExecTransformer (44)
+      +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (43)
+
+
+(43) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
+Output [3]: [d_date_sk#23, d_year#50, d_moy#51]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
+PushedFilters: [IsNotNull(d_year), IsNotNull(d_moy), EqualTo(d_year,2001), EqualTo(d_moy,8), IsNotNull(d_date_sk)]
+ReadSchema: struct<d_date_sk:int,d_year:int,d_moy:int>
+
+(44) FilterExecTransformer
+Input [3]: [d_date_sk#23, d_year#50, d_moy#51]
+Arguments: ((((isnotnull(d_year#50) AND isnotnull(d_moy#51)) AND (d_year#50 = 2001)) AND (d_moy#51 = 8)) AND isnotnull(d_date_sk#23))
+
+(45) ProjectExecTransformer
+Output [1]: [d_date_sk#23]
+Input [3]: [d_date_sk#23, d_year#50, d_moy#51]
+
+(46) WholeStageCodegenTransformer (1)
+Input [1]: [d_date_sk#23]
+Arguments: false
+
+(47) ColumnarBroadcastExchange
+Input [1]: [d_date_sk#23]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=5]
+
+

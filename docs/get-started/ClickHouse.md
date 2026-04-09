@@ -52,7 +52,7 @@ You need to install the following software manually:
 
 Then, get Gluten code:
 ```shell
-git clone https://github.com/apache/incubator-gluten.git
+git clone https://github.com/apache/gluten.git
 ```
 
 #### Setup ClickHouse backend development environment
@@ -64,7 +64,7 @@ clone gluten repo
 
 
 ```shell
-git clone https://github.com/apache/incubator-gluten.git
+git clone https://github.com/apache/gluten.git
 ```
 
 clone Kyligence/ClickHouse repo
@@ -176,8 +176,8 @@ The prerequisites are the same as the one mentioned above. Compile Gluten with C
 - for Spark 3.3.1
 
 ```
-    git clone https://github.com/apache/incubator-gluten.git
-    cd incubator-gluten/
+    git clone https://github.com/apache/gluten.git
+    cd gluten/
     export MAVEN_OPTS="-Xmx8g -XX:ReservedCodeCacheSize=2g"
     mvn clean install -Pbackends-clickhouse -Phadoop-2.7.4 -Pspark-3.3 -Dhadoop.version=2.8.5 -DskipTests -Dcheckstyle.skip
     ls -al backends-clickhouse/target/gluten-XXXXX-spark-3.3-jar-with-dependencies.jar

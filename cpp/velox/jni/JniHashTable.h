@@ -26,13 +26,53 @@
 
 namespace gluten {
 
-inline static JavaVM* vm = nullptr;
+// Wrapper class to encapsulate JNI-related static objects for hash table operations.
+// This avoids exposing global variables in the gluten namespace.
+class JniHashTableContext {
+ public:
+  static JniHashTableContext& getInstance() {
+    static JniHashTableContext instance;
+    return instance;
+  }
 
-inline static std::unique_ptr<ObjectStore> hashTableObjStore = ObjectStore::create();
+  // Delete copy and move constructors/operators
+  JniHashTableContext(const JniHashTableContext&) = delete;
+  JniHashTableContext& operator=(const JniHashTableContext&) = delete;
+  JniHashTableContext(JniHashTableContext&&) = delete;
+  JniHashTableContext& operator=(JniHashTableContext&&) = delete;
+
+  void initialize(JNIEnv* env, JavaVM* javaVm);
+  void finalize(JNIEnv* env);
+
+  JavaVM* getJavaVM() const {
+    return vm_;
+  }
+
+  ObjectStore* getHashTableObjStore() const {
+    return hashTableObjStore_.get();
+  }
+
+  jlong callJavaGet(const std::string& id) const;
+
+ private:
+  JniHashTableContext() : hashTableObjStore_(ObjectStore::create()) {}
+  
+  ~JniHashTableContext() {
+    // Note: The destructor is called at program exit (after main() returns).
+    // By this time, JNI_OnUnload should have already been called, which invokes
+    // finalize() to clean up JNI global references while the JVM is still valid.
+    // The singleton itself (including hashTableObjStore_) will be destroyed here.
+  }
+
+  JavaVM* vm_{nullptr};
+  std::unique_ptr<ObjectStore> hashTableObjStore_;
+  jclass jniVeloxBroadcastBuildSideCache_{nullptr};
+  jmethodID jniGet_{nullptr};
+};
 
 // Return the hash table builder address.
 std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
-    const std::string& joinKeys,
+    const std::vector<std::string>& joinKeys,
     std::vector<std::string> names,
     std::vector<facebook::velox::TypePtr> veloxTypeList,
     int joinType,
@@ -43,12 +83,21 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     std::vector<std::shared_ptr<ColumnarBatch>>& batches,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool);
 
-long getJoin(std::string hashTableId);
+long getJoin(const std::string& hashTableId);
 
-void initVeloxJniHashTable(JNIEnv* env);
+// Initialize the JNI hash table context
+inline void initVeloxJniHashTable(JNIEnv* env, JavaVM* javaVm) {
+  JniHashTableContext::getInstance().initialize(env, javaVm);
+}
 
-void finalizeVeloxJniHashTable(JNIEnv* env);
+// Finalize the JNI hash table context
+inline void finalizeVeloxJniHashTable(JNIEnv* env) {
+  JniHashTableContext::getInstance().finalize(env);
+}
 
-jlong callJavaGet(const std::string& id);
+// Get hash table object store
+inline ObjectStore* getHashTableObjStore() {
+  return JniHashTableContext::getInstance().getHashTableObjStore();
+}
 
 } // namespace gluten

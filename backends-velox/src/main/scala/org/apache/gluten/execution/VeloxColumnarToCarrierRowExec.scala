@@ -24,7 +24,7 @@ import org.apache.spark.sql.execution.SparkPlan
 case class VeloxColumnarToCarrierRowExec(override val child: SparkPlan)
   extends ColumnarToCarrierRowExecBase {
   override protected def fromBatchType(): Convention.BatchType = VeloxBatchType
-  override def rowType0(): Convention.RowType = VeloxCarrierRowType
+  override def rowType(): Convention.RowType = VeloxCarrierRowType
   override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
     copy(child = newChild)
 }

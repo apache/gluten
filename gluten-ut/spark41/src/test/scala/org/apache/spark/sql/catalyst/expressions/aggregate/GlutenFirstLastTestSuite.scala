@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.catalyst.expressions.aggregate
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenFirstLastTestSuite extends FirstLastTestSuite with GlutenTestsCommonTrait {}
+class GlutenFirstLastTestSuite extends FirstLastTestSuite with GlutenTestsTrait {}

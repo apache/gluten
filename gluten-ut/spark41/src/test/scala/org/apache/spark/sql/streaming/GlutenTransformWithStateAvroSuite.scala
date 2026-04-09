@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenTransformWithStateAvroSuite
   extends TransformWithStateAvroSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}

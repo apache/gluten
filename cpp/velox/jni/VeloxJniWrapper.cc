@@ -21,6 +21,8 @@
 #include <jni/JniCommon.h>
 #include <velox/connectors/hive/PartitionIdGenerator.h>
 #include <velox/exec/OperatorUtils.h>
+#include <folly/futures/Future.h>
+#include <folly/executors/CPUThreadPoolExecutor.h>
 
 #include <exception>
 #include "JniUdf.h"
@@ -80,7 +82,7 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
   getJniErrorState()->ensureInitialized(env);
   initVeloxJniFileSystem(env);
   initVeloxJniUDF(env);
-  initVeloxJniHashTable(env);
+  initVeloxJniHashTable(env, vm);
 
   infoCls = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/validate/NativePlanValidationInfo;");
   infoClsInitMethod = getMethodIdOrError(env, infoCls, "<init>", "(ILjava/lang/String;)V");
@@ -94,8 +96,6 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
 
   DLOG(INFO) << "Loaded Velox backend.";
 
-  gluten::vm = vm;
-
   return jniVersion;
 }
 
@@ -108,6 +108,7 @@ void JNI_OnUnload(JavaVM* vm, void*) {
 
   finalizeVeloxJniUDF(env);
   finalizeVeloxJniFileSystem(env);
+  finalizeVeloxJniHashTable(env);
   getJniErrorState()->close();
   getJniCommonState()->close();
   google::ShutdownGoogleLogging();
@@ -455,6 +456,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_utils_GpuBufferBatchResizerJniWra
     JNIEnv* env,
     jobject wrapper,
     jint minOutputBatchSize,
+    jlong maxPrefetchBatchBytes,
     jobject jIter) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
@@ -462,7 +464,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_utils_GpuBufferBatchResizerJniWra
   auto pool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->getLeafMemoryPool();
   auto iter = makeJniColumnarBatchIterator(env, jIter, ctx);
   auto appender = std::make_shared<ResultIterator>(
-      std::make_unique<GpuBufferBatchResizer>(arrowPool, pool.get(), minOutputBatchSize, std::move(iter)));
+      std::make_unique<GpuBufferBatchResizer>(arrowPool, pool.get(), minOutputBatchSize, maxPrefetchBatchBytes, std::move(iter)));
   return ctx->saveObject(appender);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -939,17 +941,26 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     jclass,
     jstring tableId,
     jlongArray batchHandles,
-    jstring joinKey,
+    jobjectArray joinKeys,
     jint joinType,
     jboolean hasMixedJoinCondition,
     jboolean isExistenceJoin,
     jbyteArray namedStruct,
     jboolean isNullAwareAntiJoin,
     jlong bloomFilterPushdownSize,
-    jint broadcastHashTableBuildThreads) {
+    jint numThreads) {
   JNI_METHOD_START
   const auto hashTableId = jStringToCString(env, tableId);
-  const auto hashJoinKey = jStringToCString(env, joinKey);
+
+  // Convert Java String array to C++ vector<string>
+  std::vector<std::string> hashJoinKeys;
+  jsize joinKeysCount = env->GetArrayLength(joinKeys);
+  hashJoinKeys.reserve(joinKeysCount);
+  for (jsize i = 0; i < joinKeysCount; ++i) {
+    jstring jkey = (jstring)env->GetObjectArrayElement(joinKeys, i);
+    hashJoinKeys.emplace_back(jStringToCString(env, jkey));
+  }
+
   const auto inputType = gluten::getByteArrayElementsSafe(env, namedStruct);
   std::string structString{
       reinterpret_cast<const char*>(inputType.elems()), static_cast<std::string::size_type>(inputType.length())};
@@ -976,19 +987,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     cb.push_back(ObjectStore::retrieve<ColumnarBatch>(handle));
   }
 
-  size_t maxThreads = broadcastHashTableBuildThreads > 0
-      ? std::min((size_t)broadcastHashTableBuildThreads, (size_t)32)
-      : std::min((size_t)std::thread::hardware_concurrency(), (size_t)32);
-
-  // Heuristic: Each thread should process at least a certain number of batches to justify parallelism overhead.
-  // 32 batches is roughly 128k rows, which is a reasonable granularity for a single thread.
-  constexpr size_t kMinBatchesPerThread = 32;
-  size_t numThreads = std::min(maxThreads, (handleCount + kMinBatchesPerThread - 1) / kMinBatchesPerThread);
-  numThreads = std::max((size_t)1, numThreads);
-
-  if (numThreads <= 1) {
+  if (numThreads == 1) {
     auto builder = nativeHashTableBuild(
-        hashJoinKey,
+        hashJoinKeys,
         names,
         veloxTypeList,
         joinType,
@@ -1008,26 +1009,30 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         nullptr);
     builder->setHashTable(std::move(mainTable));
 
-    return gluten::hashTableObjStore->save(builder);
+    return gluten::getHashTableObjStore()->save(builder);
   }
 
-  std::vector<std::thread> threads;
-
+  // Use thread pool (executor) instead of creating threads directly
+  auto executor = VeloxBackend::get()->executor();
+  
   std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(numThreads);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(numThreads);
+  std::vector<folly::Future<folly::Unit>> futures;
+  futures.reserve(numThreads);
 
   for (size_t t = 0; t < numThreads; ++t) {
     size_t start = (handleCount * t) / numThreads;
     size_t end = (handleCount * (t + 1)) / numThreads;
 
-    threads.emplace_back([&, t, start, end]() {
+    // Submit task to thread pool
+    auto future = folly::via(executor, [&, t, start, end]() {
       std::vector<std::shared_ptr<gluten::ColumnarBatch>> threadBatches;
       for (size_t i = start; i < end; ++i) {
         threadBatches.push_back(cb[i]);
       }
 
       auto builder = nativeHashTableBuild(
-          hashJoinKey,
+          hashJoinKeys,
           names,
           veloxTypeList,
           joinType,
@@ -1041,11 +1046,12 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       hashTableBuilders[t] = std::move(builder);
       otherTables[t] = std::move(hashTableBuilders[t]->uniqueTable());
     });
+    
+    futures.push_back(std::move(future));
   }
 
-  for (auto& thread : threads) {
-    thread.join();
-  }
+  // Wait for all tasks to complete
+  folly::collectAll(futures).wait();
 
   auto mainTable = std::move(otherTables[0]);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> tables;
@@ -1073,7 +1079,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   }
 
   hashTableBuilders[0]->setHashTable(std::move(mainTable));
-  return gluten::hashTableObjStore->save(hashTableBuilders[0]);
+  return gluten::getHashTableObjStore()->save(hashTableBuilders[0]);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
@@ -1083,7 +1089,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_cloneH
     jlong tableHandler) {
   JNI_METHOD_START
   auto hashTableHandler = ObjectStore::retrieve<gluten::HashTableBuilder>(tableHandler);
-  return gluten::hashTableObjStore->save(hashTableHandler);
+  return gluten::getHashTableObjStore()->save(hashTableHandler);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 

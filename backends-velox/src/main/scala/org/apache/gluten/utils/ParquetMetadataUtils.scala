@@ -148,6 +148,12 @@ object ParquetMetadataUtils extends Logging {
       isTimezoneFoundInMetadata(footer, parquetOptions)
     )
 
+    // Variant annotation check: Velox native reader does not check variant annotations,
+    // so fallback to vanilla Spark when detected.
+    if (SparkShimLoader.getSparkShims.shouldFallbackForParquetVariantAnnotation(footer)) {
+      return Some("Variant annotation detected in Parquet file.")
+    }
+
     for (check <- validationChecks) {
       if (check.isDefined) {
         return check

@@ -1,0 +1,193 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [customer_id,customer_first_name,customer_last_name,customer_preferred_cust_flag,customer_birth_country,customer_login,customer_email_address]
+    WholeStageCodegenTransformer (30)
+      ProjectExecTransformer [customer_id,customer_first_name,customer_last_name,customer_preferred_cust_flag,customer_birth_country,customer_login,customer_email_address]
+        BroadcastHashJoinExecTransformer [customer_id,customer_id,year_total,year_total,year_total,year_total]
+          ProjectExecTransformer [customer_id,customer_id,customer_first_name,customer_last_name,customer_preferred_cust_flag,customer_birth_country,customer_login,customer_email_address,year_total,year_total,year_total]
+            BroadcastHashJoinExecTransformer [customer_id,customer_id]
+              ProjectExecTransformer [customer_id,customer_id,customer_first_name,customer_last_name,customer_preferred_cust_flag,customer_birth_country,customer_login,customer_email_address,year_total,year_total]
+                BroadcastHashJoinExecTransformer [customer_id,customer_id,year_total,year_total,year_total,year_total]
+                  ProjectExecTransformer [customer_id,year_total,customer_id,customer_first_name,customer_last_name,customer_preferred_cust_flag,customer_birth_country,customer_login,customer_email_address,year_total,year_total]
+                    BroadcastHashJoinExecTransformer [customer_id,customer_id]
+                      BroadcastHashJoinExecTransformer [customer_id,customer_id]
+                        FilterExecTransformer [year_total]
+                          ProjectExecTransformer [c_customer_id,sum(((((ss_ext_list_price - ss_ext_wholesale_cost) - ss_ext_discount_amt) + ss_ext_sales_price) / 2))]
+                            RegularHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] [sum(((((ss_ext_list_price - ss_ext_wholesale_cost) - ss_ext_discount_amt) + ss_ext_sales_price) / 2)),sum,isEmpty]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ColumnarExchange [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] #1
+                                    VeloxResizeBatches
+                                      WholeStageCodegenTransformer (4)
+                                        ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty]
+                                          FlushableHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                                            ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,ss_ext_list_price,ss_ext_wholesale_cost,ss_ext_discount_amt,ss_ext_sales_price]
+                                              BroadcastHashJoinExecTransformer [ss_sold_date_sk,d_date_sk]
+                                                ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,ss_ext_discount_amt,ss_ext_sales_price,ss_ext_wholesale_cost,ss_ext_list_price,ss_sold_date_sk]
+                                                  BroadcastHashJoinExecTransformer [c_customer_sk,ss_customer_sk]
+                                                    FilterExecTransformer [c_customer_sk,c_customer_id]
+                                                      FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_customer_sk,c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address]
+                                                    InputIteratorTransformer
+                                                      InputAdapter
+                                                        ColumnarBroadcastExchange #2
+                                                          WholeStageCodegenTransformer (2)
+                                                            FilterExecTransformer [ss_customer_sk]
+                                                              FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_customer_sk,ss_ext_discount_amt,ss_ext_sales_price,ss_ext_wholesale_cost,ss_ext_list_price,ss_sold_date_sk]
+                                                                ColumnarSubqueryBroadcast [d_date_sk] #1
+                                                                  ColumnarBroadcastExchange #3
+                                                                    WholeStageCodegenTransformer (1)
+                                                                      FilterExecTransformer [d_year,d_date_sk]
+                                                                        FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year]
+                                                InputIteratorTransformer
+                                                  InputAdapter
+                                                    ReusedExchange [d_date_sk,d_year] #3
+                        InputIteratorTransformer
+                          InputAdapter
+                            ColumnarBroadcastExchange #4
+                              WholeStageCodegenTransformer (9)
+                                ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,sum(((((ss_ext_list_price - ss_ext_wholesale_cost) - ss_ext_discount_amt) + ss_ext_sales_price) / 2))]
+                                  RegularHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] [sum(((((ss_ext_list_price - ss_ext_wholesale_cost) - ss_ext_discount_amt) + ss_ext_sales_price) / 2)),sum,isEmpty]
+                                    InputIteratorTransformer
+                                      InputAdapter
+                                        ColumnarExchange [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] #5
+                                          VeloxResizeBatches
+                                            WholeStageCodegenTransformer (8)
+                                              ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty]
+                                                FlushableHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                                                  ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,ss_ext_list_price,ss_ext_wholesale_cost,ss_ext_discount_amt,ss_ext_sales_price]
+                                                    BroadcastHashJoinExecTransformer [ss_sold_date_sk,d_date_sk]
+                                                      ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,ss_ext_discount_amt,ss_ext_sales_price,ss_ext_wholesale_cost,ss_ext_list_price,ss_sold_date_sk]
+                                                        BroadcastHashJoinExecTransformer [c_customer_sk,ss_customer_sk]
+                                                          FilterExecTransformer [c_customer_sk,c_customer_id]
+                                                            FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_customer_sk,c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ColumnarBroadcastExchange #6
+                                                                WholeStageCodegenTransformer (6)
+                                                                  FilterExecTransformer [ss_customer_sk]
+                                                                    FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_customer_sk,ss_ext_discount_amt,ss_ext_sales_price,ss_ext_wholesale_cost,ss_ext_list_price,ss_sold_date_sk]
+                                                                      ColumnarSubqueryBroadcast [d_date_sk] #2
+                                                                        ColumnarBroadcastExchange #7
+                                                                          WholeStageCodegenTransformer (5)
+                                                                            FilterExecTransformer [d_year,d_date_sk]
+                                                                              FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year]
+                                                      InputIteratorTransformer
+                                                        InputAdapter
+                                                          ReusedExchange [d_date_sk,d_year] #7
+                      InputIteratorTransformer
+                        InputAdapter
+                          ColumnarBroadcastExchange #8
+                            WholeStageCodegenTransformer (14)
+                              FilterExecTransformer [year_total]
+                                ProjectExecTransformer [c_customer_id,sum(((((cs_ext_list_price - cs_ext_wholesale_cost) - cs_ext_discount_amt) + cs_ext_sales_price) / 2))]
+                                  RegularHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] [sum(((((cs_ext_list_price - cs_ext_wholesale_cost) - cs_ext_discount_amt) + cs_ext_sales_price) / 2)),sum,isEmpty]
+                                    InputIteratorTransformer
+                                      InputAdapter
+                                        ColumnarExchange [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] #9
+                                          VeloxResizeBatches
+                                            WholeStageCodegenTransformer (13)
+                                              ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty]
+                                                FlushableHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                                                  ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,cs_ext_list_price,cs_ext_wholesale_cost,cs_ext_discount_amt,cs_ext_sales_price]
+                                                    BroadcastHashJoinExecTransformer [cs_sold_date_sk,d_date_sk]
+                                                      ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,cs_ext_discount_amt,cs_ext_sales_price,cs_ext_wholesale_cost,cs_ext_list_price,cs_sold_date_sk]
+                                                        BroadcastHashJoinExecTransformer [c_customer_sk,cs_bill_customer_sk]
+                                                          FilterExecTransformer [c_customer_sk,c_customer_id]
+                                                            FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_customer_sk,c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ColumnarBroadcastExchange #10
+                                                                WholeStageCodegenTransformer (11)
+                                                                  FilterExecTransformer [cs_bill_customer_sk]
+                                                                    FileSourceScanExecTransformer parquet spark_catalog.default.catalog_sales [cs_bill_customer_sk,cs_ext_discount_amt,cs_ext_sales_price,cs_ext_wholesale_cost,cs_ext_list_price,cs_sold_date_sk]
+                                                                      ReusedSubquery [d_date_sk] #1
+                                                      InputIteratorTransformer
+                                                        InputAdapter
+                                                          ReusedExchange [d_date_sk,d_year] #3
+                  InputIteratorTransformer
+                    InputAdapter
+                      ColumnarBroadcastExchange #11
+                        WholeStageCodegenTransformer (19)
+                          ProjectExecTransformer [c_customer_id,sum(((((cs_ext_list_price - cs_ext_wholesale_cost) - cs_ext_discount_amt) + cs_ext_sales_price) / 2))]
+                            RegularHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] [sum(((((cs_ext_list_price - cs_ext_wholesale_cost) - cs_ext_discount_amt) + cs_ext_sales_price) / 2)),sum,isEmpty]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ColumnarExchange [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] #12
+                                    VeloxResizeBatches
+                                      WholeStageCodegenTransformer (18)
+                                        ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty]
+                                          FlushableHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                                            ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,cs_ext_list_price,cs_ext_wholesale_cost,cs_ext_discount_amt,cs_ext_sales_price]
+                                              BroadcastHashJoinExecTransformer [cs_sold_date_sk,d_date_sk]
+                                                ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,cs_ext_discount_amt,cs_ext_sales_price,cs_ext_wholesale_cost,cs_ext_list_price,cs_sold_date_sk]
+                                                  BroadcastHashJoinExecTransformer [c_customer_sk,cs_bill_customer_sk]
+                                                    FilterExecTransformer [c_customer_sk,c_customer_id]
+                                                      FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_customer_sk,c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address]
+                                                    InputIteratorTransformer
+                                                      InputAdapter
+                                                        ColumnarBroadcastExchange #13
+                                                          WholeStageCodegenTransformer (16)
+                                                            FilterExecTransformer [cs_bill_customer_sk]
+                                                              FileSourceScanExecTransformer parquet spark_catalog.default.catalog_sales [cs_bill_customer_sk,cs_ext_discount_amt,cs_ext_sales_price,cs_ext_wholesale_cost,cs_ext_list_price,cs_sold_date_sk]
+                                                                ReusedSubquery [d_date_sk] #2
+                                                InputIteratorTransformer
+                                                  InputAdapter
+                                                    ReusedExchange [d_date_sk,d_year] #7
+              InputIteratorTransformer
+                InputAdapter
+                  ColumnarBroadcastExchange #14
+                    WholeStageCodegenTransformer (24)
+                      FilterExecTransformer [year_total]
+                        ProjectExecTransformer [c_customer_id,sum(((((ws_ext_list_price - ws_ext_wholesale_cost) - ws_ext_discount_amt) + ws_ext_sales_price) / 2))]
+                          RegularHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] [sum(((((ws_ext_list_price - ws_ext_wholesale_cost) - ws_ext_discount_amt) + ws_ext_sales_price) / 2)),sum,isEmpty]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarExchange [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] #15
+                                  VeloxResizeBatches
+                                    WholeStageCodegenTransformer (23)
+                                      ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty]
+                                        FlushableHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                                          ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,ws_ext_list_price,ws_ext_wholesale_cost,ws_ext_discount_amt,ws_ext_sales_price]
+                                            BroadcastHashJoinExecTransformer [ws_sold_date_sk,d_date_sk]
+                                              ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,ws_ext_discount_amt,ws_ext_sales_price,ws_ext_wholesale_cost,ws_ext_list_price,ws_sold_date_sk]
+                                                BroadcastHashJoinExecTransformer [c_customer_sk,ws_bill_customer_sk]
+                                                  FilterExecTransformer [c_customer_sk,c_customer_id]
+                                                    FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_customer_sk,c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address]
+                                                  InputIteratorTransformer
+                                                    InputAdapter
+                                                      ColumnarBroadcastExchange #16
+                                                        WholeStageCodegenTransformer (21)
+                                                          FilterExecTransformer [ws_bill_customer_sk]
+                                                            FileSourceScanExecTransformer parquet spark_catalog.default.web_sales [ws_bill_customer_sk,ws_ext_discount_amt,ws_ext_sales_price,ws_ext_wholesale_cost,ws_ext_list_price,ws_sold_date_sk]
+                                                              ReusedSubquery [d_date_sk] #1
+                                              InputIteratorTransformer
+                                                InputAdapter
+                                                  ReusedExchange [d_date_sk,d_year] #3
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarBroadcastExchange #17
+                WholeStageCodegenTransformer (29)
+                  ProjectExecTransformer [c_customer_id,sum(((((ws_ext_list_price - ws_ext_wholesale_cost) - ws_ext_discount_amt) + ws_ext_sales_price) / 2))]
+                    RegularHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] [sum(((((ws_ext_list_price - ws_ext_wholesale_cost) - ws_ext_discount_amt) + ws_ext_sales_price) / 2)),sum,isEmpty]
+                      InputIteratorTransformer
+                        InputAdapter
+                          ColumnarExchange [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty] #18
+                            VeloxResizeBatches
+                              WholeStageCodegenTransformer (28)
+                                ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,sum,isEmpty]
+                                  FlushableHashAggregateExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                                    ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,d_year,ws_ext_list_price,ws_ext_wholesale_cost,ws_ext_discount_amt,ws_ext_sales_price]
+                                      BroadcastHashJoinExecTransformer [ws_sold_date_sk,d_date_sk]
+                                        ProjectExecTransformer [c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address,ws_ext_discount_amt,ws_ext_sales_price,ws_ext_wholesale_cost,ws_ext_list_price,ws_sold_date_sk]
+                                          BroadcastHashJoinExecTransformer [c_customer_sk,ws_bill_customer_sk]
+                                            FilterExecTransformer [c_customer_sk,c_customer_id]
+                                              FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_customer_sk,c_customer_id,c_first_name,c_last_name,c_preferred_cust_flag,c_birth_country,c_login,c_email_address]
+                                            InputIteratorTransformer
+                                              InputAdapter
+                                                ColumnarBroadcastExchange #19
+                                                  WholeStageCodegenTransformer (26)
+                                                    FilterExecTransformer [ws_bill_customer_sk]
+                                                      FileSourceScanExecTransformer parquet spark_catalog.default.web_sales [ws_bill_customer_sk,ws_ext_discount_amt,ws_ext_sales_price,ws_ext_wholesale_cost,ws_ext_list_price,ws_sold_date_sk]
+                                                        ReusedSubquery [d_date_sk] #2
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ReusedExchange [d_date_sk,d_year] #7

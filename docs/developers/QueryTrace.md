@@ -6,7 +6,7 @@ parent: Developer Overview
 ---
 
 # Background
-Currently, we have [MicroBenchmarks](https://github.com/apache/incubator-gluten/blob/main/docs/developers/MicroBenchmarks.md) to profile the Velox plan execution in stage level, now we have query trace replayer to specify plan node id to profile in operator level.
+Currently, we have [MicroBenchmarks](https://github.com/apache/gluten/blob/main/docs/developers/MicroBenchmarks.md) to profile the Velox plan execution in stage level, now we have query trace replayer to specify plan node id to profile in operator level.
 
 We cannot profile operator level directly because ValueStreamNode cannot serialize and deserialize, so we should generate benchmark first, and then enable query trace in benchmark which replaces the ValueStreamNode to ValuesNode.
 

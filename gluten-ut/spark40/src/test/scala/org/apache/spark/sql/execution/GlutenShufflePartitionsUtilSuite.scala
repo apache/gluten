@@ -16,8 +16,6 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenTestsTrait
 
-class GlutenShufflePartitionsUtilSuite
-  extends ShufflePartitionsUtilSuite
-  with GlutenTestsCommonTrait {}
+class GlutenShufflePartitionsUtilSuite extends ShufflePartitionsUtilSuite with GlutenTestsTrait {}

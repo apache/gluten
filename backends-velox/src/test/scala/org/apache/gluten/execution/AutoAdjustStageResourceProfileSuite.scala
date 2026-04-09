@@ -135,8 +135,7 @@ class AutoAdjustStageResourceProfileSuite
     withSQLConf(
       GlutenConfig.COLUMNAR_FALLBACK_PREFER_COLUMNAR.key -> "false",
       GlutenConfig.COLUMNAR_FALLBACK_IGNORE_ROW_TO_COLUMNAR.key -> "false",
-      GlutenConfig.COLUMNAR_WHOLESTAGE_FALLBACK_THRESHOLD.key -> "1",
-      GlutenConfig.RAS_ENABLED.key -> "false"
+      GlutenConfig.COLUMNAR_WHOLESTAGE_FALLBACK_THRESHOLD.key -> "1"
     ) {
       runQueryAndCompare(
         "select " +

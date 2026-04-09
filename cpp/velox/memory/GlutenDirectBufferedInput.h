@@ -48,6 +48,14 @@ class GlutenDirectBufferedInput : public facebook::velox::dwio::common::DirectBu
 
   ~GlutenDirectBufferedInput() override {
     requests_.clear();
+    // Cancel all the planned loads as soon as possible to avoid unnecessary IO.
+    for (auto& load : coalescedLoads_) {
+      if (load->state() == facebook::velox::cache::CoalescedLoad::State::kPlanned) {
+        load->cancel();
+      }
+    }
+    // Ensure all the loadings can finish in the TableScan destructor to avoid the issue that the load is still running
+    // when the VeloxMemoryManager used by the whole task is trying to destruct.
     for (auto& load : coalescedLoads_) {
       if (load->state() == facebook::velox::cache::CoalescedLoad::State::kLoading) {
         folly::SemiFuture<bool> waitFuture(false);
@@ -56,7 +64,6 @@ class GlutenDirectBufferedInput : public facebook::velox::dwio::common::DirectBu
           std::move(waitFuture).via(&exec).wait();
         }
       }
-      load->cancel();
     }
     coalescedLoads_.clear();
   }

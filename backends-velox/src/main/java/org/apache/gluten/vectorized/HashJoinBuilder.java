@@ -42,7 +42,7 @@ public class HashJoinBuilder implements RuntimeAware {
   public static native long nativeBuild(
       String buildHashTableId,
       long[] batchHandlers,
-      String joinKeys,
+      String[] joinKeys,
       int joinType,
       boolean hasMixedFiltCondition,
       boolean isExistenceJoin,

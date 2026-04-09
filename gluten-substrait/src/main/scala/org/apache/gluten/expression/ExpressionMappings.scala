@@ -266,6 +266,7 @@ object ExpressionMappings {
     Sig[MapFromArrays](MAP_FROM_ARRAYS),
     Sig[MapEntries](MAP_ENTRIES),
     Sig[MapZipWith](MAP_ZIP_WITH),
+    Sig[MapFromEntries](MAP_FROM_ENTRIES),
     Sig[StringToMap](STR_TO_MAP),
     Sig[TransformKeys](TRANSFORM_KEYS),
     Sig[TransformValues](TRANSFORM_VALUES),

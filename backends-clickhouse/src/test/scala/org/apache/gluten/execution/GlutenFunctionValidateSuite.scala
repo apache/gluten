@@ -861,7 +861,7 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
   }
 
   test("test parse string with blank to integer") {
-    // issue https://github.com/apache/incubator-gluten/issues/4956
+    // issue https://github.com/apache/gluten/issues/4956
     val sql = "select  cast(concat(' ', cast(id as string)) as bigint) from range(10)"
     runQueryAndCompare(sql)(checkGlutenPlan[ProjectExecTransformer])
   }
@@ -915,7 +915,7 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
     }
   }
 
-  test("test issue: https://github.com/apache/incubator-gluten/issues/6561") {
+  test("test issue: https://github.com/apache/gluten/issues/6561") {
     val sql =
       """
         |select

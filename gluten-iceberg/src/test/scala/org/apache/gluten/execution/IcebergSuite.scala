@@ -57,6 +57,31 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
+  test("iceberg input_file_name") {
+    withTable("iceberg_input_file_tb") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_input_file_tb (id INT, data STRING)
+                  |USING iceberg
+                  |""".stripMargin)
+      spark.sql("""
+                  |INSERT INTO iceberg_input_file_tb VALUES
+                  |(1, 'a'), (2, 'b'), (3, 'c')
+                  |""".stripMargin)
+
+      val df = runAndCompare("""
+                               |SELECT id, input_file_name() AS name
+                               |FROM iceberg_input_file_tb
+                               |ORDER BY id
+                               |""".stripMargin)
+
+      val rows = df.collect()
+      checkGlutenPlan[IcebergScanTransformer](df)
+      assert(
+        rows.forall(row => !row.isNullAt(1) && row.getString(1).nonEmpty),
+        s"Expected non-empty input_file_name values, got: ${rows.mkString(", ")}")
+    }
+  }
+
   testWithMinSparkVersion("iceberg bucketed join", "3.4") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
@@ -662,6 +687,34 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
 
       assert(result.length == 1)
       assert(result.head.getString(1) == "test_data")
+    }
+  }
+
+  test("assert_not_null with iceberg table") {
+    withTable("iceberg_not_null") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_not_null (id BIGINT NOT NULL, name STRING NOT NULL)
+                  |USING iceberg
+                  |""".stripMargin)
+      // Insert non-null values should succeed with AssertNotNull offloaded.
+      spark.sql("INSERT INTO iceberg_not_null VALUES (1, 'a'), (2, 'b')")
+      runQueryAndCompare("SELECT * FROM iceberg_not_null") {
+        checkGlutenPlan[IcebergScanTransformer]
+      }
+
+      // Insert from a query with nullable source columns.
+      spark.sql(
+        "INSERT INTO iceberg_not_null SELECT id + 10, CAST(id AS STRING) FROM iceberg_not_null")
+      val df = runQueryAndCompare("SELECT * FROM iceberg_not_null ORDER BY id") { _ => }
+      assert(df.count() == 4)
+
+      // Insert null into NOT NULL column should throw.
+      val e = intercept[Exception] {
+        spark.sql("INSERT INTO iceberg_not_null VALUES (null, 'c')").collect()
+      }
+      assert(
+        e.getMessage.contains("null") || e.getMessage.contains("NOT_NULL") ||
+          e.getCause != null && e.getCause.getMessage.contains("null"))
     }
   }
 }

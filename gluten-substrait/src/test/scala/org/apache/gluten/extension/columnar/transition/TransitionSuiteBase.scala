@@ -30,7 +30,7 @@ object TransitionSuiteBase {
   case class BatchLeaf(override val batchType: Convention.BatchType)
     extends LeafExecNode
     with GlutenPlan {
-    override def rowType0(): Convention.RowType = Convention.RowType.None
+    override def rowType(): Convention.RowType = Convention.RowType.None
 
     override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
 
@@ -40,7 +40,7 @@ object TransitionSuiteBase {
   case class BatchUnary(override val batchType: Convention.BatchType, override val child: SparkPlan)
     extends UnaryExecNode
     with GlutenPlan {
-    override def rowType0(): Convention.RowType = Convention.RowType.None
+    override def rowType(): Convention.RowType = Convention.RowType.None
 
     override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
       copy(child = newChild)
@@ -56,7 +56,7 @@ object TransitionSuiteBase {
       override val right: SparkPlan)
     extends BinaryExecNode
     with GlutenPlan {
-    override def rowType0(): Convention.RowType = Convention.RowType.None
+    override def rowType(): Convention.RowType = Convention.RowType.None
 
     override protected def withNewChildrenInternal(
         newLeft: SparkPlan,
@@ -67,7 +67,7 @@ object TransitionSuiteBase {
     override def output: Seq[Attribute] = left.output ++ right.output
   }
 
-  case class RowLeaf(override val rowType0: Convention.RowType)
+  case class RowLeaf(override val rowType: Convention.RowType)
     extends LeafExecNode
     with GlutenPlan {
     override def batchType(): Convention.BatchType = Convention.BatchType.None
@@ -77,7 +77,7 @@ object TransitionSuiteBase {
     override def output: Seq[Attribute] = List.empty
   }
 
-  case class RowUnary(override val rowType0: Convention.RowType, override val child: SparkPlan)
+  case class RowUnary(override val rowType: Convention.RowType, override val child: SparkPlan)
     extends UnaryExecNode
     with GlutenPlan {
     override def batchType(): Convention.BatchType = Convention.BatchType.None
@@ -91,7 +91,7 @@ object TransitionSuiteBase {
   }
 
   case class RowBinary(
-      override val rowType0: Convention.RowType,
+      override val rowType: Convention.RowType,
       override val left: SparkPlan,
       override val right: SparkPlan)
     extends BinaryExecNode
@@ -114,7 +114,7 @@ object TransitionSuiteBase {
     extends RowToColumnarTransition
     with GlutenPlan {
     override def batchType(): Convention.BatchType = toBatchType
-    override def rowType0(): Convention.RowType = Convention.RowType.None
+    override def rowType(): Convention.RowType = Convention.RowType.None
     override def requiredChildConvention(): Seq[ConventionReq] = {
       List(ConventionReq.ofRow(ConventionReq.RowType.Is(fromRowType)))
     }
@@ -133,7 +133,7 @@ object TransitionSuiteBase {
     extends ColumnarToRowTransition
     with GlutenPlan {
     override def batchType(): Convention.BatchType = Convention.BatchType.None
-    override def rowType0(): Convention.RowType = toRowType
+    override def rowType(): Convention.RowType = toRowType
     override def requiredChildConvention(): Seq[ConventionReq] = {
       List(ConventionReq.ofBatch(ConventionReq.BatchType.Is(fromBatchType)))
     }
@@ -165,7 +165,7 @@ object TransitionSuiteBase {
     extends UnaryExecNode
     with GlutenPlan {
     override def batchType(): Convention.BatchType = Convention.BatchType.None
-    override def rowType0(): Convention.RowType = to
+    override def rowType(): Convention.RowType = to
     override def requiredChildConvention(): Seq[ConventionReq] = {
       List(ConventionReq.ofRow(ConventionReq.RowType.Is(from)))
     }

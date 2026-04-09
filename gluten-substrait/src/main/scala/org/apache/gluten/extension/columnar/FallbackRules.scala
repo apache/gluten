@@ -44,14 +44,14 @@ case class FallbackMultiCodegens(session: SparkSession) extends Rule[SparkPlan] 
     plan match {
       case plan: CodegenSupport if plan.supportCodegen =>
         if (
-          (count + 1) >= optimizeLevel && plan.output.map(_.dataType.defaultSize).sum == outputSize
+          (count + 1) >= optimizeLevel && plan.output.map(_.dataType.defaultSize).sum >= outputSize
         ) {
           return true
         }
         plan.children.exists(existsMultiCodegens(_, count + 1))
       case plan: ShuffledHashJoinExec =>
         if (
-          (count + 1) >= optimizeLevel && plan.output.map(_.dataType.defaultSize).sum == outputSize
+          (count + 1) >= optimizeLevel && plan.output.map(_.dataType.defaultSize).sum >= outputSize
         ) {
           return true
         }
@@ -59,7 +59,7 @@ case class FallbackMultiCodegens(session: SparkSession) extends Rule[SparkPlan] 
         plan.children.exists(existsMultiCodegens(_, count + 1))
       case plan: SortMergeJoinExec if GlutenConfig.get.forceShuffledHashJoin =>
         if (
-          (count + 1) >= optimizeLevel && plan.output.map(_.dataType.defaultSize).sum == outputSize
+          (count + 1) >= optimizeLevel && plan.output.map(_.dataType.defaultSize).sum >= outputSize
         ) {
           return true
         }

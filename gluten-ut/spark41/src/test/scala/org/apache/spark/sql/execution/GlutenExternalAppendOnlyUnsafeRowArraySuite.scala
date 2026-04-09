@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
 class GlutenExternalAppendOnlyUnsafeRowArraySuite
   extends ExternalAppendOnlyUnsafeRowArraySuite
-  with GlutenTestsCommonTrait {}
+  with GlutenTestsTrait {}

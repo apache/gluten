@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -57,19 +57,18 @@ for v in $SPARK_VERSIONS; do
 
   echo "Packaging for Spark $v (Scala $SCALA)..."
   tar -czf apache-gluten-${RELEASE_VERSION}-bin-spark-${v}.tar.gz \
-      ${GLUTEN_HOME}/DISCLAIMER \
       $JAR
 done
 
 SRC_ZIP="${TAG}.zip"
-SRC_DIR="incubator-gluten-${RELEASE_VERSION}"
+SRC_DIR="gluten-${RELEASE_VERSION}"
 
 echo "Packaging source code..."
-wget https://github.com/apache/incubator-gluten/archive/refs/tags/${SRC_ZIP}
+wget https://github.com/apache/gluten/archive/refs/tags/${SRC_ZIP}
 unzip -q ${SRC_ZIP}
 
 # Rename folder to remove "rc*" for formal release.
-mv incubator-gluten-${TAG_VERSION} ${SRC_DIR}
+mv gluten-${TAG_VERSION} ${SRC_DIR}
 # Remove .git and .github and other unwanted files from the source dir.
 rm -rf ${SRC_DIR}/.git \
        ${SRC_DIR}/.github \

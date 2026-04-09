@@ -44,15 +44,15 @@ please add at least one UT to ensure code quality and reduce regression issues f
 
 Please update document for your proposed code change if necessary.
 
-If a new config property is being introduced, please update [Configuration.md](https://github.com/apache/incubator-gluten/blob/main/docs/Configuration.md).
+If a new config property is being introduced, please update [Configuration.md](https://github.com/apache/gluten/blob/main/docs/Configuration.md).
 
 ### Code Style
 
 ##### Java/Scala code style
-Developer can import the code style setting to IDE and format Java/Scala code with spotless maven plugin. See [Java/Scala code style](https://github.com/apache/incubator-gluten/blob/main/docs/developers/NewToGluten.md#javascala-code-style).
+Developer can import the code style setting to IDE and format Java/Scala code with spotless maven plugin. See [Java/Scala code style](https://github.com/apache/gluten/blob/main/docs/developers/NewToGluten.md#javascala-code-style).
 
 ##### C/C++ code style
-There are some code style conventions need to comply. See [CppCodingStyle.md](https://github.com/apache/incubator-gluten/blob/main/docs/developers/CppCodingStyle.md).
+There are some code style conventions need to comply. See [CppCodingStyle.md](https://github.com/apache/gluten/blob/main/docs/developers/CppCodingStyle.md).
 
 For Velox backend, developer can just execute `dev/formatcppcode.sh` to format C/C++ code. It requires `clang-format-15`
 installed in your development env.
@@ -68,7 +68,7 @@ You can execute a script to fix license header issue, as the following shows.
 ### Gluten CI
 
 ##### ClickHouse Backend CI
-To check CI failure for CH backend, please log in with the public account/password provided [here](https://github.com/apache/incubator-gluten/blob/main/docs/get-started/ClickHouse.md#new-ci-system).
+To check CI failure for CH backend, please log in with the public account/password provided [here](https://github.com/apache/gluten/blob/main/docs/get-started/ClickHouse.md#new-ci-system).
 To re-trigger CH CI, please post the below comment on PR page:
 
 `Run Gluten Clickhouse CI`
@@ -79,7 +79,7 @@ To check CI failure for Velox backend, please go into the GitHub action page fro
 To see the perf. impact on Velox backend, you can comment `/Benchmark Velox` on PR page to trigger a pretest. The benchmark
 (currently TPC-H) result will be posted after completed.
 
-If some new dependency is required to be installed, you may need to do some change for CI docker at [this folder](https://github.com/apache/incubator-gluten/tree/main/tools/gluten-te).
+If some new dependency is required to be installed, you may need to do some change for CI docker at [this folder](https://github.com/apache/gluten/tree/main/tools/gluten-te).
 
 ### Code Review
 

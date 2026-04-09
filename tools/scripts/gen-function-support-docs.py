@@ -1242,7 +1242,7 @@ def run_test_suites(categories):
         return
 
     command = [
-        "mvn",
+        "./build/mvn",
         "test",
         "-Pspark-3.5",
         "-Pspark-ut",
@@ -1260,7 +1260,13 @@ def run_test_suites(categories):
 
 def get_maven_project_version():
     result = subprocess.run(
-        ["mvn", "help:evaluate", "-Dexpression=project.version", "-q", "-DforceStdout"],
+        [
+            "./build/mvn",
+            "help:evaluate",
+            "-Dexpression=project.version",
+            "-q",
+            "-DforceStdout",
+        ],
         capture_output=True,
         text=True,
         cwd=gluten_home,

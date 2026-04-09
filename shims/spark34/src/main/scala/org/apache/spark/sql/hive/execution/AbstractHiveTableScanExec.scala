@@ -175,26 +175,30 @@ abstract private[hive] class AbstractHiveTableScanExec(
     }
   }
 
-  @transient lazy val prunedPartitions: Seq[HivePartition] = {
+  // This is used on the driver side, so it is important to avoid executing subqueries
+  @transient lazy val basePrunedPartitions: Seq[HivePartition] = {
     if (relation.prunedPartitions.nonEmpty) {
-      val hivePartitions =
-        relation.prunedPartitions.get.map(HiveClientImpl.toHivePartition(_, hiveQlTable))
-      if (partitionPruningPred.forall(!ExecSubqueryExpression.hasSubquery(_))) {
-        hivePartitions
-      } else {
-        prunePartitions(hivePartitions)
-      }
+      relation.prunedPartitions.get.map(HiveClientImpl.toHivePartition(_, hiveQlTable))
     } else {
-      if (
-        sparkSession.sessionState.conf.metastorePartitionPruning &&
-        partitionPruningPred.nonEmpty
-      ) {
-        rawPartitions
-      } else {
-        prunePartitions(rawPartitions)
-      }
+      rawPartitions
     }
   }
+
+  @transient lazy val prunedPartitions: Seq[HivePartition] =
+    if (relation.prunedPartitions.nonEmpty) {
+      if (partitionPruningPred.forall(!ExecSubqueryExpression.hasSubquery(_))) {
+        basePrunedPartitions
+      } else {
+        prunePartitions(basePrunedPartitions)
+      }
+    } else if (
+      sparkSession.sessionState.conf.metastorePartitionPruning &&
+      partitionPruningPred.nonEmpty
+    ) {
+      basePrunedPartitions
+    } else {
+      prunePartitions(basePrunedPartitions)
+    }
 
   // exposed for tests
   @transient lazy val rawPartitions: Seq[HivePartition] = {

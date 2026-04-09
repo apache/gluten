@@ -30,7 +30,7 @@ import org.apache.spark.sql.execution.SparkPlan
  *
  * Instead, subclasses are expected to implement the following APIs:
  *   - batchType
- *   - rowType0
+ *   - rowType
  *   - requiredChildConvention (optional)
  *
  * With implementations of the APIs provided, Gluten query planner will be able to find and insert
@@ -45,7 +45,7 @@ import org.apache.spark.sql.execution.SparkPlan
 trait GlutenPlan
   extends SparkPlan
   with Convention.KnownBatchType
-  with Convention.KnownRowTypeForSpark33OrLater
+  with Convention.KnownRowType
   with GlutenPlan.SupportsRowBasedCompatible
   with ConventionReq.KnownChildConvention {
 
@@ -59,7 +59,7 @@ trait GlutenPlan
 
   override def batchType(): Convention.BatchType
 
-  override def rowType0(): Convention.RowType
+  override def rowType(): Convention.RowType
 
   override def requiredChildConvention(): Seq[ConventionReq] = {
     // In the normal case, children's convention should follow parent node's convention.

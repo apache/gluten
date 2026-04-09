@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.catalyst.expressions.aggregate
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenHistogramNumericSuite extends HistogramNumericSuite with GlutenTestsCommonTrait {}
+class GlutenHistogramNumericSuite extends HistogramNumericSuite with GlutenTestsTrait {}

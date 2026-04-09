@@ -19,6 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.columnarbatch.VeloxColumnarBatches
 
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -70,6 +71,7 @@ case class ColumnarCollectLimitExec(
 
           if (rowsToSkip >= batchSize) {
             rowsToSkip -= batchSize
+            batch.close()
           } else {
             val startIndex = rowsToSkip
             val leftoverAfterSkip = batchSize - startIndex
@@ -92,6 +94,24 @@ case class ColumnarCollectLimitExec(
         }
         false
       }
+    }
+  }
+
+  override def executeCollect(): Array[InternalRow] = {
+    val rowsRdd = child.executeColumnar().mapPartitions {
+      it =>
+        val rows = VeloxColumnarToRowExec.toRowIterator(it)
+        rows.map(_.copy())
+    }
+
+    if (limit >= 0) {
+      if (offset > 0) {
+        rowsRdd.take(limit).drop(offset)
+      } else {
+        rowsRdd.take(limit)
+      }
+    } else {
+      rowsRdd.collect().drop(offset)
     }
   }
 

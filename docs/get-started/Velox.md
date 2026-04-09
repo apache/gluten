@@ -44,7 +44,7 @@ export PATH=$JAVA_HOME/bin:$PATH
 ## config maven, like proxy in ~/.m2/settings.xml
 
 ## fetch gluten code
-git clone https://github.com/apache/incubator-gluten.git
+git clone https://github.com/apache/gluten.git
 ```
 
 # Build Gluten with Velox Backend
@@ -92,14 +92,16 @@ Currently, Gluten is using a [IBM Velox](https://github.com/IBM/velox) which is 
 
 ## compile Gluten java module and create package jar
 cd /path/to/gluten
-# For spark3.2.x
-mvn clean package -Pbackends-velox -Pspark-3.2 -DskipTests
 # For spark3.3.x
 mvn clean package -Pbackends-velox -Pspark-3.3 -DskipTests
 # For spark3.4.x
 mvn clean package -Pbackends-velox -Pspark-3.4 -DskipTests
-# For spark3.5.x
+# For spark3.5.x (default)
 mvn clean package -Pbackends-velox -Pspark-3.5 -DskipTests
+# For spark4.0.x (requires JDK 17+ and Scala 2.13)
+mvn clean package -Pbackends-velox -Pspark-4.0 -Pjava-17 -Pscala-2.13 -DskipTests
+# For spark4.1.x (requires JDK 17+ and Scala 2.13)
+mvn clean package -Pbackends-velox -Pspark-4.1 -Pjava-17 -Pscala-2.13 -DskipTests
 ```
 
 Notes： Building Velox may fail caused by OOM. You can prevent this failure by adjusting `NUM_THREADS` (e.g., `export NUM_THREADS=4`) before building Gluten/Velox. The recommended minimal memory size is 64G.
@@ -173,7 +175,7 @@ cp /path/to/hdfs-client.xml hdfs-client.xml
 
 One typical deployment on Spark/HDFS cluster is to enable [short-circuit reading](https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-hdfs/ShortCircuitLocalReads.html). Short-circuit reads provide a substantial performance boost to many applications.
 
-By default libhdfs3 does not set the default hdfs domain socket path to support HDFS short-circuit read. If this feature is required in HDFS setup, users may need to setup the domain socket path correctly by patching the libhdfs3 source code or by setting the correct config environment. In Gluten the short-circuit domain socket path is set to "/var/lib/hadoop-hdfs/dn_socket" in [build-velox.sh](https://github.com/apache/incubator-gluten/blob/main/ep/build-velox/src/build-velox.sh) So we need to make sure the folder existed and user has write access as below script.
+By default libhdfs3 does not set the default hdfs domain socket path to support HDFS short-circuit read. If this feature is required in HDFS setup, users may need to setup the domain socket path correctly by patching the libhdfs3 source code or by setting the correct config environment. In Gluten the short-circuit domain socket path is set to "/var/lib/hadoop-hdfs/dn_socket" in [build-velox.sh](https://github.com/apache/gluten/blob/main/ep/build-velox/src/build-velox.sh) So we need to make sure the folder existed and user has write access as below script.
 
 ```
 sudo mkdir -p /var/lib/hadoop-hdfs/
@@ -405,14 +407,14 @@ Once built successfully, hudi features will be included in gluten-velox-bundle-X
 
 # Coverage
 
-Spark3.3 has 387 functions in total. ~240 are commonly used. To get the support status of all Spark built-in functions, please refer to [Velox Backend's Supported Operators & Functions](../velox-backend-support-progress.md).
+Spark3.5 has 400+ functions in total. ~240 are commonly used. To get the support status of all Spark built-in functions, please refer to [Velox Backend's Supported Operators & Functions](../velox-backend-support-progress.md).
 
 > Velox doesn't support [ANSI mode](https://spark.apache.org/docs/latest/sql-ref-ansi-compliance.html)), so as Gluten. Once ANSI mode is enabled in Spark config, Gluten will fallback to Vanilla Spark.
 
 To identify what can be offloaded in a query and detailed fallback reasons, user can follow below steps to retrieve corresponding logs.
 
 ```
-1) Enable Gluten by proper [configuration](https://github.com/apache/incubator-gluten/blob/main/docs/Configuration.md).
+1) Enable Gluten by proper [configuration](https://github.com/apache/gluten/blob/main/docs/Configuration.md).
 
 2) Disable Spark AQE to trigger plan validation in Gluten
 spark.sql.adaptive.enabled = false

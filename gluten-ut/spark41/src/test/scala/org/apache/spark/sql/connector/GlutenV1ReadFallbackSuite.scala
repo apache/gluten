@@ -16,12 +16,12 @@
  */
 package org.apache.spark.sql.connector
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenV1ReadFallbackWithDataFrameReaderSuite
   extends V1ReadFallbackWithDataFrameReaderSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}
 
 class GlutenV1ReadFallbackWithCatalogSuite
   extends V1ReadFallbackWithCatalogSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsTrait {}

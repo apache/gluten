@@ -22,7 +22,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
 
 object SparkPlanRules extends Logging {
-  // Since https://github.com/apache/incubator-gluten/pull/1523
+  // Since https://github.com/apache/gluten/pull/1523
   def extendedColumnarRule(ruleNamesStr: String): SparkSession => Rule[SparkPlan] =
     (session: SparkSession) => {
       val ruleNames = ruleNamesStr.split(",").filter(_.nonEmpty)

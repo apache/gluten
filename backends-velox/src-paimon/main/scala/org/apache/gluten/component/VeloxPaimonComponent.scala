@@ -19,12 +19,10 @@ package org.apache.gluten.component
 import org.apache.gluten.backendsapi.velox.VeloxBackend
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.OffloadPaimonScan
-import org.apache.gluten.extension.columnar.enumerated.RasOffload
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
 
-import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.util.SparkReflectionUtil
 
 class VeloxPaimonComponent extends Component {
@@ -45,15 +43,6 @@ class VeloxPaimonComponent extends Component {
           Validators.newValidator(new GlutenConfig(c.sqlConf), offload),
           offload
         )
-    }
-
-    // Inject RAS rule.
-    injector.gluten.ras.injectRasRule {
-      c =>
-        RasOffload.Rule(
-          RasOffload.from[BatchScanExec](OffloadPaimonScan()),
-          Validators.newValidator(new GlutenConfig(c.sqlConf)),
-          Nil)
     }
   }
 }

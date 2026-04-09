@@ -75,7 +75,6 @@ bool VeloxGpuHashShuffleReaderDeserializer::resolveNextBlockType() {
     default:
       throw GlutenException(fmt::format("Unsupported block type: {}", static_cast<int32_t>(blockType)));
   }
-  return true;
 }
 
 void VeloxGpuHashShuffleReaderDeserializer::loadNextStream() {

@@ -13,7 +13,7 @@ Gluten supports Ubuntu 20.04/22.04, CentOS 7/8, and MacOS.
 
 ### JDK
 
-Gluten supports JDK 8 for Spark 3.2, 3.3, 3.4, and 3.5. For Spark 3.3 and later versions, Gluten
+Gluten supports JDK 8 for Spark 3.3, 3.4, and 3.5. For Spark 3.3 and later versions, Gluten
 also supports JDK 11 and 17.
 
 Note: Starting with Spark 4.0, the minimum required JDK version is 17.
@@ -128,7 +128,7 @@ compiling Gluten.
 Note: If you have previously compiled Velox in release mode, use the command below to compile in debug mode.
 
 ```bash
-cd incubator-gluten/ep/build-velox/build/velox_ep
+cd gluten/ep/build-velox/build/velox_ep
 
 # Build the Velox debug version in <velox_home>/_build/debug
 make debug EXTRA_CMAKE_FLAGS="-DVELOX_ENABLE_PARQUET=ON -DENABLE_HDFS=ON -DVELOX_BUILD_TESTING=OFF  -DVELOX_ENABLE_DUCKDB=ON -DVELOX_BUILD_TEST_UTILS=ON"
@@ -396,7 +396,7 @@ valgrind --leak-check=yes ./exec_backend_test
 ## Run TPC-H and TPC-DS
 
 We supply `<gluten_home>/tools/gluten-it` to execute these queries.
-See [velox_backend_x86.yml](https://github.com/apache/incubator-gluten/blob/main/.github/workflows/velox_backend_x86.yml).
+See [velox_backend_x86.yml](https://github.com/apache/gluten/blob/main/.github/workflows/velox_backend_x86.yml).
 
 ## Enable Gluten for Spark
 
@@ -407,7 +407,7 @@ spark-shell --name run_gluten \
  --conf spark.plugins=org.apache.gluten.GlutenPlugin \
  --conf spark.memory.offHeap.enabled=true \
  --conf spark.memory.offHeap.size=20g \
- --jars https://dlcdn.apache.org/incubator/gluten/1.4.0-incubating/apache-gluten-1.4.0-incubating-bin-spark35.tar.gz \
+ --jars https://dlcdn.apache.org/gluten/1.6.0/apache-gluten-1.6.0-bin-spark-3.5.tar.gz \
  --conf spark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager
 ```
 

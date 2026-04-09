@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenTriggerAvailableNowSuite extends TriggerAvailableNowSuite with GlutenTestsCommonTrait {}
+class GlutenTriggerAvailableNowSuite extends TriggerAvailableNowSuite with GlutenSQLTestsTrait {}

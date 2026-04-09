@@ -15,21 +15,61 @@
 site_name: Gluten
 
 repo_name: 'Fork on GitHub '
-repo_url: "https://github.com/apache/incubator-gluten.git"
+repo_url: "https://github.com/apache/gluten.git"
 edit_uri: ""
 
 
 nav:
-- User Guide: User-Guide.md
-- Prerequisite: Prerequisite.md
-- Installation: Installation.md
-- InstallationNotes: InstallationNotes.md
-- Configuration: Configuration.md
-- SparkInstallation: SparkInstallation.md
-- ApacheArrowInstallation: ApacheArrowInstallation.md
-- OAP Installation Guide: OAP-Installation-Guide.md
-- OAP Developer Guide: OAP-Developer-Guide.md
-- Version Selector: "../"
+- Home: index.md
+- Getting Started:
+  - get-started/getting-started.md
+  - Velox Backend: get-started/Velox.md
+  - ClickHouse Backend: get-started/ClickHouse.md
+  - Build Guide: get-started/build-guide.md
+  - Gluten UI: get-started/GlutenUI.md
+  - Velox with S3: get-started/VeloxS3.md
+  - Velox with ABFS: get-started/VeloxABFS.md
+  - Velox with GCS: get-started/VeloxGCS.md
+  - Velox with Delta Lake: get-started/VeloxDelta.md
+  - Velox with Iceberg: get-started/VeloxIceberg.md
+  - Velox with GPU: get-started/VeloxGPU.md
+  - Velox with QAT: get-started/VeloxQAT.md
+  - Velox Local Caching: get-started/VeloxLocalCache.md
+  - Stage Resource Adjustment: get-started/VeloxStageResourceAdj.md
+- Configuration:
+  - Gluten Configuration: Configuration.md
+  - Velox Configuration: velox-configuration.md
+  - Spark Configuration: velox-spark-configuration.md
+  - Parquet Write Configuration: velox-parquet-write-configuration.md
+- Velox Backend Reference:
+  - Support Progress: velox-backend-support-progress.md
+  - Limitations: velox-backend-limitations.md
+  - Scalar Functions: velox-backend-scalar-function-support.md
+  - Aggregate Functions: velox-backend-aggregate-function-support.md
+  - Window Functions: velox-backend-window-function-support.md
+  - Generator Functions: velox-backend-generator-function-support.md
+  - Troubleshooting: velox-backend-troubleshooting.md
+- Developers:
+  - Overview: developers/README.md
+  - New to Gluten: developers/NewToGluten.md
+  - How To: developers/HowTo.md
+  - How to Release: developers/HowToRelease.md
+  - C++ Coding Style: developers/CppCodingStyle.md
+  - Substrait Modifications: developers/SubstraitModifications.md
+  - Micro Benchmarks: developers/MicroBenchmarks.md
+  - Velox UDF and UDAF: developers/VeloxUDF.md
+  - Velox Function Development: developers/velox-function-development-guide.md
+  - Velox Backend CI: developers/velox-backend-CI.md
+  - Build in Docker: developers/velox-backend-build-in-docker.md
+  - Query Trace: developers/QueryTrace.md
+  - Memory Profiling: developers/ProfileMemoryOfGlutenWithVelox.md
+  - Dynamic Off-Heap Sizing: developers/VeloxDynamicSizingOffheap.md
+  - Partial Project: developers/PartialProject.md
+  - Bloop Integration: developers/bloop-integration.md
+  - Debug CH Backend: developers/clickhouse-backend-debug.md
+  - Jemalloc with CH: developers/UsingJemallocWithCH.md
+  - Gperftools with CH: developers/UsingGperftoolsInCH.md
+  - Improvement Proposals: developers/improvement-proposals.md
 
 
 

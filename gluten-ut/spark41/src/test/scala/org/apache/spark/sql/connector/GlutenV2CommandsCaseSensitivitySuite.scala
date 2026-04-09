@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.connector
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
 class GlutenV2CommandsCaseSensitivitySuite
   extends V2CommandsCaseSensitivitySuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait {}

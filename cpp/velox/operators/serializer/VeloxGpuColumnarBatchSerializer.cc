@@ -48,7 +48,7 @@ std::shared_ptr<ColumnarBatch> VeloxGpuColumnarBatchSerializer::deserialize(uint
     dynamic_pointer_cast<VeloxColumnarBatch>(vb)->getRowVector(), veloxPool_.get(), stream, cudf_velox::get_output_mr());
   stream.synchronize();
   auto vector = std::make_shared<cudf_velox::CudfVector>(
-      veloxPool_.get(), rowType_, size, std::move(table), stream);
+      veloxPool_.get(), rowType_, vb->numRows(), std::move(table), stream);
   return std::make_shared<VeloxColumnarBatch>(vector, vb->numColumns());
 }
 

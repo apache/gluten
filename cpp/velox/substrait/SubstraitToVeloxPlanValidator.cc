@@ -651,7 +651,7 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::WindowRel& windo
   }
 
   if (types.empty()) {
-    // See: https://github.com/apache/incubator-gluten/issues/7600.
+    // See: https://github.com/apache/gluten/issues/7600.
     LOG_VALIDATION_MSG("Validation failed for empty input schema in WindowRel.");
     return false;
   }
@@ -1124,6 +1124,9 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::CrossRel& crossR
   auto rowType = std::make_shared<RowType>(std::move(names), std::move(types));
 
   if (crossRel.has_expression()) {
+    if (!validateExpression(crossRel.expression(), rowType)) {
+      return false;
+    }
     auto expression = exprConverter_->toVeloxExpr(crossRel.expression(), rowType);
     exec::ExprSet exprSet({std::move(expression)}, execCtx_.get());
   }

@@ -22,7 +22,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.hive.HiveTableScanNestedColumnPruning
 
-// Since https://github.com/apache/incubator-gluten/pull/7268.
+// Since https://github.com/apache/gluten/pull/7268.
 // Used only by CH backend as of now.
 object PruneNestedColumnsInHiveTableScan extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = plan.transformUp {

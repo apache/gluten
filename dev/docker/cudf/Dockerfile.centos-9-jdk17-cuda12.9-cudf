@@ -1,0 +1,46 @@
+
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+FROM ghcr.io/facebookincubator/velox-dev:adapters
+
+# ARG JAVA_VERSION=1.8.0
+# ARG JAVA_VERSION=11
+ARG JAVA_VERSION=17
+
+ENV JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-openjdk
+ENV PATH=$JAVA_HOME/bin:$PATH
+ENV CUDA_ARCHITECTURES=70
+ENV CUDA_FLAGS="-ccbin /opt/rh/gcc-toolset-14/root/usr/bin"
+ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc
+ENV CXX=/opt/rh/gcc-toolset-14/root/bin/g++
+
+ENV LD_LIBRARY_PATH=/opt/gluten/ep/build-velox/build/velox_ep/_build/release/_deps/curl-build/lib:$LD_LIBRARY_PATH
+# Install dependencies and cudf related libraries to /usr
+RUN yum install -y sudo patch perl java-${JAVA_VERSION}-openjdk-devel && \
+    ln -sf /usr/local/bin/cmake /usr/bin && \
+    git clone --depth=1 https://github.com/apache/gluten /opt/gluten && \
+    cd /opt/gluten && \
+    source /opt/rh/gcc-toolset-14/enable && \
+    bash ./dev/buildbundle-veloxbe.sh --run_setup_script=OFF --build_arrow=ON --spark_version=3.4 --build_tests=ON --build_benchmarks=ON --enable_gpu=ON && \
+    cd ep/build-velox/build/velox_ep/_build/release/_deps/cudf-build/ && cmake --install ./ && cd / && \
+    rm -rf /opt/gluten && \
+    rm -rf /root/.cache/ccache
+    
+ENTRYPOINT ["/bin/bash", "-c", "source /opt/rh/gcc-toolset-14/enable && exec \"$@\"", "--"]
+CMD ["/bin/bash"]
+

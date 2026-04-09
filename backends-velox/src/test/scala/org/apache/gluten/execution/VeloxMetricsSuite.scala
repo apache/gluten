@@ -169,18 +169,16 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
   }
 
   test("Metrics of noop filter's children") {
-    withSQLConf(GlutenConfig.RAS_ENABLED.key -> "true") {
-      runQueryAndCompare("SELECT c1, c2 FROM metrics_t1 where c1 < 50") {
-        df =>
-          val scan = find(df.queryExecution.executedPlan) {
-            case _: FileSourceScanExecTransformer => true
-            case _ => false
-          }
-          assert(scan.isDefined)
-          val metrics = scan.get.metrics
-          assert(metrics("rawInputRows").value == 100)
-          assert(metrics("outputVectors").value == 1)
-      }
+    runQueryAndCompare("SELECT c1, c2 FROM metrics_t1 where c1 < 50") {
+      df =>
+        val scan = find(df.queryExecution.executedPlan) {
+          case _: FileSourceScanExecTransformer => true
+          case _ => false
+        }
+        assert(scan.isDefined)
+        val metrics = scan.get.metrics
+        assert(metrics("rawInputRows").value == 100)
+        assert(metrics("outputVectors").value == 1)
     }
   }
 

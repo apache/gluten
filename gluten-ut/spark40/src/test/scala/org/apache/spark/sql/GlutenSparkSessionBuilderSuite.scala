@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenSparkSessionBuilderSuite extends SparkSessionBuilderSuite with GlutenTestsCommonTrait {}
+class GlutenSparkSessionBuilderSuite extends SparkSessionBuilderSuite with GlutenTestsTrait {}

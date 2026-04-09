@@ -89,6 +89,10 @@ case class PaimonScanTransformer(
     this.copy(pushDownFilters = Some(filters))
   }
 
+  override def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase = {
+    this.copy(output = newOutput)
+  }
+
   override lazy val fileFormat: ReadFileFormat = {
     val formatStr = coreOptions.fileFormatString()
     if ("parquet".equalsIgnoreCase(formatStr)) {

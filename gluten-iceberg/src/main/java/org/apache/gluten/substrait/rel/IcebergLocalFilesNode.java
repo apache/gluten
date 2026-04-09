@@ -35,7 +35,8 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
       List<Map<String, String>> partitionColumns,
       ReadFileFormat fileFormat,
       List<String> preferredLocations,
-      List<List<DeleteFile>> deleteFilesList) {
+      List<List<DeleteFile>> deleteFilesList,
+      List<Map<String, String>> metadataColumns) {
     super(
         index,
         paths,
@@ -44,7 +45,7 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
         new ArrayList<>(),
         new ArrayList<>(),
         partitionColumns,
-        new ArrayList<>(),
+        metadataColumns,
         fileFormat,
         preferredLocations,
         new HashMap<>(),
