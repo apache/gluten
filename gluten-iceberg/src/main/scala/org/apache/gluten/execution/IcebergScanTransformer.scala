@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType}
 import org.apache.gluten.sql.shims.SparkShimLoader
@@ -193,6 +194,16 @@ case class IcebergScanTransformer(
       metadataAttr => metadataColumns.exists(_.name.equalsIgnoreCase(metadataAttr.name))
     }
     metadataColumns ++ extraMetadataColumns
+  }
+
+  @transient override protected lazy val finalPartitions: Seq[Partition] = {
+    if (keyGroupedPartitioning.isDefined) {
+      getFinalPartitions
+    } else {
+      GlutenIcebergSourceUtil.regeneratePartitions(
+        getFinalPartitions,
+        GlutenConfig.get.smallFileThreshold)
+    }
   }
 
   override lazy val fileFormat: ReadFileFormat = GlutenIcebergSourceUtil.getFileFormat(scan)

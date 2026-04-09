@@ -22,9 +22,10 @@ import org.apache.gluten.execution.SparkDataSourceRDDPartition
 import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
+import org.apache.spark.Partition
 import org.apache.spark.softaffinity.SoftAffinity
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
-import org.apache.spark.sql.connector.read.Scan
+import org.apache.spark.sql.connector.read.{InputPartition, Scan}
 import org.apache.spark.sql.types.StructType
 
 import org.apache.iceberg._
@@ -35,6 +36,7 @@ import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, M
 import java.util.Locale
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 
 object GlutenIcebergSourceUtil {
   private val InputFileNameCol = "input_file_name"
@@ -234,4 +236,103 @@ object GlutenIcebergSourceUtil {
       case _ =>
         throw new GlutenNotSupportException("Iceberg Only support parquet and orc file format.")
     }
+
+  def regeneratePartitions(
+      inputPartitions: Seq[Partition],
+      smallFileThreshold: Double): Seq[Partition] = {
+    val icebergPartitions = inputPartitions.map {
+      case partition: SparkDataSourceRDDPartition => partition
+      case other =>
+        throw new GlutenNotSupportException(
+          s"Unsupported partition type: ${other.getClass.getSimpleName}")
+    }
+
+    val partitionedTasks =
+      Array.fill(icebergPartitions.size)(mutable.ArrayBuffer.empty[InputPartition])
+
+    def getPartitionSize(inputPartition: InputPartition): Long = inputPartition match {
+      case partition: SparkInputPartition =>
+        partition
+          .taskGroup[ScanTask]()
+          .tasks()
+          .asScala
+          .map {
+            case task if task.isFileScanTask =>
+              task.asFileScanTask().length()
+            case task: CombinedScanTask =>
+              task.asCombinedScanTask().tasks().asScala.map(_.length()).sum
+            case other =>
+              throw new GlutenNotSupportException(
+                s"Unsupported scan task type: ${other.getClass.getSimpleName}")
+          }
+          .sum
+      case other =>
+        throw new GlutenNotSupportException(
+          s"Unsupported input partition type: ${other.getClass.getSimpleName}")
+    }
+
+    def addToBucket(
+        heap: mutable.PriorityQueue[(Long, Int, Int)],
+        partition: InputPartition,
+        partitionSize: Long): Unit = {
+      val (size, numFiles, idx) = heap.dequeue()
+      partitionedTasks(idx) += partition
+      heap.enqueue((size + partitionSize, numFiles + 1, idx))
+    }
+
+    def initializeHeap(
+        ordering: Ordering[(Long, Int, Int)]): mutable.PriorityQueue[(Long, Int, Int)] = {
+      val heap = mutable.PriorityQueue.empty[(Long, Int, Int)](ordering)
+      icebergPartitions.indices.foreach(i => heap.enqueue((0L, 0, i)))
+      heap
+    }
+
+    val tasksSorted = icebergPartitions
+      .flatMap(_.inputPartitions)
+      .map(partition => (partition, getPartitionSize(partition)))
+      .sortBy(_._2)(Ordering.Long.reverse)
+
+    val sizeFirstOrdering = Ordering
+      .by[(Long, Int, Int), (Long, Int)] { case (size, numFiles, _) => (size, numFiles) }
+      .reverse
+
+    if (smallFileThreshold > 0) {
+      val smallFileTotalSize = tasksSorted.map(_._2).sum * smallFileThreshold
+      val numFirstOrdering = Ordering
+        .by[(Long, Int, Int), (Int, Long)] { case (size, numFiles, _) => (numFiles, size) }
+        .reverse
+      val heapByFileNum = initializeHeap(numFirstOrdering)
+
+      var numSmallFiles = 0
+      var smallFileSize = 0L
+      tasksSorted.reverseIterator
+        .takeWhile(task => task._2 + smallFileSize <= smallFileTotalSize)
+        .foreach {
+          case (partition, partitionSize) =>
+            addToBucket(heapByFileNum, partition, partitionSize)
+            numSmallFiles += 1
+            smallFileSize += partitionSize
+        }
+
+      val heapByFileSize = mutable.PriorityQueue.empty[(Long, Int, Int)](sizeFirstOrdering)
+      while (heapByFileNum.nonEmpty) {
+        heapByFileSize.enqueue(heapByFileNum.dequeue())
+      }
+
+      tasksSorted.take(tasksSorted.size - numSmallFiles).foreach {
+        case (partition, partitionSize) =>
+          addToBucket(heapByFileSize, partition, partitionSize)
+      }
+    } else {
+      val heapByFileSize = initializeHeap(sizeFirstOrdering)
+      tasksSorted.foreach {
+        case (partition, partitionSize) =>
+          addToBucket(heapByFileSize, partition, partitionSize)
+      }
+    }
+
+    partitionedTasks.zipWithIndex.map {
+      case (partitions, idx) => new SparkDataSourceRDDPartition(idx, partitions)
+    }
+  }
 }
