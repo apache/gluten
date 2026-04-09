@@ -1124,6 +1124,9 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::CrossRel& crossR
   auto rowType = std::make_shared<RowType>(std::move(names), std::move(types));
 
   if (crossRel.has_expression()) {
+    if (!validateExpression(crossRel.expression(), rowType)) {
+      return false;
+    }
     auto expression = exprConverter_->toVeloxExpr(crossRel.expression(), rowType);
     exec::ExprSet exprSet({std::move(expression)}, execCtx_.get());
   }

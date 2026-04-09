@@ -219,7 +219,9 @@ const DB::ActionsDAG::Node * AggregateFunctionParser::convertNodeTypeIfNeeded(
 const DB::ActionsDAG::Node * AggregateFunctionParser::convertNanToNullIfNeed(
     const CommonFunctionInfo & func_info, const DB::ActionsDAG::Node * func_node, DB::ActionsDAG & actions_dag) const
 {
-    if (getCHFunctionName(func_info) != "corr" || !func_node->result_type->isNullable())
+    const auto function_name = getCHFunctionName(func_info);
+    if ((function_name != "corr" && function_name != "varSamp" && function_name != "covarSamp")
+        || !func_node->result_type->isNullable())
         return func_node;
 
     /// result is nullable.

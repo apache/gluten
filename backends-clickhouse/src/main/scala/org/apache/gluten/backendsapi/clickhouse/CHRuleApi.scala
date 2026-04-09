@@ -120,7 +120,7 @@ object CHRuleApi {
     injector.injectPostTransform(_ => PushDownFilterToScan)
     injector.injectPostTransform(_ => PushDownInputFileExpression.PostOffload)
     injector.injectPostTransform(_ => EnsureLocalSortRequirements)
-    injector.injectPostTransform(_ => EliminateLocalSort)
+    injector.injectPostTransform(_ => CHEliminateLocalSort)
     injector.injectPostTransform(_ => CollapseProjectExecTransformer)
     injector.injectPostTransform(c => RewriteSortMergeJoinToHashJoinRule(c.session))
     injector.injectPostTransform(c => PushdownAggregatePreProjectionAheadExpand(c.session))

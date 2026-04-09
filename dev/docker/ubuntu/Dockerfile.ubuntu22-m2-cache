@@ -1,0 +1,72 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    sudo git build-essential cmake ninja-build \
+    python3 curl ccache wget unzip \
+    openjdk-17-jdk maven \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth=1 https://github.com/apache/incubator-gluten.git /opt/gluten
+
+WORKDIR /opt/gluten
+
+# Build Velox dependencies with Arrow enabled
+RUN bash ./dev/builddeps-veloxbe.sh \
+        --run_setup_script=ON \
+        build_arrow
+
+# Download Maven dependencies for common Spark versions
+# This pre-populates the Maven cache with all necessary dependencies
+RUN set -ex; \
+    export MVN_CMD="build/mvn -ntp"; \
+
+  # Spark 4.1
+    $MVN_CMD -Pjava-17,scala-2.13,spark-4.1,backends-velox,hadoop-3.3,spark-ut,delta \
+        dependency:go-offline -DskipTests || true; \
+
+  # Spark 4.0
+    $MVN_CMD -Pjava-17,scala-2.13,spark-4,backends-velox,hadoop-3.3,spark-ut \
+        -Piceberg,iceberg-test,delta,paimon \
+        dependency:go-offline -DskipTests || true; \
+
+    # Spark 3.5
+    $MVN_CMD -Pjava-17,spark-3.5,backends-velox,hadoop-3.3,spark-ut \
+        -Piceberg,iceberg-test,delta,paimon \
+        dependency:go-offline -DskipTests || true; \
+
+    # Spark 3.4
+    $MVN_CMD -Pjava-17,spark-3.4,backends-velox,hadoop-3.3,spark-ut \
+        -Piceberg,iceberg-test,delta,paimon \
+        dependency:go-offline -DskipTests || true; \
+
+    # Spark 3.3
+    $MVN_CMD -Pjava-17,spark-3.3,backends-velox,hadoop-3.3,spark-ut \
+        -Piceberg,delta,paimon \
+        dependency:go-offline -DskipTests || true
+
+WORKDIR /work
+
+# Clean up build artifacts but keep m2
+RUN rm -rf /opt/gluten/cpp/build \
+    && rm -rf /opt/gluten/ep/build-velox/build \
+    && rm -rf /root/.cache/ccache
+
+# Default command
+CMD ["/bin/bash"]

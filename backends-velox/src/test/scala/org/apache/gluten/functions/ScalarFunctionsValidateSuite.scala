@@ -1561,4 +1561,32 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       }
     }
   }
+
+  testWithMinSparkVersion("localtimestamp with validation enabled", "3.4") {
+    // With validation enabled (default), localtimestamp should fallback to Spark
+    // because it returns TimestampNTZType
+    withSQLConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "true") {
+      val df = spark.sql("SELECT l_orderkey, localtimestamp() from lineitem limit 1")
+      // Should fallback to Spark execution due to TimestampNTZ validation
+      checkFallbackOperators(df, 1)
+      df.collect()
+    }
+  }
+
+  testWithMinSparkVersion("localtimestamp with validation disabled", "3.4") {
+    // With validation disabled, localtimestamp can use native execution
+    // This allows developers to test TimestampNTZ support
+    withSQLConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "false") {
+      val df = spark.sql("SELECT l_orderkey, localtimestamp() from lineitem limit 1")
+      val optimizedPlan = df.queryExecution.optimizedPlan.toString()
+      assert(
+        !optimizedPlan.contains("LocalTimestamp"),
+        s"Expected LocalTimestamp to be folded to a literal, but got: $optimizedPlan"
+      )
+      // Should use native execution when validation is disabled
+      checkGlutenPlan[ProjectExecTransformer](df)
+      checkFallbackOperators(df, 0)
+      df.collect()
+    }
+  }
 }

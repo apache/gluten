@@ -554,7 +554,8 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "dataSize" -> SQLMetrics.createSizeMetric(sparkContext, "data size"),
       "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
       "collectTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to collect"),
-      "broadcastTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to broadcast")
+      "broadcastTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to broadcast"),
+      "buildThreads" -> SQLMetrics.createMetric(sparkContext, "build threads")
     )
 
   override def genColumnarSubqueryBroadcastMetrics(
@@ -667,7 +668,10 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "numOutputBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of output bytes"),
       "loadLazyVectorTime" -> SQLMetrics.createNanoTimingMetric(
         sparkContext,
-        "time of loading lazy vectors")
+        "time of loading lazy vectors"),
+      "buildHashTableTime" -> SQLMetrics.createTimingMetric(
+        sparkContext,
+        "time to build hash table")
     )
 
   override def genHashJoinTransformerMetricsUpdater(

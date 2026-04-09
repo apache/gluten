@@ -62,8 +62,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableBroadcastBuildOncePerExecutor: Boolean =
     getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
 
-  def veloxBroadcastHashTableBuildThreads: Int =
-    getConf(COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_THREADS)
+  def veloxBroadcastHashTableBuildTargetBytes: Long =
+    getConf(COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_TARGET_BYTES)
 
   def veloxOrcScanEnabled: Boolean =
     getConf(VELOX_ORC_SCAN_ENABLED)
@@ -99,6 +99,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def valueStreamDynamicFilterEnabled: Boolean =
     getConf(VALUE_STREAM_DYNAMIC_FILTER_ENABLED)
+
+  def enableTimestampNtzValidation: Boolean = getConf(ENABLE_TIMESTAMP_NTZ_VALIDATION)
 }
 
 object VeloxConfig extends ConfigRegistry {
@@ -204,12 +206,14 @@ object VeloxConfig extends ConfigRegistry {
       .intConf
       .createOptional
 
-  val COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_THREADS =
-    buildStaticConf("spark.gluten.sql.columnar.backend.velox.broadcastHashTableBuildThreads")
-      .doc("The number of threads used to build the broadcast hash table. " +
-        "If not set or set to 0, it will use the default number of threads (available processors).")
-      .intConf
-      .createWithDefault(1)
+  val COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_TARGET_BYTES =
+    buildStaticConf("spark.gluten.velox.broadcast.build.targetBytesPerThread")
+      .doc(
+        "It is used to calculate the number of hash table build threads. Based on our testing" +
+          " across various thresholds (1MB to 128MB), we recommend a value of 32MB or 64MB," +
+          " as these consistently provided the most significant performance gains.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("32MB")
 
   val COLUMNAR_VELOX_ASYNC_TIMEOUT =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping")
@@ -753,6 +757,15 @@ object VeloxConfig extends ConfigRegistry {
   val PARQUET_USE_COLUMN_NAMES =
     buildConf("spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames")
       .doc("Maps table field names to file field names using names, not indices for Parquet files.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val ENABLE_TIMESTAMP_NTZ_VALIDATION =
+    buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")
+      .doc(
+        "Enable validation fallback for TimestampNTZ type. When true (default), any plan " +
+          "containing TimestampNTZ will fall back to Spark execution. Set to false during " +
+          "development/testing of TimestampNTZ support to allow native execution.")
       .booleanConf
       .createWithDefault(true)
 }

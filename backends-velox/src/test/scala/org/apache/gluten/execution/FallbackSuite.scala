@@ -24,7 +24,7 @@ import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
 import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarShuffleExchangeExec, SortExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
-import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, SortMergeJoinExec}
+import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, BroadcastNestedLoopJoinExec, SortMergeJoinExec}
 import org.apache.spark.utils.GlutenSuiteUtils
 
 import scala.collection.mutable.ArrayBuffer
@@ -350,6 +350,41 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
       } finally {
         spark.sparkContext.removeSparkListener(listener)
       }
+    }
+  }
+
+  test("fallback when nested loop join has unsupported expression") {
+    val events = new ArrayBuffer[GlutenPlanFallbackEvent]
+    val listener = new SparkListener {
+      override def onOtherEvent(event: SparkListenerEvent): Unit = {
+        event match {
+          case e: GlutenPlanFallbackEvent => events.append(e)
+          case _ =>
+        }
+      }
+    }
+    spark.sparkContext.addSparkListener(listener)
+
+    try {
+      val df = spark.sql("""
+                           |select tmp1.c1, tmp1.c2 from tmp1
+                           |left join tmp2 on (
+                           |  tmp1.c1 = regexp_extract(tmp2.c1, '(?<=@)[^.]+(?=\.)', 0)
+                           |  or tmp2.c1 > 10
+                           |)
+                           |""".stripMargin)
+      df.collect()
+      GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+
+      val nestedLoopJoin = find(df.queryExecution.executedPlan) {
+        _.isInstanceOf[BroadcastNestedLoopJoinExec]
+      }
+      assert(nestedLoopJoin.isDefined)
+      val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
+      assert(fallbackReasons.nonEmpty)
+      assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
+    } finally {
+      spark.sparkContext.removeSparkListener(listener)
     }
   }
 }

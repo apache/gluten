@@ -17,6 +17,7 @@
 package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.{BackendsApiManager, ValidatorApi}
+import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.execution.ValidationResult
 import org.apache.gluten.substrait.`type`.TypeNode
 import org.apache.gluten.substrait.SubstraitContext
@@ -104,10 +105,17 @@ class VeloxValidatorApi extends ValidatorApi {
 
 object VeloxValidatorApi {
   private def isPrimitiveType(dataType: DataType): Boolean = {
+    val enableTimestampNtzValidation = VeloxConfig.get.enableTimestampNtzValidation
     dataType match {
       case BooleanType | ByteType | ShortType | IntegerType | LongType | FloatType | DoubleType |
           StringType | BinaryType | _: DecimalType | DateType | TimestampType |
           YearMonthIntervalType.DEFAULT | NullType =>
+        true
+      case dt
+          if !enableTimestampNtzValidation &&
+            dt.getClass.getSimpleName == "TimestampNTZType" =>
+        // Allow TimestampNTZ when validation is disabled (for development/testing)
+        // Use reflection to avoid compile-time dependency on Spark 3.4+ TimestampNTZType
         true
       case _ => false
     }
