@@ -17,10 +17,12 @@
 
 #include "VeloxPlanConverter.h"
 #include <filesystem>
+#include <optional>
 
 #include "config/GlutenConfig.h"
 #include "iceberg/IcebergPlanConverter.h"
 #include "operators/plannodes/IteratorSplit.h"
+#include <google/protobuf/wrappers.pb.h>
 
 namespace gluten {
 
@@ -40,6 +42,31 @@ VeloxPlanConverter::VeloxPlanConverter(
 }
 
 namespace {
+std::optional<std::string> unpackMetadataValue(
+    const google::protobuf::Any& value) {
+  google::protobuf::StringValue stringValue;
+  if (value.UnpackTo(&stringValue)) {
+    return stringValue.value();
+  }
+
+  google::protobuf::Int32Value int32Value;
+  if (value.UnpackTo(&int32Value)) {
+    return std::to_string(int32Value.value());
+  }
+
+  google::protobuf::Int64Value int64Value;
+  if (value.UnpackTo(&int64Value)) {
+    return std::to_string(int64Value.value());
+  }
+
+  google::protobuf::DoubleValue doubleValue;
+  if (value.UnpackTo(&doubleValue)) {
+    return std::to_string(doubleValue.value());
+  }
+
+  return std::nullopt;
+}
+
 std::shared_ptr<SplitInfo> parseScanSplitInfo(
     const facebook::velox::config::ConfigBase* veloxCfg,
     const google::protobuf::RepeatedPtrField<substrait::ReadRel_LocalFiles_FileOrFiles>& fileList) {
@@ -66,6 +93,11 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
     std::unordered_map<std::string, std::string> metadataColumnMap;
     for (const auto& metadataColumn : file.metadata_columns()) {
       metadataColumnMap[metadataColumn.key()] = metadataColumn.value();
+    }
+    for (const auto& otherMetadataColumn : file.other_const_metadata_columns()) {
+      if (auto unpackedValue = unpackMetadataValue(otherMetadataColumn.value())) {
+        metadataColumnMap[otherMetadataColumn.key()] = std::move(*unpackedValue);
+      }
     }
     splitInfo->metadataColumns.emplace_back(metadataColumnMap);
 
