@@ -29,7 +29,7 @@ namespace tac {
 /// Backend-specific code converts to/from these types.
 enum TacDataType : int8_t {
   kUnsupported = -1, // Not compressible by TAC.
-  kUInt64 = 0,       // 8-byte unsigned integer (also used for int64, double, date64).
+  kUInt64 = 0, // 8-byte unsigned integer (also used for int64, double, date64).
 };
 
 } // namespace tac
@@ -55,8 +55,7 @@ class TypeAwareCompressCodec {
   compress(const uint8_t* input, int64_t inputLen, uint8_t* output, int64_t outputLen, int8_t tacType);
 
   /// Decompress without a type hint. Self-describing from the payload header.
-  static arrow::Result<int64_t>
-  decompress(const uint8_t* input, int64_t inputLen, uint8_t* output, int64_t outputLen);
+  static arrow::Result<int64_t> decompress(const uint8_t* input, int64_t inputLen, uint8_t* output, int64_t outputLen);
 
  private:
   enum CodecId : uint8_t {

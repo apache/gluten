@@ -33,8 +33,7 @@ class FForCodec {
   // Compress uint64_t data.
   // inputSize must be a multiple of 8 (sizeof(uint64_t)).
   // Returns the number of compressed bytes written to output.
-  static arrow::Result<int64_t>
-  compress(const uint8_t* input, int64_t inputSize, uint8_t* output, int64_t outputSize);
+  static arrow::Result<int64_t> compress(const uint8_t* input, int64_t inputSize, uint8_t* output, int64_t outputSize);
 
   // Decompress data compressed by compress().
   // outputSize must be a multiple of 8 (sizeof(uint64_t)).
