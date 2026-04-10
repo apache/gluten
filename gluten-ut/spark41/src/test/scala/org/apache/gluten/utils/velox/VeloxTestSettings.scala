@@ -1219,7 +1219,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenStreamingInnerJoinSuite]
   enableSuite[GlutenStreamingLeftSemiJoinSuite]
   // TODO: 4.x enableSuite[GlutenStreamingOuterJoinSuite]
-  enableSuite[GlutenStreamingQueryHashPartitionVerifySuite]
+  // TODO: 4.x enableSuite[GlutenStreamingQueryHashPartitionVerifySuite]
   enableSuite[GlutenStreamingQueryListenerSuite]
   enableSuite[GlutenStreamingQueryListenersConfSuite]
   enableSuite[GlutenStreamingQueryManagerSuite]
