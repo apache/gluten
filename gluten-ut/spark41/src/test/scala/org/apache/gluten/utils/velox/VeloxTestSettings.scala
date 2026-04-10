@@ -658,8 +658,12 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenAggregatingAccumulatorSuite]
   enableSuite[GlutenCoGroupedIteratorSuite]
   // TODO: 4.x enableSuite[GlutenColumnarRulesSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenDataSourceScanExecRedactionSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenDataSourceV2ScanExecRedactionSuite]  // 2 failures
+  enableSuite[GlutenDataSourceScanExecRedactionSuite]
+    .exclude("explain is redacted using SQLConf")
+    .exclude("SPARK-31793: FileSourceScanExec metadata should contain limited file paths")
+  enableSuite[GlutenDataSourceV2ScanExecRedactionSuite]
+    .exclude("explain is redacted using SQLConf")
+    .exclude("FileScan description")
   enableSuite[GlutenExecuteImmediateEndToEndSuite]
   enableSuite[GlutenExternalAppendOnlyUnsafeRowArraySuite]
   enableSuite[GlutenGlobalTempViewSuite]
@@ -791,7 +795,8 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenExplainSuite]  // 1 failure
   enableSuite[GlutenICUCollationsMapSuite]
   enableSuite[GlutenInlineTableParsingImprovementsSuite]
-  // TODO: 4.x enableSuite[GlutenJoinHintSuite]  // 1 failure
+  enableSuite[GlutenJoinHintSuite]
+    .exclude("join strategy hint - shuffle-replicate-nl")
   enableSuite[GlutenLogQuerySuite]
     // Overridden
     .exclude("Query Spark logs with exception using SQL")
