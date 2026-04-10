@@ -23,6 +23,7 @@ import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
+import org.apache.spark.internal.Logging
 import org.apache.spark.softaffinity.SoftAffinity
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.connector.read.{InputPartition, Scan}
@@ -38,7 +39,7 @@ import java.util.Locale
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
-object GlutenIcebergSourceUtil {
+object GlutenIcebergSourceUtil extends Logging {
   private val InputFileNameCol = "input_file_name"
   private val InputFileBlockStartCol = "input_file_block_start"
   private val InputFileBlockLengthCol = "input_file_block_length"
@@ -258,8 +259,10 @@ object GlutenIcebergSourceUtil {
           .asScala
           .map {
             case task if task.isFileScanTask =>
+              logWarning("FileScanTask length: " + task.asFileScanTask().length())
               task.asFileScanTask().length()
             case task: CombinedScanTask =>
+              logWarning("CombinedScanTask length: " + task.asCombinedScanTask().tasks().size())
               task.asCombinedScanTask().tasks().asScala.map(_.length()).sum
             case other =>
               throw new GlutenNotSupportException(
@@ -287,8 +290,10 @@ object GlutenIcebergSourceUtil {
       heap
     }
 
-    val tasksSorted = icebergPartitions
+    val flatPartitions = icebergPartitions
       .flatMap(_.inputPartitions)
+    logWarning("num flatPartitions: " + flatPartitions.size)
+    val tasksSorted = flatPartitions
       .map(partition => (partition, getPartitionSize(partition)))
       .sortBy(_._2)(Ordering.Long.reverse)
 
