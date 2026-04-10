@@ -79,9 +79,6 @@ const std::string kVeloxSplitPreloadPerDriver = "spark.gluten.sql.columnar.backe
 const std::string kHashProbeDynamicFilterPushdownEnabled =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.dynamicFilterPushdown.enabled";
 
-const std::string kHashTableBuildOncePerExecutor = "spark.gluten.velox.buildHashTableOncePerExecutor.enabled";
-const bool kHashTableBuildOncePerExecutorDefault = true;
-
 const std::string kHashProbeBloomFilterPushdownMaxSize =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterPushdown.maxSize";
 

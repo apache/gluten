@@ -400,7 +400,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       sJoin.has_advanced_extension() &&
       SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isBHJ=")) {
     bool hashTableBuildOncePerExecutorEnabled =
-        veloxCfg_->get<bool>(kHashTableBuildOncePerExecutor, kHashTableBuildOncePerExecutorDefault);
+        SubstraitParser::configSetInOptimization(
+            sJoin.advanced_extension(), "isHashTableBuildOncePerExecutor=");
 
     std::string hashTableId = sJoin.hashtableid();
 
@@ -408,7 +409,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     bool joinHasNullKeys = false;
 
     if (hashTableBuildOncePerExecutorEnabled) {
-      std::cout << "the hashTableBuildOncePerExecutorEnabled is set" << "\n";
       try {
         auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(getJoin(hashTableId));
         joinHasNullKeys = hashTableBuilder->joinHasNullKeys();
@@ -423,8 +423,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
             " You can set spark.gluten.velox.buildHashTableOncePerExecutor.enabled"
             " to false as workaround.");
       }
-    } else {
-      std::cout << "the hashTableBuildOncePerExecutorEnabled is false" << "\n";
     }
 
     // Create HashJoinNode node

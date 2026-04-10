@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.expression._
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.sql.shims.SparkShimLoader
@@ -290,6 +291,14 @@ trait HashJoinLikeExecTransformer extends BaseJoinExec with TransformSupport {
       .append("\n")
       .append("buildHashTableId=")
       .append(buildHashTableId)
+      .append("\n")
+      .append("isHashTableBuildOncePerExecutor=")
+      .append(
+        if (
+          BackendsApiManager.getSettings.enableHashTableBuildOncePerExecutor() &&
+          GlutenConfig.get.enableColumnarBroadcastExchange
+        ) 1
+        else 0)
       .append("\n")
       .append("isExistenceJoin=")
       .append(if (joinType.isInstanceOf[ExistenceJoin]) 1 else 0)
