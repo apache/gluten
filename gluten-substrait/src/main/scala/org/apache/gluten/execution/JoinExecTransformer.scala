@@ -282,6 +282,12 @@ trait HashJoinLikeExecTransformer extends BaseJoinExec with TransformSupport {
     // isBHJ: 0 for SHJ, 1 for BHJ
     // isNullAwareAntiJoin: 0 for false, 1 for true
     // buildHashTableId: the unique id for the hash table of build plan
+    val isHashTableBuildOncePerExecutor =
+      if (
+        BackendsApiManager.getSettings.enableHashTableBuildOncePerExecutor() &&
+        GlutenConfig.get.enableColumnarBroadcastExchange
+      ) { 1 }
+      else 0
     joinParametersStr
       .append("isBHJ=")
       .append(isBHJ)
@@ -293,12 +299,7 @@ trait HashJoinLikeExecTransformer extends BaseJoinExec with TransformSupport {
       .append(buildHashTableId)
       .append("\n")
       .append("isHashTableBuildOncePerExecutor=")
-      .append(
-        if (
-          BackendsApiManager.getSettings.enableHashTableBuildOncePerExecutor() &&
-          GlutenConfig.get.enableColumnarBroadcastExchange
-        ) 1
-        else 0)
+      .append(isHashTableBuildOncePerExecutor)
       .append("\n")
       .append("isExistenceJoin=")
       .append(if (joinType.isInstanceOf[ExistenceJoin]) 1 else 0)
