@@ -284,14 +284,30 @@ std::string SubstraitToVeloxPlanConverter::toAggregationFunctionName(
         // The merge_extract function is registered without suffix.
         return functionName;
       }
-      // The merge_extract function must be registered with suffix based on result type.
-      functionName += ("_" + companionFunctionSuffix(resultType));
-      signatures = exec::getAggregateFunctionSignatures(functionName);
-      VELOX_CHECK(
-          signatures.has_value() && signatures.value().size() > 0,
+      // The merge_extract function must be registered with suffix based on
+      // result type. First try exact concrete type suffix.
+      auto suffixedName =
+          functionName + "_" + companionFunctionSuffix(resultType);
+      signatures = exec::getAggregateFunctionSignatures(suffixedName);
+      if (signatures.has_value() && signatures.value().size() > 0) {
+        return suffixedName;
+      }
+      // When companion functions are registered with generic type variables
+      // (e.g., "collect_set_merge_extract_array_T"), look up companion
+      // function names from the aggregate function registry.
+      auto companionSigs = exec::getCompanionFunctionSignatures(baseName);
+      if (companionSigs.has_value()) {
+        for (const auto& entry : companionSigs->mergeExtract) {
+          auto entrySigs =
+              exec::getAggregateFunctionSignatures(entry.functionName);
+          if (entrySigs.has_value() && entrySigs.value().size() > 0) {
+            return entry.functionName;
+          }
+        }
+      }
+      VELOX_FAIL(
           "Cannot find function signature for {} in final aggregation step.",
-          functionName);
-      return functionName;
+          suffixedName);
     }
     case core::AggregationNode::Step::kIntermediate:
       suffix = "_merge";

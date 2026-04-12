@@ -67,12 +67,21 @@ object CollectRewriteRule {
     def unapply(expr: Expression): Option[Expression] = expr match {
       case aggExpr @ AggregateExpression(s: CollectSet, _, _, _, _) if has[VeloxCollectSet] =>
         val newAggExpr =
-          aggExpr.copy(aggregateFunction = VeloxCollectSet(s.child))
+          aggExpr.copy(aggregateFunction = VeloxCollectSet(s.child, getIgnoreNulls(s)))
         Some(newAggExpr)
       case aggExpr @ AggregateExpression(l: CollectList, _, _, _, _) if has[VeloxCollectList] =>
-        val newAggExpr = aggExpr.copy(VeloxCollectList(l.child))
+        val newAggExpr = aggExpr.copy(VeloxCollectList(l.child, getIgnoreNulls(l)))
         Some(newAggExpr)
       case _ => None
+    }
+  }
+
+  private def getIgnoreNulls(expr: Expression): Boolean = {
+    try {
+      val method = expr.getClass.getMethod("ignoreNulls")
+      method.invoke(expr).asInstanceOf[Boolean]
+    } catch {
+      case _: NoSuchMethodException => true // Default: ignore nulls
     }
   }
 
