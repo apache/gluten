@@ -930,10 +930,25 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       }
   }
 
+  private def resolveStructOrdinal(names: ArrayBuffer[String], dataType: DataType): Int = {
+    var level = names.size - 1
+    var dtType = dataType
+    var ordinal = -1
+    while (dtType.isInstanceOf[StructType] && level >= 1) {
+      val candidateFields = dtType.asInstanceOf[StructType].fields
+      level -= 1
+      val idx = candidateFields.indexWhere(_.name == names(level))
+      if (idx < 0) return -1
+      dtType = candidateFields(idx).dataType
+      ordinal = idx
+    }
+    if (level > 0) return -1
+    ordinal
+  }
+
   private def bindGetStructField(
       structField: GetStructField,
       input: AttributeSeq): BoundReference = {
-    // get the new ordinal base input
     var newOrdinal: Int = -1
     val names = new ArrayBuffer[String]
     var root: Expression = structField
@@ -947,26 +962,28 @@ object ExpressionConverter extends SQLConfHelper with Logging {
     if (!root.isInstanceOf[AttributeReference]) {
       return BoundReference(structField.ordinal, structField.dataType, structField.nullable)
     }
-    names += root.asInstanceOf[AttributeReference].name
-    input.attrs.foreach(
-      attribute => {
-        var level = names.size - 1
-        if (names(level) == attribute.name) {
-          var candidateFields: Array[StructField] = null
-          var dtType = attribute.dataType
-          while (dtType.isInstanceOf[StructType] && level >= 1) {
-            candidateFields = dtType.asInstanceOf[StructType].fields
-            level -= 1
-            val curName = names(level)
-            for (i <- 0 until candidateFields.length) {
-              if (candidateFields(i).name == curName) {
-                dtType = candidateFields(i).dataType
-                newOrdinal = i
-              }
-            }
+    val ref = root.asInstanceOf[AttributeReference]
+    names += ref.name
+    input.attrs.foreach {
+      attribute =>
+        if (newOrdinal == -1 && names.last == attribute.name) {
+          val ordinal = resolveStructOrdinal(names, attribute.dataType)
+          if (ordinal != -1) {
+            newOrdinal = ordinal
           }
         }
-      })
+    }
+    // Keep name-based binding as the primary path. Some post-generate projections rename
+    // attributes while preserving exprId, so retry by exprId only after the name lookup fails.
+    input.attrs.foreach {
+      attribute =>
+        if (newOrdinal == -1 && attribute.exprId == ref.exprId) {
+          val ordinal = resolveStructOrdinal(names, attribute.dataType)
+          if (ordinal != -1) {
+            newOrdinal = ordinal
+          }
+        }
+    }
     if (newOrdinal == -1) {
       throw new IllegalStateException(
         s"Couldn't find $structField in ${input.attrs.mkString("[", ",", "]")}")

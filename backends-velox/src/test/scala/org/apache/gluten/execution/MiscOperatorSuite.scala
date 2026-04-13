@@ -1200,6 +1200,92 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("struct field projection after LATERAL VIEW EXPLODE stays native") {
+    withTable("t_lv_struct") {
+      sql("""CREATE TABLE t_lv_struct (
+            |  name STRING,
+            |  items ARRAY<STRUCT<score: INT, label: STRING>>
+            |) USING parquet""".stripMargin)
+      sql("""INSERT INTO t_lv_struct VALUES
+            |('alice', ARRAY(NAMED_STRUCT('score', 90, 'label', 'A'))),
+            |('bob', ARRAY(NAMED_STRUCT('score', 40, 'label', 'B')))
+            |""".stripMargin)
+
+      runQueryAndCompare("""SELECT name, item.score, item.label
+                           |FROM t_lv_struct
+                           |LATERAL VIEW EXPLODE(items) AS item
+                           |""".stripMargin) {
+        df =>
+          val executedPlan = getExecutedPlan(df)
+          assert(
+            executedPlan.exists(
+              plan =>
+                plan.isInstanceOf[ProjectExecTransformer] &&
+                  plan.find(_.isInstanceOf[GenerateExecTransformer]).isDefined),
+            s"Expected ProjectExecTransformer on top of explode output in executed plan:\n" +
+              s"${executedPlan.last}"
+          )
+      }
+    }
+  }
+
+  test("struct field filter after LATERAL VIEW EXPLODE stays native") {
+    withTable("t_lv_filter") {
+      sql("""CREATE TABLE t_lv_filter (
+            |  name STRING,
+            |  items ARRAY<STRUCT<score: INT, label: STRING>>
+            |) USING parquet""".stripMargin)
+      sql("""INSERT INTO t_lv_filter VALUES
+            |('alice', ARRAY(NAMED_STRUCT('score', 90, 'label', 'A'),
+            |                NAMED_STRUCT('score', 30, 'label', 'B'))),
+            |('bob', ARRAY(NAMED_STRUCT('score', 40, 'label', 'C')))
+            |""".stripMargin)
+
+      runQueryAndCompare("""SELECT name, item.score, item.label
+                           |FROM t_lv_filter
+                           |LATERAL VIEW EXPLODE(items) AS item
+                           |WHERE item.score > 50
+                           |ORDER BY name, item.score
+                           |""".stripMargin) {
+        df =>
+          val executedPlan = getExecutedPlan(df)
+          assert(
+            executedPlan.exists(
+              plan =>
+                plan.isInstanceOf[FilterExecTransformer] &&
+                  plan.find(_.isInstanceOf[GenerateExecTransformer]).isDefined),
+            s"Expected FilterExecTransformer on explode output in executed plan:\n" +
+              s"${executedPlan.last}"
+          )
+      }
+    }
+  }
+
+  test("nested struct field rollup after explode_outer stays native") {
+    runQueryAndCompare("""SELECT elem.a.x, elem.a.y, count(*)
+                         |FROM (
+                         |  SELECT explode_outer(arr) AS elem
+                         |  FROM (
+                         |    SELECT array(named_struct(
+                         |      'a', named_struct('x', id * 1.5, 'y', 'foo'))) AS arr
+                         |    FROM range(1)
+                         |  )
+                         |)
+                         |GROUP BY ROLLUP(elem.a.x, elem.a.y)
+                         |""".stripMargin) {
+      df =>
+        val executedPlan = getExecutedPlan(df)
+        assert(
+          executedPlan.exists(
+            plan =>
+              plan.isInstanceOf[ProjectExecTransformer] &&
+                plan.find(_.isInstanceOf[GenerateExecTransformer]).isDefined),
+          s"Expected ProjectExecTransformer on explode_outer output in executed plan:\n" +
+            s"${executedPlan.last}"
+        )
+    }
+  }
+
   test("test array functions") {
     withTable("t") {
       sql("CREATE TABLE t (c1 ARRAY<INT>, c2 ARRAY<INT>, c3 STRING) using parquet")
