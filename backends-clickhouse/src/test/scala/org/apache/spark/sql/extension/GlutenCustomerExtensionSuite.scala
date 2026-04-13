@@ -16,15 +16,24 @@
  */
 package org.apache.spark.sql.extension
 
+import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.execution.{BasicScanExecTransformer, FileSourceScanExecTransformerBase}
 import org.apache.gluten.sql.shims.SparkShimLoader
+import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
+import org.apache.spark.Partition
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.GlutenSQLTestsTrait
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
+import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.test.SharedSparkSession
+import org.apache.spark.sql.types.StructType
+import org.apache.spark.util.collection.BitSet
 
 class GlutenCustomerExtensionSuite extends SharedSparkSession {
   // These configs only take effect on ClickHouse backend.
@@ -43,7 +52,7 @@ class GlutenCustomerExtensionSuite extends SharedSparkSession {
       .set(ExtendedColumnarPostRulesKey, "")
   }
 
-  testGluten("test customer column rules") {
+  test("customer column rules") {
     withSQLConf((GlutenConfig.GLUTEN_ENABLED.key, "false")) {
       sql("create table my_parquet(id int) using parquet")
       sql("insert into my_parquet values (1)")
@@ -58,6 +67,52 @@ class GlutenCustomerExtensionSuite extends SharedSparkSession {
       assert(testFileSourceScanExecTransformer.head.nodeNamePrefix.equals("TestFile"))
     }
   }
+}
+
+/** Test for customer column rules */
+case class TestFileSourceScanExecTransformer(
+    @transient override val relation: HadoopFsRelation,
+    @transient stream: Option[SparkDataStream],
+    override val output: Seq[Attribute],
+    override val requiredSchema: StructType,
+    override val partitionFilters: Seq[Expression],
+    override val optionalBucketSet: Option[BitSet],
+    override val optionalNumCoalescedBuckets: Option[Int],
+    override val dataFilters: Seq[Expression],
+    override val tableIdentifier: Option[TableIdentifier],
+    override val disableBucketedScan: Boolean = false,
+    override val pushDownFilters: Option[Seq[Expression]] = None)
+  extends FileSourceScanExecTransformerBase(
+    relation,
+    stream,
+    output,
+    requiredSchema,
+    partitionFilters,
+    optionalBucketSet,
+    optionalNumCoalescedBuckets,
+    dataFilters,
+    tableIdentifier,
+    disableBucketedScan) {
+
+  override def getPartitions: Seq[Partition] =
+    BackendsApiManager.getTransformerApiInstance
+      .genPartitionSeq(
+        relation,
+        requiredSchema,
+        selectedPartitions,
+        output,
+        bucketedScan,
+        optionalBucketSet,
+        optionalNumCoalescedBuckets,
+        disableBucketedScan)
+
+  override def getPartitionWithReadFileFormats: Seq[(Partition, ReadFileFormat)] =
+    getPartitions.map((_, fileFormat))
+
+  override val nodeNamePrefix: String = "TestFile"
+
+  override def withNewPushdownFilters(filters: Seq[Expression]): BasicScanExecTransformer =
+    copy(pushDownFilters = Some(filters))
 }
 
 case class CustomerColumnarPreRules(session: SparkSession) extends Rule[SparkPlan] {
