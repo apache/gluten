@@ -61,7 +61,7 @@ TEST_F(DeltaUuidUtilsTest, DecodeZ85InvalidLength) {
 
 TEST_F(DeltaUuidUtilsTest, DecodeZ85InvalidCharacter) {
   // Test with invalid character (not in Z85 alphabet)
-  std::string encoded = "~~~~~"; // '~' is not in Z85 alphabet
+  std::string encoded(20, '~'); // '~' is not in Z85 alphabet
 
   EXPECT_THROW(DeltaUuidUtils::decodeZ85ToUuid(encoded), facebook::velox::VeloxUserError);
 }

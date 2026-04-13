@@ -97,7 +97,7 @@ struct DeltaDeletionVectorDescriptor {
   /// Format: If offset is None then <storageType><pathOrInlineDv>
   ///         Otherwise <storageType><pathOrInlineDv>@<offset>
   std::string uniqueId() const {
-    char storageTypeChar;
+    char storageTypeChar = 'u';
     switch (storageType) {
       case DeltaDeletionVectorStorageType::kUuidPath:
         storageTypeChar = 'u';

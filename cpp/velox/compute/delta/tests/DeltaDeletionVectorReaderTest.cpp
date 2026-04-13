@@ -573,7 +573,7 @@ TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationSuccess) {
   auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
 
   // Should succeed with correct cardinality
-  EXPECT_NO_THROW(reader->loadInlineDeletionVector(inlineData, 5));
+  EXPECT_NO_THROW(reader->loadInlineDeletionVector(inlineData, std::nullopt, 5));
 
   // Verify cardinality
   EXPECT_EQ(reader->estimatedDeletedRowCount(), 5);
@@ -586,7 +586,7 @@ TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationMismatchThrows) {
   auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
 
   // Should throw with incorrect cardinality
-  EXPECT_THROW(reader->loadInlineDeletionVector(inlineData, 3), VeloxUserError);
+  EXPECT_THROW(reader->loadInlineDeletionVector(inlineData, std::nullopt, 3), VeloxUserError);
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationFileSuccess) {
@@ -635,7 +635,7 @@ TEST_F(DeltaDeletionVectorReaderTest, LargeCardinalityValidation) {
   auto reader = std::make_unique<DeltaDeletionVectorReader>(nullptr, pool_.get(), ioStats_);
 
   // Should succeed with correct cardinality
-  EXPECT_NO_THROW(reader->loadInlineDeletionVector(inlineData, 1000));
+  EXPECT_NO_THROW(reader->loadInlineDeletionVector(inlineData, std::nullopt, 1000));
   EXPECT_EQ(reader->estimatedDeletedRowCount(), 1000);
 }
 

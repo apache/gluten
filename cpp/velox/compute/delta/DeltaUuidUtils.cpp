@@ -122,7 +122,7 @@ std::string DeltaUuidUtils::encodeBytesToBase85(std::string_view data) {
 }
 
 DeltaUuidUtils::Uuid DeltaUuidUtils::decodeZ85ToUuid(const std::string& z85) {
-  VELOX_CHECK_EQ(z85.length(), 20, "Z85 encoded UUID must be exactly 20 characters");
+  VELOX_USER_CHECK_EQ(z85.length(), 20, "Z85 encoded UUID must be exactly 20 characters");
 
   Uuid uuid;
 
@@ -136,11 +136,11 @@ DeltaUuidUtils::Uuid DeltaUuidUtils::decodeZ85ToUuid(const std::string& z85) {
 
 std::string DeltaUuidUtils::decodeBase85ToBytes(std::string_view encoded, size_t decodedSize) {
   if (encoded.empty()) {
-    VELOX_CHECK_EQ(decodedSize, 0, "Expected decoded Base85 size to be 0 for empty input");
+    VELOX_USER_CHECK_EQ(decodedSize, 0, "Expected decoded Base85 size to be 0 for empty input");
     return "";
   }
 
-  VELOX_CHECK_EQ(encoded.size() % 5, 0, "Base85 encoded payload must be aligned to 5-character blocks");
+  VELOX_USER_CHECK_EQ(encoded.size() % 5, 0, "Base85 encoded payload must be aligned to 5-character blocks");
 
   const size_t maxDecodedSize = (encoded.size() / 5) * 4;
   VELOX_CHECK_LE(
@@ -186,7 +186,7 @@ void DeltaUuidUtils::decodeZ85Block(const char* input, uint8_t* output) {
   uint32_t value = 0;
   for (int i = 0; i < 5; ++i) {
     int8_t digit = reverseLookup[static_cast<uint8_t>(input[i])];
-    VELOX_CHECK_GE(digit, 0, "Invalid Z85 character: {}", input[i]);
+    VELOX_USER_CHECK_GE(digit, 0, "Invalid Z85 character: {}", input[i]);
     value = value * 85 + static_cast<uint32_t>(digit);
   }
 
@@ -201,7 +201,7 @@ std::pair<std::string, DeltaUuidUtils::Uuid> DeltaUuidUtils::extractUuidFromZ85(
   // Z85-encoded UUID is always 20 characters
   // Any characters before that are the random prefix
   if (z85.length() < 20) {
-    VELOX_FAIL("Z85 string too short to contain UUID: {}", z85);
+    VELOX_USER_FAIL("Z85 string too short to contain UUID: {}", z85);
   }
 
   std::string randomPrefix;
@@ -223,13 +223,22 @@ std::pair<std::string, DeltaUuidUtils::Uuid> DeltaUuidUtils::extractUuidFromZ85(
 std::string
 DeltaUuidUtils::reconstructUuidPath(const std::string& tableDir, const std::string& randomPrefix, const Uuid& uuid) {
   std::ostringstream oss;
-  oss << tableDir;
+  const auto normalizedTableDir =
+      !tableDir.empty() && tableDir.back() == '/' ? tableDir.substr(0, tableDir.size() - 1) : tableDir;
+  oss << normalizedTableDir;
 
   if (!randomPrefix.empty()) {
-    oss << "/" << randomPrefix;
+    if (!normalizedTableDir.empty()) {
+      oss << "/";
+    }
+    oss << randomPrefix;
   }
 
-  oss << "/deletion_vector_" << uuidToString(uuid) << ".bin";
+  if (!normalizedTableDir.empty() || !randomPrefix.empty()) {
+    oss << "/";
+  }
+
+  oss << "deletion_vector_" << uuidToString(uuid) << ".bin";
   return oss.str();
 }
 

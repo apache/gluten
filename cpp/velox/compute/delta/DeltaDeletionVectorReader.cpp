@@ -184,7 +184,7 @@ roaring::Roaring64Map deserializeDeltaBitmapArray(std::string_view serializedPay
     return result;
   }
 
-  VELOX_USER_FAIL("Unexpected Delta bitmap array magic number {} for {}", magic, dvPath);
+  VELOX_USER_FAIL("Unexpected magic number {} for {}", magic, dvPath);
 }
 
 } // namespace
