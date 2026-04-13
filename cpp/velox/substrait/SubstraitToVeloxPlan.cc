@@ -165,17 +165,36 @@ RowTypePtr getJoinOutputType(
   VELOX_FAIL("Output should include left or right columns.");
 }
 
+// The base names can be referred from 'velox/expression/FunctionSignature.cpp'.
+std::string typeBaseName(const TypePtr& type) {
+  if (type->isDecimal()) {
+    return "decimal";
+  }
+  if (type->isPrimitiveType()) {
+    return type->toString();
+  }
+
+  if (type->kind() == TypeKind::ARRAY) {
+    return "array";
+  }
+
+  if (type->kind() == TypeKind::MAP) {
+    return "map";
+  }
+
+  if (type->kind() == TypeKind::ROW) {
+    return "row";
+  }
+  VELOX_UNREACHABLE("Unknown type: {}", type->toString());
+}
+
 // Get the function name suffix used by merge_extract companion function when having the same intermediate type across
 // signatures. Correponds to Velox 'toSuffixString', and the base name can be referred from
 // 'velox/expression/FunctionSignature.cpp'.
 std::string companionFunctionSuffix(const TypePtr& type) {
   // For primitive and decimal types, return their names.
-  if (type->isDecimal()) {
-    return "DECIMAL";
-  }
-
-  if (type->isPrimitiveType()) {
-    return type->toString();
+  if (type->isDecimal() || type->isPrimitiveType()) {
+    return typeBaseName(type);
   }
 
   if (type->kind() == TypeKind::ARRAY) {
@@ -199,6 +218,25 @@ std::string companionFunctionSuffix(const TypePtr& type) {
   result += "_end";
   result += name;
   return result;
+}
+
+// Compatible with 'validateBaseTypeAndCollectTypeParams' in 'velox/expression/FunctionSignature.cpp'.
+bool isBuiltinTypeName(const std::string& typeName) {
+  return TypeKindName::tryToTypeKind(typeName).has_value() || isDecimalName(typeName) || isDateName(typeName) ||
+      hasType(typeName);
+}
+
+// Checks if the companion function entry has a matching return type for the given result type.
+bool hasMatchingReturnType(const exec::CompanionSignatureEntry& entry, const TypePtr& returnType) {
+  const auto returnTypeName = boost::algorithm::to_upper_copy(typeBaseName(returnType));
+  for (const auto& signature : entry.signatures) {
+    const auto signatureTypeName = boost::algorithm::to_upper_copy(signature->returnType().baseName());
+    // Non-built-in type is allowed for a generic type match.
+    if (!isBuiltinTypeName(signatureTypeName) || signatureTypeName == returnTypeName) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace
@@ -278,32 +316,31 @@ std::string SubstraitToVeloxPlanConverter::toAggregationFunctionName(
       suffix = "_partial";
       break;
     case core::AggregationNode::Step::kFinal: {
-      auto functionName = baseName + "_merge_extract";
+      const auto functionName = baseName + "_merge_extract";
       auto signatures = exec::getAggregateFunctionSignatures(functionName);
       if (signatures.has_value() && signatures.value().size() > 0) {
         // The merge_extract function is registered without suffix.
         return functionName;
       }
-      // The merge_extract function must be registered with suffix based on
-      // result type. First try exact concrete type suffix.
-      auto suffixedName = functionName + "_" + companionFunctionSuffix(resultType);
-      signatures = exec::getAggregateFunctionSignatures(suffixedName);
+
+      // The merge_extract function should be registered with suffix based on result type.
+      const auto fullName = functionName + "_" + companionFunctionSuffix(resultType);
+      signatures = exec::getAggregateFunctionSignatures(fullName);
       if (signatures.has_value() && signatures.value().size() > 0) {
-        return suffixedName;
+        return fullName;
       }
-      // When companion functions are registered with generic type variables
-      // (e.g., "collect_set_merge_extract_array_T"), look up companion
-      // function names from the aggregate function registry.
+
+      // When a function uses generic type variables in its signature (e.g., ..._T), infer the function by matching the
+      // result type allow non-built-in names.
       auto companionSigs = exec::getCompanionFunctionSignatures(baseName);
       if (companionSigs.has_value()) {
         for (const auto& entry : companionSigs->mergeExtract) {
-          auto entrySigs = exec::getAggregateFunctionSignatures(entry.functionName);
-          if (entrySigs.has_value() && entrySigs.value().size() > 0) {
+          if (hasMatchingReturnType(entry, resultType)) {
             return entry.functionName;
           }
         }
       }
-      VELOX_FAIL("Cannot find function signature for {} in final aggregation step.", suffixedName);
+      VELOX_FAIL("Cannot find function signature for {} in final aggregation step.", baseName);
     }
     case core::AggregationNode::Step::kIntermediate:
       suffix = "_merge";
