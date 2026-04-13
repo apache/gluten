@@ -20,7 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.expression.ExpressionConverter
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.metrics.MetricsUpdater
-import org.apache.gluten.substrait.SubstraitContext
+import org.apache.gluten.substrait.{JoinParams, SubstraitContext}
 import org.apache.gluten.substrait.rel.RelBuilder
 import org.apache.gluten.utils.SubstraitUtil
 
@@ -96,6 +96,11 @@ case class CartesianProductExecTransformer(
       JoinUtils.createExtensionNode(inputLeftOutput ++ inputRightOutput, validation = false)
 
     val operatorId = context.nextOperatorId(this.nodeName)
+    val joinParams = new JoinParams
+    joinParams.postProjectionNeeded = false
+    if (condition.isDefined) {
+      joinParams.isWithCondition = true
+    }
 
     val currRel = RelBuilder.makeCrossRel(
       inputLeftRelNode,
@@ -106,6 +111,9 @@ case class CartesianProductExecTransformer(
       context,
       operatorId
     )
+
+    context.registerJoinParam(operatorId, joinParams)
+
     TransformContext(output, currRel)
   }
 

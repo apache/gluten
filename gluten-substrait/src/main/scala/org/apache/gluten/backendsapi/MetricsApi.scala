@@ -82,6 +82,12 @@ trait MetricsApi extends Serializable {
 
   def genExpandTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater
 
+  def genGenerateTransformerMetrics(sparkContext: SparkContext): Map[String, SQLMetric] =
+    throw new UnsupportedOperationException()
+
+  def genGenerateTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater =
+    throw new UnsupportedOperationException()
+
   def genCustomExpandMetrics(sparkContext: SparkContext): Map[String, SQLMetric]
 
   def genColumnarShuffleExchangeMetrics(

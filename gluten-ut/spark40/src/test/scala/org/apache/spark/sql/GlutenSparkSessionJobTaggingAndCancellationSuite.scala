@@ -16,6 +16,71 @@
  */
 package org.apache.spark.sql
 
+import org.apache.spark.SparkContext
+import org.apache.spark.scheduler.{SparkListener, SparkListenerJobStart}
+import org.apache.spark.sql.execution.SQLExecution
+import org.apache.spark.util.ThreadUtils
+
+import java.util.concurrent.{Executors, Semaphore, TimeUnit}
+
+import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.duration._
+
 class GlutenSparkSessionJobTaggingAndCancellationSuite
   extends SparkSessionJobTaggingAndCancellationSuite
-  with GlutenTestsTrait {}
+  with GlutenTestSetWithSystemPropertyTrait {
+
+  // Override with testGluten because the original test uses ExecutionContext.global whose
+  // ForkJoinPool reuses threads created before addTag("one"). InheritableThreadLocal (used by
+  // managedJobTags) only copies values at thread creation time, so reused threads see an empty
+  // tag map. This causes withSessionTagsApplied to not attach the user tag to the job, making
+  // cancelJobsWithTagWithFuture return empty. We fix this by creating a fresh thread pool AFTER
+  // addTag so that new threads inherit the InheritableThreadLocal values.
+  testGluten("Tags set from session are prefixed with session UUID") {
+    sc = new SparkContext("local[2]", "test")
+    val session = classic.SparkSession.builder().sparkContext(sc).getOrCreate()
+    import session.implicits._
+
+    val sem = new Semaphore(0)
+    sc.addSparkListener(new SparkListener {
+      override def onJobStart(jobStart: SparkListenerJobStart): Unit = {
+        sem.release()
+      }
+    })
+
+    session.addTag("one")
+
+    // Use a fresh thread pool created AFTER addTag so that new threads inherit
+    // InheritableThreadLocal values (managedJobTags, threadUuid).
+    val threadPool = Executors.newSingleThreadExecutor()
+    implicit val ec: ExecutionContext = ExecutionContext.fromExecutor(threadPool)
+    try {
+      Future {
+        session.range(1, 10000).map { i => Thread.sleep(100); i }.count()
+      }
+
+      assert(sem.tryAcquire(1, 1, TimeUnit.MINUTES))
+      val activeJobsFuture =
+        session.sparkContext.cancelJobsWithTagWithFuture(
+          session.managedJobTags.get()("one"),
+          "reason")
+      val activeJob = ThreadUtils.awaitResult(activeJobsFuture, 60.seconds).head
+      val actualTags = activeJob.properties
+        .getProperty(SparkContext.SPARK_JOB_TAGS)
+        .split(SparkContext.SPARK_JOB_TAGS_SEP)
+      assert(
+        actualTags.toSet == Set(
+          session.sessionJobTag,
+          s"${session.sessionJobTag}-thread-${session.threadUuid.get()}-one",
+          SQLExecution.executionIdJobTag(
+            session,
+            activeJob.properties
+              .get(SQLExecution.EXECUTION_ROOT_ID_KEY)
+              .asInstanceOf[String]
+              .toLong)
+        ))
+    } finally {
+      threadPool.shutdownNow()
+    }
+  }
+}

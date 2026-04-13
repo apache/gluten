@@ -22,15 +22,20 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenCustomerExtensionSuite extends GlutenSQLTestsTrait {
+  // These configs only take effect on ClickHouse backend.
+  private val ExtendedColumnarTransformRulesKey =
+    "spark.gluten.sql.columnar.extended.columnar.transform.rules"
+  private val ExtendedColumnarPostRulesKey =
+    "spark.gluten.sql.columnar.extended.columnar.post.rules"
 
   override def sparkConf: SparkConf = {
     super.sparkConf
       .set("spark.sql.adaptive.enabled", "false")
       .set(
-        GlutenConfig.EXTENDED_COLUMNAR_TRANSFORM_RULES.key,
+        ExtendedColumnarTransformRulesKey,
         "org.apache.spark.sql" +
           ".extension.CustomerColumnarPreRules")
-      .set(GlutenConfig.EXTENDED_COLUMNAR_POST_RULES.key, "")
+      .set(ExtendedColumnarPostRulesKey, "")
   }
 
   testGluten("test customer column rules") {

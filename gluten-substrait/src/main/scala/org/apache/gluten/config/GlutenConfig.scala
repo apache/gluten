@@ -286,14 +286,6 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def softAffinityLogLevel: String = getConf(SOFT_AFFINITY_LOG_LEVEL)
 
-  // A comma-separated list of classes for the extended columnar pre rules
-  def extendedColumnarTransformRules: String = getConf(EXTENDED_COLUMNAR_TRANSFORM_RULES)
-
-  // A comma-separated list of classes for the extended columnar post rules
-  def extendedColumnarPostRules: String = getConf(EXTENDED_COLUMNAR_POST_RULES)
-
-  def extendedExpressionTransformer: String = getConf(EXTENDED_EXPRESSION_TRAN_CONF)
-
   def smallFileThreshold: Double = getConf(SMALL_FILE_THRESHOLD)
 
   def expressionBlacklist: Set[String] = {
@@ -1313,31 +1305,6 @@ object GlutenConfig extends ConfigRegistry {
           "for velox backend.")
       .booleanConf
       .createWithDefault(true)
-
-  // FIXME: This only works with CH backend.
-  val EXTENDED_COLUMNAR_TRANSFORM_RULES =
-    buildConf("spark.gluten.sql.columnar.extended.columnar.transform.rules")
-      .internal()
-      .withAlternative("spark.gluten.sql.columnar.extended.columnar.pre.rules")
-      .doc("A comma-separated list of classes for the extended columnar transform rules.")
-      .stringConf
-      .createWithDefaultString("")
-
-  // FIXME: This only works with CH backend.
-  val EXTENDED_COLUMNAR_POST_RULES =
-    buildConf("spark.gluten.sql.columnar.extended.columnar.post.rules")
-      .internal()
-      .doc("A comma-separated list of classes for the extended columnar post rules.")
-      .stringConf
-      .createWithDefaultString("")
-
-  // FIXME: This only works with CH backend.
-  val EXTENDED_EXPRESSION_TRAN_CONF =
-    buildConf("spark.gluten.sql.columnar.extended.expressions.transformer")
-      .internal()
-      .doc("A class for the extended expressions transformer.")
-      .stringConf
-      .createWithDefaultString("")
 
   val EXPRESSION_BLACK_LIST =
     buildConf("spark.gluten.expression.blacklist")
