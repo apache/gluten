@@ -154,10 +154,10 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
               nestedField.children[i]));
     }
   }
-  
+
   auto fileNameGenerator = std::make_shared<const GlutenIcebergFileNameGenerator>(
       partitionId, taskId, operationId, fileFormat);
-  
+
   std::shared_ptr<const connector::hive::LocationHandle> locationHandle =
       std::make_shared<connector::hive::LocationHandle>(
           outputDirectoryPath, outputDirectoryPath, connector::hive::LocationHandle::TableType::kExisting);
@@ -212,7 +212,24 @@ IcebergWriter::IcebergWriter(
 }
 
 void IcebergWriter::write(const VeloxColumnarBatch& batch) {
-  dataSink_->appendData(batch.getRowVector());
+  auto inputRowVector = batch.getRowVector();
+  auto inputRowType = asRowType(inputRowVector->type());
+
+  if (inputRowType->size() != rowType_->size()) {
+    const auto& children = inputRowVector->children();
+    std::vector<VectorPtr> dataColumns(children.begin() + 1, children.begin() + 1 + rowType_->size());
+
+    auto filteredRowVector = std::make_shared<RowVector>(
+        pool_.get(),
+        rowType_,
+        inputRowVector->nulls(),
+        inputRowVector->size(),
+        std::move(dataColumns));
+
+    dataSink_->appendData(filteredRowVector);
+  } else {
+    dataSink_->appendData(inputRowVector);
+  }
 }
 
 std::vector<std::string> IcebergWriter::commit() {
