@@ -326,7 +326,7 @@ endif()
 target_link_libraries(velox PUBLIC facebook::velox)
 
 target_link_libraries(velox PUBLIC Folly::folly)
-target_link_libraries(velox PUBLIC roaring)
+target_link_libraries(velox PUBLIC gluten::roaring)
 
 find_re2()
 target_link_libraries(velox PUBLIC ${RE2_LIBRARY})

@@ -20,7 +20,6 @@ set(_roaring_library_hints "")
 foreach(_root ${VELOX_BUILD_PATH} ${VELOX_HOME}/_build/release
               ${VELOX_HOME}/_build/debug)
   if(_root)
-    list(APPEND _roaring_pkgconfig_hints "${_root}/_deps/roaring-build")
     list(APPEND _roaring_include_hints "${_root}/_deps/roaring-src/include"
          "${_root}/_deps/roaring-src/cpp"
          "${_root}/_deps/roaring-build/include")
@@ -61,10 +60,44 @@ function(_gluten_roaring_add_headers target_name)
   endif()
 endfunction()
 
+function(_gluten_roaring_ensure_target)
+  if(NOT TARGET gluten_roaring)
+    add_library(gluten_roaring INTERFACE)
+    add_library(gluten::roaring ALIAS gluten_roaring)
+  endif()
+endfunction()
+
 # Check if roaring target already exists.
 if(TARGET roaring)
-  _gluten_roaring_add_headers(roaring)
+  _gluten_roaring_ensure_target()
+  target_link_libraries(gluten_roaring INTERFACE roaring)
+  _gluten_roaring_add_headers(gluten_roaring)
   message(STATUS "Target roaring was already found.")
+  return()
+endif()
+
+find_path(
+  Roaring_INCLUDE_DIR
+  NAMES roaring/roaring.h
+  HINTS ${_roaring_include_hints})
+find_path(
+  Roaring_CPP_INCLUDE_DIR
+  NAMES roaring/roaring64map.hh
+  HINTS ${_roaring_include_hints})
+find_library(
+  Roaring_LIBRARY
+  NAMES roaring
+  HINTS ${_roaring_library_hints})
+
+if(Roaring_INCLUDE_DIR
+   AND Roaring_CPP_INCLUDE_DIR
+   AND Roaring_LIBRARY)
+  _gluten_roaring_ensure_target()
+  target_link_libraries(gluten_roaring INTERFACE "${Roaring_LIBRARY}")
+  target_include_directories(
+    gluten_roaring INTERFACE "${Roaring_INCLUDE_DIR}"
+                             "${Roaring_CPP_INCLUDE_DIR}")
+  message(STATUS "Found roaring via direct library lookup.")
   return()
 endif()
 
@@ -86,37 +119,10 @@ if(PkgConfig_FOUND)
 endif()
 
 if(Roaring_FOUND)
-  add_library(roaring INTERFACE)
-  target_link_libraries(roaring INTERFACE PkgConfig::Roaring)
-  _gluten_roaring_add_headers(roaring)
+  _gluten_roaring_ensure_target()
+  target_link_libraries(gluten_roaring INTERFACE PkgConfig::Roaring)
+  _gluten_roaring_add_headers(gluten_roaring)
   message(STATUS "Found roaring via pkg-config.")
-  return()
-endif()
-
-find_path(
-  Roaring_INCLUDE_DIR
-  NAMES roaring/roaring.h
-  HINTS ${_roaring_include_hints})
-find_path(
-  Roaring_CPP_INCLUDE_DIR
-  NAMES roaring/roaring64map.hh
-  HINTS ${_roaring_include_hints})
-find_library(
-  Roaring_LIBRARY
-  NAMES roaring
-  HINTS ${_roaring_library_hints})
-
-if(Roaring_INCLUDE_DIR
-   AND Roaring_CPP_INCLUDE_DIR
-   AND Roaring_LIBRARY)
-  add_library(roaring UNKNOWN IMPORTED)
-  set_target_properties(
-    roaring
-    PROPERTIES IMPORTED_LOCATION "${Roaring_LIBRARY}"
-               INTERFACE_INCLUDE_DIRECTORIES
-               "${Roaring_INCLUDE_DIR};${Roaring_CPP_INCLUDE_DIR}")
-  _gluten_roaring_add_headers(roaring)
-  message(STATUS "Found roaring via direct library lookup.")
   return()
 endif()
 
@@ -143,7 +149,12 @@ FetchContent_MakeAvailable(roaring_fetch)
 
 if(TARGET roaring)
   set_target_properties(roaring PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  _gluten_roaring_add_headers(roaring)
+  _gluten_roaring_ensure_target()
+  target_link_libraries(gluten_roaring INTERFACE "$<TARGET_FILE:roaring>")
+  target_include_directories(
+    gluten_roaring INTERFACE "${roaring_fetch_SOURCE_DIR}/include"
+                             "${roaring_fetch_SOURCE_DIR}/cpp")
+  add_dependencies(gluten_roaring roaring)
   if(_roaring_restore_pic)
     set(CMAKE_POSITION_INDEPENDENT_CODE "${_roaring_saved_pic}")
   else()
