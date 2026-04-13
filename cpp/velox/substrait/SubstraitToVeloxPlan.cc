@@ -286,8 +286,7 @@ std::string SubstraitToVeloxPlanConverter::toAggregationFunctionName(
       }
       // The merge_extract function must be registered with suffix based on
       // result type. First try exact concrete type suffix.
-      auto suffixedName =
-          functionName + "_" + companionFunctionSuffix(resultType);
+      auto suffixedName = functionName + "_" + companionFunctionSuffix(resultType);
       signatures = exec::getAggregateFunctionSignatures(suffixedName);
       if (signatures.has_value() && signatures.value().size() > 0) {
         return suffixedName;
@@ -298,16 +297,13 @@ std::string SubstraitToVeloxPlanConverter::toAggregationFunctionName(
       auto companionSigs = exec::getCompanionFunctionSignatures(baseName);
       if (companionSigs.has_value()) {
         for (const auto& entry : companionSigs->mergeExtract) {
-          auto entrySigs =
-              exec::getAggregateFunctionSignatures(entry.functionName);
+          auto entrySigs = exec::getAggregateFunctionSignatures(entry.functionName);
           if (entrySigs.has_value() && entrySigs.value().size() > 0) {
             return entry.functionName;
           }
         }
       }
-      VELOX_FAIL(
-          "Cannot find function signature for {} in final aggregation step.",
-          suffixedName);
+      VELOX_FAIL("Cannot find function signature for {} in final aggregation step.", suffixedName);
     }
     case core::AggregationNode::Step::kIntermediate:
       suffix = "_merge";
@@ -958,11 +954,12 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     // Child should be either ProjectNode or CudfValueStreamNode (GPU) in case of project fallback.
     VELOX_CHECK(
         (std::dynamic_pointer_cast<const core::ProjectNode>(childNode) != nullptr ||
-        std::dynamic_pointer_cast<const core::TableScanNode>(childNode) != nullptr
+         std::dynamic_pointer_cast<const core::TableScanNode>(childNode) != nullptr
 #ifdef GLUTEN_ENABLE_GPU
-            || std::dynamic_pointer_cast<const CudfValueStreamNode>(childNode) != nullptr
+         || std::dynamic_pointer_cast<const CudfValueStreamNode>(childNode) != nullptr
 #endif
-        ) && childNode->outputType()->size() > requiredChildOutput.size(),
+         ) &&
+            childNode->outputType()->size() > requiredChildOutput.size(),
         "injectedProject is true, but the ProjectNode or TableScanNode or CudfValueStreamNode (in case of projection fallback)"
         " is missing or does not have the corresponding projection field");
 
@@ -1227,10 +1224,10 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
 
   auto windowFunc = core::TopNRowNumberNode::RankFunction::kRowNumber;
   if (windowGroupLimitRel.has_advanced_extension()) {
-    if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "rank")){
-        windowFunc = core::TopNRowNumberNode::RankFunction::kRank;
+    if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "rank")) {
+      windowFunc = core::TopNRowNumberNode::RankFunction::kRank;
     } else if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "dense_rank")) {
-        windowFunc = core::TopNRowNumberNode::RankFunction::kDenseRank;
+      windowFunc = core::TopNRowNumberNode::RankFunction::kDenseRank;
     }
   }
 
@@ -1348,7 +1345,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(
-    const ::substrait::ReadRel& readRel, int32_t streamIdx) {
+    const ::substrait::ReadRel& readRel,
+    int32_t streamIdx) {
   // Use TableScanNode with iterator connector for runtime iterator inputs
   // Get output schema from ReadRel
   uint64_t colNum = 0;
@@ -1383,11 +1381,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(
   }
 
   // Create TableScanNode
-  auto tableScanNode = std::make_shared<core::TableScanNode>(
-      nodeId,
-      outputType,
-      tableHandle,
-      assignments);
+  auto tableScanNode = std::make_shared<core::TableScanNode>(nodeId, outputType, tableHandle, assignments);
 
   // Mark this as a stream-based split
   auto splitInfo = std::make_shared<SplitInfo>();

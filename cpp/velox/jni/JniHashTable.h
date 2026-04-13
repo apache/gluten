@@ -56,7 +56,7 @@ class JniHashTableContext {
 
  private:
   JniHashTableContext() : hashTableObjStore_(ObjectStore::create()) {}
-  
+
   ~JniHashTableContext() {
     // Note: The destructor is called at program exit (after main() returns).
     // By this time, JNI_OnUnload should have already been called, which invokes

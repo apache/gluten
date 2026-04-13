@@ -17,12 +17,12 @@
 
 #include <jni.h>
 
+#include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/futures/Future.h>
 #include <glog/logging.h>
 #include <jni/JniCommon.h>
 #include <velox/connectors/hive/PartitionIdGenerator.h>
 #include <velox/exec/OperatorUtils.h>
-#include <folly/futures/Future.h>
-#include <folly/executors/CPUThreadPoolExecutor.h>
 
 #include <exception>
 #include "JniUdf.h"
@@ -463,8 +463,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_utils_GpuBufferBatchResizerJniWra
   auto arrowPool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->defaultArrowMemoryPool();
   auto pool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->getLeafMemoryPool();
   auto iter = makeJniColumnarBatchIterator(env, jIter, ctx);
-  auto appender = std::make_shared<ResultIterator>(
-      std::make_unique<GpuBufferBatchResizer>(arrowPool, pool.get(), minOutputBatchSize, maxPrefetchBatchBytes, std::move(iter)));
+  auto appender = std::make_shared<ResultIterator>(std::make_unique<GpuBufferBatchResizer>(
+      arrowPool, pool.get(), minOutputBatchSize, maxPrefetchBatchBytes, std::move(iter)));
   return ctx->saveObject(appender);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -1014,7 +1014,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
 
   // Use thread pool (executor) instead of creating threads directly
   auto executor = VeloxBackend::get()->executor();
-  
+
   std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(numThreads);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(numThreads);
   std::vector<folly::Future<folly::Unit>> futures;
@@ -1046,7 +1046,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       hashTableBuilders[t] = std::move(builder);
       otherTables[t] = std::move(hashTableBuilders[t]->uniqueTable());
     });
-    
+
     futures.push_back(std::move(future));
   }
 
