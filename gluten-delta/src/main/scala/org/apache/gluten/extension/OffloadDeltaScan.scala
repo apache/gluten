@@ -19,13 +19,13 @@ package org.apache.gluten.extension
 import org.apache.gluten.execution.DeltaScanTransformer
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
+import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.delta.DeltaParquetFileFormat
 import org.apache.spark.sql.delta.DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME
 import org.apache.spark.sql.delta.files.TahoeFileIndex
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
-import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 
 case class OffloadDeltaScan() extends OffloadSingleNode {
   override def offload(plan: SparkPlan): SparkPlan = plan match {
@@ -60,10 +60,11 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
   }
 
   private def hasDeletionVectorMarkers(scan: FileSourceScanExec): Boolean = {
+    val sparkShims = SparkShimLoader.getSparkShims
     scan.output.exists(_.name == IS_ROW_DELETED_COLUMN_NAME) ||
     scan.requiredSchema.fieldNames.contains(IS_ROW_DELETED_COLUMN_NAME) ||
-    scan.output.exists(_.name == ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME) ||
-    scan.requiredSchema.fieldNames.contains(ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME)
+    scan.output.exists(attr => sparkShims.isRowIndexMetadataColumn(attr.name)) ||
+    scan.requiredSchema.fieldNames.exists(sparkShims.isRowIndexMetadataColumn)
   }
 
   private def isDeltaLogScan(scan: FileSourceScanExec): Boolean = {

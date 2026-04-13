@@ -128,6 +128,12 @@ set(_roaring_sha256
 set(ENABLE_ROARING_TESTS
     OFF
     CACHE BOOL "" FORCE)
+set(_roaring_restore_pic OFF)
+if(DEFINED CMAKE_POSITION_INDEPENDENT_CODE)
+  set(_roaring_saved_pic "${CMAKE_POSITION_INDEPENDENT_CODE}")
+  set(_roaring_restore_pic ON)
+endif()
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 FetchContent_Declare(
   roaring_fetch
@@ -136,9 +142,21 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(roaring_fetch)
 
 if(TARGET roaring)
+  set_target_properties(roaring PROPERTIES POSITION_INDEPENDENT_CODE ON)
   _gluten_roaring_add_headers(roaring)
+  if(_roaring_restore_pic)
+    set(CMAKE_POSITION_INDEPENDENT_CODE "${_roaring_saved_pic}")
+  else()
+    unset(CMAKE_POSITION_INDEPENDENT_CODE)
+  endif()
   message(STATUS "Found roaring via FetchContent.")
   return()
+endif()
+
+if(_roaring_restore_pic)
+  set(CMAKE_POSITION_INDEPENDENT_CODE "${_roaring_saved_pic}")
+else()
+  unset(CMAKE_POSITION_INDEPENDENT_CODE)
 endif()
 
 if(Roaring_FIND_REQUIRED)
