@@ -21,6 +21,8 @@ import org.apache.gluten.tags.EnhancedFeaturesTest
 
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.execution.CommandResultExec
+import org.apache.spark.sql.execution.GlutenImplicits._
+import org.apache.spark.sql.execution.datasources.v2.AppendDataExec
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.gluten.TestUtils
 
@@ -381,6 +383,31 @@ class VeloxIcebergSuite extends IcebergSuite {
           }
 
       }
+    }
+  }
+
+  test("iceberg native write fallback when validation fails - sort order") {
+    withTable("iceberg_sorted_tbl") {
+      spark.sql("CREATE TABLE iceberg_sorted_tbl (a INT, b STRING) USING iceberg")
+      spark.sql("ALTER TABLE iceberg_sorted_tbl WRITE ORDERED BY a")
+
+      val df = spark.sql("INSERT INTO iceberg_sorted_tbl VALUES (1, 'hello'), (2, 'world')")
+
+      // Should fallback to vanilla Spark's AppendDataExec.
+      val commandPlan =
+        df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
+      assert(commandPlan.isInstanceOf[AppendDataExec])
+      assert(!commandPlan.isInstanceOf[VeloxIcebergAppendDataExec])
+
+      checkAnswer(
+        spark.sql("SELECT * FROM iceberg_sorted_tbl ORDER BY a"),
+        Seq(Row(1, "hello"), Row(2, "world")))
+
+      // Verify fallbackSummary reports the sort order fallback reason.
+      val summary = df.fallbackSummary()
+      assert(
+        summary.fallbackNodeToReason.exists(
+          _.values.exists(_.contains("Not support write table with sort order"))))
     }
   }
 }

@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution.extension
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.backendsapi.clickhouse.CHConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.utils.SubstraitPlanPrinterUtil
@@ -33,7 +33,7 @@ class GlutenCustomAggExpressionSuite extends ParquetSuite {
     super.sparkConf
       .set("spark.sql.adaptive.enabled", "false")
       .set(
-        GlutenConfig.EXTENDED_EXPRESSION_TRAN_CONF.key,
+        CHConfig.EXTENDED_EXPRESSION_TRAN_CONF.key,
         "org.apache.gluten.execution.extension.CustomAggExpressionTransformer")
   }
 

@@ -22,6 +22,7 @@ import org.apache.gluten.execution.ProjectExecTransformer
 import org.apache.gluten.test.TestStats
 import org.apache.gluten.utils.BackendTestUtils
 
+import org.apache.spark.SparkException
 import org.apache.spark.sql.GlutenQueryTestUtil.isNaNOrInf
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.analysis.ResolveTimeZone
@@ -250,7 +251,19 @@ trait GlutenTestsTrait extends GlutenTestsCommonTrait {
       _spark.createDataFrame(_spark.sparkContext.parallelize(empData), schema)
     }
     val resultDF = df.select(ClassicColumn(expression))
-    val result = resultDF.collect()
+    val result =
+      try {
+        resultDF.collect()
+      } catch {
+        // Match Spark's checkEvaluationWithoutCodegen behavior: wrap exceptions with fail().
+        // Gluten's DataFrame path wraps execution errors in SparkException, so unwrap it
+        // to expose the root cause (e.g. ArithmeticException) directly as fail()'s cause,
+        // just like Spark's interpreted path does.
+        case e: SparkException if e.getCause != null =>
+          fail(s"Exception evaluating $expression", e.getCause)
+        case e: Exception =>
+          fail(s"Exception evaluating $expression", e)
+      }
     TestStats.testUnitNumber = TestStats.testUnitNumber + 1
     if (
       checkDataTypeSupported(expression) &&

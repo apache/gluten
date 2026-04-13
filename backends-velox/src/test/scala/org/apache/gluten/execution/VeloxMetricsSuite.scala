@@ -152,6 +152,27 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         assert(metrics("numOutputVectors").value > 0)
         assert(metrics("numOutputBytes").value > 0)
     }
+
+    runQueryAndCompare(
+      "SELECT c1, col FROM metrics_t1 LATERAL VIEW explode(array(c1, c2)) t AS col") {
+      df =>
+        val scan = find(df.queryExecution.executedPlan) {
+          case _: FileSourceScanExecTransformer => true
+          case _ => false
+        }
+        assert(scan.isDefined)
+        val scanMetrics = scan.get.metrics
+        assert(scanMetrics("rawInputRows").value > 0)
+
+        val generate = find(df.queryExecution.executedPlan) {
+          case _: GenerateExecTransformer => true
+          case _ => false
+        }
+        assert(generate.isDefined)
+        val genMetrics = generate.get.metrics
+        assert(genMetrics("numOutputRows").value == 2 * scanMetrics("rawInputRows").value)
+        assert(genMetrics.contains("loadLazyVectorTime"))
+    }
   }
 
   test("Metrics of window") {

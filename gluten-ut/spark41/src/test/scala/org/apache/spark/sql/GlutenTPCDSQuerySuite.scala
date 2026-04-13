@@ -18,6 +18,6 @@ package org.apache.spark.sql
 
 class GlutenTPCDSQuerySuite extends TPCDSQuerySuite with GlutenSQLTestsTrait {}
 
-class GlutenTPCDSQueryWithStatsSuite extends TPCDSQueryWithStatsSuite with GlutenTestsCommonTrait {}
+class GlutenTPCDSQueryWithStatsSuite extends TPCDSQueryWithStatsSuite with GlutenSQLTestsTrait {}
 
-class GlutenTPCDSQueryANSISuite extends TPCDSQueryANSISuite with GlutenTestsCommonTrait {}
+class GlutenTPCDSQueryANSISuite extends TPCDSQueryANSISuite with GlutenSQLTestsTrait {}
