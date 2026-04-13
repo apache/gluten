@@ -34,7 +34,7 @@
 
 #include "compute/delta/DeltaDeletionVectorReader.h"
 #include "compute/delta/DeltaSplit.h"
-#include "velox/connectors/hive/SplitReader.h"
+#include "velox/connectors/hive/HiveSplitReader.h"
 #include "velox/connectors/hive/TableHandle.h"
 
 namespace gluten::delta {
@@ -43,20 +43,22 @@ using namespace facebook::velox;
 using namespace facebook::velox::connector;
 using namespace facebook::velox::connector::hive;
 
-class DeltaSplitReader : public SplitReader {
+class DeltaSplitReader : public HiveSplitReader {
  public:
   DeltaSplitReader(
       const std::shared_ptr<const hive::HiveConnectorSplit>& hiveSplit,
-      const HiveTableHandlePtr& hiveTableHandle,
-      const HiveColumnHandleMap* partitionKeys,
+      const FileTableHandlePtr& tableHandle,
+      const FileColumnHandleMap* partitionKeys,
       const ConnectorQueryCtx* connectorQueryCtx,
-      const std::shared_ptr<const HiveConfig>& hiveConfig,
+      const std::shared_ptr<const FileConfig>& fileConfig,
       const RowTypePtr& readerOutputType,
       const std::shared_ptr<io::IoStatistics>& ioStatistics,
       const std::shared_ptr<IoStats>& ioStats,
       FileHandleFactory* fileHandleFactory,
       folly::Executor* executor,
       const std::shared_ptr<common::ScanSpec>& scanSpec,
+      const FileColumnHandleMap* infoColumns,
+      std::vector<column_index_t> bucketChannels = {},
       const common::SubfieldFilters* subfieldFiltersForValidation = nullptr);
 
   void prepareSplit(

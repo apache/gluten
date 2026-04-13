@@ -53,19 +53,24 @@ DeltaDataSource::DeltaDataSource(
           connectorQueryCtx,
           hiveConfig) {}
 
-std::unique_ptr<SplitReader> DeltaDataSource::createSplitReader() {
+std::unique_ptr<FileSplitReader> DeltaDataSource::createSplitReader() {
+  auto bucketChannels = prepareSplit();
+  auto hiveSplit = checkedPointerCast<const HiveConnectorSplit>(split_);
+
   return std::make_unique<DeltaSplitReader>(
-      split_,
-      hiveTableHandle_,
+      hiveSplit,
+      tableHandle_,
       &partitionKeys_,
       connectorQueryCtx_,
-      hiveConfig_,
+      fileConfig_,
       readerOutputType_,
       ioStatistics_,
       ioStats_,
       fileHandleFactory_,
       ioExecutor_,
       scanSpec_,
+      &infoColumns_,
+      std::move(bucketChannels),
       /*subfieldFiltersForValidation=*/getFilters());
 }
 

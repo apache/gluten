@@ -46,29 +46,33 @@ namespace gluten::delta {
 
 DeltaSplitReader::DeltaSplitReader(
     const std::shared_ptr<const hive::HiveConnectorSplit>& hiveSplit,
-    const HiveTableHandlePtr& hiveTableHandle,
-    const HiveColumnHandleMap* partitionKeys,
+    const FileTableHandlePtr& tableHandle,
+    const FileColumnHandleMap* partitionKeys,
     const ConnectorQueryCtx* connectorQueryCtx,
-    const std::shared_ptr<const HiveConfig>& hiveConfig,
+    const std::shared_ptr<const FileConfig>& fileConfig,
     const RowTypePtr& readerOutputType,
     const std::shared_ptr<io::IoStatistics>& ioStatistics,
     const std::shared_ptr<IoStats>& ioStats,
     FileHandleFactory* fileHandleFactory,
     folly::Executor* executor,
     const std::shared_ptr<common::ScanSpec>& scanSpec,
+    const FileColumnHandleMap* infoColumns,
+    std::vector<column_index_t> bucketChannels,
     const common::SubfieldFilters* subfieldFiltersForValidation)
-    : SplitReader(
+    : HiveSplitReader(
           hiveSplit,
-          hiveTableHandle,
+          tableHandle,
           partitionKeys,
           connectorQueryCtx,
-          hiveConfig,
+          fileConfig,
           readerOutputType,
           ioStatistics,
           ioStats,
           fileHandleFactory,
           executor,
           scanSpec,
+          infoColumns,
+          std::move(bucketChannels),
           subfieldFiltersForValidation),
       baseReadRowNumber_(0),
       deleteBitmap_(nullptr) {}
@@ -77,7 +81,7 @@ void DeltaSplitReader::prepareSplit(
     std::shared_ptr<common::MetadataFilter> metadataFilter,
     dwio::common::RuntimeStatistics& runtimeStats,
     const folly::F14FastMap<std::string, std::string>& fileReadOps) {
-  SplitReader::prepareSplit(std::move(metadataFilter), runtimeStats, fileReadOps);
+  HiveSplitReader::prepareSplit(std::move(metadataFilter), runtimeStats, fileReadOps);
   if (emptySplit_ || !baseRowReader_) {
     return;
   }
@@ -157,11 +161,11 @@ void DeltaSplitReader::prepareSplit(
     std::string tableDir = (lastSlash != std::string::npos) ? filePath.substr(0, lastSlash) : ".";
 
     dvPath = DeltaUuidUtils::reconstructUuidPath(tableDir, randomPrefix, uuid);
-    fileSystem = filesystems::getFileSystem(dvPath, hiveConfig_->config());
+    fileSystem = filesystems::getFileSystem(dvPath, fileConfig_->config());
   } else {
     // Absolute path
     dvPath = descriptor.pathOrInlineData;
-    fileSystem = filesystems::getFileSystem(dvPath, hiveConfig_->config());
+    fileSystem = filesystems::getFileSystem(dvPath, fileConfig_->config());
   }
 
   deletionVectorReader_ = std::make_unique<DeltaDeletionVectorReader>(

@@ -52,7 +52,7 @@ class DeltaDataSource : public HiveDataSource {
       const std::shared_ptr<HiveConfig>& hiveConfig);
 
  protected:
-  std::unique_ptr<SplitReader> createSplitReader() override;
+  std::unique_ptr<FileSplitReader> createSplitReader() override;
 };
 
 } // namespace gluten::delta
