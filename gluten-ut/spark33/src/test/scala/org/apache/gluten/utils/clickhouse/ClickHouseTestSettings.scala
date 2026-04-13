@@ -36,7 +36,7 @@ import org.apache.spark.sql.execution.datasources.text.{GlutenTextV1Suite, Glute
 import org.apache.spark.sql.execution.datasources.v2.{GlutenDataSourceV2StrategySuite, GlutenFileTableSuite, GlutenV2PredicateSuite}
 import org.apache.spark.sql.execution.exchange.GlutenEnsureRequirementsSuite
 import org.apache.spark.sql.execution.joins.{GlutenBroadcastJoinSuite, GlutenExistenceJoinSuite, GlutenInnerJoinSuite, GlutenOuterJoinSuite}
-import org.apache.spark.sql.extension.{GlutenCustomerExtensionSuite, GlutenSessionExtensionSuite}
+import org.apache.spark.sql.extension.GlutenSessionExtensionSuite
 import org.apache.spark.sql.gluten.GlutenFallbackSuite
 import org.apache.spark.sql.hive.execution.GlutenHiveSQLQueryCHSuite
 import org.apache.spark.sql.sources._
@@ -1819,7 +1819,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("full outer join with unique keys using ShuffledHashJoin (whole-stage-codegen on)")
     .exclude("full outer join with unique keys using SortMergeJoin (whole-stage-codegen off)")
     .exclude("full outer join with unique keys using SortMergeJoin (whole-stage-codegen on)")
-  enableSuite[GlutenCustomerExtensionSuite]
   enableSuite[GlutenSessionExtensionSuite]
   enableSuite[GlutenFallbackSuite]
   enableSuite[GlutenBucketedReadWithoutHiveSupportSuite]
