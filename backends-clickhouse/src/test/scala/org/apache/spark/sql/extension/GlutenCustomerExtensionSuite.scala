@@ -44,7 +44,18 @@ class GlutenCustomerExtensionSuite extends SharedSparkSession {
 
   override def sparkConf: SparkConf = {
     super.sparkConf
+      .setAppName("Gluten-UT")
+      .set("spark.driver.memory", "1G")
+      .set("spark.sql.shuffle.partitions", "1")
+      .set("spark.memory.offHeap.enabled", "true")
+      .set("spark.memory.offHeap.size", "1024MB")
+      .set("spark.plugins", "org.apache.gluten.GlutenPlugin")
+      .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
       .set("spark.sql.adaptive.enabled", "false")
+      .set("spark.ui.enabled", "false")
+      .set(GlutenConfig.GLUTEN_UI_ENABLED.key, "false")
+      .set("spark.gluten.sql.columnar.backend.ch.worker.id", "1")
+      .set(GlutenConfig.NATIVE_VALIDATION_ENABLED.key, "false")
       .set(
         ExtendedColumnarTransformRulesKey,
         "org.apache.spark.sql" +
