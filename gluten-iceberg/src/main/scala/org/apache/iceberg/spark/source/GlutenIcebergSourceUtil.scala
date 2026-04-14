@@ -23,14 +23,16 @@ import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.softaffinity.SoftAffinity
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
-import org.apache.spark.sql.connector.read.{InputPartition, Scan}
+import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.types.StructType
 
 import org.apache.iceberg._
 import org.apache.iceberg.spark.SparkSchemaUtil
+import org.apache.iceberg.util.TableScanUtil
 
 import java.lang.{Class, Long => JLong}
 import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
@@ -241,46 +243,64 @@ object GlutenIcebergSourceUtil extends Logging {
   def regeneratePartitions(
       inputPartitions: Seq[Partition],
       smallFileThreshold: Double): Seq[Partition] = {
-    val icebergPartitions = inputPartitions.map {
+    if (inputPartitions.isEmpty) {
+      return Seq.empty
+    }
+
+    val icebergPartitions: Seq[SparkDataSourceRDDPartition] = inputPartitions.map {
       case partition: SparkDataSourceRDDPartition => partition
       case other =>
         throw new GlutenNotSupportException(
           s"Unsupported partition type: ${other.getClass.getSimpleName}")
     }
 
-    val partitionedTasks =
-      Array.fill(icebergPartitions.size)(mutable.ArrayBuffer.empty[InputPartition])
+    val partitionedTasks = Array.fill(icebergPartitions.size)(mutable.ArrayBuffer.empty[ScanTask])
 
-    def getPartitionSize(inputPartition: InputPartition): Long = inputPartition match {
-      case partition: SparkInputPartition =>
-        partition
-          .taskGroup[ScanTask]()
-          .tasks()
-          .asScala
-          .map {
-            case task if task.isFileScanTask =>
-              logWarning("FileScanTask length: " + task.asFileScanTask().length())
-              task.asFileScanTask().length()
-            case task: CombinedScanTask =>
-              logWarning("CombinedScanTask length: " + task.asCombinedScanTask().tasks().size())
-              task.asCombinedScanTask().tasks().asScala.map(_.length()).sum
-            case other =>
-              throw new GlutenNotSupportException(
-                s"Unsupported scan task type: ${other.getClass.getSimpleName}")
-          }
-          .sum
+    def getSparkInputPartitionContext(
+        inputPartition: SparkInputPartition): SparkPartitionContext = {
+      val clazz = classOf[SparkInputPartition]
+      def readField[T](fieldName: String): T = {
+        val field = clazz.getDeclaredField(fieldName)
+        field.setAccessible(true)
+        field.get(inputPartition).asInstanceOf[T]
+      }
+
+      SparkPartitionContext(
+        groupingKeyType = readField[org.apache.iceberg.types.Types.StructType]("groupingKeyType"),
+        tableBroadcast = readField[Broadcast[Table]]("tableBroadcast"),
+        branch = inputPartition.branch(),
+        expectedSchemaString = readField[String]("expectedSchemaString"),
+        caseSensitive = inputPartition.isCaseSensitive,
+        preferredLocations = inputPartition.preferredLocations(),
+        cacheDeleteFilesOnExecutors = inputPartition.cacheDeleteFilesOnExecutors()
+      )
+    }
+
+    def getScanTasks(inputPartition: SparkInputPartition): Seq[ScanTask] = {
+      inputPartition.taskGroup[ScanTask]().tasks().asScala.toSeq.map {
+        case task if task.isFileScanTask => task
+        case task: CombinedScanTask => task
+        case other =>
+          throw new GlutenNotSupportException(
+            s"Unsupported scan task type: ${other.getClass.getSimpleName}")
+      }
+    }
+
+    def getScanTaskSize(scanTask: ScanTask): Long = scanTask match {
+      case task if task.isFileScanTask => task.asFileScanTask().length()
+      case task: CombinedScanTask => task.tasks().asScala.map(_.length()).sum
       case other =>
         throw new GlutenNotSupportException(
-          s"Unsupported input partition type: ${other.getClass.getSimpleName}")
+          s"Unsupported scan task type: ${other.getClass.getSimpleName}")
     }
 
     def addToBucket(
         heap: mutable.PriorityQueue[(Long, Int, Int)],
-        partition: InputPartition,
-        partitionSize: Long): Unit = {
+        scanTask: ScanTask,
+        taskSize: Long): Unit = {
       val (size, numFiles, idx) = heap.dequeue()
-      partitionedTasks(idx) += partition
-      heap.enqueue((size + partitionSize, numFiles + 1, idx))
+      partitionedTasks(idx) += scanTask
+      heap.enqueue((size + taskSize, numFiles + 1, idx))
     }
 
     def initializeHeap(
@@ -290,11 +310,33 @@ object GlutenIcebergSourceUtil extends Logging {
       heap
     }
 
-    val flatPartitions = icebergPartitions
-      .flatMap(_.inputPartitions)
-    logWarning("num flatPartitions: " + flatPartitions.size)
-    val tasksSorted = flatPartitions
-      .map(partition => (partition, getPartitionSize(partition)))
+    def createSparkInputPartition(
+        context: SparkPartitionContext,
+        tasks: Seq[ScanTask]): SparkInputPartition = {
+      val taskGroup = new BaseScanTaskGroup[ScanTask](TableScanUtil.mergeTasks(tasks.asJava))
+      new SparkInputPartition(
+        context.groupingKeyType,
+        taskGroup,
+        context.tableBroadcast,
+        context.branch,
+        context.expectedSchemaString,
+        context.caseSensitive,
+        context.preferredLocations,
+        context.cacheDeleteFilesOnExecutors
+      )
+    }
+
+    val sparkInputPartitions = icebergPartitions.flatMap(_.inputPartitions).map {
+      case partition: SparkInputPartition => partition
+      case other =>
+        throw new GlutenNotSupportException(
+          s"Unsupported input partition type: ${other.getClass.getSimpleName}")
+    }
+
+    val context = getSparkInputPartitionContext(sparkInputPartitions.head)
+    val scanTasks = sparkInputPartitions.flatMap(getScanTasks)
+    val sortedScanTasks = scanTasks
+      .zip(scanTasks.map(getScanTaskSize))
       .sortBy(_._2)(Ordering.Long.reverse)
 
     val sizeFirstOrdering = Ordering
@@ -302,7 +344,7 @@ object GlutenIcebergSourceUtil extends Logging {
       .reverse
 
     if (smallFileThreshold > 0) {
-      val smallFileTotalSize = tasksSorted.map(_._2).sum * smallFileThreshold
+      val smallFileTotalSize = sortedScanTasks.map(_._2).sum * smallFileThreshold
       val numFirstOrdering = Ordering
         .by[(Long, Int, Int), (Int, Long)] { case (size, numFiles, _) => (numFiles, size) }
         .reverse
@@ -310,13 +352,13 @@ object GlutenIcebergSourceUtil extends Logging {
 
       var numSmallFiles = 0
       var smallFileSize = 0L
-      tasksSorted.reverseIterator
+      sortedScanTasks.reverseIterator
         .takeWhile(task => task._2 + smallFileSize <= smallFileTotalSize)
         .foreach {
-          case (partition, partitionSize) =>
-            addToBucket(heapByFileNum, partition, partitionSize)
+          case (task, taskSize) =>
+            addToBucket(heapByFileNum, task, taskSize)
             numSmallFiles += 1
-            smallFileSize += partitionSize
+            smallFileSize += taskSize
         }
 
       val heapByFileSize = mutable.PriorityQueue.empty[(Long, Int, Int)](sizeFirstOrdering)
@@ -324,20 +366,31 @@ object GlutenIcebergSourceUtil extends Logging {
         heapByFileSize.enqueue(heapByFileNum.dequeue())
       }
 
-      tasksSorted.take(tasksSorted.size - numSmallFiles).foreach {
-        case (partition, partitionSize) =>
-          addToBucket(heapByFileSize, partition, partitionSize)
+      sortedScanTasks.take(sortedScanTasks.size - numSmallFiles).foreach {
+        case (task, taskSize) =>
+          addToBucket(heapByFileSize, task, taskSize)
       }
     } else {
       val heapByFileSize = initializeHeap(sizeFirstOrdering)
-      tasksSorted.foreach {
-        case (partition, partitionSize) =>
-          addToBucket(heapByFileSize, partition, partitionSize)
+      sortedScanTasks.foreach {
+        case (task, taskSize) =>
+          addToBucket(heapByFileSize, task, taskSize)
       }
     }
 
     partitionedTasks.zipWithIndex.map {
-      case (partitions, idx) => new SparkDataSourceRDDPartition(idx, partitions)
+      case (tasks, idx) =>
+        val newPartition = createSparkInputPartition(context, tasks)
+        new SparkDataSourceRDDPartition(idx, Seq(newPartition))
     }
   }
 }
+
+case class SparkPartitionContext(
+    groupingKeyType: org.apache.iceberg.types.Types.StructType,
+    tableBroadcast: Broadcast[Table],
+    branch: String,
+    expectedSchemaString: String,
+    caseSensitive: Boolean,
+    preferredLocations: Array[String],
+    cacheDeleteFilesOnExecutors: Boolean)
