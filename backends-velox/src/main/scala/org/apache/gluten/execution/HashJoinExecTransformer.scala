@@ -17,6 +17,8 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.VeloxConfig
+import org.apache.gluten.expression.ConverterUtils
+import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.rpc.GlutenDriverEndpoint
@@ -148,6 +150,20 @@ case class BroadcastHashJoinExecTransformer(
     } else {
       -1
     }
+
+    val (filterBuildColumns: Array[String], filterPropagatesNulls: Boolean) = condition match {
+      case Some(expr) =>
+        val buildOutputSet = buildPlan.outputSet
+        val cols: Array[String] = expr.references.toSeq.collect {
+          case a: Attribute if buildOutputSet.contains(a) =>
+            ConverterUtils.genColumnNameWithExprId(a)
+        }.toArray
+        val propagates = SparkShimLoader.getSparkShims.isNullIntolerant(expr)
+        (cols, propagates)
+      case None =>
+        (Array.empty[String], false)
+    }
+
     val context =
       BroadcastHashJoinContext(
         buildKeyExprs,
@@ -156,6 +172,8 @@ case class BroadcastHashJoinExecTransformer(
         condition.isDefined,
         joinType.isInstanceOf[ExistenceJoin],
         buildPlan.output,
+        filterBuildColumns,
+        filterPropagatesNulls,
         buildBroadcastTableId,
         isNullAwareAntiJoin,
         bloomFilterPushdownSize,
@@ -174,6 +192,8 @@ case class BroadcastHashJoinContext(
     hasMixedFiltCondition: Boolean,
     isExistenceJoin: Boolean,
     buildSideStructure: Seq[Attribute],
+    filterBuildColumns: Array[String],
+    filterPropagatesNulls: Boolean,
     buildHashTableId: String,
     isNullAwareAntiJoin: Boolean = false,
     bloomFilterPushdownSize: Long,

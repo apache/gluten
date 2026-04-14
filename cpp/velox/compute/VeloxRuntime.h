@@ -112,6 +112,10 @@ class VeloxRuntime final : public Runtime {
     return veloxPlan_;
   }
 
+  const std::shared_ptr<facebook::velox::config::ConfigBase>& veloxCfg() const {
+    return veloxCfg_;
+  }
+
   bool debugModeEnabled() const {
     return debugModeEnabled_;
   }

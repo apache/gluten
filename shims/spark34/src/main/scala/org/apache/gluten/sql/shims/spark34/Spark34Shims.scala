@@ -102,6 +102,8 @@ class Spark34Shims extends SparkShims {
     )
   }
 
+  override def isNullIntolerant(expr: Expression): Boolean = expr.isInstanceOf[NullIntolerant]
+
   override def generateFileScanRDD(
       sparkSession: SparkSession,
       readFunction: PartitionedFile => Iterator[InternalRow],
