@@ -102,6 +102,28 @@ object CHConfig extends ConfigRegistry {
       .doc("Enable local cache for CH backend.")
       .booleanConf
       .createWithDefault(false)
+
+  val EXTENDED_COLUMNAR_TRANSFORM_RULES =
+    buildConf("spark.gluten.sql.columnar.extended.columnar.transform.rules")
+      .internal()
+      .withAlternative("spark.gluten.sql.columnar.extended.columnar.pre.rules")
+      .doc("A comma-separated list of classes for the extended columnar transform rules.")
+      .stringConf
+      .createWithDefaultString("")
+
+  val EXTENDED_COLUMNAR_POST_RULES =
+    buildConf("spark.gluten.sql.columnar.extended.columnar.post.rules")
+      .internal()
+      .doc("A comma-separated list of classes for the extended columnar post rules.")
+      .stringConf
+      .createWithDefaultString("")
+
+  val EXTENDED_EXPRESSION_TRAN_CONF =
+    buildConf("spark.gluten.sql.columnar.extended.expressions.transformer")
+      .internal()
+      .doc("A class for the extended expressions transformer.")
+      .stringConf
+      .createWithDefaultString("")
 }
 
 class CHConfig(conf: SQLConf) extends GlutenConfig(conf) {
@@ -128,6 +150,14 @@ class CHConfig(conf: SQLConf) extends GlutenConfig(conf) {
     getConf(ENABLE_CH_REWRITE_DATE_CONVERSION)
 
   def enableGlutenLocalFileCache: Boolean = getConf(ENABLE_GLUTEN_LOCAL_FILE_CACHE)
+
+  // A comma-separated list of classes for the extended columnar pre rules
+  def extendedColumnarTransformRules: String = getConf(EXTENDED_COLUMNAR_TRANSFORM_RULES)
+
+  // A comma-separated list of classes for the extended columnar post rules
+  def extendedColumnarPostRules: String = getConf(EXTENDED_COLUMNAR_POST_RULES)
+
+  def extendedExpressionTransformer: String = getConf(EXTENDED_EXPRESSION_TRAN_CONF)
 }
 
 object GlutenObjectStorageConfig {

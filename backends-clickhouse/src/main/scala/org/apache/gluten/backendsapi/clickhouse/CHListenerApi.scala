@@ -49,7 +49,7 @@ class CHListenerApi extends ListenerApi with Logging {
     initialize(pc.conf, isDriver = true)
 
     val expressionExtensionTransformer = ExpressionUtil.extendedExpressionTransformer(
-      pc.conf.get(GlutenConfig.EXTENDED_EXPRESSION_TRAN_CONF)
+      pc.conf.get(CHConfig.EXTENDED_EXPRESSION_TRAN_CONF)
     )
     if (expressionExtensionTransformer != null) {
       ExpressionExtensionTrait.registerExpressionExtension(expressionExtensionTransformer)

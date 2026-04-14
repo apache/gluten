@@ -226,6 +226,24 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       sql("INSERT INTO t1 VALUES(1, NOW())")
       runQueryAndCompare("SELECT c1, HOUR(c2) FROM t1 LIMIT 1")(df => checkFallbackOperators(df, 0))
     }
+
+    test("MINUTE") {
+      withTable("t1") {
+        sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
+        sql("INSERT INTO t1 VALUES(1, NOW())")
+        runQueryAndCompare("SELECT c1, MINUTE(c2) FROM t1 LIMIT 1")(
+          df => checkFallbackOperators(df, 0))
+      }
+    }
+
+    test("SECOND") {
+      withTable("t1") {
+        sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
+        sql("INSERT INTO t1 VALUES(1, NOW())")
+        runQueryAndCompare("SELECT c1, SECOND(c2) FROM t1 LIMIT 1")(
+          df => checkFallbackOperators(df, 0))
+      }
+    }
   }
 
   test("map extract - getmapvalue") {
