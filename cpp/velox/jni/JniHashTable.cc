@@ -17,8 +17,8 @@
 
 #include <arrow/c/abi.h>
 
-#include <algorithm>
 #include <jni/JniCommon.h>
+#include <algorithm>
 #include "JniHashTable.h"
 #include "folly/String.h"
 #include "memory/ColumnarBatch.h"
@@ -130,7 +130,8 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     }
   }
   std::sort(filterInputChannels.begin(), filterInputChannels.end());
-  filterInputChannels.erase(std::unique(filterInputChannels.begin(), filterInputChannels.end()), filterInputChannels.end());
+  filterInputChannels.erase(
+      std::unique(filterInputChannels.begin(), filterInputChannels.end()), filterInputChannels.end());
 
   auto hashTableBuilder = std::make_shared<HashTableBuilder>(
       vJoin,
