@@ -94,6 +94,8 @@ object GlutenSQLTestsBaseTrait {
       .set("spark.sql.warehouse.dir", warehouse)
       .set("spark.ui.enabled", "false")
       .set(GlutenConfig.GLUTEN_UI_ENABLED.key, "false")
+      .set("spark.driver.host", "127.0.0.1")
+      .set("spark.driver.bindAddress", "127.0.0.1")
     // Avoid static evaluation by spark catalyst. But there are some UT issues
     // coming from spark, e.g., expecting SparkException is thrown, but the wrapped
     // exception is thrown.

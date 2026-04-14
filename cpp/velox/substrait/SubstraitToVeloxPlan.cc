@@ -28,6 +28,7 @@
 
 #include "utils/ConfigExtractor.h"
 #include "utils/ObjectStore.h"
+#include "utils/VeloxArrowUtils.h"
 #include "utils/VeloxWriterUtils.h"
 
 #include "config.pb.h"

@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.functions
 
-import org.apache.gluten.execution.ProjectExecTransformer
+import org.apache.gluten.execution.{BatchScanExecTransformer, ProjectExecTransformer}
 
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.types.Decimal
@@ -569,4 +569,43 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  testWithMinSparkVersion("read as timestamp_ntz", "3.4") {
+    val inputs: Seq[String] = Seq(
+      "1970-01-01",
+      "1970-01-01 00:00:00-02:00",
+      "1970-01-01 00:00:00 +02:00",
+      "2000-01-01",
+      "1970-01-01 00:00:00",
+      "2000-01-01 12:21:56",
+      "2015-03-18T12:03:17Z",
+      "2015-03-18 12:03:17",
+      "2015-03-18T12:03:17",
+      "2015-03-18 12:03:17.123",
+      "2015-03-18T12:03:17.123",
+      "2015-03-18T12:03:17.456",
+      "2015-03-18 12:03:17.456"
+    )
+
+    withTempPath {
+      dir =>
+        val path = dir.getAbsolutePath
+        val inputDF = spark.createDataset(inputs).toDF("input")
+        val df = inputDF.selectExpr("cast(input as timestamp_ntz) as ts")
+        df.coalesce(1).write.mode("overwrite").parquet(path)
+        val readDf = spark.read.parquet(path)
+        readDf.createOrReplaceTempView("view")
+
+        runQueryAndCompare("select * from view") {
+          checkGlutenPlan[BatchScanExecTransformer]
+        }
+
+        // Ensures the fallback of unsupported function works.
+        runQueryAndCompare("select hour(ts) from view") {
+          df =>
+            assert(collect(df.queryExecution.executedPlan) {
+              case p if p.isInstanceOf[ProjectExec] => p
+            }.nonEmpty)
+        }
+    }
+  }
 }

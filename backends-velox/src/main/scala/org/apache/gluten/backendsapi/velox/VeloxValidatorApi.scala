@@ -113,7 +113,7 @@ object VeloxValidatorApi {
         true
       case dt
           if !enableTimestampNtzValidation &&
-            dt.getClass.getSimpleName == "TimestampNTZType" =>
+            dt.typeName == "timestamp_ntz" =>
         // Allow TimestampNTZ when validation is disabled (for development/testing)
         // Use reflection to avoid compile-time dependency on Spark 3.4+ TimestampNTZType
         true
