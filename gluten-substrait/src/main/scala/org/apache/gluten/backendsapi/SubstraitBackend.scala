@@ -28,6 +28,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.api.plugin.PluginContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.softaffinity.SoftAffinityListener
+import org.apache.spark.sql.execution.GlutenQueryExecutionListener
 import org.apache.spark.sql.execution.adaptive.GlutenCostEvaluator
 import org.apache.spark.sql.execution.ui.{GlutenSQLAppStatusListener, GlutenUIUtils}
 import org.apache.spark.sql.internal.SparkConfigUtil._
@@ -45,6 +46,7 @@ trait SubstraitBackend extends Backend with Logging {
 
     // Register Gluten listeners
     GlutenSQLAppStatusListener.register(sc)
+    GlutenQueryExecutionListener.register(sc)
     if (conf.get(GLUTEN_SOFT_AFFINITY_ENABLED)) {
       SoftAffinityListener.register(sc)
     }

@@ -1,6 +1,8 @@
 vcpkg_download_distfile(
   ARCHIVE
   URLS
+  "https://mirror.clarkson.edu/gentoo/distfiles/80/libelf-0.8.13.tar.gz"
+  "https://mirror.dotsrc.org/mirrors/pub/gsb/gsb64-2.30_slackware64-13.1/source/l/libelf/libelf-0.8.13.tar.gz"
   "https://fossies.org/linux/misc/old/libelf-0.8.13.tar.gz"
   FILENAME
   "libelf-0.8.13.tar.gz"

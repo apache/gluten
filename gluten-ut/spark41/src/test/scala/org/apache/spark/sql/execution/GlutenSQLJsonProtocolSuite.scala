@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.shim.GlutenTestsTrait
+import org.apache.spark.sql.GlutenTestSetWithSystemPropertyTrait
 
-class GlutenSQLJsonProtocolSuite extends SQLJsonProtocolSuite with GlutenTestsTrait {}
+class GlutenSQLJsonProtocolSuite
+  extends SQLJsonProtocolSuite
+  with GlutenTestSetWithSystemPropertyTrait {}

@@ -147,6 +147,8 @@ class VeloxIteratorApi extends IteratorApi with Logging {
   private def getPartitionColumns(
       schema: StructType,
       partitionedFiles: Seq[PartitionedFile]): Seq[Map[String, String]] = {
+    val dateFormatter = DateFormatter()
+    val timestampFormatter = TimestampFormatter.getFractionFormatter(ZoneOffset.UTC)
     partitionedFiles.map {
       partitionedFile =>
         val partitionColumn = mutable.Map[String, String]()
@@ -159,13 +161,11 @@ class VeloxIteratorApi extends IteratorApi with Logging {
               case _: BinaryType =>
                 new String(pv.asInstanceOf[Array[Byte]], StandardCharsets.UTF_8)
               case _: DateType =>
-                DateFormatter.apply().format(pv.asInstanceOf[Integer])
+                dateFormatter.format(pv.asInstanceOf[Integer])
               case _: DecimalType =>
                 pv.asInstanceOf[Decimal].toJavaBigDecimal.unscaledValue().toString
               case _: TimestampType =>
-                TimestampFormatter
-                  .getFractionFormatter(ZoneOffset.UTC)
-                  .format(pv.asInstanceOf[java.lang.Long])
+                timestampFormatter.format(pv.asInstanceOf[java.lang.Long])
               case _ => pv.toString
             }
           }
