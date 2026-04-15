@@ -62,6 +62,7 @@ class Spark34Shims extends SparkShims {
 
   override def scalarExpressionMappings: Seq[Sig] = {
     Seq(
+      Sig[Empty2Null](ExpressionNames.EMPTY2NULL),
       Sig[Mask](ExpressionNames.MASK),
       Sig[ArrayInsert](ExpressionNames.ARRAY_INSERT),
       Sig[CheckOverflowInTableInsert](ExpressionNames.CHECK_OVERFLOW_IN_TABLE_INSERT),

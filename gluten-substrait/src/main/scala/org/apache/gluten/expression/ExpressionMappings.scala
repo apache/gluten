@@ -304,7 +304,6 @@ object ExpressionMappings {
     Sig[Sec](SEC),
     Sig[Csc](CSC),
     Sig[KnownNullable](KNOWN_NULLABLE),
-    Sig[Empty2Null](EMPTY2NULL),
     Sig[TimestampAdd](TIMESTAMP_ADD),
     Sig[TimestampDiff](TIMESTAMP_DIFF),
     Sig[RoundFloor](FLOOR),
