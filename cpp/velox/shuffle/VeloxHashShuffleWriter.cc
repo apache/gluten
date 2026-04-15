@@ -111,7 +111,7 @@ arrow::Status collectFlatVectorBufferStringView(
   auto* rawLength = reinterpret_cast<gluten::StringLengthType*>(lengthBuffer->mutable_data());
   uint64_t offset = 0;
   for (int32_t i = 0; i < flatVector->size(); i++) {
-    auto length = flatVector->isNullAt(i) ? 0 : rrawValues[i].size();
+    auto length = flatVector->isNullAt(i) ? 0 : rawValues[i].size();
     *rawLength++ = length;
     offset += length;
   }
