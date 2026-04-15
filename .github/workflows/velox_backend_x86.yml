@@ -19,7 +19,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/velox_backend_x86.yml'
-      - '.github/workflows/util/install-resources.sh' #TODO remove after image update
+      - '.github/workflows/util/install-spark-deps.sh' #TODO remove after image update
+      - '.github/workflows/util/install-spark-resources.sh' #TODO remove after image update
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
@@ -180,7 +181,7 @@ jobs:
         shell: bash
         run: |
           export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
-          source .github/workflows/util/install-resources.sh
+          source .github/workflows/util/install-spark-deps.sh
           install_hadoop
           setup_hdfs
       - name: Install MinIO
@@ -188,7 +189,7 @@ jobs:
         shell: bash
         run: |
           export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
-          source .github/workflows/util/install-resources.sh
+          source .github/workflows/util/install-spark-deps.sh
           install_minio
       - name: Build and run TPC-H / TPC-DS
         shell: bash
@@ -210,7 +211,7 @@ jobs:
           if [ "${{ matrix.os }}" = "ubuntu:22.04" ] && \
             [ "${{ matrix.spark }}" = "spark-3.5" ] && \
             [ "${{ matrix.java }}" = "java-8" ]; then
-            source $GITHUB_WORKSPACE/.github/workflows/util/install-resources.sh
+            source $GITHUB_WORKSPACE/.github/workflows/util/install-spark-deps.sh
             SPARK_VERSION=$(echo "${{ matrix.spark }}" | sed 's/spark-//')
             setup_minio "$SPARK_VERSION"
           fi
@@ -1259,7 +1260,7 @@ jobs:
       - name: Prepare Spark Resources for Spark 4.0.1 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark40
-          bash .github/workflows/util/install-resources.sh 4.0
+          bash .github/workflows/util/install-spark-resources.sh 4.0
           mv /opt/shims/spark40/spark_home/assembly/target/scala-2.12 /opt/shims/spark40/spark_home/assembly/target/scala-2.13
       - name: Build and Run unit test for Spark 4.0.0 with scala-2.13 (other tests)
         run: |
@@ -1309,7 +1310,7 @@ jobs:
       - name: Prepare Spark Resources for Spark 4.0.1 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark40
-          bash .github/workflows/util/install-resources.sh 4.0
+          bash .github/workflows/util/install-spark-resources.sh 4.0
           mv /opt/shims/spark40/spark_home/assembly/target/scala-2.12 /opt/shims/spark40/spark_home/assembly/target/scala-2.13
       - name: Build and Run unit test for Spark 4.0 (slow tests)
         run: |
@@ -1367,7 +1368,7 @@ jobs:
       - name: Prepare Spark Resources for Spark 4.1.0 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark41
-          bash .github/workflows/util/install-resources.sh 4.1
+          bash .github/workflows/util/install-spark-resources.sh 4.1
           mv /opt/shims/spark41/spark_home/assembly/target/scala-2.12 /opt/shims/spark41/spark_home/assembly/target/scala-2.13
       - name: Build and Run unit test for Spark 4.1.0 with scala-2.13 (other tests)
         run: |
@@ -1417,7 +1418,7 @@ jobs:
       - name: Prepare Spark Resources for Spark 4.1.0 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark41
-          bash .github/workflows/util/install-resources.sh 4.1
+          bash .github/workflows/util/install-spark-resources.sh 4.1
           mv /opt/shims/spark41/spark_home/assembly/target/scala-2.12 /opt/shims/spark41/spark_home/assembly/target/scala-2.13
       - name: Build and Run unit test for Spark 4.0 (slow tests)
         run: |
