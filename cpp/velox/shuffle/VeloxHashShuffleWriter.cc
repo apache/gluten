@@ -765,7 +765,7 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
         isValidityBuffer_.push_back(true);
         isValidityBuffer_.push_back(false);
         isValidityBuffer_.push_back(false);
-        bufferTypes_.insert(bufferTypes_.end(), 3, tac::kUnsupported);
+        tacBufferTypes_.insert(tacBufferTypes_.end(), 3, tac::kUnsupported);
       } break;
       case arrow::StructType::type_id:
       case arrow::MapType::type_id:
@@ -779,7 +779,7 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
         simpleColumnIndices_.push_back(i);
         isValidityBuffer_.push_back(true);
         isValidityBuffer_.push_back(boolIsBit());
-        bufferTypes_.insert(bufferTypes_.end(), 2, tac::kUnsupported);
+        tacBufferTypes_.insert(tacBufferTypes_.end(), 2, tac::kUnsupported);
       } break;
       case arrow::NullType::type_id:
         break;
@@ -787,15 +787,15 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
         simpleColumnIndices_.push_back(i);
         isValidityBuffer_.push_back(true);
         isValidityBuffer_.push_back(false);
-        bufferTypes_.push_back(tac::kUnsupported); // validity
-        bufferTypes_.push_back(veloxTypeToTacType(veloxColumnTypes_[i]->kind())); // data
+        tacBufferTypes_.push_back(tac::kUnsupported); // validity
+        tacBufferTypes_.push_back(veloxTypeToTacType(veloxColumnTypes_[i]->kind())); // data
       } break;
     }
   }
 
   if (hasComplexType_) {
     isValidityBuffer_.push_back(false);
-    bufferTypes_.push_back(tac::kUnsupported);
+    tacBufferTypes_.push_back(tac::kUnsupported);
   }
 
   fixedWidthColumnCount_ = simpleColumnIndices_.size();
@@ -979,7 +979,7 @@ arrow::Status VeloxHashShuffleWriter::evictBuffers(
     std::vector<std::shared_ptr<arrow::Buffer>> buffers,
     bool reuseBuffers) {
   if (!buffers.empty()) {
-    auto* types = partitionWriter_->enableTypeAwareCompress() ? &bufferTypes_ : nullptr;
+    auto* types = partitionWriter_->enableTypeAwareCompress() ? &tacBufferTypes_ : nullptr;
     auto payload = std::make_unique<InMemoryPayload>(
         numRows, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_, types);
     RETURN_NOT_OK(
@@ -1401,7 +1401,7 @@ arrow::Result<int64_t> VeloxHashShuffleWriter::evictPartitionBuffersMinSize(int6
     for (auto& item : pidToSize) {
       auto pid = item.first;
       ARROW_ASSIGN_OR_RAISE(auto buffers, assembleBuffers(pid, false));
-      auto* types = partitionWriter_->enableTypeAwareCompress() ? &bufferTypes_ : nullptr;
+      auto* types = partitionWriter_->enableTypeAwareCompress() ? &tacBufferTypes_ : nullptr;
       auto payload = std::make_unique<InMemoryPayload>(
           item.second, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_, types);
       metrics_.totalBytesToEvict += payload->rawSize();
