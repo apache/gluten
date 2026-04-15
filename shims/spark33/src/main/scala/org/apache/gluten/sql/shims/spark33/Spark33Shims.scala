@@ -17,8 +17,7 @@
 package org.apache.gluten.sql.shims.spark33
 
 import org.apache.gluten.execution.datasource.GlutenFormatFactory
-import org.apache.gluten.expression.{ExpressionNames, Sig}
-import org.apache.gluten.expression.ExpressionNames.{CEIL, FLOOR, KNOWN_NULLABLE, TIMESTAMP_ADD}
+import org.apache.gluten.expression.Sig
 import org.apache.gluten.sql.shims.SparkShims
 import org.apache.gluten.utils.ExceptionUtils
 
@@ -56,33 +55,11 @@ import scala.collection.mutable
 
 class Spark33Shims extends SparkShims {
 
-  override def scalarExpressionMappings: Seq[Sig] = {
-    Seq(
-      Sig[SplitPart](ExpressionNames.SPLIT_PART),
-      Sig[Sec](ExpressionNames.SEC),
-      Sig[Csc](ExpressionNames.CSC),
-      Sig[KnownNullable](KNOWN_NULLABLE),
-      Sig[Empty2Null](ExpressionNames.EMPTY2NULL),
-      Sig[TimestampAdd](TIMESTAMP_ADD),
-      Sig[TimestampDiff](ExpressionNames.TIMESTAMP_DIFF),
-      Sig[RoundFloor](FLOOR),
-      Sig[RoundCeil](CEIL)
-    )
-  }
+  override def scalarExpressionMappings: Seq[Sig] = Seq()
 
-  override def aggregateExpressionMappings: Seq[Sig] = {
-    Seq(
-      Sig[RegrR2](ExpressionNames.REGR_R2)
-    )
-  }
+  override def aggregateExpressionMappings: Seq[Sig] = Seq()
 
-  override def runtimeReplaceableExpressionMappings: Seq[Sig] = {
-    Seq(
-      Sig[ArraySize](ExpressionNames.ARRAY_SIZE),
-      Sig[ILike](ExpressionNames.ILIKE),
-      Sig[MapContainsKey](ExpressionNames.MAP_CONTAINS_KEY)
-    )
-  }
+  override def runtimeReplaceableExpressionMappings: Seq[Sig] = Seq()
 
   override def isNullIntolerant(expr: Expression): Boolean = expr.isInstanceOf[NullIntolerant]
 
