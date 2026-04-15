@@ -111,7 +111,7 @@ arrow::Status collectFlatVectorBufferStringView(
   auto* rawLength = reinterpret_cast<gluten::StringLengthType*>(lengthBuffer->mutable_data());
   uint64_t offset = 0;
   for (int32_t i = 0; i < flatVector->size(); i++) {
-    auto length = rawValues[i].size();
+    auto length = flatVector->isNullAt(i) ? 0 : rrawValues[i].size();
     *rawLength++ = length;
     offset += length;
   }
@@ -120,6 +120,9 @@ arrow::Status collectFlatVectorBufferStringView(
   ARROW_ASSIGN_OR_RAISE(auto valueBuffer, arrow::AllocateResizableBuffer(offset, pool));
   auto raw = reinterpret_cast<char*>(valueBuffer->mutable_data());
   for (int32_t i = 0; i < flatVector->size(); i++) {
+    if (flatVector->isNullAt(i)) {
+      continue;
+    }
     gluten::fastCopy(raw, rawValues[i].data(), rawValues[i].size());
     raw += rawValues[i].size();
   }
