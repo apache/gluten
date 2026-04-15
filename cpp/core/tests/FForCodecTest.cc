@@ -484,16 +484,16 @@ TEST(FForCodecTest, CompressDecompressRoundtrip) {
   auto maxLen = FForCodec::maxCompressedLength(inputSize);
   std::vector<uint8_t> compressed(maxLen);
 
-  auto compResult = FForCodec::compress(
-      reinterpret_cast<const uint8_t*>(data.data()), inputSize, compressed.data(), maxLen);
+  auto compResult =
+      FForCodec::compress(reinterpret_cast<const uint8_t*>(data.data()), inputSize, compressed.data(), maxLen);
   ASSERT_TRUE(compResult.ok()) << compResult.status().ToString();
   auto compressedSize = *compResult;
   ASSERT_GT(compressedSize, 0);
   ASSERT_LT(compressedSize, inputSize);
 
   std::vector<uint64_t> decoded(data.size());
-  auto decResult = FForCodec::decompress(
-      compressed.data(), compressedSize, reinterpret_cast<uint8_t*>(decoded.data()), inputSize);
+  auto decResult =
+      FForCodec::decompress(compressed.data(), compressedSize, reinterpret_cast<uint8_t*>(decoded.data()), inputSize);
   ASSERT_TRUE(decResult.ok()) << decResult.status().ToString();
 
   for (size_t i = 0; i < data.size(); ++i) {
@@ -523,16 +523,16 @@ TEST(FForCodecTest, FullRangeDataRoundtrip) {
   auto maxLen = FForCodec::maxCompressedLength(inputSize);
   std::vector<uint8_t> compressed(maxLen);
 
-  auto compResult = FForCodec::compress(
-      reinterpret_cast<const uint8_t*>(data.data()), inputSize, compressed.data(), maxLen);
+  auto compResult =
+      FForCodec::compress(reinterpret_cast<const uint8_t*>(data.data()), inputSize, compressed.data(), maxLen);
   ASSERT_TRUE(compResult.ok()) << compResult.status().ToString();
   auto compressedSize = *compResult;
   // Full-range data: compressed >= raw (FFOR adds overhead at bw=64).
   ASSERT_GE(compressedSize, inputSize);
 
   std::vector<uint64_t> decoded(data.size());
-  auto decResult = FForCodec::decompress(
-      compressed.data(), compressedSize, reinterpret_cast<uint8_t*>(decoded.data()), inputSize);
+  auto decResult =
+      FForCodec::decompress(compressed.data(), compressedSize, reinterpret_cast<uint8_t*>(decoded.data()), inputSize);
   ASSERT_TRUE(decResult.ok()) << decResult.status().ToString();
 
   for (size_t i = 0; i < data.size(); ++i) {
@@ -627,9 +627,7 @@ TEST(TypeAwareCompressCodecTest, DoubleTypeRoundtrip) {
   ASSERT_TRUE(decResult.ok()) << decResult.status().ToString();
 
   for (size_t i = 0; i < doubles.size(); ++i) {
-    ASSERT_EQ(
-        *reinterpret_cast<const uint64_t*>(&decoded[i]),
-        *reinterpret_cast<const uint64_t*>(&doubles[i]))
+    ASSERT_EQ(*reinterpret_cast<const uint64_t*>(&decoded[i]), *reinterpret_cast<const uint64_t*>(&doubles[i]))
         << "Mismatch at index " << i;
   }
 }

@@ -205,9 +205,10 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> readCompressedBuffer(
 
     timer.switchTo(&decompressTime);
     ARROW_ASSIGN_OR_RAISE(auto output, arrow::AllocateResizableBuffer(uncompressedLength, pool));
-    RETURN_NOT_OK(TypeAwareCompressCodec::decompress(
-                      compressed->data(), actualCompressedLen, output->mutable_data(), uncompressedLength)
-                      .status());
+    RETURN_NOT_OK(
+        TypeAwareCompressCodec::decompress(
+            compressed->data(), actualCompressedLen, output->mutable_data(), uncompressedLength)
+            .status());
     return output;
   }
 
@@ -269,8 +270,7 @@ arrow::Result<std::unique_ptr<BlockPayload>> BlockPayload::fromBuffers(
     // Compress buffers one by one.
     for (size_t i = 0; i < buffers.size(); ++i) {
       auto availableLength = maxLength - actualLength;
-      auto typeKind =
-          (bufferTypes != nullptr && i < bufferTypes->size()) ? (*bufferTypes)[i] : tac::kUnsupported;
+      auto typeKind = (bufferTypes != nullptr && i < bufferTypes->size()) ? (*bufferTypes)[i] : tac::kUnsupported;
 
       int64_t compressedSize = 0;
       if (TypeAwareCompressCodec::support(typeKind)) {
@@ -279,8 +279,7 @@ arrow::Result<std::unique_ptr<BlockPayload>> BlockPayload::fromBuffers(
             compressedSize, compressTypeAwareBuffer(std::move(buffers[i]), output, availableLength, typeKind));
       } else {
         // Use standard codec (LZ4/ZSTD) for unsupported types.
-        ARROW_ASSIGN_OR_RAISE(
-            compressedSize, compressBuffer(std::move(buffers[i]), output, availableLength, codec));
+        ARROW_ASSIGN_OR_RAISE(compressedSize, compressBuffer(std::move(buffers[i]), output, availableLength, codec));
       }
       output += compressedSize;
       actualLength += compressedSize;
@@ -419,7 +418,8 @@ int64_t BlockPayload::maxCompressedLength(
       auto typeKind = (*bufferTypes)[i];
       if (TypeAwareCompressCodec::support(typeKind)) {
         // Type-aware compressed buffer has an extra int64 marker to indicate type-aware compression.
-        // buffer layout: | kTypeAwareBuffer (int64) | buffer 1 uncompressedLength | buffer 1 compressedLength | buffer 1 | ...
+        // buffer layout: | kTypeAwareBuffer (int64) | buffer 1 uncompressedLength | buffer 1 compressedLength | buffer
+        // 1 | ...
         metadataLength += sizeof(int64_t);
         totalCompressedLength += TypeAwareCompressCodec::maxCompressedLen(buffer->size(), typeKind);
         continue;

@@ -17,9 +17,9 @@
 
 #include "shuffle/VeloxHashShuffleWriter.h"
 #include "memory/ArrowMemory.h"
-#include "shuffle/VeloxTypeAwareCompress.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "shuffle/Utils.h"
+#include "shuffle/VeloxTypeAwareCompress.h"
 #include "utils/Common.h"
 #include "utils/Macros.h"
 #include "utils/VeloxArrowUtils.h"
