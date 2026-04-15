@@ -39,10 +39,12 @@ public class HashJoinBuilder implements RuntimeAware {
 
   public static native long cloneHashTable(long hashTableData);
 
-  public static native long nativeBuild(
+  public native long nativeBuild(
       String buildHashTableId,
       long[] batchHandlers,
       String[] joinKeys,
+      String[] filterBuildColumns,
+      boolean filterPropagatesNulls,
       int joinType,
       boolean hasMixedFiltCondition,
       boolean isExistenceJoin,

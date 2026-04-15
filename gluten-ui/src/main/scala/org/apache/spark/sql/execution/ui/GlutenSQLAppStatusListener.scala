@@ -42,7 +42,14 @@ private class GlutenSQLAppStatusListener(conf: SparkConf, kvstore: ElementTracki
   }
 
   private def onGlutenPlanFallback(event: GlutenPlanFallbackEvent): Unit = {
-    val description = executionIdToDescription.get(event.executionId)
+    // Resolve description: from memory cache, or from kvstore (for complete event after END).
+    val description = executionIdToDescription.get(event.executionId).orElse {
+      try {
+        Some(kvstore.read(classOf[GlutenSQLExecutionUIData], event.executionId).description)
+      } catch {
+        case _: NoSuchElementException => None
+      }
+    }
     if (description.isDefined) {
       val uiData = new GlutenSQLExecutionUIData(
         event.executionId,

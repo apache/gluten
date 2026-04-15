@@ -138,15 +138,15 @@ void VeloxRuntime::getInfoAndIds(
     // 2. Files follow the traversal order in the plan node tree.
     // FIXME: Why we didn't have a unified design?
     switch (splitInfo->leafType) {
-    case SplitInfo::LeafType::SPLIT_AWARE_STREAM:
-      streamIds.emplace_back(ValueStreamConnectorFactory::nodeIdOf(streamIdx++));
-break;
+      case SplitInfo::LeafType::SPLIT_AWARE_STREAM:
+        streamIds.emplace_back(ValueStreamConnectorFactory::nodeIdOf(streamIdx++));
+        break;
       case SplitInfo::LeafType::TABLE_SCAN:
         scanInfos.emplace_back(splitInfo);
-      scanIds.emplace_back(leafPlanNodeId);
-break;
+        scanIds.emplace_back(leafPlanNodeId);
+        break;
       case SplitInfo::LeafType::TRIVIAL_LEAF:
-break;
+        break;
     }
   }
 }
@@ -200,27 +200,27 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
 
   auto remainingInputIterators = veloxPlanConverter.remainingInputIterators();
   if (!remainingInputIterators.empty()) {
-  // Converts remaining input iterators to splits and add them to the task.
+    // Converts remaining input iterators to splits and add them to the task.
     wholeStageIter->addIteratorSplits(remainingInputIterators);
   }
 
   return std::make_shared<ResultIterator>(std::move(wholeStageIter), this);
 }
 
-void VeloxRuntime::noMoreSplits(ResultIterator* iter){
-    auto* splitAwareIter = dynamic_cast<gluten::SplitAwareColumnarBatchIterator*>(iter->getInputIter());
-    if (splitAwareIter == nullptr) {
-      throw GlutenException("Iterator does not support split management");
-    }
-    splitAwareIter->noMoreSplits();
+void VeloxRuntime::noMoreSplits(ResultIterator* iter) {
+  auto* splitAwareIter = dynamic_cast<gluten::SplitAwareColumnarBatchIterator*>(iter->getInputIter());
+  if (splitAwareIter == nullptr) {
+    throw GlutenException("Iterator does not support split management");
+  }
+  splitAwareIter->noMoreSplits();
 }
 
-void VeloxRuntime::requestBarrier(ResultIterator* iter){
-    auto* splitAwareIter = dynamic_cast<gluten::SplitAwareColumnarBatchIterator*>(iter->getInputIter());
-    if (splitAwareIter == nullptr) {
-      throw GlutenException("Iterator does not support split management");
-    }
-    splitAwareIter->requestBarrier();
+void VeloxRuntime::requestBarrier(ResultIterator* iter) {
+  auto* splitAwareIter = dynamic_cast<gluten::SplitAwareColumnarBatchIterator*>(iter->getInputIter());
+  if (splitAwareIter == nullptr) {
+    throw GlutenException("Iterator does not support split management");
+  }
+  splitAwareIter->requestBarrier();
 }
 
 std::shared_ptr<ColumnarToRowConverter> VeloxRuntime::createColumnar2RowConverter(int64_t column2RowMemThreshold) {
@@ -268,7 +268,18 @@ std::shared_ptr<IcebergWriter> VeloxRuntime::createIcebergWriter(
   auto veloxPool = memoryManager()->getLeafMemoryPool();
   auto connectorPool = memoryManager()->getAggregateMemoryPool();
   return std::make_shared<IcebergWriter>(
-      rowType, format, outputDirectory, compressionKind, partitionId, taskId, operationId, spec, protoField, sparkConfs, veloxPool, connectorPool);
+      rowType,
+      format,
+      outputDirectory,
+      compressionKind,
+      partitionId,
+      taskId,
+      operationId,
+      spec,
+      protoField,
+      sparkConfs,
+      veloxPool,
+      connectorPool);
 }
 #endif
 

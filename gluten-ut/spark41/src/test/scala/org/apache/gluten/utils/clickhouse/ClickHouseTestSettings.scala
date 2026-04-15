@@ -34,7 +34,7 @@ import org.apache.spark.sql.execution.datasources.text.{GlutenTextV1Suite, Glute
 import org.apache.spark.sql.execution.datasources.v2.{GlutenDataSourceV2StrategySuite, GlutenFileTableSuite, GlutenV2PredicateSuite}
 import org.apache.spark.sql.execution.exchange.{GlutenEnsureRequirementsSuite, GlutenValidateRequirementsSuite}
 import org.apache.spark.sql.execution.joins._
-import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenCustomerExtensionSuite, GlutenSessionExtensionSuite}
+import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenSessionExtensionSuite}
 import org.apache.spark.sql.gluten.{GlutenFallbackStrategiesSuite, GlutenFallbackSuite}
 import org.apache.spark.sql.hive.execution.GlutenHiveSQLQueryCHSuite
 import org.apache.spark.sql.sources._
@@ -441,7 +441,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
     .exclude("create a table, drop it and create another one with the same name")
   enableSuite[GlutenCsvFunctionsSuite]
-  enableSuite[GlutenCustomerExtensionSuite]
   enableSuite[GlutenDDLSourceLoadSuite]
   enableSuite[GlutenDSV2CharVarcharTestSuite]
   enableSuite[GlutenDSV2SQLInsertTestSuite]

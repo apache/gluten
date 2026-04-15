@@ -982,7 +982,8 @@ arrow::Status VeloxHashShuffleWriter::evictBuffers(
     auto* types = partitionWriter_->enableTypeAwareCompress() ? &bufferTypes_ : nullptr;
     auto payload = std::make_unique<InMemoryPayload>(
         numRows, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_, types);
-    RETURN_NOT_OK(partitionWriter_->hashEvict(partitionId, std::move(payload), Evict::kCache, reuseBuffers, writtenBytes_));
+    RETURN_NOT_OK(
+        partitionWriter_->hashEvict(partitionId, std::move(payload), Evict::kCache, reuseBuffers, writtenBytes_));
   }
   return arrow::Status::OK();
 }

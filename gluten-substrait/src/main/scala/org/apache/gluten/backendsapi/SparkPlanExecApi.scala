@@ -435,7 +435,8 @@ trait SparkPlanExecApi {
       mode: BroadcastMode,
       child: SparkPlan,
       numOutputRows: SQLMetric,
-      dataSize: SQLMetric): BuildSideRelation
+      dataSize: SQLMetric,
+      buildThreads: SQLMetric = null): BuildSideRelation
 
   def doCanonicalizeForBroadcastMode(mode: BroadcastMode): BroadcastMode = {
     mode.canonicalized

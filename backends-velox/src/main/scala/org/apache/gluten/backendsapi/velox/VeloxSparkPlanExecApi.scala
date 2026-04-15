@@ -706,7 +706,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       mode: BroadcastMode,
       child: SparkPlan,
       numOutputRows: SQLMetric,
-      dataSize: SQLMetric): BuildSideRelation = {
+      dataSize: SQLMetric,
+      buildThreads: SQLMetric): BuildSideRelation = {
 
     val buildKeys = mode match {
       case mode1: HashedRelationBroadcastMode =>
@@ -851,6 +852,13 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     numOutputRows += serialized.map(_.numRows).sum
     dataSize += rawSize
 
+    val rawThreads =
+      math
+        .ceil(dataSize.value.toDouble / VeloxConfig.get.veloxBroadcastHashTableBuildTargetBytes)
+        .toInt
+    val buildThreadsValue = if (rawThreads < 1) 1 else rawThreads
+    buildThreads += buildThreadsValue
+
     if (useOffheapBroadcastBuildRelation) {
       TaskResources.runUnsafe {
         UnsafeColumnarBuildSideRelation(
@@ -858,7 +866,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
           serialized.flatMap(_.offHeapData().asScala),
           mode,
           newBuildKeys,
-          offload)
+          offload,
+          buildThreadsValue)
       }
     } else {
       ColumnarBuildSideRelation(
@@ -866,7 +875,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         serialized.flatMap(_.onHeapData().asScala).toArray,
         mode,
         newBuildKeys,
-        offload)
+        offload,
+        buildThreadsValue)
     }
   }
 

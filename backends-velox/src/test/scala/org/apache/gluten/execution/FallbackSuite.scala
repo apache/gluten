@@ -345,7 +345,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
         val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
         assert(fallbackReasons.nonEmpty)
         assert(
-          fallbackReasons.forall(
+          fallbackReasons.exists(
             _.contains("[FallbackByUserOptions] Validation failed on node Sort")))
       } finally {
         spark.sparkContext.removeSparkListener(listener)

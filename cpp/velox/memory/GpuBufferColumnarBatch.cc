@@ -27,13 +27,9 @@
 #include <arrow/util/bitmap.h>
 
 namespace gluten {
-  namespace {
-    enum class BufferType{
-      kNull,
-      kLength,
-      kValue
-    };
-  }
+namespace {
+enum class BufferType { kNull, kLength, kValue };
+}
 
 using namespace facebook;
 using namespace facebook::velox;
