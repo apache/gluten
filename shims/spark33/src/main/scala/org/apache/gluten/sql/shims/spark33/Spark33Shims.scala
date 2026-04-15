@@ -17,7 +17,7 @@
 package org.apache.gluten.sql.shims.spark33
 
 import org.apache.gluten.execution.datasource.GlutenFormatFactory
-import org.apache.gluten.expression.Sig
+import org.apache.gluten.expression.{ExpressionNames, Sig}
 import org.apache.gluten.sql.shims.SparkShims
 import org.apache.gluten.utils.ExceptionUtils
 
