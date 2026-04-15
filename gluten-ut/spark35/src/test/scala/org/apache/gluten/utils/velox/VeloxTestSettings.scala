@@ -890,9 +890,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDeltaBasedMergeIntoTableSuite]
   enableSuite[GlutenDeltaBasedMergeIntoTableUpdateAsDeleteAndInsertSuite]
   enableSuite[GlutenDeltaBasedUpdateAsDeleteAndInsertTableSuite]
-    // FIXME: complex type result mismatch
-    .exclude("update nested struct fields")
-    .exclude("update char/varchar columns")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
   enableSuite[GlutenGroupBasedMergeIntoTableSuite]
   enableSuite[GlutenFileSourceCustomMetadataStructSuite]
