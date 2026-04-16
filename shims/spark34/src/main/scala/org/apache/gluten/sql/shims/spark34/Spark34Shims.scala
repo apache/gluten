@@ -17,7 +17,6 @@
 package org.apache.gluten.sql.shims.spark34
 
 import org.apache.gluten.expression.{ExpressionNames, Sig}
-import org.apache.gluten.expression.ExpressionNames.KNOWN_NULLABLE
 import org.apache.gluten.sql.shims.SparkShims
 import org.apache.gluten.utils.ExceptionUtils
 
@@ -63,15 +62,7 @@ class Spark34Shims extends SparkShims {
 
   override def scalarExpressionMappings: Seq[Sig] = {
     Seq(
-      Sig[SplitPart](ExpressionNames.SPLIT_PART),
-      Sig[Sec](ExpressionNames.SEC),
-      Sig[Csc](ExpressionNames.CSC),
-      Sig[KnownNullable](KNOWN_NULLABLE),
       Sig[Empty2Null](ExpressionNames.EMPTY2NULL),
-      Sig[TimestampAdd](ExpressionNames.TIMESTAMP_ADD),
-      Sig[TimestampDiff](ExpressionNames.TIMESTAMP_DIFF),
-      Sig[RoundFloor](ExpressionNames.FLOOR),
-      Sig[RoundCeil](ExpressionNames.CEIL),
       Sig[Mask](ExpressionNames.MASK),
       Sig[ArrayInsert](ExpressionNames.ARRAY_INSERT),
       Sig[CheckOverflowInTableInsert](ExpressionNames.CHECK_OVERFLOW_IN_TABLE_INSERT),
@@ -83,7 +74,6 @@ class Spark34Shims extends SparkShims {
 
   override def aggregateExpressionMappings: Seq[Sig] = {
     Seq(
-      Sig[RegrR2](ExpressionNames.REGR_R2),
       Sig[RegrSlope](ExpressionNames.REGR_SLOPE),
       Sig[RegrIntercept](ExpressionNames.REGR_INTERCEPT),
       Sig[RegrSXY](ExpressionNames.REGR_SXY),
@@ -94,13 +84,12 @@ class Spark34Shims extends SparkShims {
   override def runtimeReplaceableExpressionMappings: Seq[Sig] = {
     Seq(
       Sig[ArrayCompact](ExpressionNames.ARRAY_COMPACT),
-      Sig[ArraySize](ExpressionNames.ARRAY_SIZE),
       Sig[EqualNull](ExpressionNames.EQUAL_NULL),
-      Sig[ILike](ExpressionNames.ILIKE),
-      Sig[MapContainsKey](ExpressionNames.MAP_CONTAINS_KEY),
       Sig[Get](ExpressionNames.GET)
     )
   }
+
+  override def isNullIntolerant(expr: Expression): Boolean = expr.isInstanceOf[NullIntolerant]
 
   override def generateFileScanRDD(
       sparkSession: SparkSession,

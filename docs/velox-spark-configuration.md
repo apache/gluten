@@ -2,7 +2,7 @@ layout: page
 title: Spark configurations status in Gluten Velox Backend
 nav_order: 17
 
-The file lists the if Spark configurations are hornored by Gluten velox backend or not. Table is from Spark4.0 configuration page. The status are:
+The file lists the if Spark configurations are honored by Gluten velox backend or not. Table is from Spark4.0 configuration page. The status are:
 - ✅ Supported<br>
 - ❌ Not Supported<br>
 - ⚠️ Partial Support<br>

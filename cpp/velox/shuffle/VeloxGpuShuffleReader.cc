@@ -20,13 +20,13 @@
 #include <arrow/array/array_binary.h>
 #include <arrow/io/buffered.h>
 
+#include "memory/GpuBufferColumnarBatch.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "shuffle/Payload.h"
 #include "shuffle/Utils.h"
 #include "utils/Common.h"
 #include "utils/Macros.h"
 #include "utils/Timer.h"
-#include "memory/GpuBufferColumnarBatch.h"
 
 #include <algorithm>
 

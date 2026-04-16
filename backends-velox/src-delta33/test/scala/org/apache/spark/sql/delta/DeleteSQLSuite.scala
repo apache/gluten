@@ -21,11 +21,8 @@ import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaExcludedTestMixin, DeltaSQLCommandTest}
 import org.apache.spark.tags.ExtendedSQLTest
 
-// spotless:off
 @ExtendedSQLTest
-class DeleteSQLSuite extends DeleteSuiteBase
-  with DeltaExcludedTestMixin
-  with DeltaSQLCommandTest {
+class DeleteSQLSuite extends DeleteSuiteBase with DeltaExcludedTestMixin with DeltaSQLCommandTest {
 
   import testImplicits._
 
@@ -77,43 +74,45 @@ class DeleteSQLSuite extends DeleteSuiteBase
     }
   }
 
-  Seq(true, false).foreach { partitioned =>
-    test(s"User defined _change_type column doesn't get dropped - partitioned=$partitioned") {
-      withTable("tab") {
-        sql(
-          s"""CREATE TABLE tab USING DELTA
-             |${if (partitioned) "PARTITIONED BY (part) " else ""}
-             |TBLPROPERTIES (delta.enableChangeDataFeed = false)
-             |AS SELECT id, int(id / 10) AS part, 'foo' as _change_type
-             |FROM RANGE(1000)
-             |""".stripMargin)
-        val rowsToDelete = (1 to 1000 by 42).mkString("(", ", ", ")")
-        executeDelete("tab", s"id in $rowsToDelete")
-        sql("SELECT id, _change_type FROM tab").collect().foreach { row =>
-          val _change_type = row.getString(1)
-          assert(_change_type === "foo", s"Invalid _change_type for id=${row.get(0)}")
+  Seq(true, false).foreach {
+    partitioned =>
+      test(s"User defined _change_type column doesn't get dropped - partitioned=$partitioned") {
+        withTable("tab") {
+          sql(s"""CREATE TABLE tab USING DELTA
+                 |${if (partitioned) "PARTITIONED BY (part) " else ""}
+                 |TBLPROPERTIES (delta.enableChangeDataFeed = false)
+                 |AS SELECT id, int(id / 10) AS part, 'foo' as _change_type
+                 |FROM RANGE(1000)
+                 |""".stripMargin)
+          val rowsToDelete = (1 to 1000 by 42).mkString("(", ", ", ")")
+          executeDelete("tab", s"id in $rowsToDelete")
+          sql("SELECT id, _change_type FROM tab").collect().foreach {
+            row =>
+              val _change_type = row.getString(1)
+              assert(_change_type === "foo", s"Invalid _change_type for id=${row.get(0)}")
+          }
         }
       }
-    }
   }
 }
 
 @ExtendedSQLTest
-class DeleteSQLNameColumnMappingSuite extends DeleteSQLSuite
-  with DeltaColumnMappingEnableNameMode {
+class DeleteSQLNameColumnMappingSuite extends DeleteSQLSuite with DeltaColumnMappingEnableNameMode {
 
-  protected override def runOnlyTests: Seq[String] = Seq(true, false).map { isPartitioned =>
-    s"basic case - delete from a Delta table by name - Partition=$isPartitioned"
-  } ++ Seq(true, false).flatMap { isPartitioned =>
-    Seq(
-      s"where key columns - Partition=$isPartitioned",
-      s"where data columns - Partition=$isPartitioned")
+  override protected def runOnlyTests: Seq[String] = Seq(true, false).map {
+    isPartitioned => s"basic case - delete from a Delta table by name - Partition=$isPartitioned"
+  } ++ Seq(true, false).flatMap {
+    isPartitioned =>
+      Seq(
+        s"where key columns - Partition=$isPartitioned",
+        s"where data columns - Partition=$isPartitioned")
   }
 
 }
 
 @ExtendedSQLTest
-class DeleteSQLWithDeletionVectorsSuite extends DeleteSQLSuite
+class DeleteSQLWithDeletionVectorsSuite
+  extends DeleteSQLSuite
   with DeltaExcludedTestMixin
   with DeletionVectorsTestUtils {
   override def beforeAll(): Unit = {
@@ -136,7 +135,7 @@ class DeleteSQLWithDeletionVectorsSuite extends DeleteSQLSuite
       // FIXME: Excluded by Gluten as results are mismatch.
       "test delete on temp view - nontrivial projection - SQL TempView",
       "test delete on temp view - nontrivial projection - Dataset TempView"
-  )
+    )
 
   // This works correctly with DVs, but fails in classic DELETE.
   override def testSuperSetColsTempView(): Unit = {
@@ -148,10 +147,9 @@ class DeleteSQLWithDeletionVectorsSuite extends DeleteSQLSuite
 
 @ExtendedSQLTest
 class DeleteSQLWithDeletionVectorsAndPredicatePushdownSuite
-    extends DeleteSQLWithDeletionVectorsSuite {
+  extends DeleteSQLWithDeletionVectorsSuite {
   override def beforeAll(): Unit = {
     super.beforeAll()
     spark.conf.set(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key, "true")
   }
 }
-// spotless:on

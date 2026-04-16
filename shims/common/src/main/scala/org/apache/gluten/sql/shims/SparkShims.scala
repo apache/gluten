@@ -212,6 +212,8 @@ trait SparkShims {
 
   def withAnsiEvalMode(expr: Expression): Boolean = false
 
+  def isNullIntolerant(expr: Expression): Boolean
+
   def createParquetFilters(
       conf: SQLConf,
       schema: MessageType,

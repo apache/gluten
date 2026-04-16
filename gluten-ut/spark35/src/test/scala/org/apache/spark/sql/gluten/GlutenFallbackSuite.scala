@@ -224,7 +224,7 @@ class GlutenFallbackSuite extends GlutenSQLTestsTrait with AdaptiveSparkPlanHelp
             events.count(
               _.fallbackNodeToReason.values.toSet.exists(_.contains(
                 "Could not find a valid substrait mapping name for max"
-              ))) == 2)
+              ))) == 3)
         } finally {
           spark.sparkContext.removeSparkListener(listener)
         }

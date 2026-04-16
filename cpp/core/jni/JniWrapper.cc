@@ -651,7 +651,7 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIte
   if (outIter == nullptr) {
     throw GlutenException("Invalid iterator handle for addSplits");
   }
-  
+
   // Get the underlying split-aware iterator
   auto* splitAwareIter = dynamic_cast<gluten::SplitAwareColumnarBatchIterator*>(outIter->getInputIter());
   if (splitAwareIter == nullptr) {
@@ -1013,7 +1013,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
     jdouble splitBufferReallocThreshold,
     jlong partitionWriterHandle) {
   JNI_METHOD_START
-  
+
   const auto ctx = getRuntime(env, wrapper);
 
   auto partitionWriter = ObjectStore::retrieve<PartitionWriter>(partitionWriterHandle);

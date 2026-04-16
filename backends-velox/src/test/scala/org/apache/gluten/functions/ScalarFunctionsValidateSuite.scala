@@ -226,6 +226,24 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       sql("INSERT INTO t1 VALUES(1, NOW())")
       runQueryAndCompare("SELECT c1, HOUR(c2) FROM t1 LIMIT 1")(df => checkFallbackOperators(df, 0))
     }
+
+    test("MINUTE") {
+      withTable("t1") {
+        sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
+        sql("INSERT INTO t1 VALUES(1, NOW())")
+        runQueryAndCompare("SELECT c1, MINUTE(c2) FROM t1 LIMIT 1")(
+          df => checkFallbackOperators(df, 0))
+      }
+    }
+
+    test("SECOND") {
+      withTable("t1") {
+        sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
+        sql("INSERT INTO t1 VALUES(1, NOW())")
+        runQueryAndCompare("SELECT c1, SECOND(c2) FROM t1 LIMIT 1")(
+          df => checkFallbackOperators(df, 0))
+      }
+    }
   }
 
   test("map extract - getmapvalue") {
@@ -1559,6 +1577,34 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
           )
           checkGlutenPlan[ProjectExecTransformer](df)
       }
+    }
+  }
+
+  testWithMinSparkVersion("localtimestamp with validation enabled", "3.4") {
+    // With validation enabled (default), localtimestamp should fallback to Spark
+    // because it returns TimestampNTZType
+    withSQLConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "true") {
+      val df = spark.sql("SELECT l_orderkey, localtimestamp() from lineitem limit 1")
+      // Should fallback to Spark execution due to TimestampNTZ validation
+      checkFallbackOperators(df, 1)
+      df.collect()
+    }
+  }
+
+  testWithMinSparkVersion("localtimestamp with validation disabled", "3.4") {
+    // With validation disabled, localtimestamp can use native execution
+    // This allows developers to test TimestampNTZ support
+    withSQLConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "false") {
+      val df = spark.sql("SELECT l_orderkey, localtimestamp() from lineitem limit 1")
+      val optimizedPlan = df.queryExecution.optimizedPlan.toString()
+      assert(
+        !optimizedPlan.contains("LocalTimestamp"),
+        s"Expected LocalTimestamp to be folded to a literal, but got: $optimizedPlan"
+      )
+      // Should use native execution when validation is disabled
+      checkGlutenPlan[ProjectExecTransformer](df)
+      checkFallbackOperators(df, 0)
+      df.collect()
     }
   }
 }

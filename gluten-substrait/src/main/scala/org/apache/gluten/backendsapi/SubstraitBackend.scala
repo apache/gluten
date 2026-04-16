@@ -28,6 +28,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.api.plugin.PluginContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.softaffinity.SoftAffinityListener
+import org.apache.spark.sql.execution.GlutenQueryExecutionListener
 import org.apache.spark.sql.execution.adaptive.GlutenCostEvaluator
 import org.apache.spark.sql.execution.ui.{GlutenSQLAppStatusListener, GlutenUIUtils}
 import org.apache.spark.sql.internal.SparkConfigUtil._
@@ -45,11 +46,13 @@ trait SubstraitBackend extends Backend with Logging {
 
     // Register Gluten listeners
     GlutenSQLAppStatusListener.register(sc)
+    GlutenQueryExecutionListener.register(sc)
     if (conf.get(GLUTEN_SOFT_AFFINITY_ENABLED)) {
       SoftAffinityListener.register(sc)
     }
 
     postBuildInfoEvent(sc)
+    setBuildInfoConfig(conf)
 
     setPredefinedConfigs(conf)
 
@@ -123,6 +126,13 @@ object SubstraitBackend extends Logging {
       val event = GlutenBuildInfoEvent(glutenBuildInfo.toMap)
       GlutenUIUtils.postEvent(sc, event)
     }
+  }
+
+  private def setBuildInfoConfig(conf: SparkConf): Unit = {
+    conf.set("spark.gluten.branch", GlutenBuildInfo.BRANCH)
+    conf.set("spark.gluten.revision", GlutenBuildInfo.REVISION)
+    conf.set("spark.gluten.revisionTime", GlutenBuildInfo.REVISION_TIME)
+    conf.set("spark.gluten.buildTime", GlutenBuildInfo.BUILD_DATE)
   }
 
   private def setPredefinedConfigs(conf: SparkConf): Unit = {

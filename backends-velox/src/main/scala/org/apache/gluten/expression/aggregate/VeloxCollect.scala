@@ -21,13 +21,13 @@ import org.apache.spark.sql.catalyst.expressions.aggregate.DeclarativeAggregate
 import org.apache.spark.sql.catalyst.trees.UnaryLike
 import org.apache.spark.sql.types.{ArrayType, DataType}
 
-abstract class VeloxCollect(child: Expression)
+abstract class VeloxCollect(child: Expression, val ignoreNulls: Boolean)
   extends DeclarativeAggregate
   with UnaryLike[Expression] {
 
   protected lazy val buffer: AttributeReference = AttributeReference("buffer", dataType)()
 
-  override def dataType: DataType = ArrayType(child.dataType, false)
+  override def dataType: DataType = ArrayType(child.dataType, !ignoreNulls)
 
   override def nullable: Boolean = false
 
@@ -35,12 +35,17 @@ abstract class VeloxCollect(child: Expression)
 
   override lazy val initialValues: Seq[Expression] = Seq(Literal.create(Array(), dataType))
 
-  override lazy val updateExpressions: Seq[Expression] = Seq(
-    If(
-      IsNull(child),
-      buffer,
-      Concat(Seq(buffer, CreateArray(Seq(child), useStringTypeWhenEmpty = false))))
-  )
+  override lazy val updateExpressions: Seq[Expression] = {
+    val append = if (ignoreNulls) {
+      If(
+        IsNull(child),
+        buffer,
+        Concat(Seq(buffer, CreateArray(Seq(child), useStringTypeWhenEmpty = false))))
+    } else {
+      Concat(Seq(buffer, CreateArray(Seq(child), useStringTypeWhenEmpty = false)))
+    }
+    Seq(append)
+  }
 
   override lazy val mergeExpressions: Seq[Expression] = Seq(
     Concat(Seq(buffer.left, buffer.right))
@@ -49,7 +54,8 @@ abstract class VeloxCollect(child: Expression)
   override def defaultResult: Option[Literal] = Option(Literal.create(Array(), dataType))
 }
 
-case class VeloxCollectSet(child: Expression) extends VeloxCollect(child) {
+case class VeloxCollectSet(child: Expression, override val ignoreNulls: Boolean = true)
+  extends VeloxCollect(child, ignoreNulls) {
 
   override lazy val evaluateExpression: Expression =
     ArrayDistinct(buffer)
@@ -60,7 +66,8 @@ case class VeloxCollectSet(child: Expression) extends VeloxCollect(child) {
     copy(child = newChild)
 }
 
-case class VeloxCollectList(child: Expression) extends VeloxCollect(child) {
+case class VeloxCollectList(child: Expression, override val ignoreNulls: Boolean = true)
+  extends VeloxCollect(child, ignoreNulls) {
 
   override val evaluateExpression: Expression = buffer
 

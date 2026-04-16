@@ -120,7 +120,7 @@ object CHRuleApi {
     injector.injectPostTransform(_ => PushDownFilterToScan)
     injector.injectPostTransform(_ => PushDownInputFileExpression.PostOffload)
     injector.injectPostTransform(_ => EnsureLocalSortRequirements)
-    injector.injectPostTransform(_ => EliminateLocalSort)
+    injector.injectPostTransform(_ => CHEliminateLocalSort)
     injector.injectPostTransform(_ => CollapseProjectExecTransformer)
     injector.injectPostTransform(c => RewriteSortMergeJoinToHashJoinRule(c.session))
     injector.injectPostTransform(c => PushdownAggregatePreProjectionAheadExpand(c.session))
@@ -130,7 +130,7 @@ object CHRuleApi {
       c =>
         intercept(
           SparkPlanRules.extendedColumnarRule(
-            new GlutenConfig(c.sqlConf).extendedColumnarTransformRules)(c.session)))
+            new CHConfig(c.sqlConf).extendedColumnarTransformRules)(c.session)))
     injector.injectPostTransform(_ => CollectLimitTransformerRule())
     injector.injectPostTransform(_ => CollectTailTransformerRule())
     injector.injectPostTransform(c => InsertTransitions.create(c.outputsColumnar, CHBatchType))
@@ -153,8 +153,8 @@ object CHRuleApi {
     injector.injectPost(
       c =>
         intercept(
-          SparkPlanRules.extendedColumnarRule(
-            new GlutenConfig(c.sqlConf).extendedColumnarPostRules)(c.session)))
+          SparkPlanRules
+            .extendedColumnarRule(new CHConfig(c.sqlConf).extendedColumnarPostRules)(c.session)))
     injector.injectPost(c => GlutenNoopWriterRule.apply(c.session))
 
     // Gluten columnar: Final rules.

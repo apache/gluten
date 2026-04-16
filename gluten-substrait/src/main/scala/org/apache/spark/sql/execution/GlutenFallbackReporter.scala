@@ -55,19 +55,24 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
 
   private def printFallbackReason(plan: SparkPlan): Unit = {
     val validationLogLevel = glutenConf.validationLogLevel
-    plan.foreachUp {
-      case _: GlutenPlan => // ignore
-      case p: SparkPlan if FallbackTags.nonEmpty(p) =>
-        val tag = FallbackTags.get(p)
-        logFallbackReason(validationLogLevel, p.nodeName, tag.reason())
-        // With in next round stage in AQE, the physical plan would be a new instance that
-        // can not preserve the tag, so we need to set the fallback reason to logical plan.
-        // Then we can be aware of the fallback reason for the whole plan.
-        // If a logical plan mapping to several physical plan, we add all reason into
-        // that logical plan to make sure we do not lose any fallback reason.
-        p.logicalLink.foreach(logicalPlan => FallbackTags.add(logicalPlan, tag))
-      case _ =>
+    def printPlan(p: SparkPlan): Unit = {
+      p.foreachUp {
+        case _: GlutenPlan => // ignore
+        case cmd: CommandResultExec =>
+          printPlan(cmd.commandPhysicalPlan)
+        case p: SparkPlan if FallbackTags.nonEmpty(p) =>
+          val tag = FallbackTags.get(p)
+          logFallbackReason(validationLogLevel, p.nodeName, tag.reason())
+          // With in next round stage in AQE, the physical plan would be a new instance that
+          // can not preserve the tag, so we need to set the fallback reason to logical plan.
+          // Then we can be aware of the fallback reason for the whole plan.
+          // If a logical plan mapping to several physical plan, we add all reason into
+          // that logical plan to make sure we do not lose any fallback reason.
+          p.logicalLink.foreach(logicalPlan => FallbackTags.add(logicalPlan, tag))
+        case _ =>
+      }
     }
+    printPlan(plan)
   }
 
   private def postFallbackReason(plan: SparkPlan): Unit = {
@@ -91,5 +96,3 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
     GlutenUIUtils.postEvent(sc, event)
   }
 }
-
-object GlutenFallbackReporter {}

@@ -51,7 +51,8 @@ object ColumnarBuildSideRelation {
       batches: Array[Array[Byte]],
       mode: BroadcastMode,
       newBuildKeys: Seq[Expression] = Seq.empty,
-      offload: Boolean = false): ColumnarBuildSideRelation = {
+      offload: Boolean = false,
+      buildThreads: Int = 1): ColumnarBuildSideRelation = {
     val boundMode = mode match {
       case HashedRelationBroadcastMode(keys, isNullAware) =>
         // Bind each key to the build-side output so simple cols become BoundReference
@@ -66,7 +67,8 @@ object ColumnarBuildSideRelation {
       batches,
       BroadcastModeUtils.toSafe(boundMode),
       newBuildKeys,
-      offload)
+      offload,
+      buildThreads)
   }
 }
 
@@ -75,7 +77,8 @@ case class ColumnarBuildSideRelation(
     batches: Array[Array[Byte]],
     safeBroadcastMode: SafeBroadcastMode,
     newBuildKeys: Seq[Expression],
-    offload: Boolean)
+    offload: Boolean,
+    buildThreads: Int)
   extends BuildSideRelation
   with Logging
   with KnownSizeEstimation {
@@ -156,6 +159,7 @@ case class ColumnarBuildSideRelation(
       broadcastContext: BroadcastHashJoinContext): (Long, ColumnarBuildSideRelation) =
     synchronized {
       if (hashTableData == 0) {
+        val startTime = System.nanoTime()
         val runtime = Runtimes.contextInstance(
           BackendsApiManager.getBackendName,
           "ColumnarBuildSideRelation#buildHashTable")
@@ -203,22 +207,31 @@ case class ColumnarBuildSideRelation(
             ConverterUtils.genColumnNameWithExprId(attr)
         }.toArray
 
+        val hashJoinBuilder = HashJoinBuilder.create(runtime)
+
         // Build the hash table
-        hashTableData = HashJoinBuilder
+        hashTableData = hashJoinBuilder
           .nativeBuild(
             broadcastContext.buildHashTableId,
             batchArray.toArray,
             joinKeys,
+            broadcastContext.filterBuildColumns,
+            broadcastContext.filterPropagatesNulls,
             broadcastContext.substraitJoinType.ordinal(),
             broadcastContext.hasMixedFiltCondition,
             broadcastContext.isExistenceJoin,
             SubstraitUtil.toNameStruct(newOutput).toByteArray,
             broadcastContext.isNullAwareAntiJoin,
             broadcastContext.bloomFilterPushdownSize,
-            broadcastContext.broadcastHashTableBuildThreads
+            buildThreads
           )
 
         jniWrapper.close(serializeHandle)
+
+        // Update build hash table time metric
+        val elapsedTime = System.nanoTime() - startTime
+        broadcastContext.buildHashTableTimeMetric.foreach(_ += elapsedTime / 1000000)
+
         (hashTableData, this)
       } else {
         (HashJoinBuilder.cloneHashTable(hashTableData), null)

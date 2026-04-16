@@ -163,6 +163,8 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
         val partitionColumns = new JArrayList[JMap[String, String]]
         val metadataColumns = new JArrayList[JMap[String, String]]
         val otherMetadataColumns = new JArrayList[JMap[String, Object]]
+        val dateFormatter = DateFormatter()
+        val timestampFormatter = TimestampFormatter.getFractionFormatter(ZoneOffset.UTC)
         f.files.foreach {
           file =>
             paths.add(new URI(file.filePath.toString()).toASCIIString)
@@ -183,13 +185,11 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
                   case _: BinaryType =>
                     new String(pn.asInstanceOf[Array[Byte]], StandardCharsets.UTF_8)
                   case _: DateType =>
-                    DateFormatter.apply().format(pn.asInstanceOf[Integer])
+                    dateFormatter.format(pn.asInstanceOf[Integer])
                   case _: DecimalType =>
                     pn.asInstanceOf[Decimal].toJavaBigInteger.toString
                   case _: TimestampType =>
-                    TimestampFormatter
-                      .getFractionFormatter(ZoneOffset.UTC)
-                      .format(pn.asInstanceOf[java.lang.Long])
+                    timestampFormatter.format(pn.asInstanceOf[java.lang.Long])
                   case _ => pn.toString
                 }
               }

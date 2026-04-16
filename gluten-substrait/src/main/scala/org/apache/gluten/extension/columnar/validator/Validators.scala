@@ -40,6 +40,19 @@ object Validators {
     private val conf = GlutenConfig.get
     private val settings = BackendsApiManager.getSettings
 
+    // Get VeloxConfig if available
+    private val veloxConf: Option[Any] = {
+      try {
+        // scalastyle:off classforname
+        val veloxConfigClass = Class.forName("org.apache.gluten.config.VeloxConfig")
+        // scalastyle:on classforname
+        val getMethod = veloxConfigClass.getMethod("get")
+        Some(getMethod.invoke(null))
+      } catch {
+        case _: Exception => None
+      }
+    }
+
     /** Fails validation if a plan node was already tagged with TRANSFORM_UNSUPPORTED. */
     def fallbackByHint(): Validator.Builder = {
       builder.add(FallbackByHint)
@@ -81,7 +94,7 @@ object Validators {
 
     /** Fails validation if a plan node's input or output schema contains TimestampNTZType. */
     def fallbackByTimestampNTZ(): Validator.Builder = {
-      builder.add(new FallbackByTimestampNTZ())
+      builder.add(new FallbackByTimestampNTZ(veloxConf))
     }
 
     /**
@@ -218,8 +231,27 @@ object Validators {
     }
   }
 
-  private class FallbackByTimestampNTZ() extends Validator {
+  private class FallbackByTimestampNTZ(veloxConf: Option[Any]) extends Validator {
+    // Check if TimestampNTZ validation is enabled via VeloxConfig
+    // Default to true (enabled) if VeloxConfig is not available or method call fails
+    private val enableValidation: Boolean = veloxConf
+      .flatMap {
+        config =>
+          try {
+            val enableMethod = config.getClass.getMethod("enableTimestampNtzValidation")
+            Some(enableMethod.invoke(config).asInstanceOf[Boolean])
+          } catch {
+            case _: Exception => None
+          }
+      }
+      .getOrElse(true)
+
     override def validate(plan: SparkPlan): Validator.OutCome = {
+      if (!enableValidation) {
+        // Validation is disabled, allow TimestampNTZ
+        return pass()
+      }
+
       def containsNTZ(dataType: DataType): Boolean = dataType match {
         case dt if dt.catalogString == "timestamp_ntz" => true
         case st: StructType => st.exists(f => containsNTZ(f.dataType))

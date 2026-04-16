@@ -43,8 +43,9 @@ abstract class GlutenClickHouseTPCDSAbstractSuite
 
   protected val tablesPath: String = UTSystemParameters.tpcdsDecimalDataPath + "/"
   protected val db_name: String = "tpcdsdb"
+  // TODO: fix to use the new DS queries https://github.com/apache/gluten/issues/11871
   protected val tpcdsQueries: String =
-    resPath + "../../../../tools/gluten-it/common/src/main/resources/tpcds-queries"
+    resPath + "../../../../tools/gluten-it/common/src/main/resources/tpcds-queries-clickhouse"
   protected val queriesResults: String = resPath + "tpcds-decimal-queries-output"
 
   /** Return values: (sql num, is fall back) */
