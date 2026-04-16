@@ -18,6 +18,7 @@
 #include <arrow/c/abi.h>
 
 #include <jni/JniCommon.h>
+#include <algorithm>
 #include "JniHashTable.h"
 #include "folly/String.h"
 #include "memory/ColumnarBatch.h"
@@ -57,6 +58,8 @@ jlong JniHashTableContext::callJavaGet(const std::string& id) const {
 // Return the velox's hash table.
 std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     const std::vector<std::string>& joinKeys,
+    const std::vector<std::string>& filterBuildColumns,
+    bool filterPropagatesNulls,
     std::vector<std::string> names,
     std::vector<facebook::velox::TypePtr> veloxTypeList,
     int joinType,
@@ -64,6 +67,10 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     bool isExistenceJoin,
     bool isNullAwareAntiJoin,
     int64_t bloomFilterPushdownSize,
+    uint32_t minTableRowsForParallelJoinBuild,
+    uint32_t joinBuildVectorHasherMaxNumDistinct,
+    uint32_t abandonHashBuildDedupMinRows,
+    uint32_t abandonHashBuildDedupMinPct,
     std::vector<std::shared_ptr<ColumnarBatch>>& batches,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool) {
   auto rowType = std::make_shared<facebook::velox::RowType>(std::move(names), std::move(veloxTypeList));
@@ -115,18 +122,38 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
         std::make_shared<facebook::velox::core::FieldAccessTypedExpr>(rowType->findChild(name), name));
   }
 
+  std::vector<uint32_t> filterInputChannels;
+  filterInputChannels.reserve(filterBuildColumns.size());
+  for (const auto& name : filterBuildColumns) {
+    if (const auto idx = rowType->getChildIdxIfExists(name)) {
+      filterInputChannels.push_back(*idx);
+    }
+  }
+  std::sort(filterInputChannels.begin(), filterInputChannels.end());
+  filterInputChannels.erase(
+      std::unique(filterInputChannels.begin(), filterInputChannels.end()), filterInputChannels.end());
+
   auto hashTableBuilder = std::make_shared<HashTableBuilder>(
       vJoin,
       isNullAwareAntiJoin,
       hasMixedJoinCondition,
       bloomFilterPushdownSize,
       joinKeyTypes,
+      filterInputChannels,
+      filterPropagatesNulls,
       rowType,
-      memoryPool.get());
+      memoryPool.get(),
+      minTableRowsForParallelJoinBuild,
+      joinBuildVectorHasherMaxNumDistinct,
+      abandonHashBuildDedupMinRows,
+      abandonHashBuildDedupMinPct);
 
   for (auto i = 0; i < batches.size(); i++) {
     auto rowVector = VeloxColumnarBatch::from(memoryPool.get(), batches[i])->getRowVector();
     hashTableBuilder->addInput(rowVector);
+    if (hashTableBuilder->noMoreInput()) {
+      break;
+    }
   }
 
   return hashTableBuilder;

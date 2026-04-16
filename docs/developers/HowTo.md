@@ -156,7 +156,7 @@ gdb ${GLUTEN_HOME}/cpp/build/releases/libgluten.so 'core-Executor task l-2000883
 Currently, we have no dedicated memory allocator implemented by jemalloc. User can set environment variable `LD_PRELOAD` for lib jemalloc
 to let it override the corresponding C standard functions entirely. It may help alleviate OOM issues.
 
-`spark.executorEnv.LD_PREALOD=/path/to/libjemalloc.so`
+`spark.executorEnv.LD_PRELOAD=/path/to/libjemalloc.so`
 
 # How to run TPC-H on Velox backend
 

@@ -501,9 +501,9 @@ void VeloxHashShuffleReaderDeserializer::loadNextStream() {
 
   if (readerBufferSize_ > 0) {
     GLUTEN_ASSIGN_OR_THROW(
-          in_,
-          arrow::io::BufferedInputStream::Create(
-              readerBufferSize_, memoryManager_->defaultArrowMemoryPool(), std::move(in)));
+        in_,
+        arrow::io::BufferedInputStream::Create(
+            readerBufferSize_, memoryManager_->defaultArrowMemoryPool(), std::move(in)));
   } else {
     in_ = std::move(in);
   }

@@ -207,12 +207,16 @@ case class ColumnarBuildSideRelation(
             ConverterUtils.genColumnNameWithExprId(attr)
         }.toArray
 
+        val hashJoinBuilder = HashJoinBuilder.create(runtime)
+
         // Build the hash table
-        hashTableData = HashJoinBuilder
+        hashTableData = hashJoinBuilder
           .nativeBuild(
             broadcastContext.buildHashTableId,
             batchArray.toArray,
             joinKeys,
+            broadcastContext.filterBuildColumns,
+            broadcastContext.filterPropagatesNulls,
             broadcastContext.substraitJoinType.ordinal(),
             broadcastContext.hasMixedFiltCondition,
             broadcastContext.isExistenceJoin,
