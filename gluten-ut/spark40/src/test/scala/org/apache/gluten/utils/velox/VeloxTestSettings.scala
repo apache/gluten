@@ -1116,9 +1116,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("merge with NOT NULL checks")
   enableSuite[GlutenDeltaBasedUpdateAsDeleteAndInsertTableSuite]
-    // FIXME: complex type result mismatch
-    .exclude("update nested struct fields")
-    .exclude("update char/varchar columns")
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("update with NOT NULL checks")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
