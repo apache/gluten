@@ -135,15 +135,14 @@ std::vector<ShuffleTestParams> getTestParams() {
       for (const auto mergeBufferSize : mergeBufferSizes) {
         for (const bool enableDictionary : {true, false}) {
           for (const bool enableTypeAwareCompress : {true, false}) {
-            params.push_back(
-                ShuffleTestParams{
-                    .shuffleWriterType = ShuffleWriterType::kHashShuffle,
-                    .partitionWriterType = PartitionWriterType::kLocal,
-                    .compressionType = compression,
-                    .compressionThreshold = compressionThreshold,
-                    .mergeBufferSize = mergeBufferSize,
-                    .enableDictionary = enableDictionary,
-                    .enableTypeAwareCompress = enableTypeAwareCompress});
+            params.push_back(ShuffleTestParams{
+                .shuffleWriterType = ShuffleWriterType::kHashShuffle,
+                .partitionWriterType = PartitionWriterType::kLocal,
+                .compressionType = compression,
+                .compressionThreshold = compressionThreshold,
+                .mergeBufferSize = mergeBufferSize,
+                .enableDictionary = enableDictionary,
+                .enableTypeAwareCompress = enableTypeAwareCompress});
           }
         }
       }

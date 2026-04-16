@@ -205,10 +205,9 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> readCompressedBuffer(
 
     timer.switchTo(&decompressTime);
     ARROW_ASSIGN_OR_RAISE(auto output, arrow::AllocateResizableBuffer(uncompressedLength, pool));
-    RETURN_NOT_OK(
-        TypeAwareCompressCodec::decompress(
-            compressed->data(), actualCompressedLen, output->mutable_data(), uncompressedLength)
-            .status());
+    RETURN_NOT_OK(TypeAwareCompressCodec::decompress(
+                      compressed->data(), actualCompressedLen, output->mutable_data(), uncompressedLength)
+                      .status());
     return output;
   }
 
