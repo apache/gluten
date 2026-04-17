@@ -91,4 +91,20 @@ public class JniThreadDetachTest extends VeloxBackendTestBase {
         "JNI call on native thread failed after JniColumnarBatchIterator destructor.",
         result.get());
   }
+
+  /**
+   * Native helper in JniTestHelper.cc. Creates a JniAwareThreadFactory, runs a task on it, destroys
+   * the executor, then verifies the thread was properly attached and JNI calls succeeded (no crash,
+   * executor destroyed cleanly).
+   *
+   * <p>With the fix: returns true. With a regression (e.g. detach removed): JavaThread objects
+   * accumulate silently — this test catches the crash case and documents the correct lifecycle.
+   */
+  private static native boolean nativeTestSpillThreadDetachesCleanly();
+
+  @Test
+  public void testSpillThreadDetachesCleanly() {
+    boolean ok = nativeTestSpillThreadDetachesCleanly();
+    Assert.assertTrue("Spill thread JNI lifecycle test failed.", ok);
+  }
 }

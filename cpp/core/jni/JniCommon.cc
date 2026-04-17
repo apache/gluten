@@ -26,7 +26,7 @@ void gluten::JniCommonState::ensureInitialized(JNIEnv* env) {
   initialized_ = true;
 }
 
-void gluten::JniCommonState::assertInitialized() {
+void gluten::JniCommonState::assertInitialized() const {
   if (!initialized_) {
     throw gluten::GlutenException("Fatal: JniCommonState::Initialize(...) was not called before using the utility");
   }

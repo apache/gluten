@@ -27,6 +27,9 @@
 #include <jni/JniCommon.h>
 #include <jni/JniError.h>
 
+#include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/futures/Future.h>
+
 #include "compute/Runtime.h"
 
 #ifdef __cplusplus
@@ -88,6 +91,53 @@ Java_org_apache_gluten_jni_JniThreadDetachTest_nativeTestIteratorDestructorKeeps
 
   env->DeleteGlobalRef(globalItr);
   return succeeded.load() ? JNI_TRUE : JNI_FALSE;
+  JNI_METHOD_END(JNI_FALSE)
+}
+
+// Smoke test for JniAwareThreadFactory.
+//
+// Verifies that spill threads are attached to the JVM at pool creation and that
+// JNI calls succeed during task execution. The executor is destroyed cleanly
+// after the task completes. Note: this test cannot verify that DetachCurrentThread
+// was actually called — JavaThread accumulation is silent. It serves as a
+// lifecycle correctness smoke test and regression guard for attach behaviour.
+JNIEXPORT jboolean JNICALL
+Java_org_apache_gluten_jni_JniThreadDetachTest_nativeTestSpillThreadDetachesCleanly( // NOLINT
+    JNIEnv* env,
+    jclass) {
+  JNI_METHOD_START
+  JavaVM* vm;
+  if (env->GetJavaVM(&vm) != JNI_OK) {
+    throw gluten::GlutenException("Unable to get JavaVM instance");
+  }
+
+  std::atomic<bool> attachedDuringTask{false};
+  std::atomic<bool> jniCallSucceeded{false};
+
+  {
+    auto factory = std::make_shared<gluten::JniAwareThreadFactory>();
+    auto executor = std::make_unique<folly::CPUThreadPoolExecutor>(1, factory);
+
+    folly::Future<folly::Unit> fut = folly::via(executor.get(), [&]() {
+      JNIEnv* taskEnv = nullptr;
+      jint rc = vm->GetEnv(reinterpret_cast<void**>(&taskEnv), JNI_VERSION_1_8);
+      attachedDuringTask.store(rc == JNI_OK);
+
+      if (taskEnv != nullptr) {
+        jclass cls = taskEnv->FindClass("java/lang/String");
+        if (cls != nullptr) {
+          taskEnv->DeleteLocalRef(cls);
+          jniCallSucceeded.store(true);
+        }
+      }
+    });
+
+    std::move(fut).get();
+    // executor destructor joins thread; JniAwareThreadFactory calls DetachCurrentThread
+    // inside the thread fn body before thread exits.
+  }
+
+  return (attachedDuringTask.load() && jniCallSucceeded.load()) ? JNI_TRUE : JNI_FALSE;
   JNI_METHOD_END(JNI_FALSE)
 }
 
