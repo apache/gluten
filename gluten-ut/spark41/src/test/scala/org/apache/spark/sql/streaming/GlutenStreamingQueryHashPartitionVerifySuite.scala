@@ -45,15 +45,20 @@ class GlutenStreamingQueryHashPartitionVerifySuite
 
 object GlutenStreamingQueryHashPartitionVerifySuite {
   private val ResourcePath = "structured-streaming/partition-tests"
+  private val PartitionTestsRelativePath =
+    "sql/core/src/test/resources/structured-streaming/partition-tests"
 
   private[streaming] def initSparkTestHome(): Unit = {
-    if (sys.props.get("spark.test.home").isEmpty) {
-      val sparkTestHome =
-        createSparkTestHomeFromResources()
-          .orElse(localSparkTestHome())
-          .orElse(sys.env.get("SPARK_HOME"))
+    val existingValidSparkTestHome =
+      sys.props.get("spark.test.home").filter(isValidSparkTestHome)
+    if (existingValidSparkTestHome.isEmpty) {
+      val sparkTestHome = createSparkTestHomeFromResources()
+        .orElse(localSparkTestHome().filter(isValidSparkTestHome))
+        .orElse(sys.env.get("SPARK_HOME").filter(isValidSparkTestHome))
 
-      sparkTestHome.foreach(System.setProperty("spark.test.home", _))
+      sparkTestHome.foreach { path =>
+        System.setProperty("spark.test.home", path)
+      }
     }
   }
 
@@ -78,8 +83,7 @@ object GlutenStreamingQueryHashPartitionVerifySuite {
     val rowsAndPartIdsPath = s"$ResourcePath/rowsAndPartIds"
 
     val rootDir = Files.createTempDirectory("gluten-spark-test-home").toFile
-    val partitionTestsDir =
-      new File(rootDir, "sql/core/src/test/resources/structured-streaming/partition-tests")
+    val partitionTestsDir = new File(rootDir, PartitionTestsRelativePath)
 
     if (!partitionTestsDir.mkdirs() && !partitionTestsDir.exists()) {
       None
@@ -91,11 +95,18 @@ object GlutenStreamingQueryHashPartitionVerifySuite {
 
       if (copiedRandomSchemas && copiedRowsAndPartIds) {
         rootDir.deleteOnExit()
-        Some(rootDir.getAbsolutePath)
+        Some(rootDir.getAbsolutePath).filter(isValidSparkTestHome)
       } else {
         None
       }
     }
+  }
+
+  private def isValidSparkTestHome(path: String): Boolean = {
+    val partitionTestsDir = new File(path, PartitionTestsRelativePath)
+    val randomSchemas = new File(partitionTestsDir, "randomSchemas")
+    val rowsAndPartIds = new File(partitionTestsDir, "rowsAndPartIds")
+    randomSchemas.exists() && rowsAndPartIds.exists()
   }
 
   private def copyResource(resourcePath: String, targetFile: File): Boolean = {
