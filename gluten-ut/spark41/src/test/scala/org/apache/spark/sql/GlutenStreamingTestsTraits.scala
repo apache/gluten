@@ -18,8 +18,73 @@ package org.apache.spark.sql
 
 import org.apache.spark.SparkConf
 
+import java.net.JarURLConnection
+import java.nio.file.{Files, Paths, StandardCopyOption}
+import java.util.jar.JarFile
+
+private[sql] object GlutenStructuredStreamingResourceBootstrap {
+  private val StructuredStreamingRoot = "structured-streaming/"
+  private val ResourceProbe = s"${StructuredStreamingRoot}partition-tests/randomSchemas"
+
+  @volatile private var initialized = false
+
+  def ensureResourcesOnFilesystem(): Unit = synchronized {
+    if (initialized) {
+      return
+    }
+
+    val maybeProbe = Option(getClass.getClassLoader.getResource(ResourceProbe))
+    maybeProbe.foreach {
+      probeUrl =>
+        if (probeUrl.getProtocol == "jar") {
+          copyStructuredStreamingResourcesFromJar(probeUrl)
+        }
+    }
+
+    initialized = true
+  }
+
+  private def copyStructuredStreamingResourcesFromJar(resourceUrl: java.net.URL): Unit = {
+    val maybeTestClassesRoot = Option(getClass.getResource("/"))
+      .filter(_.getProtocol == "file")
+      .map(url => Paths.get(url.toURI))
+    if (maybeTestClassesRoot.isEmpty) {
+      return
+    }
+
+    val testClassesRoot = maybeTestClassesRoot.get
+    if (Files.exists(testClassesRoot.resolve(ResourceProbe))) {
+      return
+    }
+
+    val connection = resourceUrl.openConnection().asInstanceOf[JarURLConnection]
+    val jarPath = Paths.get(connection.getJarFileURL.toURI)
+    val jarFile = new JarFile(jarPath.toFile)
+    try {
+      val entries = jarFile.entries()
+      while (entries.hasMoreElements) {
+        val entry = entries.nextElement()
+        val entryName = entry.getName
+        if (!entry.isDirectory && entryName.startsWith(StructuredStreamingRoot)) {
+          val targetPath = testClassesRoot.resolve(entryName)
+          Option(targetPath.getParent).foreach(Files.createDirectories(_))
+          val in = jarFile.getInputStream(entry)
+          try {
+            Files.copy(in, targetPath, StandardCopyOption.REPLACE_EXISTING)
+          } finally {
+            in.close()
+          }
+        }
+      }
+    } finally {
+      jarFile.close()
+    }
+  }
+}
+
 private[sql] object GlutenStreamingTestConf {
   def withFallbackToVanilla(conf: SparkConf): SparkConf = {
+    GlutenStructuredStreamingResourceBootstrap.ensureResourcesOnFilesystem()
     conf
       .set("spark.driver.host", "127.0.0.1")
       .set("spark.driver.bindAddress", "127.0.0.1")
@@ -54,6 +119,9 @@ private[sql] object GlutenStreamingTestConf {
 }
 
 trait GlutenStreamingSQLTestsTrait extends GlutenSQLTestsTrait {
+  private val structuredStreamingResourcesInitialized: Unit =
+    GlutenStructuredStreamingResourceBootstrap.ensureResourcesOnFilesystem()
+
   override def sparkConf: SparkConf = {
     GlutenStreamingTestConf.withFallbackToVanilla(super.sparkConf)
   }
