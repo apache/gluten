@@ -380,7 +380,7 @@ object GlutenIcebergSourceUtil extends Logging {
 
     partitionedTasks.zipWithIndex.map {
       case (tasks, idx) =>
-        val newPartition = createSparkInputPartition(context, tasks)
+        val newPartition = createSparkInputPartition(context, tasks.toSeq)
         new SparkDataSourceRDDPartition(idx, Seq(newPartition))
     }
   }
