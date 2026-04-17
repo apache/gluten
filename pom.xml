@@ -146,6 +146,7 @@
     <scalastyle.version>1.0.0</scalastyle.version>
     <scalatest-maven-plugin.version>2.2.0</scalatest-maven-plugin.version>
     <bloop-maven-plugin.version>2.0.3</bloop-maven-plugin.version>
+    <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
     <argLine/>
     <!-- Required since there is extensive setting of spark home through argLine-->
     <extraJavaTestArgs>
@@ -744,6 +745,25 @@
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>exec-maven-plugin</artifactId>
           <version>3.1.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>flatten-maven-plugin</artifactId>
+          <version>${flatten-maven-plugin.version}</version>
+          <configuration>
+            <flattenMode>ossrh</flattenMode>
+            <outputDirectory>${project.build.directory}</outputDirectory>
+            <flattenedPomFilename>flattened-pom.xml</flattenedPomFilename>
+          </configuration>
+          <executions>
+            <execution>
+              <id>flatten</id>
+              <goals>
+                <goal>flatten</goal>
+              </goals>
+              <phase>process-resources</phase>
+            </execution>
+          </executions>
         </plugin>
         <plugin>
           <groupId>com.diffplug.spotless</groupId>
