@@ -18,5 +18,11 @@
 set -e
 
 source /opt/rh/gcc-toolset-11/enable
+
+if [ "$(uname -m)" = "aarch64" ]; then
+    export CPU_TARGET="aarch64";
+    export VCPKG_FORCE_SYSTEM_BINARIES=1;
+fi
+
 ./dev/builddeps-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF --build_tests=ON \
     --build_examples=ON --build_benchmarks=ON
