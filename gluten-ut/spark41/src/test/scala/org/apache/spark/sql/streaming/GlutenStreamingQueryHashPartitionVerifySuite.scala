@@ -56,9 +56,7 @@ object GlutenStreamingQueryHashPartitionVerifySuite {
         .orElse(localSparkTestHome().filter(isValidSparkTestHome))
         .orElse(sys.env.get("SPARK_HOME").filter(isValidSparkTestHome))
 
-      sparkTestHome.foreach { path =>
-        System.setProperty("spark.test.home", path)
-      }
+      sparkTestHome.foreach(path => System.setProperty("spark.test.home", path))
     }
   }
 
