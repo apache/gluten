@@ -16,12 +16,12 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenSQLTestsTrait
+import org.apache.spark.sql.GlutenStreamingSQLTestsTrait
 import org.apache.spark.sql.execution.ColumnarShuffleExchangeExec
 import org.apache.spark.sql.execution.exchange.REQUIRED_BY_STATEFUL_OPERATOR
 import org.apache.spark.sql.execution.streaming.MemoryStream
 
-class GlutenStreamingQuerySuite extends StreamingQuerySuite with GlutenSQLTestsTrait {
+class GlutenStreamingQuerySuite extends StreamingQuerySuite with GlutenStreamingSQLTestsTrait {
 
   import testImplicits._
 
