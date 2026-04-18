@@ -1164,8 +1164,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("detect escaped path and report the migration guide")
     .exclude("ignore the escaped path check when the flag is off")
     .excludeByPrefix("SPARK-51187")
-    // Rewrite for the query plan check
-    .excludeByPrefix("SPARK-49905")
     // TODO: fix on Spark-4.1 introduced by https://github.com/apache/spark/pull/52645
     .exclude("SPARK-53942: changing the number of stateless shuffle partitions via config")
     .exclude("SPARK-53942: stateful shuffle partitions are retained from old checkpoint")
