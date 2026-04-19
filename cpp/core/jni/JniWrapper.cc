@@ -459,6 +459,7 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeCreateKernelWith
     jobject wrapper,
     jbyteArray planArr,
     jobjectArray splitInfosArr,
+    jobjectArray splitPayloadsArr,
     jobjectArray batchItrArray,
     jint stageId,
     jint partitionId,
@@ -488,6 +489,25 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeCreateKernelWith
       jsize splitInfoSize = env->GetArrayLength(splitInfoArray);
       auto safeSplitArray = getByteArrayElementsSafe(env, splitInfoArray);
       auto splitInfoData = safeSplitArray.elems();
+
+      if (splitPayloadsArr != nullptr) {
+        jobjectArray splitPayloadArray = static_cast<jobjectArray>(env->GetObjectArrayElement(splitPayloadsArr, i));
+        if (splitPayloadArray != nullptr) {
+          std::vector<SplitPayloadBufferView> splitPayloads;
+          splitPayloads.reserve(env->GetArrayLength(splitPayloadArray));
+          for (jsize payloadIndex = 0, payloadCount = env->GetArrayLength(splitPayloadArray);
+               payloadIndex < payloadCount;
+               ++payloadIndex) {
+            jobject payloadBuffer = env->GetObjectArrayElement(splitPayloadArray, payloadIndex);
+            auto* payloadData = reinterpret_cast<const uint8_t*>(env->GetDirectBufferAddress(payloadBuffer));
+            const auto payloadSize = static_cast<int32_t>(env->GetDirectBufferCapacity(payloadBuffer));
+            GLUTEN_CHECK(payloadData != nullptr, "Split payload buffer must be a direct ByteBuffer");
+            GLUTEN_CHECK(payloadSize >= 0, "Split payload buffer capacity must be non-negative");
+            splitPayloads.push_back({payloadData, payloadSize});
+          }
+          ctx->setSplitPayloads(i, std::move(splitPayloads));
+        }
+      }
 
       ctx->parseSplitInfo(splitInfoData, splitInfoSize, i);
     }

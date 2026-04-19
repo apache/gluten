@@ -27,6 +27,7 @@ import org.apache.spark.TaskContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -74,6 +75,7 @@ public class NativePlanEvaluator {
   public ColumnarBatchOutIterator createKernelWithBatchIterator(
       byte[] wsPlan,
       byte[][] splitInfo,
+      ByteBuffer[][] splitPayloads,
       ColumnarBatchInIterator[] iterList,
       int partitionIndex,
       String spillDirPath)
@@ -82,13 +84,14 @@ public class NativePlanEvaluator {
         jniWrapper.nativeCreateKernelWithIterator(
             wsPlan,
             splitInfo,
+            splitPayloads,
             iterList,
             TaskContext.get().stageId(),
             partitionIndex, // TaskContext.getPartitionId(),
             TaskContext.get().taskAttemptId(),
             DebugUtil.isDumpingEnabledForTask(),
             spillDirPath);
-    final ColumnarBatchOutIterator out = createOutIterator(runtime, itrHandle);
+    final ColumnarBatchOutIterator out = createOutIterator(runtime, itrHandle, splitPayloads);
     runtime
         .memoryManager()
         .addSpiller(
@@ -110,7 +113,8 @@ public class NativePlanEvaluator {
     return out;
   }
 
-  private ColumnarBatchOutIterator createOutIterator(Runtime runtime, long itrHandle) {
-    return new ColumnarBatchOutIterator(runtime, itrHandle);
+  private ColumnarBatchOutIterator createOutIterator(
+      Runtime runtime, long itrHandle, Object retainedReference) {
+    return new ColumnarBatchOutIterator(runtime, itrHandle, retainedReference);
   }
 }

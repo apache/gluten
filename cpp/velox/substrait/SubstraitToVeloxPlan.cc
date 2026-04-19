@@ -17,6 +17,7 @@
 
 #include "SubstraitToVeloxPlan.h"
 
+#include "compute/delta/DeltaConnector.h"
 #include "TypeUtils.h"
 #include "VariantToVectorConverter.h"
 #include "jni/JniHashTable.h"
@@ -55,6 +56,19 @@ bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfo
 #else
   return false;
 #endif
+}
+
+bool isDeltaSplitInfo(const std::shared_ptr<SplitInfo>& splitInfo) {
+  for (const auto& metadata : splitInfo->metadataColumns) {
+    auto tableFormatIt = metadata.find("table_format");
+    if ((tableFormatIt != metadata.end() && tableFormatIt->second == "delta") ||
+        metadata.find("delta_dv_storage_type") != metadata.end() ||
+        metadata.find("delta_dv_path_or_inline") != metadata.end() ||
+        metadata.find("row_index_filter_type") != metadata.end()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 core::SortOrder toSortOrder(const ::substrait::SortField& sortField) {
@@ -1573,8 +1587,12 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
   connector::ConnectorTableHandlePtr tableHandle;
   auto remainingFilter = readRel.has_filter() ? exprConverter_->toVeloxExpr(readRel.filter(), baseSchema) : nullptr;
-  auto connectorId = kHiveConnectorId;
-  if (useCudfTableHandle(splitInfos_) && veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
+  auto connectorId = isDeltaSplitInfo(splitInfo)
+      ? std::string(gluten::delta::DeltaConnectorFactory::kDeltaConnectorName)
+      : std::string(kHiveConnectorId);
+  if (connectorId == kHiveConnectorId &&
+      useCudfTableHandle(splitInfos_) &&
+      veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
 #ifdef GLUTEN_ENABLE_GPU
     connectorId = kCudfHiveConnectorId;

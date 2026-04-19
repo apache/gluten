@@ -21,6 +21,7 @@
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/executors/task_queue/UnboundedBlockingQueue.h>
 
+#include "compute/delta/DeltaConnector.h"
 #include "operators/functions/RegistrationAllFunctions.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "utils/ConfigExtractor.h"
@@ -323,7 +324,11 @@ void VeloxBackend::initConnector(const std::shared_ptr<velox::config::ConfigBase
   }
   velox::connector::registerConnector(
       std::make_shared<velox::connector::hive::HiveConnector>(kHiveConnectorId, hiveConf, ioExecutor_.get()));
-
+  velox::connector::registerConnector(
+      std::make_shared<gluten::delta::DeltaConnector>(
+          gluten::delta::DeltaConnectorFactory::kDeltaConnectorName,
+          hiveConf,
+          ioExecutor_.get()));
   // Register value-stream connector for runtime iterator-based inputs
   auto valueStreamDynamicFilterEnabled =
       backendConf_->get<bool>(kValueStreamDynamicFilterEnabled, kValueStreamDynamicFilterEnabledDefault);

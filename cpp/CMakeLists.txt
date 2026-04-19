@@ -66,6 +66,18 @@ if(NOT DEFINED VELOX_HOME)
   message(STATUS "Set VELOX_HOME to ${VELOX_HOME}")
 endif()
 
+if(NOT DEFINED VELOX_BUILD_PATH)
+  if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+    set(VELOX_BUILD_PATH
+        "${VELOX_HOME}/_build/debug"
+        CACHE PATH "Velox build directory.")
+  else()
+    set(VELOX_BUILD_PATH
+        "${VELOX_HOME}/_build/release"
+        CACHE PATH "Velox build directory.")
+  endif()
+endif()
+
 if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
   set(ARROW_HOME
       ${VELOX_HOME}/_build/debug/CMake/resolve_dependency_modules/arrow/arrow_ep/
@@ -178,6 +190,7 @@ find_package(Threads REQUIRED)
 find_package(JNI REQUIRED)
 
 find_package(glog REQUIRED)
+find_package(Roaring REQUIRED)
 
 if(BUILD_TESTS)
   set(GLUTEN_GTEST_MIN_VERSION "1.13.0")

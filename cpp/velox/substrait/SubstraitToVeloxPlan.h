@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "compute/Runtime.h"
 #include "SubstraitToVeloxExpr.h"
 #include "TypeUtils.h"
 #include "velox/connectors/hive/FileProperties.h"
@@ -48,6 +49,9 @@ struct SplitInfo {
 
   /// The metadata columns associated with partitioned table.
   std::vector<std::unordered_map<std::string, std::string>> metadataColumns;
+
+  /// Optional externally provided deletion vector payloads aligned with metadataColumns.
+  std::vector<std::optional<SplitPayloadBufferView>> deletionVectorPayloads;
 
   /// The file paths to be scanned.
   std::vector<std::string> paths;

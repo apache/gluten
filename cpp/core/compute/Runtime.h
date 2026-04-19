@@ -56,6 +56,11 @@ struct SparkTaskInfo {
   }
 };
 
+struct SplitPayloadBufferView {
+  const uint8_t* data;
+  int32_t size;
+};
+
 class Runtime : public std::enable_shared_from_this<Runtime> {
  public:
   using Factory = std::function<Runtime*(
@@ -91,6 +96,8 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   virtual void parseSplitInfo(const uint8_t* data, int32_t size, int32_t idx) {
     throw GlutenException("Not implemented");
   }
+
+  virtual void setSplitPayloads(int32_t idx, std::vector<SplitPayloadBufferView> payloads) {}
 
   virtual std::string planString(bool details, const std::unordered_map<std::string, std::string>& sessionConf) {
     throw GlutenException("Not implemented");

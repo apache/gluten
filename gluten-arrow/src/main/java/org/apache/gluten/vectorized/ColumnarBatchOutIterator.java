@@ -31,11 +31,17 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     implements RuntimeAware {
   private final Runtime runtime;
   private final long iterHandle;
+  private final Object retainedReference;
 
   public ColumnarBatchOutIterator(Runtime runtime, long iterHandle) {
+    this(runtime, iterHandle, null);
+  }
+
+  public ColumnarBatchOutIterator(Runtime runtime, long iterHandle, Object retainedReference) {
     super();
     this.runtime = runtime;
     this.iterHandle = iterHandle;
+    this.retainedReference = retainedReference;
   }
 
   @Override
