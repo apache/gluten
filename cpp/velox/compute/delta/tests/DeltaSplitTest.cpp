@@ -39,8 +39,7 @@ using namespace gluten::delta;
 TEST(DeltaSplitTest, DescriptorCarriesPayloadView) {
   const std::string payload = "payload";
   SplitPayloadBufferView payloadView{
-      reinterpret_cast<const uint8_t*>(payload.data()),
-      static_cast<int32_t>(payload.size())};
+      reinterpret_cast<const uint8_t*>(payload.data()), static_cast<int32_t>(payload.size())};
 
   auto descriptor = DeltaDeletionVectorDescriptor::serialized(3, payloadView);
 
@@ -53,8 +52,7 @@ TEST(DeltaSplitTest, DescriptorCarriesPayloadView) {
 TEST(DeltaSplitTest, SplitCarriesDeletionVectorDescriptor) {
   const std::string payload = "serialized";
   SplitPayloadBufferView payloadView{
-      reinterpret_cast<const uint8_t*>(payload.data()),
-      static_cast<int32_t>(payload.size())};
+      reinterpret_cast<const uint8_t*>(payload.data()), static_cast<int32_t>(payload.size())};
   auto descriptor = DeltaDeletionVectorDescriptor::serialized(2, payloadView);
 
   auto split = std::make_shared<HiveDeltaSplit>(

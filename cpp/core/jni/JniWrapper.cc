@@ -289,8 +289,7 @@ jint gluten::ensureGlutenCoreJniInitialized(JavaVM* vm) {
   GLUTEN_CHECK(nativeColumnarToRowInfoLengthsField != nullptr, "Unable to find NativeColumnarToRowInfo.lengths");
   nativeColumnarToRowInfoMemoryAddressField = env->GetFieldID(nativeColumnarToRowInfoClass, "memoryAddress", "J");
   GLUTEN_CHECK(
-      nativeColumnarToRowInfoMemoryAddressField != nullptr,
-      "Unable to find NativeColumnarToRowInfo.memoryAddress");
+      nativeColumnarToRowInfoMemoryAddressField != nullptr, "Unable to find NativeColumnarToRowInfo.memoryAddress");
 
   shuffleReaderMetricsClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/ShuffleReaderMetrics;");
@@ -812,8 +811,10 @@ Java_org_apache_gluten_vectorized_NativeColumnarToRowJniWrapper_nativeColumnarTo
   const auto address = static_cast<jlong>(reinterpret_cast<int64_t>(columnarToRowConverter->getBufferAddress()));
 
   GLUTEN_CHECK(nativeColumnarToRowInfoClass != nullptr, "NativeColumnarToRowInfo class is not initialized");
-  GLUTEN_CHECK(nativeColumnarToRowInfoOffsetsField != nullptr, "NativeColumnarToRowInfo.offsets field is not initialized");
-  GLUTEN_CHECK(nativeColumnarToRowInfoLengthsField != nullptr, "NativeColumnarToRowInfo.lengths field is not initialized");
+  GLUTEN_CHECK(
+      nativeColumnarToRowInfoOffsetsField != nullptr, "NativeColumnarToRowInfo.offsets field is not initialized");
+  GLUTEN_CHECK(
+      nativeColumnarToRowInfoLengthsField != nullptr, "NativeColumnarToRowInfo.lengths field is not initialized");
   GLUTEN_CHECK(
       nativeColumnarToRowInfoMemoryAddressField != nullptr,
       "NativeColumnarToRowInfo.memoryAddress field is not initialized");

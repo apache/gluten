@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include "compute/Runtime.h"
 #include "SubstraitToVeloxExpr.h"
 #include "TypeUtils.h"
+#include "compute/Runtime.h"
 #include "velox/connectors/hive/FileProperties.h"
 #include "velox/connectors/hive/TableHandle.h"
 #include "velox/core/PlanNode.h"

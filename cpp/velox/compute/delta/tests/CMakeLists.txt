@@ -14,8 +14,8 @@
 # limitations under the License.
 
 add_executable(
-  velox_delta_read_test
-  DeltaConnectorTest.cpp DeltaDeletionVectorReaderTest.cpp DeltaSplitTest.cpp)
+  velox_delta_read_test DeltaConnectorTest.cpp
+                        DeltaDeletionVectorReaderTest.cpp DeltaSplitTest.cpp)
 
 target_link_libraries(
   velox_delta_read_test velox facebook::velox::exec_test_lib GTest::gtest

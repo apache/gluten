@@ -107,8 +107,7 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
         metadataColumnMap[otherMetadataColumn.key()] = std::move(*unpackedValue);
       }
     }
-    if (auto payloadIndexIt = metadataColumnMap.find(kDeltaDvPayloadIndex);
-        payloadIndexIt != metadataColumnMap.end()) {
+    if (auto payloadIndexIt = metadataColumnMap.find(kDeltaDvPayloadIndex); payloadIndexIt != metadataColumnMap.end()) {
       VELOX_USER_CHECK_NOT_NULL(splitPayloads, "Split payload index found without an external payload buffer");
       const auto payloadIndex = static_cast<size_t>(std::stoul(payloadIndexIt->second));
       VELOX_USER_CHECK_LT(

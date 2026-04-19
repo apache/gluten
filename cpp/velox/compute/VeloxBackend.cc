@@ -326,9 +326,7 @@ void VeloxBackend::initConnector(const std::shared_ptr<velox::config::ConfigBase
       std::make_shared<velox::connector::hive::HiveConnector>(kHiveConnectorId, hiveConf, ioExecutor_.get()));
   velox::connector::registerConnector(
       std::make_shared<gluten::delta::DeltaConnector>(
-          gluten::delta::DeltaConnectorFactory::kDeltaConnectorName,
-          hiveConf,
-          ioExecutor_.get()));
+          gluten::delta::DeltaConnectorFactory::kDeltaConnectorName, hiveConf, ioExecutor_.get()));
   // Register value-stream connector for runtime iterator-based inputs
   auto valueStreamDynamicFilterEnabled =
       backendConf_->get<bool>(kValueStreamDynamicFilterEnabled, kValueStreamDynamicFilterEnabledDefault);

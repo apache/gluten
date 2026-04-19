@@ -17,9 +17,9 @@
 
 #include "SubstraitToVeloxPlan.h"
 
-#include "compute/delta/DeltaConnector.h"
 #include "TypeUtils.h"
 #include "VariantToVectorConverter.h"
+#include "compute/delta/DeltaConnector.h"
 #include "jni/JniHashTable.h"
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
@@ -1590,8 +1590,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   auto connectorId = isDeltaSplitInfo(splitInfo)
       ? std::string(gluten::delta::DeltaConnectorFactory::kDeltaConnectorName)
       : std::string(kHiveConnectorId);
-  if (connectorId == kHiveConnectorId &&
-      useCudfTableHandle(splitInfos_) &&
+  if (connectorId == kHiveConnectorId && useCudfTableHandle(splitInfos_) &&
       veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
 #ifdef GLUTEN_ENABLE_GPU
