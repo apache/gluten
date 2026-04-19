@@ -36,23 +36,13 @@
 
 using namespace gluten::delta;
 
-TEST(DeltaSplitTest, DescriptorCarriesSerializedPayload) {
-  auto descriptor = DeltaDeletionVectorDescriptor::serialized(2, std::string("serialized"));
-
-  ASSERT_TRUE(descriptor.serializedPayload.has_value());
-  EXPECT_EQ(*descriptor.serializedPayload, "serialized");
-  ASSERT_TRUE(descriptor.cardinality.has_value());
-  EXPECT_EQ(*descriptor.cardinality, 2);
-  EXPECT_TRUE(descriptor.hasMaterializedPayload());
-}
-
 TEST(DeltaSplitTest, DescriptorCarriesPayloadView) {
   const std::string payload = "payload";
   SplitPayloadBufferView payloadView{
       reinterpret_cast<const uint8_t*>(payload.data()),
       static_cast<int32_t>(payload.size())};
 
-  auto descriptor = DeltaDeletionVectorDescriptor::serialized(3, std::nullopt, payloadView);
+  auto descriptor = DeltaDeletionVectorDescriptor::serialized(3, payloadView);
 
   ASSERT_TRUE(descriptor.serializedPayloadView.has_value());
   EXPECT_EQ(descriptor.serializedPayloadView->size, payload.size());
@@ -61,7 +51,11 @@ TEST(DeltaSplitTest, DescriptorCarriesPayloadView) {
 }
 
 TEST(DeltaSplitTest, SplitCarriesDeletionVectorDescriptor) {
-  auto descriptor = DeltaDeletionVectorDescriptor::serialized(2, std::string("serialized"));
+  const std::string payload = "serialized";
+  SplitPayloadBufferView payloadView{
+      reinterpret_cast<const uint8_t*>(payload.data()),
+      static_cast<int32_t>(payload.size())};
+  auto descriptor = DeltaDeletionVectorDescriptor::serialized(2, payloadView);
 
   auto split = std::make_shared<HiveDeltaSplit>(
       "test-delta",
@@ -84,21 +78,21 @@ TEST(DeltaSplitTest, SplitCarriesDeletionVectorDescriptor) {
 
   ASSERT_TRUE(split->deletionVector.has_value());
   EXPECT_EQ(split->deletionVector->cardinality, 2);
-  ASSERT_TRUE(split->deletionVector->serializedPayload.has_value());
-  EXPECT_EQ(*split->deletionVector->serializedPayload, "serialized");
+  ASSERT_TRUE(split->deletionVector->serializedPayloadView.has_value());
+  EXPECT_EQ(split->deletionVector->serializedPayloadView->size, payload.size());
   EXPECT_EQ(split->filterType, DeltaRowIndexFilterType::kIfContained);
 }
 
 TEST(DeltaSplitTest, LogicalRowCountSubtractsDeletionVectorCardinality) {
   DeltaFileStatistics stats{.numRecords = 10, .tightBounds = true};
-  auto descriptor = DeltaDeletionVectorDescriptor::serialized(3, std::string("serialized"));
+  auto descriptor = DeltaDeletionVectorDescriptor::serialized(3);
 
   EXPECT_EQ(stats.logicalRowCount(descriptor), 7);
 }
 
 TEST(DeltaSplitTest, LogicalRowCountPreservesUnknownCounts) {
   DeltaFileStatistics stats{.numRecords = std::nullopt, .tightBounds = std::nullopt};
-  auto descriptor = DeltaDeletionVectorDescriptor::serialized(3, std::string("serialized"));
+  auto descriptor = DeltaDeletionVectorDescriptor::serialized(3);
 
   EXPECT_EQ(stats.logicalRowCount(descriptor), -1);
 }

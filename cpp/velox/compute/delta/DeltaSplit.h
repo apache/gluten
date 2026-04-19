@@ -35,7 +35,6 @@
 #include <algorithm>
 #include <limits>
 #include <optional>
-#include <string>
 #include <vector>
 
 #include "compute/Runtime.h"
@@ -81,18 +80,16 @@ struct DeltaProtocolInfo {
 
 struct DeltaDeletionVectorDescriptor {
   std::optional<uint64_t> cardinality;
-  std::optional<std::string> serializedPayload;
   std::optional<SplitPayloadBufferView> serializedPayloadView;
 
   static DeltaDeletionVectorDescriptor serialized(
       std::optional<uint64_t> cardinality = std::nullopt,
-      std::optional<std::string> serializedPayload = std::nullopt,
       std::optional<SplitPayloadBufferView> serializedPayloadView = std::nullopt) {
-    return {cardinality, std::move(serializedPayload), serializedPayloadView};
+    return {cardinality, serializedPayloadView};
   }
 
   bool hasMaterializedPayload() const {
-    return serializedPayloadView.has_value() || serializedPayload.has_value();
+    return serializedPayloadView.has_value();
   }
 };
 

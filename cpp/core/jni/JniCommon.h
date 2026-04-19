@@ -150,6 +150,9 @@ static T* jniCastOrThrow(jlong handle) {
 }
 namespace gluten {
 
+jint ensureGlutenCoreJniInitialized(JavaVM* vm);
+void ensureGlutenCoreJniUnloaded(JavaVM* vm);
+
 class JniCommonState {
  public:
   virtual ~JniCommonState() = default;

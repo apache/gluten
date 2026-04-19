@@ -209,12 +209,12 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
         checkAnswer(spark.read.format("delta").load(path), df1.union(df2))
         spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (${values2.mkString(", ")})")
-        import org.apache.spark.sql.execution.GlutenImplicits._
         val df = spark.read.format("delta").load(path)
-        assert(
-          df.fallbackSummary.fallbackNodeToReason
-            .flatMap(_.values)
-            .exists(_.contains("Deletion vector is not supported in native")))
+        val executedPlan = df.queryExecution.executedPlan
+        assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty)
+        val planText = executedPlan.toString()
+        assert(!planText.contains("__delta_internal_is_row_deleted"))
+        assert(!planText.contains("__delta_internal_row_index"))
         checkAnswer(df, df1)
     }
   }

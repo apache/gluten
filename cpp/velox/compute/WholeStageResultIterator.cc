@@ -71,7 +71,6 @@ const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
 const std::string kDeltaTableFormat = "delta";
 const std::string kTableFormatKey = "table_format";
 const std::string kDeltaDvCardinality = "delta_dv_cardinality";
-const std::string kDeltaDvSerializedPayload = "delta_dv_serialized_payload";
 const std::string kRowIndexFilterType = "row_index_filter_type";
 
 std::string normalizeSessionTimezone(const std::string& timezone) {
@@ -85,8 +84,7 @@ std::string normalizeSessionTimezone(const std::string& timezone) {
 bool isDeltaMetadata(const std::unordered_map<std::string, std::string>& metadata) {
   auto tableFormatIt = metadata.find(kTableFormatKey);
   return (tableFormatIt != metadata.end() && tableFormatIt->second == kDeltaTableFormat) ||
-      metadata.find(kDeltaDvCardinality) != metadata.end() || metadata.find(kDeltaDvSerializedPayload) != metadata.end() ||
-      metadata.find(kRowIndexFilterType) != metadata.end();
+      metadata.find(kDeltaDvCardinality) != metadata.end() || metadata.find(kRowIndexFilterType) != metadata.end();
 }
 
 bool isDeltaScanInfo(const std::shared_ptr<SplitInfo>& splitInfo) {
@@ -140,17 +138,12 @@ std::optional<uint64_t> getOptionalUint64(
 std::optional<gluten::delta::DeltaDeletionVectorDescriptor> parseDeltaDeletionVector(
     const std::unordered_map<std::string, std::string>& metadata,
     std::optional<SplitPayloadBufferView> serializedPayloadView) {
-  std::optional<std::string> serializedPayload = std::nullopt;
-  if (auto payloadIt = metadata.find(kDeltaDvSerializedPayload); payloadIt != metadata.end()) {
-    serializedPayload = payloadIt->second;
-  }
-  if (!serializedPayloadView.has_value() && !serializedPayload.has_value()) {
+  if (!serializedPayloadView.has_value()) {
     return std::nullopt;
   }
 
   const auto cardinality = getOptionalUint64(metadata, kDeltaDvCardinality);
-  return gluten::delta::DeltaDeletionVectorDescriptor::serialized(
-      cardinality, std::move(serializedPayload), serializedPayloadView);
+  return gluten::delta::DeltaDeletionVectorDescriptor::serialized(cardinality, serializedPayloadView);
 }
 
 gluten::delta::DeltaRowIndexFilterType parseDeltaRowIndexFilterType(

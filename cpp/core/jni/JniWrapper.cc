@@ -17,6 +17,7 @@
 
 #include <jni.h>
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 
@@ -44,6 +45,8 @@ using namespace gluten;
 
 namespace {
 
+std::atomic<int> kCoreJniInitRefCount{0};
+
 jclass byteArrayClass;
 
 jclass jniUnsafeByteBufferClass;
@@ -62,7 +65,9 @@ jmethodID splitResultConstructor;
 jclass metricsBuilderClass;
 jmethodID metricsBuilderConstructor;
 jclass nativeColumnarToRowInfoClass;
-jmethodID nativeColumnarToRowInfoConstructor;
+jfieldID nativeColumnarToRowInfoOffsetsField;
+jfieldID nativeColumnarToRowInfoLengthsField;
+jfieldID nativeColumnarToRowInfoMemoryAddressField;
 
 jclass shuffleReaderMetricsClass;
 jmethodID shuffleReaderMetricsSetDecompressTime;
@@ -235,15 +240,17 @@ class ShuffleStreamReader : public StreamReader {
 
 } // namespace
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-jint JNI_OnLoad(JavaVM* vm, void* reserved) {
+jint gluten::ensureGlutenCoreJniInitialized(JavaVM* vm) {
   JNIEnv* env;
   if (vm->GetEnv(reinterpret_cast<void**>(&env), jniVersion) != JNI_OK) {
     return JNI_ERR;
   }
+
+  const auto previous = kCoreJniInitRefCount.fetch_add(1);
+  if (previous > 0) {
+    return jniVersion;
+  }
+
   getJniCommonState()->ensureInitialized(env);
   getJniErrorState()->ensureInitialized(env);
 
@@ -268,7 +275,6 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   splitResultConstructor = getMethodIdOrError(env, splitResultClass, "<init>", "(JJJJJJJJJJDJ[J[J)V");
 
   metricsBuilderClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/Metrics;");
-
   metricsBuilderConstructor = getMethodIdOrError(
       env,
       metricsBuilderClass,
@@ -277,7 +283,14 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
 
   nativeColumnarToRowInfoClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/NativeColumnarToRowInfo;");
-  nativeColumnarToRowInfoConstructor = getMethodIdOrError(env, nativeColumnarToRowInfoClass, "<init>", "([I[IJ)V");
+  nativeColumnarToRowInfoOffsetsField = env->GetFieldID(nativeColumnarToRowInfoClass, "offsets", "[I");
+  GLUTEN_CHECK(nativeColumnarToRowInfoOffsetsField != nullptr, "Unable to find NativeColumnarToRowInfo.offsets");
+  nativeColumnarToRowInfoLengthsField = env->GetFieldID(nativeColumnarToRowInfoClass, "lengths", "[I");
+  GLUTEN_CHECK(nativeColumnarToRowInfoLengthsField != nullptr, "Unable to find NativeColumnarToRowInfo.lengths");
+  nativeColumnarToRowInfoMemoryAddressField = env->GetFieldID(nativeColumnarToRowInfoClass, "memoryAddress", "J");
+  GLUTEN_CHECK(
+      nativeColumnarToRowInfoMemoryAddressField != nullptr,
+      "Unable to find NativeColumnarToRowInfo.memoryAddress");
 
   shuffleReaderMetricsClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/ShuffleReaderMetrics;");
@@ -294,7 +307,16 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   return jniVersion;
 }
 
-void JNI_OnUnload(JavaVM* vm, void* reserved) {
+void gluten::ensureGlutenCoreJniUnloaded(JavaVM* vm) {
+  const auto previous = kCoreJniInitRefCount.fetch_sub(1);
+  if (previous > 1) {
+    return;
+  }
+  if (previous <= 0) {
+    kCoreJniInitRefCount.store(0);
+    return;
+  }
+
   JNIEnv* env;
   vm->GetEnv(reinterpret_cast<void**>(&env), jniVersion);
   env->DeleteGlobalRef(jniByteInputStreamClass);
@@ -308,6 +330,18 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
   getJniCommonState()->close();
 
   google::protobuf::ShutdownProtobufLibrary();
+}
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+jint JNI_OnLoad(JavaVM* vm, void* reserved) {
+  return gluten::ensureGlutenCoreJniInitialized(vm);
+}
+
+void JNI_OnUnload(JavaVM* vm, void* reserved) {
+  gluten::ensureGlutenCoreJniUnloaded(vm);
 }
 
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_runtime_RuntimeJniWrapper_createRuntime( // NOLINT
@@ -775,10 +809,19 @@ Java_org_apache_gluten_vectorized_NativeColumnarToRowJniWrapper_nativeColumnarTo
   auto lengthsArr = env->NewIntArray(numRows);
   auto lengthsSrc = reinterpret_cast<const jint*>(lengths.data());
   env->SetIntArrayRegion(lengthsArr, 0, numRows, lengthsSrc);
-  long address = reinterpret_cast<long>(columnarToRowConverter->getBufferAddress());
+  const auto address = static_cast<jlong>(reinterpret_cast<int64_t>(columnarToRowConverter->getBufferAddress()));
 
-  jobject nativeColumnarToRowInfo =
-      env->NewObject(nativeColumnarToRowInfoClass, nativeColumnarToRowInfoConstructor, offsetsArr, lengthsArr, address);
+  GLUTEN_CHECK(nativeColumnarToRowInfoClass != nullptr, "NativeColumnarToRowInfo class is not initialized");
+  GLUTEN_CHECK(nativeColumnarToRowInfoOffsetsField != nullptr, "NativeColumnarToRowInfo.offsets field is not initialized");
+  GLUTEN_CHECK(nativeColumnarToRowInfoLengthsField != nullptr, "NativeColumnarToRowInfo.lengths field is not initialized");
+  GLUTEN_CHECK(
+      nativeColumnarToRowInfoMemoryAddressField != nullptr,
+      "NativeColumnarToRowInfo.memoryAddress field is not initialized");
+
+  jobject nativeColumnarToRowInfo = env->AllocObject(nativeColumnarToRowInfoClass);
+  env->SetObjectField(nativeColumnarToRowInfo, nativeColumnarToRowInfoOffsetsField, offsetsArr);
+  env->SetObjectField(nativeColumnarToRowInfo, nativeColumnarToRowInfoLengthsField, lengthsArr);
+  env->SetLongField(nativeColumnarToRowInfo, nativeColumnarToRowInfoMemoryAddressField, address);
   return nativeColumnarToRowInfo;
   JNI_METHOD_END(nullptr)
 }

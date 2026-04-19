@@ -16,22 +16,30 @@
  */
 package org.apache.gluten.extension
 
-import org.apache.gluten.execution.{DeltaScanTransformer, ProjectExecTransformer}
+import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.execution.{DeltaScanTransformer, FilterExecTransformerBase, ProjectExecTransformer}
 import org.apache.gluten.extension.columnar.transition.RemoveTransitions
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, NamedExpression}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.delta.{DeltaColumnMapping, DeltaParquetFileFormat, NoMapping}
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.FileFormat
+import org.apache.spark.sql.types.StructType
 
 import scala.collection.mutable.ListBuffer
 
 object DeltaPostTransformRules {
   def rules: Seq[Rule[SparkPlan]] =
-    RemoveTransitions :: pushDownInputFileExprRule :: columnMappingRule :: Nil
+    RemoveTransitions ::
+      nativeDeletionVectorRule ::
+      pushDownInputFileExprRule ::
+      columnMappingRule :: Nil
+
+  private val deletionVectorInternalColumnNames =
+    Set("__delta_internal_is_row_deleted", "__delta_internal_row_index")
 
   private val COLUMN_MAPPING_RULE_TAG: TreeNodeTag[String] =
     TreeNodeTag[String]("org.apache.gluten.delta.column.mapping")
@@ -62,6 +70,54 @@ object DeltaPostTransformRules {
         child.copy(output = p.output)
     }
 
+  /**
+   * Spark Delta injects synthetic deletion-vector predicates and columns into the plan. Those are
+   * needed for the JVM reader path, but for the native Delta scan path they must be stripped or
+   * they will be applied twice with incompatible semantics.
+   */
+  val nativeDeletionVectorRule: Rule[SparkPlan] = (plan: SparkPlan) =>
+    plan.transformUp {
+      case scan: DeltaScanTransformer =>
+        val cleanedDataFilters = scan.dataFilters.flatMap(stripDeletionVectorPredicate)
+        val cleanedPushDownFilters =
+          scan.pushDownFilters.map(_.flatMap(stripDeletionVectorPredicate))
+        val cleanedOutput = stripDeletionVectorInternalOutput(scan.output)
+        val cleanedRequiredSchema = stripDeletionVectorInternalSchema(scan.requiredSchema)
+        if (
+          cleanedDataFilters == scan.dataFilters &&
+          cleanedPushDownFilters == scan.pushDownFilters &&
+          cleanedOutput == scan.output &&
+          cleanedRequiredSchema == scan.requiredSchema
+        ) {
+          scan
+        } else {
+          scan.copy(
+            output = cleanedOutput,
+            requiredSchema = cleanedRequiredSchema,
+            dataFilters = cleanedDataFilters,
+            pushDownFilters = cleanedPushDownFilters)
+        }
+      case project: ProjectExecTransformer =>
+        val cleanedProjectList = stripDeletionVectorInternalProjectList(project.projectList)
+        if (cleanedProjectList == project.projectList) {
+          project
+        } else if (cleanedProjectList.isEmpty) {
+          project.child
+        } else {
+          ProjectExecTransformer(cleanedProjectList, project.child)
+        }
+      case filter: FilterExecTransformerBase =>
+        stripDeletionVectorPredicate(filter.cond) match {
+          case Some(cleanCondition) if cleanCondition != filter.cond =>
+            BackendsApiManager.getSparkPlanExecApiInstance
+              .genFilterExecTransformer(cleanCondition, filter.child)
+          case Some(_) =>
+            filter
+          case None =>
+            filter.child
+        }
+    }
+
   private def isDeltaColumnMappingFileFormat(fileFormat: FileFormat): Boolean = fileFormat match {
     case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
       true
@@ -73,6 +129,39 @@ object DeltaPostTransformRules {
     expr match {
       case _: InputFileName | _: InputFileBlockStart | _: InputFileBlockLength => true
       case _ => expr.children.exists(containsInputFileRelatedExpr)
+    }
+  }
+
+  private def referencesDeletionVectorInternalColumn(expr: Expression): Boolean = {
+    expr.references.exists(attr => deletionVectorInternalColumnNames.contains(attr.name))
+  }
+
+  private def stripDeletionVectorInternalOutput(output: Seq[Attribute]): Seq[Attribute] = {
+    output.filterNot(attr => deletionVectorInternalColumnNames.contains(attr.name))
+  }
+
+  private def stripDeletionVectorInternalProjectList(
+      projectList: Seq[NamedExpression]): Seq[NamedExpression] = {
+    projectList.filterNot(expr => deletionVectorInternalColumnNames.contains(expr.name))
+  }
+
+  private def stripDeletionVectorInternalSchema(schema: StructType): StructType = {
+    StructType(schema.filterNot(field => deletionVectorInternalColumnNames.contains(field.name)))
+  }
+
+  private def stripDeletionVectorPredicate(expr: Expression): Option[Expression] = {
+    expr match {
+      case And(left, right) =>
+        (stripDeletionVectorPredicate(left), stripDeletionVectorPredicate(right)) match {
+          case (Some(cleanLeft), Some(cleanRight)) => Some(And(cleanLeft, cleanRight))
+          case (Some(cleanLeft), None) => Some(cleanLeft)
+          case (None, Some(cleanRight)) => Some(cleanRight)
+          case (None, None) => None
+        }
+      case other if referencesDeletionVectorInternalColumn(other) =>
+        None
+      case other =>
+        Some(other)
     }
   }
 

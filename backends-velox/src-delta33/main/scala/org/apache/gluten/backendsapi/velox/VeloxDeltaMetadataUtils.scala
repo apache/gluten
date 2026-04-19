@@ -30,7 +30,6 @@ import scala.collection.JavaConverters._
 
 object VeloxDeltaMetadataUtils {
   val DeltaDvCardinality = "delta_dv_cardinality"
-  val DeltaDvSerializedPayload = "delta_dv_serialized_payload"
   val DeltaDvPayloadIndex = "delta_dv_payload_index"
 
   private val RowIndexFilterIdEncoded = "row_index_filter_id_encoded"
@@ -40,51 +39,53 @@ object VeloxDeltaMetadataUtils {
       val deletionVectorPayloads: Array[Array[Byte]])
     extends Serializable
 
-  def normalizeOtherMetadataColumns(
+  private def normalizeOtherMetadataColumns(
+      dvStore: HadoopFileSystemDVStore,
       partitionColumnCount: Int,
       file: PartitionedFile,
-      otherConstantMetadataColumnValues: JMap[String, Object]): JMap[String, Object] = {
+      otherConstantMetadataColumnValues: JMap[String, Object])
+      : (JMap[String, Object], Option[Array[Byte]]) = {
     val normalized = new JHashMap[String, Object]()
     if (otherConstantMetadataColumnValues != null) {
       normalized.putAll(otherConstantMetadataColumnValues)
     }
 
+    var serializedPayload: Option[Array[Byte]] = None
     Option(normalized.get(RowIndexFilterIdEncoded)).map(_.toString).foreach {
       encodedDescriptor =>
         val descriptor = DeletionVectorDescriptor.deserializeFromBase64(encodedDescriptor)
         val tablePath = resolveTablePath(partitionColumnCount, file)
+        serializedPayload = Some(
+          StoredBitmap
+            .create(descriptor, tablePath)
+            .load(dvStore)
+            .serializeAsByteArray(RoaringBitmapArrayFormat.Portable))
         normalized.put(DeltaDvCardinality, Long.box(descriptor.cardinality))
-        val dvStore = new HadoopFileSystemDVStore(activeSpark.sessionState.newHadoopConf())
-        val serializedPayload = StoredBitmap
-          .create(descriptor, tablePath)
-          .load(dvStore)
-          .serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
-        normalized.put(DeltaDvSerializedPayload, serializedPayload)
         normalized.remove(RowIndexFilterIdEncoded)
     }
 
-    normalized
+    (normalized, serializedPayload)
   }
 
   def normalizeSplitMetadata(
       partitionColumnCount: Int,
       files: JList[PartitionedFile]): NormalizedSplitMetadata = {
+    val dvStore = new HadoopFileSystemDVStore(activeSpark.sessionState.newHadoopConf())
     val normalizedMetadataColumns = new JArrayList[JMap[String, Object]](files.size())
     val deletionVectorPayloads = scala.collection.mutable.ArrayBuffer.empty[Array[Byte]]
 
     files.asScala.foreach {
       file =>
-        val normalized = normalizeOtherMetadataColumns(
+        val (normalized, serializedPayload) = normalizeOtherMetadataColumns(
+          dvStore,
           partitionColumnCount,
           file,
           file.otherConstantMetadataColumnValues.asJava.asInstanceOf[JMap[String, Object]])
 
-        normalized.get(DeltaDvSerializedPayload) match {
-          case payload: Array[Byte] =>
-            normalized.remove(DeltaDvSerializedPayload)
+        serializedPayload.foreach {
+          payload =>
             normalized.put(DeltaDvPayloadIndex, Int.box(deletionVectorPayloads.length))
             deletionVectorPayloads += payload
-          case _ =>
         }
 
         normalizedMetadataColumns.add(normalized)

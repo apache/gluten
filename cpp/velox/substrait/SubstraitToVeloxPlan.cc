@@ -63,7 +63,7 @@ bool isDeltaSplitInfo(const std::shared_ptr<SplitInfo>& splitInfo) {
     auto tableFormatIt = metadata.find("table_format");
     if ((tableFormatIt != metadata.end() && tableFormatIt->second == "delta") ||
         metadata.find("delta_dv_cardinality") != metadata.end() ||
-        metadata.find("delta_dv_serialized_payload") != metadata.end() ||
+        metadata.find("delta_dv_payload_index") != metadata.end() ||
         metadata.find("row_index_filter_type") != metadata.end()) {
       return true;
     }
@@ -493,7 +493,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         leftNode,
         rightNode,
         getJoinOutputType(leftNode, rightNode, joinType),
-        false,
         false,
         joinHasNullKeys,
         opaqueSharedHashTable);

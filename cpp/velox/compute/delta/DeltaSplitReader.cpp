@@ -145,13 +145,9 @@ void DeltaSplitReader::prepareSplit(
       hiveSplit_->filePath);
 
   deletionVectorReader_ = std::make_unique<DeltaDeletionVectorReader>();
-  if (descriptor.serializedPayloadView.has_value()) {
-    const auto& payloadView = descriptor.serializedPayloadView.value();
-    deletionVectorReader_->loadSerializedDeletionVector(
-        std::string_view(reinterpret_cast<const char*>(payloadView.data), payloadView.size), descriptor.cardinality);
-  } else {
-    deletionVectorReader_->loadSerializedDeletionVector(*descriptor.serializedPayload, descriptor.cardinality);
-  }
+  const auto& payloadView = descriptor.serializedPayloadView.value();
+  deletionVectorReader_->loadSerializedDeletionVector(
+      std::string_view(reinterpret_cast<const char*>(payloadView.data), payloadView.size), descriptor.cardinality);
 }
 
 uint64_t DeltaSplitReader::next(uint64_t size, VectorPtr& output) {

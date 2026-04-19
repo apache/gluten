@@ -42,6 +42,7 @@ namespace {
 
 constexpr uint64_t kDeltaBitmapArrayMagicBytes = 4;
 constexpr uint64_t kDeltaNativeBitmapArrayLengthBytes = 4;
+constexpr uint64_t kDeltaStoredPayloadLengthBytes = 4;
 constexpr uint32_t kDeltaPortableBitmapArrayMagicNumber = 1681511377;
 constexpr uint32_t kDeltaNativeBitmapArrayMagicNumber = 1681511376;
 

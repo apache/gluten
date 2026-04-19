@@ -79,6 +79,10 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
     return JNI_ERR;
   }
 
+  if (gluten::ensureGlutenCoreJniInitialized(vm) != jniVersion) {
+    return JNI_ERR;
+  }
+
   getJniCommonState()->ensureInitialized(env);
   getJniErrorState()->ensureInitialized(env);
   initVeloxJniFileSystem(env);
@@ -110,9 +114,7 @@ void JNI_OnUnload(JavaVM* vm, void*) {
   finalizeVeloxJniUDF(env);
   finalizeVeloxJniFileSystem(env);
   finalizeVeloxJniHashTable(env);
-  getJniErrorState()->close();
-  getJniCommonState()->close();
-  google::ShutdownGoogleLogging();
+  gluten::ensureGlutenCoreJniUnloaded(vm);
 }
 
 JNIEXPORT void JNICALL Java_org_apache_gluten_init_NativeBackendInitializer_initialize( // NOLINT

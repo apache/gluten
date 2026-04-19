@@ -160,6 +160,11 @@ add_dependencies(gluten jni_proto)
 if(NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
   target_link_options(
     gluten PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/symbols.map)
+else()
+  # Drop transitive dylibs that are not actually referenced by libgluten. On
+  # macOS this keeps Java's System.load from pulling in an extra gflags copy
+  # through google::glog when libvelox already carries one.
+  target_link_options(gluten PRIVATE -Wl,-dead_strip_dylibs)
 endif()
 
 if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)

@@ -31,6 +31,24 @@ namespace gluten {
 
 namespace {
 
+template <typename T = facebook::velox::parquet::WriterOptions>
+constexpr const char* parquetWriteTimestampUnitConfigKey() {
+  if constexpr (requires { T::kParquetWriteTimestampUnit; }) {
+    return T::kParquetWriteTimestampUnit;
+  } else {
+    return T::kParquetSessionWriteTimestampUnit;
+  }
+}
+
+template <typename T = facebook::velox::connector::hive::HiveConfig>
+constexpr const char* allowInt32NarrowingConfigKey() {
+  if constexpr (requires { T::kAllowInt32NarrowingSession; }) {
+    return T::kAllowInt32NarrowingSession;
+  } else {
+    return nullptr;
+  }
+}
+
 void getS3HiveConfig(
     std::shared_ptr<facebook::velox::config::ConfigBase> conf,
     FileSystemType fsType,
@@ -229,7 +247,7 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
   configs[facebook::velox::connector::hive::HiveConfig::kFileColumnNamesReadAsLowerCaseSession] =
       !conf->get<bool>(kCaseSensitive, false) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kPartitionPathAsLowerCaseSession] = "false";
-  configs[facebook::velox::parquet::WriterOptions::kParquetWriteTimestampUnit] = std::string("6");
+  configs[parquetWriteTimestampUnitConfigKey()] = std::string("6");
   configs[facebook::velox::connector::hive::HiveConfig::kReadTimestampUnitSession] = std::string("6");
   configs[facebook::velox::connector::hive::HiveConfig::kMaxPartitionsPerWritersSession] =
       conf->get<std::string>(kMaxPartitions, "10000");
@@ -239,8 +257,9 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
       conf->get<bool>(kIgnoreMissingFiles, false) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kParquetUseColumnNamesSession] =
       conf->get<bool>(kParquetUseColumnNames, true) ? "true" : "false";
-  configs[facebook::velox::connector::hive::HiveConfig::kAllowInt32NarrowingSession] =
-      conf->get<bool>(kAllowInt32Narrowing, true) ? "true" : "false";
+  if (const auto* allowInt32NarrowingKey = allowInt32NarrowingConfigKey()) {
+    configs[allowInt32NarrowingKey] = conf->get<bool>(kAllowInt32Narrowing, true) ? "true" : "false";
+  }
   configs[facebook::velox::connector::hive::HiveConfig::kOrcUseColumnNamesSession] =
       conf->get<bool>(kOrcUseColumnNames, true) ? "true" : "false";
 
