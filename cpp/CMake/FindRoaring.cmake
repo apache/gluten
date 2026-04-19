@@ -61,14 +61,28 @@ function(_gluten_roaring_add_headers target_name)
   endif()
 endfunction()
 
+function(_gluten_roaring_enable_pic target_name)
+  if(NOT TARGET ${target_name})
+    return()
+  endif()
+
+  get_target_property(_gluten_roaring_imported ${target_name} IMPORTED)
+  if(NOT _gluten_roaring_imported)
+    set_target_properties(${target_name} PROPERTIES POSITION_INDEPENDENT_CODE
+                                                    ON)
+  endif()
+endfunction()
+
 # Check if roaring target already exists.
 if(TARGET roaring)
+  _gluten_roaring_enable_pic(roaring)
   _gluten_roaring_add_headers(roaring)
   message(STATUS "Target roaring was already found.")
   return()
 endif()
 
 find_package(PkgConfig QUIET)
+set(_roaring_found_via_pkgconfig OFF)
 
 if(PkgConfig_FOUND)
   set(_roaring_saved_pkg_config_path "$ENV{PKG_CONFIG_PATH}")
@@ -83,15 +97,21 @@ if(PkgConfig_FOUND)
   endif()
   pkg_check_modules(Roaring QUIET IMPORTED_TARGET roaring)
   set(ENV{PKG_CONFIG_PATH} "${_roaring_saved_pkg_config_path}")
+  if(Roaring_FOUND)
+    list(APPEND _roaring_include_hints ${Roaring_INCLUDE_DIRS})
+    list(APPEND _roaring_library_hints ${Roaring_LIBRARY_DIRS})
+    if(DEFINED Roaring_INCLUDEDIR)
+      list(APPEND _roaring_include_hints "${Roaring_INCLUDEDIR}")
+    endif()
+    if(DEFINED Roaring_LIBDIR)
+      list(APPEND _roaring_library_hints "${Roaring_LIBDIR}")
+    endif()
+    set(_roaring_found_via_pkgconfig ON)
+  endif()
 endif()
 
-if(Roaring_FOUND)
-  add_library(roaring INTERFACE)
-  target_link_libraries(roaring INTERFACE PkgConfig::Roaring)
-  _gluten_roaring_add_headers(roaring)
-  message(STATUS "Found roaring via pkg-config.")
-  return()
-endif()
+list(REMOVE_DUPLICATES _roaring_include_hints)
+list(REMOVE_DUPLICATES _roaring_library_hints)
 
 find_path(
   Roaring_INCLUDE_DIR
@@ -106,6 +126,12 @@ find_library(
   NAMES roaring
   HINTS ${_roaring_library_hints})
 
+if((NOT Roaring_LIBRARY)
+   AND DEFINED pkgcfg_lib_Roaring_roaring
+   AND EXISTS "${pkgcfg_lib_Roaring_roaring}")
+  set(Roaring_LIBRARY "${pkgcfg_lib_Roaring_roaring}")
+endif()
+
 if(Roaring_INCLUDE_DIR
    AND Roaring_CPP_INCLUDE_DIR
    AND Roaring_LIBRARY)
@@ -117,6 +143,14 @@ if(Roaring_INCLUDE_DIR
                "${Roaring_INCLUDE_DIR};${Roaring_CPP_INCLUDE_DIR}")
   _gluten_roaring_add_headers(roaring)
   message(STATUS "Found roaring via direct library lookup.")
+  return()
+endif()
+
+if(_roaring_found_via_pkgconfig)
+  add_library(roaring INTERFACE)
+  target_link_libraries(roaring INTERFACE PkgConfig::Roaring)
+  _gluten_roaring_add_headers(roaring)
+  message(STATUS "Found roaring via pkg-config imported target fallback.")
   return()
 endif()
 
@@ -136,6 +170,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(roaring_fetch)
 
 if(TARGET roaring)
+  _gluten_roaring_enable_pic(roaring)
   _gluten_roaring_add_headers(roaring)
   message(STATUS "Found roaring via FetchContent.")
   return()

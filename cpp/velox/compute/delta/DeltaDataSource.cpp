@@ -53,9 +53,33 @@ DeltaDataSource::DeltaDataSource(
           connectorQueryCtx,
           hiveConfig) {}
 
-std::unique_ptr<SplitReader> DeltaDataSource::createSplitReader() {
+#if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+std::unique_ptr<FileSplitReader> DeltaDataSource::createSplitReader() {
+  auto bucketChannels = prepareSplit();
+  auto deltaSplit = checkedPointerCast<const HiveDeltaSplit>(split_);
+
   return std::make_unique<DeltaSplitReader>(
-      split_,
+      deltaSplit,
+      tableHandle_,
+      &partitionKeys_,
+      connectorQueryCtx_,
+      fileConfig_,
+      readerOutputType_,
+      ioStatistics_,
+      ioStats_,
+      fileHandleFactory_,
+      ioExecutor_,
+      scanSpec_,
+      &infoColumns_,
+      std::move(bucketChannels),
+      /*subfieldFiltersForValidation=*/getFilters());
+}
+#else
+std::unique_ptr<SplitReader> DeltaDataSource::createSplitReader() {
+  auto deltaSplit = checkedPointerCast<const HiveDeltaSplit>(split_);
+
+  return std::make_unique<DeltaSplitReader>(
+      deltaSplit,
       hiveTableHandle_,
       &partitionKeys_,
       connectorQueryCtx_,
@@ -68,5 +92,6 @@ std::unique_ptr<SplitReader> DeltaDataSource::createSplitReader() {
       scanSpec_,
       /*subfieldFiltersForValidation=*/getFilters());
 }
+#endif
 
 } // namespace gluten::delta

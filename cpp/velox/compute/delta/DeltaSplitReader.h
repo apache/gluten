@@ -34,7 +34,22 @@
 
 #include "compute/delta/DeltaDeletionVectorReader.h"
 #include "compute/delta/DeltaSplit.h"
+
+#ifndef GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+#if __has_include("velox/connectors/hive/FileSplitReader.h")
+#define GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER 1
+#else
+#define GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER 0
+#endif
+#endif
+
+#if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+#include "velox/connectors/hive/HiveSplitReader.h"
+#elif __has_include("velox/connectors/hive/SplitReader.h")
 #include "velox/connectors/hive/SplitReader.h"
+#else
+#include "velox/connectors/hive/HiveDataSource.h"
+#endif
 #include "velox/connectors/hive/TableHandle.h"
 
 namespace gluten::delta {
@@ -43,20 +58,36 @@ using namespace facebook::velox;
 using namespace facebook::velox::connector;
 using namespace facebook::velox::connector::hive;
 
-class DeltaSplitReader : public SplitReader {
+#if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+using DeltaSplitReaderBase = HiveSplitReader;
+using DeltaConfig = FileConfig;
+using DeltaTableHandlePtr = FileTableHandlePtr;
+using DeltaColumnHandleMap = std::unordered_map<std::string, FileColumnHandlePtr>;
+#else
+using DeltaSplitReaderBase = SplitReader;
+using DeltaConfig = HiveConfig;
+using DeltaTableHandlePtr = HiveTableHandlePtr;
+using DeltaColumnHandleMap = HiveColumnHandleMap;
+#endif
+
+class DeltaSplitReader : public DeltaSplitReaderBase {
  public:
   DeltaSplitReader(
-      const std::shared_ptr<const hive::HiveConnectorSplit>& hiveSplit,
-      const HiveTableHandlePtr& hiveTableHandle,
-      const HiveColumnHandleMap* partitionKeys,
+      const std::shared_ptr<const HiveDeltaSplit>& hiveSplit,
+      const DeltaTableHandlePtr& tableHandle,
+      const DeltaColumnHandleMap* partitionKeys,
       const ConnectorQueryCtx* connectorQueryCtx,
-      const std::shared_ptr<const HiveConfig>& hiveConfig,
+      const std::shared_ptr<const DeltaConfig>& fileConfig,
       const RowTypePtr& readerOutputType,
       const std::shared_ptr<io::IoStatistics>& ioStatistics,
       const std::shared_ptr<IoStats>& ioStats,
       FileHandleFactory* fileHandleFactory,
       folly::Executor* executor,
       const std::shared_ptr<common::ScanSpec>& scanSpec,
+#if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+      const std::unordered_map<std::string, FileColumnHandlePtr>* infoColumns,
+      std::vector<column_index_t> bucketChannels = {},
+#endif
       const common::SubfieldFilters* subfieldFiltersForValidation = nullptr);
 
   void prepareSplit(

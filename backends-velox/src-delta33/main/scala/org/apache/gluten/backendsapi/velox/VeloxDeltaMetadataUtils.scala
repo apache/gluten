@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.backendsapi.velox
 
+import org.apache.gluten.backendsapi.velox.VeloxIteratorApi.unescapePathName
+
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
 import org.apache.spark.sql.delta.deletionvectors.{RoaringBitmapArrayFormat, StoredBitmap}
@@ -104,7 +106,7 @@ object VeloxDeltaMetadataUtils {
   }
 
   private def resolveTablePath(partitionColumnCount: Int, file: PartitionedFile): Path = {
-    var tablePath = new Path(file.filePath.toString).getParent
+    var tablePath = new Path(unescapePathName(file.filePath.toString)).getParent
     for (_ <- 0 until partitionColumnCount) {
       tablePath = tablePath.getParent
     }

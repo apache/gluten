@@ -44,24 +44,45 @@ using namespace facebook::velox::dwio::common;
 namespace gluten::delta {
 
 DeltaSplitReader::DeltaSplitReader(
-    const std::shared_ptr<const hive::HiveConnectorSplit>& hiveSplit,
-    const HiveTableHandlePtr& hiveTableHandle,
-    const HiveColumnHandleMap* partitionKeys,
+    const std::shared_ptr<const HiveDeltaSplit>& hiveSplit,
+    const DeltaTableHandlePtr& tableHandle,
+    const DeltaColumnHandleMap* partitionKeys,
     const ConnectorQueryCtx* connectorQueryCtx,
-    const std::shared_ptr<const HiveConfig>& hiveConfig,
+    const std::shared_ptr<const DeltaConfig>& fileConfig,
     const RowTypePtr& readerOutputType,
     const std::shared_ptr<io::IoStatistics>& ioStatistics,
     const std::shared_ptr<IoStats>& ioStats,
     FileHandleFactory* fileHandleFactory,
     folly::Executor* executor,
     const std::shared_ptr<common::ScanSpec>& scanSpec,
+#if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+    const std::unordered_map<std::string, FileColumnHandlePtr>* infoColumns,
+    std::vector<column_index_t> bucketChannels,
+#endif
     const common::SubfieldFilters* subfieldFiltersForValidation)
-    : SplitReader(
+#if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+    : HiveSplitReader(
           hiveSplit,
-          hiveTableHandle,
+          tableHandle,
           partitionKeys,
           connectorQueryCtx,
-          hiveConfig,
+          fileConfig,
+          readerOutputType,
+          ioStatistics,
+          ioStats,
+          fileHandleFactory,
+          executor,
+          scanSpec,
+          infoColumns,
+          std::move(bucketChannels),
+          subfieldFiltersForValidation),
+#else
+    : SplitReader(
+          hiveSplit,
+          tableHandle,
+          partitionKeys,
+          connectorQueryCtx,
+          fileConfig,
           readerOutputType,
           ioStatistics,
           ioStats,
@@ -69,17 +90,26 @@ DeltaSplitReader::DeltaSplitReader(
           executor,
           scanSpec,
           subfieldFiltersForValidation),
+#endif
       baseReadRowNumber_(0),
-      deleteBitmap_(nullptr) {}
+      deleteBitmap_(nullptr) {
+}
 
 void DeltaSplitReader::prepareSplit(
     std::shared_ptr<common::MetadataFilter> metadataFilter,
     dwio::common::RuntimeStatistics& runtimeStats,
     const folly::F14FastMap<std::string, std::string>& fileReadOps) {
+#if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+  HiveSplitReader::prepareSplit(std::move(metadataFilter), runtimeStats, fileReadOps);
+  if (emptySplit() || !baseRowReader_) {
+    return;
+  }
+#else
   SplitReader::prepareSplit(std::move(metadataFilter), runtimeStats, fileReadOps);
   if (emptySplit_ || !baseRowReader_) {
     return;
   }
+#endif
 
   baseReadRowNumber_ = 0;
   deleteBitmap_.reset();

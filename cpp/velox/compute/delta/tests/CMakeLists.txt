@@ -18,8 +18,8 @@ add_executable(
                         DeltaDeletionVectorReaderTest.cpp DeltaSplitTest.cpp)
 
 target_link_libraries(
-  velox_delta_read_test velox facebook::velox::exec_test_lib GTest::gtest
-  GTest::gtest_main)
+  velox_delta_read_test velox roaring facebook::velox::exec_test_lib
+  GTest::gtest GTest::gtest_main)
 
 add_test(
   NAME velox_delta_read_test

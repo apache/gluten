@@ -34,6 +34,22 @@
 
 #include "velox/connectors/hive/HiveDataSource.h"
 
+#ifndef GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+#if __has_include("velox/connectors/hive/FileSplitReader.h")
+#define GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER 1
+#else
+#define GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER 0
+#endif
+#endif
+
+#if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+#include "velox/connectors/hive/FileSplitReader.h"
+#else
+namespace facebook::velox::connector::hive {
+class SplitReader;
+}
+#endif
+
 namespace gluten::delta {
 
 using namespace facebook::velox;
@@ -52,7 +68,11 @@ class DeltaDataSource : public HiveDataSource {
       const std::shared_ptr<HiveConfig>& hiveConfig);
 
  protected:
+#if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+  std::unique_ptr<FileSplitReader> createSplitReader() override;
+#else
   std::unique_ptr<SplitReader> createSplitReader() override;
+#endif
 };
 
 } // namespace gluten::delta
