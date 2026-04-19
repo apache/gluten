@@ -53,12 +53,6 @@ enum class DeltaRowIndexFilterType {
   kIfNotContained,
 };
 
-enum class DeltaDeletionVectorStorageType {
-  kUuidPath, // 'u' - UUID-based relative path
-  kFilePath, // 'p' - Absolute path
-  kInlineData, // 'i' - Inline Base85 data
-};
-
 /// Protocol version information for a Delta table.
 /// Used to validate that the table supports deletion vectors.
 /// Per Delta spec: DVs require Reader v3+ and Writer v7+ with
@@ -86,94 +80,19 @@ struct DeltaProtocolInfo {
 };
 
 struct DeltaDeletionVectorDescriptor {
-  DeltaDeletionVectorStorageType storageType;
-  const std::string pathOrInlineData;
-  std::optional<uint64_t> offset;
-  std::optional<uint64_t> sizeInBytes;
   std::optional<uint64_t> cardinality;
   std::optional<std::string> serializedPayload;
   std::optional<SplitPayloadBufferView> serializedPayloadView;
 
-  /// Computes the uniqueId for this deletion vector descriptor.
-  /// Used for snapshot reconstruction to differentiate the same file
-  /// with different DVs in successive versions.
-  /// Format: If offset is None then <storageType><pathOrInlineDv>
-  ///         Otherwise <storageType><pathOrInlineDv>@<offset>
-  std::string uniqueId() const {
-    char storageTypeChar;
-    switch (storageType) {
-      case DeltaDeletionVectorStorageType::kUuidPath:
-        storageTypeChar = 'u';
-        break;
-      case DeltaDeletionVectorStorageType::kFilePath:
-        storageTypeChar = 'p';
-        break;
-      case DeltaDeletionVectorStorageType::kInlineData:
-        storageTypeChar = 'i';
-        break;
-    }
-
-    if (offset.has_value()) {
-      return std::string(1, storageTypeChar) + pathOrInlineData + "@" + std::to_string(offset.value());
-    }
-    return std::string(1, storageTypeChar) + pathOrInlineData;
-  }
-
-  static DeltaDeletionVectorDescriptor inlineData(
-      std::string data,
+  static DeltaDeletionVectorDescriptor serialized(
       std::optional<uint64_t> cardinality = std::nullopt,
       std::optional<std::string> serializedPayload = std::nullopt,
       std::optional<SplitPayloadBufferView> serializedPayloadView = std::nullopt) {
-    return {
-        DeltaDeletionVectorStorageType::kInlineData,
-        std::move(data),
-        std::nullopt,
-        std::nullopt,
-        cardinality,
-        std::move(serializedPayload),
-        serializedPayloadView};
+    return {cardinality, std::move(serializedPayload), serializedPayloadView};
   }
 
-  static DeltaDeletionVectorDescriptor uuidPath(
-      std::string z85EncodedUuid,
-      std::optional<uint64_t> offset = std::nullopt,
-      std::optional<uint64_t> sizeInBytes = std::nullopt,
-      std::optional<uint64_t> cardinality = std::nullopt,
-      std::optional<std::string> serializedPayload = std::nullopt,
-      std::optional<SplitPayloadBufferView> serializedPayloadView = std::nullopt) {
-    return {
-        DeltaDeletionVectorStorageType::kUuidPath,
-        std::move(z85EncodedUuid),
-        offset,
-        sizeInBytes,
-        cardinality,
-        std::move(serializedPayload),
-        serializedPayloadView};
-  }
-
-  static DeltaDeletionVectorDescriptor filePath(
-      std::string path,
-      std::optional<uint64_t> offset = std::nullopt,
-      std::optional<uint64_t> sizeInBytes = std::nullopt,
-      std::optional<uint64_t> cardinality = std::nullopt,
-      std::optional<std::string> serializedPayload = std::nullopt,
-      std::optional<SplitPayloadBufferView> serializedPayloadView = std::nullopt) {
-    return {
-        DeltaDeletionVectorStorageType::kFilePath,
-        std::move(path),
-        offset,
-        sizeInBytes,
-        cardinality,
-        std::move(serializedPayload),
-        serializedPayloadView};
-  }
-
-  bool isInline() const {
-    return storageType == DeltaDeletionVectorStorageType::kInlineData;
-  }
-
-  bool isUuidPath() const {
-    return storageType == DeltaDeletionVectorStorageType::kUuidPath;
+  bool hasMaterializedPayload() const {
+    return serializedPayloadView.has_value() || serializedPayload.has_value();
   }
 };
 

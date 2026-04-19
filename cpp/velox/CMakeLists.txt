@@ -162,7 +162,6 @@ set(VELOX_SRCS
     compute/delta/DeltaDeletionVectorReader.cpp
     compute/delta/DeltaSplit.cpp
     compute/delta/DeltaSplitReader.cpp
-    compute/delta/DeltaUuidUtils.cpp
     compute/delta/RoaringBitmapArray.cpp
     compute/iceberg/IcebergPlanConverter.cc
     jni/JniFileSystem.cc

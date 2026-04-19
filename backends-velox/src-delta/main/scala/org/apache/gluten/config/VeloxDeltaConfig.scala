@@ -22,8 +22,6 @@ class VeloxDeltaConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   import VeloxDeltaConfig._
 
   def enableNativeWrite: Boolean = getConf(ENABLE_NATIVE_WRITE)
-  def enableJvmDeletionVectorPayloadHandoff: Boolean =
-    getConf(ENABLE_JVM_DELETION_VECTOR_PAYLOAD_HANDOFF)
 }
 
 object VeloxDeltaConfig extends ConfigRegistry {
@@ -42,14 +40,4 @@ object VeloxDeltaConfig extends ConfigRegistry {
       .doc("Enable native Delta Lake write for Velox backend.")
       .booleanConf
       .createWithDefault(false)
-
-  val ENABLE_JVM_DELETION_VECTOR_PAYLOAD_HANDOFF: ConfigEntry[Boolean] =
-    buildConf(
-      "spark.gluten.sql.columnar.backend.velox.delta.jvmDeletionVectorPayloadHandoff.enabled")
-      .internal()
-      .doc(
-        "Materialize Delta deletion vector payloads in JVM and hand the serialized payload to native scan. " +
-          "Disable this to fall back to native deletion vector IO.")
-      .booleanConf
-      .createWithDefault(true)
 }

@@ -36,8 +36,6 @@
 #include <string_view>
 
 #include "compute/delta/DeltaSplit.h"
-#include "compute/delta/DeltaUuidUtils.h"
-#include "velox/common/file/FileSystems.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/dwio/common/BufferUtil.h"
 
@@ -141,54 +139,18 @@ void DeltaSplitReader::prepareSplit(
     validateStatisticsForDeletionVectors(*deltaSplit->statistics, descriptor);
   }
 
+  VELOX_USER_CHECK(
+      descriptor.hasMaterializedPayload(),
+      "Delta deletion vector payload was not materialized on the JVM side for split {}",
+      hiveSplit_->filePath);
+
+  deletionVectorReader_ = std::make_unique<DeltaDeletionVectorReader>();
   if (descriptor.serializedPayloadView.has_value()) {
     const auto& payloadView = descriptor.serializedPayloadView.value();
-    deletionVectorReader_ =
-        std::make_unique<DeltaDeletionVectorReader>(nullptr, connectorQueryCtx_->memoryPool(), ioStatistics_);
     deletionVectorReader_->loadSerializedDeletionVector(
         std::string_view(reinterpret_cast<const char*>(payloadView.data), payloadView.size), descriptor.cardinality);
-    return;
-  }
-
-  if (descriptor.serializedPayload.has_value()) {
-    deletionVectorReader_ =
-        std::make_unique<DeltaDeletionVectorReader>(nullptr, connectorQueryCtx_->memoryPool(), ioStatistics_);
+  } else {
     deletionVectorReader_->loadSerializedDeletionVector(*descriptor.serializedPayload, descriptor.cardinality);
-    return;
-  }
-
-  // Determine the actual file path and file system
-  std::string dvPath;
-  std::shared_ptr<filesystems::FileSystem> fileSystem = nullptr;
-
-  if (descriptor.isInline()) {
-    // Inline DV - no file system needed
-    dvPath = descriptor.pathOrInlineData;
-  } else if (descriptor.isUuidPath()) {
-    // UUID-based path - need to reconstruct from Z85-encoded UUID
-    auto [randomPrefix, uuid] = DeltaUuidUtils::extractUuidFromZ85(descriptor.pathOrInlineData);
-
-    // Get table directory from split file path
-    const std::string& filePath = hiveSplit_->filePath;
-    size_t lastSlash = filePath.find_last_of('/');
-    std::string tableDir = (lastSlash != std::string::npos) ? filePath.substr(0, lastSlash) : ".";
-
-    dvPath = DeltaUuidUtils::reconstructUuidPath(tableDir, randomPrefix, uuid);
-    fileSystem = filesystems::getFileSystem(dvPath, hiveConfig_->config());
-  } else {
-    // Absolute path
-    dvPath = descriptor.pathOrInlineData;
-    fileSystem = filesystems::getFileSystem(dvPath, hiveConfig_->config());
-  }
-
-  deletionVectorReader_ = std::make_unique<DeltaDeletionVectorReader>(
-      std::move(fileSystem), connectorQueryCtx_->memoryPool(), ioStatistics_);
-
-  if (descriptor.isInline()) {
-    deletionVectorReader_->loadInlineDeletionVector(dvPath, descriptor.sizeInBytes, descriptor.cardinality);
-  } else {
-    deletionVectorReader_->loadDeletionVector(
-        dvPath, descriptor.offset, descriptor.sizeInBytes, descriptor.cardinality);
   }
 }
 

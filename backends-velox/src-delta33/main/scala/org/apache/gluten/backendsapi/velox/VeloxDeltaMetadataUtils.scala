@@ -16,8 +16,6 @@
  */
 package org.apache.gluten.backendsapi.velox
 
-import org.apache.gluten.config.VeloxDeltaConfig
-
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
 import org.apache.spark.sql.delta.deletionvectors.{RoaringBitmapArrayFormat, StoredBitmap}
@@ -31,10 +29,6 @@ import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, M
 import scala.collection.JavaConverters._
 
 object VeloxDeltaMetadataUtils {
-  val DeltaDvStorageType = "delta_dv_storage_type"
-  val DeltaDvPathOrInline = "delta_dv_path_or_inline"
-  val DeltaDvOffset = "delta_dv_offset"
-  val DeltaDvSizeInBytes = "delta_dv_size_in_bytes"
   val DeltaDvCardinality = "delta_dv_cardinality"
   val DeltaDvSerializedPayload = "delta_dv_serialized_payload"
   val DeltaDvPayloadIndex = "delta_dv_payload_index"
@@ -59,27 +53,13 @@ object VeloxDeltaMetadataUtils {
       encodedDescriptor =>
         val descriptor = DeletionVectorDescriptor.deserializeFromBase64(encodedDescriptor)
         val tablePath = resolveTablePath(partitionColumnCount, file)
-        descriptor.storageType match {
-          case "i" =>
-            normalized.put(DeltaDvStorageType, descriptor.storageType)
-            normalized.put(DeltaDvPathOrInline, descriptor.pathOrInlineDv)
-          case _ =>
-            val absolutePath =
-              descriptor.absolutePath(tablePath)
-            normalized.put(DeltaDvStorageType, "p")
-            normalized.put(DeltaDvPathOrInline, absolutePath.toUri.toASCIIString)
-        }
-        descriptor.offset.foreach(offset => normalized.put(DeltaDvOffset, Int.box(offset)))
-        normalized.put(DeltaDvSizeInBytes, Int.box(descriptor.sizeInBytes))
         normalized.put(DeltaDvCardinality, Long.box(descriptor.cardinality))
-        if (VeloxDeltaConfig.get.enableJvmDeletionVectorPayloadHandoff) {
-          val dvStore = new HadoopFileSystemDVStore(activeSpark.sessionState.newHadoopConf())
-          val serializedPayload = StoredBitmap
-            .create(descriptor, tablePath)
-            .load(dvStore)
-            .serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
-          normalized.put(DeltaDvSerializedPayload, serializedPayload)
-        }
+        val dvStore = new HadoopFileSystemDVStore(activeSpark.sessionState.newHadoopConf())
+        val serializedPayload = StoredBitmap
+          .create(descriptor, tablePath)
+          .load(dvStore)
+          .serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
+        normalized.put(DeltaDvSerializedPayload, serializedPayload)
         normalized.remove(RowIndexFilterIdEncoded)
     }
 

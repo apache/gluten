@@ -33,9 +33,6 @@
 #pragma once
 
 #include "velox/common/base/BitUtil.h"
-#include "velox/common/file/FileSystems.h"
-#include "velox/common/io/IoStatistics.h"
-#include "velox/common/memory/Memory.h"
 #include "velox/vector/ComplexVector.h"
 
 #include <memory>
@@ -51,60 +48,21 @@ using namespace facebook::velox;
 /// Reads and manages Delta Lake deletion vectors for filtering deleted rows
 /// during table scans.
 ///
-/// Delta deletion vectors are stored as roaring bitmaps in binary files under
-/// the _delta_log/_deletion_vectors/ directory. Each DV file contains a
-/// serialized RoaringBitmapArray marking deleted row positions (0-based).
-///
-/// The deletion vector format follows the Delta Lake protocol specification:
-/// https://github.com/delta-io/delta/blob/master/PROTOCOL.md#deletion-vector-format
-///
-/// Storage types:
-/// - 'u': UUID-based path in _deletion_vectors/ directory
-/// - 'p': Absolute path to DV file
-/// - 'i': Inline base64-encoded data (for small DVs)
+/// The JVM Delta side materializes the deletion vector and hands the serialized
+/// bitmap payload to native. This reader only deserializes that payload and
+/// applies row filtering during scan.
 ///
 /// Usage example:
 /// @code
-///   auto reader = std::make_unique<DeltaDeletionVectorReader>(
-///       fileSystem, pool, ioStats);
-///   reader->loadDeletionVector("s3://bucket/_delta_log/_deletion_vectors/dv_uuid.bin");
+///   auto reader = std::make_unique<DeltaDeletionVectorReader>();
+///   reader->loadSerializedDeletionVector(serializedPayload, expectedCardinality);
 ///   if (reader->isRowDeleted(42)) {
 ///     // Skip this row during scan
 ///   }
 /// @endcode
 class DeltaDeletionVectorReader {
  public:
-  /// Constructs a DV reader.
-  /// @param fileSystem File system for reading DV files
-  /// @param pool Memory pool for allocations
-  /// @param ioStats I/O statistics tracker
-  DeltaDeletionVectorReader(
-      std::shared_ptr<filesystems::FileSystem> fileSystem,
-      memory::MemoryPool* pool,
-      std::shared_ptr<io::IoStatistics> ioStats);
-
-  /// Loads a deletion vector from an external file.
-  /// @param dvPath Full path to the DV file
-  /// @param offset Optional byte offset inside the DV file
-  /// @param sizeInBytes Optional number of bytes to read from the DV file
-  /// @param expectedCardinality Optional expected cardinality for validation
-  /// @throws VeloxException if file cannot be read or format is invalid
-  void loadDeletionVector(
-      const std::string& dvPath,
-      std::optional<uint64_t> offset = std::nullopt,
-      std::optional<uint64_t> sizeInBytes = std::nullopt,
-      std::optional<uint64_t> expectedCardinality = std::nullopt);
-
-  /// Loads a deletion vector from inline Base85-encoded data.
-  /// Used for small DVs stored directly in the Delta log.
-  /// @param inlineData Base85-encoded serialized roaring bitmap
-  /// @param sizeInBytes Optional decoded payload size required by the Delta inline format
-  /// @param expectedCardinality Optional expected cardinality for validation
-  /// @throws VeloxException if data cannot be decoded or format is invalid
-  void loadInlineDeletionVector(
-      const std::string& inlineData,
-      std::optional<uint64_t> sizeInBytes = std::nullopt,
-      std::optional<uint64_t> expectedCardinality = std::nullopt);
+  DeltaDeletionVectorReader() = default;
 
   /// Loads a deletion vector from an already decoded serialized Delta payload.
   void loadSerializedDeletionVector(
@@ -140,10 +98,6 @@ class DeltaDeletionVectorReader {
       std::string_view serializedPayload,
       const std::string& debugName,
       std::optional<uint64_t> expectedCardinality);
-
-  std::shared_ptr<filesystems::FileSystem> fileSystem_;
-  memory::MemoryPool* pool_;
-  std::shared_ptr<io::IoStatistics> ioStats_;
 
   // The loaded deletion vector bitmap
   std::optional<roaring::Roaring64Map> deletionBitmap_;

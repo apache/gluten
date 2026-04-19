@@ -70,10 +70,6 @@ const std::string kWriteIOTime = "writeIOWallNanos";
 const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
 const std::string kDeltaTableFormat = "delta";
 const std::string kTableFormatKey = "table_format";
-const std::string kDeltaDvStorageType = "delta_dv_storage_type";
-const std::string kDeltaDvPathOrInline = "delta_dv_path_or_inline";
-const std::string kDeltaDvOffset = "delta_dv_offset";
-const std::string kDeltaDvSizeInBytes = "delta_dv_size_in_bytes";
 const std::string kDeltaDvCardinality = "delta_dv_cardinality";
 const std::string kDeltaDvSerializedPayload = "delta_dv_serialized_payload";
 const std::string kRowIndexFilterType = "row_index_filter_type";
@@ -89,7 +85,7 @@ std::string normalizeSessionTimezone(const std::string& timezone) {
 bool isDeltaMetadata(const std::unordered_map<std::string, std::string>& metadata) {
   auto tableFormatIt = metadata.find(kTableFormatKey);
   return (tableFormatIt != metadata.end() && tableFormatIt->second == kDeltaTableFormat) ||
-      metadata.find(kDeltaDvStorageType) != metadata.end() || metadata.find(kDeltaDvPathOrInline) != metadata.end() ||
+      metadata.find(kDeltaDvCardinality) != metadata.end() || metadata.find(kDeltaDvSerializedPayload) != metadata.end() ||
       metadata.find(kRowIndexFilterType) != metadata.end();
 }
 
@@ -144,31 +140,17 @@ std::optional<uint64_t> getOptionalUint64(
 std::optional<gluten::delta::DeltaDeletionVectorDescriptor> parseDeltaDeletionVector(
     const std::unordered_map<std::string, std::string>& metadata,
     std::optional<SplitPayloadBufferView> serializedPayloadView) {
-  auto storageTypeIt = metadata.find(kDeltaDvStorageType);
-  auto pathIt = metadata.find(kDeltaDvPathOrInline);
-  if (storageTypeIt == metadata.end() || pathIt == metadata.end()) {
-    return std::nullopt;
-  }
-
-  const auto offset = getOptionalUint64(metadata, kDeltaDvOffset);
-  const auto sizeInBytes = getOptionalUint64(metadata, kDeltaDvSizeInBytes);
-  const auto cardinality = getOptionalUint64(metadata, kDeltaDvCardinality);
   std::optional<std::string> serializedPayload = std::nullopt;
-  std::optional<SplitPayloadBufferView> payloadView = serializedPayloadView;
   if (auto payloadIt = metadata.find(kDeltaDvSerializedPayload); payloadIt != metadata.end()) {
     serializedPayload = payloadIt->second;
   }
+  if (!serializedPayloadView.has_value() && !serializedPayload.has_value()) {
+    return std::nullopt;
+  }
 
-  if (storageTypeIt->second == "i") {
-    return gluten::delta::DeltaDeletionVectorDescriptor::inlineData(
-        pathIt->second, cardinality, std::move(serializedPayload), payloadView);
-  }
-  if (storageTypeIt->second == "u") {
-    return gluten::delta::DeltaDeletionVectorDescriptor::uuidPath(
-        pathIt->second, offset, sizeInBytes, cardinality, std::move(serializedPayload), payloadView);
-  }
-  return gluten::delta::DeltaDeletionVectorDescriptor::filePath(
-      pathIt->second, offset, sizeInBytes, cardinality, std::move(serializedPayload), payloadView);
+  const auto cardinality = getOptionalUint64(metadata, kDeltaDvCardinality);
+  return gluten::delta::DeltaDeletionVectorDescriptor::serialized(
+      cardinality, std::move(serializedPayload), serializedPayloadView);
 }
 
 gluten::delta::DeltaRowIndexFilterType parseDeltaRowIndexFilterType(

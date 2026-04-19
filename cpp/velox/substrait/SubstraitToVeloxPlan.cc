@@ -62,8 +62,8 @@ bool isDeltaSplitInfo(const std::shared_ptr<SplitInfo>& splitInfo) {
   for (const auto& metadata : splitInfo->metadataColumns) {
     auto tableFormatIt = metadata.find("table_format");
     if ((tableFormatIt != metadata.end() && tableFormatIt->second == "delta") ||
-        metadata.find("delta_dv_storage_type") != metadata.end() ||
-        metadata.find("delta_dv_path_or_inline") != metadata.end() ||
+        metadata.find("delta_dv_cardinality") != metadata.end() ||
+        metadata.find("delta_dv_serialized_payload") != metadata.end() ||
         metadata.find("row_index_filter_type") != metadata.end()) {
       return true;
     }
