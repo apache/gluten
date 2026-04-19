@@ -54,6 +54,12 @@ class LocalPartitionWriter : public PartitionWriter {
     return arrow::Status::NotImplemented("Invalid code path for local shuffle writer.");
   }
 
+  bool enableTypeAwareCompress() const override {
+    // Type-aware compression is not compatible with dictionary encoding
+    // since it may change the buffer layout and types.
+    return options_->enableTypeAwareCompress && !options_->enableDictionary;
+  }
+
   /// The stop function performs several tasks:
   /// 1. Opens the final data file.
   /// 2. Iterates over each partition ID (pid) to:

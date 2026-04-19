@@ -239,6 +239,9 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def columnarShuffleEnableDictionary: Boolean =
     getConf(SHUFFLE_ENABLE_DICTIONARY)
 
+  def columnarShuffleEnableTypeAwareCompress: Boolean =
+    getConf(SHUFFLE_ENABLE_TYPE_AWARE_COMPRESS)
+
   def maxBatchSize: Int = getConf(COLUMNAR_MAX_BATCH_SIZE)
 
   def shuffleWriterBufferSize: Int = getConf(SHUFFLE_WRITER_BUFFER_SIZE)
@@ -1069,6 +1072,15 @@ object GlutenConfig extends ConfigRegistry {
   val SHUFFLE_ENABLE_DICTIONARY =
     buildConf("spark.gluten.sql.columnar.shuffle.dictionary.enabled")
       .doc("Enable dictionary in hash-based shuffle.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val SHUFFLE_ENABLE_TYPE_AWARE_COMPRESS =
+    buildConf("spark.gluten.sql.columnar.shuffle.typeAwareCompress.enabled")
+      .doc(
+        "Enable type-aware compression (e.g. FFor for 64-bit integers) in shuffle. " +
+          "Not compatible with dictionary encoding; if both are enabled, " +
+          "type-aware compression is automatically disabled.")
       .booleanConf
       .createWithDefault(false)
 

@@ -1910,6 +1910,14 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     assert(plan2.find(_.isInstanceOf[ProjectExecTransformer]).isDefined)
   }
 
+  test("cast date to timestamp with GMT session timezone") {
+    withSQLConf(SQLConf.SESSION_LOCAL_TIMEZONE.key -> "GMT") {
+      runQueryAndCompare("SELECT cast(date'2023-01-02 01:01:01' as timestamp) as ts") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
   test("cast timestamp to date") {
     val query = "select cast(ts as date) from values (timestamp'2024-01-01 00:00:00') as tab(ts)"
     runQueryAndCompare(query) {
