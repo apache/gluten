@@ -31,7 +31,7 @@ class SubstraitToVeloxPlanValidator {
  public:
   SubstraitToVeloxPlanValidator(memory::MemoryPool* pool) {
     std::unordered_map<std::string, std::string> configs{
-        {velox::core::QueryConfig::kSparkPartitionId, "0"}, {velox::core::QueryConfig::kSessionTimezone, "GMT"}};
+        {velox::core::QueryConfig::kSparkPartitionId, "0"}, {velox::core::QueryConfig::kSessionTimezone, "UTC"}};
     veloxCfg_ = std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
     planConverter_ = std::make_unique<SubstraitToVeloxPlanConverter>(
         pool, veloxCfg_.get(), std::vector<std::shared_ptr<ResultIterator>>{}, std::nullopt, std::nullopt, true);

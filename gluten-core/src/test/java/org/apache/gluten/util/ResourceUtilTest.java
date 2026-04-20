@@ -21,6 +21,7 @@ import org.apache.gluten.utils.ResourceUtil;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.net.URI;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -42,5 +43,17 @@ public class ResourceUtilTest {
         ResourceUtil.getResources("org", Pattern.compile("apache/spark/SparkContext\\.class"));
     Assert.assertEquals(1, classes.size());
     Assert.assertEquals("apache/spark/SparkContext.class", classes.get(0));
+  }
+
+  /** Verifies URI correctly decodes percent-encoded paths and preserves '+' characters. */
+  @Test
+  public void testUriDecodesPercentEncodedPaths() throws Exception {
+    // %40 should decode to @
+    URI uri1 = new URI("file:///path/user%40domain/file.jar");
+    Assert.assertEquals("/path/user@domain/file.jar", uri1.getPath());
+
+    // + should be preserved (not converted to space like URLDecoder does)
+    URI uri2 = new URI("file:///path/file+name.jar");
+    Assert.assertEquals("/path/file+name.jar", uri2.getPath());
   }
 }

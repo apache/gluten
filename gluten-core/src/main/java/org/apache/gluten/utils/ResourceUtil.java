@@ -24,6 +24,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -73,26 +75,33 @@ public class ResourceUtil {
     final String protocol = containerUrl.getProtocol();
     switch (protocol) {
       case "file":
-        final File fileContainer = new File(containerUrl.getPath());
-        Preconditions.checkState(
-            fileContainer.exists() && fileContainer.isDirectory(),
-            "Specified file container " + containerUrl + " is not a directory or not a file");
-        getResourcesFromDirectory(fileContainer, fileContainer, pattern, buffer);
+        try {
+          final File fileContainer = new File(containerUrl.toURI());
+          Preconditions.checkState(
+              fileContainer.exists() && fileContainer.isDirectory(),
+              "Specified file container " + containerUrl + " is not a directory or not a file");
+          getResourcesFromDirectory(fileContainer, fileContainer, pattern, buffer);
+        } catch (URISyntaxException e) {
+          throw new GlutenException(e);
+        }
         break;
       case "jar":
-        final String jarContainerPath = containerUrl.getPath();
-        final Pattern jarContainerPattern = Pattern.compile("file:([^!]+)!/(.+)");
-        final Matcher m = jarContainerPattern.matcher(jarContainerPath);
-        if (!m.matches()) {
-          throw new GlutenException("Illegal Jar container URL: " + containerUrl);
+        try {
+          final String jarContainerPath = containerUrl.getPath();
+          final Pattern jarContainerPattern = Pattern.compile("file:([^!]+)!/(.+)");
+          final Matcher m = jarContainerPattern.matcher(jarContainerPath);
+          if (!m.matches()) {
+            throw new GlutenException("Illegal Jar container URL: " + containerUrl);
+          }
+          final File jarFile = new File(new URI("file://" + m.group(1)));
+          Preconditions.checkState(
+              jarFile.exists() && jarFile.isFile(),
+              "Specified Jar container " + containerUrl + " is not a Jar file");
+          final String dir = m.group(2);
+          getResourcesFromJarFile(jarFile, dir, pattern, buffer);
+        } catch (URISyntaxException e) {
+          throw new GlutenException(e);
         }
-        final String jarPath = m.group(1);
-        final File jarFile = new File(jarPath);
-        Preconditions.checkState(
-            jarFile.exists() && jarFile.isFile(),
-            "Specified Jar container " + containerUrl + " is not a Jar file");
-        final String dir = m.group(2);
-        getResourcesFromJarFile(jarFile, dir, pattern, buffer);
         break;
       default:
         throw new GlutenException("Unrecognizable resource protocol: " + protocol);

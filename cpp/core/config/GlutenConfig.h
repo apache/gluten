@@ -20,6 +20,7 @@
 #include <jni.h>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 namespace gluten {
@@ -101,6 +102,8 @@ const std::string kDebugCudfDefault = "false";
 
 std::unordered_map<std::string, std::string>
 parseConfMap(JNIEnv* env, const uint8_t* planData, const int32_t planDataLength);
+
+std::string normalizeSessionTimezone(std::string_view sessionTimezone);
 
 std::string printConfig(const std::unordered_map<std::string, std::string>& conf);
 } // namespace gluten

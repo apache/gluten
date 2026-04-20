@@ -38,7 +38,7 @@ import org.apache.spark.sql.execution.exchange.{GlutenEnsureRequirementsSuite, G
 import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.execution.metric.{GlutenCustomMetricsSuite, GlutenSQLMetricsSuite}
 import org.apache.spark.sql.execution.python._
-import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenSessionExtensionSuite, TestFileSourceScanExecTransformer}
+import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenSessionExtensionSuite}
 import org.apache.spark.sql.gluten.{GlutenFallbackStrategiesSuite, GlutenFallbackSuite}
 import org.apache.spark.sql.hive.execution.GlutenHiveSQLQuerySuite
 import org.apache.spark.sql.sources._
@@ -167,8 +167,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHigherOrderFunctionsSuite]
   enableSuite[GlutenIntervalExpressionsSuite]
   enableSuite[GlutenJsonExpressionsSuite]
-    // https://github.com/apache/gluten/issues/10948
-    .exclude("$['key with spaces']")
     // https://github.com/apache/gluten/issues/8102
     .exclude("$.store.book")
     .exclude("$")
@@ -224,7 +222,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenCodeGeneratorWithInterpretedFallbackSuite]
   enableSuite[GlutenCollationExpressionSuite]
   enableSuite[GlutenCollationRegexpExpressionsSuite]
-  // TODO: 4.x enableSuite[GlutenCsvExpressionsSuite]  // failures with GlutenPlugin
+  enableSuite[GlutenCsvExpressionsSuite]
   enableSuite[GlutenDynamicPruningSubquerySuite]
   enableSuite[GlutenExprIdSuite]
   // TODO: 4.x enableSuite[GlutenExpressionEvalHelperSuite]  // 2 failures
@@ -373,8 +371,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("unsupported parquet conversion ShortType -> DecimalType(6,1)")
   enableSuite[GlutenParquetVariantShreddingSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.text
-  // TODO: 4.x enableSuite[GlutenWholeTextFileV1Suite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenWholeTextFileV2Suite]  // 1 failure
+  enableSuite[GlutenWholeTextFileV1Suite]
+  enableSuite[GlutenWholeTextFileV2Suite]
   // Generated suites for org.apache.spark.sql.execution.datasources.v2
   enableSuite[GlutenFileWriterFactorySuite]
   enableSuite[GlutenV2SessionCatalogNamespaceSuite]
@@ -677,15 +675,25 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenAggregatingAccumulatorSuite]
   enableSuite[GlutenCoGroupedIteratorSuite]
   enableSuite[GlutenColumnarRulesSuite]
-  // TODO: 4.x enableSuite[GlutenDataSourceScanExecRedactionSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenDataSourceV2ScanExecRedactionSuite]  // 2 failures
+  enableSuite[GlutenDataSourceScanExecRedactionSuite]
+    .exclude("explain is redacted using SQLConf")
+    .exclude("SPARK-31793: FileSourceScanExec metadata should contain limited file paths")
+  enableSuite[GlutenDataSourceV2ScanExecRedactionSuite]
+    .exclude("explain is redacted using SQLConf")
+    .exclude("FileScan description")
   enableSuite[GlutenExecuteImmediateEndToEndSuite]
-  // TODO: 4.x enableSuite[GlutenExternalAppendOnlyUnsafeRowArraySuite]  // 14 failures
+  enableSuite[GlutenExternalAppendOnlyUnsafeRowArraySuite]
   enableSuite[GlutenGlobalTempViewSuite]
   enableSuite[GlutenGlobalTempViewTestSuite]
   enableSuite[GlutenGroupedIteratorSuite]
   enableSuite[GlutenHiveResultSuite]
-  // TODO: 4.x enableSuite[GlutenInsertSortForLimitAndOffsetSuite]  // 6 failures
+  enableSuite[GlutenInsertSortForLimitAndOffsetSuite]
+    .exclude("root LIMIT preserves data ordering with top-K sort")
+    .exclude("middle LIMIT preserves data ordering with top-K sort")
+    .exclude("root LIMIT preserves data ordering with CollectLimitExec")
+    .exclude("middle LIMIT preserves data ordering with the extra sort")
+    .exclude("root OFFSET preserves data ordering with CollectLimitExec")
+    .exclude("middle OFFSET preserves data ordering with the extra sort")
   enableSuite[GlutenLocalTempViewTestSuite]
   enableSuite[GlutenLogicalPlanTagInSparkPlanSuite]
   enableSuite[GlutenOptimizeMetadataOnlyQuerySuite]
@@ -696,18 +704,19 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenRemoveRedundantProjectsSuite]  // 14 failures
   // TODO: 4.x enableSuite[GlutenRemoveRedundantSortsSuite]  // 1 failure
   enableSuite[GlutenRowToColumnConverterSuite]
-  // TODO: 4.x enableSuite[GlutenSQLExecutionSuite]  // 1 failure
+  enableSuite[GlutenSQLExecutionSuite]
   enableSuite[GlutenSQLFunctionSuite]
-  // TODO: 4.x enableSuite[GlutenSQLJsonProtocolSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenShufflePartitionsUtilSuite]  // 1 failure
+  enableSuite[GlutenSQLJsonProtocolSuite]
+  enableSuite[GlutenShufflePartitionsUtilSuite]
   // TODO: 4.x enableSuite[GlutenSimpleSQLViewSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenSparkPlanSuite]  // 1 failure
+  enableSuite[GlutenSparkPlanSuite]
+    .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
   enableSuite[GlutenSparkScriptTransformationSuite]
   enableSuite[GlutenSparkSqlParserSuite]
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
   enableSuite[GlutenUnsafeKVExternalSorterSuite]
-  // TODO: 4.x enableSuite[GlutenUnsafeRowSerializerSuite]  // 1 failure
+  enableSuite[GlutenUnsafeRowSerializerSuite]
   // TODO: 4.x enableSuite[GlutenWholeStageCodegenSparkSubmitSuite]  // 1 failure
   // TODO: 4.x enableSuite[GlutenWholeStageCodegenSuite]  // 24 failures
   enableSuite[GlutenBroadcastExchangeSuite]
@@ -731,7 +740,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("test with low buffer spill threshold")
   enableSuite[GlutenTakeOrderedAndProjectSuite]
   enableSuite[GlutenSessionExtensionSuite]
-  enableSuite[TestFileSourceScanExecTransformer]
   enableSuite[GlutenBucketedReadWithoutHiveSupportSuite]
     // Exclude the following suite for plan changed from SMJ to SHJ.
     .exclude("avoid shuffle when join 2 bucketed tables")
@@ -790,14 +798,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSaveLoadSuite]
   enableSuite[GlutenTableScanSuite]
   // Generated suites for org.apache.spark.sql.sources
-  // TODO: 4.x enableSuite[GlutenBucketedReadWithHiveSupportSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenBucketedWriteWithHiveSupportSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenCommitFailureTestRelationSuite]  // 2 failures
   enableSuite[GlutenDataSourceAnalysisSuite]
-  // TODO: 4.x enableSuite[GlutenDisableUnnecessaryBucketedScanWithHiveSupportSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenJsonHadoopFsRelationSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenParquetHadoopFsRelationSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenSimpleTextHadoopFsRelationSuite]  // 2 failures
   // Generated suites for org.apache.spark.sql
   enableSuite[GlutenCacheManagerSuite]
   enableSuite[GlutenDataFrameShowSuite]
@@ -809,7 +810,8 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenExplainSuite]  // 1 failure
   enableSuite[GlutenICUCollationsMapSuite]
   enableSuite[GlutenInlineTableParsingImprovementsSuite]
-  // TODO: 4.x enableSuite[GlutenJoinHintSuite]  // 1 failure
+  enableSuite[GlutenJoinHintSuite]
+    .exclude("join strategy hint - shuffle-replicate-nl")
   enableSuite[GlutenLogQuerySuite]
     // Overridden
     .exclude("Query Spark logs with exception using SQL")
@@ -823,6 +825,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenSetCommandSuite]  // 1 failure
   enableSuite[GlutenSparkSessionBuilderSuite]
   enableSuite[GlutenSparkSessionJobTaggingAndCancellationSuite]
+    .exclude("Tags set from session are prefixed with session UUID")
   enableSuite[GlutenTPCDSCollationQueryTestSuite]
   enableSuite[GlutenTPCDSModifiedPlanStabilitySuite]
   enableSuite[GlutenTPCDSModifiedPlanStabilityWithStatsSuite]
@@ -1113,9 +1116,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("merge with NOT NULL checks")
   enableSuite[GlutenDeltaBasedUpdateAsDeleteAndInsertTableSuite]
-    // FIXME: complex type result mismatch
-    .exclude("update nested struct fields")
-    .exclude("update char/varchar columns")
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("update with NOT NULL checks")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
@@ -1200,7 +1200,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenStreamingInnerJoinSuite]
   enableSuite[GlutenStreamingLeftSemiJoinSuite]
   // TODO: 4.x enableSuite[GlutenStreamingOuterJoinSuite]
-  enableSuite[GlutenStreamingQueryHashPartitionVerifySuite]
+  // TODO: 4.x enableSuite[GlutenStreamingQueryHashPartitionVerifySuite]
   enableSuite[GlutenStreamingQueryListenerSuite]
   enableSuite[GlutenStreamingQueryListenersConfSuite]
   enableSuite[GlutenStreamingQueryManagerSuite]

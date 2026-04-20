@@ -165,17 +165,36 @@ RowTypePtr getJoinOutputType(
   VELOX_FAIL("Output should include left or right columns.");
 }
 
+// The base names can be referred from 'velox/expression/FunctionSignature.cpp'.
+std::string typeBaseName(const TypePtr& type) {
+  if (type->isDecimal()) {
+    return "decimal";
+  }
+  if (type->isPrimitiveType()) {
+    return type->toString();
+  }
+
+  if (type->kind() == TypeKind::ARRAY) {
+    return "array";
+  }
+
+  if (type->kind() == TypeKind::MAP) {
+    return "map";
+  }
+
+  if (type->kind() == TypeKind::ROW) {
+    return "row";
+  }
+  VELOX_UNREACHABLE("Unknown type: {}", type->toString());
+}
+
 // Get the function name suffix used by merge_extract companion function when having the same intermediate type across
 // signatures. Correponds to Velox 'toSuffixString', and the base name can be referred from
 // 'velox/expression/FunctionSignature.cpp'.
 std::string companionFunctionSuffix(const TypePtr& type) {
   // For primitive and decimal types, return their names.
-  if (type->isDecimal()) {
-    return "DECIMAL";
-  }
-
-  if (type->isPrimitiveType()) {
-    return type->toString();
+  if (type->isDecimal() || type->isPrimitiveType()) {
+    return typeBaseName(type);
   }
 
   if (type->kind() == TypeKind::ARRAY) {
@@ -199,6 +218,25 @@ std::string companionFunctionSuffix(const TypePtr& type) {
   result += "_end";
   result += name;
   return result;
+}
+
+// Compatible with 'validateBaseTypeAndCollectTypeParams' in 'velox/expression/FunctionSignature.cpp'.
+bool isBuiltinTypeName(const std::string& typeName) {
+  return TypeKindName::tryToTypeKind(typeName).has_value() || isDecimalName(typeName) || isDateName(typeName) ||
+      hasType(typeName);
+}
+
+// Checks if the companion function entry has a matching return type for the given result type.
+bool hasMatchingReturnType(const exec::CompanionSignatureEntry& entry, const TypePtr& returnType) {
+  const auto returnTypeName = boost::algorithm::to_upper_copy(typeBaseName(returnType));
+  for (const auto& signature : entry.signatures) {
+    const auto signatureTypeName = boost::algorithm::to_upper_copy(signature->returnType().baseName());
+    // Non-built-in type is allowed for a generic type match.
+    if (!isBuiltinTypeName(signatureTypeName) || signatureTypeName == returnTypeName) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace
@@ -278,20 +316,31 @@ std::string SubstraitToVeloxPlanConverter::toAggregationFunctionName(
       suffix = "_partial";
       break;
     case core::AggregationNode::Step::kFinal: {
-      auto functionName = baseName + "_merge_extract";
+      const auto functionName = baseName + "_merge_extract";
       auto signatures = exec::getAggregateFunctionSignatures(functionName);
       if (signatures.has_value() && signatures.value().size() > 0) {
         // The merge_extract function is registered without suffix.
         return functionName;
       }
-      // The merge_extract function must be registered with suffix based on result type.
-      functionName += ("_" + companionFunctionSuffix(resultType));
-      signatures = exec::getAggregateFunctionSignatures(functionName);
-      VELOX_CHECK(
-          signatures.has_value() && signatures.value().size() > 0,
-          "Cannot find function signature for {} in final aggregation step.",
-          functionName);
-      return functionName;
+
+      // The merge_extract function should be registered with suffix based on result type.
+      const auto fullName = functionName + "_" + companionFunctionSuffix(resultType);
+      signatures = exec::getAggregateFunctionSignatures(fullName);
+      if (signatures.has_value() && signatures.value().size() > 0) {
+        return fullName;
+      }
+
+      // When a function uses generic type variables in its signature (e.g., ..._T), infer the function by matching the
+      // result type allow non-built-in names.
+      auto companionSigs = exec::getCompanionFunctionSignatures(baseName);
+      if (companionSigs.has_value()) {
+        for (const auto& entry : companionSigs->mergeExtract) {
+          if (hasMatchingReturnType(entry, resultType)) {
+            return entry.functionName;
+          }
+        }
+      }
+      VELOX_FAIL("Cannot find function signature for {} in final aggregation step.", baseName);
     }
     case core::AggregationNode::Step::kIntermediate:
       suffix = "_merge";
@@ -430,6 +479,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         leftNode,
         rightNode,
         getJoinOutputType(leftNode, rightNode, joinType),
+        false,
         false,
         joinHasNullKeys,
         opaqueSharedHashTable);
@@ -942,11 +992,12 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     // Child should be either ProjectNode or CudfValueStreamNode (GPU) in case of project fallback.
     VELOX_CHECK(
         (std::dynamic_pointer_cast<const core::ProjectNode>(childNode) != nullptr ||
-        std::dynamic_pointer_cast<const core::TableScanNode>(childNode) != nullptr
+         std::dynamic_pointer_cast<const core::TableScanNode>(childNode) != nullptr
 #ifdef GLUTEN_ENABLE_GPU
-            || std::dynamic_pointer_cast<const CudfValueStreamNode>(childNode) != nullptr
+         || std::dynamic_pointer_cast<const CudfValueStreamNode>(childNode) != nullptr
 #endif
-        ) && childNode->outputType()->size() > requiredChildOutput.size(),
+         ) &&
+            childNode->outputType()->size() > requiredChildOutput.size(),
         "injectedProject is true, but the ProjectNode or TableScanNode or CudfValueStreamNode (in case of projection fallback)"
         " is missing or does not have the corresponding projection field");
 
@@ -1211,10 +1262,10 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
 
   auto windowFunc = core::TopNRowNumberNode::RankFunction::kRowNumber;
   if (windowGroupLimitRel.has_advanced_extension()) {
-    if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "rank")){
-        windowFunc = core::TopNRowNumberNode::RankFunction::kRank;
+    if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "rank")) {
+      windowFunc = core::TopNRowNumberNode::RankFunction::kRank;
     } else if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "dense_rank")) {
-        windowFunc = core::TopNRowNumberNode::RankFunction::kDenseRank;
+      windowFunc = core::TopNRowNumberNode::RankFunction::kDenseRank;
     }
   }
 
@@ -1332,7 +1383,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(
-    const ::substrait::ReadRel& readRel, int32_t streamIdx) {
+    const ::substrait::ReadRel& readRel,
+    int32_t streamIdx) {
   // Use TableScanNode with iterator connector for runtime iterator inputs
   // Get output schema from ReadRel
   uint64_t colNum = 0;
@@ -1367,11 +1419,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(
   }
 
   // Create TableScanNode
-  auto tableScanNode = std::make_shared<core::TableScanNode>(
-      nodeId,
-      outputType,
-      tableHandle,
-      assignments);
+  auto tableScanNode = std::make_shared<core::TableScanNode>(nodeId, outputType, tableHandle, assignments);
 
   // Mark this as a stream-based split
   auto splitInfo = std::make_shared<SplitInfo>();

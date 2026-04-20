@@ -67,6 +67,32 @@ class GlutenDirectBufferedInput : public facebook::velox::dwio::common::DirectBu
     }
     coalescedLoads_.clear();
   }
+
+  std::unique_ptr<facebook::velox::dwio::common::BufferedInput> clone() const override {
+    return std::unique_ptr<facebook::velox::dwio::common::BufferedInput>(new GlutenDirectBufferedInput(
+        input_, fileNum_, tracker_, groupId_, ioStatistics_, ioStats_, executor_, options_));
+  }
+
+ private:
+  // Constructor used by clone().
+  GlutenDirectBufferedInput(
+      std::shared_ptr<facebook::velox::dwio::common::ReadFileInputStream> input,
+      facebook::velox::StringIdLease fileNum,
+      std::shared_ptr<facebook::velox::cache::ScanTracker> tracker,
+      facebook::velox::StringIdLease groupId,
+      std::shared_ptr<facebook::velox::io::IoStatistics> ioStatistics,
+      std::shared_ptr<facebook::velox::IoStats> ioStats,
+      folly::Executor* executor,
+      const facebook::velox::io::ReaderOptions& readerOptions)
+      : DirectBufferedInput(
+            std::move(input),
+            std::move(fileNum),
+            std::move(tracker),
+            std::move(groupId),
+            std::move(ioStatistics),
+            std::move(ioStats),
+            executor,
+            readerOptions) {}
 };
 
 } // namespace gluten

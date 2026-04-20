@@ -71,6 +71,10 @@ class PartitionWriter : public Reclaimable {
     return payloadPool_->bytes_allocated();
   }
 
+  virtual bool enableTypeAwareCompress() const {
+    return false;
+  }
+
  protected:
   uint32_t numPartitions_;
   std::unique_ptr<arrow::util::Codec> codec_;

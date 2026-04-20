@@ -56,7 +56,7 @@ class JniHashTableContext {
 
  private:
   JniHashTableContext() : hashTableObjStore_(ObjectStore::create()) {}
-  
+
   ~JniHashTableContext() {
     // Note: The destructor is called at program exit (after main() returns).
     // By this time, JNI_OnUnload should have already been called, which invokes
@@ -73,6 +73,8 @@ class JniHashTableContext {
 // Return the hash table builder address.
 std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     const std::vector<std::string>& joinKeys,
+    const std::vector<std::string>& filterBuildColumns,
+    bool filterPropagatesNulls,
     std::vector<std::string> names,
     std::vector<facebook::velox::TypePtr> veloxTypeList,
     int joinType,
@@ -80,6 +82,10 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     bool isExistenceJoin,
     bool isNullAwareAntiJoin,
     int64_t bloomFilterPushdownSize,
+    uint32_t minTableRowsForParallelJoinBuild,
+    uint32_t joinBuildVectorHasherMaxNumDistinct,
+    uint32_t abandonHashBuildDedupMinRows,
+    uint32_t abandonHashBuildDedupMinPct,
     std::vector<std::shared_ptr<ColumnarBatch>>& batches,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool);
 

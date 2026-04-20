@@ -19,6 +19,7 @@
 #include "memory/ArrowMemory.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "shuffle/Utils.h"
+#include "shuffle/VeloxTypeAwareCompress.h"
 #include "utils/Common.h"
 #include "utils/Macros.h"
 #include "utils/VeloxArrowUtils.h"
@@ -111,7 +112,7 @@ arrow::Status collectFlatVectorBufferStringView(
   auto* rawLength = reinterpret_cast<gluten::StringLengthType*>(lengthBuffer->mutable_data());
   uint64_t offset = 0;
   for (int32_t i = 0; i < flatVector->size(); i++) {
-    auto length = rawValues[i].size();
+    auto length = flatVector->isNullAt(i) ? 0 : rawValues[i].size();
     *rawLength++ = length;
     offset += length;
   }
@@ -120,6 +121,9 @@ arrow::Status collectFlatVectorBufferStringView(
   ARROW_ASSIGN_OR_RAISE(auto valueBuffer, arrow::AllocateResizableBuffer(offset, pool));
   auto raw = reinterpret_cast<char*>(valueBuffer->mutable_data());
   for (int32_t i = 0; i < flatVector->size(); i++) {
+    if (flatVector->isNullAt(i)) {
+      continue;
+    }
     gluten::fastCopy(raw, rawValues[i].data(), rawValues[i].size());
     raw += rawValues[i].size();
   }
@@ -764,6 +768,7 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
         isValidityBuffer_.push_back(true);
         isValidityBuffer_.push_back(false);
         isValidityBuffer_.push_back(false);
+        tacBufferTypes_.insert(tacBufferTypes_.end(), 3, tac::kUnsupported);
       } break;
       case arrow::StructType::type_id:
       case arrow::MapType::type_id:
@@ -777,6 +782,7 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
         simpleColumnIndices_.push_back(i);
         isValidityBuffer_.push_back(true);
         isValidityBuffer_.push_back(boolIsBit());
+        tacBufferTypes_.insert(tacBufferTypes_.end(), 2, tac::kUnsupported);
       } break;
       case arrow::NullType::type_id:
         break;
@@ -784,12 +790,15 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
         simpleColumnIndices_.push_back(i);
         isValidityBuffer_.push_back(true);
         isValidityBuffer_.push_back(false);
+        tacBufferTypes_.push_back(tac::kUnsupported); // validity
+        tacBufferTypes_.push_back(veloxTypeToTacType(veloxColumnTypes_[i]->kind())); // data
       } break;
     }
   }
 
   if (hasComplexType_) {
     isValidityBuffer_.push_back(false);
+    tacBufferTypes_.push_back(tac::kUnsupported);
   }
 
   fixedWidthColumnCount_ = simpleColumnIndices_.size();
@@ -973,9 +982,11 @@ arrow::Status VeloxHashShuffleWriter::evictBuffers(
     std::vector<std::shared_ptr<arrow::Buffer>> buffers,
     bool reuseBuffers) {
   if (!buffers.empty()) {
-    auto payload =
-        std::make_unique<InMemoryPayload>(numRows, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_);
-    RETURN_NOT_OK(partitionWriter_->hashEvict(partitionId, std::move(payload), Evict::kCache, reuseBuffers, writtenBytes_));
+    auto* types = partitionWriter_->enableTypeAwareCompress() ? &tacBufferTypes_ : nullptr;
+    auto payload = std::make_unique<InMemoryPayload>(
+        numRows, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_, types);
+    RETURN_NOT_OK(
+        partitionWriter_->hashEvict(partitionId, std::move(payload), Evict::kCache, reuseBuffers, writtenBytes_));
   }
   return arrow::Status::OK();
 }
@@ -1393,8 +1404,9 @@ arrow::Result<int64_t> VeloxHashShuffleWriter::evictPartitionBuffersMinSize(int6
     for (auto& item : pidToSize) {
       auto pid = item.first;
       ARROW_ASSIGN_OR_RAISE(auto buffers, assembleBuffers(pid, false));
+      auto* types = partitionWriter_->enableTypeAwareCompress() ? &tacBufferTypes_ : nullptr;
       auto payload = std::make_unique<InMemoryPayload>(
-          item.second, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_);
+          item.second, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_, types);
       metrics_.totalBytesToEvict += payload->rawSize();
       RETURN_NOT_OK(partitionWriter_->hashEvict(pid, std::move(payload), Evict::kSpill, false, writtenBytes_));
       evicted = beforeEvict - partitionBufferPool_->bytes_allocated();

@@ -655,7 +655,7 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIte
   if (outIter == nullptr) {
     throw GlutenException("Invalid iterator handle for addSplits");
   }
-  
+
   // Get the underlying split-aware iterator
   auto* splitAwareIter = dynamic_cast<gluten::SplitAwareColumnarBatchIterator*>(outIter->getInputIter());
   if (splitAwareIter == nullptr) {
@@ -949,7 +949,8 @@ Java_org_apache_gluten_vectorized_LocalPartitionWriterJniWrapper_createPartition
     jint shuffleFileBufferSize,
     jstring dataFileJstr,
     jstring localDirsJstr,
-    jboolean enableDictionary) {
+    jboolean enableDictionary,
+    jboolean enableTypeAwareCompress) {
   JNI_METHOD_START
 
   const auto ctx = getRuntime(env, wrapper);
@@ -964,7 +965,8 @@ Java_org_apache_gluten_vectorized_LocalPartitionWriterJniWrapper_createPartition
       mergeBufferSize,
       mergeThreshold,
       numSubDirs,
-      enableDictionary);
+      enableDictionary,
+      enableTypeAwareCompress);
 
   auto partitionWriter = std::make_shared<LocalPartitionWriter>(
       numPartitions,
@@ -1017,7 +1019,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
     jdouble splitBufferReallocThreshold,
     jlong partitionWriterHandle) {
   JNI_METHOD_START
-  
+
   const auto ctx = getRuntime(env, wrapper);
 
   auto partitionWriter = ObjectStore::retrieve<PartitionWriter>(partitionWriterHandle);

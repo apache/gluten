@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_04_01-iceberg
-VELOX_ENHANCED_BRANCH=ibm-2026_04_01-fix
+VELOX_BRANCH=dft-2026_04_16
+VELOX_ENHANCED_BRANCH=ibm-2026_04_16
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
@@ -197,8 +197,9 @@ function setup_linux {
   elif [[ "$LINUX_DISTRIBUTION" == "rhel" ]]; then
     case "$LINUX_VERSION_ID" in
       9.6) ;;
+      9.7) ;;
       *)
-        echo "Unsupported openEuler version: $LINUX_VERSION_ID"
+        echo "Unsupported rhel version: $LINUX_VERSION_ID"
         exit 1
       ;;
     esac

@@ -14,10 +14,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.sql.sources
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+#pragma once
 
-class GlutenBucketedWriteWithHiveSupportSuite
-  extends BucketedWriteWithHiveSupportSuite
-  with GlutenTestsCommonTrait {}
+#include "utils/tac/TypeAwareCompressCodec.h"
+#include "velox/type/Type.h"
+
+namespace gluten {
+
+/// Convert a Velox TypeKind to a TAC data type for type-aware compression.
+/// Returns tac::kUnsupported for types that cannot be compressed by TAC.
+inline int8_t veloxTypeToTacType(facebook::velox::TypeKind kind) {
+  switch (kind) {
+    case facebook::velox::TypeKind::BIGINT:
+      return tac::kUInt64;
+    default:
+      return tac::kUnsupported;
+  }
+}
+
+} // namespace gluten

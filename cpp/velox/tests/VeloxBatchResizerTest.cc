@@ -53,13 +53,19 @@ class VeloxBatchResizerTest : public ::testing::Test, public test::VectorTestBas
     return out;
   }
 
-  void checkResize(int32_t min, int32_t max, int64_t preferredBatchBytes, std::vector<int32_t> inSizes, std::vector<int32_t> outSizes) {
+  void checkResize(
+      int32_t min,
+      int32_t max,
+      int64_t preferredBatchBytes,
+      std::vector<int32_t> inSizes,
+      std::vector<int32_t> outSizes) {
     auto inBatches = std::vector<std::shared_ptr<ColumnarBatch>>();
     inBatches.reserve(inSizes.size());
     for (const auto& size : inSizes) {
       inBatches.push_back(std::make_shared<VeloxColumnarBatch>(newVector(size)));
     }
-    VeloxBatchResizer resizer(pool(), min, max, preferredBatchBytes, std::make_unique<ColumnarBatchArray>(std::move(inBatches)));
+    VeloxBatchResizer resizer(
+        pool(), min, max, preferredBatchBytes, std::make_unique<ColumnarBatchArray>(std::move(inBatches)));
     auto actualOutSizes = std::vector<int32_t>();
     while (true) {
       auto next = resizer.next();

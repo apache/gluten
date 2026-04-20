@@ -14,10 +14,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.sql.sources
+package org.apache.spark.sql.delta
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.hadoop.fs.RawLocalFileSystem
 
-class GlutenCommitFailureTestRelationSuite
-  extends CommitFailureTestRelationSuite
-  with GlutenTestsCommonTrait {}
+import java.net.URI
+
+/** A fake file system to test whether session Hadoop configuration will be picked up. */
+class FakeFileSystem extends RawLocalFileSystem {
+  override def getScheme: String = FakeFileSystem.scheme
+  override def getUri: URI = FakeFileSystem.uri
+}
+
+object FakeFileSystem {
+  val scheme = "fake"
+  val uri = URI.create(s"$scheme:///")
+}

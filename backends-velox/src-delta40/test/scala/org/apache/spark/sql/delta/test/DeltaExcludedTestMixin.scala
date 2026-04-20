@@ -14,10 +14,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.sql.sources
+package org.apache.spark.sql.delta.test
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.QueryTest
 
-class GlutenCommitFailureTestRelationSuite
-  extends CommitFailureTestRelationSuite
-  with GlutenTestsCommonTrait {}
+import org.scalactic.source.Position
+import org.scalatest.Tag
+
+trait DeltaExcludedTestMixin extends QueryTest {
+
+  /** Tests to be ignored by the runner. */
+  override def excluded: Seq[String] = Seq.empty
+
+  override protected def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
+      pos: Position): Unit = {
+    if (excluded.contains(testName)) {
+      super.ignore(testName, testTags: _*)(testFun)
+    } else {
+      super.test(testName, testTags: _*)(testFun)
+    }
+  }
+}

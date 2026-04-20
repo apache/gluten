@@ -86,3 +86,6 @@ metastore_db/
 
 # Maven extensions (local config)
 .mvn/
+
+# Claude Code local config
+.claude/
