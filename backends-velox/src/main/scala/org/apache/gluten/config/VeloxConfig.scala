@@ -220,7 +220,7 @@ object VeloxConfig extends ConfigRegistry {
       .doc(
         "Timeout for asynchronous execution when task is being stopped in Velox backend. " +
           "It's recommended to set to a number larger than network connection timeout that the " +
-          "possible aysnc tasks are relying on.")
+          "possible async tasks are relying on.")
       .timeConf(TimeUnit.MILLISECONDS)
       .createWithDefault(30000)
 
@@ -565,7 +565,7 @@ object VeloxConfig extends ConfigRegistry {
     buildConf("spark.gluten.velox.castFromVarcharAddTrimNode")
       .doc(
         "If true, will add a trim node " +
-          "which has the same sementic as vanilla Spark to CAST-from-varchar." +
+          "which has the same semantic as vanilla Spark to CAST-from-varchar." +
           "Otherwise, do nothing.")
       .booleanConf
       .createWithDefault(false)
