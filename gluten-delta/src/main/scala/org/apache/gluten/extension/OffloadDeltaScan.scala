@@ -21,7 +21,10 @@ import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
 import org.apache.spark.sql.delta.DeltaParquetFileFormat
+import org.apache.spark.sql.delta.commands.DeletionVectorUtils.deletionVectorsReadable
 import org.apache.spark.sql.delta.files.TahoeFileIndex
+import org.apache.spark.sql.delta.files.TahoeFileIndexWithSnapshotDescriptor
+import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 
@@ -29,6 +32,9 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
   override def offload(plan: SparkPlan): SparkPlan = plan match {
     case scan: FileSourceScanExec if isDeltaScan(scan) && isDeltaLogScan(scan) =>
       FallbackTags.add(scan, "fallback Delta _delta_log scan")
+      scan
+    case scan: FileSourceScanExec if shouldFallbackDeletionVectorScan(scan) =>
+      FallbackTags.add(scan, "fallback Delta DV scan without metadata row index")
       scan
     case scan: FileSourceScanExec if isDeltaScan(scan) =>
       DeltaScanTransformer(scan)
@@ -55,6 +61,23 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
       path =>
         val root = path.toString
         root.contains("/_delta_log") || root.contains("\\_delta_log") || root.endsWith("_delta_log")
+    }
+  }
+
+  private def shouldFallbackDeletionVectorScan(scan: FileSourceScanExec): Boolean = {
+    val useMetadataRowIndex =
+      scan.relation.sparkSession.sessionState.conf
+        .getConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX)
+    if (useMetadataRowIndex) {
+      return false
+    }
+
+    scan.relation.location match {
+      case index: TahoeFileIndexWithSnapshotDescriptor =>
+        deletionVectorsReadable(index.protocol, index.metadata) &&
+        index.rowIndexFilters.exists(_.nonEmpty)
+      case _ =>
+        false
     }
   }
 }
