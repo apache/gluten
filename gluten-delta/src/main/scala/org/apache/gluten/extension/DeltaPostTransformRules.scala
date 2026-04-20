@@ -38,11 +38,15 @@ object DeltaPostTransformRules {
       pushDownInputFileExprRule ::
       columnMappingRule :: Nil
 
+  private val deletionVectorDeletedRowColumnName = "__delta_internal_is_row_deleted"
+  private val deletionVectorRowIndexColumnName = "__delta_internal_row_index"
   private val deletionVectorInternalColumnNames =
-    Set("__delta_internal_is_row_deleted", "__delta_internal_row_index")
+    Set(deletionVectorDeletedRowColumnName, deletionVectorRowIndexColumnName)
 
   private val COLUMN_MAPPING_RULE_TAG: TreeNodeTag[String] =
     TreeNodeTag[String]("org.apache.gluten.delta.column.mapping")
+  private val PRESERVE_DELETION_VECTOR_ROW_INDEX_TAG: TreeNodeTag[Boolean] =
+    TreeNodeTag[Boolean]("org.apache.gluten.delta.preserve.deletion.vector.row.index")
 
   private def notAppliedColumnMappingRule(plan: SparkPlan): Boolean = {
     plan.getTagValue(COLUMN_MAPPING_RULE_TAG).isEmpty
@@ -75,14 +79,17 @@ object DeltaPostTransformRules {
    * needed for the JVM reader path, but for the native Delta scan path they must be stripped or
    * they will be applied twice with incompatible semantics.
    */
-  val nativeDeletionVectorRule: Rule[SparkPlan] = (plan: SparkPlan) =>
+  val nativeDeletionVectorRule: Rule[SparkPlan] = (plan: SparkPlan) => {
+    tagRowIndexRequiredSubtrees(plan)
     plan.transformUp {
       case scan: DeltaScanTransformer =>
         val cleanedDataFilters = scan.dataFilters.flatMap(stripDeletionVectorPredicate)
         val cleanedPushDownFilters =
           scan.pushDownFilters.map(_.flatMap(stripDeletionVectorPredicate))
-        val cleanedOutput = stripDeletionVectorInternalOutput(scan.output)
-        val cleanedRequiredSchema = stripDeletionVectorInternalSchema(scan.requiredSchema)
+        val preserveRowIndex = shouldPreserveDeletionVectorRowIndex(scan)
+        val cleanedOutput = stripDeletionVectorInternalOutput(scan.output, preserveRowIndex)
+        val cleanedRequiredSchema =
+          stripDeletionVectorInternalSchema(scan.requiredSchema, preserveRowIndex)
         if (
           cleanedDataFilters == scan.dataFilters &&
           cleanedPushDownFilters == scan.pushDownFilters &&
@@ -98,7 +105,9 @@ object DeltaPostTransformRules {
             pushDownFilters = cleanedPushDownFilters)
         }
       case project: ProjectExecTransformer =>
-        val cleanedProjectList = stripDeletionVectorInternalProjectList(project.projectList)
+        val cleanedProjectList = stripDeletionVectorInternalProjectList(
+          project.projectList,
+          shouldPreserveDeletionVectorRowIndex(project))
         if (cleanedProjectList == project.projectList) {
           project
         } else if (cleanedProjectList.isEmpty) {
@@ -117,6 +126,7 @@ object DeltaPostTransformRules {
             filter.child
         }
     }
+  }
 
   private def isDeltaColumnMappingFileFormat(fileFormat: FileFormat): Boolean = fileFormat match {
     case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
@@ -136,17 +146,60 @@ object DeltaPostTransformRules {
     expr.references.exists(attr => deletionVectorInternalColumnNames.contains(attr.name))
   }
 
-  private def stripDeletionVectorInternalOutput(output: Seq[Attribute]): Seq[Attribute] = {
-    output.filterNot(attr => deletionVectorInternalColumnNames.contains(attr.name))
+  private def referencesDeletionVectorRowIndex(expr: Expression): Boolean = {
+    expr.references.exists(_.name == deletionVectorRowIndexColumnName)
+  }
+
+  private def tagRowIndexRequiredSubtrees(plan: SparkPlan): Unit = {
+    def tagSubtree(subtree: SparkPlan): Unit = {
+      subtree.foreach(_.setTagValue(PRESERVE_DELETION_VECTOR_ROW_INDEX_TAG, true))
+    }
+
+    def visit(node: SparkPlan): Unit = {
+      val shouldPreserveRowIndex =
+        node.expressions.exists(containsIncrementMetricExpr) ||
+          node.expressions.exists(referencesDeletionVectorRowIndex)
+      if (shouldPreserveRowIndex) {
+        node.children.foreach(tagSubtree)
+      }
+      node.children.foreach(visit)
+    }
+
+    visit(plan)
+  }
+
+  private def shouldPreserveDeletionVectorRowIndex(plan: SparkPlan): Boolean = {
+    plan.getTagValue(PRESERVE_DELETION_VECTOR_ROW_INDEX_TAG).contains(true) ||
+    plan.expressions.exists(containsIncrementMetricExpr) ||
+    plan.expressions.exists(referencesDeletionVectorRowIndex)
+  }
+
+  private def shouldStripDeletionVectorInternalColumn(
+      columnName: String,
+      preserveRowIndex: Boolean): Boolean = {
+    columnName == deletionVectorDeletedRowColumnName ||
+    (!preserveRowIndex && columnName == deletionVectorRowIndexColumnName)
+  }
+
+  private def stripDeletionVectorInternalOutput(
+      output: Seq[Attribute],
+      preserveRowIndex: Boolean): Seq[Attribute] = {
+    output.filterNot(attr => shouldStripDeletionVectorInternalColumn(attr.name, preserveRowIndex))
   }
 
   private def stripDeletionVectorInternalProjectList(
-      projectList: Seq[NamedExpression]): Seq[NamedExpression] = {
-    projectList.filterNot(expr => deletionVectorInternalColumnNames.contains(expr.name))
+      projectList: Seq[NamedExpression],
+      preserveRowIndex: Boolean): Seq[NamedExpression] = {
+    projectList.filterNot(
+      expr => shouldStripDeletionVectorInternalColumn(expr.name, preserveRowIndex))
   }
 
-  private def stripDeletionVectorInternalSchema(schema: StructType): StructType = {
-    StructType(schema.filterNot(field => deletionVectorInternalColumnNames.contains(field.name)))
+  private def stripDeletionVectorInternalSchema(
+      schema: StructType,
+      preserveRowIndex: Boolean): StructType = {
+    StructType(
+      schema.filterNot(
+        field => shouldStripDeletionVectorInternalColumn(field.name, preserveRowIndex)))
   }
 
   private def stripDeletionVectorPredicate(expr: Expression): Option[Expression] = {
