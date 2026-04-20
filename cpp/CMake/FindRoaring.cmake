@@ -157,16 +157,15 @@ endif()
 include(FetchContent)
 
 set(_roaring_version "4.3.11")
-set(_roaring_sha256
-    "acd3a17e6c95acf3154d60c38c90e927e6c531805bc740a040fa111819af380e")
 set(ENABLE_ROARING_TESTS
     OFF
     CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
   roaring_fetch
-  URL "https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v${_roaring_version}.tar.gz"
-  URL_HASH "SHA256=${_roaring_sha256}")
+  GIT_REPOSITORY "https://github.com/RoaringBitmap/CRoaring.git"
+  GIT_TAG "v${_roaring_version}"
+  GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(roaring_fetch)
 
 if(TARGET roaring)

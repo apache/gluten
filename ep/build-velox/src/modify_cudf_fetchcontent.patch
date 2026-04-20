@@ -1,0 +1,52 @@
+diff --git a/CMake/resolve_dependency_modules/cudf.cmake b/CMake/resolve_dependency_modules/cudf.cmake
+--- a/CMake/resolve_dependency_modules/cudf.cmake
++++ b/CMake/resolve_dependency_modules/cudf.cmake
+@@ -70,35 +70,39 @@ block(SCOPE_FOR VARIABLES)
+   set(CUDF_BUILD_TESTUTIL OFF)
+   set(BUILD_SHARED_LIBS ON)
+ 
+   FetchContent_Declare(
+     rapids-cmake
+-    URL ${VELOX_rapids_cmake_SOURCE_URL}
+-    URL_HASH ${VELOX_rapids_cmake_BUILD_SHA256_CHECKSUM}
++    GIT_REPOSITORY https://github.com/rapidsai/rapids-cmake.git
++    GIT_TAG ${VELOX_rapids_cmake_COMMIT}
++    GIT_SHALLOW TRUE
+     UPDATE_DISCONNECTED 1
+   )
+ 
+   FetchContent_Declare(
+     rmm
+-    URL ${VELOX_rmm_SOURCE_URL}
+-    URL_HASH ${VELOX_rmm_BUILD_SHA256_CHECKSUM}
++    GIT_REPOSITORY https://github.com/rapidsai/rmm.git
++    GIT_TAG ${VELOX_rmm_COMMIT}
++    GIT_SHALLOW TRUE
+     SOURCE_SUBDIR
+     cpp
+     UPDATE_DISCONNECTED 1
+   )
+ 
+   FetchContent_Declare(
+     kvikio
+-    URL ${VELOX_kvikio_SOURCE_URL}
+-    URL_HASH ${VELOX_kvikio_BUILD_SHA256_CHECKSUM}
++    GIT_REPOSITORY https://github.com/rapidsai/kvikio.git
++    GIT_TAG ${VELOX_kvikio_COMMIT}
++    GIT_SHALLOW TRUE
+     SOURCE_SUBDIR
+     cpp
+     UPDATE_DISCONNECTED 1
+   )
+ 
+   FetchContent_Declare(
+     cudf
+-    URL ${VELOX_cudf_SOURCE_URL}
+-    URL_HASH ${VELOX_cudf_BUILD_SHA256_CHECKSUM}
++    GIT_REPOSITORY https://github.com/rapidsai/cudf.git
++    GIT_TAG ${VELOX_cudf_COMMIT}
++    GIT_SHALLOW TRUE
+     SOURCE_SUBDIR
+     cpp
+     UPDATE_DISCONNECTED 1
+   )
