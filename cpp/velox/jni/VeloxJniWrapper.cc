@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include <IcebergSortingColumnList.pb.h>
 #include <jni.h>
 
 #include <folly/executors/CPUThreadPoolExecutor.h>
@@ -859,7 +860,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_
     jlong taskId,
     jstring operationId,
     jbyteArray partition,
-    jbyteArray fieldBytes) {
+    jbyteArray fieldBytes,
+    jbyteArray sortingColumnBytes) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
   auto runtime = dynamic_cast<VeloxRuntime*>(ctx);
@@ -874,6 +876,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_
   auto safeArrayField = gluten::getByteArrayElementsSafe(env, fieldBytes);
   gluten::IcebergNestedField protoField;
   gluten::parseProtobuf(safeArrayField.elems(), safeArrayField.length(), &protoField);
+  auto safeArraySortingList = gluten::getByteArrayElementsSafe(env, sortingColumnBytes);
+  gluten::IcebergSortingColumnList protoColumnList;
+  gluten::parseProtobuf(safeArraySortingList.elems(), safeArraySortingList.length(), &protoColumnList);
   return ctx->saveObject(runtime->createIcebergWriter(
       rowType,
       format,
@@ -884,6 +889,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_
       jStringToCString(env, operationId),
       spec,
       protoField,
+      protoColumnList,
       sparkConf));
   JNI_METHOD_END(kInvalidObjectHandle)
 }

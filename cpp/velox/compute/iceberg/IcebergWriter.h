@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <IcebergSortingColumnList.pb.h>
+
 #include "IcebergNestedField.pb.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "utils/Metrics.h"
@@ -48,6 +50,7 @@ class IcebergWriter {
       const std::string& operationId,
       std::shared_ptr<const facebook::velox::connector::hive::iceberg::IcebergPartitionSpec> spec,
       const gluten::IcebergNestedField& field,
+      const gluten::IcebergSortingColumnList& sortingColumnList,
       const std::unordered_map<std::string, std::string>& sparkConfs,
       std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool,
       std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool);

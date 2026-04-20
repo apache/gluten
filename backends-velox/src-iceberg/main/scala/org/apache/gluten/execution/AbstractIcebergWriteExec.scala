@@ -18,9 +18,12 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.IcebergNestedFieldVisitor
 import org.apache.gluten.connector.write.{ColumnarBatchDataWriterFactory, ColumnarStreamingDataWriterFactory, IcebergDataWriteFactory}
+import org.apache.gluten.proto.{IcebergSortingColumn, IcebergSortingColumnList}
 
 import org.apache.spark.sql.types.StructType
 
+import org.apache.iceberg.NullOrder.NULLS_FIRST
+import org.apache.iceberg.SortDirection.ASC
 import org.apache.iceberg.spark.source.IcebergWriteUtil
 import org.apache.iceberg.types.TypeUtil
 
@@ -39,14 +42,29 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
     val filteredSchema = StructType(
       schema.fields.filter(field => writeFieldNames.contains(field.name))
     )
+    val sortOrder = IcebergWriteUtil.getSortOrder(write)
+    val sortingColumnList = IcebergSortingColumnList.newBuilder()
+    sortOrder.fields().forEach {
+      field =>
+        val sortingColumn = IcebergSortingColumn
+          .newBuilder()
+          .setColumnName(IcebergWriteUtil.getWriteSchema(write).findColumnName(field.sourceId()))
+          .setAscending(field.direction() == ASC)
+          .setNullsFirst(field.nullOrder() == NULLS_FIRST)
+          .build()
+
+        sortingColumnList.addFields(sortingColumn)
+    }
+
     IcebergDataWriteFactory(
       filteredSchema,
       getFileFormat(IcebergWriteUtil.getFileFormat(write)),
       IcebergWriteUtil.getDirectory(write),
       getCodec,
       getPartitionSpec,
-      IcebergWriteUtil.getSortOrder(write),
+      sortOrder,
       nestedField,
+      sortingColumnList.build(),
       IcebergWriteUtil.getQueryId(write)
     )
   }

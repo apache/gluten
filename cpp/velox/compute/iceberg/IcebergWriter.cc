@@ -17,6 +17,8 @@
 
 #include "IcebergWriter.h"
 
+#include <IcebergSortingColumnList.pb.h>
+
 #include "IcebergPartitionSpec.pb.h"
 #include "compute/ProtobufUtils.h"
 #include "compute/iceberg/IcebergFormat.h"
@@ -112,6 +114,19 @@ iceberg::IcebergNestedField convertToIcebergNestedField(const gluten::IcebergNes
   return result;
 }
 
+std::vector<IcebergSortingColumn> convertToIcebergSortingColumn(
+    const gluten::IcebergSortingColumnList& protoColumnList) {
+  std::vector<IcebergSortingColumn> sortingColumns;
+  sortingColumns.reserve(protoColumnList.fields_size());
+
+  for (const auto& protoCol : protoColumnList.fields()) {
+    core::SortOrder sortOrder(protoCol.ascending(), protoCol.nulls_first());
+
+    sortingColumns.emplace_back(protoCol.column_name(), sortOrder);
+  }
+  return sortingColumns;
+}
+
 std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
     const RowTypePtr& outputRowType,
     const std::string& outputDirectoryPath,
@@ -120,6 +135,7 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
     int32_t partitionId,
     int64_t taskId,
     const std::string& operationId,
+    std::vector<IcebergSortingColumn> sortedBy,
     std::shared_ptr<const IcebergPartitionSpec> spec,
     const iceberg::IcebergNestedField& nestedField,
     facebook::velox::memory::MemoryPool* pool) {
@@ -157,7 +173,6 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
   std::shared_ptr<const connector::hive::LocationHandle> locationHandle =
       std::make_shared<connector::hive::LocationHandle>(
           outputDirectoryPath, outputDirectoryPath, connector::hive::LocationHandle::TableType::kExisting);
-  const std::vector<IcebergSortingColumn> sortedBy;
   const std::unordered_map<std::string, std::string> serdeParameters;
   return std::make_shared<connector::hive::iceberg::IcebergInsertTableHandle>(
       columnHandles,
@@ -184,6 +199,7 @@ IcebergWriter::IcebergWriter(
     const std::string& operationId,
     std::shared_ptr<const iceberg::IcebergPartitionSpec> spec,
     const gluten::IcebergNestedField& field,
+    const gluten::IcebergSortingColumnList& sortingColumnList,
     const std::unordered_map<std::string, std::string>& sparkConfs,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool,
     std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool)
@@ -224,6 +240,7 @@ IcebergWriter::IcebergWriter(
           partitionId_,
           taskId_,
           operationId_,
+          convertToIcebergSortingColumn(sortingColumnList),
           spec,
           field_,
           pool_.get()),
@@ -272,7 +289,6 @@ parseIcebergPartitionSpec(const uint8_t* data, const int32_t length, RowTypePtr 
   gluten::parseProtobuf(data, length, &protoSpec);
   std::vector<iceberg::IcebergPartitionSpec::Field> fields;
   fields.reserve(protoSpec.fields_size());
-
   for (const auto& protoField : protoSpec.fields()) {
     // Convert protobuf enum to C++ enum
     iceberg::TransformType transform;

@@ -35,7 +35,8 @@ public class IcebergWriteJniWrapper implements RuntimeAware {
                           long taskId,
                           String operationId,
                           byte[] partitionSpec,
-                          byte[] field);
+                          byte[] field,
+                          byte[] sortedBy);
 
   public native void write(long writerHandle, long batch);
 

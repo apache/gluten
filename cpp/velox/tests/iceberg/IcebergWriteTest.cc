@@ -53,6 +53,8 @@ TEST_F(VeloxIcebergWriteTest, write) {
   gluten::IcebergNestedField* child2 = root.add_children();
   child2->set_id(2);
 
+  gluten::IcebergSortingColumnList list;
+
   auto writer = std::make_unique<IcebergWriter>(
       asRowType(vector->type()),
       1,
@@ -63,6 +65,7 @@ TEST_F(VeloxIcebergWriteTest, write) {
       folly::to<std::string>(folly::Random::rand64()), // operationId
       partitionSpec,
       root,
+      list,
       std::unordered_map<std::string, std::string>(),
       pool_,
       connectorPool_);

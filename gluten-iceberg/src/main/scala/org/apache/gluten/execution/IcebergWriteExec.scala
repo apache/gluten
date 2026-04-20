@@ -86,8 +86,16 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
           "Not support write unsupported partition type, or is nested partition column")
       }
     }
-    if (IcebergWriteUtil.getTable(write).sortOrder().isSorted) {
-      return ValidationResult.failed("Not support write table with sort order")
+    if (
+      IcebergWriteUtil
+        .getTable(write)
+        .sortOrder()
+        .fields()
+        .stream()
+        .anyMatch(f => !f.transform().isIdentity)
+    ) {
+      return ValidationResult
+        .failed("Not support write table with sort order transform not identity")
     }
     val format = IcebergWriteUtil.getFileFormat(write)
     if (format != FileFormat.PARQUET) {

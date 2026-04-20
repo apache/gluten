@@ -19,7 +19,7 @@ package org.apache.gluten.connector.write
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.execution.IcebergWriteJniWrapper
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
-import org.apache.gluten.proto.{IcebergNestedField, IcebergPartitionField, IcebergPartitionSpec}
+import org.apache.gluten.proto.{IcebergNestedField, IcebergPartitionField, IcebergPartitionSpec, IcebergSortingColumnList}
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.utils.ArrowAbiUtil
 
@@ -43,6 +43,7 @@ case class IcebergDataWriteFactory(
     partitionSpec: PartitionSpec,
     sortOrder: SortOrder,
     field: IcebergNestedField,
+    sortingColumnList: IcebergSortingColumnList,
     queryId: String)
   extends ColumnarBatchDataWriterFactory
   with ColumnarStreamingDataWriterFactory {
@@ -113,7 +114,9 @@ case class IcebergDataWriteFactory(
         taskId,
         operationId,
         partitionSpec.toByteArray,
-        field.toByteArray)
+        field.toByteArray,
+        sortingColumnList.toByteArray
+      )
     cSchema.close()
     (writer, jniWrapper)
   }
