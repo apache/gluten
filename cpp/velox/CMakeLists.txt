@@ -47,6 +47,10 @@ elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL arm64)
   set(SYSTEM_LIB_MULTIARCH_PATH
       "/usr/lib"
       CACHE PATH "System Lib MultiArch dir")
+elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL ppc64le)
+  set(SYSTEM_LIB_MULTIARCH_PATH
+      "/usr/lib"
+      CACHE PATH "System Lib MultiArch dir")
 else()
   message(FATAL_ERROR "Unsupported processor type: ${CMAKE_SYSTEM_PROCESSOR}")
 endif()

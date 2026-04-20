@@ -26,6 +26,7 @@
 #include "shuffle/Utils.h"
 #include "utils/Exception.h"
 #include "utils/Timer.h"
+#include "utils/tac/TypeAwareCompressCodec.h"
 
 namespace gluten {
 namespace {
@@ -36,6 +37,7 @@ static const Payload::Type kUncompressedType = gluten::BlockPayload::kUncompress
 static constexpr int64_t kZeroLengthBuffer = 0;
 static constexpr int64_t kNullBuffer = -1;
 static constexpr int64_t kUncompressedBuffer = -2;
+static constexpr int64_t kTypeAwareBuffer = -3;
 
 template <typename T>
 void write(uint8_t** dst, T data) {
@@ -84,6 +86,51 @@ arrow::Result<int64_t> compressBuffer(
   }
   *compressedLengthPtr = static_cast<int64_t>(compressedLength);
   return kCompressedBufferHeaderLength + compressedLength;
+}
+
+// Type-aware buffer compression via TypeAwareCompressCodec.
+// Same wire format as compressBuffer:
+//   kTypeAwareBuffer (int64) | uncompressedLength (int64) | compressedLength (int64) | compressed data
+// If compressed size >= uncompressed size, falls back to kUncompressedBuffer (same as standard codec).
+arrow::Result<int64_t> compressTypeAwareBuffer(
+    const std::shared_ptr<arrow::Buffer>& buffer,
+    uint8_t* output,
+    int64_t outputLength,
+    int8_t typeKind) {
+  auto outputPtr = &output;
+  if (!buffer) {
+    write<int64_t>(outputPtr, kNullBuffer);
+    return sizeof(int64_t);
+  }
+  if (buffer->size() == 0) {
+    write<int64_t>(outputPtr, kZeroLengthBuffer);
+    return sizeof(int64_t);
+  }
+
+  static const int64_t kHeaderLength = 3 * sizeof(int64_t); // marker + uncompressedLen + compressedLen
+  if (outputLength < kHeaderLength + buffer->size()) {
+    return arrow::Status::Invalid("Output buffer too small for type-aware compression.");
+  }
+  auto* dataOutput = output + kHeaderLength;
+  auto availableOutput = outputLength - kHeaderLength;
+
+  ARROW_ASSIGN_OR_RAISE(
+      auto compressedSize,
+      TypeAwareCompressCodec::compress(buffer->data(), buffer->size(), dataOutput, availableOutput, typeKind));
+
+  if (compressedSize >= buffer->size()) {
+    // Compression didn't help. Fall back to uncompressed, same as compressBuffer.
+    write<int64_t>(outputPtr, kUncompressedBuffer);
+    write(outputPtr, static_cast<int64_t>(buffer->size()));
+    memcpy(*outputPtr, buffer->data(), buffer->size());
+    return 2 * sizeof(int64_t) + buffer->size();
+  }
+
+  write<int64_t>(outputPtr, kTypeAwareBuffer);
+  write(outputPtr, static_cast<int64_t>(buffer->size()));
+  write(outputPtr, static_cast<int64_t>(compressedSize));
+  // compressed data already written at dataOutput by TypeAwareCompressCodec::compress.
+  return kHeaderLength + compressedSize;
 }
 
 arrow::Status compressAndFlush(
@@ -146,6 +193,24 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> readCompressedBuffer(
 
   int64_t uncompressedLength;
   RETURN_NOT_OK(inputStream->Read(sizeof(int64_t), &uncompressedLength));
+
+  if (compressedLength == kTypeAwareBuffer) {
+    // Type-aware compressed buffer. This marker only appears when compression helped.
+    // Wire format: compressedLength (int64) already consumed above as kTypeAwareBuffer,
+    // then uncompressedLength (already read), then actualCompressedLen, then data.
+    int64_t actualCompressedLen;
+    RETURN_NOT_OK(inputStream->Read(sizeof(int64_t), &actualCompressedLen));
+    ARROW_ASSIGN_OR_RAISE(auto compressed, arrow::AllocateResizableBuffer(actualCompressedLen, pool));
+    RETURN_NOT_OK(inputStream->Read(actualCompressedLen, compressed->mutable_data()));
+
+    timer.switchTo(&decompressTime);
+    ARROW_ASSIGN_OR_RAISE(auto output, arrow::AllocateResizableBuffer(uncompressedLength, pool));
+    RETURN_NOT_OK(TypeAwareCompressCodec::decompress(
+                      compressed->data(), actualCompressedLen, output->mutable_data(), uncompressedLength)
+                      .status());
+    return output;
+  }
+
   if (compressedLength == kUncompressedBuffer) {
     ARROW_ASSIGN_OR_RAISE(auto uncompressed, arrow::AllocateResizableBuffer(uncompressedLength, pool));
     RETURN_NOT_OK(inputStream->Read(uncompressedLength, uncompressed->mutable_data()));
@@ -185,25 +250,36 @@ arrow::Result<std::unique_ptr<BlockPayload>> BlockPayload::fromBuffers(
     std::vector<std::shared_ptr<arrow::Buffer>> buffers,
     const std::vector<bool>* isValidityBuffer,
     arrow::MemoryPool* pool,
-    arrow::util::Codec* codec) {
+    arrow::util::Codec* codec,
+    const std::vector<int8_t>* bufferTypes) {
   const uint32_t numBuffers = buffers.size();
 
   if (payloadType == Payload::Type::kCompressed) {
     Timer compressionTime;
     compressionTime.start();
-    // Compress.
-    auto maxLength = maxCompressedLength(buffers, codec);
-    std::shared_ptr<arrow::Buffer> compressedBuffer;
 
+    // Compute max compressed length, accounting for type-aware compression where applicable.
+    auto maxLength = maxCompressedLength(buffers, codec, bufferTypes);
+
+    std::shared_ptr<arrow::Buffer> compressedBuffer;
     ARROW_ASSIGN_OR_RAISE(compressedBuffer, arrow::AllocateResizableBuffer(maxLength, pool));
     auto* output = compressedBuffer->mutable_data();
 
     int64_t actualLength = 0;
     // Compress buffers one by one.
-    for (auto& buffer : buffers) {
+    for (size_t i = 0; i < buffers.size(); ++i) {
       auto availableLength = maxLength - actualLength;
-      // Release buffer after compression.
-      ARROW_ASSIGN_OR_RAISE(auto compressedSize, compressBuffer(std::move(buffer), output, availableLength, codec));
+      auto typeKind = (bufferTypes != nullptr && i < bufferTypes->size()) ? (*bufferTypes)[i] : tac::kUnsupported;
+
+      int64_t compressedSize = 0;
+      if (TypeAwareCompressCodec::support(typeKind)) {
+        // Use type-aware compression for supported types.
+        ARROW_ASSIGN_OR_RAISE(
+            compressedSize, compressTypeAwareBuffer(std::move(buffers[i]), output, availableLength, typeKind));
+      } else {
+        // Use standard codec (LZ4/ZSTD) for unsupported types.
+        ARROW_ASSIGN_OR_RAISE(compressedSize, compressBuffer(std::move(buffers[i]), output, availableLength, codec));
+      }
       output += compressedSize;
       actualLength += compressedSize;
     }
@@ -327,16 +403,30 @@ int64_t BlockPayload::rawSize() {
 
 int64_t BlockPayload::maxCompressedLength(
     const std::vector<std::shared_ptr<arrow::Buffer>>& buffers,
-    arrow::util::Codec* codec) {
+    arrow::util::Codec* codec,
+    const std::vector<int8_t>* bufferTypes) {
   // Compressed buffer layout: | buffer1 compressedLength | buffer1 uncompressedLength | buffer1 | ...
-  const auto metadataLength = sizeof(int64_t) * 2 * buffers.size();
-  int64_t totalCompressedLength =
-      std::accumulate(buffers.begin(), buffers.end(), 0LL, [&](auto sum, const auto& buffer) {
-        if (!buffer) {
-          return sum;
-        }
-        return sum + codec->MaxCompressedLen(buffer->size(), buffer->data());
-      });
+  int64_t metadataLength = sizeof(int64_t) * 2 * buffers.size();
+  int64_t totalCompressedLength = 0;
+  for (size_t i = 0; i < buffers.size(); ++i) {
+    const auto& buffer = buffers[i];
+    if (!buffer) {
+      continue;
+    }
+    if (bufferTypes != nullptr && i < bufferTypes->size()) {
+      auto typeKind = (*bufferTypes)[i];
+      if (TypeAwareCompressCodec::support(typeKind)) {
+        // Type-aware compressed buffer has an extra int64 marker to indicate type-aware compression.
+        // buffer layout: | kTypeAwareBuffer (int64) | buffer 1 uncompressedLength | buffer 1 compressedLength | buffer
+        // 1 | ...
+        metadataLength += sizeof(int64_t);
+        totalCompressedLength += TypeAwareCompressCodec::maxCompressedLen(buffer->size(), typeKind);
+        continue;
+      }
+    }
+    // Standard codec: compressed data.
+    totalCompressedLength += codec->MaxCompressedLen(buffer->size(), buffer->data());
+  }
   return metadataLength + totalCompressedLength;
 }
 
@@ -413,12 +503,14 @@ arrow::Result<std::unique_ptr<InMemoryPayload>> InMemoryPayload::merge(
       }
     }
   }
-  return std::make_unique<InMemoryPayload>(mergedRows, isValidityBuffer, source->schema(), std::move(merged));
+  return std::make_unique<InMemoryPayload>(
+      mergedRows, isValidityBuffer, source->schema(), std::move(merged), false, source->bufferTypes_);
 }
 
 arrow::Result<std::unique_ptr<BlockPayload>>
 InMemoryPayload::toBlockPayload(Payload::Type payloadType, arrow::MemoryPool* pool, arrow::util::Codec* codec) {
-  return BlockPayload::fromBuffers(payloadType, numRows_, std::move(buffers_), isValidityBuffer_, pool, codec);
+  return BlockPayload::fromBuffers(
+      payloadType, numRows_, std::move(buffers_), isValidityBuffer_, pool, codec, bufferTypes_);
 }
 
 arrow::Status InMemoryPayload::serialize(arrow::io::OutputStream* outputStream) {

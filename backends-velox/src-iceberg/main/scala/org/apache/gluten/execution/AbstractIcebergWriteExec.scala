@@ -24,14 +24,23 @@ import org.apache.spark.sql.types.StructType
 import org.apache.iceberg.spark.source.IcebergWriteUtil
 import org.apache.iceberg.types.TypeUtil
 
+import scala.collection.JavaConverters._
+
 abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
 
   // the writer factory works for both batch and streaming
   private def createIcebergDataWriteFactory(schema: StructType): IcebergDataWriteFactory = {
     val writeSchema = IcebergWriteUtil.getWriteSchema(write)
     val nestedField = TypeUtil.visit(writeSchema, new IcebergNestedFieldVisitor)
+    // Filter out metadata columns from the Spark output schema and reorder to match Iceberg schema
+    // Spark 4.0 may include metadata columns in the output schema during UPDATE operations,
+    // but these should not be written to the Iceberg table
+    val writeFieldNames = writeSchema.columns().asScala.map(_.name()).toSet
+    val filteredSchema = StructType(
+      schema.fields.filter(field => writeFieldNames.contains(field.name))
+    )
     IcebergDataWriteFactory(
-      schema,
+      filteredSchema,
       getFileFormat(IcebergWriteUtil.getFileFormat(write)),
       IcebergWriteUtil.getDirectory(write),
       getCodec,

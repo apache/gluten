@@ -220,7 +220,7 @@ object VeloxConfig extends ConfigRegistry {
       .doc(
         "Timeout for asynchronous execution when task is being stopped in Velox backend. " +
           "It's recommended to set to a number larger than network connection timeout that the " +
-          "possible aysnc tasks are relying on.")
+          "possible async tasks are relying on.")
       .timeConf(TimeUnit.MILLISECONDS)
       .createWithDefault(30000)
 
@@ -565,7 +565,7 @@ object VeloxConfig extends ConfigRegistry {
     buildConf("spark.gluten.velox.castFromVarcharAddTrimNode")
       .doc(
         "If true, will add a trim node " +
-          "which has the same sementic as vanilla Spark to CAST-from-varchar." +
+          "which has the same semantic as vanilla Spark to CAST-from-varchar." +
           "Otherwise, do nothing.")
       .booleanConf
       .createWithDefault(false)
@@ -584,6 +584,22 @@ object VeloxConfig extends ConfigRegistry {
       .doc("Experimental: abandon hashmap build if duplicated rows more than this number.")
       .intConf
       .createWithDefault(100000)
+
+  val VELOX_MIN_TABLE_ROWS_FOR_PARALLEL_JOIN_BUILD =
+    buildConf("spark.gluten.velox.minTableRowsForParallelJoinBuild")
+      .experimental()
+      .doc("Experimental: the minimum number of table rows that can trigger " +
+        "the parallel hash join table build.")
+      .intConf
+      .createWithDefault(1000)
+
+  val VELOX_JOIN_BUILD_VECTOR_HASHER_MAX_NUM_DISTINCT =
+    buildConf("spark.gluten.velox.joinBuildVectorHasherMaxNumDistinct")
+      .experimental()
+      .doc("Experimental: maximum number of distinct values to keep when " +
+        "merging vector hashers in join HashBuild.")
+      .intConf
+      .createWithDefault(1000000)
 
   val VELOX_HASHMAP_ABANDON_BUILD_DUPHASH_MIN_PCT =
     buildConf("spark.gluten.velox.abandonDedupHashMap.minPct")

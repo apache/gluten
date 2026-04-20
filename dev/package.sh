@@ -27,6 +27,8 @@ cd "$GLUTEN_DIR"
 
 if [ "$ARCH" = "aarch64" ]; then
   export CPU_TARGET="aarch64"
+elif [ "$ARCH" = "ppc64le" ]; then
+  export CPU_TARGET="ppc64le"
 fi
 
 # build gluten with velox backend, prompt always respond y

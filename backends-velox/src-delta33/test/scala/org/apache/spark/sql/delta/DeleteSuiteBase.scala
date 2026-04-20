@@ -23,8 +23,8 @@ import org.apache.spark.sql.functions.{lit, struct}
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.StructType
 
-// spotless:off
-abstract class DeleteSuiteBase extends QueryTest
+abstract class DeleteSuiteBase
+  extends QueryTest
   with SharedSparkSession
   with DeltaDMLTestUtils
   with DeltaTestUtilsForTempViews
@@ -42,142 +42,147 @@ abstract class DeleteSuiteBase extends QueryTest
     checkAnswer(readDeltaTable(tempPath), expectedResults)
   }
 
-  Seq(true, false).foreach { isPartitioned =>
-    test(s"basic case - Partition=$isPartitioned") {
-      val partitions = if (isPartitioned) "key" :: Nil else Nil
-      append(Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value"), partitions)
-
-      checkDelete(condition = None, Nil)
-    }
-  }
-
-  Seq(true, false).foreach { isPartitioned =>
-    test(s"basic case - delete from a Delta table by path - Partition=$isPartitioned") {
-      withTable("deltaTable") {
+  Seq(true, false).foreach {
+    isPartitioned =>
+      test(s"basic case - Partition=$isPartitioned") {
         val partitions = if (isPartitioned) "key" :: Nil else Nil
-        val input = Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value")
-        append(input, partitions)
+        append(Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value"), partitions)
 
-        checkDelete(Some("value = 4 and key = 3"),
-          Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil)
-        checkDelete(Some("value = 4 and key = 1"),
-          Row(2, 2) :: Row(1, 1) :: Row(0, 3) :: Nil)
-        checkDelete(Some("value = 2 or key = 1"),
-          Row(0, 3) :: Nil)
-        checkDelete(Some("key = 0 or value = 99"), Nil)
+        checkDelete(condition = None, Nil)
       }
-    }
   }
 
-  Seq(true, false).foreach { isPartitioned =>
-    test(s"basic case - delete from a Delta table by name - Partition=$isPartitioned") {
-      withTable("delta_table") {
-        val partitionByClause = if (isPartitioned) "PARTITIONED BY (key)" else ""
-        sql(
-          s"""
-             |CREATE TABLE delta_table(key INT, value INT)
-             |USING delta
-             |OPTIONS('path'='$tempPath')
-             |$partitionByClause
+  Seq(true, false).foreach {
+    isPartitioned =>
+      test(s"basic case - delete from a Delta table by path - Partition=$isPartitioned") {
+        withTable("deltaTable") {
+          val partitions = if (isPartitioned) "key" :: Nil else Nil
+          val input = Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value")
+          append(input, partitions)
+
+          checkDelete(
+            Some("value = 4 and key = 3"),
+            Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil)
+          checkDelete(Some("value = 4 and key = 1"), Row(2, 2) :: Row(1, 1) :: Row(0, 3) :: Nil)
+          checkDelete(Some("value = 2 or key = 1"), Row(0, 3) :: Nil)
+          checkDelete(Some("key = 0 or value = 99"), Nil)
+        }
+      }
+  }
+
+  Seq(true, false).foreach {
+    isPartitioned =>
+      test(s"basic case - delete from a Delta table by name - Partition=$isPartitioned") {
+        withTable("delta_table") {
+          val partitionByClause = if (isPartitioned) "PARTITIONED BY (key)" else ""
+          sql(s"""
+                 |CREATE TABLE delta_table(key INT, value INT)
+                 |USING delta
+                 |OPTIONS('path'='$tempPath')
+                 |$partitionByClause
            """.stripMargin)
 
-        val input = Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value")
-        append(input)
+          val input = Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value")
+          append(input)
 
-        checkDelete(Some("value = 4 and key = 3"),
-          Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil,
-          Some("delta_table"))
-        checkDelete(Some("value = 4 and key = 1"),
-          Row(2, 2) :: Row(1, 1) :: Row(0, 3) :: Nil,
-          Some("delta_table"))
-        checkDelete(Some("value = 2 or key = 1"),
-          Row(0, 3) :: Nil,
-          Some("delta_table"))
-        checkDelete(Some("key = 0 or value = 99"),
-          Nil,
-          Some("delta_table"))
+          checkDelete(
+            Some("value = 4 and key = 3"),
+            Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil,
+            Some("delta_table"))
+          checkDelete(
+            Some("value = 4 and key = 1"),
+            Row(2, 2) :: Row(1, 1) :: Row(0, 3) :: Nil,
+            Some("delta_table"))
+          checkDelete(Some("value = 2 or key = 1"), Row(0, 3) :: Nil, Some("delta_table"))
+          checkDelete(Some("key = 0 or value = 99"), Nil, Some("delta_table"))
+        }
       }
-    }
   }
 
-  Seq(true, false).foreach { isPartitioned =>
-    test(s"basic key columns - Partition=$isPartitioned") {
-      val input = Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value")
-      val partitions = if (isPartitioned) "key" :: Nil else Nil
-      append(input, partitions)
+  Seq(true, false).foreach {
+    isPartitioned =>
+      test(s"basic key columns - Partition=$isPartitioned") {
+        val input = Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value")
+        val partitions = if (isPartitioned) "key" :: Nil else Nil
+        append(input, partitions)
 
-      checkDelete(Some("key > 2"), Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil)
-      checkDelete(Some("key < 2"), Row(2, 2) :: Nil)
-      checkDelete(Some("key = 2"), Nil)
-    }
+        checkDelete(Some("key > 2"), Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil)
+        checkDelete(Some("key < 2"), Row(2, 2) :: Nil)
+        checkDelete(Some("key = 2"), Nil)
+      }
   }
 
-  Seq(true, false).foreach { isPartitioned =>
-    test(s"where key columns - Partition=$isPartitioned") {
-      val partitions = if (isPartitioned) "key" :: Nil else Nil
-      append(Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value"), partitions)
+  Seq(true, false).foreach {
+    isPartitioned =>
+      test(s"where key columns - Partition=$isPartitioned") {
+        val partitions = if (isPartitioned) "key" :: Nil else Nil
+        append(Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value"), partitions)
 
-      checkDelete(Some("key = 1"), Row(2, 2) :: Row(0, 3) :: Nil)
-      checkDelete(Some("key = 2"), Row(0, 3) :: Nil)
-      checkDelete(Some("key = 0"), Nil)
-    }
+        checkDelete(Some("key = 1"), Row(2, 2) :: Row(0, 3) :: Nil)
+        checkDelete(Some("key = 2"), Row(0, 3) :: Nil)
+        checkDelete(Some("key = 0"), Nil)
+      }
   }
 
-  Seq(true, false).foreach { isPartitioned =>
-    test(s"where data columns - Partition=$isPartitioned") {
-      val partitions = if (isPartitioned) "key" :: Nil else Nil
-      append(Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value"), partitions)
+  Seq(true, false).foreach {
+    isPartitioned =>
+      test(s"where data columns - Partition=$isPartitioned") {
+        val partitions = if (isPartitioned) "key" :: Nil else Nil
+        append(Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value"), partitions)
 
-      checkDelete(Some("value <= 2"), Row(1, 4) :: Row(0, 3) :: Nil)
-      checkDelete(Some("value = 3"), Row(1, 4) :: Nil)
-      checkDelete(Some("value != 0"), Nil)
-    }
+        checkDelete(Some("value <= 2"), Row(1, 4) :: Row(0, 3) :: Nil)
+        checkDelete(Some("value = 3"), Row(1, 4) :: Nil)
+        checkDelete(Some("value != 0"), Nil)
+      }
   }
 
   test("where data columns and partition columns") {
     val input = Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value")
     append(input, Seq("key"))
 
-    checkDelete(Some("value = 4 and key = 3"),
+    checkDelete(
+      Some("value = 4 and key = 3"),
       Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil)
-    checkDelete(Some("value = 4 and key = 1"),
-      Row(2, 2) :: Row(1, 1) :: Row(0, 3) :: Nil)
-    checkDelete(Some("value = 2 or key = 1"),
-      Row(0, 3) :: Nil)
-    checkDelete(Some("key = 0 or value = 99"),
-      Nil)
+    checkDelete(Some("value = 4 and key = 1"), Row(2, 2) :: Row(1, 1) :: Row(0, 3) :: Nil)
+    checkDelete(Some("value = 2 or key = 1"), Row(0, 3) :: Nil)
+    checkDelete(Some("key = 0 or value = 99"), Nil)
   }
 
-  Seq(true, false).foreach { skippingEnabled =>
-    Seq(true, false).foreach { isPartitioned =>
-      test(s"data and partition columns - Partition=$isPartitioned Skipping=$skippingEnabled") {
-        withSQLConf(DeltaSQLConf.DELTA_STATS_SKIPPING.key -> skippingEnabled.toString) {
-          val partitions = if (isPartitioned) "key" :: Nil else Nil
-          val input = Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value")
-          append(input, partitions)
+  Seq(true, false).foreach {
+    skippingEnabled =>
+      Seq(true, false).foreach {
+        isPartitioned =>
+          test(s"data and partition columns - Partition=$isPartitioned Skipping=$skippingEnabled") {
+            withSQLConf(DeltaSQLConf.DELTA_STATS_SKIPPING.key -> skippingEnabled.toString) {
+              val partitions = if (isPartitioned) "key" :: Nil else Nil
+              val input = Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value")
+              append(input, partitions)
 
-          checkDelete(Some("value = 4 and key = 3"),
-            Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil)
-          checkDelete(Some("value = 4 and key = 1"),
-            Row(2, 2) :: Row(1, 1) :: Row(0, 3) :: Nil)
-          checkDelete(Some("value = 2 or key = 1"),
-            Row(0, 3) :: Nil)
-          checkDelete(Some("key = 0 or value = 99"),
-            Nil)
-        }
+              checkDelete(
+                Some("value = 4 and key = 3"),
+                Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil)
+              checkDelete(Some("value = 4 and key = 1"), Row(2, 2) :: Row(1, 1) :: Row(0, 3) :: Nil)
+              checkDelete(Some("value = 2 or key = 1"), Row(0, 3) :: Nil)
+              checkDelete(Some("key = 0 or value = 99"), Nil)
+            }
+          }
       }
-    }
   }
 
   test("Negative case - non-Delta target") {
-    Seq((1, 1), (0, 3), (1, 5)).toDF("key1", "value")
-      .write.format("parquet").mode("append").save(tempPath)
+    Seq((1, 1), (0, 3), (1, 5))
+      .toDF("key1", "value")
+      .write
+      .format("parquet")
+      .mode("append")
+      .save(tempPath)
     val e = intercept[DeltaAnalysisException] {
       executeDelete(target = s"delta.`$tempPath`")
     }.getMessage
-    assert(e.contains("DELETE destination only supports Delta sources") ||
-      e.contains("is not a Delta table") || e.contains("doesn't exist") ||
-      e.contains("Incompatible format"))
+    assert(
+      e.contains("DELETE destination only supports Delta sources") ||
+        e.contains("is not a Delta table") || e.contains("doesn't exist") ||
+        e.contains("Incompatible format"))
   }
 
   test("Negative case - non-deterministic condition") {
@@ -185,8 +190,9 @@ abstract class DeleteSuiteBase extends QueryTest
     val e = intercept[AnalysisException] {
       executeDelete(target = s"delta.`$tempPath`", where = "rand() > 0.5")
     }.getMessage
-    assert(e.contains("nondeterministic expressions are only allowed in") ||
-      e.contains("The operator expects a deterministic expression"))
+    assert(
+      e.contains("nondeterministic expressions are only allowed in") ||
+        e.contains("The operator expects a deterministic expression"))
   }
 
   test("Negative case - DELETE the child directory") {
@@ -199,8 +205,11 @@ abstract class DeleteSuiteBase extends QueryTest
 
   test("delete cached table by name") {
     withTable("cached_delta_table") {
-      Seq((2, 2), (1, 4)).toDF("key", "value")
-        .write.format("delta").saveAsTable("cached_delta_table")
+      Seq((2, 2), (1, 4))
+        .toDF("key", "value")
+        .write
+        .format("delta")
+        .saveAsTable("cached_delta_table")
 
       spark.table("cached_delta_table").cache()
       spark.table("cached_delta_table").collect()
@@ -210,82 +219,83 @@ abstract class DeleteSuiteBase extends QueryTest
   }
 
   test("delete cached table by path") {
-    Seq((2, 2), (1, 4)).toDF("key", "value")
-      .write.mode("overwrite").format("delta").save(tempPath)
+    Seq((2, 2), (1, 4)).toDF("key", "value").write.mode("overwrite").format("delta").save(tempPath)
     spark.read.format("delta").load(tempPath).cache()
     spark.read.format("delta").load(tempPath).collect()
     executeDelete(s"delta.`$tempPath`", where = "key = 2")
     checkAnswer(spark.read.format("delta").load(tempPath), Row(1, 4) :: Nil)
   }
 
-  Seq(true, false).foreach { isPartitioned =>
-    test(s"condition having current_date - Partition=$isPartitioned") {
-      val partitions = if (isPartitioned) "key" :: Nil else Nil
-      append(
-        Seq((java.sql.Date.valueOf("1969-12-31"), 2),
-          (java.sql.Date.valueOf("2099-12-31"), 4))
-          .toDF("key", "value"), partitions)
+  Seq(true, false).foreach {
+    isPartitioned =>
+      test(s"condition having current_date - Partition=$isPartitioned") {
+        val partitions = if (isPartitioned) "key" :: Nil else Nil
+        append(
+          Seq((java.sql.Date.valueOf("1969-12-31"), 2), (java.sql.Date.valueOf("2099-12-31"), 4))
+            .toDF("key", "value"),
+          partitions)
 
-      checkDelete(Some("CURRENT_DATE > key"),
-        Row(java.sql.Date.valueOf("2099-12-31"), 4) :: Nil)
-      checkDelete(Some("CURRENT_DATE <= key"), Nil)
-    }
+        checkDelete(Some("CURRENT_DATE > key"), Row(java.sql.Date.valueOf("2099-12-31"), 4) :: Nil)
+        checkDelete(Some("CURRENT_DATE <= key"), Nil)
+      }
   }
 
   test("condition having current_timestamp - Partition by Timestamp") {
     append(
-      Seq((java.sql.Timestamp.valueOf("2012-12-31 16:00:10.011"), 2),
+      Seq(
+        (java.sql.Timestamp.valueOf("2012-12-31 16:00:10.011"), 2),
         (java.sql.Timestamp.valueOf("2099-12-31 16:00:10.011"), 4))
-        .toDF("key", "value"), Seq("key"))
+        .toDF("key", "value"),
+      Seq("key")
+    )
 
-    checkDelete(Some("CURRENT_TIMESTAMP > key"),
+    checkDelete(
+      Some("CURRENT_TIMESTAMP > key"),
       Row(java.sql.Timestamp.valueOf("2099-12-31 16:00:10.011"), 4) :: Nil)
     checkDelete(Some("CURRENT_TIMESTAMP <= key"), Nil)
   }
 
-  Seq(true, false).foreach { isPartitioned =>
-    test(s"foldable condition - Partition=$isPartitioned") {
-      val partitions = if (isPartitioned) "key" :: Nil else Nil
-      append(Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value"), partitions)
+  Seq(true, false).foreach {
+    isPartitioned =>
+      test(s"foldable condition - Partition=$isPartitioned") {
+        val partitions = if (isPartitioned) "key" :: Nil else Nil
+        append(Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value"), partitions)
 
-      val allRows = Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil
+        val allRows = Row(2, 2) :: Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil
 
-      checkDelete(Some("false"), allRows)
-      checkDelete(Some("1 <> 1"), allRows)
-      checkDelete(Some("1 > null"), allRows)
-      checkDelete(Some("true"), Nil)
-      checkDelete(Some("1 = 1"), Nil)
-    }
+        checkDelete(Some("false"), allRows)
+        checkDelete(Some("1 <> 1"), allRows)
+        checkDelete(Some("1 > null"), allRows)
+        checkDelete(Some("true"), Nil)
+        checkDelete(Some("1 = 1"), Nil)
+      }
   }
 
   test("SC-12232: should not delete the rows where condition evaluates to null") {
     append(Seq(("a", null), ("b", null), ("c", "v"), ("d", "vv")).toDF("key", "value").coalesce(1))
 
     // "null = null" evaluates to null
-    checkDelete(Some("value = null"),
+    checkDelete(
+      Some("value = null"),
       Row("a", null) :: Row("b", null) :: Row("c", "v") :: Row("d", "vv") :: Nil)
 
     // these expressions evaluate to null when value is null
-    checkDelete(Some("value = 'v'"),
-      Row("a", null) :: Row("b", null) :: Row("d", "vv") :: Nil)
-    checkDelete(Some("value <> 'v'"),
-      Row("a", null) :: Row("b", null) :: Nil)
+    checkDelete(Some("value = 'v'"), Row("a", null) :: Row("b", null) :: Row("d", "vv") :: Nil)
+    checkDelete(Some("value <> 'v'"), Row("a", null) :: Row("b", null) :: Nil)
   }
 
   test("SC-12232: delete rows with null values using isNull") {
     append(Seq(("a", null), ("b", null), ("c", "v"), ("d", "vv")).toDF("key", "value").coalesce(1))
 
     // when value is null, this expression evaluates to true
-    checkDelete(Some("value is null"),
-      Row("c", "v") :: Row("d", "vv") :: Nil)
+    checkDelete(Some("value is null"), Row("c", "v") :: Row("d", "vv") :: Nil)
   }
 
   test("SC-12232: delete rows with null values using EqualNullSafe") {
     append(Seq(("a", null), ("b", null), ("c", "v"), ("d", "vv")).toDF("key", "value").coalesce(1))
 
     // when value is null, this expression evaluates to true
-    checkDelete(Some("value <=> null"),
-      Row("c", "v") :: Row("d", "vv") :: Nil)
+    checkDelete(Some("value <=> null"), Row("c", "v") :: Row("d", "vv") :: Nil)
   }
 
   test("do not support subquery test") {
@@ -330,13 +340,10 @@ abstract class DeleteSuiteBase extends QueryTest
     deltaLog.update().stateDF
 
     val executedPlans = DeltaTestUtils.withPhysicalPlansCaptured(spark) {
-      checkDelete(Some("key = 2"),
-        Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil)
+      checkDelete(Some("key = 2"), Row(1, 4) :: Row(1, 1) :: Row(0, 3) :: Nil)
     }
 
-    val scans = executedPlans.flatMap(_.collect {
-      case f: FileSourceScanExec => f
-    })
+    val scans = executedPlans.flatMap(_.collect { case f: FileSourceScanExec => f })
 
     // The first scan is for finding files to delete. We only are matching against the key
     // so that should be the only field in the schema
@@ -344,33 +351,36 @@ abstract class DeleteSuiteBase extends QueryTest
     assert(scans.head.schema.findNestedField(Seq("value")).isEmpty)
   }
 
-
   test("nested schema pruning on data condition") {
-    val input = Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value")
+    val input = Seq((2, 2), (1, 4), (1, 1), (0, 3))
+      .toDF("key", "value")
       .select(struct("key", "value").alias("nested"))
     append(input, Nil)
     // Start from a cached snapshot state
     deltaLog.update().stateDF
 
     val executedPlans = DeltaTestUtils.withPhysicalPlansCaptured(spark) {
-      checkDelete(Some("nested.key = 2"),
-        Row(Row(1, 4)) :: Row(Row(1, 1)) :: Row(Row(0, 3)) :: Nil)
+      checkDelete(Some("nested.key = 2"), Row(Row(1, 4)) :: Row(Row(1, 1)) :: Row(Row(0, 3)) :: Nil)
     }
 
-    val scans = executedPlans.flatMap(_.collect {
-      case f: FileSourceScanExec => f
-    })
+    val scans = executedPlans.flatMap(_.collect { case f: FileSourceScanExec => f })
 
     assert(scans.head.schema == StructType.fromDDL("nested STRUCT<key: int>"))
   }
 
   /**
-   * @param function the unsupported function.
-   * @param functionType The type of the unsupported expression to be tested.
-   * @param data the data in the table.
-   * @param where the where clause containing the unsupported expression.
-   * @param expectException whether an exception is expected to be thrown
-   * @param customErrorRegex customized error regex.
+   * @param function
+   *   the unsupported function.
+   * @param functionType
+   *   The type of the unsupported expression to be tested.
+   * @param data
+   *   the data in the table.
+   * @param where
+   *   the where clause containing the unsupported expression.
+   * @param expectException
+   *   whether an exception is expected to be thrown
+   * @param customErrorRegex
+   *   customized error regex.
    */
   def testUnsupportedExpression(
       function: String,
@@ -390,7 +400,6 @@ abstract class DeleteSuiteBase extends QueryTest
         var errorRegex = if (functionType.equals("Generate")) {
           ".*Subqueries are not supported in the DELETE.*"
         } else customErrorRegex.getOrElse(expectedErrorRegex)
-
 
         if (catchException) {
           val dataBeforeException = spark.read.format("delta").table("deltaTable").collect()
@@ -446,17 +455,19 @@ abstract class DeleteSuiteBase extends QueryTest
       Some(".*More than one row returned by a subquery used as an expression(?s).*")
   )
 
-  Seq(true, false).foreach { isPartitioned =>
-    val name = s"test delete on temp view - basic - Partition=$isPartitioned"
-    testWithTempView(name) { isSQLTempView =>
-      val partitions = if (isPartitioned) "key" :: Nil else Nil
-      append(Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value"), partitions)
-      createTempViewFromTable(s"delta.`$tempPath`", isSQLTempView)
-        checkDelete(
-          condition = Some("key <= 1"),
-          expectedResults = Row(2, 2) :: Nil,
-          tableName = Some("v"))
-    }
+  Seq(true, false).foreach {
+    isPartitioned =>
+      val name = s"test delete on temp view - basic - Partition=$isPartitioned"
+      testWithTempView(name) {
+        isSQLTempView =>
+          val partitions = if (isPartitioned) "key" :: Nil else Nil
+          append(Seq((2, 2), (1, 4), (1, 1), (0, 3)).toDF("key", "value"), partitions)
+          createTempViewFromTable(s"delta.`$tempPath`", isSQLTempView)
+          checkDelete(
+            condition = Some("key <= 1"),
+            expectedResults = Row(2, 2) :: Nil,
+            tableName = Some("v"))
+      }
   }
 
   protected def testInvalidTempViews(name: String)(
@@ -465,28 +476,30 @@ abstract class DeleteSuiteBase extends QueryTest
       expectedErrorMsgForDataSetTempView: String = null,
       expectedErrorClassForSQLTempView: String = null,
       expectedErrorClassForDataSetTempView: String = null): Unit = {
-    testWithTempView(s"test delete on temp view - $name") { isSQLTempView =>
-      withTable("tab") {
-        Seq((0, 3), (1, 2)).toDF("key", "value").write.format("delta").saveAsTable("tab")
-        if (isSQLTempView) {
-          sql(s"CREATE TEMP VIEW v AS $text")
-        } else {
-          sql(text).createOrReplaceTempView("v")
-        }
-        val ex = intercept[AnalysisException] {
-          executeDelete(
-            "v",
-            "key >= 1 and value < 3"
+    testWithTempView(s"test delete on temp view - $name") {
+      isSQLTempView =>
+        withTable("tab") {
+          Seq((0, 3), (1, 2)).toDF("key", "value").write.format("delta").saveAsTable("tab")
+          if (isSQLTempView) {
+            sql(s"CREATE TEMP VIEW v AS $text")
+          } else {
+            sql(text).createOrReplaceTempView("v")
+          }
+          val ex = intercept[AnalysisException] {
+            executeDelete(
+              "v",
+              "key >= 1 and value < 3"
+            )
+          }
+          testErrorMessageAndClass(
+            isSQLTempView,
+            ex,
+            expectedErrorMsgForSQLTempView,
+            expectedErrorMsgForDataSetTempView,
+            expectedErrorClassForSQLTempView,
+            expectedErrorClassForDataSetTempView
           )
         }
-        testErrorMessageAndClass(
-          isSQLTempView,
-          ex,
-          expectedErrorMsgForSQLTempView,
-          expectedErrorMsgForDataSetTempView,
-          expectedErrorClassForSQLTempView,
-          expectedErrorClassForDataSetTempView)
-      }
     }
   }
   testInvalidTempViews("subset cols")(
@@ -507,10 +520,9 @@ abstract class DeleteSuiteBase extends QueryTest
 
   testSuperSetColsTempView()
 
-  protected def testComplexTempViews(name: String)(
-      text: String,
-      expectResult: Seq[Row]): Unit = {
-    testWithTempView(s"test delete on temp view - $name") { isSQLTempView =>
+  protected def testComplexTempViews(name: String)(text: String, expectResult: Seq[Row]): Unit = {
+    testWithTempView(s"test delete on temp view - $name") {
+      isSQLTempView =>
         withTable("tab") {
           Seq((0, 3), (1, 2)).toDF("key", "value").write.format("delta").saveAsTable("tab")
           createTempViewFromSelect(text, isSQLTempView)
@@ -534,30 +546,33 @@ abstract class DeleteSuiteBase extends QueryTest
   )
 
   testSparkMasterOnly("Variant type") {
-    val dstDf = sql(
-      """SELECT parse_json(cast(id as string)) v, id i
+    val dstDf = sql("""SELECT parse_json(cast(id as string)) v, id i
       FROM range(3)""")
     append(dstDf)
 
     executeDelete(target = s"delta.`$tempPath`", where = "to_json(v) = '1'")
 
-    checkAnswer(readDeltaTable(tempPath).selectExpr("i", "to_json(v)"),
+    checkAnswer(
+      readDeltaTable(tempPath).selectExpr("i", "to_json(v)"),
       Seq(Row(0, "0"), Row(2, "2")))
   }
 
   test("delete on partitioned table with special chars") {
     val partValue = "part%one"
-    spark.range(0, 3, 1, 1).toDF("key").withColumn("value", lit(partValue))
-      .write.format("delta").partitionBy("value").save(tempPath)
+    spark
+      .range(0, 3, 1, 1)
+      .toDF("key")
+      .withColumn("value", lit(partValue))
+      .write
+      .format("delta")
+      .partitionBy("value")
+      .save(tempPath)
     checkDelete(
       condition = Some(s"value = '$partValue' and key = 1"),
       expectedResults = Row(0, partValue) :: Row(2, partValue) :: Nil)
     checkDelete(
       condition = Some(s"value = '$partValue' and key = 2"),
       expectedResults = Row(0, partValue) :: Nil)
-    checkDelete(
-      condition = Some(s"value = '$partValue'"),
-      expectedResults = Nil)
+    checkDelete(condition = Some(s"value = '$partValue'"), expectedResults = Nil)
   }
 }
-// spotless:on

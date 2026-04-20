@@ -43,6 +43,7 @@ struct ShuffleTestParams {
   int32_t diskWriteBufferSize{0};
   bool useRadixSort{false};
   bool enableDictionary{false};
+  bool enableTypeAwareCompress{false};
   int64_t deserializerBufferSize{0};
 
   std::string toString() const {
@@ -54,6 +55,7 @@ struct ShuffleTestParams {
         << ", compressionBufferSize = " << diskWriteBufferSize
         << ", useRadixSort = " << (useRadixSort ? "true" : "false")
         << ", enableDictionary = " << (enableDictionary ? "true" : "false")
+        << ", enableTypeAwareCompress = " << (enableTypeAwareCompress ? "true" : "false")
         << ", deserializerBufferSize = " << deserializerBufferSize;
     return out.str();
   }
@@ -132,13 +134,16 @@ std::vector<ShuffleTestParams> getTestParams() {
       // Local.
       for (const auto mergeBufferSize : mergeBufferSizes) {
         for (const bool enableDictionary : {true, false}) {
-          params.push_back(ShuffleTestParams{
-              .shuffleWriterType = ShuffleWriterType::kHashShuffle,
-              .partitionWriterType = PartitionWriterType::kLocal,
-              .compressionType = compression,
-              .compressionThreshold = compressionThreshold,
-              .mergeBufferSize = mergeBufferSize,
-              .enableDictionary = enableDictionary});
+          for (const bool enableTypeAwareCompress : {true, false}) {
+            params.push_back(ShuffleTestParams{
+                .shuffleWriterType = ShuffleWriterType::kHashShuffle,
+                .partitionWriterType = PartitionWriterType::kLocal,
+                .compressionType = compression,
+                .compressionThreshold = compressionThreshold,
+                .mergeBufferSize = mergeBufferSize,
+                .enableDictionary = enableDictionary,
+                .enableTypeAwareCompress = enableTypeAwareCompress});
+          }
         }
       }
 
@@ -162,7 +167,8 @@ std::shared_ptr<PartitionWriter> createPartitionWriter(
     arrow::Compression::type compressionType,
     int32_t mergeBufferSize,
     int32_t compressionThreshold,
-    bool enableDictionary) {
+    bool enableDictionary,
+    bool enableTypeAwareCompress = false) {
   GLUTEN_ASSIGN_OR_THROW(auto codec, arrow::util::Codec::Create(compressionType));
   switch (partitionWriterType) {
     case PartitionWriterType::kLocal: {
@@ -170,6 +176,7 @@ std::shared_ptr<PartitionWriter> createPartitionWriter(
       options->mergeBufferSize = mergeBufferSize;
       options->compressionThreshold = compressionThreshold;
       options->enableDictionary = enableDictionary;
+      options->enableTypeAwareCompress = enableTypeAwareCompress;
       return std::make_shared<LocalPartitionWriter>(
           numPartitions, std::move(codec), getDefaultMemoryManager(), options, dataFile, std::move(localDirs));
     }
@@ -248,7 +255,8 @@ class VeloxShuffleWriterTest : public ::testing::TestWithParam<ShuffleTestParams
         params.compressionType,
         params.mergeBufferSize,
         params.compressionThreshold,
-        params.enableDictionary);
+        params.enableDictionary,
+        params.enableTypeAwareCompress);
 
     GLUTEN_ASSIGN_OR_THROW(
         auto shuffleWriter,

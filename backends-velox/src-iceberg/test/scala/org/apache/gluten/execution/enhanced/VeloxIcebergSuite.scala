@@ -410,4 +410,59 @@ class VeloxIcebergSuite extends IcebergSuite {
           _.values.exists(_.contains("Not support write table with sort order"))))
     }
   }
+
+  test("iceberg read cow table - update after schema evolution") {
+    withTable("iceberg_cow_update_evolved_tb") {
+      spark.sql("""
+                  |create table iceberg_cow_update_evolved_tb (
+                  |  id int,
+                  |  name string,
+                  |  age int
+                  |) using iceberg
+                  |tblproperties (
+                  |  'format-version' = '2',
+                  |  'write.delete.mode' = 'copy-on-write',
+                  |  'write.update.mode' = 'copy-on-write',
+                  |  'write.merge.mode' = 'copy-on-write'
+                  |)
+                  |""".stripMargin)
+
+      spark.sql("""
+                  |alter table iceberg_cow_update_evolved_tb
+                  |add columns (salary decimal(10, 2))
+                  |""".stripMargin)
+
+      spark.sql("""
+                  |insert into table iceberg_cow_update_evolved_tb values
+                  |  (1, 'Name1', 23, 3400.00),
+                  |  (2, 'Name2', 30, 5500.00),
+                  |  (3, 'Name3', 35, 6500.00)
+                  |""".stripMargin)
+
+      val df = spark.sql("""
+                           |update iceberg_cow_update_evolved_tb
+                           |set name = 'Name4'
+                           |where id = 1
+                           |""".stripMargin)
+
+      assert(
+        df.queryExecution.executedPlan
+          .asInstanceOf[CommandResultExec]
+          .commandPhysicalPlan
+          .isInstanceOf[VeloxIcebergReplaceDataExec])
+
+      checkAnswer(
+        spark.sql("""
+                    |select id, name, age, salary
+                    |from iceberg_cow_update_evolved_tb
+                    |order by id
+                    |""".stripMargin),
+        Seq(
+          Row(1, "Name4", 23, new java.math.BigDecimal("3400.00")),
+          Row(2, "Name2", 30, new java.math.BigDecimal("5500.00")),
+          Row(3, "Name1", 35, new java.math.BigDecimal("6500.00"))
+        )
+      )
+    }
+  }
 }

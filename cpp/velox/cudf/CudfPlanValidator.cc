@@ -46,8 +46,8 @@ bool CudfPlanValidator::validate(const ::substrait::Plan& substraitPlan) {
   std::vector<std::shared_ptr<ResultIterator>> inputs;
   std::shared_ptr<facebook::velox::config::ConfigBase> veloxCfg = std::make_shared<facebook::velox::config::ConfigBase>(
       std::unordered_map<std::string, std::string>{{kCudfEnabled, "true"}});
-  VeloxPlanConverter veloxPlanConverter(veloxMemoryPool.get(), veloxCfg.get(),
-      inputs, std::nullopt, std::nullopt, true);
+  VeloxPlanConverter veloxPlanConverter(
+      veloxMemoryPool.get(), veloxCfg.get(), inputs, std::nullopt, std::nullopt, true);
   auto planNode = veloxPlanConverter.toVeloxPlan(substraitPlan, localFiles);
   std::unordered_set<velox::core::PlanNodeId> emptySet;
   velox::core::PlanFragment planFragment{planNode, velox::core::ExecutionStrategy::kUngrouped, 1, emptySet};

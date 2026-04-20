@@ -28,7 +28,7 @@ cd $Clickhouse_SOURCE_PATH/contrib/jemalloc && ./autogen.sh && ./configure.sh &&
 ```
 Then we get jeprof in the directory `$Clickhouse_SOURCE_PATH/contrib/jemalloc/bin/jeprof`.
 
-## Compiler libch.so
+## Compile libch.so
 Ensure to enable jemalloc `-DENABLE_JEMALLOC=ON` in cpp-ch/CMakeLists.txt, and compile libch.so.
 
 ## Run Gluten with jemalloc heap tools

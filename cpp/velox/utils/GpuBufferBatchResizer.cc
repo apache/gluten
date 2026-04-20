@@ -228,12 +228,14 @@ std::shared_ptr<ColumnarBatch> GpuBufferBatchResizer::next() {
         prefetchQueue_.push_back(std::move(batch));
       } else {
         // All the batches consumed.
-        LOG(WARNING) << "Prefetched " << prefetchQueue_.size() << " batches (" << prefetchedBytes_ << " bytes) before blocking on GPU lock.";
+        LOG(WARNING) << "Prefetched " << prefetchQueue_.size() << " batches (" << prefetchedBytes_
+                     << " bytes) before blocking on GPU lock.";
         lockGpu();
         break;
       }
     } else {
-      LOG(WARNING) << "Prefetched " << prefetchQueue_.size() << " batches (" << prefetchedBytes_ << " bytes) before blocking on GPU lock.";
+      LOG(WARNING) << "Prefetched " << prefetchQueue_.size() << " batches (" << prefetchedBytes_
+                   << " bytes) before blocking on GPU lock.";
       lockGpu();
       break;
     }

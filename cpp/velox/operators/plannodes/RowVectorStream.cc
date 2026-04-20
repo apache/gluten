@@ -64,8 +64,7 @@ bool RowVectorStream::hasNext() {
     // As of now, non-zero running threads usually happens when:
     // 1. Task A spills task B;
     // 2. Task A tries to grow buffers created by task B, during which spill is requested on task A again.
-    const facebook::velox::exec::DriverThreadContext* driverThreadCtx =
-    facebook::velox::exec::driverThreadContext();
+    const facebook::velox::exec::DriverThreadContext* driverThreadCtx = facebook::velox::exec::driverThreadContext();
     VELOX_CHECK_NOT_NULL(
         driverThreadCtx,
         "ExternalStreamDataSource::next() is not called "
@@ -87,8 +86,7 @@ std::shared_ptr<ColumnarBatch> RowVectorStream::nextInternal() {
   {
     // We are leaving Velox task execution and are probably entering Spark code through JNI. Suspend the current
     // driver to make the current task open to spilling.
-    const facebook::velox::exec::DriverThreadContext* driverThreadCtx =
-    facebook::velox::exec::driverThreadContext();
+    const facebook::velox::exec::DriverThreadContext* driverThreadCtx = facebook::velox::exec::driverThreadContext();
     VELOX_CHECK_NOT_NULL(
         driverThreadCtx,
         "ExternalStreamDataSource::next() is not called "
@@ -124,12 +122,12 @@ void ValueStreamDataSource::addSplit(std::shared_ptr<facebook::velox::connector:
   if (!iteratorSplit) {
     throw std::runtime_error("Split is not an IteratorConnectorSplit");
   }
-  
+
   auto iterator = iteratorSplit->iterator();
   if (!iterator) {
     throw std::runtime_error("IteratorConnectorSplit contains null iterator");
   }
-  
+
   // Create RowVectorStream wrapper and add to pending queue
   auto rowVectorStream = std::make_shared<RowVectorStream>(pool_, iterator, outputType_);
   pendingIterators_.push_back(rowVectorStream);
@@ -144,7 +142,7 @@ std::optional<facebook::velox::RowVectorPtr> ValueStreamDataSource::next(
       // No more iterators to process
       return nullptr;
     }
-    
+
     // Get next RowVectorStream from queue
     currentIterator_ = pendingIterators_.front();
     pendingIterators_.erase(pendingIterators_.begin());
@@ -154,15 +152,15 @@ std::optional<facebook::velox::RowVectorPtr> ValueStreamDataSource::next(
   if (!currentIterator_->hasNext()) {
     // Current stream exhausted, try next one
     currentIterator_ = nullptr;
-    return next(size, future);  // Recursively try next stream
+    return next(size, future); // Recursively try next stream
   }
 
   // Get next batch from current stream (RowVectorStream handles conversion)
   auto rowVector = currentIterator_->next();
-  
+
   if (!rowVector) {
     currentIterator_ = nullptr;
-    return next(size, future);  // Recursively try next stream
+    return next(size, future); // Recursively try next stream
   }
 
   // Update metrics
@@ -181,8 +179,7 @@ std::optional<facebook::velox::RowVectorPtr> ValueStreamDataSource::next(
   return rowVector;
 }
 
-facebook::velox::RowVectorPtr ValueStreamDataSource::applyDynamicFilters(
-    const facebook::velox::RowVectorPtr& input) {
+facebook::velox::RowVectorPtr ValueStreamDataSource::applyDynamicFilters(const facebook::velox::RowVectorPtr& input) {
   using namespace facebook::velox;
 
   const auto numRows = input->size();

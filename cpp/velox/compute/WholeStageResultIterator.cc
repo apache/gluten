@@ -25,13 +25,12 @@
 #include "velox/exec/PlanNodeStats.h"
 #ifdef GLUTEN_ENABLE_GPU
 #include <cudf/io/types.hpp>
+#include "cudf/GpuLock.h"
 #include "velox/experimental/cudf/CudfConfig.h"
 #include "velox/experimental/cudf/connectors/hive/CudfHiveConnectorSplit.h"
 #include "velox/experimental/cudf/exec/ToCudf.h"
-#include "cudf/GpuLock.h"
 #endif
 #include "operators/plannodes/RowVectorStream.h"
-
 
 using namespace facebook;
 
@@ -358,14 +357,15 @@ void WholeStageResultIterator::constructPartitionColumns(
 }
 
 void WholeStageResultIterator::addIteratorSplits(const std::vector<std::shared_ptr<ResultIterator>>& inputIterators) {
-  GLUTEN_CHECK(!allSplitsAdded_, "Method addIteratorSplits should not be called since all splits has been added to the Velox task.");
+  GLUTEN_CHECK(
+      !allSplitsAdded_,
+      "Method addIteratorSplits should not be called since all splits has been added to the Velox task.");
   // Create IteratorConnectorSplit for each iterator
   for (size_t i = 0; i < streamIds_.size() && i < inputIterators.size(); ++i) {
     if (inputIterators[i] == nullptr) {
       continue;
     }
-    auto connectorSplit = std::make_shared<IteratorConnectorSplit>(
-        kIteratorConnectorId, inputIterators[i]);
+    auto connectorSplit = std::make_shared<IteratorConnectorSplit>(kIteratorConnectorId, inputIterators[i]);
     exec::Split split(folly::copy(connectorSplit), -1);
     task_->addSplit(streamIds_[i], std::move(split));
   }
@@ -385,7 +385,7 @@ void WholeStageResultIterator::noMoreSplits() {
   for (const auto& scanNodeId : scanNodeIds_) {
     task_->noMoreSplits(scanNodeId);
   }
-  
+
   // Mark no more splits for all stream nodes
   for (const auto& streamId : streamIds_) {
     task_->noMoreSplits(streamId);
@@ -575,7 +575,8 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       std::to_string(veloxCfg_->get<uint64_t>(kVeloxPreferredBatchBytes, 10L << 20));
   try {
     configs[velox::core::QueryConfig::kSparkAnsiEnabled] = veloxCfg_->get<std::string>(kAnsiEnabled, "false");
-    configs[velox::core::QueryConfig::kSessionTimezone] = veloxCfg_->get<std::string>(kSessionTimezone, "");
+    configs[velox::core::QueryConfig::kSessionTimezone] =
+        normalizeSessionTimezone(veloxCfg_->get<std::string>(kSessionTimezone, ""));
     // Adjust timestamp according to the above configured session timezone.
     configs[velox::core::QueryConfig::kAdjustTimestampToTimezone] = "true";
 
