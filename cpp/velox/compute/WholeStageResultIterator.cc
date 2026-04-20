@@ -99,8 +99,7 @@ WholeStageResultIterator::WholeStageResultIterator(
     // these threads, hdfsThreadDestructor would fire afterward with a stale JNIEnv*,
     // causing SIGSEGV. Spill always uses local or heap-over-local filesystem.
     spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
-        spillThreadNum,
-        std::make_shared<gluten::JniAwareThreadFactory>());
+        spillThreadNum, std::make_shared<gluten::JniAwareThreadFactory>());
   }
   getOrderedNodeIds(veloxPlan_, orderedNodeIds_);
 
