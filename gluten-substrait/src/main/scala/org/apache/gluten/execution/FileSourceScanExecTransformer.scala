@@ -108,6 +108,11 @@ abstract class FileSourceScanExecTransformerBase(
     disableBucketedScan)
   with DatasourceScanTransformer {
 
+  // Override nodeNamePrefix to empty to prevent double "File" prefix in simpleString.
+  // AbstractFileSourceScanExec (Spark 4.1 shim) sets nodeNamePrefix = "File",
+  // but nodeName already uses getClass.getSimpleName which starts with "File".
+  override val nodeNamePrefix: String = ""
+
   // Note: "metrics" is made transient to avoid sending driver-side metrics to tasks.
   @transient override lazy val metrics: Map[String, SQLMetric] =
     BackendsApiManager.getMetricsApiInstance
