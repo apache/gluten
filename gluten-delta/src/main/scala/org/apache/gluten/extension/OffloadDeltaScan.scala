@@ -21,14 +21,18 @@ import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
 import org.apache.spark.sql.delta.DeltaParquetFileFormat
+import org.apache.spark.sql.delta.SnapshotDescriptor
 import org.apache.spark.sql.delta.commands.DeletionVectorUtils.deletionVectorsReadable
 import org.apache.spark.sql.delta.files.TahoeFileIndex
-import org.apache.spark.sql.delta.files.TahoeFileIndexWithSnapshotDescriptor
-import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 
+import scala.util.Try
+
 case class OffloadDeltaScan() extends OffloadSingleNode {
+  private val deletionVectorsUseMetadataRowIndexKey =
+    "spark.databricks.delta.deletionVectors.useMetadataRowIndex"
+
   override def offload(plan: SparkPlan): SparkPlan = plan match {
     case scan: FileSourceScanExec if isDeltaScan(scan) && isDeltaLogScan(scan) =>
       FallbackTags.add(scan, "fallback Delta _delta_log scan")
@@ -67,17 +71,41 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
   private def shouldFallbackDeletionVectorScan(scan: FileSourceScanExec): Boolean = {
     val useMetadataRowIndex =
       scan.relation.sparkSession.sessionState.conf
-        .getConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX)
+        .getConfString(deletionVectorsUseMetadataRowIndexKey, "true")
+        .toBoolean
     if (useMetadataRowIndex) {
       return false
     }
 
     scan.relation.location match {
-      case index: TahoeFileIndexWithSnapshotDescriptor =>
-        deletionVectorsReadable(index.protocol, index.metadata) &&
-        index.rowIndexFilters.exists(_.nonEmpty)
+      case index: TahoeFileIndex =>
+        val snapshot = index.asInstanceOf[SnapshotDescriptor]
+        deletionVectorsReadable(snapshot.protocol, snapshot.metadata) &&
+        hasRowIndexFilters(index)
       case _ =>
         false
     }
+  }
+
+  private def hasRowIndexFilters(index: TahoeFileIndex): Boolean = {
+    getNoArgMethodValue(index, "rowIndexFilters").exists {
+      case filters: Option[_] =>
+        filters.exists(isNonEmpty)
+      case filters =>
+        isNonEmpty(filters)
+    }
+  }
+
+  private def getNoArgMethodValue(target: AnyRef, methodName: String): Option[Any] = {
+    Try {
+      val method = target.getClass.getMethod(methodName)
+      method.invoke(target)
+    }.toOption
+  }
+
+  private def isNonEmpty(value: Any): Boolean = value match {
+    case iterable: Iterable[_] => iterable.nonEmpty
+    case array: Array[_] => array.nonEmpty
+    case _ => false
   }
 }
