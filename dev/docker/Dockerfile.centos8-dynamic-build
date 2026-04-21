@@ -38,11 +38,11 @@ RUN set -ex; \
     wget -nv ${mirror_host}/hadoop/common/hadoop-2.8.5/hadoop-2.8.5.tar.gz?action=download -O /opt/hadoop-2.8.5.tar.gz; \
     git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
     cd /opt/gluten/.github/workflows/util/; \
-    ./install-resources.sh 3.3; \
-    ./install-resources.sh 3.4; \
-    ./install-resources.sh 3.5; \
-    ./install-resources.sh 3.5-scala2.13; \
-    ./install-resources.sh 4.0; \
+    ./install-spark-resources.sh 3.3; \
+    ./install-spark-resources.sh 3.4; \
+    ./install-spark-resources.sh 3.5; \
+    ./install-spark-resources.sh 3.5-scala2.13; \
+    ./install-spark-resources.sh 4.0; \
     ARCH=$(uname -m); \
     if [[ "$ARCH" == "aarch64" || "$ARCH" == "ppc64le" ]]; then \
         export CPU_TARGET="$ARCH"; \

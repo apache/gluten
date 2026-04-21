@@ -135,6 +135,7 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "remaining filter time"),
       "ioWaitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "io wait time"),
       "storageReadBytes" -> SQLMetrics.createSizeMetric(sparkContext, "storage read bytes"),
+      "storageReads" -> SQLMetrics.createMetric(sparkContext, "number of storage reads"),
       "localReadBytes" -> SQLMetrics.createSizeMetric(sparkContext, "local ssd read bytes"),
       "ramReadBytes" -> SQLMetrics.createSizeMetric(sparkContext, "ram read bytes"),
       "loadLazyVectorTime" -> SQLMetrics.createNanoTimingMetric(
@@ -186,6 +187,7 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "remaining filter time"),
       "ioWaitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "io wait time"),
       "storageReadBytes" -> SQLMetrics.createSizeMetric(sparkContext, "storage read bytes"),
+      "storageReads" -> SQLMetrics.createMetric(sparkContext, "number of storage reads"),
       "localReadBytes" -> SQLMetrics.createSizeMetric(sparkContext, "local ssd read bytes"),
       "ramReadBytes" -> SQLMetrics.createSizeMetric(sparkContext, "ram read bytes"),
       "loadLazyVectorTime" -> SQLMetrics.createNanoTimingMetric(
@@ -237,6 +239,7 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "remaining filter time"),
       "ioWaitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "io wait time"),
       "storageReadBytes" -> SQLMetrics.createSizeMetric(sparkContext, "storage read bytes"),
+      "storageReads" -> SQLMetrics.createMetric(sparkContext, "number of storage reads"),
       "localReadBytes" -> SQLMetrics.createSizeMetric(sparkContext, "local ssd read bytes"),
       "ramReadBytes" -> SQLMetrics.createSizeMetric(sparkContext, "ram read bytes"),
       "loadLazyVectorTime" -> SQLMetrics.createNanoTimingMetric(

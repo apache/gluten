@@ -103,7 +103,11 @@ class JavaInputStreamAdaptor final : public arrow::io::InputStream {
     env->CallVoidMethod(jniIn_, jniByteInputStreamClose);
     checkException(env);
     env->DeleteGlobalRef(jniIn_);
-    vm_->DetachCurrentThread();
+    // Do NOT call DetachCurrentThread() here.
+    // libhdfs.so caches JNIEnv* in thread-local storage after AttachCurrentThread.
+    // If we detach, libhdfs's TLS cache becomes stale — the next HDFS call via
+    // libhdfs returns the stale env, causing SIGSEGV in jni_NewStringUTF.
+    // Daemon-attached threads are safe to leave attached; they won't block JVM shutdown.
     closed_ = true;
     return arrow::Status::OK();
   }
@@ -273,7 +277,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
       env,
       metricsBuilderClass,
       "<init>",
-      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
+      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
 
   nativeColumnarToRowInfoClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/NativeColumnarToRowInfo;");
@@ -601,6 +605,7 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
       longArray[Metrics::kRemainingFilterTime],
       longArray[Metrics::kIoWaitTime],
       longArray[Metrics::kStorageReadBytes],
+      longArray[Metrics::kStorageReads],
       longArray[Metrics::kLocalReadBytes],
       longArray[Metrics::kRamReadBytes],
       longArray[Metrics::kPreloadSplits],

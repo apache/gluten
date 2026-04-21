@@ -17,7 +17,8 @@
 package org.apache.spark.sql.delta
 
 object DeltaInsertIntoTableSuiteShims {
-  val INSERT_INTO_TMP_VIEW_ERROR_MSG = "Inserting into a view is not allowed"
+  val INSERT_INTO_TMP_VIEW_ERROR_MSG = "[EXPECT_TABLE_NOT_VIEW.NO_ALTERNATIVE]"
 
-  val INVALID_COLUMN_DEFAULT_VALUE_ERROR_MSG = "INVALID_DEFAULT_VALUE.UNRESOLVED_EXPRESSION"
+  // Spark 4.0.1 reports non-constant defaults with NOT_CONSTANT.
+  val INVALID_COLUMN_DEFAULT_VALUE_ERROR_MSG = "INVALID_DEFAULT_VALUE.NOT_CONSTANT"
 }

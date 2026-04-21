@@ -37,7 +37,7 @@ import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, AttributeReference, EmptyRow, Expression, Projection, SortOrder, SpecificInternalRow, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, AttributeReference, BindReferences, EmptyRow, Expression, RuntimeReplaceable, SortOrder, SpecificInternalRow}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
 import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExecNode, ProjectExec}
@@ -139,10 +139,14 @@ object GlutenDeltaJobStatsTracker extends Logging {
       val buffer = new SpecificInternalRow(aggBufferAttrs.map(_.dataType))
       initializeStats.target(buffer).apply(EmptyRow)
     }
-    private val getStats: Projection = UnsafeProjection.create(
-      exprs = Seq(resultExpr),
-      inputSchema = aggBufferAttrs
-    )
+    // Spark 4.x may keep RuntimeReplaceable nodes (for example, named_struct inside to_json) in
+    // stats expressions. Those nodes cannot be codegen-ed and their eval path expects null input.
+    // Replace them with concrete expressions, then bind once and evaluate interpretively.
+    private val normalizedResultExpr: Expression = resultExpr.transformDown {
+      case runtimeReplaceable: RuntimeReplaceable => runtimeReplaceable.replacement
+    }
+    private val getStatsExpr: Expression =
+      BindReferences.bindReference(normalizedResultExpr, aggBufferAttrs)
     private val taskContext = TaskContext.get()
     private val dummyKeyAttr = {
       // FIXME: We have to force the use of Velox's streaming aggregation since hash aggregation
@@ -238,7 +242,7 @@ object GlutenDeltaJobStatsTracker extends Logging {
             batch.close()
             rows.head
           }
-          val jsonStats = getStats(row).getString(0)
+          val jsonStats = Option(getStatsExpr.eval(row)).map(_.toString).orNull
           jsonStats
         }
         currentPath = filePath

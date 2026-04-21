@@ -19,6 +19,7 @@
 #include "VeloxPlanConverter.h"
 #include "VeloxRuntime.h"
 #include "config/VeloxConfig.h"
+#include "jni/JniCommon.h"
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
@@ -91,7 +92,13 @@ WholeStageResultIterator::WholeStageResultIterator(
   spillStrategy_ = veloxCfg_->get<std::string>(kSpillStrategy, kSpillStrategyDefaultValue);
   auto spillThreadNum = veloxCfg_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
   if (spillThreadNum > 0) {
-    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(spillThreadNum);
+    // INVARIANT: spillExecutor_ threads must never call libhdfs.
+    // JniAwareThreadFactory calls DetachCurrentThread at thread exit (inside the
+    // thread fn body, before any pthread_key destructor). If libhdfs were used on
+    // these threads, hdfsThreadDestructor would fire afterward with a stale JNIEnv*,
+    // causing SIGSEGV. Spill always uses local or heap-over-local filesystem.
+    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
+        spillThreadNum, std::make_shared<gluten::JniAwareThreadFactory>());
   }
   getOrderedNodeIds(veloxPlan_, orderedNodeIds_);
 
@@ -510,6 +517,8 @@ void WholeStageResultIterator::collectMetrics() {
       metrics_->get(Metrics::kIoWaitTime)[metricIndex] = runtimeMetric("sum", second->customStats, kIoWaitTime);
       metrics_->get(Metrics::kStorageReadBytes)[metricIndex] =
           runtimeMetric("sum", second->customStats, kStorageReadBytes);
+      metrics_->get(Metrics::kStorageReads)[metricIndex] =
+          runtimeMetric("count", second->customStats, kStorageReadBytes);
       metrics_->get(Metrics::kLocalReadBytes)[metricIndex] = runtimeMetric("sum", second->customStats, kLocalReadBytes);
       metrics_->get(Metrics::kRamReadBytes)[metricIndex] = runtimeMetric("sum", second->customStats, kRamReadBytes);
       metrics_->get(Metrics::kPreloadSplits)[metricIndex] =
