@@ -14,27 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.sql.delta.test
+package org.apache.spark.sql.delta
 
-import org.apache.spark.sql.QueryTest
+object DeltaSuiteShims {
+  val THROWS_ON_CORRUPTED_FILE_ERROR_MSG = "is not a Parquet file"
 
-import org.scalactic.source.Position
-import org.scalatest.Tag
-
-// spotless:off
-trait DeltaExcludedTestMixin extends QueryTest {
-
-  /** Tests to be ignored by the runner. */
-  override def excluded: Seq[String] = Seq.empty
-
-  protected override def test(testName: String, testTags: Tag*)
-    (testFun: => Any)
-    (implicit pos: Position): Unit = {
-    if (excluded.contains(testName)) {
-      super.ignore(testName, testTags: _*)(testFun)
-    } else {
-      super.test(testName, testTags: _*)(testFun)
-    }
-  }
+  val THROWS_ON_DELETED_FILE_ERROR_MSG = "FileNotFound"
 }
-// spotless:on

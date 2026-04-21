@@ -14,27 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.sql.delta.test
+package org.apache.spark.sql.delta
 
-import org.apache.spark.sql.QueryTest
+object DeltaInsertIntoTableSuiteShims {
+  val INSERT_INTO_TMP_VIEW_ERROR_MSG = "Inserting into a view is not allowed"
 
-import org.scalactic.source.Position
-import org.scalatest.Tag
-
-// spotless:off
-trait DeltaExcludedTestMixin extends QueryTest {
-
-  /** Tests to be ignored by the runner. */
-  override def excluded: Seq[String] = Seq.empty
-
-  protected override def test(testName: String, testTags: Tag*)
-    (testFun: => Any)
-    (implicit pos: Position): Unit = {
-    if (excluded.contains(testName)) {
-      super.ignore(testName, testTags: _*)(testFun)
-    } else {
-      super.test(testName, testTags: _*)(testFun)
-    }
-  }
+  val INVALID_COLUMN_DEFAULT_VALUE_ERROR_MSG = "INVALID_DEFAULT_VALUE.UNRESOLVED_EXPRESSION"
 }
-// spotless:on

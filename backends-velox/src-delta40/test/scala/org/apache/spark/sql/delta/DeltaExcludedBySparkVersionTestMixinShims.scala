@@ -18,14 +18,16 @@ package org.apache.spark.sql.delta
 
 import org.apache.spark.sql.QueryTest
 
+// spotless:off
 trait DeltaExcludedBySparkVersionTestMixinShims extends QueryTest {
-
   /**
    * Tests that are meant for Delta compiled against Spark Latest Release only. Executed since this
    * is the Spark Latest Release shim.
    */
-  protected def testSparkLatestOnly(testName: String, testTags: org.scalatest.Tag*)(
-      testFun: => Any)(implicit pos: org.scalactic.source.Position): Unit = {
+  protected def testSparkLatestOnly(
+      testName: String, testTags: org.scalatest.Tag*)
+      (testFun: => Any)
+      (implicit pos: org.scalactic.source.Position): Unit = {
     test(testName, testTags: _*)(testFun)(pos)
   }
 
@@ -33,8 +35,11 @@ trait DeltaExcludedBySparkVersionTestMixinShims extends QueryTest {
    * Tests that are meant for Delta compiled against Spark Master Release only. Ignored since this
    * is the Spark Latest Release shim.
    */
-  protected def testSparkMasterOnly(testName: String, testTags: org.scalatest.Tag*)(
-      testFun: => Any)(implicit pos: org.scalactic.source.Position): Unit = {
+  protected def testSparkMasterOnly(
+      testName: String, testTags: org.scalatest.Tag*)
+      (testFun: => Any)
+      (implicit pos: org.scalactic.source.Position): Unit = {
     ignore(testName, testTags: _*)(testFun)(pos)
   }
 }
+// spotless:on
