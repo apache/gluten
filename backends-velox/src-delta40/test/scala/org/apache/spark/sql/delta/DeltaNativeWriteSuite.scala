@@ -20,8 +20,8 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
 
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
+import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
 import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
@@ -46,7 +46,8 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
       SQLConf.ANSI_ENABLED.key -> "false",
       SQLConf.SESSION_LOCAL_TIMEZONE.key -> "UTC",
       GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false",
-      DeltaSQLConf.DELTA_COLLECT_STATS.key -> "false") ++
+      DeltaSQLConf.DELTA_COLLECT_STATS.key -> "false"
+    ) ++
       (if (isMac) {
          Seq(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false")
        } else {
@@ -74,7 +75,8 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
           !spark.sessionState.conf
             .getConfString(GlutenConfig.NATIVE_VALIDATION_ENABLED.key)
             .toBoolean,
-          s"${GlutenConfig.NATIVE_VALIDATION_ENABLED.key} should be false on macOS")
+          s"${GlutenConfig.NATIVE_VALIDATION_ENABLED.key} should be false on macOS"
+        )
       }
       f
     }
