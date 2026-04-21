@@ -33,6 +33,7 @@ import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, M
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
+import scala.util.control.NonFatal
 
 object VeloxDeltaMetadataUtils {
   val DeltaDvCardinality = "delta_dv_cardinality"
@@ -48,8 +49,13 @@ object VeloxDeltaMetadataUtils {
 
   private def loadDeletionVectorsByRelativePath(
       tablePath: Path): Map[String, DeletionVectorDescriptor] = {
+    val spark = activeSpark
+    if (!isDeltaTablePath(spark, tablePath)) {
+      return Map.empty
+    }
+
     DeltaLog
-      .forTable(activeSpark, tablePath)
+      .forTable(spark, tablePath)
       .update()
       .allFiles
       .collect()
@@ -140,14 +146,35 @@ object VeloxDeltaMetadataUtils {
   }
 
   private def resolveTablePath(partitionColumnCount: Int, file: PartitionedFile): Path = {
-    var tablePath = new Path(unescapePathName(file.filePath.toString)).getParent
+    val fileParent = new Path(unescapePathName(file.filePath.toString)).getParent
+    var tablePath = fileParent
     for (_ <- 0 until partitionColumnCount) {
       tablePath = tablePath.getParent
     }
-    tablePath
+    val spark = activeSpark
+    if (tablePath != null && isDeltaTablePath(spark, tablePath)) {
+      return tablePath
+    }
+
+    // Spark can report a partition column count that does not map 1:1 to path depth for
+    // prepared Delta scans. Find the nearest ancestor of the file path that has _delta_log.
+    var candidate = fileParent
+    while (candidate != null && !isDeltaTablePath(spark, candidate)) {
+      candidate = candidate.getParent
+    }
+    if (candidate != null) candidate else tablePath
   }
 
   private def normalizePath(path: String): String = {
     path.replace('\\', '/').stripPrefix("/")
+  }
+
+  private def isDeltaTablePath(spark: SparkSession, tablePath: Path): Boolean = {
+    val deltaLogPath = new Path(tablePath, "_delta_log")
+    try {
+      deltaLogPath.getFileSystem(spark.sessionState.newHadoopConf()).exists(deltaLogPath)
+    } catch {
+      case NonFatal(_) => false
+    }
   }
 }
