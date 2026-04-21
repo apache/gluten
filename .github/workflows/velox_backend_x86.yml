@@ -1367,7 +1367,6 @@ jobs:
         run: |
           rm -rf /opt/shims/spark41
           bash .github/workflows/util/install-spark-resources.sh 4.1
-          mv /opt/shims/spark41/spark_home/assembly/target/scala-2.12 /opt/shims/spark41/spark_home/assembly/target/scala-2.13
       - name: Build and Run unit test for Spark 4.1.0 with scala-2.13 (other tests)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1417,7 +1416,6 @@ jobs:
         run: |
           rm -rf /opt/shims/spark41
           bash .github/workflows/util/install-spark-resources.sh 4.1
-          mv /opt/shims/spark41/spark_home/assembly/target/scala-2.12 /opt/shims/spark41/spark_home/assembly/target/scala-2.13
       - name: Build and Run unit test for Spark 4.0 (slow tests)
         run: |
           cd $GITHUB_WORKSPACE/
