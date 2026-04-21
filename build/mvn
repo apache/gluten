@@ -62,30 +62,44 @@ install_mvn() {
         local MVN_TAR="${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}-bin.tar.gz"
 
         if [ ! -f "${MVN_TAR}" ]; then
-            # Use Maven Central repository for download
-            local DOWNLOAD_URL="https://repo1.maven.org/maven2/org/apache/maven/apache-maven/${VERSION}/apache-maven-${VERSION}-bin.tar.gz"
+            local DOWNLOAD_URLS=(
+                "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${VERSION}/apache-maven-${VERSION}-bin.tar.gz"
+                "https://repo1.maven.org/maven2/org/apache/maven/apache-maven/${VERSION}/apache-maven-${VERSION}-bin.tar.gz"
+                "https://archive.apache.org/dist/maven/maven-3/${VERSION}/binaries/apache-maven-${VERSION}-bin.tar.gz"
+            )
 
-            echo "Downloading Maven ${VERSION} from Maven Central..." >&2
-            echo "URL: ${DOWNLOAD_URL}" >&2
+            local DOWNLOAD_URL
+            local DOWNLOAD_SUCCESS=1
 
-            if command -v curl > /dev/null 2>&1; then
-                curl -f -L --retry 3 --retry-delay 3 \
-                     --connect-timeout 30 --max-time 600 \
-                     -o "${MVN_TAR}" "${DOWNLOAD_URL}" || {
-                    echo "ERROR: Failed to download Maven from ${DOWNLOAD_URL}" >&2
-                    rm -f "${MVN_TAR}"
+            for DOWNLOAD_URL in "${DOWNLOAD_URLS[@]}"; do
+                echo "Downloading Maven ${VERSION}..." >&2
+                echo "URL: ${DOWNLOAD_URL}" >&2
+
+                if command -v curl > /dev/null 2>&1; then
+                    if curl -f -L --retry 3 --retry-delay 3 \
+                        --connect-timeout 30 --max-time 600 \
+                        -o "${MVN_TAR}" "${DOWNLOAD_URL}"; then
+                        DOWNLOAD_SUCCESS=0
+                        break
+                    fi
+                elif command -v wget > /dev/null 2>&1; then
+                    if wget --tries=3 --waitretry=3 \
+                        --connect-timeout=30 --read-timeout=600 \
+                        -O "${MVN_TAR}" "${DOWNLOAD_URL}"; then
+                        DOWNLOAD_SUCCESS=0
+                        break
+                    fi
+                else
+                    echo "ERROR: Neither curl nor wget found. Please install one of them or install Maven manually." >&2
                     exit 1
-                }
-            elif command -v wget > /dev/null 2>&1; then
-                wget --tries=3 --waitretry=3 \
-                     --connect-timeout=30 --read-timeout=600 \
-                     -O "${MVN_TAR}" "${DOWNLOAD_URL}" || {
-                    echo "ERROR: Failed to download Maven from ${DOWNLOAD_URL}" >&2
-                    rm -f "${MVN_TAR}"
-                    exit 1
-                }
-            else
-                echo "ERROR: Neither curl nor wget found. Please install one of them or install Maven manually." >&2
+                fi
+
+                echo "WARN: Failed to download Maven from ${DOWNLOAD_URL}, trying next source..." >&2
+                rm -f "${MVN_TAR}"
+            done
+
+            if [ "${DOWNLOAD_SUCCESS}" -ne 0 ]; then
+                echo "ERROR: Failed to download Maven ${VERSION} from all known sources." >&2
                 exit 1
             fi
 
