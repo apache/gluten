@@ -21,6 +21,9 @@
 #include <arrow/ipc/writer.h>
 #include <execinfo.h>
 #include <jni.h>
+#include <thread>
+
+#include <folly/executors/thread_factory/ThreadFactory.h>
 
 #include "compute/ProtobufUtils.h"
 #include "compute/Runtime.h"
@@ -156,11 +159,16 @@ class JniCommonState {
 
   void ensureInitialized(JNIEnv* env);
 
-  void assertInitialized();
+  void assertInitialized() const;
 
   void close();
 
   jmethodID runtimeAwareCtxHandle();
+
+  JavaVM* vm() const {
+    assertInitialized();
+    return vm_;
+  }
 
  private:
   void initialize(JNIEnv* env);
@@ -178,6 +186,56 @@ inline JniCommonState* getJniCommonState() {
   static JniCommonState jniCommonState;
   return &jniCommonState;
 }
+
+/// A folly::ThreadFactory for spill thread pools. Attaches each thread to the
+/// JVM as a daemon at creation and calls DetachCurrentThread inside the thread
+/// function body — after all work completes but before any pthread_key destructor
+/// fires — to prevent unbounded JavaThread accumulation.
+///
+/// INVARIANT: threads created by this factory must never call libhdfs. libhdfs
+/// registers hdfsThreadDestructor via pthread_key on first HDFS call; that
+/// destructor calls DetachCurrentThread at actual thread exit. Calling it
+/// earlier (inside the thread body) would invalidate libhdfs's cached JNIEnv*,
+/// causing SIGSEGV on the next HDFS call.
+///
+/// REQUIRES: JniCommonState::ensureInitialized() must have been called before
+/// constructing this factory (i.e. after JNI_OnLoad completes).
+class JniAwareThreadFactory : public folly::ThreadFactory {
+ public:
+  JniAwareThreadFactory() : vm_(getJniCommonState()->vm()) {}
+
+  std::thread newThread(folly::Func&& func) override {
+    return std::thread([vm = vm_, f = std::move(func)]() mutable {
+      JNIEnv* env = nullptr;
+      bool weAttached = (vm->GetEnv(reinterpret_cast<void**>(&env), jniVersion) == JNI_EDETACHED);
+      if (weAttached) {
+        if (vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&env), nullptr) != JNI_OK) {
+          LOG(WARNING) << "JniAwareThreadFactory: failed to attach thread to JVM";
+          weAttached = false;
+        }
+      }
+      // RAII guard: ensures DetachCurrentThread is called even if f() throws.
+      struct DetachGuard {
+        JavaVM* vm;
+        bool active;
+        ~DetachGuard() {
+          if (active) {
+            vm->DetachCurrentThread();
+          }
+        }
+      } guard{vm, weAttached};
+      f();
+    });
+  }
+
+  const std::string& getNamePrefix() const override {
+    static const std::string kEmpty;
+    return kEmpty;
+  }
+
+ private:
+  JavaVM* vm_;
+};
 
 Runtime* getRuntime(JNIEnv* env, jobject runtimeAware);
 
