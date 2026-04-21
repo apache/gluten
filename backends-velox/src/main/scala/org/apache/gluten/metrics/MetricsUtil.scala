@@ -132,6 +132,7 @@ object MetricsUtil extends Logging {
     var remainingFilterTime: Long = 0
     var ioWaitTime: Long = 0
     var storageReadBytes: Long = 0
+    var storageReads: Long = 0
     var localReadBytes: Long = 0
     var ramReadBytes: Long = 0
     var preloadSplits: Long = 0
@@ -168,6 +169,7 @@ object MetricsUtil extends Logging {
       remainingFilterTime += metrics.remainingFilterTime
       ioWaitTime += metrics.ioWaitTime
       storageReadBytes += metrics.storageReadBytes
+      storageReads += metrics.storageReads
       localReadBytes += metrics.localReadBytes
       ramReadBytes += metrics.ramReadBytes
       preloadSplits += metrics.preloadSplits
@@ -211,6 +213,7 @@ object MetricsUtil extends Logging {
       remainingFilterTime,
       ioWaitTime,
       storageReadBytes,
+      storageReads,
       localReadBytes,
       ramReadBytes,
       preloadSplits,
