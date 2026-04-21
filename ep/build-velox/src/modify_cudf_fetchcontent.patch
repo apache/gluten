@@ -1,9 +1,8 @@
 diff --git a/CMake/resolve_dependency_modules/cudf.cmake b/CMake/resolve_dependency_modules/cudf.cmake
+index a13cd4c71..d44d87452 100644
 --- a/CMake/resolve_dependency_modules/cudf.cmake
 +++ b/CMake/resolve_dependency_modules/cudf.cmake
-@@ -70,35 +70,39 @@ block(SCOPE_FOR VARIABLES)
-   set(CUDF_BUILD_TESTUTIL OFF)
-   set(BUILD_SHARED_LIBS ON)
+@@ -72,15 +72,15 @@ block(SCOPE_FOR VARIABLES)
  
    FetchContent_Declare(
      rapids-cmake
@@ -23,7 +22,7 @@ diff --git a/CMake/resolve_dependency_modules/cudf.cmake b/CMake/resolve_depende
      SOURCE_SUBDIR
      cpp
      UPDATE_DISCONNECTED 1
-   )
+@@ -88,8 +88,8 @@ block(SCOPE_FOR VARIABLES)
  
    FetchContent_Declare(
      kvikio
@@ -34,7 +33,7 @@ diff --git a/CMake/resolve_dependency_modules/cudf.cmake b/CMake/resolve_depende
      SOURCE_SUBDIR
      cpp
      UPDATE_DISCONNECTED 1
-   )
+@@ -97,8 +97,8 @@ block(SCOPE_FOR VARIABLES)
  
    FetchContent_Declare(
      cudf
@@ -45,4 +44,3 @@ diff --git a/CMake/resolve_dependency_modules/cudf.cmake b/CMake/resolve_depende
      SOURCE_SUBDIR
      cpp
      UPDATE_DISCONNECTED 1
-   )
