@@ -81,10 +81,18 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
       case index: TahoeFileIndex =>
         val snapshot = index.asInstanceOf[SnapshotDescriptor]
         deletionVectorsReadable(snapshot.protocol, snapshot.metadata) &&
-        hasRowIndexFilters(index)
+        hasDeletionVectorBackedRows(index, scan.relation.location)
       case _ =>
         false
     }
+  }
+
+  private def hasDeletionVectorBackedRows(index: TahoeFileIndex, location: AnyRef): Boolean = {
+    hasRowIndexFilters(index) ||
+    hasPreparedScanDeletionVectors(location) ||
+    // PreparedDeltaFileIndex can hide row index filters behind an internal DeltaScan.
+    // Conservatively fallback when metadata row index is disabled.
+    location.isInstanceOf[PreparedDeltaFileIndex]
   }
 
   private def hasRowIndexFilters(index: TahoeFileIndex): Boolean = {
@@ -94,6 +102,42 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
       case filters =>
         isNonEmpty(filters)
     }
+  }
+
+  private def hasPreparedScanDeletionVectors(location: AnyRef): Boolean = {
+    getNoArgMethodValue(location, "preparedScan")
+      .flatMap {
+        case preparedScan: AnyRef =>
+          getNoArgMethodValue(preparedScan, "files")
+        case _ =>
+          None
+      }
+      .exists(containsDeletionVectorFiles)
+  }
+
+  private def containsDeletionVectorFiles(value: Any): Boolean = value match {
+    case iterable: Iterable[_] =>
+      iterable.exists(hasDeletionVectorDescriptor)
+    case array: Array[_] =>
+      array.exists(hasDeletionVectorDescriptor)
+    case _ =>
+      false
+  }
+
+  private def hasDeletionVectorDescriptor(value: Any): Boolean = value match {
+    case null =>
+      false
+    case ref: AnyRef =>
+      getNoArgMethodValue(ref, "deletionVector").exists {
+        case null =>
+          false
+        case descriptorOption: Option[_] =>
+          descriptorOption.nonEmpty
+        case _ =>
+          true
+      }
+    case _ =>
+      false
   }
 
   private def getNoArgMethodValue(target: AnyRef, methodName: String): Option[Any] = {
