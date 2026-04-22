@@ -58,7 +58,6 @@ class SharedLibraryLoaderUbuntu2004 extends SharedLibraryLoader {
     loader.loadAndCreateLink("libidn.so.11", "libidn.so")
     loader.loadAndCreateLink("libntlm.so.0", "libntlm.so")
     loader.loadAndCreateLink("libgsasl.so.7", "libgsasl.so")
-    loader.loadAndCreateLink("libprotobuf.so.32", "libprotobuf.so")
     loader.loadAndCreateLink("libicudata.so.66", "libicudata.so")
     loader.loadAndCreateLink("libicuuc.so.66", "libicuuc.so")
     loader.loadAndCreateLink("libxml2.so.2", "libxml2.so")
