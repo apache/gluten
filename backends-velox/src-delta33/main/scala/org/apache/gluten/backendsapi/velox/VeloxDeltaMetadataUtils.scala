@@ -61,7 +61,7 @@ object VeloxDeltaMetadataUtils {
     try {
       DeltaLog
         .forTable(spark, tablePath)
-        .update()
+        .update(false)
         .allFiles
         .collect()
         .collect {
