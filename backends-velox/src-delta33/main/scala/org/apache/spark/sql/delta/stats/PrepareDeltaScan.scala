@@ -53,12 +53,6 @@ class PrepareDeltaScan(protected val spark: SparkSession)
       plan
     }
 
-    val useMetadataRowIndex =
-      spark.sessionState.conf.getConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX)
-    if (useMetadataRowIndex) {
-      preprocessTablesWithDVs(updatedPlan)
-    } else {
-      updatedPlan
-    }
+    preprocessTablesWithDVs(updatedPlan)
   }
 }

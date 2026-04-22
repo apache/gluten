@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, Attribu
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.delta.{DeltaColumnMapping, DeltaParquetFileFormat, NoMapping}
-import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
+import org.apache.spark.sql.execution.{FilterExec, ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.types.StructType
 
@@ -104,7 +104,7 @@ object DeltaPostTransformRules {
             dataFilters = cleanedDataFilters,
             pushDownFilters = cleanedPushDownFilters)
         }
-      case project: ProjectExecTransformer =>
+      case project: ProjectExecTransformer if containsNativeDeltaScan(project.child) =>
         val cleanedProjectList = stripDeletionVectorInternalProjectList(
           project.projectList,
           shouldPreserveDeletionVectorRowIndex(project))
@@ -115,7 +115,18 @@ object DeltaPostTransformRules {
         } else {
           ProjectExecTransformer(cleanedProjectList, project.child)
         }
-      case filter: FilterExecTransformerBase =>
+      case project: ProjectExec if containsNativeDeltaScan(project.child) =>
+        val cleanedProjectList = stripDeletionVectorInternalProjectList(
+          project.projectList,
+          shouldPreserveDeletionVectorRowIndex(project))
+        if (cleanedProjectList == project.projectList) {
+          project
+        } else if (cleanedProjectList.isEmpty) {
+          project.child
+        } else {
+          ProjectExec(cleanedProjectList, project.child)
+        }
+      case filter: FilterExecTransformerBase if containsNativeDeltaScan(filter.child) =>
         stripDeletionVectorPredicate(filter.cond) match {
           case Some(cleanCondition) if cleanCondition != filter.cond =>
             BackendsApiManager.getSparkPlanExecApiInstance
@@ -125,6 +136,22 @@ object DeltaPostTransformRules {
           case None =>
             filter.child
         }
+      case filter: FilterExec if containsNativeDeltaScan(filter.child) =>
+        stripDeletionVectorPredicate(filter.condition) match {
+          case Some(cleanCondition) if cleanCondition != filter.condition =>
+            FilterExec(cleanCondition, filter.child)
+          case Some(_) =>
+            filter
+          case None =>
+            filter.child
+        }
+    }
+  }
+
+  private def containsNativeDeltaScan(plan: SparkPlan): Boolean = {
+    plan.exists {
+      case _: DeltaScanTransformer => true
+      case _ => false
     }
   }
 

@@ -38,7 +38,7 @@ case class OffloadDeltaCommand() extends OffloadSingleNode {
     plan match {
       case ExecutedCommandExec(uc: UpdateCommand)
           if shouldFallbackDeletionVectorDml &&
-            deletionVectorsReadable(uc.tahoeFileIndex.deltaLog.unsafeVolatileSnapshot) =>
+            deletionVectorsReadable(uc.tahoeFileIndex.deltaLog.update()) =>
         FallbackTags.add(
           plan,
           "fallback Delta UPDATE with deletion vectors when metadata row index is disabled")
@@ -47,7 +47,7 @@ case class OffloadDeltaCommand() extends OffloadSingleNode {
         ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(uc))
       case ExecutedCommandExec(dc: DeleteCommand)
           if shouldFallbackDeletionVectorDml &&
-            deletionVectorsReadable(dc.deltaLog.unsafeVolatileSnapshot) =>
+            deletionVectorsReadable(dc.deltaLog.update()) =>
         FallbackTags.add(
           plan,
           "fallback Delta DELETE with deletion vectors when metadata row index is disabled")

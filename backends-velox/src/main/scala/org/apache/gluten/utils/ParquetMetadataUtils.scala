@@ -29,6 +29,8 @@ import org.apache.parquet.crypto.ParquetCryptoRuntimeException
 import org.apache.parquet.format.converter.ParquetMetadataConverter
 import org.apache.parquet.hadoop.metadata.ParquetMetadata
 
+import java.util.Locale
+
 object ParquetMetadataUtils extends Logging {
 
   /**
@@ -114,14 +116,30 @@ object ParquetMetadataUtils extends Logging {
     val filesIterator = fs.listFiles(path, true)
     var checkedFileCount = 0
     while (filesIterator.hasNext && checkedFileCount < fileLimit) {
-      val fileStatus = filesIterator.next()
-      checkedFileCount += 1
-      val metadataUnsupported = isUnsupportedMetadata(fileStatus, conf, parquetOptions)
-      if (metadataUnsupported.isDefined) {
-        return metadataUnsupported
+      try {
+        val fileStatus = filesIterator.next()
+        if (isCandidateParquetFile(fileStatus.getPath)) {
+          checkedFileCount += 1
+          val metadataUnsupported = isUnsupportedMetadata(fileStatus, conf, parquetOptions)
+          if (metadataUnsupported.isDefined) {
+            return metadataUnsupported
+          }
+        }
+      } catch {
+        case e: Exception =>
+          logDebug(s"Skip transient file while validating parquet metadata under $path", e)
       }
     }
     None
+  }
+
+  private def isCandidateParquetFile(path: Path): Boolean = {
+    val lowerPath = path.toString.toLowerCase(Locale.ROOT)
+    // Delta metadata directories can contain short-lived JSON temp files that disappear while
+    // we iterate. They are not parquet data files and should not participate in parquet fallback
+    // validation.
+    !lowerPath.contains("/_delta_log/") &&
+    (lowerPath.endsWith(".parquet") || lowerPath.contains(".parquet."))
   }
 
   /**
