@@ -687,6 +687,9 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
 
     configs[velox::core::QueryConfig::kSparkPartitionId] = std::to_string(taskInfo_.partitionId);
 
+    configs[velox::core::QueryConfig::kSparkAnsiModeEnabled] =
+        std::to_string(veloxCfg_->get<bool>(kVeloxSparkAnsiModeEnabled, false));
+
     // Enable Spark legacy date formatter if spark.sql.legacy.timeParserPolicy is set to 'LEGACY'
     // or 'legacy'
     if (veloxCfg_->get<std::string>(kSparkLegacyTimeParserPolicy, "") == "LEGACY") {
