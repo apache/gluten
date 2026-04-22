@@ -19,6 +19,8 @@
 
 #include <Formats/FormatFactory.h>
 #include <Formats/FormatSettings.h>
+#include <IO/SeekableReadBuffer.h>
+#include <IO/WithFileSize.h>
 #include <Processors/Formats/Impl/ArrowBufferedStreams.h>
 #include <Processors/Formats/Impl/ArrowColumnToCHColumn.h>
 #include <Processors/Formats/Impl/ArrowFieldIndexUtil.h>
@@ -46,7 +48,21 @@ std::unique_ptr<parquet::ParquetFileReader> ParquetMetaBuilder::openInputParquet
         .seekable_read = true,
     };
     std::atomic<int> is_stopped{0};
-    auto arrow_file = asArrowFile(read_buffer, format_settings, is_stopped, "Parquet", PARQUET_MAGIC_BYTES);
+    /// Parquet open reads the footer with RandomAccessFile::ReadAt(). Arrow's default ReadAt is Seek()+Read().
+    /// On HDFS EC (striped) files, libhdfs3's seek+read cursor path can return wrong bytes for sparse footer
+    /// reads while pread (readBigAt → hdfsPread → preadInternal) matches the range read path Spark uses.
+    std::shared_ptr<arrow::io::RandomAccessFile> arrow_file;
+    if (format_settings.seekable_read && isBufferWithFileSize(read_buffer))
+    {
+        if (auto * seekable = dynamic_cast<SeekableReadBuffer *>(&read_buffer);
+            seekable && seekable->supportsReadAt())
+        {
+            arrow_file = std::make_shared<RandomAccessFileFromRandomAccessReadBuffer>(
+                *seekable, getFileSizeFromReadBuffer(read_buffer), nullptr);
+        }
+    }
+    if (!arrow_file)
+        arrow_file = asArrowFile(read_buffer, format_settings, is_stopped, "Parquet", PARQUET_MAGIC_BYTES);
 
     return parquet::ParquetFileReader::Open(arrow_file, parquet::default_reader_properties(), nullptr);
 }

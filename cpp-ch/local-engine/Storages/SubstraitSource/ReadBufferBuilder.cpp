@@ -299,6 +299,15 @@ public:
             modified_time = file_info.properties().modificationtime();
         }
 
+#if USE_PARQUET
+        if (file_info.has_parquet() || (file_info.has_iceberg() && file_info.iceberg().has_parquet()))
+            file_size = std::nullopt;
+#endif
+#if USE_ORC
+        if (file_info.has_orc() || (file_info.has_iceberg() && file_info.iceberg().has_orc()))
+            file_size = std::nullopt;
+#endif
+
         std::unique_ptr<SeekableReadBuffer> read_buffer;
         if (!read_settings.enable_filesystem_cache)
         {

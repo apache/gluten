@@ -16,6 +16,8 @@
  */
 #include "OrcUtil.h"
 #include <IO/Operators.h>
+#include <IO/SeekableReadBuffer.h>
+#include <IO/WithFileSize.h>
 #include <IO/WriteBufferFromString.h>
 #include <Processors/Formats/Impl/ArrowBufferedStreams.h>
 #include <arrow/result.h>
@@ -70,6 +72,26 @@ namespace ErrorCodes
 }
 namespace local_engine
 {
+std::shared_ptr<arrow::io::RandomAccessFile> OrcUtil::openArrowRandomAccessFileForOrc(
+    DB::ReadBuffer & read_buffer,
+    const DB::FormatSettings & format_settings,
+    std::atomic<int> & is_stopped)
+{
+    std::shared_ptr<arrow::io::RandomAccessFile> arrow_file;
+    if (format_settings.seekable_read && DB::isBufferWithFileSize(read_buffer))
+    {
+        if (auto * seekable = dynamic_cast<DB::SeekableReadBuffer *>(&read_buffer);
+            seekable && seekable->supportsReadAt())
+        {
+            arrow_file = std::make_shared<DB::RandomAccessFileFromRandomAccessReadBuffer>(
+                *seekable, DB::getFileSizeFromReadBuffer(read_buffer), nullptr);
+        }
+    }
+    if (!arrow_file)
+        arrow_file = DB::asArrowFile(read_buffer, format_settings, is_stopped, "ORC", ORC_MAGIC_BYTES);
+    return arrow_file;
+}
+
 uint64_t ArrowInputFile::getLength() const
 {
     ORC_ASSIGN_OR_THROW(int64_t size, file->GetSize())
@@ -147,7 +169,7 @@ void OrcUtil::getFileReaderAndSchema(
     const DB::FormatSettings & format_settings,
     std::atomic<int> & is_stopped)
 {
-    auto arrow_file = DB::asArrowFile(in, format_settings, is_stopped, "ORC", ORC_MAGIC_BYTES);
+    auto arrow_file = OrcUtil::openArrowRandomAccessFileForOrc(in, format_settings, is_stopped);
     if (is_stopped)
         return;
 

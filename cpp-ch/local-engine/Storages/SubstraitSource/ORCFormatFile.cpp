@@ -21,7 +21,6 @@
 #include <numeric>
 #include <Formats/FormatFactory.h>
 #include <IO/SeekableReadBuffer.h>
-#include <Processors/Formats/Impl/ArrowBufferedStreams.h>
 #include <Processors/Formats/Impl/NativeORCBlockInputFormat.h>
 #include <Storages/SubstraitSource/OrcUtil.h>
 #include <Poco/Util/AbstractConfiguration.h>
@@ -115,7 +114,7 @@ std::vector<StripeInformation> ORCFormatFile::collectRequiredStripes(DB::ReadBuf
         .seekable_read = true,
     };
     std::atomic<int> is_stopped{0};
-    auto arrow_file = DB::asArrowFile(*read_buffer, format_settings, is_stopped, "ORC", ORC_MAGIC_BYTES);
+    auto arrow_file = OrcUtil::openArrowRandomAccessFileForOrc(*read_buffer, format_settings, is_stopped);
     auto orc_reader = OrcUtil::createOrcReader(arrow_file);
     total_stripes = orc_reader->getNumberOfStripes();
 

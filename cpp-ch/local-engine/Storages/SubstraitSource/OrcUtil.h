@@ -18,6 +18,9 @@
 #include <Processors/Formats/Impl/ArrowColumnToCHColumn.h>
 #include <Processors/Formats/Impl/ORCBlockInputFormat.h>
 
+#include <arrow/io/interfaces.h>
+#include <atomic>
+
 /// there are destructor not be overrided warnings in orc lib, ignore them
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsuggest-destructor-override"
@@ -49,6 +52,13 @@ private:
 class OrcUtil
 {
 public:
+    /// Same as ParquetMetaBuilder::openInputParquetFile: on HDFS EC, Arrow's default ReadAt is Seek()+Read();
+    /// ORC postscript/footer reads need readBigAt (pread) for correct tail bytes.
+    static std::shared_ptr<arrow::io::RandomAccessFile> openArrowRandomAccessFileForOrc(
+        DB::ReadBuffer & read_buffer,
+        const DB::FormatSettings & format_settings,
+        std::atomic<int> & is_stopped);
+
     static std::unique_ptr<orc::Reader> createOrcReader(std::shared_ptr<arrow::io::RandomAccessFile> file_);
 
     static size_t countIndicesForType(std::shared_ptr<arrow::DataType> type);
