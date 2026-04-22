@@ -27,8 +27,6 @@ import org.apache.spark.sql.delta.files.TahoeFileIndex
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 
-import scala.util.Try
-
 case class OffloadDeltaScan() extends OffloadSingleNode {
   private val deletionVectorsUseMetadataRowIndexKey =
     "spark.databricks.delta.deletionVectors.useMetadataRowIndex"
@@ -80,76 +78,9 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
     scan.relation.location match {
       case index: TahoeFileIndex =>
         val snapshot = index.asInstanceOf[SnapshotDescriptor]
-        deletionVectorsReadable(snapshot.protocol, snapshot.metadata) &&
-        hasDeletionVectorBackedRows(index, scan.relation.location)
+        deletionVectorsReadable(snapshot.protocol, snapshot.metadata)
       case _ =>
         false
     }
-  }
-
-  private def hasDeletionVectorBackedRows(index: TahoeFileIndex, location: AnyRef): Boolean = {
-    hasRowIndexFilters(index) ||
-    hasPreparedScanDeletionVectors(location) ||
-    // PreparedDeltaFileIndex can hide row index filters behind an internal DeltaScan.
-    // Conservatively fallback when metadata row index is disabled.
-    location.isInstanceOf[PreparedDeltaFileIndex]
-  }
-
-  private def hasRowIndexFilters(index: TahoeFileIndex): Boolean = {
-    getNoArgMethodValue(index, "rowIndexFilters").exists {
-      case filters: Option[_] =>
-        filters.exists(isNonEmpty)
-      case filters =>
-        isNonEmpty(filters)
-    }
-  }
-
-  private def hasPreparedScanDeletionVectors(location: AnyRef): Boolean = {
-    getNoArgMethodValue(location, "preparedScan")
-      .flatMap {
-        case preparedScan: AnyRef =>
-          getNoArgMethodValue(preparedScan, "files")
-        case _ =>
-          None
-      }
-      .exists(containsDeletionVectorFiles)
-  }
-
-  private def containsDeletionVectorFiles(value: Any): Boolean = value match {
-    case iterable: Iterable[_] =>
-      iterable.exists(hasDeletionVectorDescriptor)
-    case array: Array[_] =>
-      array.exists(hasDeletionVectorDescriptor)
-    case _ =>
-      false
-  }
-
-  private def hasDeletionVectorDescriptor(value: Any): Boolean = value match {
-    case null =>
-      false
-    case ref: AnyRef =>
-      getNoArgMethodValue(ref, "deletionVector").exists {
-        case null =>
-          false
-        case descriptorOption: Option[_] =>
-          descriptorOption.nonEmpty
-        case _ =>
-          true
-      }
-    case _ =>
-      false
-  }
-
-  private def getNoArgMethodValue(target: AnyRef, methodName: String): Option[Any] = {
-    Try {
-      val method = target.getClass.getMethod(methodName)
-      method.invoke(target)
-    }.toOption
-  }
-
-  private def isNonEmpty(value: Any): Boolean = value match {
-    case iterable: Iterable[_] => iterable.nonEmpty
-    case array: Array[_] => array.nonEmpty
-    case _ => false
   }
 }
