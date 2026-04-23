@@ -391,6 +391,12 @@
           <scope>provided</scope>
         </dependency>
         <dependency>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-common</artifactId>
+          <version>${hadoop.version}</version>
+          <scope>provided</scope>
+        </dependency>
+        <dependency>
           <groupId>org.apache.iceberg</groupId>
           <artifactId>iceberg-spark-${sparkbundle.version}_${scala.binary.version}</artifactId>
           <version>${iceberg.version}</version>
