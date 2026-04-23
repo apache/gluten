@@ -799,7 +799,9 @@ jobs:
           java -version
           export SPARK_HOME=/opt/shims/spark34/spark_home/
           ls -l $SPARK_HOME
-          $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+          # -Piceberg-test is disabled in Velox version bump ibm-2026_04_22.
+          # $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+          $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
           -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
           -DargLine="-Dspark.test.home=$SPARK_HOME"
       - name: Upload test report
