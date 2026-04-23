@@ -17,7 +17,7 @@
 package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.SparkRuntimeException
-import org.apache.spark.sql.GlutenTestsTrait
+import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
@@ -26,7 +26,11 @@ import org.apache.spark.sql.types._
 
 import scala.util.Random
 
-class GlutenCollectionExpressionsSuite extends CollectionExpressionsSuite with GlutenTestsTrait {
+class GlutenCollectionExpressionsSuite
+  extends CollectionExpressionsSuite
+  with GlutenExpressionOffloadTracker {
+  override protected def offloadCategory: String = "collection"
+
   testGluten("Shuffle") {
     // Primitive-type elements
     val ai0 = Literal.create(Seq(1, 2, 3, 4, 5), ArrayType(IntegerType, containsNull = false))

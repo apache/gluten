@@ -33,26 +33,10 @@ install_maven_from_source() {
         fi
 
         cd /tmp
-        local_binary="apache-maven-${maven_version}-bin.tar.gz"
-        maven_urls=(
-            "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${maven_version}/${local_binary}"
-            "https://repo1.maven.org/maven2/org/apache/maven/apache-maven/${maven_version}/${local_binary}"
-            "https://archive.apache.org/dist/maven/maven-3/${maven_version}/binaries/${local_binary}"
-            "https://www.apache.org/dyn/closer.lua/maven/maven-3/${maven_version}/binaries/${local_binary}?action=download"
-        )
-        downloaded=0
-        for url in "${maven_urls[@]}"; do
-            if wget -nv --tries=3 --waitretry=3 --read-timeout=60 -O "${local_binary}" "${url}"; then
-                downloaded=1
-                break
-            fi
-            rm -rf "${local_binary}"
-            echo "Failed to download Maven from ${url}, trying next source..."
-        done
-        if [ "${downloaded}" -ne 1 ]; then
-            echo "Failed to install maven: unable to download ${local_binary} from all known sources" >&2
-            exit 1
-        fi
+        local_binary="apache-maven-${maven_version}-bin.tar.gz";
+        mirror_host="https://www.apache.org/dyn/closer.lua";
+        url="${mirror_host}/maven/maven-3/${maven_version}/binaries/${local_binary}?action=download";
+        wget -nv -O ${local_binary} ${url};
         tar -xvf ${local_binary};
         rm -rf ${local_binary};
         mv apache-maven-$maven_version "${maven_install_dir}"

@@ -150,6 +150,7 @@ object CHRuleApi {
       .getExtendedColumnarPostRules()
       .foreach(each => injector.injectPost(c => intercept(each(c.session))))
     injector.injectPost(c => ColumnarCollapseTransformStages(new GlutenConfig(c.sqlConf)))
+    injector.injectPost(_ => GenerateTransformStageId())
     injector.injectPost(
       c =>
         intercept(

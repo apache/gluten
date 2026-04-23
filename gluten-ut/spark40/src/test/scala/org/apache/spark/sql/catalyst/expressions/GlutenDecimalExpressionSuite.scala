@@ -16,6 +16,10 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsTrait
+import org.apache.spark.sql.GlutenExpressionOffloadTracker
 
-class GlutenDecimalExpressionSuite extends DecimalExpressionSuite with GlutenTestsTrait {}
+class GlutenDecimalExpressionSuite
+  extends DecimalExpressionSuite
+  with GlutenExpressionOffloadTracker {
+  override protected def offloadCategory: String = "decimal"
+}

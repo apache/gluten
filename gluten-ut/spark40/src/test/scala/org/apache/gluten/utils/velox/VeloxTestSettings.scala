@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.utils.velox
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.utils.{BackendTestSettings, SQLQueryTestSettings}
 
 import org.apache.spark.GlutenSortShuffleSuite
@@ -48,6 +49,8 @@ import org.apache.spark.sql.streaming._
 // scalastyle:off line.size.limit
 
 class VeloxTestSettings extends BackendTestSettings {
+  private val ansiNoFallback: Boolean =
+    sys.props.get(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key).contains("false")
   enableSuite[GlutenStringFunctionsSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
@@ -217,7 +220,11 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenBitmapExpressionUtilsSuite]
   enableSuite[GlutenCallMethodViaReflectionSuite]
   enableSuite[GlutenCanonicalizeSuite]
-  // TODO: 4.x enableSuite[GlutenCastWithAnsiOnSuite]  // 4 failures
+  if (ansiNoFallback) {
+    enableSuite[GlutenCastWithAnsiOnSuite]
+      .exclude("data type casting")
+      .exclude("cast string to timestamp")
+  }
   enableSuite[GlutenCodeGenerationSuite]
   enableSuite[GlutenCodeGeneratorWithInterpretedFallbackSuite]
   enableSuite[GlutenCollationExpressionSuite]
