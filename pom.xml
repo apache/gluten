@@ -61,6 +61,7 @@
     <java.version>1.8</java.version>
     <maven.compiler.source>${java.version}</maven.compiler.source>
     <maven.compiler.target>${java.version}</maven.compiler.target>
+    <maven.compiler.release>${java.version}</maven.compiler.release>
     <caffeine.version>2.9.3</caffeine.version>
     <scala.binary.version>2.12</scala.binary.version>
     <scala.version>2.12.18</scala.version>
@@ -1249,6 +1250,11 @@
     <profile>
       <id>spark-4.0</id>
       <properties>
+        <!-- Spark 4.x requires Java 17+. Declare compiler target explicitly so the
+             build is immune to outside interference (e.g. a `jdk-8` profile in the
+             user's ~/.m2/settings.xml setting maven.compiler.source/target to 1.8). -->
+        <java.version>17</java.version>
+        <scala.release.version>17</scala.release.version>
         <sparkbundle.version>4.0</sparkbundle.version>
         <sparkshim.artifactId>spark-sql-columnar-shims-spark40</sparkshim.artifactId>
         <spark.version>4.0.1</spark.version>
@@ -1330,6 +1336,11 @@
     <profile>
       <id>spark-4.1</id>
       <properties>
+        <!-- Spark 4.x requires Java 17+. Declare compiler target explicitly so the
+             build is immune to outside interference (e.g. a `jdk-8` profile in the
+             user's ~/.m2/settings.xml setting maven.compiler.source/target to 1.8). -->
+        <java.version>17</java.version>
+        <scala.release.version>17</scala.release.version>
         <sparkbundle.version>4.1</sparkbundle.version>
         <sparkshim.artifactId>spark-sql-columnar-shims-spark41</sparkshim.artifactId>
         <spark.version>4.1.1</spark.version>
