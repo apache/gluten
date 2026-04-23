@@ -790,6 +790,8 @@ void BackendInitializerUtil::initContexts(DB::Context::ConfigurationPtr config)
                 tmp_path = std::string(buffer) + tmp_path;
         };
 
+        if (!fs::exists(tmp_path))
+            fs::create_directories(tmp_path);
         global_context->setTemporaryStoragePath(tmp_path, 0);
         global_context->setPath(config->getString("path", "/"));
 
