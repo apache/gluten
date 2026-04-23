@@ -42,7 +42,6 @@ class SharedLibraryLoaderOpenEuler2403 extends SharedLibraryLoader {
     loader.loadAndCreateLink("libidn.so.12", "libidn.so")
     loader.loadAndCreateLink("libntlm.so.0", "libntlm.so")
     loader.loadAndCreateLink("libgsasl.so.7", "libgsasl.so")
-    loader.loadAndCreateLink("libprotobuf.so.32", "libprotobuf.so")
     loader.loadAndCreateLink("libre2.so.11", "libre2.so")
     loader.loadAndCreateLink("libsodium.so.26", "libsodium.so")
   }

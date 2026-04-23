@@ -49,6 +49,7 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long remainingFilterTime;
   public long ioWaitTime;
   public long storageReadBytes;
+  public long storageReads;
   public long localReadBytes;
   public long ramReadBytes;
   public long preloadSplits;
@@ -96,6 +97,7 @@ public class OperatorMetrics implements IOperatorMetrics {
       long remainingFilterTime,
       long ioWaitTime,
       long storageReadBytes,
+      long storageReads,
       long localReadBytes,
       long ramReadBytes,
       long preloadSplits,
@@ -138,6 +140,7 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.remainingFilterTime = remainingFilterTime;
     this.ioWaitTime = ioWaitTime;
     this.storageReadBytes = storageReadBytes;
+    this.storageReads = storageReads;
     this.localReadBytes = localReadBytes;
     this.ramReadBytes = ramReadBytes;
     this.preloadSplits = preloadSplits;

@@ -215,6 +215,7 @@ Optional:
   --force           Force Maven rebuild, bypass build cache
   --profile         Enable Maven profiler (reports in .profiler/)
   --export-only     Export classpath and exit (no test execution)
+  --jvm-arg <arg>   Pass extra JVM argument to test process (repeatable)
   --help            Show this help message
 
 Examples:
@@ -348,6 +349,7 @@ EXPORT_ONLY=false
 ENABLE_CLEAN=false
 FORCE_BUILD=false
 USE_MVND=false
+EXTRA_JVM_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -386,6 +388,10 @@ while [[ $# -gt 0 ]]; do
     --export-only)
       EXPORT_ONLY=true
       shift
+      ;;
+    --jvm-arg)
+      EXTRA_JVM_ARGS+=("$2")
+      shift 2
       ;;
     --help)
       print_usage
@@ -684,6 +690,7 @@ SPARK_TEST_HOME_ARG=""
 
 JAVA_ARGS=(
   ${JVM_ARGS}
+  "${EXTRA_JVM_ARGS[@]}"
   "-Dlog4j.configurationFile=file:${GLUTEN_HOME}/${MODULE}/src/test/resources/log4j2.properties"
   ${SPARK_TEST_HOME_ARG}
   -cp "${PATHING_JAR}"

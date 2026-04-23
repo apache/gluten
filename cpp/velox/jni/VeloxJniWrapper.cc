@@ -594,10 +594,11 @@ Java_org_apache_gluten_datasource_VeloxDataSourceJniWrapper_splitBlockByPartitio
       asRowType(inputRowVector->type()),
       partitionColIndicesVec,
       65536,
-      pool.get()
+      pool.get(),
 #ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
-          ,
       true
+#else
+      false
 #endif
   );
   raw_vector<uint64_t> partitionIds{};
