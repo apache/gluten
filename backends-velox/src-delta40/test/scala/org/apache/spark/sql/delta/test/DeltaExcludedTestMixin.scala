@@ -21,13 +21,15 @@ import org.apache.spark.sql.QueryTest
 import org.scalactic.source.Position
 import org.scalatest.Tag
 
+// spotless:off
 trait DeltaExcludedTestMixin extends QueryTest {
 
   /** Tests to be ignored by the runner. */
   override def excluded: Seq[String] = Seq.empty
 
-  override protected def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
-      pos: Position): Unit = {
+  protected override def test(testName: String, testTags: Tag*)
+    (testFun: => Any)
+    (implicit pos: Position): Unit = {
     if (excluded.contains(testName)) {
       super.ignore(testName, testTags: _*)(testFun)
     } else {
@@ -35,3 +37,4 @@ trait DeltaExcludedTestMixin extends QueryTest {
     }
   }
 }
+// spotless:on

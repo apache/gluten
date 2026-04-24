@@ -27,7 +27,10 @@ function build_for_spark {
   major_version=$(echo $spark_version | cut -d'.' -f1)
 
   if [ "$major_version" -ge 4 ]; then
-    ${MVN_CMD} clean install -Pbackends-velox -Pspark-$spark_version -Pjava-17 -Pscala-2.13 -DskipTests
+    # Force Java 17 release target to override any `maven.compiler.source/target=1.8`
+    # that may be injected by a user's ~/.m2/settings.xml (e.g. an active jdk-8 profile),
+    # which would otherwise cause scalac to fail with: "'1.8' is not a valid choice for '-release'".
+    ${MVN_CMD} clean install -Pbackends-velox -Pspark-$spark_version -Pjava-17 -Pscala-2.13 -DskipTests -Dmaven.compiler.release=17
   else
     ${MVN_CMD} clean install -Pbackends-velox -Pspark-$spark_version -DskipTests
   fi

@@ -1254,7 +1254,7 @@
         <spark.version>4.0.1</spark.version>
         <iceberg.version>1.10.0</iceberg.version>
         <delta.package.name>delta-spark</delta.package.name>
-        <delta.version>4.0.0</delta.version>
+        <delta.version>4.0.1</delta.version>
         <delta.binary.version>40</delta.binary.version>
         <hudi.version>1.1.0</hudi.version>
         <paimon.version>1.3.0</paimon.version>

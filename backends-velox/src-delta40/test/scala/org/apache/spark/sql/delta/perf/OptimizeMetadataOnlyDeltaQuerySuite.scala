@@ -1,0 +1,1 @@
+../../../../../../../../../src-delta33/test/scala/org/apache/spark/sql/delta/perf/OptimizeMetadataOnlyDeltaQuerySuite.scala
