@@ -84,7 +84,8 @@ auto makePartitionIdGenerator(
                     uint32_t,
                     facebook::velox::memory::MemoryPool*,
                     bool>) {
-    return PartitionIdGenerator(inputType, std::forward<PartitionChannels>(partitionChannels), maxPartitions, pool, false);
+    return PartitionIdGenerator(
+        inputType, std::forward<PartitionChannels>(partitionChannels), maxPartitions, pool, false);
   } else {
     return PartitionIdGenerator(inputType, std::forward<PartitionChannels>(partitionChannels), maxPartitions, pool);
   }
