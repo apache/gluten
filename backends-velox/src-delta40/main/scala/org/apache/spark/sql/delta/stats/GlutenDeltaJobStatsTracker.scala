@@ -205,6 +205,7 @@ object GlutenDeltaJobStatsTracker extends Logging {
           planNode.toProtobuf.toByteArray,
           null,
           null,
+          null,
           0,
           BackendsApiManager.getSparkPlanExecApiInstance.rewriteSpillPath(spillDirPath)
         )
