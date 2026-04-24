@@ -23,8 +23,7 @@ import org.apache.spark.SparkException
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
-import org.apache.spark.sql.execution.QueryExecution
-import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.{ColumnarWriteFilesExec, QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
 import org.apache.spark.sql.execution.datasources.v2.{GlutenDeltaLeafRunnableCommand, GlutenDeltaLeafV2CommandExec}
 import org.apache.spark.sql.internal.SQLConf
@@ -86,6 +85,7 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
   private def hasGlutenDeltaWriteCommand(plan: SparkPlan): Boolean = {
     val nativeClassMatch = plan
       .collectFirst {
+        case _: ColumnarWriteFilesExec => true
         case ExecutedCommandExec(_: GlutenDeltaLeafRunnableCommand) => true
         case _: GlutenDeltaLeafV2CommandExec => true
       }
@@ -110,7 +110,11 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
         plans.add(qe.executedPlan)
       }
 
-      override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {}
+      override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
+        if (qe != null) {
+          plans.add(qe.executedPlan)
+        }
+      }
     }
 
     spark.listenerManager.register(listener)

@@ -31,6 +31,7 @@ import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
 import org.apache.spark.sql.delta.test.DeltaTestImplicits._
 import org.apache.spark.sql.delta.util.FileNames
+import org.apache.spark.sql.execution.{ColumnarWriteFilesExec, QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelationWithTable}
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.functions._
@@ -38,6 +39,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.streaming.StreamingQuery
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.util.QueryExecutionListener
 import org.apache.spark.tags.ExtendedSQLTest
 import org.apache.spark.util.Utils
 
@@ -45,7 +47,10 @@ import org.apache.spark.util.Utils
 import org.apache.hadoop.fs.{FileSystem, Path}
 
 import java.io.{File, FileNotFoundException}
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+
+import scala.jdk.CollectionConverters._
 
 @ExtendedSQLTest
 class DeltaSuite
@@ -222,6 +227,48 @@ class DeltaSuite
           assert(executedPlan.collect { case _: DeltaScanTransformer => true }.isEmpty)
           checkAnswer(df, Seq(Row(1, "a"), Row(2, "b")))
         }
+    }
+  }
+
+  test("fallback native insertInto by path in ANSI store assignment mode") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        Seq((1L, "ok")).toDF("id", "data").write.format("delta").mode("overwrite").save(path)
+
+        val plans = new CopyOnWriteArrayList[SparkPlan]()
+        val listener = new QueryExecutionListener {
+          override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
+            plans.add(qe.executedPlan)
+          }
+
+          override def onFailure(
+              funcName: String,
+              qe: QueryExecution,
+              exception: Exception): Unit = {
+            if (qe != null) {
+              plans.add(qe.executedPlan)
+            }
+          }
+        }
+
+        spark.listenerManager.register(listener)
+        try {
+          withSQLConf(SQLConf.STORE_ASSIGNMENT_POLICY.key -> "ansi") {
+            intercept[SparkException] {
+              Seq(("a", 1L)).toDF("id", "data").write.mode("append").insertInto(s"delta.`$path`")
+            }
+          }
+        } finally {
+          spark.listenerManager.unregister(listener)
+        }
+
+        assert(
+          !plans.asScala.exists(_.exists(_.isInstanceOf[ColumnarWriteFilesExec])),
+          s"Expected no native write files plan for ANSI insertInto by path, but got:\n" +
+            plans.asScala.map(_.treeString).mkString("\n---\n")
+        )
+        checkAnswer(spark.read.format("delta").load(path), Seq(Row(1L, "ok")))
     }
   }
 
