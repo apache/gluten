@@ -104,16 +104,6 @@ void VeloxBackend::init(
   backendConf_ =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(conf));
 
-  globalMemoryManager_ = std::make_unique<VeloxMemoryManager>(kVeloxBackendKind, std::move(listener), *backendConf_);
-
-  // Register factories.
-  MemoryManager::registerFactory(kVeloxBackendKind, veloxMemoryManagerFactory, veloxMemoryManagerReleaser);
-  Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
-
-  if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
-    LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());
-  }
-
   // Init glog and log level.
   if (!backendConf_->get<bool>(kDebugModeEnabled, false)) {
     FLAGS_v = backendConf_->get<uint32_t>(kGlogVerboseLevel, kGlogVerboseLevelDefault);
@@ -127,6 +117,16 @@ void VeloxBackend::init(
   }
   FLAGS_logtostderr = true;
   google::InitGoogleLogging("gluten");
+
+  globalMemoryManager_ = std::make_unique<VeloxMemoryManager>(kVeloxBackendKind, std::move(listener), *backendConf_);
+
+  // Register factories.
+  MemoryManager::registerFactory(kVeloxBackendKind, veloxMemoryManagerFactory, veloxMemoryManagerReleaser);
+  Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
+
+  if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
+    LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());
+  }
 
   // Allow growing buffer in another task through its memory pool.
   FLAGS_velox_memory_pool_capacity_transfer_across_tasks =
