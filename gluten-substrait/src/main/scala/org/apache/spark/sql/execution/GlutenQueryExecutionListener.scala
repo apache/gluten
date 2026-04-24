@@ -23,6 +23,8 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
 import org.apache.spark.sql.execution.ui.{GlutenUIUtils, SparkListenerSQLExecutionEnd}
 
+import java.util.concurrent.ConcurrentHashMap
+
 /** A SparkListener that generates complete Gluten UI data after query execution completes. */
 class GlutenQueryExecutionListener(sc: SparkContext) extends SparkListener with Logging {
 
@@ -62,14 +64,24 @@ class GlutenQueryExecutionListener(sc: SparkContext) extends SparkListener with 
       GlutenUIUtils.postEvent(sc, fallbackEvent)
     } catch {
       case e: Exception =>
-        logWarning(
-          s"Failed to generate complete fallback data for execution ${event.executionId}",
-          e)
+        val message =
+          s"Failed to generate complete fallback data for execution ${event.executionId}"
+        if (GlutenQueryExecutionListener.markFailureLogged(e)) {
+          logWarning(message, e)
+        } else {
+          logDebug(message, e)
+        }
     }
   }
 }
 
 object GlutenQueryExecutionListener {
+  private val loggedFailures = ConcurrentHashMap.newKeySet[String]()
+
+  private[execution] def markFailureLogged(e: Throwable): Boolean = {
+    val key = s"${e.getClass.getName}:${Option(e.getMessage).getOrElse("")}"
+    loggedFailures.add(key)
+  }
 
   /** Register the listener on the status queue. Should be called once during driver start. */
   def register(sc: SparkContext): Unit = {

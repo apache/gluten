@@ -27,6 +27,8 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.util.StringUtils.PlanStringConcat
 import org.apache.spark.sql.execution.ui.GlutenUIUtils
 
+import java.util.concurrent.ConcurrentHashMap
+
 /**
  * This rule is used to collect all fallback reason.
  *   1. print fallback reason for each plan node 2. post all fallback reason using one event
@@ -50,7 +52,13 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
     val executionIdInfo = Option(spark.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY))
       .map(id => s"[QueryId=$id]")
       .getOrElse("")
-    logOnLevel(logLevel, s"Validation failed for plan: $nodeName$executionIdInfo, due to: $reason")
+    val logMessage = s"Validation failed for plan: $nodeName$executionIdInfo, due to: $reason"
+    val dedupKey = s"$nodeName\n$reason"
+    if (GlutenFallbackReporter.markLogged(dedupKey)) {
+      logOnLevel(logLevel, logMessage)
+    } else {
+      logDebug(s"Skip duplicate fallback reason: $logMessage")
+    }
   }
 
   private def printFallbackReason(plan: SparkPlan): Unit = {
@@ -95,4 +103,10 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
     )
     GlutenUIUtils.postEvent(sc, event)
   }
+}
+
+object GlutenFallbackReporter {
+  private val loggedMessages = ConcurrentHashMap.newKeySet[String]()
+
+  private[execution] def markLogged(key: String): Boolean = loggedMessages.add(key)
 }
