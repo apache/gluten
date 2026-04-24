@@ -526,7 +526,7 @@ object VeloxBackendSettings extends BackendSettingsApi {
   private def ansiStoreAssignmentEnabled(): Boolean = {
     val conf = SQLConf.get
     conf.ansiEnabled ||
-    conf.getConfString(SQLConf.STORE_ASSIGNMENT_POLICY.key, "").equalsIgnoreCase("ANSI")
+    conf.storeAssignmentPolicy.toString.equalsIgnoreCase("ANSI")
   }
 
   private def isDeltaInsertFormat(fileFormat: FileFormat): Boolean = {

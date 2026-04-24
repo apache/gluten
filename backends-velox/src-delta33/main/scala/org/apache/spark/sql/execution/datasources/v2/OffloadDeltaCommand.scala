@@ -84,7 +84,7 @@ case class OffloadDeltaCommand() extends OffloadSingleNode {
   private def shouldFallbackAnsiWrite: Boolean = {
     val conf = SQLConf.get
     conf.ansiEnabled ||
-    conf.getConfString(SQLConf.STORE_ASSIGNMENT_POLICY.key, "").equalsIgnoreCase("ANSI")
+    conf.storeAssignmentPolicy.toString.equalsIgnoreCase("ANSI")
   }
 
   private def shouldFallbackDeletionVectorDml: Boolean = {
