@@ -19,6 +19,7 @@ package org.apache.spark.sql.delta
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
 
+import org.apache.spark.SparkException
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
@@ -296,6 +297,29 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
             "DataFrameWriter.save(overwrite) with native write disabled")
           val result = spark.read.format("delta").load(path)
           assert(result.collect().toSet == Set(Row(1, "a"), Row(2, "b")))
+      }
+    }
+  }
+
+  test("delta insertInto should not be offloaded in ANSI store assignment mode") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          Seq((1L, "ok")).toDF("id", "data").write.format("delta").mode("overwrite").save(path)
+          val plans = withSQLConf(SQLConf.STORE_ASSIGNMENT_POLICY.key -> "ansi") {
+            collectExecutedPlans {
+              intercept[SparkException] {
+                Seq(("a", 1L)).toDF("id", "data").write.mode("append").insertInto(s"delta.`$path`")
+              }
+            }
+          }
+
+          assertNoNativeWriteCommand(
+            plans,
+            "DataFrameWriter.insertInto in ANSI store assignment mode")
+          val result = spark.read.format("delta").load(path)
+          assert(result.collect().toSet == Set(Row(1L, "ok")))
       }
     }
   }
