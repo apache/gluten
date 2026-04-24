@@ -24,12 +24,14 @@ import org.apache.spark.sql.execution.datasources.DataSourceUtils
 import org.apache.spark.sql.execution.datasources.parquet.{ParquetFooterReaderShim, ParquetOptions}
 
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, LocatedFileStatus, Path}
+import org.apache.hadoop.fs.{FileStatus, FileSystem, Path}
 import org.apache.parquet.crypto.ParquetCryptoRuntimeException
 import org.apache.parquet.format.converter.ParquetMetadataConverter
 import org.apache.parquet.hadoop.metadata.ParquetMetadata
 
 import java.util.Locale
+
+import scala.collection.mutable
 
 object ParquetMetadataUtils extends Logging {
 
@@ -113,24 +115,54 @@ object ParquetMetadataUtils extends Logging {
       parquetOptions: ParquetOptions,
       fileLimit: Int
   ): Option[String] = {
-    val filesIterator = fs.listFiles(path, true)
+    val pendingPaths = mutable.Queue(path)
     var checkedFileCount = 0
-    while (filesIterator.hasNext && checkedFileCount < fileLimit) {
+    while (pendingPaths.nonEmpty && checkedFileCount < fileLimit) {
+      val currentPath = pendingPaths.dequeue()
       try {
-        val fileStatus = filesIterator.next()
-        if (isCandidateParquetFile(fileStatus.getPath)) {
+        val currentStatus = fs.getFileStatus(currentPath)
+        if (currentStatus.isDirectory) {
+          if (!isDeltaLogDirectory(currentStatus.getPath)) {
+            val children = fs.listStatusIterator(currentStatus.getPath)
+            while (children.hasNext && checkedFileCount < fileLimit) {
+              try {
+                val childStatus = children.next()
+                if (childStatus.isDirectory) {
+                  if (!isDeltaLogDirectory(childStatus.getPath)) {
+                    pendingPaths.enqueue(childStatus.getPath)
+                  }
+                } else if (isCandidateParquetFile(childStatus.getPath)) {
+                  checkedFileCount += 1
+                  val metadataUnsupported = isUnsupportedMetadata(childStatus, conf, parquetOptions)
+                  if (metadataUnsupported.isDefined) {
+                    return metadataUnsupported
+                  }
+                }
+              } catch {
+                case e: Exception =>
+                  logDebug(
+                    s"Skip transient file while validating parquet metadata under $currentPath",
+                    e)
+              }
+            }
+          }
+        } else if (isCandidateParquetFile(currentStatus.getPath)) {
           checkedFileCount += 1
-          val metadataUnsupported = isUnsupportedMetadata(fileStatus, conf, parquetOptions)
+          val metadataUnsupported = isUnsupportedMetadata(currentStatus, conf, parquetOptions)
           if (metadataUnsupported.isDefined) {
             return metadataUnsupported
           }
         }
       } catch {
         case e: Exception =>
-          logDebug(s"Skip transient file while validating parquet metadata under $path", e)
+          logDebug(s"Skip transient file while validating parquet metadata under $currentPath", e)
       }
     }
     None
+  }
+
+  private def isDeltaLogDirectory(path: Path): Boolean = {
+    path.getName.equalsIgnoreCase("_delta_log")
   }
 
   private def isCandidateParquetFile(path: Path): Boolean = {
@@ -148,7 +180,7 @@ object ParquetMetadataUtils extends Logging {
    * doesn't yet support Spark legacy datetime.
    */
   private def isUnsupportedMetadata(
-      fileStatus: LocatedFileStatus,
+      fileStatus: FileStatus,
       conf: Configuration,
       parquetOptions: ParquetOptions): Option[String] = {
     val footer =

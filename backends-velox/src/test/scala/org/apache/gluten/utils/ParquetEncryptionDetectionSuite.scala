@@ -164,4 +164,32 @@ class ParquetEncryptionDetectionSuite extends SharedSparkSession {
         assertFalse(isFileEncrypted(filePath))
     }
   }
+
+  test("Ignore parquet files under _delta_log when validating a Delta table root") {
+    withTempDir {
+      tempDir =>
+        val dataFilePath = s"${tempDir.getAbsolutePath}/part-00000.parquet"
+        val deltaLogDir = new java.io.File(tempDir, "_delta_log")
+        assertTrue(deltaLogDir.mkdirs())
+        val deltaLogFilePath = s"${deltaLogDir.getAbsolutePath}/encrypted_footer.parquet"
+
+        val encryptionProps = FileEncryptionProperties
+          .builder(Base64.getDecoder.decode(masterKey))
+          .withEncryptedColumns(
+            Map(
+              ColumnPath.get("name") -> ColumnEncryptionProperties
+                .builder(ColumnPath.get("name"))
+                .withKey(Base64.getDecoder.decode(columnKey))
+                .build()).asJava)
+          .build()
+
+        writeParquet(dataFilePath, None, Seq(Map("id" -> 1, "name" -> "Delta")))
+        writeParquet(
+          deltaLogFilePath,
+          Some(encryptionProps),
+          Seq(Map("id" -> 2, "name" -> "IgnoredByValidation")))
+
+        assertFalse(isFileEncrypted(tempDir.getAbsolutePath))
+    }
+  }
 }
