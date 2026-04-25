@@ -25,8 +25,10 @@ import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
+import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
 import org.apache.spark.sql.delta.deletionvectors.{RoaringBitmapArrayFormat, StoredBitmap}
+import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.delta.storage.dv.HadoopFileSystemDVStore
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
@@ -98,7 +100,15 @@ case class DeltaScanTransformer(
 }
 
 object DeltaScanTransformer {
+  private val IfContainedFilterType = "IF_CONTAINED"
+
   private def registerDeletionVectorsFromFileFormat(relation: HadoopFsRelation): Option[String] = {
+    registerDeletionVectorsFromBroadcastMap(relation)
+      .orElse(registerDeletionVectorsFromPreparedScan(relation))
+  }
+
+  private def registerDeletionVectorsFromBroadcastMap(
+      relation: HadoopFsRelation): Option[String] = {
     try {
       val format = relation.fileFormat
       val formatClass = format.getClass
@@ -160,12 +170,105 @@ object DeltaScanTransformer {
     }
   }
 
-  private def pathAliases(uri: java.net.URI): Seq[String] = {
-    Seq(uri.toASCIIString, uri.getPath, Option(uri.getPath).map(_.stripPrefix("/")).orNull)
+  private def registerDeletionVectorsFromPreparedScan(
+      relation: HadoopFsRelation): Option[String] = {
+    relation.location match {
+      case preparedIndex: PreparedDeltaFileIndex =>
+        val tablePath =
+          Option(preparedIndex.path)
+            .orElse(relation.location.rootPaths.headOption)
+            .orNull
+        if (tablePath == null) {
+          return None
+        }
+
+        val dvStore =
+          new HadoopFileSystemDVStore(relation.sparkSession.sessionState.newHadoopConf())
+        val preparedFiles = preparedIndex.preparedScan.files
+        registerDeletionVectorsFromAddFiles(preparedFiles.iterator, tablePath, dvStore)
+      case _ =>
+        None
+    }
+  }
+
+  private def registerDeletionVectorsFromAddFiles(
+      files: Iterator[AddFile],
+      tablePath: Path,
+      dvStore: HadoopFileSystemDVStore): Option[String] = {
+    val registeredEntries = files.flatMap {
+      addFile =>
+        Option(addFile.deletionVector).iterator.flatMap {
+          descriptor =>
+            try {
+              val payload = StoredBitmap
+                .create(descriptor, tablePath)
+                .load(dvStore)
+                .serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
+              val absolutePath = new Path(tablePath, addFile.path)
+              pathAliases(absolutePath.toUri, absolutePath.toString).map {
+                _ -> DeltaDeletionVectorRegistry.Entry(
+                  descriptor.cardinality,
+                  IfContainedFilterType,
+                  payload)
+              }
+            } catch {
+              case NonFatal(_) => Seq.empty
+            }
+        }
+    }.toMap
+
+    if (registeredEntries.isEmpty) {
+      None
+    } else {
+      Some(DeltaDeletionVectorRegistry.register(registeredEntries))
+    }
+  }
+
+  private def pathAliases(uri: java.net.URI, extraAliases: String*): Seq[String] = {
+    val decodedExtraAliases = extraAliases.map(percentUnescapePathName)
+    (Seq(uri.toASCIIString, uri.getPath, Option(uri.getPath).map(_.stripPrefix("/")).orNull) ++
+      extraAliases ++
+      decodedExtraAliases ++
+      extraAliases.map(_.stripPrefix("/")) ++
+      decodedExtraAliases.map(_.stripPrefix("/")))
       .filter(_ != null)
       .map(DeltaDeletionVectorRegistry.normalizePathKey)
       .filter(_.nonEmpty)
       .distinct
+  }
+
+  private def percentUnescapePathName(path: String): String = {
+    if (path == null || path.isEmpty) {
+      return path
+    }
+    var plaintextEndIdx = path.indexOf('%')
+    val length = path.length
+    if (plaintextEndIdx == -1 || plaintextEndIdx + 2 >= length) {
+      path
+    } else {
+      val sb = new java.lang.StringBuilder(length)
+      var plaintextStartIdx = 0
+      while (plaintextEndIdx != -1 && plaintextEndIdx + 2 < length) {
+        if (plaintextEndIdx > plaintextStartIdx) sb.append(path, plaintextStartIdx, plaintextEndIdx)
+        if (
+          java.lang.Character.digit(path.charAt(plaintextEndIdx + 1), 16) != -1 &&
+          java.lang.Character.digit(path.charAt(plaintextEndIdx + 2), 16) != -1
+        ) {
+          sb.append(
+            ((java.lang.Character.digit(path.charAt(plaintextEndIdx + 1), 16) << 4) |
+              java.lang.Character.digit(path.charAt(plaintextEndIdx + 2), 16)).toChar)
+          plaintextStartIdx = plaintextEndIdx + 3
+        } else {
+          sb.append('%')
+          plaintextStartIdx = plaintextEndIdx + 1
+        }
+        plaintextEndIdx = path.indexOf('%', plaintextStartIdx)
+      }
+      if (plaintextStartIdx < length) {
+        sb.append(path, plaintextStartIdx, length)
+      }
+      sb.toString
+    }
   }
 
   def apply(scanExec: FileSourceScanExec): DeltaScanTransformer = {
