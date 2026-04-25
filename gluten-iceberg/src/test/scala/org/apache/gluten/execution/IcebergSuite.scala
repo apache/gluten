@@ -495,8 +495,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // Disabled on Velox version 2026_04_24.
-  ignore("iceberg read mor table - delete and update") {
+  test("iceberg read mor table - delete and update") {
     withTable("iceberg_mor_tb") {
       spark.sql("""
                   |create table iceberg_mor_tb (
@@ -547,8 +546,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // Disabled on Velox version 2026_04_24.
-  ignore("iceberg read mor table - merge into") {
+  test("iceberg read mor table - merge into") {
     withTable("iceberg_mor_tb", "merge_into_source_tb") {
       spark.sql("""
                   |create table iceberg_mor_tb (
