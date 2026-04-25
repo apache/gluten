@@ -19,6 +19,7 @@ package org.apache.gluten.execution
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.types._
+import org.apache.spark.util.SparkVersionUtil
 
 import scala.collection.JavaConverters._
 
@@ -211,10 +212,14 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (${values2.mkString(", ")})")
         val df = spark.read.format("delta").load(path)
         val executedPlan = df.queryExecution.executedPlan
-        assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty)
-        val planText = executedPlan.toString()
-        assert(!planText.contains("__delta_internal_is_row_deleted"))
-        assert(!planText.contains("__delta_internal_row_index"))
+        if (SparkVersionUtil.gteSpark35) {
+          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty)
+          val planText = executedPlan.toString()
+          assert(!planText.contains("__delta_internal_is_row_deleted"))
+          assert(!planText.contains("__delta_internal_row_index"))
+        } else {
+          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.isEmpty)
+        }
         checkAnswer(df, df1)
     }
   }
