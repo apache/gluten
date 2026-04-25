@@ -21,13 +21,13 @@ import org.apache.spark.util.Utils
 
 import java.io.File
 
+// spotless:off
 trait DeltaSQLTestUtils extends SQLTestUtils {
-
   /**
    * Override the temp dir/path creation methods from [[SQLTestUtils]] to:
-   *   1. Drop the call to `waitForTasksToFinish` which is a source of flakiness due to timeouts
-   *      without clear benefits. 2. Allow creating paths with special characters for better test
-   *      coverage.
+   * 1. Drop the call to `waitForTasksToFinish` which is a source of flakiness due to timeouts
+   *    without clear benefits.
+   * 2. Allow creating paths with special characters for better test coverage.
    */
 
   protected val defaultTempDirPrefix: String = "spark%dir%prefix"
@@ -50,8 +50,7 @@ trait DeltaSQLTestUtils extends SQLTestUtils {
    */
   def withTempDir(prefix: String)(f: File => Unit): Unit = {
     val path = Utils.createTempDir(namePrefix = prefix)
-    try f(path)
-    finally Utils.deleteRecursively(path)
+    try f(path) finally Utils.deleteRecursively(path)
   }
 
   /**
@@ -61,8 +60,7 @@ trait DeltaSQLTestUtils extends SQLTestUtils {
   def withTempPath(prefix: String)(f: File => Unit): Unit = {
     val path = Utils.createTempDir(namePrefix = prefix)
     path.delete()
-    try f(path)
-    finally Utils.deleteRecursively(path)
+    try f(path) finally Utils.deleteRecursively(path)
   }
 
   /**
@@ -73,9 +71,9 @@ trait DeltaSQLTestUtils extends SQLTestUtils {
     val files =
       Seq.fill[File](numPaths)(Utils.createTempDir(namePrefix = prefix).getCanonicalFile)
     files.foreach(_.delete())
-    try f(files)
-    finally {
+    try f(files) finally {
       files.foreach(Utils.deleteRecursively)
     }
   }
 }
+// spotless:on
