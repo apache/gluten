@@ -36,8 +36,8 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
     case scan: FileSourceScanExec if isDeltaScan(scan) && isDeltaLogScan(scan) =>
       FallbackTags.add(scan, "fallback Delta _delta_log scan")
       scan
-    case scan: FileSourceScanExec if shouldFallbackPreparedDeletionVectorScan(scan) =>
-      FallbackTags.add(scan, "fallback Spark 3.4 prepared Delta DV scan")
+    case scan: FileSourceScanExec if shouldFallbackSpark34DeletionVectorScan(scan) =>
+      FallbackTags.add(scan, "fallback Spark 3.4 Delta DV scan")
       scan
     case scan: FileSourceScanExec if shouldFallbackDeletionVectorScan(scan) =>
       FallbackTags.add(scan, "fallback Delta DV scan without metadata row index")
@@ -88,7 +88,7 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
     }
   }
 
-  private def shouldFallbackPreparedDeletionVectorScan(scan: FileSourceScanExec): Boolean = {
+  private def shouldFallbackSpark34DeletionVectorScan(scan: FileSourceScanExec): Boolean = {
     if (SparkVersionUtil.gteSpark35) {
       return false
     }
@@ -96,6 +96,9 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
     scan.relation.location match {
       case preparedIndex: PreparedDeltaFileIndex =>
         preparedIndex.preparedScan.files.exists(_.deletionVector != null)
+      case index: TahoeFileIndex =>
+        val snapshot = index.asInstanceOf[SnapshotDescriptor]
+        deletionVectorsReadable(snapshot.protocol, snapshot.metadata)
       case _ =>
         false
     }
