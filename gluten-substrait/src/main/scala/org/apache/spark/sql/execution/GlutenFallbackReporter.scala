@@ -42,7 +42,10 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
       return plan
     }
     printFallbackReason(plan)
-    if (GlutenUIUtils.uiEnabled(spark.sparkContext)) {
+    if (
+      GlutenUIUtils.uiEnabled(spark.sparkContext) &&
+      !GlutenFallbackReporter.isInternalDeltaMetadataQuery(plan)
+    ) {
       postFallbackReason(plan)
     }
     plan
@@ -67,7 +70,7 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
       p.foreachUp {
         case _: GlutenPlan => // ignore
         case cmd: CommandResultExec =>
-          printPlan(cmd.commandPhysicalPlan)
+          Option(cmd.commandPhysicalPlan).foreach(printPlan)
         case p: SparkPlan if FallbackTags.nonEmpty(p) =>
           val tag = FallbackTags.get(p)
           logFallbackReason(validationLogLevel, p.nodeName, tag.reason())
@@ -109,4 +112,21 @@ object GlutenFallbackReporter {
   private val loggedMessages = ConcurrentHashMap.newKeySet[String]()
 
   private[execution] def markLogged(key: String): Boolean = loggedMessages.add(key)
+
+  private[execution] def isInternalDeltaMetadataQuery(plan: SparkPlan): Boolean = {
+    if (plan == null) {
+      return false
+    }
+    plan.exists {
+      case scan: FileSourceScanExec =>
+        scan.relation.location.rootPaths.exists {
+          path =>
+            val root = path.toString
+            root.contains("/_delta_log") ||
+            root.contains("\\_delta_log") ||
+            root.endsWith("_delta_log")
+        }
+      case _ => false
+    }
+  }
 }

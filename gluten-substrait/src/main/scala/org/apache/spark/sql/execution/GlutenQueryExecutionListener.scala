@@ -41,6 +41,9 @@ class GlutenQueryExecutionListener(sc: SparkContext) extends SparkListener with 
         // History Server replay or edge case. Rely on per-stage events already in event log.
         return
       }
+      if (GlutenFallbackReporter.isInternalDeltaMetadataQuery(qe.executedPlan)) {
+        return
+      }
 
       val summary =
         GlutenImplicits.collectQueryExecutionFallbackSummary(qe.sparkSession, qe)
