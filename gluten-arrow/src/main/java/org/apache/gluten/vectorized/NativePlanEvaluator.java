@@ -75,6 +75,17 @@ public class NativePlanEvaluator {
   public ColumnarBatchOutIterator createKernelWithBatchIterator(
       byte[] wsPlan,
       byte[][] splitInfo,
+      ColumnarBatchInIterator[] iterList,
+      int partitionIndex,
+      String spillDirPath)
+      throws RuntimeException {
+    return createKernelWithBatchIterator(
+        wsPlan, splitInfo, null, iterList, partitionIndex, spillDirPath);
+  }
+
+  public ColumnarBatchOutIterator createKernelWithBatchIterator(
+      byte[] wsPlan,
+      byte[][] splitInfo,
       ByteBuffer[][] splitPayloads,
       ColumnarBatchInIterator[] iterList,
       int partitionIndex,

@@ -16,14 +16,20 @@
  */
 package org.apache.spark.sql.delta
 
-import org.apache.gluten.execution.DeltaScanTransformer
+import org.apache.gluten.backendsapi.velox.VeloxDeltaMetadataUtils
+import org.apache.gluten.backendsapi.velox.VeloxDeltaMetadataUtils.{DeltaDvCardinality, DeltaDvPayloadIndex}
 
+import org.apache.spark.paths.SparkPath
 import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
+import org.apache.spark.sql.execution.datasources.PartitionedFile
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.tags.ExtendedSQLTest
 
 import org.apache.hadoop.fs.Path
+
+import scala.collection.JavaConverters._
 
 @ExtendedSQLTest
 class DeltaDeletionVectorHandoffSuite
@@ -34,7 +40,7 @@ class DeltaDeletionVectorHandoffSuite
 
   import testImplicits._
 
-  test("native Spark 4 Delta scan should honor deletion vectors") {
+  test("Spark 4 Delta DV handoff should materialize serialized payloads on the JVM") {
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
@@ -50,12 +56,27 @@ class DeltaDeletionVectorHandoffSuite
         spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)")
 
         val log = DeltaLog.forTable(spark, new Path(path))
-        assert(log.update().allFiles.collect().exists(_.deletionVector != null))
+        val addFileWithDv = log.update().allFiles.collect().find(_.deletionVector != null)
+        assert(addFileWithDv.nonEmpty)
+
+        val dataFile = addFileWithDv.get
+        val partitionedFile = PartitionedFile(
+          partitionValues = InternalRow.empty,
+          filePath = SparkPath.fromPath(new Path(path, dataFile.path)),
+          start = 0L,
+          length = dataFile.size,
+          fileSize = dataFile.size)
+        val normalized = VeloxDeltaMetadataUtils.normalizeSplitMetadata(
+          partitionColumnCount = 0,
+          files = Seq(partitionedFile).asJava)
+        val metadata = normalized.otherMetadataColumns.get(0)
+
+        assert(normalized.deletionVectorPayloads.length == 1)
+        assert(normalized.deletionVectorPayloads.head.nonEmpty)
+        assert(metadata.get(DeltaDvPayloadIndex) == Int.box(0))
+        assert(metadata.get(DeltaDvCardinality) == Long.box(dataFile.deletionVector.cardinality))
 
         val df = spark.read.format("delta").load(path)
-        assert(df.queryExecution.executedPlan.collect {
-          case _: DeltaScanTransformer => true
-        }.nonEmpty)
         checkAnswer(df, Seq((1, "a"), (2, "b")).toDF())
     }
   }

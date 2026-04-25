@@ -1,1 +1,0 @@
-../../../../../../../../../../src-delta33/main/scala/org/apache/spark/sql/execution/datasources/v2/DeltaWriteOperators.scala

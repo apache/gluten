@@ -108,8 +108,7 @@ object GlutenImplicits {
     def collect(tmp: QueryPlan[_]): Unit = {
       tmp.foreachUp {
         case _: ExecutedCommandExec =>
-        case cmd: CommandResultExec =>
-          Option(cmd.commandPhysicalPlan).foreach(collect)
+        case cmd: CommandResultExec => collect(cmd.commandPhysicalPlan)
         case p: V2CommandExec if FallbackTags.nonEmpty(p) ||
             p.logicalLink.exists(FallbackTags.getOption(_).nonEmpty) =>
           GlutenExplainUtils.handleVanillaSparkPlan(p, fallbackNodeToReason)
@@ -184,9 +183,6 @@ object GlutenImplicits {
         plan: SparkPlan,
         logicalPlan: LogicalPlan,
         isMaterialized: Boolean): Unit = {
-      if (plan == null || logicalPlan == null) {
-        return
-      }
       val concat = new PlanStringConcat()
       val collectFallbackFunc = Some(plan => collectFallbackNodes(spark, plan))
       val (numGlutenNodes, fallbackNodeToReason) = if (!isMaterialized) {
@@ -207,7 +203,7 @@ object GlutenImplicits {
 
     // For command-like query, e.g., `INSERT INTO TABLE ...`
     qe.commandExecuted.foreach {
-      case r: CommandResult if r.commandPhysicalPlan != null && r.commandLogicalPlan != null =>
+      case r: CommandResult =>
         handlePlanWithAQEAndTableCache(r.commandPhysicalPlan, r.commandLogicalPlan, true)
       case _ => // ignore
     }

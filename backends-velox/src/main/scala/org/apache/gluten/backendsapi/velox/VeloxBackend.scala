@@ -519,22 +519,7 @@ object VeloxBackendSettings extends BackendSettingsApi {
   override def skipNativeCtas(ctas: CreateDataSourceTableAsSelectCommand): Boolean = true
 
   override def skipNativeInsertInto(insertInto: InsertIntoHadoopFsRelationCommand): Boolean = {
-    insertInto.bucketSpec.nonEmpty ||
-    (ansiStoreAssignmentEnabled() && isDeltaInsertFormat(insertInto.fileFormat))
-  }
-
-  private def ansiStoreAssignmentEnabled(): Boolean = {
-    val conf = SQLConf.get
-    conf.ansiEnabled ||
-    conf.storeAssignmentPolicy.toString.equalsIgnoreCase("ANSI")
-  }
-
-  private def isDeltaInsertFormat(fileFormat: FileFormat): Boolean = {
-    val className = fileFormat.getClass.getName
-    val simpleName = fileFormat.getClass.getSimpleName
-    className.startsWith("org.apache.spark.sql.delta.") ||
-    simpleName == "DeltaParquetFileFormat" ||
-    simpleName == "GlutenDeltaParquetFileFormat"
+    insertInto.bucketSpec.nonEmpty
   }
 
   override def alwaysFailOnMapExpression(): Boolean = true

@@ -27,8 +27,6 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.util.StringUtils.PlanStringConcat
 import org.apache.spark.sql.execution.ui.GlutenUIUtils
 
-import java.util.concurrent.ConcurrentHashMap
-
 /**
  * This rule is used to collect all fallback reason.
  *   1. print fallback reason for each plan node 2. post all fallback reason using one event
@@ -42,10 +40,7 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
       return plan
     }
     printFallbackReason(plan)
-    if (
-      GlutenUIUtils.uiEnabled(spark.sparkContext) &&
-      !GlutenFallbackReporter.isInternalDeltaMetadataQuery(plan)
-    ) {
+    if (GlutenUIUtils.uiEnabled(spark.sparkContext)) {
       postFallbackReason(plan)
     }
     plan
@@ -55,13 +50,7 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
     val executionIdInfo = Option(spark.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY))
       .map(id => s"[QueryId=$id]")
       .getOrElse("")
-    val logMessage = s"Validation failed for plan: $nodeName$executionIdInfo, due to: $reason"
-    val dedupKey = s"$nodeName\n$reason"
-    if (GlutenFallbackReporter.markLogged(dedupKey)) {
-      logOnLevel(logLevel, logMessage)
-    } else {
-      logDebug(s"Skip duplicate fallback reason: $logMessage")
-    }
+    logOnLevel(logLevel, s"Validation failed for plan: $nodeName$executionIdInfo, due to: $reason")
   }
 
   private def printFallbackReason(plan: SparkPlan): Unit = {
@@ -70,7 +59,7 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
       p.foreachUp {
         case _: GlutenPlan => // ignore
         case cmd: CommandResultExec =>
-          Option(cmd.commandPhysicalPlan).foreach(printPlan)
+          printPlan(cmd.commandPhysicalPlan)
         case p: SparkPlan if FallbackTags.nonEmpty(p) =>
           val tag = FallbackTags.get(p)
           logFallbackReason(validationLogLevel, p.nodeName, tag.reason())
@@ -105,28 +94,5 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
       fallbackNodeToReason
     )
     GlutenUIUtils.postEvent(sc, event)
-  }
-}
-
-object GlutenFallbackReporter {
-  private val loggedMessages = ConcurrentHashMap.newKeySet[String]()
-
-  private[execution] def markLogged(key: String): Boolean = loggedMessages.add(key)
-
-  private[execution] def isInternalDeltaMetadataQuery(plan: SparkPlan): Boolean = {
-    if (plan == null) {
-      return false
-    }
-    plan.exists {
-      case scan: FileSourceScanExec =>
-        scan.relation.location.rootPaths.exists {
-          path =>
-            val root = path.toString
-            root.contains("/_delta_log") ||
-            root.contains("\\_delta_log") ||
-            root.endsWith("_delta_log")
-        }
-      case _ => false
-    }
   }
 }

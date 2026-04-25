@@ -91,8 +91,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
     def collect(tmp: QueryPlan[_]): Unit = {
       tmp.foreachUp {
         case _: ExecutedCommandExec =>
-        case cmd: CommandResultExec =>
-          Option(cmd.commandPhysicalPlan).foreach(collect)
+        case cmd: CommandResultExec => collect(cmd.commandPhysicalPlan)
         case p: V2CommandExec
             if FallbackTags.nonEmpty(p) ||
               p.logicalLink.exists(FallbackTags.getOption(_).nonEmpty) =>
@@ -313,15 +312,12 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
       case _: WholeStageCodegenExec =>
       case _: InputAdapter =>
       case cmd: CommandResultExec =>
-        Option(cmd.commandPhysicalPlan).foreach {
-          commandPhysicalPlan =>
-            currentOperationID = generateOperatorIDs(
-              commandPhysicalPlan,
-              currentOperationID,
-              visited,
-              reusedExchanges,
-              addReusedExchanges)
-        }
+        currentOperationID = generateOperatorIDs(
+          cmd.commandPhysicalPlan,
+          currentOperationID,
+          visited,
+          reusedExchanges,
+          addReusedExchanges)
         setOpId(cmd)
       case p: AdaptiveSparkPlanExec =>
         currentOperationID = generateOperatorIDs(
@@ -370,7 +366,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
       case q: QueryStageExec =>
         getSubqueries(q.plan, subqueries)
       case cmd: CommandResultExec =>
-        Option(cmd.commandPhysicalPlan).foreach(getSubqueries(_, subqueries))
+        getSubqueries(cmd.commandPhysicalPlan, subqueries)
       case p: SparkPlan =>
         p.expressions.foreach(_.collect {
           case e: PlanExpression[_] =>
@@ -401,8 +397,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
     plan.foreach {
       case p: AdaptiveSparkPlanExec => remove(p, Seq(p.executedPlan, p.initialPlan))
       case p: QueryStageExec => remove(p, Seq(p.plan))
-      case cmd: CommandResultExec =>
-        remove(cmd, Option(cmd.commandPhysicalPlan).toSeq)
+      case cmd: CommandResultExec => remove(cmd, Seq(cmd.commandPhysicalPlan))
       case plan: QueryPlan[_] => remove(plan, plan.innerChildren)
     }
   }
