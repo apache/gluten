@@ -58,6 +58,9 @@ jobs:
        (contains(github.event.comment.body, '/ansi-test') ||
         contains(github.event.comment.body, '/ansi-analyze')))
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: write
     outputs:
       pr_number: ${{ steps.pr-info.outputs.pr_number }}
       pr_sha: ${{ steps.pr-info.outputs.pr_sha }}
@@ -73,9 +76,14 @@ jobs:
         run: |
           AI_MODEL=$(echo "$COMMENT" | grep -oP '(?<=--model\s)\S+' || echo "")
           echo "ai_model=${AI_MODEL}" >> $GITHUB_OUTPUT
-          RUN_ID=$(echo "$COMMENT" | grep -oP '(?<=--run\s)\d+' || echo "${{ inputs.run_id }}")
+          RUN_ID=$(echo "$COMMENT" | grep -oPm1 '(?<=--run\s)\d+' || echo "${{ inputs.run_id }}")
+          if [[ -n "$RUN_ID" ]] && ! [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid run_id: ${RUN_ID}"; exit 1
+          fi
           echo "run_id=${RUN_ID}" >> $GITHUB_OUTPUT
           if echo "$COMMENT" | grep -q '/ansi-analyze'; then
+            echo "mode=analyze-only" >> $GITHUB_OUTPUT
+          elif [[ "${{ inputs.mode }}" == "analyze-only" ]]; then
             echo "mode=analyze-only" >> $GITHUB_OUTPUT
           else
             echo "mode=full" >> $GITHUB_OUTPUT
@@ -561,9 +569,9 @@ jobs:
             RUN_ID="$EXPLICIT_RUN_ID"
           else
             echo "Searching PR #${PR_NUM} comments for latest full-mode run..."
-            RUN_ID=$(gh api "repos/${REPO}/issues/${PR_NUM}/comments?per_page=100&direction=desc" --paginate \
-              --jq '[.[] | select(.body | test("ansi-mode:full ansi-run:[0-9]+"))] | first | .body // empty' \
-              | grep -oP 'ansi-run:\K[0-9]+' || echo "")
+            RUN_ID=$(gh api "repos/${REPO}/issues/${PR_NUM}/comments?per_page=100" --paginate \
+              --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("ansi-mode:full ansi-run:[0-9]+")) | .body' \
+              | grep -oP 'ansi-run:\K[0-9]+' | tail -1 || echo "")
             if [[ -n "$RUN_ID" ]]; then
               echo "Found run_id=${RUN_ID} from PR comment"
             fi
