@@ -39,6 +39,9 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
     if (!glutenConf.enableFallbackReport) {
       return plan
     }
+    if (GlutenFallbackReporter.containsInternalDeltaLogScan(plan)) {
+      return plan
+    }
     printFallbackReason(plan)
     if (GlutenUIUtils.uiEnabled(spark.sparkContext)) {
       postFallbackReason(plan)
@@ -94,5 +97,22 @@ case class GlutenFallbackReporter(glutenConf: GlutenConfig, spark: SparkSession)
       fallbackNodeToReason
     )
     GlutenUIUtils.postEvent(sc, event)
+  }
+}
+
+object GlutenFallbackReporter {
+  private[execution] def containsInternalDeltaLogScan(plan: SparkPlan): Boolean = {
+    plan.exists {
+      case scan: FileSourceScanExec =>
+        scan.relation.location.rootPaths.exists {
+          path =>
+            val root = path.toString
+            root.contains("/_delta_log") ||
+            root.contains("\\_delta_log") ||
+            root.endsWith("_delta_log")
+        }
+      case _ =>
+        false
+    }
   }
 }

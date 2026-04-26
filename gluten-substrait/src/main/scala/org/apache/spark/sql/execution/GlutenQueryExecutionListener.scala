@@ -21,6 +21,7 @@ import org.apache.gluten.events.GlutenPlanFallbackEvent
 import org.apache.spark.SparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
+import org.apache.spark.sql.catalyst.plans.logical.CommandResult
 import org.apache.spark.sql.execution.ui.{GlutenUIUtils, SparkListenerSQLExecutionEnd}
 
 /** A SparkListener that generates complete Gluten UI data after query execution completes. */
@@ -37,6 +38,9 @@ class GlutenQueryExecutionListener(sc: SparkContext) extends SparkListener with 
       val qe = event.qe
       if (qe == null) {
         // History Server replay or edge case. Rely on per-stage events already in event log.
+        return
+      }
+      if (shouldSkipInternalDeltaLogQuery(qe)) {
         return
       }
 
@@ -66,6 +70,15 @@ class GlutenQueryExecutionListener(sc: SparkContext) extends SparkListener with 
           s"Failed to generate complete fallback data for execution ${event.executionId}",
           e)
     }
+  }
+
+  private def shouldSkipInternalDeltaLogQuery(qe: QueryExecution): Boolean = {
+    qe.commandExecuted.exists {
+      case r: CommandResult =>
+        GlutenFallbackReporter.containsInternalDeltaLogScan(r.commandPhysicalPlan)
+      case _ =>
+        false
+    } || GlutenFallbackReporter.containsInternalDeltaLogScan(qe.executedPlan)
   }
 }
 
