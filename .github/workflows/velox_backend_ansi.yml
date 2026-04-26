@@ -76,7 +76,8 @@ jobs:
         run: |
           AI_MODEL=$(echo "$COMMENT" | grep -oP '(?<=--model\s)\S+' || echo "")
           echo "ai_model=${AI_MODEL}" >> $GITHUB_OUTPUT
-          RUN_ID=$(echo "$COMMENT" | grep -oPm1 '(?<=--run\s)\d+' || echo "${{ inputs.run_id }}")
+          RUN_ID=$(echo "$COMMENT" | grep -oP '(?<=--run\s)\d+' | head -1)
+          [[ -z "$RUN_ID" ]] && RUN_ID="${{ inputs.run_id }}"
           if [[ -n "$RUN_ID" ]] && ! [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
             echo "::error::Invalid run_id: ${RUN_ID}"; exit 1
           fi
