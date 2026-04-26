@@ -570,9 +570,9 @@ jobs:
             RUN_ID="$EXPLICIT_RUN_ID"
           else
             echo "Searching PR #${PR_NUM} comments for latest full-mode run..."
-            RUN_ID=$(gh api "repos/${REPO}/issues/${PR_NUM}/comments?per_page=100" --paginate \
+            RUN_ID=$(gh api "repos/${REPO}/issues/${PR_NUM}/comments?per_page=100&sort=created&direction=desc" \
               --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("ansi-mode:full ansi-run:[0-9]+")) | .body' \
-              | grep -oP 'ansi-run:\K[0-9]+' | tail -1 || echo "")
+              | grep -oP 'ansi-run:\K[0-9]+' | head -1 || echo "")
             if [[ -n "$RUN_ID" ]]; then
               echo "Found run_id=${RUN_ID} from PR comment"
             fi

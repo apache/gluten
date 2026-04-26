@@ -437,7 +437,8 @@ def _build_ai_context(summary, suites):
         suite = f["suite"].split(".")[-1]
         key = (cause, suite)
         groups[key]["count"] += 1
-        groups[key]["tests"].append(f["test"])
+        if len(groups[key]["tests"]) < 10:
+            groups[key]["tests"].append(f["test"])
         if not groups[key]["sample_msg"]:
             groups[key]["sample_msg"] = _extract_short_message(
                 f.get("message", ""))[:120]
@@ -464,7 +465,6 @@ def _build_ai_context(summary, suites):
     output = {
         "records": summary["json_record_count"],
         "by_color": json_colors,
-        "failure_count": len(summary["failures"]),
         "failures": grouped_failures,
         "categories": dict(compact_cats),
     }
