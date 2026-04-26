@@ -32,6 +32,10 @@ on:
           - full
           - analyze-only
         default: 'full'
+      run_id:
+        description: 'Run ID to reuse artifacts from (analyze-only mode)'
+        required: false
+        type: string
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
@@ -60,6 +64,7 @@ jobs:
       pr_ref: ${{ steps.pr-info.outputs.pr_ref }}
       ai_model: ${{ steps.parse-args.outputs.ai_model }}
       mode: ${{ steps.parse-args.outputs.mode }}
+      run_id: ${{ steps.parse-args.outputs.run_id }}
     steps:
       - name: Parse comment args
         id: parse-args
@@ -68,6 +73,8 @@ jobs:
         run: |
           AI_MODEL=$(echo "$COMMENT" | grep -oP '(?<=--model\s)\S+' || echo "")
           echo "ai_model=${AI_MODEL}" >> $GITHUB_OUTPUT
+          RUN_ID=$(echo "$COMMENT" | grep -oP '(?<=--run\s)\d+' || echo "${{ inputs.run_id }}")
+          echo "run_id=${RUN_ID}" >> $GITHUB_OUTPUT
           if echo "$COMMENT" | grep -q '/ansi-analyze'; then
             echo "mode=analyze-only" >> $GITHUB_OUTPUT
           else
@@ -91,10 +98,16 @@ jobs:
           PR_NUM: ${{ steps.pr-info.outputs.pr_number }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          MODE: ${{ steps.parse-args.outputs.mode }}
         run: |
-          gh pr comment "${PR_NUM}" \
-            --repo "${REPO}" \
-            --body "🔄 ANSI mode analysis started by @${TRIGGER_USER}. [View run](https://github.com/${REPO}/actions/runs/${RUN_ID})"
+          if [[ "$MODE" != "analyze-only" ]]; then
+            BODY=$(printf '%s\n%s' \
+              "🔄 ANSI full test started by @${TRIGGER_USER}. [View run](https://github.com/${REPO}/actions/runs/${RUN_ID})" \
+              "<!-- ansi-mode:full ansi-run:${RUN_ID} -->")
+          else
+            BODY="🔄 ANSI analyze-only started by @${TRIGGER_USER}. [View run](https://github.com/${REPO}/actions/runs/${RUN_ID})"
+          fi
+          gh pr comment "${PR_NUM}" --repo "${REPO}" --body "$BODY"
 
   build-native-lib:
     needs: check-comment
@@ -534,31 +547,40 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
-      - name: Find latest ANSI workflow run with artifacts
+      - name: Find ANSI workflow run with artifacts
         id: find-run
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           REPO="${{ github.repository }}"
-          WORKFLOW="velox_backend_ansi.yml"
-          PR_BRANCH="${{ needs.check-comment.outputs.pr_ref }}"
-          echo "Looking for latest ANSI run with artifacts on branch=${PR_BRANCH}..."
-          CANDIDATE_IDS=$(gh api "repos/${REPO}/actions/workflows/${WORKFLOW}/runs?branch=${PR_BRANCH}&per_page=50" \
-            --jq '.workflow_runs[] | select(.id != ${{ github.run_id }}) | .id')
-          RUN_ID=""
-          for cid in $CANDIDATE_IDS; do
-            HAS_OFFLOAD=$(gh api "repos/${REPO}/actions/runs/${cid}/artifacts" \
-              --jq '[.artifacts[] | select(.name | startswith("ansi-offload-"))] | length')
-            if [[ "$HAS_OFFLOAD" -gt 0 ]]; then
-              RUN_ID=$cid
-              echo "Found run ${RUN_ID} with ${HAS_OFFLOAD} offload artifacts"
-              break
+          PR_NUM="${{ needs.check-comment.outputs.pr_number }}"
+          EXPLICIT_RUN_ID="${{ needs.check-comment.outputs.run_id }}"
+
+          if [[ -n "$EXPLICIT_RUN_ID" ]]; then
+            echo "Using explicitly specified run_id=${EXPLICIT_RUN_ID}"
+            RUN_ID="$EXPLICIT_RUN_ID"
+          else
+            echo "Searching PR #${PR_NUM} comments for latest full-mode run..."
+            RUN_ID=$(gh api "repos/${REPO}/issues/${PR_NUM}/comments?per_page=100&direction=desc" --paginate \
+              --jq '[.[] | select(.body | test("ansi-mode:full ansi-run:[0-9]+"))] | first | .body // empty' \
+              | grep -oP 'ansi-run:\K[0-9]+' || echo "")
+            if [[ -n "$RUN_ID" ]]; then
+              echo "Found run_id=${RUN_ID} from PR comment"
             fi
-          done
+          fi
+
           if [[ -z "$RUN_ID" ]]; then
-            echo "::error::No previous ANSI workflow run with artifacts found"
+            echo "::error::No ANSI full-test run found. Run /ansi-test first, or specify --run <ID>"
             exit 1
           fi
+
+          HAS_OFFLOAD=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/artifacts" \
+            --jq '[.artifacts[] | select(.name | startswith("ansi-offload-"))] | length')
+          if [[ "$HAS_OFFLOAD" -eq 0 ]]; then
+            echo "::error::Run ${RUN_ID} has no offload artifacts (may have expired)"
+            exit 1
+          fi
+          echo "Using run ${RUN_ID} with ${HAS_OFFLOAD} offload artifacts"
           echo "run_id=${RUN_ID}" >> $GITHUB_OUTPUT
       - name: Download artifacts from previous run
         env:
