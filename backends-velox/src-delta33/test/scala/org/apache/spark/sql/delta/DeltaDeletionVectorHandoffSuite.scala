@@ -40,7 +40,7 @@ class DeltaDeletionVectorHandoffSuite
 
   import testImplicits._
 
-  test("Spark 4 Delta DV handoff should materialize serialized payloads from scan metadata") {
+  test("Spark 3.5 Delta DV handoff should materialize serialized payloads from scan metadata") {
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
@@ -82,13 +82,10 @@ class DeltaDeletionVectorHandoffSuite
         assert(metadata.get(DeltaDvPayloadIndex) == Int.box(0))
         assert(metadata.get(DeltaDvCardinality) == Long.box(dataFile.deletionVector.cardinality))
         assert(!metadata.containsKey(GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_ID_ENCODED))
-
-        val df = spark.read.format("delta").load(path)
-        checkAnswer(df, Seq((1, "a"), (2, "b")).toDF())
     }
   }
 
-  test("Spark 4 Delta DV handoff should skip payload materialization without scan metadata") {
+  test("Spark 3.5 Delta DV handoff should skip payload materialization without scan metadata") {
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath

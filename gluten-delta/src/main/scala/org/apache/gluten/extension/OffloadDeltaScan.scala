@@ -33,7 +33,7 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
     "spark.databricks.delta.deletionVectors.useMetadataRowIndex"
 
   override def offload(plan: SparkPlan): SparkPlan = plan match {
-    case scan: FileSourceScanExec if isDeltaScan(scan) && isDeltaLogScan(scan) =>
+    case scan: FileSourceScanExec if isDeltaLogScan(scan) =>
       FallbackTags.add(scan, "fallback Delta _delta_log scan")
       scan
     case scan: FileSourceScanExec if shouldFallbackSpark34DeletionVectorScan(scan) =>

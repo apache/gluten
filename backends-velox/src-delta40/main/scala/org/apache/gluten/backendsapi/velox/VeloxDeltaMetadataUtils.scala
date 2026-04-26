@@ -20,8 +20,6 @@ import org.apache.gluten.backendsapi.velox.VeloxIteratorApi.unescapePathName
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.delta.DeltaLog
-import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
 import org.apache.spark.sql.delta.deletionvectors.{RoaringBitmapArrayFormat, StoredBitmap}
 import org.apache.spark.sql.delta.storage.dv.HadoopFileSystemDVStore
@@ -32,7 +30,6 @@ import org.apache.hadoop.fs.Path
 import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
 
 import scala.collection.JavaConverters._
-import scala.collection.mutable
 import scala.util.Try
 import scala.util.control.NonFatal
 
@@ -48,31 +45,6 @@ object VeloxDeltaMetadataUtils {
       val otherMetadataColumns: JList[JMap[String, Object]],
       val deletionVectorPayloads: Array[Array[Byte]])
     extends Serializable
-
-  private def loadDeletionVectorsByRelativePath(
-      tablePath: Path): Map[String, DeletionVectorDescriptor] = {
-    val spark = activeSpark
-    if (
-      tablePath == null || !isDeltaSessionConfigured(spark) || !isDeltaTablePath(spark, tablePath)
-    ) {
-      return Map.empty
-    }
-
-    try {
-      DeltaLog
-        .forTable(spark, tablePath)
-        .update(false)
-        .allFiles
-        .collect()
-        .collect {
-          case addFile: AddFile if addFile.deletionVector != null =>
-            normalizePath(addFile.path) -> addFile.deletionVector
-        }
-        .toMap
-    } catch {
-      case NonFatal(_) => Map.empty
-    }
-  }
 
   private def decodeDescriptor(
       normalizedMetadata: JMap[String, Object]): Option[DeletionVectorDescriptor] = {
@@ -95,18 +67,6 @@ object VeloxDeltaMetadataUtils {
           }.toOption
       }
       .collectFirst { case Some(descriptor) => descriptor }
-  }
-
-  private def findDescriptorForFile(
-      file: PartitionedFile,
-      descriptorsByRelativePath: Map[String, DeletionVectorDescriptor])
-      : Option[DeletionVectorDescriptor] = {
-    val normalizedFilePath = normalizePath(unescapePathName(file.filePath.toString))
-    descriptorsByRelativePath.collectFirst {
-      case (relativePath, descriptor)
-          if normalizedFilePath == relativePath || normalizedFilePath.endsWith(s"/$relativePath") =>
-        descriptor
-    }
   }
 
   private def serializePayload(
@@ -144,8 +104,6 @@ object VeloxDeltaMetadataUtils {
     val dvStore = new HadoopFileSystemDVStore(activeSpark.sessionState.newHadoopConf())
     val normalizedMetadataColumns = new JArrayList[JMap[String, Object]](files.size())
     val deletionVectorPayloads = scala.collection.mutable.ArrayBuffer.empty[Array[Byte]]
-    val deletionVectorsByTablePath =
-      mutable.HashMap.empty[String, Map[String, DeletionVectorDescriptor]]
 
     files.asScala.foreach {
       file =>
@@ -156,27 +114,12 @@ object VeloxDeltaMetadataUtils {
           metadataWithDecodedPayload.putAll(otherMetadata)
         }
 
-        val (tablePath, descriptor) = decodeDescriptor(metadataWithDecodedPayload) match {
-          case descriptor @ Some(_) =>
-            (null, descriptor)
-          case None =>
-            val tablePath = resolveTablePath(partitionColumnCount, file)
-            val descriptorsByRelativePath =
-              if (tablePath == null) {
-                Map.empty[String, DeletionVectorDescriptor]
-              } else {
-                deletionVectorsByTablePath.getOrElseUpdate(
-                  tablePath.toString,
-                  loadDeletionVectorsByRelativePath(tablePath))
-              }
-            (tablePath, findDescriptorForFile(file, descriptorsByRelativePath))
-        }
+        val descriptor = decodeDescriptor(metadataWithDecodedPayload)
 
         descriptor match {
           case Some(descriptor) =>
             val normalized = normalizeMetadataWithDescriptor(metadataWithDecodedPayload, descriptor)
-            val payloadTablePath =
-              Option(tablePath).getOrElse(resolveTablePath(partitionColumnCount, file))
+            val payloadTablePath = resolveTablePath(partitionColumnCount, file)
             val serializedPayload = serializePayload(dvStore, payloadTablePath, descriptor)
             serializedPayload.foreach {
               payload =>
@@ -219,22 +162,6 @@ object VeloxDeltaMetadataUtils {
       candidate = candidate.getParent
     }
     if (candidate != null) candidate else tablePath
-  }
-
-  private def normalizePath(path: String): String = {
-    path.replace('\\', '/').stripPrefix("/")
-  }
-
-  private def isDeltaSessionConfigured(spark: SparkSession): Boolean = {
-    val extensions =
-      spark.conf
-        .getOption("spark.sql.extensions")
-        .exists(_.split(",").exists(_.trim == "io.delta.sql.DeltaSparkSessionExtension"))
-    val catalog =
-      spark.conf
-        .getOption("spark.sql.catalog.spark_catalog")
-        .contains("org.apache.spark.sql.delta.catalog.DeltaCatalog")
-    extensions && catalog
   }
 
   private def isDeltaTablePath(spark: SparkSession, tablePath: Path): Boolean = {
