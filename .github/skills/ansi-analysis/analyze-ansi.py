@@ -426,44 +426,49 @@ GITHUB_MODELS_API = "https://models.inference.ai.azure.com/chat/completions"
 
 
 def _build_ai_context(summary, suites):
-    """Build a compact JSON context for AI analysis."""
-    compact_failures = []
+    """Build a compact JSON context for AI analysis.
+
+    Grouped by (cause, suite) to minimize tokens for the GitHub Models API
+    (8000-token limit).
+    """
+    groups = defaultdict(lambda: {"count": 0, "tests": [], "sample_msg": ""})
     for f in summary["failures"][:100]:
         cause = classify_fail_cause(f.get("message", ""))
-        short_msg = _extract_short_message(f.get("message", ""))
-        compact_failures.append({
-            "suite": f["suite"].split(".")[-1],
-            "test": f["test"],
-            "source": f.get("source", ""),
-            "cause": cause,
-            "message": short_msg[:120],
+        suite = f["suite"].split(".")[-1]
+        key = (cause, suite)
+        groups[key]["count"] += 1
+        groups[key]["tests"].append(f["test"])
+        if not groups[key]["sample_msg"]:
+            groups[key]["sample_msg"] = _extract_short_message(
+                f.get("message", ""))[:120]
+
+    grouped_failures = []
+    for (cause, suite), g in sorted(groups.items(), key=lambda x: -x[1]["count"]):
+        grouped_failures.append({
+            "cause": cause, "suite": suite, "count": g["count"],
+            "tests": g["tests"], "sample_msg": g["sample_msg"],
         })
 
-    compact_cats = defaultdict(lambda: {"tests_pass": 0, "tests_fail": 0,
-                                         "suites": set()})
+    compact_cats = defaultdict(lambda: {"pass": 0, "fail": 0})
     for s in suites:
         cat = s.get("category", "unknown")
-        compact_cats[cat]["suites"].add(s.get("suite", ""))
         for t in s.get("tests", []):
             if t.get("status") in ("PASS", "PASSED"):
-                compact_cats[cat]["tests_pass"] += 1
+                compact_cats[cat]["pass"] += 1
             elif t.get("status") in ("FAIL", "FAILED", "ERROR"):
-                compact_cats[cat]["tests_fail"] += 1
+                compact_cats[cat]["fail"] += 1
 
     json_colors = {k: v for k, v in summary["by_color"].items()
                     if k not in ("Passed (no data)", "Skipped")}
 
     output = {
-        "json_record_count": summary["json_record_count"],
+        "records": summary["json_record_count"],
         "by_color": json_colors,
         "failure_count": len(summary["failures"]),
-        "failures": compact_failures,
-        "categories": {cat: {"tests_pass": d["tests_pass"],
-                              "tests_fail": d["tests_fail"],
-                              "suites": sorted(d["suites"])}
-                        for cat, d in compact_cats.items()},
+        "failures": grouped_failures,
+        "categories": dict(compact_cats),
     }
-    return json.dumps(output, indent=2, ensure_ascii=False)
+    return json.dumps(output, separators=(',', ':'), ensure_ascii=False)
 
 
 def call_ai_analysis(json_output, model=None):
