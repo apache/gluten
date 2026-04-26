@@ -92,6 +92,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def parquetUseColumnNames: Boolean = getConf(PARQUET_USE_COLUMN_NAMES)
 
+  def parquetPageSizeBytes: Long = getConf(PARQUET_PAGE_SIZE_BYTES)
+
   def hashProbeBloomFilterPushdownMaxSize: Long = getConf(HASH_PROBE_BLOOM_FILTER_PUSHDOWN_MAX_SIZE)
 
   def hashProbeDynamicFilterPushdownEnabled: Boolean =
@@ -714,7 +716,7 @@ object VeloxConfig extends ConfigRegistry {
   val CUDF_SHUFFLE_MAX_PREFETCH_BYTES =
     buildConf("spark.gluten.sql.columnar.backend.velox.cudf.shuffleMaxPrefetchBytes")
       .doc("Maximum bytes to prefetch in CPU memory during GPU shuffle read while waiting" +
-        "for GPU available.")
+        " for GPU available.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("1028MB")
 
@@ -775,6 +777,12 @@ object VeloxConfig extends ConfigRegistry {
       .doc("Maps table field names to file field names using names, not indices for Parquet files.")
       .booleanConf
       .createWithDefault(true)
+
+  val PARQUET_PAGE_SIZE_BYTES =
+    buildConf("spark.gluten.sql.columnar.backend.velox.parquet.pageSizeBytes")
+      .doc("The page size in bytes is for compression.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("1MB")
 
   val ENABLE_TIMESTAMP_NTZ_VALIDATION =
     buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")

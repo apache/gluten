@@ -19,7 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 
 import org.apache.iceberg.{FileFormat, PartitionField, PartitionSpec, Schema, TableProperties}
-import org.apache.iceberg.TableProperties.{ORC_COMPRESSION, ORC_COMPRESSION_DEFAULT, PARQUET_COMPRESSION, PARQUET_COMPRESSION_DEFAULT}
+import org.apache.iceberg.TableProperties.{ORC_COMPRESSION, ORC_COMPRESSION_DEFAULT, PARQUET_COMPRESSION, PARQUET_COMPRESSION_DEFAULT, PARQUET_PAGE_SIZE_BYTES, PARQUET_PAGE_SIZE_BYTES_DEFAULT, WRITE_TARGET_FILE_SIZE_BYTES, WRITE_TARGET_FILE_SIZE_BYTES_DEFAULT}
 import org.apache.iceberg.avro.AvroSchemaUtil
 import org.apache.iceberg.spark.source.IcebergWriteUtil
 import org.apache.iceberg.types.Type.TypeID
@@ -47,6 +47,18 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
     if (codec.equalsIgnoreCase("uncompressed")) {
       "none"
     } else codec
+  }
+
+  protected def getParquetPageSizeBytes: String = {
+    val config = IcebergWriteUtil.getWriteProperty(write)
+    config.getOrDefault(
+      normalizeCapacityString(PARQUET_PAGE_SIZE_BYTES),
+      normalizeCapacityString(PARQUET_PAGE_SIZE_BYTES_DEFAULT.toString))
+  }
+
+  protected def getTargetFileSizeBytes: String = {
+    val config = IcebergWriteUtil.getWriteProperty(write)
+    config.getOrDefault(WRITE_TARGET_FILE_SIZE_BYTES, WRITE_TARGET_FILE_SIZE_BYTES_DEFAULT.toString)
   }
 
   protected def getPartitionSpec: PartitionSpec = {
@@ -117,4 +129,8 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
     ValidationResult.succeeded
   }
 
+  private def normalizeCapacityString(value: String): String = {
+    val trimmed = value.trim
+    if (trimmed.lastOption.exists(_.isDigit)) s"${trimmed}B" else trimmed
+  }
 }

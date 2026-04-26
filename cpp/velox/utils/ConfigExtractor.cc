@@ -243,6 +243,8 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
       conf->get<bool>(kAllowInt32Narrowing, true) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kOrcUseColumnNamesSession] =
       conf->get<bool>(kOrcUseColumnNames, true) ? "true" : "false";
+  configs[facebook::velox::parquet::WriterOptions::kParquetWritePageSize] =
+      conf->get<std::string>(kWriteParquetPageSizeBytes, "1MB");
 
   overwriteVeloxConf(conf.get(), configs, kDynamicBackendConfPrefix);
   return std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
