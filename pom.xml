@@ -1427,6 +1427,12 @@
       </properties>
     </profile>
     <profile>
+      <id>hadoop-3.4</id>
+      <properties>
+        <hadoop.version>3.4.1</hadoop.version>
+      </properties>
+    </profile>
+    <profile>
       <id>dataproc-2.2</id>
       <properties>
         <hadoop.version>3.3.6</hadoop.version>
