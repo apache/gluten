@@ -1416,7 +1416,7 @@ jobs:
         run: |
           rm -rf /opt/shims/spark41
           bash .github/workflows/util/install-spark-resources.sh 4.1
-      - name: Build and Run unit test for Spark 4.0 (slow tests)
+      - name: Build and Run unit test for Spark 4.1 (slow tests)
         run: |
           cd $GITHUB_WORKSPACE/
           yum install -y java-17-openjdk-devel
