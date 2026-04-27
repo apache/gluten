@@ -180,6 +180,7 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def isUseCelebornShuffleManager: Boolean =
     conf
       .getConfString("spark.shuffle.manager", "sort")
+      .toLowerCase(Locale.ROOT)
       .contains("celeborn")
 
   // Whether to use UniffleShuffleManager.
