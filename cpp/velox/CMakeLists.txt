@@ -159,6 +159,11 @@ set(VELOX_SRCS
     compute/VeloxRuntime.cc
     compute/VeloxPlanConverter.cc
     compute/WholeStageResultIterator.cc
+    compute/delta/DeltaConnector.cpp
+    compute/delta/DeltaDataSource.cpp
+    compute/delta/DeltaDeletionVectorReader.cpp
+    compute/delta/DeltaSplit.cpp
+    compute/delta/DeltaSplitReader.cpp
     compute/delta/RoaringBitmapArray.cpp
     compute/iceberg/IcebergPlanConverter.cc
     jni/JniFileSystem.cc
@@ -390,8 +395,8 @@ find_package(
 target_link_libraries(velox PUBLIC ICU::i18n ICU::uc ICU::data)
 
 if(BUILD_TESTS)
-  add_subdirectory(tests)
   add_subdirectory(compute/delta/tests)
+  add_subdirectory(tests)
 endif()
 
 if(BUILD_BENCHMARKS)

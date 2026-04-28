@@ -31,6 +31,7 @@
 #include "compute/ResultIterator.h"
 #include "compute/Runtime.h"
 #include "compute/VeloxPlanConverter.h"
+#include "compute/delta/DeltaConnector.h"
 #include "config/VeloxConfig.h"
 #include "operators/plannodes/IteratorSplit.h"
 #include "operators/serializer/VeloxRowToColumnarConverter.h"
@@ -213,6 +214,7 @@ std::string makeScopedConnectorId(const std::string& base, uint64_t runtimeId) {
 VeloxConnectorIds makeScopedConnectorIds(uint64_t runtimeId) {
   return VeloxConnectorIds{
       .hive = makeScopedConnectorId(kHiveConnectorId, runtimeId),
+      .delta = makeScopedConnectorId(delta::DeltaConnectorFactory::kDeltaConnectorName, runtimeId),
       .iterator = makeScopedConnectorId(kIteratorConnectorId, runtimeId),
       .cudfHive = makeScopedConnectorId(kCudfHiveConnectorId, runtimeId)};
 }
@@ -271,6 +273,13 @@ void VeloxRuntime::registerConnectors() {
       velox::connector::hasConnector(connectorIds_.hive),
       "Scoped hive connector not found after registration: " + connectorIds_.hive);
 
+  connectorIds_.deltaRegistered =
+      velox::connector::registerConnector(backend->createDeltaConnector(connectorIds_.delta, ioExecutor_.get()));
+  GLUTEN_CHECK(connectorIds_.deltaRegistered, "Failed to register scoped delta connector: " + connectorIds_.delta);
+  GLUTEN_CHECK(
+      velox::connector::hasConnector(connectorIds_.delta),
+      "Scoped delta connector not found after registration: " + connectorIds_.delta);
+
   const auto valueStreamDynamicFilterEnabled =
       veloxCfg_->get<bool>(kValueStreamDynamicFilterEnabled, kValueStreamDynamicFilterEnabledDefault);
   connectorIds_.iteratorRegistered = velox::connector::registerConnector(
@@ -305,6 +314,10 @@ void VeloxRuntime::unregisterConnectors() {
   if (connectorIds_.iteratorRegistered) {
     velox::connector::unregisterConnector(connectorIds_.iterator);
     connectorIds_.iteratorRegistered = false;
+  }
+  if (connectorIds_.deltaRegistered) {
+    velox::connector::unregisterConnector(connectorIds_.delta);
+    connectorIds_.deltaRegistered = false;
   }
   if (connectorIds_.hiveRegistered) {
     velox::connector::unregisterConnector(connectorIds_.hive);
