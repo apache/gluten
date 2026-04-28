@@ -163,28 +163,33 @@ class GlutenHiveUDFSuite extends GlutenQueryComparisonTest with SQLTestUtils {
       spark.udf.register("plus_one", plusOne)
       sql(s"CREATE TEMPORARY FUNCTION noInputUDTF AS '${classOf[NoInputUDTF].getName}'")
 
-      Seq(true, false).foreach {
-        enablePartialProject =>
-          withSQLConf(
-            SQLConf.ANSI_ENABLED.key -> "false",
-            GlutenConfig.ENABLE_COLUMNAR_PARTIAL_PROJECT.key -> enablePartialProject.toString) {
-            runQueryAndCompare(
-              """
-                |select plus_one(col1) as col2, l_partkey from (
-                | select col1, l_partkey from lineitem lateral view noInputUDTF() as col1
-                |)""".stripMargin,
-              noFallBack = enablePartialProject
-            ) {
-              df =>
-                val executedPlan = getExecutedPlan(df)
-                assert(
-                  executedPlan.exists(_.isInstanceOf[ColumnarPartialProjectExec]) ==
-                    enablePartialProject)
-                assert(
-                  executedPlan.exists(_.isInstanceOf[ColumnarPartialGenerateExec]) ==
-                    enablePartialProject)
-            }
+      for {
+        enablePartialProject <- Seq(true, false)
+        enablePartialGenerate <- Seq(true, false)
+      } {
+        val expectPartialFallback = enablePartialProject && enablePartialGenerate
+        withSQLConf(
+          SQLConf.ANSI_ENABLED.key -> "false",
+          GlutenConfig.ENABLE_COLUMNAR_PARTIAL_PROJECT.key -> enablePartialProject.toString,
+          GlutenConfig.ENABLE_COLUMNAR_PARTIAL_GENERATE.key -> enablePartialGenerate.toString
+        ) {
+          runQueryAndCompare(
+            """
+              |select plus_one(col1) as col2, l_partkey from (
+              | select col1, l_partkey from lineitem lateral view noInputUDTF() as col1
+              |)""".stripMargin,
+            noFallBack = expectPartialFallback
+          ) {
+            df =>
+              val executedPlan = getExecutedPlan(df)
+              assert(
+                executedPlan.exists(_.isInstanceOf[ColumnarPartialProjectExec]) ==
+                  expectPartialFallback)
+              assert(
+                executedPlan.exists(_.isInstanceOf[ColumnarPartialGenerateExec]) ==
+                  expectPartialFallback)
           }
+        }
       }
     }
   }
