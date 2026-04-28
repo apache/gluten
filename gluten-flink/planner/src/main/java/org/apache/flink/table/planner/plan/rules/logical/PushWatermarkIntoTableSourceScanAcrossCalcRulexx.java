@@ -16,35 +16,35 @@
  */
 package org.apache.flink.table.planner.plan.rules.logical;
 
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.table.planner.plan.nodes.logical.FlinkLogicalCalc;
 import org.apache.flink.table.planner.plan.nodes.logical.FlinkLogicalTableSourceScan;
 import org.apache.flink.table.planner.plan.nodes.logical.FlinkLogicalWatermarkAssigner;
 
 import org.apache.calcite.plan.RelOptRuleCall;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
- * Rule to push the {@link FlinkLogicalWatermarkAssigner} into the {@link
- * FlinkLogicalTableSourceScan}.
+ * Rule to push the {@link FlinkLogicalWatermarkAssigner} across the {@link FlinkLogicalCalc} to the
+ * {@link FlinkLogicalTableSourceScan}. The rule will first look for the computed column in the
+ * {@link FlinkLogicalCalc} and then translate the watermark expression and the computed column into
+ * a {@link WatermarkStrategy}. With the new scan the rule will build a new {@link
+ * FlinkLogicalCalc}.
  */
-public class PushWatermarkIntoTableSourceScanRulexxx
+public class PushWatermarkIntoTableSourceScanAcrossCalcRulexx
     extends PushWatermarkIntoTableSourceScanRuleBase {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(PushWatermarkIntoTableSourceScanRulexxx.class);
-  public static final PushWatermarkIntoTableSourceScanRulexxx INSTANCE =
-      new PushWatermarkIntoTableSourceScanRulexxx();
+  public static final PushWatermarkIntoTableSourceScanAcrossCalcRulexx INSTANCE =
+      new PushWatermarkIntoTableSourceScanAcrossCalcRulexx();
 
-  public PushWatermarkIntoTableSourceScanRulexxx() {
+  public PushWatermarkIntoTableSourceScanAcrossCalcRulexx() {
     super(
         operand(
             FlinkLogicalWatermarkAssigner.class,
-            operand(FlinkLogicalTableSourceScan.class, none())),
-        "PushWatermarkIntoTableSourceScanRule");
+            operand(FlinkLogicalCalc.class, operand(FlinkLogicalTableSourceScan.class, none()))),
+        "PushWatermarkIntoFlinkTableSourceScanAcrossCalcRule");
   }
 
   @Override
   public boolean matches(RelOptRuleCall call) {
-    LOG.info("PushWatermarkIntoTableSourceScanRule does not match xxxxx");
     return false;
   }
 

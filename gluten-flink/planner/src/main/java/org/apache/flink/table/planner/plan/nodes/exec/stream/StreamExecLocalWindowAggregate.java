@@ -42,8 +42,6 @@ import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
 import org.apache.flink.table.data.RowData;
-import org.apache.flink.table.planner.codegen.CodeGeneratorContext;
-import org.apache.flink.table.planner.codegen.agg.AggsHandlerCodeGenerator;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.logical.WindowingStrategy;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
@@ -53,22 +51,18 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeContext;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
-import org.apache.flink.table.planner.plan.utils.AggregateInfoList;
-import org.apache.flink.table.planner.utils.JavaScalaConversionUtil;
 import org.apache.flink.table.planner.utils.TableConfigUtils;
-import org.apache.flink.table.runtime.generated.GeneratedNamespaceAggsHandleFunction;
-import org.apache.flink.table.runtime.operators.window.tvf.slicing.SliceAssigner;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.runtime.util.TimeWindowUtil;
-import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.apache.calcite.rel.core.AggregateCall;
-import org.apache.calcite.tools.RelBuilder;
 import org.apache.commons.math3.util.ArithmeticUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 
@@ -94,6 +88,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
     minStateVersion = FlinkVersion.v1_15)
 public class StreamExecLocalWindowAggregate extends StreamExecWindowAggregateBase {
 
+  private static final Logger LOG = LoggerFactory.getLogger(StreamExecLocalWindowAggregate.class);
   public static final String LOCAL_WINDOW_AGGREGATE_TRANSFORMATION = "local-window-aggregate";
 
   private static final long WINDOW_AGG_MEMORY_RATIO = 100;
@@ -196,7 +191,7 @@ public class StreamExecLocalWindowAggregate extends StreamExecWindowAggregateBas
     PlanNode aggregation =
         new AggregationNode(
             PlanNodeIdGenerator.newId(),
-            AggregateStep.SINGLE,
+            AggregateStep.PARTIAL,
             groupingKeys,
             groupingKeys,
             aggNames,
@@ -244,36 +239,5 @@ public class StreamExecLocalWindowAggregate extends StreamExecWindowAggregateBas
         // use less memory here to let the chained head operator can have more memory
         WINDOW_AGG_MEMORY_RATIO / 2,
         false);
-  }
-
-  private GeneratedNamespaceAggsHandleFunction<Long> createAggsHandler(
-      SliceAssigner sliceAssigner,
-      AggregateInfoList aggInfoList,
-      ExecNodeConfig config,
-      ClassLoader classLoader,
-      RelBuilder relBuilder,
-      List<LogicalType> fieldTypes,
-      ZoneId shiftTimeZone) {
-    final AggsHandlerCodeGenerator generator =
-        new AggsHandlerCodeGenerator(
-                new CodeGeneratorContext(config, classLoader),
-                relBuilder,
-                JavaScalaConversionUtil.toScala(fieldTypes),
-                true) // copyInputField
-            .needAccumulate()
-            .needMerge(0, true, null);
-
-    if (needRetraction) {
-      generator.needRetract();
-    }
-
-    return generator.generateNamespaceAggsHandler(
-        "LocalWindowAggsHandler",
-        aggInfoList,
-        JavaScalaConversionUtil.toScala(Collections.emptyList()),
-        sliceAssigner,
-        // we use window end timestamp to indicate a slicing window, see SliceAssigner
-        Long.class,
-        shiftTimeZone);
   }
 }

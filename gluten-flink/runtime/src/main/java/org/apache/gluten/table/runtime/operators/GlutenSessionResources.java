@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 // Manage the session and resource for Velox.
 class GlutenSessionResource {
@@ -110,8 +111,10 @@ public class GlutenSessionResources {
     operators.put(id, operator);
   }
 
-  public GlutenOperator getOperator(String id) {
-    LOG.info("getOperator: {}, {}", id, operators.keySet());
-    return operators.get(id);
+  public Optional<GlutenOperator> getOperator(String id) {
+    if (operators.containsKey(id)) {
+      return Optional.of(operators.get(id));
+    }
+    return Optional.empty();
   }
 }

@@ -51,6 +51,7 @@ public class WindowAggOperator<IN, OUT, W> extends GlutenOneInputOperator<IN, OU
   private InternalTypeInfo<RowData> keyType;
   private String[] accNames;
   private LogicalType[] accTypes;
+  private boolean isRowTime = false;
 
   public WindowAggOperator(
       StatefulPlanNode plan,
@@ -62,11 +63,13 @@ public class WindowAggOperator<IN, OUT, W> extends GlutenOneInputOperator<IN, OU
       String description,
       InternalTypeInfo<RowData> keyType,
       String[] accNames,
-      LogicalType[] accTypes) {
+      LogicalType[] accTypes,
+      boolean isRowTime) {
     super(plan, id, inputType, outputTypes, inClass, outClass, description);
     this.keyType = keyType;
     this.accNames = accNames;
     this.accTypes = accTypes;
+    this.isRowTime = isRowTime;
   }
 
   public InternalTypeInfo<RowData> getKeyTye() {
@@ -133,8 +136,13 @@ public class WindowAggOperator<IN, OUT, W> extends GlutenOneInputOperator<IN, OU
   }
 
   @Override
+  public boolean operateOnProcessTime() {
+    return !isRowTime;
+  }
+
+  @Override
   public <NIN, NOUT> WindowAggOperator<NIN, NOUT, W> cloneWithInputOutputClasses(
-      Class<NIN> newInClass, Class<NOUT> newOutClass) {
+      StatefulPlanNode plan, Class<NIN> newInClass, Class<NOUT> newOutClass) {
     return new WindowAggOperator<>(
         getPlanNode(),
         getId(),
@@ -145,7 +153,8 @@ public class WindowAggOperator<IN, OUT, W> extends GlutenOneInputOperator<IN, OU
         getDescription(),
         keyType,
         accNames,
-        accTypes);
+        accTypes,
+        isRowTime);
   }
 
   @Override

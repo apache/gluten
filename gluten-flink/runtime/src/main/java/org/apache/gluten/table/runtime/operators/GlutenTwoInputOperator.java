@@ -152,7 +152,8 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
     processElementInternal();
   }
 
-  private void processElementInternal() {
+  @Override
+  public void processElementInternal() {
     while (true) {
       UpIterator.State state = task.advance();
       if (state == UpIterator.State.AVAILABLE) {
