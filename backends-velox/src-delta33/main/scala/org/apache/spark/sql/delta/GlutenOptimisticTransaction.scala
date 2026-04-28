@@ -154,15 +154,16 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
       val writePartitionColumns = IcebergCompat.isAnyEnabled(metadata)
       // Retain only a minimal selection of Spark writer options to avoid any potential
       // compatibility issues
-      val options = (writeOptions match {
-        case None => Map.empty[String, String]
-        case Some(writeOptions) =>
-          writeOptions.options.filterKeys {
-            key =>
-              key.equalsIgnoreCase(DeltaOptions.MAX_RECORDS_PER_FILE) ||
-              key.equalsIgnoreCase(DeltaOptions.COMPRESSION)
-          }.toMap
-      }) + (DeltaOptions.WRITE_PARTITION_COLUMNS -> writePartitionColumns.toString)
+      val options =
+        (writeOptions match {
+          case None => Map.empty[String, String]
+          case Some(writeOptions) =>
+            writeOptions.options.filterKeys {
+              key =>
+                key.equalsIgnoreCase(DeltaOptions.MAX_RECORDS_PER_FILE) ||
+                key.equalsIgnoreCase(DeltaOptions.COMPRESSION)
+            }.toMap
+        }) + (DeltaOptions.WRITE_PARTITION_COLUMNS -> writePartitionColumns.toString)
 
       try {
         GlutenDeltaFileFormatWriter.write(
@@ -180,9 +181,10 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
           // scalastyle:on deltahadoopconfiguration
           partitionColumns = partitioningColumns,
           bucketSpec = None,
-          statsTrackers = optionalStatsTracker.toSeq
-            ++ statsTrackers
-            ++ identityTrackerOpt.toSeq,
+          statsTrackers =
+            optionalStatsTracker.toSeq
+              ++ statsTrackers
+              ++ identityTrackerOpt.toSeq,
           options = options
         )
       } catch {

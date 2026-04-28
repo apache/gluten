@@ -44,14 +44,12 @@ import scala.collection.JavaConverters._
  *   1. Plain Parquet File:
  *      - Writes a Parquet file with no encryption.
  *      - Asserts that parquet is not encrypted
- *
- * 2. Encrypted Parquet File (with encrypted footer):
- *   - Writes a Parquet file with column-level encryption and an encrypted footer.
- *   - Asserts that the file is encrypted.
- *
- * 3. Encrypted Parquet File (with plaintext footer):
- *   - Writes a Parquet file with column-level encryption but a plaintext (unencrypted) footer.
- *   - Ensures the file is still detected as encrypted despite the plaintext footer.
+ *   2. Encrypted Parquet File (with encrypted footer):
+ *      - Writes a Parquet file with column-level encryption and an encrypted footer.
+ *      - Asserts that the file is encrypted.
+ *   3. Encrypted Parquet File (with plaintext footer):
+ *      - Writes a Parquet file with column-level encryption but a plaintext (unencrypted) footer.
+ *      - Ensures the file is still detected as encrypted despite the plaintext footer.
  */
 
 class ParquetEncryptionDetectionSuite extends SharedSparkSession {

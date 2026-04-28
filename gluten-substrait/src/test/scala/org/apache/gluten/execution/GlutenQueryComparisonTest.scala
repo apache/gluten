@@ -103,7 +103,7 @@ abstract class GlutenQueryComparisonTest extends GlutenQueryTest {
     }
     // By default, we will fallback complex type scan but here we should allow
     // to test support of complex type
-    spark.conf.set("spark.gluten.sql.complexType.scan.fallback.enabled", "false");
+    spark.conf.set("spark.gluten.sql.complexType.scan.fallback.enabled", "false")
     val df = dataframe()
     if (cache) {
       df.cache()

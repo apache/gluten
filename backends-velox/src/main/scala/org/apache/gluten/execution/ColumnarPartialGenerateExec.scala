@@ -364,10 +364,10 @@ case class ColumnarPartialGenerateExec(generateExec: GenerateExec, child: SparkP
 
     Iterators
       .wrap(Iterator.single(resultBatch))
-      .recycleIterator({
+      .recycleIterator {
         rightArrowBatch.close()
         rightResultVectors.foreach(_.close())
-      })
+      }
       .create()
   }
 
