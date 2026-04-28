@@ -25,6 +25,7 @@
 #include <velox/exec/OperatorUtils.h>
 
 #include <exception>
+#include <type_traits>
 #include "JniUdf.h"
 #include "compute/Runtime.h"
 #include "compute/VeloxBackend.h"
@@ -67,6 +68,28 @@ jmethodID blockStripesConstructor;
 
 jclass batchWriteMetricsClass;
 jmethodID batchWriteMetricsConstructor;
+
+template <typename PartitionChannels>
+auto makePartitionIdGenerator(
+    const facebook::velox::RowTypePtr& inputType,
+    PartitionChannels&& partitionChannels,
+    uint32_t maxPartitions,
+    facebook::velox::memory::MemoryPool* pool) {
+  using PartitionIdGenerator = facebook::velox::connector::hive::PartitionIdGenerator;
+  using ChannelsType = std::decay_t<PartitionChannels>;
+  if constexpr (std::is_constructible_v<
+                    PartitionIdGenerator,
+                    const facebook::velox::RowTypePtr&,
+                    ChannelsType,
+                    uint32_t,
+                    facebook::velox::memory::MemoryPool*,
+                    bool>) {
+    return PartitionIdGenerator(
+        inputType, std::forward<PartitionChannels>(partitionChannels), maxPartitions, pool, false);
+  } else {
+    return PartitionIdGenerator(inputType, std::forward<PartitionChannels>(partitionChannels), maxPartitions, pool);
+  }
+}
 } // namespace
 
 #ifdef __cplusplus
@@ -590,16 +613,7 @@ Java_org_apache_gluten_datasource_VeloxDataSourceJniWrapper_splitBlockByPartitio
   const auto inputRowVector = veloxBatch->getRowVector();
   const auto numRows = inputRowVector->size();
 
-  connector::hive::PartitionIdGenerator idGen(
-      asRowType(inputRowVector->type()),
-      partitionColIndicesVec,
-      65536,
-      pool.get()
-#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
-          ,
-      true
-#endif
-  );
+  auto idGen = makePartitionIdGenerator(asRowType(inputRowVector->type()), partitionColIndicesVec, 65536, pool.get());
   raw_vector<uint64_t> partitionIds{};
   idGen.run(inputRowVector, partitionIds);
   GLUTEN_CHECK(partitionIds.size() == numRows, "Mismatched number of partition ids");

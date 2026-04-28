@@ -344,7 +344,7 @@ object UDFResolver extends Logging {
 
     val allowTypeConversion = checkAllowTypeConversion
     val signatures =
-      UDFMap.getOrElse(name, throw new GlutenNotSupportException(errorMessage));
+      UDFMap.getOrElse(name, throw new GlutenNotSupportException(errorMessage))
     signatures.find(sig => tryBind(sig, children.map(_.dataType), allowTypeConversion)) match {
       case Some(sig) =>
         UDFExpression(

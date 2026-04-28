@@ -98,7 +98,7 @@ object ArrowAbiUtil {
       array: ArrowArray): VectorSchemaRoot = {
     val provider = new CDataDictionaryProvider
 
-    val vsr = VectorSchemaRoot.create(schema, allocator);
+    val vsr = VectorSchemaRoot.create(schema, allocator)
     try {
       if (array != null) {
         Data.importIntoVectorSchemaRoot(allocator, array, vsr, provider)

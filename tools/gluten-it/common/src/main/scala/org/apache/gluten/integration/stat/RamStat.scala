@@ -48,7 +48,7 @@ object RamStat {
       while (true) {
         val ch = in.read()
         if (ch == -1) {
-          return;
+          return
         }
         buff.append(ch.asInstanceOf[Char])
       }
@@ -70,7 +70,7 @@ object RamStat {
       while (true) {
         val ch = in.read()
         if (ch == -1) {
-          return;
+          return
         }
         buff.append(ch.asInstanceOf[Char])
       }

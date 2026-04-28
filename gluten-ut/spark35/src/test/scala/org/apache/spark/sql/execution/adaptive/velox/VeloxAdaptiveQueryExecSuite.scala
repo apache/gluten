@@ -992,7 +992,8 @@ class VeloxAdaptiveQueryExecSuite extends AdaptiveQueryExecSuite with GlutenSQLT
           // The top shuffle from repartition is not optimized out.
           optimizeOutRepartition = false,
           optimizeSkewJoin = true,
-          coalescedRead = false)
+          coalescedRead = false
+        )
 
         // Repartition by col and project away the partition cols
         checkSMJ(

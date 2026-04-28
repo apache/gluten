@@ -444,7 +444,7 @@ case class GlutenDeltaParquetFileFormat(
             // mutable [[InternalRow]] and set the `row_index` and `is_row_deleted`
             // column values. This is not efficient. It should affect only the wide
             // tables. https://github.com/delta-io/delta/issues/2246
-            val newRow = columnarRow.copy();
+            val newRow = columnarRow.copy()
             isRowDeletedColumnOpt.foreach {
               columnMetadata =>
                 val rowIndexForFiltering = if (useMetadataRowIndex) {

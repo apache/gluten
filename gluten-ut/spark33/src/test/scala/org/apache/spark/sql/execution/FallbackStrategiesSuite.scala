@@ -103,7 +103,8 @@ class FallbackStrategiesSuite extends GlutenSQLTestsTrait {
               _ => {
                 UnaryOp2(UnaryOp1Transformer(UnaryOp2(UnaryOp1Transformer(LeafOpTransformer()))))
               },
-            c => InsertBackendTransitions(c.outputsColumnar)))
+            c => InsertBackendTransitions(c.outputsColumnar))
+        )
         val outputPlan = rule.apply(originalPlan, false)
         // Expect to fall back the entire plan.
         assert(outputPlan == originalPlan)
@@ -124,7 +125,8 @@ class FallbackStrategiesSuite extends GlutenSQLTestsTrait {
               _ => {
                 UnaryOp2(UnaryOp1Transformer(UnaryOp2(UnaryOp1Transformer(LeafOpTransformer()))))
               },
-            c => InsertBackendTransitions(c.outputsColumnar)))
+            c => InsertBackendTransitions(c.outputsColumnar))
+        )
         val outputPlan = rule.apply(originalPlan, false)
         // Expect to get the plan with columnar rule applied.
         assert(outputPlan != originalPlan)

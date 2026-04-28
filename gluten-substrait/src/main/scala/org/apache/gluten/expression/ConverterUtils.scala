@@ -286,11 +286,11 @@ object ConverterUtils extends Logging {
         val elementType = parseFromTypeNode(a.getNestedType)
         ArrayType(elementType, a.getNestedType.nullable())
       case s: StructNode =>
-        val fields = s.getFieldTypes.asScala.map({
+        val fields = s.getFieldTypes.asScala.map {
           typ =>
             val field = parseFromTypeNode(typ)
             StructField("", field, typ.nullable())
-        })
+        }
         StructType(fields.toSeq)
       case _: NothingNode =>
         NullType

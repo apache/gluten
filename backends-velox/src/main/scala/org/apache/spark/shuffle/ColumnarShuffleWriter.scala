@@ -156,7 +156,8 @@ class ColumnarShuffleWriter[K, V](
             conf.get(SHUFFLE_FILE_BUFFER_SIZE).toInt,
             tempDataFile.getAbsolutePath,
             localDirs,
-            GlutenConfig.get.columnarShuffleEnableDictionary
+            GlutenConfig.get.columnarShuffleEnableDictionary,
+            GlutenConfig.get.columnarShuffleEnableTypeAwareCompress
           )
 
           nativeShuffleWriter = if (isSort) {

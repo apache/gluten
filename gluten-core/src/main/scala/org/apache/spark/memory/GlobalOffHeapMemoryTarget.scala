@@ -79,7 +79,7 @@ class GlobalOffHeapMemoryTarget private[memory]
                   s"Requested: $size, " +
                   s"Storage: $storageUsed / $onHeapMemoryTotal, " +
                   s"Execution: $executionUsed / $onHeapMemoryTotal")
-              return 0;
+              return 0
             }
             val storageUsed = mm.offHeapStorageMemoryUsed
             val executionUsed = mm.offHeapExecutionMemoryUsed
@@ -88,7 +88,7 @@ class GlobalOffHeapMemoryTarget private[memory]
               s"Spark off-heap memory is exhausted." +
                 s" Storage: $storageUsed / $offHeapMemoryTotal," +
                 s" execution: $executionUsed / $offHeapMemoryTotal")
-            return 0;
+            return 0
           }
       }
       .getOrElse(size)

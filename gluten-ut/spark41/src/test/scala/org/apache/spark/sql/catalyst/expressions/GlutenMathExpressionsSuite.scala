@@ -16,11 +16,16 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsTrait
+import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.dsl.expressions._
+import org.apache.spark.sql.shim.GlutenTestsTrait
 import org.apache.spark.sql.types._
 
-class GlutenMathExpressionsSuite extends MathExpressionsSuite with GlutenTestsTrait {
+class GlutenMathExpressionsSuite
+  extends MathExpressionsSuite
+  with GlutenExpressionOffloadTracker
+  with GlutenTestsTrait {
+  override protected def offloadCategory: String = "math"
   testGluten("round/bround/floor/ceil") {
     val scales = -6 to 6
     val doublePi: Double = math.Pi

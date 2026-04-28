@@ -60,7 +60,7 @@ jobs:
           source /opt/rh/gcc-toolset-11/enable
           sudo dnf install -y patchelf
           sudo yum install https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/tzdata-2025a-1.el9.noarch.rpm -y
-          sudo .github/workflows/util/install-flink-resources.sh
+          sudo .github/workflows/util/install-flink-deps.sh
           git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
           cd velox4j && git reset --hard 889bafcf2fa04e8c31a30edbdf40fe203ef58484
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch

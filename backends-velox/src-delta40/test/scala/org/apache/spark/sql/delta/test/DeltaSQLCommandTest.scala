@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.delta.test
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
 
 import org.apache.spark.SparkConf
@@ -25,6 +26,7 @@ import org.apache.spark.sql.test.SharedSparkSession
 
 import io.delta.sql.DeltaSparkSessionExtension
 
+// spotless:off
 /**
  * A trait for tests that are testing a fully set up SparkSession with all of Delta's requirements,
  * such as the configuration of the DeltaCatalog and the addition of all Delta extensions.
@@ -35,21 +37,24 @@ trait DeltaSQLCommandTest extends SharedSparkSession {
     val conf = super.sparkConf
 
     // Delta.
-    conf
-      .set(StaticSQLConf.SPARK_SESSION_EXTENSIONS.key, classOf[DeltaSparkSessionExtension].getName)
-      .set(SQLConf.V2_SESSION_CATALOG_IMPLEMENTATION.key, classOf[DeltaCatalog].getName)
+    conf.set(StaticSQLConf.SPARK_SESSION_EXTENSIONS.key,
+        classOf[DeltaSparkSessionExtension].getName)
+      .set(SQLConf.V2_SESSION_CATALOG_IMPLEMENTATION.key,
+        classOf[DeltaCatalog].getName)
 
     // Gluten.
-    conf
-      .set("spark.plugins", "org.apache.gluten.GlutenPlugin")
+    conf.set("spark.plugins", "org.apache.gluten.GlutenPlugin")
       .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
       .set("spark.default.parallelism", "1")
       .set("spark.memory.offHeap.enabled", "true")
       .set("spark.sql.shuffle.partitions", "5")
       .set("spark.memory.offHeap.size", "2g")
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
+      .set(SQLConf.ANSI_ENABLED.key, "false")
+      .set(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key, "false")
       .set(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key, "true")
       .set("spark.databricks.delta.snapshotPartitions", "2")
       .set("spark.gluten.sql.fallbackUnexpectedMetadataParquet", "true")
   }
 }
+// spotless:on

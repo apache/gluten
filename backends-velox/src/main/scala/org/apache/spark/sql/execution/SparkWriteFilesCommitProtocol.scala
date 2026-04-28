@@ -107,11 +107,12 @@ class SparkWriteFilesCommitProtocol(
     stagingDir.toString
   }
 
-  private def enrichWriteError[T](path: => String)(f: => T): T = try {
-    f
-  } catch {
-    case t: Throwable => SparkShimLoader.getSparkShims.enrichWriteException(t, description.path)
-  }
+  private def enrichWriteError[T](path: => String)(f: => T): T =
+    try {
+      f
+    } catch {
+      case t: Throwable => SparkShimLoader.getSparkShims.enrichWriteException(t, description.path)
+    }
 
   def commitTask(): Unit = enrichWriteError(description.path) {
     val (_, taskCommitTime) = Utils.timeTakenMs {

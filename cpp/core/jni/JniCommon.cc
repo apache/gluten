@@ -26,7 +26,7 @@ void gluten::JniCommonState::ensureInitialized(JNIEnv* env) {
   initialized_ = true;
 }
 
-void gluten::JniCommonState::assertInitialized() {
+void gluten::JniCommonState::assertInitialized() const {
   if (!initialized_) {
     throw gluten::GlutenException("Fatal: JniCommonState::Initialize(...) was not called before using the utility");
   }
@@ -95,7 +95,11 @@ gluten::JniColumnarBatchIterator::~JniColumnarBatchIterator() {
   attachCurrentThreadAsDaemonOrThrow(vm_, &env);
   env->DeleteGlobalRef(jColumnarBatchItr_);
   env->DeleteGlobalRef(serializedColumnarBatchIteratorClass_);
-  vm_->DetachCurrentThread();
+  // Do NOT call DetachCurrentThread() here.
+  // libhdfs.so caches JNIEnv* in thread-local storage after AttachCurrentThread.
+  // If we detach, libhdfs's TLS cache becomes stale — the next HDFS call via
+  // libhdfs returns the stale env, causing SIGSEGV in jni_NewStringUTF.
+  // Daemon-attached threads are safe to leave attached; they won't block JVM shutdown.
 }
 
 std::shared_ptr<gluten::ColumnarBatch> gluten::JniColumnarBatchIterator::next() {
