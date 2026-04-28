@@ -1185,6 +1185,7 @@
         <delta.version>2.3.0</delta.version>
         <delta.binary.version>23</delta.binary.version>
         <antlr4.version>4.8</antlr4.version>
+        <hadoop.version>3.3.2</hadoop.version>
         <hudi.version>0.15.0</hudi.version>
         <slf4j.version>1.7.32</slf4j.version>
         <log4j.version>2.17.2</log4j.version>
@@ -1210,6 +1211,7 @@
         <delta.version>2.4.0</delta.version>
         <delta.binary.version>24</delta.binary.version>
         <antlr4.version>4.9.3</antlr4.version>
+        <hadoop.version>3.3.4</hadoop.version>
         <hudi.version>0.15.0</hudi.version>
         <slf4j.version>2.0.6</slf4j.version>
         <log4j.version>2.19.0</log4j.version>
