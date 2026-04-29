@@ -1189,15 +1189,15 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenFileStreamStressSuite]
   // TODO: 4.x enableSuite[GlutenFlatMapGroupsInPandasWithStateDistributionSuite]  // failures with GlutenPlugin
   enableSuite[GlutenFlatMapGroupsInPandasWithStateSuite]
-  // TODO: 4.x enableSuite[GlutenFlatMapGroupsWithStateDistributionSuite]
-  // TODO: 4.x enableSuite[GlutenFlatMapGroupsWithStateSuite]
+  enableSuite[GlutenFlatMapGroupsWithStateDistributionSuite]
+  enableSuite[GlutenFlatMapGroupsWithStateSuite]
   enableSuite[GlutenFlatMapGroupsWithStateWithInitialStateSuite]
   enableSuite[GlutenGroupStateSuite]
   enableSuite[GlutenLongOffsetSuite]
   enableSuite[GlutenMemorySourceStressSuite]
   // TODO: 4.x enableSuite[GlutenMultiStatefulOperatorsSuite]  // 2 failures
   enableSuite[GlutenReportSinkMetricsSuite]
-  // TODO: 4.x enableSuite[GlutenRocksDBStateStoreFlatMapGroupsWithStateSuite]
+  enableSuite[GlutenRocksDBStateStoreFlatMapGroupsWithStateSuite]
   // TODO: 4.x enableSuite[GlutenRocksDBStateStoreStreamingAggregationSuite]
   // TODO: 4.x enableSuite[GlutenRocksDBStateStoreStreamingDeduplicationSuite]
   // TODO: 4.x enableSuite[GlutenStreamSuite]

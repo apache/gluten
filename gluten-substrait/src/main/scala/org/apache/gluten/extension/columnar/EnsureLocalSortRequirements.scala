@@ -38,6 +38,7 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
       requiredOrdering: Seq[SortOrder]): SparkPlan = {
     // FIXME: HeuristicTransform is costly. Re-applying it may cause performance issues.
     val newChild = SortExec(requiredOrdering, global = false, child = originalChild)
+    newChild.copyTagsFrom(originalChild)
     transform.apply(newChild)
   }
 
