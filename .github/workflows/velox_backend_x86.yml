@@ -680,6 +680,8 @@ jobs:
   spark-test-spark33:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    env:
+      SPARK_TESTING: true
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
@@ -736,6 +738,10 @@ jobs:
   spark-test-spark33-slow:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    env:
+      SPARK_TESTING: true
+      LANG: C.UTF-8 #TODO remove after image update
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
@@ -844,6 +850,9 @@ jobs:
   spark-test-spark34-slow:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    env: #TODO remove after image update
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
@@ -1007,6 +1016,8 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
+      LANG: C.UTF-8 #TODO remove after image update
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
@@ -1109,6 +1120,8 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
+      LANG: C.UTF-8 #TODO remove after image update
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
@@ -1331,6 +1344,8 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
+      LANG: C.UTF-8 #TODO remove after image update
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v4
@@ -1440,6 +1455,8 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
+      LANG: C.UTF-8 #TODO remove after image update
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v4

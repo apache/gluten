@@ -1104,7 +1104,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHiveExplainSuite]
     .exclude("explain output of physical plan should contain proper codegen stage ID")
     .exclude("EXPLAIN CODEGEN command")
-  enableSuite[GlutenHiveIncompatibleColTypeChangeSuite]
   enableSuite[GlutenHivePlanTest]
   enableSuite[GlutenHiveQuerySuite]
   enableSuite[GlutenHiveResolutionSuite]

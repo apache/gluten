@@ -215,6 +215,9 @@ jobs:
   spark-test-spark35-slow:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    env: #TODO remove after image update
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
