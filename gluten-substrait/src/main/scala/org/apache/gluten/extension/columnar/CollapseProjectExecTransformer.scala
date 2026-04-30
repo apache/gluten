@@ -60,7 +60,7 @@ object CollapseProjectExecTransformer extends Rule[SparkPlan] {
    */
   private def containsNamedStructAlias(projectList: Seq[NamedExpression]): Boolean = {
     projectList.exists {
-      case _ @Alias(_: CreateNamedStruct, _) => true
+      case a: Alias => a.child.exists(_.isInstanceOf[CreateNamedStruct])
       case _ => false
     }
   }

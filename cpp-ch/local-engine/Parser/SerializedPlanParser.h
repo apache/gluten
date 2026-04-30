@@ -117,7 +117,7 @@ public:
 
 private:
     DB::QueryPlanPtr parseOp(const substrait::Rel & rel, std::list<const substrait::Rel *> & rel_stack);
-    static void adjustOutput(const DB::QueryPlanPtr & query_plan, const substrait::Plan & plan);
+    static void adjustOutput(const DB::QueryPlanPtr & query_plan, const substrait::Plan & plan, const DB::ContextPtr context);
 
     std::vector<jobject> input_iters;
     std::vector<std::string> split_infos;

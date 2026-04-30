@@ -348,7 +348,7 @@ size_t GraceAggregatingTransform::flushBucket(size_t bucket_index)
     if (!file_stream.original_blocks.empty())
     {
         if (!file_stream.original_file_stream)
-            file_stream.original_file_stream = DB::TemporaryBlockStreamHolder(header, tmp_data_disk.get());
+            file_stream.original_file_stream = DB::TemporaryBlockStreamHolder(header, tmp_data_disk);
         flush_bytes += flushBlocksInfoDisk(file_stream.original_file_stream, file_stream.original_blocks);
     }
     if (!file_stream.intermediate_blocks.empty())
@@ -356,7 +356,7 @@ size_t GraceAggregatingTransform::flushBucket(size_t bucket_index)
         if (!file_stream.intermediate_file_stream)
         {
             auto intermediate_header = toShared(params->aggregator.getHeader(false));
-            file_stream.intermediate_file_stream = DB::TemporaryBlockStreamHolder(intermediate_header, tmp_data_disk.get());
+            file_stream.intermediate_file_stream = DB::TemporaryBlockStreamHolder(intermediate_header, tmp_data_disk);
         }
         flush_bytes += flushBlocksInfoDisk(file_stream.intermediate_file_stream, file_stream.intermediate_blocks);
     }

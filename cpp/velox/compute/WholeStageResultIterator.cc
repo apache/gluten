@@ -19,19 +19,19 @@
 #include "VeloxPlanConverter.h"
 #include "VeloxRuntime.h"
 #include "config/VeloxConfig.h"
+#include "jni/JniCommon.h"
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #include "velox/exec/PlanNodeStats.h"
 #ifdef GLUTEN_ENABLE_GPU
 #include <cudf/io/types.hpp>
+#include "cudf/GpuLock.h"
 #include "velox/experimental/cudf/CudfConfig.h"
 #include "velox/experimental/cudf/connectors/hive/CudfHiveConnectorSplit.h"
 #include "velox/experimental/cudf/exec/ToCudf.h"
-#include "cudf/GpuLock.h"
 #endif
 #include "operators/plannodes/RowVectorStream.h"
-
 
 using namespace facebook;
 
@@ -92,7 +92,13 @@ WholeStageResultIterator::WholeStageResultIterator(
   spillStrategy_ = veloxCfg_->get<std::string>(kSpillStrategy, kSpillStrategyDefaultValue);
   auto spillThreadNum = veloxCfg_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
   if (spillThreadNum > 0) {
-    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(spillThreadNum);
+    // INVARIANT: spillExecutor_ threads must never call libhdfs.
+    // JniAwareThreadFactory calls DetachCurrentThread at thread exit (inside the
+    // thread fn body, before any pthread_key destructor). If libhdfs were used on
+    // these threads, hdfsThreadDestructor would fire afterward with a stale JNIEnv*,
+    // causing SIGSEGV. Spill always uses local or heap-over-local filesystem.
+    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
+        spillThreadNum, std::make_shared<gluten::JniAwareThreadFactory>());
   }
   getOrderedNodeIds(veloxPlan_, orderedNodeIds_);
 
@@ -358,14 +364,15 @@ void WholeStageResultIterator::constructPartitionColumns(
 }
 
 void WholeStageResultIterator::addIteratorSplits(const std::vector<std::shared_ptr<ResultIterator>>& inputIterators) {
-  GLUTEN_CHECK(!allSplitsAdded_, "Method addIteratorSplits should not be called since all splits has been added to the Velox task.");
+  GLUTEN_CHECK(
+      !allSplitsAdded_,
+      "Method addIteratorSplits should not be called since all splits has been added to the Velox task.");
   // Create IteratorConnectorSplit for each iterator
   for (size_t i = 0; i < streamIds_.size() && i < inputIterators.size(); ++i) {
     if (inputIterators[i] == nullptr) {
       continue;
     }
-    auto connectorSplit = std::make_shared<IteratorConnectorSplit>(
-        kIteratorConnectorId, inputIterators[i]);
+    auto connectorSplit = std::make_shared<IteratorConnectorSplit>(kIteratorConnectorId, inputIterators[i]);
     exec::Split split(folly::copy(connectorSplit), -1);
     task_->addSplit(streamIds_[i], std::move(split));
   }
@@ -385,7 +392,7 @@ void WholeStageResultIterator::noMoreSplits() {
   for (const auto& scanNodeId : scanNodeIds_) {
     task_->noMoreSplits(scanNodeId);
   }
-  
+
   // Mark no more splits for all stream nodes
   for (const auto& streamId : streamIds_) {
     task_->noMoreSplits(streamId);
@@ -510,6 +517,8 @@ void WholeStageResultIterator::collectMetrics() {
       metrics_->get(Metrics::kIoWaitTime)[metricIndex] = runtimeMetric("sum", second->customStats, kIoWaitTime);
       metrics_->get(Metrics::kStorageReadBytes)[metricIndex] =
           runtimeMetric("sum", second->customStats, kStorageReadBytes);
+      metrics_->get(Metrics::kStorageReads)[metricIndex] =
+          runtimeMetric("count", second->customStats, kStorageReadBytes);
       metrics_->get(Metrics::kLocalReadBytes)[metricIndex] = runtimeMetric("sum", second->customStats, kLocalReadBytes);
       metrics_->get(Metrics::kRamReadBytes)[metricIndex] = runtimeMetric("sum", second->customStats, kRamReadBytes);
       metrics_->get(Metrics::kPreloadSplits)[metricIndex] =
@@ -575,7 +584,8 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       std::to_string(veloxCfg_->get<uint64_t>(kVeloxPreferredBatchBytes, 10L << 20));
   try {
     configs[velox::core::QueryConfig::kSparkAnsiEnabled] = veloxCfg_->get<std::string>(kAnsiEnabled, "false");
-    configs[velox::core::QueryConfig::kSessionTimezone] = veloxCfg_->get<std::string>(kSessionTimezone, "");
+    configs[velox::core::QueryConfig::kSessionTimezone] =
+        normalizeSessionTimezone(veloxCfg_->get<std::string>(kSessionTimezone, ""));
     // Adjust timestamp according to the above configured session timezone.
     configs[velox::core::QueryConfig::kAdjustTimestampToTimezone] = "true";
 

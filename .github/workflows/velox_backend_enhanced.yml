@@ -228,10 +228,6 @@ jobs:
         with:
           name: arrow-jars-enhanced-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
-      - name: Prepare Spark Resources for Spark 3.5.5
-        run: |
-          rm -rf /opt/shims/spark35
-          bash .github/workflows/util/install-resources.sh 3.5
       - name: Build and Run unit test for Spark 3.5.5 (slow tests)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -286,8 +282,7 @@ jobs:
       - name: Prepare Spark Resources for Spark 4.0.1 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark40
-          bash .github/workflows/util/install-resources.sh 4.0
-          mv /opt/shims/spark40/spark_home/assembly/target/scala-2.12 /opt/shims/spark40/spark_home/assembly/target/scala-2.13
+          bash .github/workflows/util/install-spark-resources.sh 4.0
       - name: Build and Run unit test for Spark 4.0.0 with scala-2.13 (other tests)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -296,7 +291,7 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg \
+          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta \
           -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
           -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report

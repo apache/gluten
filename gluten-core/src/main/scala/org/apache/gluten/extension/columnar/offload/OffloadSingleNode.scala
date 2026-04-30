@@ -64,7 +64,7 @@ object OffloadSingleNode {
      * with 'DummyLeafExec' nodes so they are not accessible from the rule body.
      */
     def toStrcitRule(): OffloadSingleNode = {
-      new StrictRule(rule);
+      new StrictRule(rule)
     }
   }
 

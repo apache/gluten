@@ -84,7 +84,7 @@ class S3AuthSuite extends AnyFunSuite {
     def withAuthMode(mode: String, assuming: Boolean): Builder = {
       val providerKey =
         if (assuming) "spark.hadoop.fs.s3a.assumed.role.credentials.provider"
-        else "spark.hadoop.fs.s3a.aws.credentials.provider";
+        else "spark.hadoop.fs.s3a.aws.credentials.provider"
 
       mode match {
         case "AKSK" =>

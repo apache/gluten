@@ -26,7 +26,6 @@
 #include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypeTuple.h>
 #include <DataTypes/DataTypesDecimal.h>
-#include <DataTypes/ObjectUtils.h>
 #include <jni/jni_common.h>
 #include <Common/Exception.h>
 
@@ -170,8 +169,8 @@ static void writeVariableLengthNonNullableValue(
             for (size_t i = 0; i < num_rows; i++)
             {
                 size_t row_idx = masks == nullptr ? i : masks->at(i);
-                StringRef str = col.column->getDataAt(row_idx);
-                int64_t offset_and_size = writer.writeUnalignedBytes(i, str.data, str.size, 0);
+                std::string_view str = col.column->getDataAt(row_idx);
+                int64_t offset_and_size = writer.writeUnalignedBytes(i, str.data(), str.size(), 0);
                 memcpy(buffer_address + offsets[i] + field_offset, &offset_and_size, 8);
             }
         }
@@ -181,8 +180,8 @@ static void writeVariableLengthNonNullableValue(
             for (size_t i = 0; i < num_rows; i++)
             {
                 size_t row_idx = masks == nullptr ? i : masks->at(i);
-                StringRef str_view = col.column->getDataAt(row_idx);
-                String buf(str_view.data, str_view.size);
+                std::string_view str_view = col.column->getDataAt(row_idx);
+                String buf(str_view.data(), str_view.size());
                 BackingDataLengthCalculator::swapDecimalEndianBytes(buf);
                 int64_t offset_and_size = writer.writeUnalignedBytes(i, buf.data(), buf.size(), 0);
                 memcpy(buffer_address + offsets[i] + field_offset, &offset_and_size, 8);
@@ -228,16 +227,16 @@ static void writeVariableLengthNullableValue(
                 bitSet(buffer_address + offsets[i], col_index);
             else if (!big_endian)
             {
-                StringRef str = nested_column.getDataAt(row_idx);
-                int64_t offset_and_size = writer.writeUnalignedBytes(i, str.data, str.size, 0);
+                std::string_view str = nested_column.getDataAt(row_idx);
+                int64_t offset_and_size = writer.writeUnalignedBytes(i, str.data(), str.size(), 0);
                 memcpy(buffer_address + offsets[i] + field_offset, &offset_and_size, 8);
             }
             else
             {
                 Field field;
                 nested_column.get(row_idx, field);
-                StringRef str_view = nested_column.getDataAt(row_idx);
-                String buf(str_view.data, str_view.size);
+                std::string_view str_view = nested_column.getDataAt(row_idx);
+                String buf(str_view.data(), str_view.size());
                 BackingDataLengthCalculator::swapDecimalEndianBytes(buf);
                 int64_t offset_and_size = writer.writeUnalignedBytes(i, buf.data(), buf.size(), 0);
                 memcpy(buffer_address + offsets[i] + field_offset, &offset_and_size, 8);
@@ -332,7 +331,7 @@ SparkRowInfo::SparkRowInfo(
                     {
                         size_t row_idx = masks == nullptr ? i : masks->at(i);
                         if (!null_map[row_idx])
-                            lengths[i] += roundNumberOfBytesToNearestWord(nested_column.getDataAt(row_idx).size);
+                            lengths[i] += roundNumberOfBytesToNearestWord(nested_column.getDataAt(row_idx).size());
                     }
                 }
                 else
@@ -340,7 +339,7 @@ SparkRowInfo::SparkRowInfo(
                     for (size_t i = 0; i < num_rows; ++i)
                     {
                         size_t row_idx = masks == nullptr ? i : masks->at(i);
-                        lengths[i] += roundNumberOfBytesToNearestWord(column->getDataAt(row_idx).size);
+                        lengths[i] += roundNumberOfBytesToNearestWord(column->getDataAt(row_idx).size());
                     }
                 }
             }
@@ -936,9 +935,9 @@ void FixedLengthDataWriter::write(const DB::Field & field, char * buffer)
         throw Exception(ErrorCodes::UNKNOWN_TYPE, "FixedLengthDataWriter doesn't support type {}", type_without_nullable->getName());
 }
 
-void FixedLengthDataWriter::unsafeWrite(const StringRef & str, char * buffer)
+void FixedLengthDataWriter::unsafeWrite(const std::string_view & str, char * buffer)
 {
-    memcpy(buffer, str.data, str.size);
+    memcpy(buffer, str.data(), str.size());
 }
 
 void FixedLengthDataWriter::unsafeWrite(const char * __restrict src, char * __restrict buffer)

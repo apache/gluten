@@ -15,20 +15,30 @@
  * limitations under the License.
  */
 #include "PlanUtil.h"
+#include <Core/Settings.h>
 #include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <Functions/FunctionFactory.h>
 #include <Functions/FunctionHelpers.h>
 #include <IO/WriteBufferFromString.h>
+#include <Interpreters/Context.h>
 #include <Processors/QueryPlan/ExpressionStep.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <Processors/QueryPlan/QueryPlan.h>
 #include <Common/BlockTypeUtils.h>
 
 
-namespace DB::ErrorCodes
+namespace DB
 {
-extern const int UNKNOWN_TYPE;
+namespace ErrorCodes
+{
+    extern const int UNKNOWN_TYPE;
+}
+
+namespace Setting
+{
+extern const SettingsUInt64 query_plan_max_step_description_length;
+}
 }
 
 namespace local_engine::PlanUtil
@@ -79,14 +89,15 @@ void checkOuputType(const DB::QueryPlan & plan)
     }
 }
 
-DB::IQueryPlanStep * adjustQueryPlanHeader(DB::QueryPlan & plan, const DB::Block & to_header, const String & step_desc)
+DB::IQueryPlanStep * adjustQueryPlanHeader(DB::QueryPlan & plan, const DB::Block & to_header, const String & step_desc, const DB::ContextPtr context)
 {
     auto convert_actions_dag = DB::ActionsDAG::makeConvertingActions(
         plan.getCurrentHeader()->getColumnsWithTypeAndName(),
         to_header.getColumnsWithTypeAndName(),
-        DB::ActionsDAG::MatchColumnsMode::Name);
+        DB::ActionsDAG::MatchColumnsMode::Name,
+        context);
     auto expression_step = std::make_unique<DB::ExpressionStep>(plan.getCurrentHeader(), std::move(convert_actions_dag));
-    expression_step->setStepDescription(step_desc);
+    expression_step->setStepDescription(step_desc, context->getSettingsRef()[DB::Setting::query_plan_max_step_description_length]);
     plan.addStep(std::move(expression_step));
     return plan.getRootNode()->step.get();
 }
@@ -119,7 +130,7 @@ DB::IQueryPlanStep * renamePlanHeader(DB::QueryPlan & plan, const BuildNamesWith
     buildAliases(*plan.getCurrentHeader(), aliases);
     actions_dag.project(aliases);
     auto expression_step = std::make_unique<DB::ExpressionStep>(plan.getCurrentHeader(), std::move(actions_dag));
-    expression_step->setStepDescription(step_desc);
+    expression_step->setStepDescription(step_desc, 1000);
     plan.addStep(std::move(expression_step));
     return plan.getRootNode()->step.get();
 }

@@ -110,14 +110,14 @@ class CHColumnarWriteFilesRDD(
 
         val writeTaskResult = commitProtocol
           .commitTask(writeResults)
-          .orElse({
+          .orElse {
             // If we are writing an empty iterator, then gluten backend would do nothing.
             // Here we fallback to use vanilla Spark write files to generate an empty file for
             // metadata only.
             Some(
               writeFilesForEmptyIterator(commitProtocol.getTaskAttemptContext, context.partitionId))
             // We have done commit task inside `writeFilesForEmptyIterator`.
-          })
+          }
           .get
         reportTaskMetrics(writeTaskResult)
         Iterator.single(writeTaskResult)

@@ -56,39 +56,30 @@ class ValueStreamDynamicFilterTest : public ::testing::Test, public VectorTestBa
   void SetUp() override {
     // Register the connector if not already registered.
     if (!connector::hasConnector(gluten::kIteratorConnectorId)) {
-      auto config = std::make_shared<config::ConfigBase>(
-          std::unordered_map<std::string, std::string>());
+      auto config = std::make_shared<config::ConfigBase>(std::unordered_map<std::string, std::string>());
       connector::registerConnector(std::make_shared<gluten::ValueStreamConnector>(
           gluten::kIteratorConnectorId, config, /*dynamicFilterEnabled=*/true));
     }
   }
 
   /// Build a TableScanNode that reads from the value-stream connector.
-  std::shared_ptr<core::TableScanNode> makeTableScanNode(
-      const std::string& nodeId,
-      const RowTypePtr& outputType) {
-    auto tableHandle =
-        std::make_shared<gluten::ValueStreamTableHandle>(gluten::kIteratorConnectorId);
+  std::shared_ptr<core::TableScanNode> makeTableScanNode(const std::string& nodeId, const RowTypePtr& outputType) {
+    auto tableHandle = std::make_shared<gluten::ValueStreamTableHandle>(gluten::kIteratorConnectorId);
 
     connector::ColumnHandleMap assignments;
     for (int idx = 0; idx < outputType->size(); idx++) {
       auto name = outputType->nameOf(idx);
       auto type = outputType->childAt(idx);
-      assignments[name] =
-          std::make_shared<gluten::ValueStreamColumnHandle>(name, type);
+      assignments[name] = std::make_shared<gluten::ValueStreamColumnHandle>(name, type);
     }
 
-    return std::make_shared<core::TableScanNode>(
-        nodeId, outputType, tableHandle, assignments);
+    return std::make_shared<core::TableScanNode>(nodeId, outputType, tableHandle, assignments);
   }
 
   /// Create a split wrapping the given batches.
-  std::shared_ptr<connector::ConnectorSplit> makeSplit(
-      std::vector<RowVectorPtr> batches) {
-    auto iter = std::make_shared<gluten::ResultIterator>(
-        std::make_unique<TestBatchIterator>(std::move(batches)));
-    return std::make_shared<gluten::IteratorConnectorSplit>(
-        gluten::kIteratorConnectorId, std::move(iter));
+  std::shared_ptr<connector::ConnectorSplit> makeSplit(std::vector<RowVectorPtr> batches) {
+    auto iter = std::make_shared<gluten::ResultIterator>(std::make_unique<TestBatchIterator>(std::move(batches)));
+    return std::make_shared<gluten::IteratorConnectorSplit>(gluten::kIteratorConnectorId, std::move(iter));
   }
 
   /// Read all int64 values from column 0 of a serial-mode task.
@@ -116,12 +107,7 @@ TEST_F(ValueStreamDynamicFilterTest, noFilterPassesAllRows) {
   auto scanNode = makeTableScanNode("vs0", outputType);
 
   auto queryCtx = core::QueryCtx::create();
-  auto task = Task::create(
-      "test-nofilter",
-      core::PlanFragment{scanNode},
-      0,
-      queryCtx,
-      Task::ExecutionMode::kSerial);
+  auto task = Task::create("test-nofilter", core::PlanFragment{scanNode}, 0, queryCtx, Task::ExecutionMode::kSerial);
 
   task->addSplit(scanNode->id(), Split{makeSplit({batch})});
   task->noMoreSplits(scanNode->id());
@@ -138,12 +124,7 @@ TEST_F(ValueStreamDynamicFilterTest, filterBigintRange) {
   auto scanNode = makeTableScanNode("vs1", outputType);
 
   auto queryCtx = core::QueryCtx::create();
-  auto task = Task::create(
-      "test-bigint",
-      core::PlanFragment{scanNode},
-      0,
-      queryCtx,
-      Task::ExecutionMode::kSerial);
+  auto task = Task::create("test-bigint", core::PlanFragment{scanNode}, 0, queryCtx, Task::ExecutionMode::kSerial);
 
   // Add both batches as a single split.
   task->addSplit(scanNode->id(), Split{makeSplit({batch1, batch2})});
@@ -191,12 +172,7 @@ TEST_F(ValueStreamDynamicFilterTest, filterEliminatesEntireBatch) {
   auto scanNode = makeTableScanNode("vs2", outputType);
 
   auto queryCtx = core::QueryCtx::create();
-  auto task = Task::create(
-      "test-eliminate",
-      core::PlanFragment{scanNode},
-      0,
-      queryCtx,
-      Task::ExecutionMode::kSerial);
+  auto task = Task::create("test-eliminate", core::PlanFragment{scanNode}, 0, queryCtx, Task::ExecutionMode::kSerial);
 
   task->addSplit(scanNode->id(), Split{makeSplit({batch1, batch2})});
   task->noMoreSplits(scanNode->id());
@@ -234,19 +210,12 @@ TEST_F(ValueStreamDynamicFilterTest, filterEliminatesEntireBatch) {
 // Test that nulls are filtered out when nullAllowed is false.
 TEST_F(ValueStreamDynamicFilterTest, filterWithNulls) {
   auto batch1 = makeRowVector({"id"}, {makeFlatVector<int64_t>({10, 20})});
-  auto batch2 = makeRowVector(
-      {"id"},
-      {makeNullableFlatVector<int64_t>({1, std::nullopt, 3, std::nullopt, 5})});
+  auto batch2 = makeRowVector({"id"}, {makeNullableFlatVector<int64_t>({1, std::nullopt, 3, std::nullopt, 5})});
   auto outputType = asRowType(batch1->type());
   auto scanNode = makeTableScanNode("vs3", outputType);
 
   auto queryCtx = core::QueryCtx::create();
-  auto task = Task::create(
-      "test-nulls",
-      core::PlanFragment{scanNode},
-      0,
-      queryCtx,
-      Task::ExecutionMode::kSerial);
+  auto task = Task::create("test-nulls", core::PlanFragment{scanNode}, 0, queryCtx, Task::ExecutionMode::kSerial);
 
   task->addSplit(scanNode->id(), Split{makeSplit({batch1, batch2})});
   task->noMoreSplits(scanNode->id());
@@ -288,12 +257,7 @@ TEST_F(ValueStreamDynamicFilterTest, canAddDynamicFilter) {
   auto scanNode = makeTableScanNode("vs4", outputType);
 
   auto queryCtx = core::QueryCtx::create();
-  auto task = Task::create(
-      "test-can-add",
-      core::PlanFragment{scanNode},
-      0,
-      queryCtx,
-      Task::ExecutionMode::kSerial);
+  auto task = Task::create("test-can-add", core::PlanFragment{scanNode}, 0, queryCtx, Task::ExecutionMode::kSerial);
 
   task->addSplit(scanNode->id(), Split{makeSplit({batch})});
   task->noMoreSplits(scanNode->id());

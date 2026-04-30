@@ -19,8 +19,8 @@
 
 #include <config.h>
 
-#include <Disks/ObjectStorages/Cached/CachedObjectStorage.h>
-#include <Disks/ObjectStorages/DiskObjectStorage.h>
+#include <Disks/DiskObjectStorage/ObjectStorages/Cached/CachedObjectStorage.h>
+#include <Disks/DiskObjectStorage/DiskObjectStorage.h>
 #include <Interpreters/Cache/FileCacheFactory.h>
 #include <Common/Throttler.h>
 #include <Common/typeid_cast.h>

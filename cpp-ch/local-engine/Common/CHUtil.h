@@ -122,6 +122,7 @@ public:
         DB::ActionsDAG & actions_dag,
         const DB::ActionsDAG::Node * node_to_cast,
         const DB::DataTypePtr & cast_to_type,
+        DB::ContextPtr context,
         const std::string & result_name = "",
         DB::CastType cast_type = DB::CastType::nonAccurate);
 
@@ -129,6 +130,7 @@ public:
         DB::ActionsDAG & actions_dag,
         const DB::ActionsDAG::Node * node,
         const DB::DataTypePtr & dst_type,
+        DB::ContextPtr context,
         const std::string & result_name = "",
         DB::CastType cast_type = DB::CastType::nonAccurate);
 };

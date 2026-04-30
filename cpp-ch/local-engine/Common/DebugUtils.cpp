@@ -25,7 +25,6 @@
 #include <DataTypes/DataTypeDateTime64.h>
 #include <Functions/FunctionHelpers.h>
 #include <Functions/IFunction.h>
-#include <IO/WriteBufferFromString.h>
 #include <Interpreters/ActionsDAG.h>
 #include <Processors/QueryPlan/QueryPlan.h>
 #include <boost/algorithm/string/case_conv.hpp>
@@ -159,7 +158,7 @@ static std::string toString(const DB::IColumn * const col, size_t row, size_t wi
     if (col->isNullAt(row))
         return "null";
 
-    std::string str = DB::toString((*col)[row]);
+    std::string str = DB::fieldToString((*col)[row]);
     if (str.size() <= width)
         return str;
     return str.substr(0, width - 3) + "...";
@@ -434,7 +433,7 @@ std::string dumpColumn(const std::string & name, const DB::ColumnPtr & column)
     //TODO: ColumnSet
 
     if (isColumnConst(*column))
-        return toString(assert_cast<const DB::ColumnConst &>(*column).getField());
+        return DB::fieldToString(assert_cast<const DB::ColumnConst &>(*column).getField());
 
     size_t size = std::min(static_cast<size_t>(10), column->size());
     std::vector<std::string> results;

@@ -26,10 +26,12 @@
 #include <Processors/Formats/Impl/ArrowBufferedStreams.h>
 #include <Processors/Formats/Impl/ArrowColumnToCHColumn.h>
 #include <Processors/Formats/Impl/ParquetBlockInputFormat.h>
+#include <Processors/Formats/Impl/ParquetV3BlockInputFormat.h>
 #include <Storages/Parquet/VectorizedParquetRecordReader.h>
 #include <Storages/Parquet/VirtualColumnRowIndexReader.h>
 #include <Storages/SubstraitSource/Delta/DeltaMeta.h>
 #include <Common/BlockTypeUtils.h>
+#include <Common/logger_useful.h>
 
 namespace DB
 {
@@ -80,6 +82,7 @@ class ParquetInputFormat : public FormatFile::InputFormat
     const Block outputHeader;
     std::unique_ptr<ColumnIndexRowRangesProvider> rowRangesProvider;
     std::optional<VirtualColumnRowIndexReader> row_index_reader;
+    const UInt64 max_block_size;
 
 public:
     ParquetInputFormat(
@@ -87,7 +90,8 @@ public:
         const InputFormatPtr & input_,
         std::unique_ptr<ColumnIndexRowRangesProvider> provider,
         const Block & readHeader_,
-        const Block & outputHeader_)
+        const Block & outputHeader_,
+        const UInt64 max_block_size_)
         : InputFormat(std::move(read_buffer_), input_)
         , readHeader(readHeader_)
         , outputHeader(outputHeader_)
@@ -96,6 +100,7 @@ public:
               outputHeader.columns() > readHeader.columns()
                   ? std::make_optional<VirtualColumnRowIndexReader>(*rowRangesProvider, getMetaColumnType(outputHeader))
                   : std::nullopt)
+        , max_block_size(max_block_size_)
     {
     }
 
@@ -105,8 +110,7 @@ public:
         {
             assert(outputHeader.columns());
             assert(row_index_reader);
-            // TODO: format_settings_.parquet.max_block_size
-            Columns cols{row_index_reader->readBatch(8192)};
+            Columns cols{row_index_reader->readBatch(max_block_size)};
             size_t rows = cols[0]->size();
             return Chunk(std::move(cols), rows);
         }
@@ -149,7 +153,8 @@ ParquetFormatFile::createInputFormat(const Block & header, const std::shared_ptr
     assert(read_buffer_);
 
     bool readRowIndex = hasMetaColumns(header);
-    bool usePageIndexReader = (use_pageindex_reader || readRowIndex) && onlyHasFlatType(header);
+    bool onlyFlatType = onlyHasFlatType(header);
+    bool usePageIndexReader = (use_pageindex_reader || readRowIndex) && onlyFlatType;
 
     auto format_settings = getFormatSettings(context);
     auto read_header = toShared(DeltaVirtualMeta::removeMetaColumns(removeMetaColumns(header)));
@@ -175,6 +180,11 @@ ParquetFormatFile::createInputFormat(const Block & header, const std::shared_ptr
         metaBuilder.build(*in, *read_header, column_index_filter_.get(), should_include_row_group);
     }
 
+    // remote_read_min_bytes_for_seek and input_format_parquet_local_file_min_bytes_for_seek in settings
+    const size_t min_bytes_for_seek = read_buffer_builder->isRemote() ? context->getReadSettings().remote_read_min_bytes_for_seek : format_settings.parquet.local_read_min_bytes_for_seek;
+    // input_format_parquet_max_block_size
+    const UInt64 max_block_size = format_settings.parquet.max_block_size;
+
     column_index_filter_.reset();
 
     if (metaBuilder.readRowGroups.empty())
@@ -185,7 +195,7 @@ ParquetFormatFile::createInputFormat(const Block & header, const std::shared_ptr
     auto createVectorizedFormat = [&]() -> InputFormatPtr
     {
         auto input = std::make_shared<VectorizedParquetBlockInputFormat>(*read_buffer_, read_header, *provider, format_settings);
-        return std::make_shared<ParquetInputFormat>(std::move(read_buffer_), input, std::move(provider), *read_header, header);
+        return std::make_shared<ParquetInputFormat>(std::move(read_buffer_), input, std::move(provider), *read_header, header, max_block_size);
     };
 
     auto createParquetBlockInputFormat = [&]() -> InputFormatPtr
@@ -205,10 +215,36 @@ ParquetFormatFile::createInputFormat(const Block & header, const std::shared_ptr
             // We need to disable fiter push down and read all row groups, so that we can get correct row index.
             format_settings.parquet.filter_push_down = false;
         }
-        auto parser_group = std::make_shared<FormatFilterInfo>(filter_actions_dag, context, nullptr);
+        // TODO: rebase-25.12, support prefetch and how to pass row_level_filter, prewhere_info
+        auto parser_group = std::make_shared<FormatFilterInfo>(filter_actions_dag, context, nullptr, nullptr, nullptr);
         auto parser_shared_resources = std::make_shared<FormatParserSharedResources>(context->getSettingsRef(), /*num_streams_=*/1);
-        auto input = std::make_shared<ParquetBlockInputFormat>(*read_buffer_, read_header, format_settings, parser_shared_resources, parser_group, 8192);
-        return std::make_shared<ParquetInputFormat>(std::move(read_buffer_), input, std::move(provider), *read_header, header);
+
+        // TODO: rebase-25.12, support complex types when there is a nullable type
+        // for example: parquet type is Array, requested type is Nullable(Array(Nullable(String)))
+        if (format_settings.parquet.use_native_reader_v3 && !readRowIndex && onlyFlatType)
+        {
+            LOG_TRACE(
+                &Poco::Logger::get("ParquetFormatFile"),
+                "Using native parquet reader v3");
+            auto input = std::make_shared<ParquetV3BlockInputFormat>(*read_buffer_, read_header, format_settings, parser_shared_resources, parser_group, min_bytes_for_seek);
+            /// ParquetV3 Reader ignores `format_settings.parquet.skip_row_groups` (unlike ParquetBlockInputFormat).
+            /// Spark splits are expressed via Substrait file start/length; metaBuilder selects row groups, and
+            /// we must pass them as buckets so each task only reads its slice of the file.
+            std::vector<size_t> row_group_ids;
+            row_group_ids.reserve(metaBuilder.readRowGroups.size());
+            for (const auto & rg : metaBuilder.readRowGroups)
+                row_group_ids.push_back(static_cast<size_t>(rg.index));
+            input->setBucketsToRead(std::make_shared<ParquetFileBucketInfo>(row_group_ids));
+            return std::make_shared<ParquetInputFormat>(std::move(read_buffer_), input, std::move(provider), *read_header, header, max_block_size);
+        }
+        else
+        {
+            LOG_TRACE(
+                &Poco::Logger::get("ParquetFormatFile"),
+                "Using native parquet reader");
+            auto input = std::make_shared<ParquetBlockInputFormat>(*read_buffer_, read_header, format_settings, parser_shared_resources, parser_group, min_bytes_for_seek);
+            return std::make_shared<ParquetInputFormat>(std::move(read_buffer_), input, std::move(provider), *read_header, header, max_block_size);
+        }
     };
 
     return usePageIndexReader ? createVectorizedFormat() : createParquetBlockInputFormat();

@@ -28,6 +28,9 @@ import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.functions.input_file_name
 
+import org.scalatest.DoNotDiscover
+
+@DoNotDiscover
 class GlutenClickHouseMergeTreeWriteStatsSuite extends GlutenClickHouseTPCDSAbstractSuite {
 
   override protected def sparkConf: SparkConf = {

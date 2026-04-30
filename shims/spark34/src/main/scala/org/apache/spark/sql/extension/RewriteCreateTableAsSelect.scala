@@ -161,7 +161,7 @@ trait V2CreateTableAsSelectBaseExec extends LeafV2CommandExec {
       writeOptions: Map[String, String],
       ident: Identifier,
       query: LogicalPlan): Seq[InternalRow] = {
-    Utils.tryWithSafeFinallyAndFailureCallbacks({
+    Utils.tryWithSafeFinallyAndFailureCallbacks {
       val relation = DataSourceV2Relation.create(table, Some(catalog), Some(ident))
       val append = AppendData.byPosition(relation, query, writeOptions)
       val qe = session.sessionState.executePlan(append)
@@ -173,7 +173,7 @@ trait V2CreateTableAsSelectBaseExec extends LeafV2CommandExec {
       }
 
       Nil
-    })(catchBlock = {
+    }(catchBlock = {
       table match {
         // Failure rolls back the staged writes and metadata changes.
         case st: StagedTable => st.abortStagedChanges()

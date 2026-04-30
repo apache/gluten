@@ -111,7 +111,7 @@ case class PushdownAggregatePreProjectionAheadExpand(session: SparkSession)
         }
 
         if (!couldPushDown) {
-          return hashAggregate;
+          return hashAggregate
         }
 
         // The new ahead project node will take rootChild's output and preProjectExprs as the

@@ -164,8 +164,8 @@ public:
         const DateLUTImpl * utc_time_zone = &DateLUT::instance("UTC");
         for (size_t i = 0; i < src->size(); ++i)
         {
-            const StringRef data = src->getDataAt(i);
-            DB::ReadBufferFromMemory buf(data.data, data.size);
+            const std::string_view data = src->getDataAt(i);
+            DB::ReadBufferFromMemory buf(data.data(), data.size());
             while(!buf.eof() && *buf.position() == ' ')
             {
                     buf.position() ++;

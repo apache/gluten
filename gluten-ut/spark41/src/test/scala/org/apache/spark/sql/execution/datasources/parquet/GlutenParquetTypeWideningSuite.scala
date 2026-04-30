@@ -142,7 +142,8 @@ class GlutenParquetTypeWideningSuite extends ParquetTypeWideningSuite with Glute
                 assert(
                   col.hasDictionaryPage,
                   "This test covers dictionary encoding but column " +
-                    s"'${col.getPath.toDotString}' in the test data is not dictionary encoded.")
+                    s"'${col.getPath.toDotString}' in the test data is not dictionary encoded."
+                )
             }
         }
     }

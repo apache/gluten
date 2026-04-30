@@ -16,9 +16,9 @@
  */
 #include "MetadataStorageFromRocksDB.h"
 #if USE_ROCKSDB
-#include <Disks/ObjectStorages/DiskObjectStorageMetadata.h>
+#include <Disks/DiskObjectStorage/MetadataStorages/DiskObjectStorageMetadata.h>
 #include <Disks/ObjectStorages/MetadataStorageFromRocksDBTransactionOperations.h>
-#include <Disks/ObjectStorages/StaticDirectoryIterator.h>
+#include <Disks/DiskObjectStorage/ObjectStorages/StaticDirectoryIterator.h>
 #include <Interpreters/Context.h>
 #include <Storages/MergeTree/MetaDataHelper.h>
 #include <rocksdb/db.h>
@@ -59,8 +59,9 @@ MetadataStorageFromRocksDB::MetadataStorageFromRocksDB(
     rocksdb::Options options;
     options.create_if_missing = true;
     throwRockDBErrorNotOk(rocksdb::DB::Open(options, rocksdb_dir, &rocksdb));
+    // TODO: rebase-25.12, is it correct to use createEmpty storageID?
     metadata_clean_task = QueryContext::globalContext()->getSchedulePool().createTask(
-        "MetadataStorageFromRocksDB", [this] { cleanOutdatedMetadataThreadFunc(); });
+        DB::StorageID::createEmpty(), "MetadataStorageFromRocksDB", [this] { cleanOutdatedMetadataThreadFunc(); });
     metadata_clean_task->scheduleAfter(metadata_clean_task_interval_seconds * 1000);
     logger = getLogger("MetadataStorageFromRocksDB");
 }
@@ -99,7 +100,7 @@ bool MetadataStorageFromRocksDB::existsDirectory(const std::string & path) const
 
 uint64_t MetadataStorageFromRocksDB::getFileSize(const std::string & path) const
 {
-    return readMetadata(path)->getTotalSizeBytes();
+    return getTotalSize(readMetadata(path)->objects);
 }
 
 Poco::Timestamp MetadataStorageFromRocksDB::getLastModified(const std::string & /*path*/) const
@@ -144,15 +145,7 @@ uint32_t MetadataStorageFromRocksDB::getHardlinkCount(const std::string & /*path
 
 DB::StoredObjects MetadataStorageFromRocksDB::getStorageObjects(const std::string & path) const
 {
-    auto metadata = readMetadata(path);
-    const auto & keys_with_meta = metadata->getKeysWithMeta();
-
-    DB::StoredObjects objects;
-    objects.reserve(keys_with_meta.size());
-    for (const auto & [object_key, object_meta] : keys_with_meta)
-        objects.emplace_back(object_key.serialize(), path, object_meta.size_bytes, object_meta.offset);
-
-    return objects;
+    return readMetadata(path)->objects;
 }
 
 DB::DiskObjectStorageMetadataPtr MetadataStorageFromRocksDB::readMetadata(const std::string & path) const
@@ -259,7 +252,8 @@ rocksdb::DB & MetadataStorageFromRocksDB::getRocksDB() const
 
 void MetadataStorageFromRocksDBTransaction::commit(const DB::TransactionCommitOptionsVariant & options)
 {
-    commitImpl(options, metadata_storage.getMetadataMutex());
+    // TODO: rebase-25.12, fix later, is it OK to call 'DB::MetadataOperationsHolder::commit()'?
+    DB::MetadataOperationsHolder::commit();
 }
 
 std::optional<DB::StoredObjects> MetadataStorageFromRocksDBTransaction::tryGetBlobsFromTransactionIfExists(const std::string & path) const
@@ -286,9 +280,9 @@ void MetadataStorageFromRocksDBTransaction::createEmptyMetadataFile(const std::s
 void MetadataStorageFromRocksDBTransaction::createMetadataFile(const std::string & path, DB::ObjectStorageKey key, uint64_t size_in_bytes)
 {
     auto metadata = std::make_unique<DB::DiskObjectStorageMetadata>(metadata_storage.compatible_key_prefix, path);
-    metadata->addObject(std::move(key), size_in_bytes);
+    metadata->objects.emplace_back(key.serialize(), "", size_in_bytes, 0);
 
-    auto data = metadata->serializeToString();
+    auto data = metadata->serializeToStringWithOffset();
     if (!data.empty())
         addOperation(std::make_unique<RocksDBWriteFileOperation>(path, metadata_storage.getRocksDB(), data));
 }
@@ -321,6 +315,19 @@ void MetadataStorageFromRocksDBTransaction::removeRecursive(const std::string & 
 void MetadataStorageFromRocksDBTransaction::unlinkFile(const std::string & path)
 {
     addOperation(std::make_unique<RocksDBUnlinkFileOperation>(path, metadata_storage.getRocksDB()));
+}
+
+DB::ObjectStorageKey MetadataStorageFromRocksDBTransaction::generateObjectKeyForPath(const std::string & path)
+{
+    // TODO: rebase-25.12, how to return ObjectStorageKey
+    // return metadata_storage.key_generator->generate();
+    return DB::ObjectStorageKey();
+}
+
+void MetadataStorageFromRocksDBTransaction::createMetadataFile(const std::string & path, const DB::StoredObjects & objects)
+{
+    // TODO: rebase-25.12, fix later, there is no operations
+    // operations.addOperation(std::make_unique<RewriteFileOperation>(path, objects, metadata_storage.compatible_key_prefix, *metadata_storage.disk));
 }
 }
 #endif

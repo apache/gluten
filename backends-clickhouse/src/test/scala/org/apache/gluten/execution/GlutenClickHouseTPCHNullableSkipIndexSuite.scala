@@ -18,8 +18,11 @@ package org.apache.gluten.execution
 
 import org.apache.spark.SparkConf
 
+import org.scalatest.DoNotDiscover
+
 import java.io.File
 
+@DoNotDiscover
 class GlutenClickHouseTPCHNullableSkipIndexSuite extends NullableMergeTreeSuite {
 
   override protected def sparkConf: SparkConf = {

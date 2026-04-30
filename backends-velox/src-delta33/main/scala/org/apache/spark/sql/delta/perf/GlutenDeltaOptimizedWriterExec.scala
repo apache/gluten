@@ -182,7 +182,6 @@ case class GlutenDeltaOptimizedWriterExec(
         logWarning(log"Failed to fetch shuffle blocks for the optimized writer. Retrying", e)
         awaitShuffleMapStage()
         getStats()
-        throw e
     }
   }
 

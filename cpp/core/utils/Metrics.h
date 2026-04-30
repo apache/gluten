@@ -79,6 +79,7 @@ struct Metrics {
     kRemainingFilterTime,
     kIoWaitTime,
     kStorageReadBytes,
+    kStorageReads,
     kLocalReadBytes,
     kRamReadBytes,
     kPreloadSplits,

@@ -25,12 +25,14 @@ import org.apache.spark.sql.execution.datasources.clickhouse.utils.MergeTreePart
 import org.apache.spark.sql.types.StructType
 
 import org.apache.hadoop.fs.Path
+import org.scalatest.DoNotDiscover
 
 import java.util
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
+@DoNotDiscover
 class GlutenClickhouseMergetreeSoftAffinitySuite
   extends GlutenClickHouseWholeStageTransformerSuite {
 

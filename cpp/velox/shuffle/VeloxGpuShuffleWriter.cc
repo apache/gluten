@@ -41,18 +41,18 @@ void VeloxGpuHashShuffleWriter::splitBoolValueType(const uint8_t* srcAddr, const
 
 // Split timestamp from int128_t to int64_t, both of them represents the timestamp nanoseconds.
 arrow::Status VeloxGpuHashShuffleWriter::splitTimestamp(const uint8_t* srcAddr, const std::vector<uint8_t*>& dstAddrs) {
-   for (auto& pid : partitionUsed_) {
-      auto dstPidBase = reinterpret_cast<int64_t*>(dstAddrs[pid] + partitionBufferBase_[pid] * sizeof(int64_t));
-      auto pos = partition2RowOffsetBase_[pid];
-      auto end = partition2RowOffsetBase_[pid + 1];
-      for (; pos < end; ++pos) {
-        auto rowId = rowOffset2RowId_[pos];
-        auto* src = reinterpret_cast<const int64_t*>(srcAddr) + rowId * 2;
-        // src[0] is seconds, src[1] is nanoseconds in Timestamp.
-        *dstPidBase++ = src[0] * 1'000'000'000LL + src[1];
-      }
+  for (auto& pid : partitionUsed_) {
+    auto dstPidBase = reinterpret_cast<int64_t*>(dstAddrs[pid] + partitionBufferBase_[pid] * sizeof(int64_t));
+    auto pos = partition2RowOffsetBase_[pid];
+    auto end = partition2RowOffsetBase_[pid + 1];
+    for (; pos < end; ++pos) {
+      auto rowId = rowOffset2RowId_[pos];
+      auto* src = reinterpret_cast<const int64_t*>(srcAddr) + rowId * 2;
+      // src[0] is seconds, src[1] is nanoseconds in Timestamp.
+      *dstPidBase++ = src[0] * 1'000'000'000LL + src[1];
     }
-    return arrow::Status::OK();
+  }
+  return arrow::Status::OK();
 }
 
 arrow::Result<std::shared_ptr<VeloxShuffleWriter>> VeloxGpuHashShuffleWriter::create(

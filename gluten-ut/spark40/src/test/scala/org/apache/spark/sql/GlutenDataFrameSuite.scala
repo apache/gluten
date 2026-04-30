@@ -319,7 +319,8 @@ class GlutenDataFrameSuite extends DataFrameSuite with GlutenSQLTestsTrait {
             avg("age").cast(StringType),
             stddev_samp("age").cast(StringType),
             min("age").cast(StringType),
-            max("age").cast(StringType))
+            max("age").cast(StringType)
+          )
           checkAnswer(aggOneCol, aggResult)
 
           val describeNoCol = person2.select().describe()

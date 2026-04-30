@@ -17,19 +17,21 @@
 
 #include <jni.h>
 
+#include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/futures/Future.h>
 #include <glog/logging.h>
 #include <jni/JniCommon.h>
 #include <velox/connectors/hive/PartitionIdGenerator.h>
 #include <velox/exec/OperatorUtils.h>
-#include <folly/futures/Future.h>
-#include <folly/executors/CPUThreadPoolExecutor.h>
 
 #include <exception>
+#include <type_traits>
 #include "JniUdf.h"
 #include "compute/Runtime.h"
 #include "compute/VeloxBackend.h"
 #include "compute/VeloxRuntime.h"
 #include "config/GlutenConfig.h"
+#include "config/VeloxConfig.h"
 #include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
 #include "jni/JniHashTable.h"
@@ -66,6 +68,28 @@ jmethodID blockStripesConstructor;
 
 jclass batchWriteMetricsClass;
 jmethodID batchWriteMetricsConstructor;
+
+template <typename PartitionChannels>
+auto makePartitionIdGenerator(
+    const facebook::velox::RowTypePtr& inputType,
+    PartitionChannels&& partitionChannels,
+    uint32_t maxPartitions,
+    facebook::velox::memory::MemoryPool* pool) {
+  using PartitionIdGenerator = facebook::velox::connector::hive::PartitionIdGenerator;
+  using ChannelsType = std::decay_t<PartitionChannels>;
+  if constexpr (std::is_constructible_v<
+                    PartitionIdGenerator,
+                    const facebook::velox::RowTypePtr&,
+                    ChannelsType,
+                    uint32_t,
+                    facebook::velox::memory::MemoryPool*,
+                    bool>) {
+    return PartitionIdGenerator(
+        inputType, std::forward<PartitionChannels>(partitionChannels), maxPartitions, pool, false);
+  } else {
+    return PartitionIdGenerator(inputType, std::forward<PartitionChannels>(partitionChannels), maxPartitions, pool);
+  }
+}
 } // namespace
 
 #ifdef __cplusplus
@@ -463,8 +487,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_utils_GpuBufferBatchResizerJniWra
   auto arrowPool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->defaultArrowMemoryPool();
   auto pool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->getLeafMemoryPool();
   auto iter = makeJniColumnarBatchIterator(env, jIter, ctx);
-  auto appender = std::make_shared<ResultIterator>(
-      std::make_unique<GpuBufferBatchResizer>(arrowPool, pool.get(), minOutputBatchSize, maxPrefetchBatchBytes, std::move(iter)));
+  auto appender = std::make_shared<ResultIterator>(std::make_unique<GpuBufferBatchResizer>(
+      arrowPool, pool.get(), minOutputBatchSize, maxPrefetchBatchBytes, std::move(iter)));
   return ctx->saveObject(appender);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -589,16 +613,7 @@ Java_org_apache_gluten_datasource_VeloxDataSourceJniWrapper_splitBlockByPartitio
   const auto inputRowVector = veloxBatch->getRowVector();
   const auto numRows = inputRowVector->size();
 
-  connector::hive::PartitionIdGenerator idGen(
-      asRowType(inputRowVector->type()),
-      partitionColIndicesVec,
-      65536,
-      pool.get()
-#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
-          ,
-      true
-#endif
-  );
+  auto idGen = makePartitionIdGenerator(asRowType(inputRowVector->type()), partitionColIndicesVec, 65536, pool.get());
   raw_vector<uint64_t> partitionIds{};
   idGen.run(inputRowVector, partitionIds);
   GLUTEN_CHECK(partitionIds.size() == numRows, "Mismatched number of partition ids");
@@ -938,10 +953,12 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrappe
 
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_nativeBuild( // NOLINT
     JNIEnv* env,
-    jclass,
+    jobject wrapper,
     jstring tableId,
     jlongArray batchHandles,
     jobjectArray joinKeys,
+    jobjectArray filterBuildColumns,
+    jboolean filterPropagatesNulls,
     jint joinType,
     jboolean hasMixedJoinCondition,
     jboolean isExistenceJoin,
@@ -950,6 +967,18 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     jlong bloomFilterPushdownSize,
     jint numThreads) {
   JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto* runtime = dynamic_cast<VeloxRuntime*>(ctx);
+  GLUTEN_CHECK(runtime != nullptr, "Not a Velox runtime");
+  const auto& queryConf = *(runtime->veloxCfg());
+  const auto minTableRowsForParallelJoinBuild =
+      queryConf.get<uint32_t>(kMinTableRowsForParallelJoinBuild, kMinTableRowsForParallelJoinBuildDefault);
+  const auto joinBuildVectorHasherMaxNumDistinct =
+      queryConf.get<uint32_t>(kJoinBuildVectorHasherMaxNumDistinct, kJoinBuildVectorHasherMaxNumDistinctDefault);
+  const auto abandonHashBuildDedupMinRows =
+      queryConf.get<uint32_t>(kAbandonDedupHashMapMinRows, kAbandonDedupHashMapMinRowsDefault);
+  const auto abandonHashBuildDedupMinPct =
+      queryConf.get<uint32_t>(kAbandonDedupHashMapMinPct, kAbandonDedupHashMapMinPctDefault);
   const auto hashTableId = jStringToCString(env, tableId);
 
   // Convert Java String array to C++ vector<string>
@@ -959,6 +988,16 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   for (jsize i = 0; i < joinKeysCount; ++i) {
     jstring jkey = (jstring)env->GetObjectArrayElement(joinKeys, i);
     hashJoinKeys.emplace_back(jStringToCString(env, jkey));
+  }
+
+  std::vector<std::string> filterColumns;
+  if (filterBuildColumns != nullptr) {
+    jsize filterColumnsCount = env->GetArrayLength(filterBuildColumns);
+    filterColumns.reserve(filterColumnsCount);
+    for (jsize i = 0; i < filterColumnsCount; ++i) {
+      jstring jcol = (jstring)env->GetObjectArrayElement(filterBuildColumns, i);
+      filterColumns.emplace_back(jStringToCString(env, jcol));
+    }
   }
 
   const auto inputType = gluten::getByteArrayElementsSafe(env, namedStruct);
@@ -990,6 +1029,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   if (numThreads == 1) {
     auto builder = nativeHashTableBuild(
         hashJoinKeys,
+        filterColumns,
+        filterPropagatesNulls,
         names,
         veloxTypeList,
         joinType,
@@ -997,6 +1038,10 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         isExistenceJoin,
         isNullAwareAntiJoin,
         bloomFilterPushdownSize,
+        minTableRowsForParallelJoinBuild,
+        joinBuildVectorHasherMaxNumDistinct,
+        abandonHashBuildDedupMinRows,
+        abandonHashBuildDedupMinPct,
         cb,
         defaultLeafVeloxMemoryPool());
 
@@ -1004,7 +1049,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     mainTable->prepareJoinTable(
         {},
         facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
-        1'000'000,
+        builder->joinBuildVectorHasherMaxNumDistinct(),
         builder->dropDuplicates(),
         nullptr);
     builder->setHashTable(std::move(mainTable));
@@ -1014,7 +1059,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
 
   // Use thread pool (executor) instead of creating threads directly
   auto executor = VeloxBackend::get()->executor();
-  
+
   std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(numThreads);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(numThreads);
   std::vector<folly::Future<folly::Unit>> futures;
@@ -1027,12 +1072,15 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     // Submit task to thread pool
     auto future = folly::via(executor, [&, t, start, end]() {
       std::vector<std::shared_ptr<gluten::ColumnarBatch>> threadBatches;
+      threadBatches.reserve(end - start);
       for (size_t i = start; i < end; ++i) {
         threadBatches.push_back(cb[i]);
       }
 
       auto builder = nativeHashTableBuild(
           hashJoinKeys,
+          filterColumns,
+          filterPropagatesNulls,
           names,
           veloxTypeList,
           joinType,
@@ -1040,13 +1088,17 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
           isExistenceJoin,
           isNullAwareAntiJoin,
           bloomFilterPushdownSize,
+          minTableRowsForParallelJoinBuild,
+          joinBuildVectorHasherMaxNumDistinct,
+          abandonHashBuildDedupMinRows,
+          abandonHashBuildDedupMinPct,
           threadBatches,
           defaultLeafVeloxMemoryPool());
 
       hashTableBuilders[t] = std::move(builder);
       otherTables[t] = std::move(hashTableBuilders[t]->uniqueTable());
     });
-    
+
     futures.push_back(std::move(future));
   }
 
@@ -1067,7 +1119,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   mainTable->prepareJoinTable(
       std::move(tables),
       facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
-      1'000'000,
+      hashTableBuilders[0]->joinBuildVectorHasherMaxNumDistinct(),
       hashTableBuilders[0]->dropDuplicates(),
       allowParallelJoinBuild ? VeloxBackend::get()->executor() : nullptr);
 

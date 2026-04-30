@@ -115,7 +115,7 @@
     <!--spotless-->
     <spotless.version>2.27.2</spotless.version>
     <googlejavaformat.version>1.7</googlejavaformat.version>
-    <spotless.scalafmt.version>3.8.3</spotless.scalafmt.version>
+    <spotless.scalafmt.version>3.10.1</spotless.scalafmt.version>
     <spotless.delimiter>package</spotless.delimiter>
     <!-- spotless:off -->
     <spotless.license.header>
@@ -146,6 +146,7 @@
     <scalastyle.version>1.0.0</scalastyle.version>
     <scalatest-maven-plugin.version>2.2.0</scalatest-maven-plugin.version>
     <bloop-maven-plugin.version>2.0.3</bloop-maven-plugin.version>
+    <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
     <argLine/>
     <!-- Required since there is extensive setting of spark home through argLine-->
     <extraJavaTestArgs>
@@ -746,6 +747,25 @@
           <version>3.1.0</version>
         </plugin>
         <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>flatten-maven-plugin</artifactId>
+          <version>${flatten-maven-plugin.version}</version>
+          <configuration>
+            <flattenMode>ossrh</flattenMode>
+            <outputDirectory>${project.build.directory}</outputDirectory>
+            <flattenedPomFilename>flattened-pom.xml</flattenedPomFilename>
+          </configuration>
+          <executions>
+            <execution>
+              <id>flatten</id>
+              <goals>
+                <goal>flatten</goal>
+              </goals>
+              <phase>process-resources</phase>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
           <groupId>com.diffplug.spotless</groupId>
           <artifactId>spotless-maven-plugin</artifactId>
           <version>${spotless.version}</version>
@@ -1003,7 +1023,6 @@
       <properties>
         <scala.version>2.13.17</scala.version>
         <scala.binary.version>2.13</scala.binary.version>
-        <spotless.scalafmt.version>3.8.3</spotless.scalafmt.version>
       </properties>
       <build>
         <pluginManagement>
@@ -1234,7 +1253,7 @@
         <spark.version>4.0.1</spark.version>
         <iceberg.version>1.10.0</iceberg.version>
         <delta.package.name>delta-spark</delta.package.name>
-        <delta.version>4.0.0</delta.version>
+        <delta.version>4.0.1</delta.version>
         <delta.binary.version>40</delta.binary.version>
         <hudi.version>1.1.0</hudi.version>
         <paimon.version>1.3.0</paimon.version>
@@ -1792,6 +1811,8 @@
                   <resources>
                     <resource>
                       <directory>${project.basedir}/src-iceberg/test/resources</directory>
+                    </resource>
+                    <resource>
                       <directory>${project.basedir}/src-iceberg${iceberg.binary.version}/test/resources</directory>
                     </resource>
                   </resources>
@@ -2233,6 +2254,29 @@
         <arch>aarch64</arch>
         <os.full.name>${platform}_${arch}</os.full.name>
       </properties>
+    </profile>
+    <profile>
+      <id>linux-ppc64le</id>
+      <activation>
+        <os>
+          <family>Linux</family>
+          <arch>ppc64le</arch>
+        </os>
+      </activation>
+      <properties>
+        <platform>linux</platform>
+        <arch>ppc64le</arch>
+        <os.full.name>${platform}_${arch}</os.full.name>
+      </properties>
+    </profile>
+    <profile>
+      <id>disaggregated-shuffle</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <modules>
+        <module>gluten-disaggregated-shuffle</module>
+      </modules>
     </profile>
   </profiles>
 </project>

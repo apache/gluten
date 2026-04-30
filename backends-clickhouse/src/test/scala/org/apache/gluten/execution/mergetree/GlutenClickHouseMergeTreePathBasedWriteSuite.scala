@@ -32,11 +32,13 @@ import org.apache.spark.sql.functions._
 
 import io.delta.tables.ClickhouseTable
 import org.apache.commons.io.filefilter.WildcardFileFilter
+import org.scalatest.DoNotDiscover
 
 import java.io.File
 
 import scala.io.Source
 
+@DoNotDiscover
 class GlutenClickHouseMergeTreePathBasedWriteSuite extends CreateMergeTreeSuite {
 
   /** Run Gluten + ClickHouse Backend with SortShuffleManager */

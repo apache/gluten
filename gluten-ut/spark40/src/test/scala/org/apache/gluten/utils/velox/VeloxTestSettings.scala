@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.utils.velox
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.utils.{BackendTestSettings, SQLQueryTestSettings}
 
 import org.apache.spark.GlutenSortShuffleSuite
@@ -38,7 +39,7 @@ import org.apache.spark.sql.execution.exchange.{GlutenEnsureRequirementsSuite, G
 import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.execution.metric.{GlutenCustomMetricsSuite, GlutenSQLMetricsSuite}
 import org.apache.spark.sql.execution.python._
-import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenSessionExtensionSuite, TestFileSourceScanExecTransformer}
+import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenSessionExtensionSuite}
 import org.apache.spark.sql.gluten.{GlutenFallbackStrategiesSuite, GlutenFallbackSuite}
 import org.apache.spark.sql.hive.execution.GlutenHiveSQLQuerySuite
 import org.apache.spark.sql.sources._
@@ -48,6 +49,8 @@ import org.apache.spark.sql.streaming._
 // scalastyle:off line.size.limit
 
 class VeloxTestSettings extends BackendTestSettings {
+  private val ansiNoFallback: Boolean =
+    sys.props.get(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key).contains("false")
   enableSuite[GlutenStringFunctionsSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
@@ -217,7 +220,11 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenBitmapExpressionUtilsSuite]
   enableSuite[GlutenCallMethodViaReflectionSuite]
   enableSuite[GlutenCanonicalizeSuite]
-  // TODO: 4.x enableSuite[GlutenCastWithAnsiOnSuite]  // 4 failures
+  if (ansiNoFallback) {
+    enableSuite[GlutenCastWithAnsiOnSuite]
+      .exclude("data type casting")
+      .exclude("cast string to timestamp")
+  }
   enableSuite[GlutenCodeGenerationSuite]
   enableSuite[GlutenCodeGeneratorWithInterpretedFallbackSuite]
   enableSuite[GlutenCollationExpressionSuite]
@@ -713,6 +720,9 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
   enableSuite[GlutenSparkScriptTransformationSuite]
+    // Flaky in CI containers for Spark 4.0: intermittently fails with
+    // `/tmp/test-resource*.py: Permission denied` and can crash JVM.
+    .exclude("SPARK-33934: Add SparkFile's root dir to env property PATH")
   enableSuite[GlutenSparkSqlParserSuite]
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
   enableSuite[GlutenUnsafeKVExternalSorterSuite]
@@ -740,7 +750,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("test with low buffer spill threshold")
   enableSuite[GlutenTakeOrderedAndProjectSuite]
   enableSuite[GlutenSessionExtensionSuite]
-  enableSuite[TestFileSourceScanExecTransformer]
   enableSuite[GlutenBucketedReadWithoutHiveSupportSuite]
     // Exclude the following suite for plan changed from SMJ to SHJ.
     .exclude("avoid shuffle when join 2 bucketed tables")
@@ -1117,9 +1126,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("merge with NOT NULL checks")
   enableSuite[GlutenDeltaBasedUpdateAsDeleteAndInsertTableSuite]
-    // FIXME: complex type result mismatch
-    .exclude("update nested struct fields")
-    .exclude("update char/varchar columns")
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("update with NOT NULL checks")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
@@ -1161,8 +1167,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("detect escaped path and report the migration guide")
     .exclude("ignore the escaped path check when the flag is off")
     .excludeByPrefix("SPARK-51187")
-    // Rewrite for the query plan check
-    .excludeByPrefix("SPARK-49905")
   enableSuite[GlutenQueryExecutionSuite]
     // Rewritten to set root logger level to INFO so that logs can be parsed
     .exclude("Logging plan changes for execution")
@@ -1175,45 +1179,49 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSQLMetricsSuite]
   enableSuite[GlutenAcceptsLatestSeenOffsetSuite]
   enableSuite[GlutenCommitLogSuite]
-  // TODO: 4.x enableSuite[GlutenEventTimeWatermarkSuite]
+  enableSuite[GlutenEventTimeWatermarkSuite]
   enableSuite[GlutenFileStreamSinkV1Suite]
-  // TODO: 4.x enableSuite[GlutenFileStreamSinkV2Suite]  // 1 failure
+  enableSuite[GlutenFileStreamSinkV2Suite]
   enableSuite[GlutenFileStreamSourceStressTestSuite]
-  // TODO: 4.x enableSuite[GlutenFileStreamSourceSuite]
+  enableSuite[GlutenFileStreamSourceSuite]
   enableSuite[GlutenFileStreamStressSuite]
-  // TODO: 4.x enableSuite[GlutenFlatMapGroupsInPandasWithStateDistributionSuite]  // failures with GlutenPlugin
+  enableSuite[GlutenFlatMapGroupsInPandasWithStateDistributionSuite]
   enableSuite[GlutenFlatMapGroupsInPandasWithStateSuite]
-  // TODO: 4.x enableSuite[GlutenFlatMapGroupsWithStateDistributionSuite]
-  // TODO: 4.x enableSuite[GlutenFlatMapGroupsWithStateSuite]
+  enableSuite[GlutenFlatMapGroupsWithStateDistributionSuite]
+  enableSuite[GlutenFlatMapGroupsWithStateSuite]
   enableSuite[GlutenFlatMapGroupsWithStateWithInitialStateSuite]
   enableSuite[GlutenGroupStateSuite]
   enableSuite[GlutenLongOffsetSuite]
   enableSuite[GlutenMemorySourceStressSuite]
-  // TODO: 4.x enableSuite[GlutenMultiStatefulOperatorsSuite]  // 2 failures
+  enableSuite[GlutenMultiStatefulOperatorsSuite]
   enableSuite[GlutenReportSinkMetricsSuite]
-  // TODO: 4.x enableSuite[GlutenRocksDBStateStoreFlatMapGroupsWithStateSuite]
-  // TODO: 4.x enableSuite[GlutenRocksDBStateStoreStreamingAggregationSuite]
-  // TODO: 4.x enableSuite[GlutenRocksDBStateStoreStreamingDeduplicationSuite]
-  // TODO: 4.x enableSuite[GlutenStreamSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingAggregationDistributionSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingAggregationSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingDeduplicationDistributionSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingDeduplicationSuite]
+  enableSuite[GlutenRocksDBStateStoreFlatMapGroupsWithStateSuite]
+  enableSuite[GlutenRocksDBStateStoreStreamingAggregationSuite]
+    // Spark 4.x: these cases can hang waiting for expected failure with stateSchemaCheck off.
+    .excludeByPrefix("changing schema of state when restarting query - schema check off")
+  enableSuite[GlutenRocksDBStateStoreStreamingDeduplicationSuite]
+  enableSuite[GlutenStreamSuite]
+  enableSuite[GlutenStreamingAggregationDistributionSuite]
+  enableSuite[GlutenStreamingAggregationSuite]
+    // Spark 4.x: these cases can hang waiting for expected failure with stateSchemaCheck off.
+    .excludeByPrefix("changing schema of state when restarting query - schema check off")
+  enableSuite[GlutenStreamingDeduplicationDistributionSuite]
+  enableSuite[GlutenStreamingDeduplicationSuite]
   enableSuite[GlutenStreamingDeduplicationWithinWatermarkSuite]
   enableSuite[GlutenStreamingFullOuterJoinSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingInnerJoinSuite]
+  enableSuite[GlutenStreamingInnerJoinSuite]
   enableSuite[GlutenStreamingLeftSemiJoinSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingOuterJoinSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingQueryHashPartitionVerifySuite]
+  enableSuite[GlutenStreamingOuterJoinSuite]
+  enableSuite[GlutenStreamingQueryHashPartitionVerifySuite]
   enableSuite[GlutenStreamingQueryListenerSuite]
   enableSuite[GlutenStreamingQueryListenersConfSuite]
   enableSuite[GlutenStreamingQueryManagerSuite]
   enableSuite[GlutenStreamingQueryOptimizationCorrectnessSuite]
   enableSuite[GlutenStreamingQueryStatusAndProgressSuite]
   enableSuite[GlutenStreamingSelfUnionSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingSessionWindowDistributionSuite]
+  enableSuite[GlutenStreamingSessionWindowDistributionSuite]
   enableSuite[GlutenStreamingSessionWindowSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingStateStoreFormatCompatibilitySuite]
+  enableSuite[GlutenStreamingStateStoreFormatCompatibilitySuite]
   enableSuite[GlutenStreamingSymmetricHashJoinHelperSuite]
   enableSuite[GlutenTransformWithListStateSuite]
   enableSuite[GlutenTransformWithListStateTTLSuite]

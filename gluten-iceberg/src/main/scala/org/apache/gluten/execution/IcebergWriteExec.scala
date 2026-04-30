@@ -30,8 +30,8 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
 
   protected def getFileFormat(format: FileFormat): Int = {
     format match {
-      case FileFormat.PARQUET => 1;
-      case FileFormat.ORC => 0;
+      case FileFormat.PARQUET => 1
+      case FileFormat.ORC => 0
       case _ => throw new UnsupportedOperationException()
     }
   }

@@ -172,7 +172,8 @@ void JoinRelParser::renamePlanColumns(DB::QueryPlan & left, DB::QueryPlan & righ
     ActionsDAG right_project = ActionsDAG::makeConvertingActions(
         right.getCurrentHeader()->getColumnsWithTypeAndName(),
         storage_join.getRightSampleBlock().getColumnsWithTypeAndName(),
-        ActionsDAG::MatchColumnsMode::Position);
+        ActionsDAG::MatchColumnsMode::Position,
+        getContext());
 
     QueryPlanStepPtr right_project_step = std::make_unique<ExpressionStep>(right.getCurrentHeader(), std::move(right_project));
     right_project_step->setStepDescription("Rename Broadcast Table Name");
@@ -191,7 +192,7 @@ void JoinRelParser::renamePlanColumns(DB::QueryPlan & left, DB::QueryPlan & righ
         else
             new_left_cols.emplace_back(col.column, col.type, col.name);
     ActionsDAG left_project = ActionsDAG::makeConvertingActions(
-        left.getCurrentHeader()->getColumnsWithTypeAndName(), new_left_cols, ActionsDAG::MatchColumnsMode::Position);
+        left.getCurrentHeader()->getColumnsWithTypeAndName(), new_left_cols, ActionsDAG::MatchColumnsMode::Position, getContext());
 
     QueryPlanStepPtr left_project_step = std::make_unique<ExpressionStep>(left.getCurrentHeader(), std::move(left_project));
     left_project_step->setStepDescription("Rename Left Table Name for broadcast join");
@@ -434,7 +435,7 @@ void JoinRelParser::addConvertStep(TableJoin & table_join, DB::QueryPlan & left,
     std::optional<ActionsDAG> left_convert_actions;
     std::optional<ActionsDAG> right_convert_actions;
     std::tie(left_convert_actions, right_convert_actions) = table_join.createConvertingActions(
-        left.getCurrentHeader()->getColumnsWithTypeAndName(), right.getCurrentHeader()->getColumnsWithTypeAndName());
+        left.getCurrentHeader()->getColumnsWithTypeAndName(), right.getCurrentHeader()->getColumnsWithTypeAndName(), getContext());
 
     if (right_convert_actions)
     {

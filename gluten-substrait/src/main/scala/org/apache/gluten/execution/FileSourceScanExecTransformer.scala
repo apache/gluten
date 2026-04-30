@@ -59,7 +59,8 @@ case class FileSourceScanExecTransformer(
     optionalNumCoalescedBuckets,
     dataFilters,
     tableIdentifier,
-    disableBucketedScan) {
+    disableBucketedScan
+  ) {
 
   override def doCanonicalize(): FileSourceScanExecTransformer = {
     FileSourceScanExecTransformer(

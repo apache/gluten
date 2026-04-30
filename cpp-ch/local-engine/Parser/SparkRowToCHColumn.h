@@ -24,7 +24,6 @@
 #include <DataTypes/DataTypesDecimal.h>
 #include <Parser/CHColumnToSparkRow.h>
 #include <Parser/TypeParser.h>
-#include <base/StringRef.h>
 #include <base/types.h>
 #include <jni/jni_common.h>
 #include <substrait/type.pb.h>
@@ -139,7 +138,7 @@ public:
     virtual ~VariableLengthDataReader() = default;
 
     virtual DB::Field read(const char * buffer, size_t length) const;
-    virtual StringRef readUnalignedBytes(const char * buffer, size_t length) const;
+    virtual std::string_view readUnalignedBytes(const char * buffer, size_t length) const;
 
 private:
     virtual DB::Field readDecimal(const char * buffer, size_t length) const;
@@ -160,7 +159,7 @@ public:
     virtual ~FixedLengthDataReader() = default;
 
     virtual DB::Field read(const char * buffer) const;
-    virtual StringRef unsafeRead(const char * buffer) const;
+    virtual std::string_view unsafeRead(const char * buffer) const;
 
 private:
     const DB::DataTypePtr type;
@@ -294,13 +293,13 @@ public:
         return *reinterpret_cast<const double_t *>(getFieldOffset(ordinal));
     }
 
-    StringRef getString(size_t ordinal) const
+    std::string_view getString(size_t ordinal) const
     {
         assertIndexIsValid(ordinal);
         int64_t offset_and_size = getLong(ordinal);
         int32_t offset = static_cast<int32_t>(offset_and_size >> 32);
         int32_t size = static_cast<int32_t>(offset_and_size);
-        return StringRef(reinterpret_cast<const char *>(this->buffer + offset), size);
+        return std::string_view(reinterpret_cast<const char *>(this->buffer + offset), size);
     }
 
     int32_t getStringSize(size_t ordinal) const
@@ -315,7 +314,7 @@ public:
         length = length_;
     }
 
-    StringRef getStringRef(size_t ordinal) const
+    std::string_view getStringRef(size_t ordinal) const
     {
         assertIndexIsValid(ordinal);
         if (!support_raw_datas[ordinal])
@@ -323,7 +322,7 @@ public:
                 DB::ErrorCodes::UNKNOWN_TYPE, "SparkRowReader::getStringRef doesn't support type {}", field_types[ordinal]->getName());
 
         if (isNullAt(ordinal))
-            return StringRef();
+            return std::string_view();
 
         const auto & fixed_length_data_reader = fixed_length_data_readers[ordinal];
         const auto & variable_length_data_reader = variable_length_data_readers[ordinal];

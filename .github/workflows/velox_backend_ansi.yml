@@ -1,0 +1,612 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Velox Backend ANSI Mode
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to analyze'
+        required: true
+        type: string
+      mode:
+        description: 'Run mode: full (build+test+analyze) or analyze-only (reuse artifacts from latest run)'
+        required: false
+        type: choice
+        options:
+          - full
+          - analyze-only
+        default: 'full'
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  MVN_CMD: 'build/mvn -ntp'
+  WGET_CMD: 'wget -nv'
+  CCACHE_DIR: "${{ github.workspace }}/.ccache"
+  SPARK_ANSI_SQL_MODE: true
+
+concurrency:
+  group: ${{ github.repository }}-ansi-${{ github.event.issue.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  check-comment:
+    # /ansi-test => full mode (build+test+analyze)
+    # /ansi-analyze => analyze-only mode (reuse artifacts from latest run)
+    if: >-
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.issue.pull_request &&
+       (contains(github.event.comment.body, '/ansi-test') ||
+        contains(github.event.comment.body, '/ansi-analyze')))
+    runs-on: ubuntu-22.04
+    outputs:
+      pr_number: ${{ steps.pr-info.outputs.pr_number }}
+      pr_sha: ${{ steps.pr-info.outputs.pr_sha }}
+      pr_ref: ${{ steps.pr-info.outputs.pr_ref }}
+      ai_model: ${{ steps.parse-args.outputs.ai_model }}
+      mode: ${{ steps.parse-args.outputs.mode }}
+    steps:
+      - name: Parse comment args
+        id: parse-args
+        env:
+          COMMENT: ${{ github.event.comment.body || '' }}
+        run: |
+          AI_MODEL=$(echo "$COMMENT" | grep -oP '(?<=--model\s)\S+' || echo "")
+          echo "ai_model=${AI_MODEL}" >> $GITHUB_OUTPUT
+          if echo "$COMMENT" | grep -q '/ansi-analyze'; then
+            echo "mode=analyze-only" >> $GITHUB_OUTPUT
+          else
+            echo "mode=full" >> $GITHUB_OUTPUT
+          fi
+      - name: Get PR info
+        id: pr-info
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUM="${{ github.event.issue.number || inputs.pr_number }}"
+          if ! [[ "$PR_NUM" =~ ^[0-9]+$ ]]; then echo "Invalid PR number: $PR_NUM"; exit 1; fi
+          PR_DATA=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUM}")
+          echo "pr_number=${PR_NUM}" >> $GITHUB_OUTPUT
+          echo "pr_sha=$(echo $PR_DATA | jq -r '.head.sha')" >> $GITHUB_OUTPUT
+          echo "pr_ref=$(echo $PR_DATA | jq -r '.head.ref')" >> $GITHUB_OUTPUT
+      - name: Post starting comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER_USER: ${{ github.event.comment.user.login || github.actor }}
+          PR_NUM: ${{ steps.pr-info.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh pr comment "${PR_NUM}" \
+            --repo "${REPO}" \
+            --body "🔄 ANSI mode analysis started by @${TRIGGER_USER}. [View run](https://github.com/${REPO}/actions/runs/${RUN_ID})"
+
+  build-native-lib:
+    needs: check-comment
+    if: (inputs.mode || needs.check-comment.outputs.mode) != 'analyze-only'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-comment.outputs.pr_sha }}
+      - name: Get Ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos7-release-default-${{github.sha}}
+          restore-keys: |
+            ccache-centos7-release-default
+      - name: Build Gluten native libraries
+        run: |
+          docker pull apache/gluten:vcpkg-centos-7
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7 bash -c "
+            set -e
+            yum install tzdata -y
+            cd /work
+            export CCACHE_DIR=/work/.ccache
+            export CCACHE_MAXSIZE=1G
+            mkdir -p /work/.ccache
+            ccache -sz
+            bash dev/ci-velox-buildstatic-centos-7.sh
+            ccache -s
+            mkdir -p /work/.m2/repository/org/apache/arrow/
+            cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
+          "
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos7-release-default-${{github.sha}}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velox-native-lib-ansi-${{github.sha}}
+          path: ./cpp/build/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arrow-jars-ansi-${{github.sha}}
+          path: .m2/repository/org/apache/arrow/
+          if-no-files-found: error
+
+  spark-test-backends-velox-ansi41:
+    needs: build-native-lib
+    runs-on: ubuntu-22.04
+    env:
+      SPARK_TESTING: true
+    container: apache/gluten:centos-9-jdk17
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-comment.outputs.pr_sha }}
+      - name: Download Native Lib
+        uses: actions/download-artifact@v4
+        with:
+          name: velox-native-lib-ansi-${{github.sha}}
+          path: ./cpp/build/
+      - name: Download Arrow Jars
+        uses: actions/download-artifact@v4
+        with:
+          name: arrow-jars-ansi-${{github.sha}}
+          path: /root/.m2/repository/org/apache/arrow/
+      - name: Prepare
+        run: |
+          dnf install -y python3.11 python3.11-pip python3.11-devel && \
+          alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
+          alternatives --set python3 /usr/bin/python3.11 && \
+          pip3 install setuptools==77.0.3 && \
+          pip3 install pyspark==3.5.5 cython && \
+          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Prepare Spark Resources
+        run: |
+          rm -rf /opt/shims/spark41
+          bash .github/workflows/util/install-spark-resources.sh 4.1
+      - name: "Spark 4.1 backends-velox Tests (ANSI ON)"
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE/
+          export SPARK_SCALA_VERSION=2.13
+          yum install -y java-17-openjdk-devel
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          echo "SPARK_ANSI_SQL_MODE=$SPARK_ANSI_SQL_MODE"
+          java -version
+          $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
+          -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          2>&1 | tee backends-velox-test-output.log
+      - name: "Parse test results"
+        if: always()
+        run: |
+          echo "========================================="
+          echo "  backends-velox (Spark 4.1, ANSI=$SPARK_ANSI_SQL_MODE)"
+          echo "========================================="
+          echo ""
+          echo "--- Test Summary ---"
+          grep -E "Tests run:.*Failures:|BUILD " backends-velox-test-output.log || echo "(no summary found)"
+          echo ""
+          echo "--- Failed Tests ---"
+          grep -B1 "<<< FAIL!" backends-velox-test-output.log || echo "(no failures)"
+          echo ""
+          echo "--- Error Tests ---"
+          grep -B1 "<<< ERROR!" backends-velox-test-output.log || echo "(no errors)"
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-test-backends-velox-ansi-report
+          path: |
+            **/surefire-reports/TEST-*.xml
+            backends-velox-test-output.log
+      - name: Upload log files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-test-backends-velox-ansi-logs
+          path: |
+            **/target/*.log
+
+  spark-test-spark-ut-ansi41:
+    needs: build-native-lib
+    runs-on: ubuntu-22.04
+    env:
+      SPARK_TESTING: true
+    container: apache/gluten:centos-9-jdk17
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-comment.outputs.pr_sha }}
+      - name: Download Native Lib
+        uses: actions/download-artifact@v4
+        with:
+          name: velox-native-lib-ansi-${{github.sha}}
+          path: ./cpp/build/
+      - name: Download Arrow Jars
+        uses: actions/download-artifact@v4
+        with:
+          name: arrow-jars-ansi-${{github.sha}}
+          path: /root/.m2/repository/org/apache/arrow/
+      - name: Prepare
+        run: |
+          dnf install -y python3.11 python3.11-pip python3.11-devel && \
+          alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
+          alternatives --set python3 /usr/bin/python3.11 && \
+          pip3 install setuptools==77.0.3 && \
+          pip3 install pyspark==3.5.5 cython && \
+          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Prepare Spark Resources
+        run: |
+          rm -rf /opt/shims/spark41
+          bash .github/workflows/util/install-spark-resources.sh 4.1
+      - name: "Spark 4.1 spark-ut Tests (ANSI ON)"
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE/
+          export SPARK_SCALA_VERSION=2.13
+          yum install -y java-17-openjdk-devel
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          echo "SPARK_ANSI_SQL_MODE=$SPARK_ANSI_SQL_MODE"
+          java -version
+          $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+          -DwildcardSuites='org.apache.spark.' -Dtest=none -DfailIfNoTests=false \
+          -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          2>&1 | tee spark-ut-test-output.log
+      - name: "Parse test results"
+        if: always()
+        run: |
+          echo "========================================="
+          echo "  spark-ut (Spark 4.1, ANSI=$SPARK_ANSI_SQL_MODE)"
+          echo "========================================="
+          echo ""
+          echo "--- Test Summary ---"
+          grep -E "Tests run:.*Failures:|BUILD " spark-ut-test-output.log || echo "(no summary found)"
+          echo ""
+          echo "--- Failed Tests ---"
+          grep -B1 "<<< FAIL!" spark-ut-test-output.log || echo "(no failures)"
+          echo ""
+          echo "--- Error Tests ---"
+          grep -B1 "<<< ERROR!" spark-ut-test-output.log || echo "(no errors)"
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-test-spark-ut-ansi-report
+          path: |
+            **/surefire-reports/TEST-*.xml
+            spark-ut-test-output.log
+      - name: Upload offload data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ansi-offload-spark41
+          path: '**/target/ansi-offload/*.json'
+          if-no-files-found: ignore
+      - name: Upload log files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-test-spark-ut-ansi-logs
+          path: |
+            **/target/*.log
+            **/gluten-ut/**/hs_err_*.log
+            **/gluten-ut/**/core.*
+
+  spark-test-backends-velox-ansi-spark40:
+    needs: build-native-lib
+    runs-on: ubuntu-22.04
+    env:
+      SPARK_TESTING: true
+    container: apache/gluten:centos-9-jdk17
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-comment.outputs.pr_sha }}
+      - name: Download Native Lib
+        uses: actions/download-artifact@v4
+        with:
+          name: velox-native-lib-ansi-${{github.sha}}
+          path: ./cpp/build/
+      - name: Download Arrow Jars
+        uses: actions/download-artifact@v4
+        with:
+          name: arrow-jars-ansi-${{github.sha}}
+          path: /root/.m2/repository/org/apache/arrow/
+      - name: Prepare
+        run: |
+          dnf install -y python3.11 python3.11-pip python3.11-devel && \
+          alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
+          alternatives --set python3 /usr/bin/python3.11 && \
+          pip3 install setuptools==77.0.3 && \
+          pip3 install pyspark==3.5.5 cython && \
+          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Prepare Spark Resources
+        run: |
+          rm -rf /opt/shims/spark40
+          bash .github/workflows/util/install-spark-resources.sh 4.0
+      - name: "Spark 4.0 backends-velox Tests (ANSI ON)"
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE/
+          export SPARK_SCALA_VERSION=2.13
+          yum install -y java-17-openjdk-devel
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          echo "SPARK_ANSI_SQL_MODE=$SPARK_ANSI_SQL_MODE"
+          java -version
+          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
+          -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          2>&1 | tee backends-velox-spark40-test-output.log
+      - name: "Parse test results"
+        if: always()
+        run: |
+          echo "========================================="
+          echo "  backends-velox (Spark 4.0, ANSI=$SPARK_ANSI_SQL_MODE)"
+          echo "========================================="
+          echo ""
+          echo "--- Test Summary ---"
+          grep -E "Tests run:.*Failures:|BUILD " backends-velox-spark40-test-output.log || echo "(no summary found)"
+          echo ""
+          echo "--- Failed Tests ---"
+          grep -B1 "<<< FAIL!" backends-velox-spark40-test-output.log || echo "(no failures)"
+          echo ""
+          echo "--- Error Tests ---"
+          grep -B1 "<<< ERROR!" backends-velox-spark40-test-output.log || echo "(no errors)"
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-test-backends-velox-ansi-spark40-report
+          path: |
+            **/surefire-reports/TEST-*.xml
+            backends-velox-spark40-test-output.log
+      - name: Upload log files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-test-backends-velox-ansi-spark40-logs
+          path: |
+            **/target/*.log
+
+  spark-test-spark-ut-ansi-spark40:
+    needs: build-native-lib
+    runs-on: ubuntu-22.04
+    env:
+      SPARK_TESTING: true
+    container: apache/gluten:centos-9-jdk17
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-comment.outputs.pr_sha }}
+      - name: Download Native Lib
+        uses: actions/download-artifact@v4
+        with:
+          name: velox-native-lib-ansi-${{github.sha}}
+          path: ./cpp/build/
+      - name: Download Arrow Jars
+        uses: actions/download-artifact@v4
+        with:
+          name: arrow-jars-ansi-${{github.sha}}
+          path: /root/.m2/repository/org/apache/arrow/
+      - name: Prepare
+        run: |
+          dnf install -y python3.11 python3.11-pip python3.11-devel && \
+          alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
+          alternatives --set python3 /usr/bin/python3.11 && \
+          pip3 install setuptools==77.0.3 && \
+          pip3 install pyspark==3.5.5 cython && \
+          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Prepare Spark Resources
+        run: |
+          rm -rf /opt/shims/spark40
+          bash .github/workflows/util/install-spark-resources.sh 4.0
+      - name: "Spark 4.0 spark-ut Tests (ANSI ON)"
+        run: |
+          set -o pipefail
+          cd $GITHUB_WORKSPACE/
+          export SPARK_SCALA_VERSION=2.13
+          yum install -y java-17-openjdk-devel
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          echo "SPARK_ANSI_SQL_MODE=$SPARK_ANSI_SQL_MODE"
+          java -version
+          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+          -DwildcardSuites='org.apache.spark.' -Dtest=none -DfailIfNoTests=false \
+          -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          2>&1 | tee spark-ut-spark40-test-output.log
+      - name: "Parse test results"
+        if: always()
+        run: |
+          echo "========================================="
+          echo "  spark-ut (Spark 4.0, ANSI=$SPARK_ANSI_SQL_MODE)"
+          echo "========================================="
+          echo ""
+          echo "--- Test Summary ---"
+          grep -E "Tests run:.*Failures:|BUILD " spark-ut-spark40-test-output.log || echo "(no summary found)"
+          echo ""
+          echo "--- Failed Tests ---"
+          grep -B1 "<<< FAIL!" spark-ut-spark40-test-output.log || echo "(no failures)"
+          echo ""
+          echo "--- Error Tests ---"
+          grep -B1 "<<< ERROR!" spark-ut-spark40-test-output.log || echo "(no errors)"
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-test-spark-ut-ansi-spark40-report
+          path: |
+            **/surefire-reports/TEST-*.xml
+            spark-ut-spark40-test-output.log
+      - name: Upload offload data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ansi-offload-spark40
+          path: '**/target/ansi-offload/*.json'
+          if-no-files-found: ignore
+      - name: Upload log files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-test-spark-ut-ansi-spark40-logs
+          path: |
+            **/target/*.log
+            **/gluten-ut/**/hs_err_*.log
+            **/gluten-ut/**/core.*
+
+  analyze-results:
+    needs:
+      - check-comment
+      - spark-test-backends-velox-ansi41
+      - spark-test-spark-ut-ansi41
+      - spark-test-backends-velox-ansi-spark40
+      - spark-test-spark-ut-ansi-spark40
+    if: always() && needs.check-comment.result == 'success' && (inputs.mode || needs.check-comment.outputs.mode) != 'analyze-only'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: write
+      models: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-comment.outputs.pr_sha }}
+      - name: Download spark41 test reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spark-test-*-ansi-report
+          path: ./test-reports/
+      - name: Download all test logs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spark-test-*-logs
+          path: ./test-logs/
+      - name: Download spark41 offload data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ansi-offload-spark41
+          path: ./ansi-offload/
+      - name: Install dependencies
+        run: pip3 install requests
+      - name: Analyze and report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          AI_MODEL: ${{ needs.check-comment.outputs.ai_model }}
+          PR_NUMBER: ${{ needs.check-comment.outputs.pr_number }}
+          TRIGGERED_BY: ${{ github.event.comment.user.login || github.actor }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 .github/skills/ansi-analysis/analyze-ansi.py \
+            --json-dir ./ansi-offload/ \
+            --report-dir ./test-reports/ \
+            --ai-analysis \
+            --ai-model "${AI_MODEL}" \
+            --pr-comment
+
+  analyze-only:
+    needs: check-comment
+    if: (inputs.mode || needs.check-comment.outputs.mode) == 'analyze-only'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: write
+      models: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-comment.outputs.pr_sha }}
+      - name: Find latest ANSI workflow run with artifacts
+        id: find-run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="${{ github.repository }}"
+          WORKFLOW="velox_backend_ansi.yml"
+          PR_BRANCH="${{ needs.check-comment.outputs.pr_ref }}"
+          echo "Looking for latest ANSI run with artifacts on branch=${PR_BRANCH}..."
+          CANDIDATE_IDS=$(gh api "repos/${REPO}/actions/workflows/${WORKFLOW}/runs?branch=${PR_BRANCH}&per_page=50" \
+            --jq '.workflow_runs[] | select(.id != ${{ github.run_id }}) | .id')
+          RUN_ID=""
+          for cid in $CANDIDATE_IDS; do
+            HAS_OFFLOAD=$(gh api "repos/${REPO}/actions/runs/${cid}/artifacts" \
+              --jq '[.artifacts[] | select(.name | startswith("ansi-offload-"))] | length')
+            if [[ "$HAS_OFFLOAD" -gt 0 ]]; then
+              RUN_ID=$cid
+              echo "Found run ${RUN_ID} with ${HAS_OFFLOAD} offload artifacts"
+              break
+            fi
+          done
+          if [[ -z "$RUN_ID" ]]; then
+            echo "::error::No previous ANSI workflow run with artifacts found"
+            exit 1
+          fi
+          echo "run_id=${RUN_ID}" >> $GITHUB_OUTPUT
+      - name: Download artifacts from previous run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="${{ github.repository }}"
+          RUN_ID="${{ steps.find-run.outputs.run_id }}"
+          echo "Downloading artifacts from run ${RUN_ID}..."
+          mkdir -p ./test-reports ./test-logs ./ansi-offload
+          ARTIFACTS=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/artifacts" --jq '.artifacts[] | "\(.name) \(.id)"')
+          while read -r NAME AID; do
+            [[ -z "$NAME" ]] && continue
+            if [[ "$NAME" == *-spark40-* ]]; then
+              echo "Skipping spark40 artifact: ${NAME}"
+              continue
+            fi
+            if [[ "$NAME" == *-report ]]; then
+              echo "Downloading report artifact: ${NAME}"
+              gh api "repos/${REPO}/actions/artifacts/${AID}/zip" > "/tmp/${NAME}.zip"
+              unzip -qo "/tmp/${NAME}.zip" -d "./test-reports/${NAME}/"
+            elif [[ "$NAME" == *-logs ]]; then
+              echo "Downloading log artifact: ${NAME}"
+              gh api "repos/${REPO}/actions/artifacts/${AID}/zip" > "/tmp/${NAME}.zip"
+              unzip -qo "/tmp/${NAME}.zip" -d "./test-logs/${NAME}/"
+            elif [[ "$NAME" == ansi-offload-spark41 ]]; then
+              echo "Downloading offload artifact: ${NAME}"
+              gh api "repos/${REPO}/actions/artifacts/${AID}/zip" > "/tmp/${NAME}.zip"
+              unzip -qo "/tmp/${NAME}.zip" -d "./ansi-offload/"
+            fi
+          done <<< "$ARTIFACTS"
+          echo "Downloaded artifacts:"
+          find ./test-reports ./test-logs -type f | head -50
+      - name: Install dependencies
+        run: pip3 install requests
+      - name: Analyze and report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          AI_MODEL: ${{ needs.check-comment.outputs.ai_model }}
+          PR_NUMBER: ${{ needs.check-comment.outputs.pr_number }}
+          TRIGGERED_BY: ${{ github.event.comment.user.login || github.actor }}
+          RUN_ID: ${{ github.run_id }}
+          SOURCE_RUN_ID: ${{ steps.find-run.outputs.run_id }}
+        run: |
+          echo "Analyzing artifacts from run ${SOURCE_RUN_ID}"
+          python3 .github/skills/ansi-analysis/analyze-ansi.py \
+            --json-dir ./ansi-offload/ \
+            --report-dir ./test-reports/ \
+            --ai-analysis \
+            --ai-model "${AI_MODEL}" \
+            --pr-comment

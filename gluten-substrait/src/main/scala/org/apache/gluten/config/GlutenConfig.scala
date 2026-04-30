@@ -151,6 +151,12 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def enableExtendedColumnPruning: Boolean =
     getConf(ENABLE_EXTENDED_COLUMN_PRUNING)
 
+  def pushAggregateThroughJoinEnabled: Boolean =
+    getConf(PUSH_AGGREGATE_THROUGH_JOIN_ENABLED)
+
+  def pushAggregateThroughJoinMaxDepth: Int =
+    getConf(PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH)
+
   def forceOrcCharTypeScanFallbackEnabled: Boolean =
     getConf(VELOX_FORCE_ORC_CHAR_TYPE_SCAN_FALLBACK)
 
@@ -174,6 +180,7 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def isUseCelebornShuffleManager: Boolean =
     conf
       .getConfString("spark.shuffle.manager", "sort")
+      .toLowerCase(Locale.ROOT)
       .contains("celeborn")
 
   // Whether to use UniffleShuffleManager.
@@ -238,6 +245,9 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def columnarShuffleEnableDictionary: Boolean =
     getConf(SHUFFLE_ENABLE_DICTIONARY)
+
+  def columnarShuffleEnableTypeAwareCompress: Boolean =
+    getConf(SHUFFLE_ENABLE_TYPE_AWARE_COMPRESS)
 
   def maxBatchSize: Int = getConf(COLUMNAR_MAX_BATCH_SIZE)
 
@@ -704,7 +714,32 @@ object GlutenConfig extends ConfigRegistry {
     buildConf("spark.gluten.sql.supported.flattenNestedFunctions")
       .doc("Flatten nested functions as one for optimization.")
       .stringConf
-      .createWithDefault("and,or");
+      .createWithDefault("and,or")
+
+  val PUSH_AGGREGATE_THROUGH_JOIN_ENABLED =
+    buildConf("spark.gluten.sql.pushAggregateThroughJoin.enabled")
+      .doc(
+        "Enables the push-aggregate-through-join optimization in Gluten. " +
+          "When enabled, aggregate operators may be pushed below joins " +
+          "during logical optimization " +
+          "and corresponding physical plans may be rewritten to execute " +
+          "the aggregation earlier."
+      )
+      .booleanConf
+      .createWithDefault(false)
+
+  val PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH =
+    buildConf("spark.gluten.sql.pushAggregateThroughJoin.maxDepth")
+      .doc(
+        "Maximum join traversal depth when applying the push-aggregate-through-join " +
+          "optimization. " +
+          "A value of 1 allows pushing an aggregate through a single join; larger " +
+          "values allow the rule " +
+          "to traverse and push through multiple consecutive joins."
+      )
+      .intConf
+      .checkValue(_ >= 1, "must be greater than or equal to 1.")
+      .createWithDefault(Int.MaxValue)
 
   val GLUTEN_SOFT_AFFINITY_ENABLED =
     buildConf("spark.gluten.soft-affinity.enabled")
@@ -1072,6 +1107,15 @@ object GlutenConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val SHUFFLE_ENABLE_TYPE_AWARE_COMPRESS =
+    buildConf("spark.gluten.sql.columnar.shuffle.typeAwareCompress.enabled")
+      .doc(
+        "Enable type-aware compression (e.g. FFor for 64-bit integers) in shuffle. " +
+          "Not compatible with dictionary encoding; if both are enabled, " +
+          "type-aware compression is automatically disabled.")
+      .booleanConf
+      .createWithDefault(false)
+
   val COLUMNAR_MAX_BATCH_SIZE =
     buildConf("spark.gluten.sql.columnar.maxBatchSize").intConf
       .checkValue(_ > 0, s"must be positive.")
@@ -1332,13 +1376,13 @@ object GlutenConfig extends ConfigRegistry {
     buildConf("spark.gluten.sql.text.input.max.block.size")
       .doc("the max block size for text input rows")
       .bytesConf(ByteUnit.BYTE)
-      .createWithDefaultString("8KB");
+      .createWithDefaultString("8KB")
 
   val TEXT_INPUT_EMPTY_AS_DEFAULT =
     buildConf("spark.gluten.sql.text.input.empty.as.default")
       .doc("treat empty fields in CSV input as default values.")
       .booleanConf
-      .createWithDefault(false);
+      .createWithDefault(false)
 
   val ENABLE_REWRITE_DATE_TIMESTAMP_COMPARISON =
     buildConf("spark.gluten.sql.rewrite.dateTimestampComparison")

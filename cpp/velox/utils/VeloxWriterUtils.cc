@@ -89,7 +89,9 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
   writeOption->flushPolicyFactory = [maxRowGroupRows, maxRowGroupBytes]() {
     return std::make_unique<LambdaFlushPolicy>(maxRowGroupRows, maxRowGroupBytes, [&]() { return false; });
   };
-  writeOption->parquetWriteTimestampTimeZone = getConfigValue(sparkConfs, kSessionTimezone, std::nullopt);
+  if (auto it = sparkConfs.find(kSessionTimezone); it != sparkConfs.end()) {
+    writeOption->parquetWriteTimestampTimeZone = normalizeSessionTimezone(it->second);
+  }
   writeOption->arrowMemoryPool =
       getDefaultMemoryManager()->getOrCreateArrowMemoryPool("VeloxParquetWrite.ArrowMemoryPool");
   if (auto it = sparkConfs.find(kParquetDataPageSize); it != sparkConfs.end()) {

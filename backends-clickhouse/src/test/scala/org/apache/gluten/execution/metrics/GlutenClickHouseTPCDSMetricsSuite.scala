@@ -42,7 +42,7 @@ class GlutenClickHouseTPCDSMetricsSuite extends GlutenClickHouseTPCDSAbstractSui
   }
 
   test("test tpcds q47 metrics") {
-    TaskResources.runUnsafe({
+    TaskResources.runUnsafe {
       // Test getting metrics
       val inBatchIters = new java.util.ArrayList[ColumnarNativeIterator](
         Array(0).map(iter => new ColumnarNativeIterator(Iterator.empty.asJava)).toSeq.asJava)
@@ -71,7 +71,7 @@ class GlutenClickHouseTPCDSMetricsSuite extends GlutenClickHouseTPCDSAbstractSui
           .getOutputRows == 0)
       assert(nativeMetricsData.metricsDataList.get(2).getName.equals("kWindow"))
       assert(nativeMetricsData.metricsDataList.get(4).getName.equals("kWindow"))
-    })
+    }
     // Test metrics update
     val df = GlutenClickHouseMetricsUTUtils.getTPCDSQueryExecution(spark, "q47", tpcdsQueries)
     val allWholeStageTransformers = df.queryExecution.executedPlan.collect {

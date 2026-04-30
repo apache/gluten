@@ -19,7 +19,7 @@ package org.apache.gluten.config
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
 
 import java.util.concurrent.TimeUnit
-import java.util.regex.Pattern;
+import java.util.regex.Pattern
 
 object BackendType extends Enumeration {
   type BackendType = Value

@@ -65,8 +65,8 @@ void CompactObjectStorageDiskTransaction::commit(const DB::TransactionCommitOpti
     std::filesystem::path meta_path = std::filesystem::path(prefix_path) / PART_META_FILE_NAME;
 
     auto object_storage = disk.getObjectStorage();
-    auto data_key = object_storage->generateObjectKeyForPath(data_path, std::nullopt);
-    auto meta_key = object_storage->generateObjectKeyForPath(meta_path, std::nullopt);
+    auto data_key = metadata_tx->generateObjectKeyForPath(data_path);
+    auto meta_key = metadata_tx->generateObjectKeyForPath(meta_path);
 
     disk.createDirectories(prefix_path);
     auto data_write_buffer = object_storage->writeObject(DB::StoredObject(data_key.serialize(), data_path), DB::WriteMode::Rewrite);
@@ -89,15 +89,15 @@ void CompactObjectStorageDiskTransaction::commit(const DB::TransactionCommitOpti
                     file_size += count;
                     out.write(buffer.data(), count);
                 }
-                metadata.addObject(key, offset, file_size);
-                metadata_tx->writeStringToFile(item.first, metadata.serializeToString());
+                metadata.objects.emplace_back(key.serialize(), "", file_size, offset);
+                metadata_tx->writeStringToFile(item.first, metadata.serializeToStringWithOffset());
                 offset += file_size;
             });
 
         // You can load the complete file in advance through this metadata original, which improves the download efficiency of mergetree metadata.
         DB::DiskObjectStorageMetadata whole_meta(object_storage->getCommonKeyPrefix(), local_path);
-        whole_meta.addObject(key, 0, offset);
-        metadata_tx->writeStringToFile(local_path, whole_meta.serializeToString());
+        whole_meta.objects.emplace_back(key.serialize(), "", offset, 0);
+        metadata_tx->writeStringToFile(local_path, whole_meta.serializeToStringWithOffset());
         out.sync();
         out.finalize();
     };
@@ -109,12 +109,20 @@ void CompactObjectStorageDiskTransaction::commit(const DB::TransactionCommitOpti
     files.clear();
 }
 
+std::unique_ptr<DB::WriteBufferFromFileBase> CompactObjectStorageDiskTransaction::writeFileWithAutoCommit(
+        const std::string & path,
+        size_t buf_size,
+        DB::WriteMode mode,
+        const DB::WriteSettings & settings)
+{
+    return writeFile(path, buf_size, mode, settings);
+}
+
 std::unique_ptr<DB::WriteBufferFromFileBase> CompactObjectStorageDiskTransaction::writeFile(
     const std::string & path,
     size_t buf_size,
     DB::WriteMode mode,
-    const DB::WriteSettings &,
-    bool)
+    const DB::WriteSettings &)
 {
     if (mode != DB::WriteMode::Rewrite)
     {
@@ -128,11 +136,11 @@ std::unique_ptr<DB::WriteBufferFromFileBase> CompactObjectStorageDiskTransaction
             "Don't support write file in different dirs, path {}, prefix path: {}",
             path,
             prefix_path);
-    auto tmp = std::make_shared<DB::TemporaryDataBuffer>(tmp_data.get());
+    auto tmp = std::make_shared<DB::TemporaryDataBuffer>(tmp_data);
     files.emplace_back(path, tmp);
     auto tx = disk.getMetadataStorage()->createTransaction();
     tx->createDirectoryRecursive(std::filesystem::path(path).parent_path());
-    tx->createEmptyMetadataFile(path);
+    tx->createMetadataFile(path, {});
     tx->commit();
 
     return std::make_unique<TemporaryWriteBufferWrapper>(path, tmp);

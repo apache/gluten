@@ -21,7 +21,8 @@ on:
       - main
     paths:
       - '.github/workflows/docker_image.yml'
-      - '.github/workflows/util/install-resources.sh'
+      - '.github/workflows/util/install-spark-deps.sh'
+      - '.github/workflows/util/install-spark-resources.sh'
       - 'dev/docker/*'
       - 'dev/docker/cudf/*'
       - 'dev/docker/ubuntu/*'

@@ -134,7 +134,7 @@ private:
                 = *reinterpret_cast<AggregateFunctionGroupBloomFilterData *>(bloom_filter_state);
         if (second_arg_const)
         {
-            vec_to[0] = bloom_filter_data_0.bloom_filter.find(typeid_cast<const DB::ColumnConst &>(*column_ptr).getDataAt(0).data, sizeof(T));
+            vec_to[0] = bloom_filter_data_0.bloom_filter.find(typeid_cast<const DB::ColumnConst &>(*column_ptr).getDataAt(0).data(), sizeof(T));
             // copy to all rows, better use constant column
             std::memcpy(&vec_to[1], &vec_to[0], (input_rows_count - 1) * sizeof(UInt8));
 
@@ -177,14 +177,14 @@ private:
             {
                 if (isColumnConst(*first_column_ptr))
                     first_column_ptr = &typeid_cast<const DB::ColumnConst &>(*first_column_ptr).getDataColumn();
-                StringRef sr = typeid_cast<const DB::ColumnString &>(*first_column_ptr).getDataAt(0);
+                std::string_view sr = typeid_cast<const DB::ColumnString &>(*first_column_ptr).getDataAt(0);
 
                 size_t size_of_state = agg_func->sizeOfData();
                 allocated_bytes_for_bloom_filter_state = new char[size_of_state];
                 agg_func->create(allocated_bytes_for_bloom_filter_state);
                 if (!sr.empty())
                 {
-                    DB::ReadBufferFromMemory read_buffer(sr.data, sr.size);
+                    DB::ReadBufferFromMemory read_buffer(sr.data(), sr.size());
                     agg_func->deserialize((allocated_bytes_for_bloom_filter_state), read_buffer);
                 }
             }

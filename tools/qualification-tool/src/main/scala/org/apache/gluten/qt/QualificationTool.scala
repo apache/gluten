@@ -27,57 +27,58 @@ import org.apache.spark.util.kvstore.InMemoryStore
 
 object QualificationTool {
 
-  def main(args: Array[String]): Unit = try {
-    val conf = QualificationToolConfiguration.parseCommandLineArgs(args)
-    val sparkConf = new SparkConf(false)
-    sparkConf.set("spark.appStateStore.asyncTracking.enable", "false")
+  def main(args: Array[String]): Unit =
+    try {
+      val conf = QualificationToolConfiguration.parseCommandLineArgs(args)
+      val sparkConf = new SparkConf(false)
+      sparkConf.set("spark.appStateStore.asyncTracking.enable", "false")
 
-    val primaryReportWriter = writer.PrimaryReportWriter(conf)
-    val operatorImpactReportWriter = writer.OperatorImpactReportWriter(conf)
-    val fileSource = file.HadoopFileSource(conf)
-    val executor = execution.Executor(conf)
+      val primaryReportWriter = writer.PrimaryReportWriter(conf)
+      val operatorImpactReportWriter = writer.OperatorImpactReportWriter(conf)
+      val fileSource = file.HadoopFileSource(conf)
+      val executor = execution.Executor(conf)
 
-    executor.submitTask(
-      PriorityTask(
-        TaskContext(100, "File Listing", FILE_LISTING_TASK),
-        () => {
-          Executor.updateState(RunState("LISTING FILES - COMPLETED", Progress()))
-          fileSource.getFileStatuses.foreach {
-            fileStatuses =>
-              Executor.incrementState()
-              executor.submitTask(
-                PriorityTask(
-                  TaskContext(10, fileStatuses.head.getPath.toString, EVENT_FILE_PROCESS_TASK),
-                  () => {
-                    val replayBus = new ReplayListenerBus()
-                    val kvStore = new InMemoryStore()
-                    replayBus.addListener(new SQLAppStatusListener(sparkConf, kvStore))
-                    replayBus.addListener(new AppStatusListener(sparkConf, kvStore))
-                    fileStatuses
-                      .map(_.getPath)
-                      .foreach {
-                        eventPath =>
-                          replayBus.replay(fileSource.getSource(eventPath), eventPath.toString)
-                      }
-                    generateReport(conf, kvStore, primaryReportWriter, operatorImpactReportWriter)
-                  }
-                ))
+      executor.submitTask(
+        PriorityTask(
+          TaskContext(100, "File Listing", FILE_LISTING_TASK),
+          () => {
+            Executor.updateState(RunState("LISTING FILES - COMPLETED", Progress()))
+            fileSource.getFileStatuses.foreach {
+              fileStatuses =>
+                Executor.incrementState()
+                executor.submitTask(
+                  PriorityTask(
+                    TaskContext(10, fileStatuses.head.getPath.toString, EVENT_FILE_PROCESS_TASK),
+                    () => {
+                      val replayBus = new ReplayListenerBus()
+                      val kvStore = new InMemoryStore()
+                      replayBus.addListener(new SQLAppStatusListener(sparkConf, kvStore))
+                      replayBus.addListener(new AppStatusListener(sparkConf, kvStore))
+                      fileStatuses
+                        .map(_.getPath)
+                        .foreach {
+                          eventPath =>
+                            replayBus.replay(fileSource.getSource(eventPath), eventPath.toString)
+                        }
+                      generateReport(conf, kvStore, primaryReportWriter, operatorImpactReportWriter)
+                    }
+                  ))
+            }
           }
-        }
-      ))
+        ))
 
-    executor.waitAndDisplayStatus()
-    primaryReportWriter.closeFile()
-    operatorImpactReportWriter.closeFile()
-    fileSource.close()
-    println(s"Report has been written to ${primaryReportWriter.getFileString}")
-    println(
-      s"Unsupported Operators have been written to ${operatorImpactReportWriter.getFileString}")
-  } catch {
-    case e: Throwable =>
-      e.printStackTrace(System.out)
-      throw e;
-  }
+      executor.waitAndDisplayStatus()
+      primaryReportWriter.closeFile()
+      operatorImpactReportWriter.closeFile()
+      fileSource.close()
+      println(s"Report has been written to ${primaryReportWriter.getFileString}")
+      println(
+        s"Unsupported Operators have been written to ${operatorImpactReportWriter.getFileString}")
+    } catch {
+      case e: Throwable =>
+        e.printStackTrace(System.out)
+        throw e
+    }
 
   private def generateReport(
       conf: QualificationToolConfiguration,

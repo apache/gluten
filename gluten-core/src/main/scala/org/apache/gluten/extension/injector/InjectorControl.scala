@@ -57,8 +57,8 @@ object InjectorControl {
   private object Disabler {
     implicit private[injector] class DisablerOps(disabler: Disabler) {
       def wrapRule[TreeType <: TreeNode[_]](
-          ruleBuilder: SparkSession => Rule[TreeType]): SparkSession => Rule[TreeType] = session =>
-        {
+          ruleBuilder: SparkSession => Rule[TreeType]): SparkSession => Rule[TreeType] =
+        session => {
           val rule = ruleBuilder(session)
           new Rule[TreeType] with DisablerAware {
             override val ruleName: String = rule.ruleName

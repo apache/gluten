@@ -56,7 +56,11 @@ class GlutenSparkSessionJobTaggingAndCancellationSuite
     implicit val ec: ExecutionContext = ExecutionContext.fromExecutor(threadPool)
     try {
       Future {
-        session.range(1, 10000).map { i => Thread.sleep(100); i }.count()
+        session.range(1, 10000).map {
+          i =>
+            Thread.sleep(100)
+            i
+        }.count()
       }
 
       assert(sem.tryAcquire(1, 1, TimeUnit.MINUTES))

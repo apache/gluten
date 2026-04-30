@@ -55,11 +55,11 @@ ALWAYS_INLINE static void writeRowToColumns(const std::vector<MutableColumnPtr> 
     {
         if (spark_row_reader.supportRawData(i))
         {
-            const StringRef str_ref{spark_row_reader.getStringRef(i)};
-            if (str_ref.data == nullptr)
+            const std::string_view str_ref = spark_row_reader.getStringRef(i);
+            if (str_ref.data() == nullptr)
                 columns[i]->insertDefault();
             else if (!spark_row_reader.isBigEndianInSparkRow(i))
-                columns[i]->insertData(str_ref.data, str_ref.size);
+                columns[i]->insertData(str_ref.data(), str_ref.size());
             else
                 columns[i]->insert(spark_row_reader.getField(i)); // read decimal128
         }
@@ -153,7 +153,7 @@ Field VariableLengthDataReader::read(const char * buffer, size_t length) const
     throw Exception(ErrorCodes::UNKNOWN_TYPE, "VariableLengthDataReader doesn't support type {}", type->getName());
 }
 
-StringRef VariableLengthDataReader::readUnalignedBytes(const char * buffer, size_t length) const
+std::string_view VariableLengthDataReader::readUnalignedBytes(const char * buffer, size_t length) const
 {
     return {buffer, length};
 }
@@ -342,7 +342,7 @@ FixedLengthDataReader::FixedLengthDataReader(const DataTypePtr & type_)
     value_size = type_without_nullable->getSizeOfValueInMemory();
 }
 
-StringRef FixedLengthDataReader::unsafeRead(const char * buffer) const
+std::string_view FixedLengthDataReader::unsafeRead(const char * buffer) const
 {
     return {buffer, value_size};
 }

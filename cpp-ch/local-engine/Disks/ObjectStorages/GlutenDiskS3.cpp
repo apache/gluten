@@ -19,7 +19,7 @@
 
 #include "GlutenDiskS3.h"
 #include <Disks/ObjectStorages/CompactObjectStorageDiskTransaction.h>
-#include <Disks/ObjectStorages/DiskObjectStorage.h>
+#include <Disks/DiskObjectStorage/DiskObjectStorage.h>
 #include <Interpreters/Context.h>
 #include <Common/QueryContext.h>
 

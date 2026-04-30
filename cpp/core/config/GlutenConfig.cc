@@ -49,6 +49,17 @@ parseConfMap(JNIEnv* env, const uint8_t* planData, const int32_t planDataLength)
   return sparkConfs;
 }
 
+std::string normalizeSessionTimezone(std::string_view sessionTimezone) {
+  if (sessionTimezone == "GMT") {
+    return "UTC";
+  }
+  if (sessionTimezone.size() > 3 && sessionTimezone.substr(0, 3) == "GMT" &&
+      (sessionTimezone[3] == '+' || sessionTimezone[3] == '-')) {
+    return std::string("UTC").append(sessionTimezone.substr(3));
+  }
+  return std::string(sessionTimezone);
+}
+
 std::string printConfig(const std::unordered_map<std::string, std::string>& conf) {
   std::ostringstream oss;
   oss << std::endl;

@@ -50,6 +50,7 @@ class FileSourceScanMetricsUpdater(@transient val metrics: Map[String, SQLMetric
   val remainingFilterTime: SQLMetric = metrics("remainingFilterTime")
   val ioWaitTime: SQLMetric = metrics("ioWaitTime")
   val storageReadBytes: SQLMetric = metrics("storageReadBytes")
+  val storageReads: SQLMetric = metrics("storageReads")
   val localReadBytes: SQLMetric = metrics("localReadBytes")
   val ramReadBytes: SQLMetric = metrics("ramReadBytes")
   val loadLazyVectorTime: SQLMetric = metrics("loadLazyVectorTime")
@@ -81,6 +82,7 @@ class FileSourceScanMetricsUpdater(@transient val metrics: Map[String, SQLMetric
       remainingFilterTime += operatorMetrics.remainingFilterTime
       ioWaitTime += operatorMetrics.ioWaitTime
       storageReadBytes += operatorMetrics.storageReadBytes
+      storageReads += operatorMetrics.storageReads
       localReadBytes += operatorMetrics.localReadBytes
       ramReadBytes += operatorMetrics.ramReadBytes
       preloadSplits += operatorMetrics.preloadSplits

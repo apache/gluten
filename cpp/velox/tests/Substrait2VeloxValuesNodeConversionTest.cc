@@ -42,8 +42,8 @@ TEST_F(Substrait2VeloxValuesNodeConversionTest, valuesNode) {
   ::substrait::Plan substraitPlan;
   JsonToProtoConverter::readFromFile(planPath, substraitPlan);
   auto veloxCfg = std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
-  std::shared_ptr<SubstraitToVeloxPlanConverter> planConverter_ =
-      std::make_shared<SubstraitToVeloxPlanConverter>(pool_.get(), veloxCfg.get(), std::vector<std::shared_ptr<ResultIterator>>(), std::nullopt, std::nullopt, true);
+  std::shared_ptr<SubstraitToVeloxPlanConverter> planConverter_ = std::make_shared<SubstraitToVeloxPlanConverter>(
+      pool_.get(), veloxCfg.get(), std::vector<std::shared_ptr<ResultIterator>>(), std::nullopt, std::nullopt, true);
   auto veloxPlan = planConverter_->toVeloxPlan(substraitPlan);
 
   RowVectorPtr expectedData = makeRowVector(

@@ -164,7 +164,7 @@ case class ReplaceSubStringComparison(spark: SparkSession) extends Rule[SparkPla
     val (leftPos, leftLen, leftInnerExpr) = getSubStringPositionAndLength(leftExpression)
     val (rightPos, rightLen, rightInnerExpr) = getSubStringPositionAndLength(rightExpression)
     if (leftLen != rightLen) {
-      return None;
+      return None
     }
 
     val udf = ScalaUDF(
