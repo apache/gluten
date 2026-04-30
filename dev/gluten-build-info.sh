@@ -50,11 +50,12 @@ function echo_clickhouse_revision_info() {
   echo ch_commit=$(cat $GLUTEN_ROOT/cpp-ch/clickhouse.version | grep -oP '(?<=^CH_COMMIT=).*')
 }
 
-function read_cmake_cache_path() {
+function read_cmake_cache_value() {
   CACHE_FILE="$GLUTEN_ROOT/cpp/build/CMakeCache.txt"
   CACHE_KEY="$1"
   if [ -f "$CACHE_FILE" ]; then
-    grep "^${CACHE_KEY}:PATH=" "$CACHE_FILE" | cut -d= -f2- | head -n 1
+    # Command-line -D values are stored as UNINITIALIZED unless CMake is given an explicit type.
+    grep "^${CACHE_KEY}:" "$CACHE_FILE" | cut -d= -f2- | head -n 1
   fi
 }
 
@@ -69,7 +70,7 @@ function resolve_velox_home() {
     return
   fi
 
-  CACHED_VELOX_HOME=$(read_cmake_cache_path VELOX_HOME)
+  CACHED_VELOX_HOME=$(read_cmake_cache_value VELOX_HOME)
   if [ -n "$CACHED_VELOX_HOME" ]; then
     echo "$CACHED_VELOX_HOME"
     return
