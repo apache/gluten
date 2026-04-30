@@ -43,7 +43,7 @@ static void writeData(const ISerialization & serialization, const ColumnPtr & co
     /** If there are columns-constants - then we materialize them.
       * (Since the data type does not know how to serialize / deserialize constants.)
       */
-    ColumnPtr full_column = column->convertToFullColumnIfConst();
+    ColumnPtr full_column = column->convertToFullColumnIfReplicated()->convertToFullColumnIfConst();
 
     ISerialization::SerializeBinaryBulkSettings settings;
     settings.getter = [&ostr](ISerialization::SubstreamPath) -> WriteBuffer * { return &ostr; };

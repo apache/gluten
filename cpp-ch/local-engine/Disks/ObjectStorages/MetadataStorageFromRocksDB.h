@@ -20,9 +20,9 @@
 #include <shared_mutex>
 #include <Core/BackgroundSchedulePool.h>
 #include <Disks/DiskLocal.h>
-#include <Disks/ObjectStorages/DiskObjectStorageMetadata.h>
-#include <Disks/ObjectStorages/IMetadataStorage.h>
-#include <Disks/ObjectStorages/MetadataOperationsHolder.h>
+#include <Disks/DiskObjectStorage/MetadataStorages/DiskObjectStorageMetadata.h>
+#include <Disks/DiskObjectStorage/MetadataStorages/IMetadataStorage.h>
+#include <Disks/DiskObjectStorage/MetadataStorages/MetadataOperationsHolder.h>
 #include <rocksdb/db.h>
 
 namespace local_engine
@@ -48,7 +48,8 @@ public:
     Poco::Timestamp getLastModified(const std::string & path) const override;
     bool supportsChmod() const override;
     bool supportsStat() const override;
-    bool supportsPartitionCommand(const DB::PartitionCommand & command) const override;
+    // TODO: rebase-25.12, remove override first, fix later
+    bool supportsPartitionCommand(const DB::PartitionCommand & command) const;
     std::vector<std::string> listDirectory(const std::string & path) const override;
     DB::DirectoryIteratorPtr iterateDirectory(const std::string & path) const override;
     uint32_t getHardlinkCount(const std::string & path) const override;
@@ -59,6 +60,7 @@ public:
     std::string readFileToString(const std::string & path) const override;
     void shutdown() override;
     void cleanOutdatedMetadataThreadFunc();
+    bool areBlobPathsRandom() const override { return false; }
 
 private:
     DB::SharedMutex & getMetadataMutex() const;
@@ -87,8 +89,10 @@ public:
     void commit(const DB::TransactionCommitOptionsVariant & options) override;
     const DB::IMetadataStorage & getStorageForNonTransactionalReads() const override;
     bool supportsChmod() const override;
-    void createEmptyMetadataFile(const std::string & path) override;
-    void createMetadataFile(const std::string & path, DB::ObjectStorageKey key, uint64_t size_in_bytes) override;
+    // TODO: rebase-25.12, remove override first, fix later
+    void createEmptyMetadataFile(const std::string & path);
+    // TODO: rebase-25.12, remove override first, fix later
+    void createMetadataFile(const std::string & path, DB::ObjectStorageKey key, uint64_t size_in_bytes);
 
     void writeStringToFile(const std::string &, const std::string &) override;
     void createDirectory(const std::string &) override;
@@ -97,6 +101,8 @@ public:
     void removeRecursive(const std::string &) override;
     void unlinkFile(const std::string &) override;
     std::optional<DB::StoredObjects> tryGetBlobsFromTransactionIfExists(const std::string &) const override;
+    DB::ObjectStorageKey generateObjectKeyForPath(const std::string & path) override;
+    void createMetadataFile(const std::string & path, const DB::StoredObjects & objects) override;
 
 private:
     const MetadataStorageFromRocksDB & metadata_storage;

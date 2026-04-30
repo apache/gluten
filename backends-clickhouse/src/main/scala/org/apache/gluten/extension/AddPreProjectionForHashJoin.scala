@@ -169,7 +169,7 @@ case class AddPreProjectionForHashJoin(session: SparkSession)
         andExpressions.foreach {
           e =>
             if (!e.isInstanceOf[EqualTo]) {
-              return false;
+              return false
             }
             val equalExpr = e.asInstanceOf[EqualTo]
             val leftPos = if (equalExpr.left.references.subsetOf(leftOutputSet)) {

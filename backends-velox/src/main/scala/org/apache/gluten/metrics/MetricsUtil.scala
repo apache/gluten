@@ -257,7 +257,9 @@ object MetricsUtil extends Logging {
     mutNode.updater match {
       case smj: SortMergeJoinMetricsUpdater =>
         val joinParams = Option(joinParamsMap.get(operatorIdx)).getOrElse {
-          val p = JoinParams(); p.postProjectionNeeded = false; p
+          val p = JoinParams()
+          p.postProjectionNeeded = false
+          p
         }
         smj.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
       case ju: JoinMetricsUpdaterBase =>
@@ -266,7 +268,9 @@ object MetricsUtil extends Logging {
         operatorMetrics.add(metrics.getOperatorMetrics(curMetricsIdx))
         curMetricsIdx -= 1
         val joinParams = Option(joinParamsMap.get(operatorIdx)).getOrElse {
-          val p = JoinParams(); p.postProjectionNeeded = false; p
+          val p = JoinParams()
+          p.postProjectionNeeded = false
+          p
         }
         ju.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
       case u: UnionMetricsUpdater =>

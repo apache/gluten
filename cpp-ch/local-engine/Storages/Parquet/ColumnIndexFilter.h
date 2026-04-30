@@ -23,6 +23,7 @@
 #include <Core/Field.h>
 #include <Interpreters/ActionsDAG.h>
 #include <Storages/Parquet/RowRanges.h>
+#include <Storages/GlutenParquetColumnIndexFilter.h>
 #include <parquet/page_index.h>
 
 namespace DB
@@ -159,47 +160,15 @@ using ColumnIndexInt32 = TypedColumnIndex<parquet::Int32Type>;
 class ColumnIndexFilter
 {
 public:
-    /// The expression is stored as Reverse Polish Notation.
-    struct RPNElement
-    {
-        enum Function
-        {
-            /// Atoms of a Boolean expression.
-            FUNCTION_EQUALS,
-            FUNCTION_NOT_EQUALS,
-            FUNCTION_LESS,
-            FUNCTION_GREATER,
-            FUNCTION_LESS_OR_EQUALS,
-            FUNCTION_GREATER_OR_EQUALS,
-            FUNCTION_IN,
-            FUNCTION_NOT_IN,
-            FUNCTION_UNKNOWN, /// Can take any value.
-            /// Operators of the logical expression.
-            FUNCTION_NOT,
-            FUNCTION_AND,
-            FUNCTION_OR,
-            /// Constants
-            ALWAYS_FALSE,
-            ALWAYS_TRUE,
-        };
-
-        explicit RPNElement(const Function function_ = FUNCTION_UNKNOWN) : function(function_) { }
-
-        Function function = FUNCTION_UNKNOWN;
-        std::string columnName;
-        DB::Field value;
-        DB::ColumnPtr column;
-    };
-
-    using RPN = std::vector<RPNElement>;
-    using AtomMap = std::unordered_map<std::string, bool (*)(RPNElement & out, const DB::Field & value)>;
+    using RPN = std::vector<DB::GlutenParquetColumnIndexFilter::RPNElement>;
+    using AtomMap = std::unordered_map<std::string, bool (*)(DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field & value)>;
     static const AtomMap atom_map;
 
     /// Construct key condition from ActionsDAG nodes
     ColumnIndexFilter(const DB::ActionsDAG & filter_dag, DB::ContextPtr context);
 
 private:
-    static bool extractAtomFromTree(const DB::RPNBuilderTreeNode & node, RPNElement & out);
+    static bool extractAtomFromTree(const DB::RPNBuilderTreeNode & node, DB::GlutenParquetColumnIndexFilter::RPNElement & out);
     RPN rpn_;
 
 public:

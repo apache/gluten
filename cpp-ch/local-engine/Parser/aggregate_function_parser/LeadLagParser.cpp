@@ -43,6 +43,7 @@ LeadParser::parseFunctionArguments(const CommonFunctionInfo & func_info, DB::Act
             actions_dag,
             arg0_col,
             DB::makeNullable(arg0_col_type),
+            getContext(),
             arg0_col_name);
         actions_dag.addOrReplaceInOutputs(*node);
         args.push_back(node);
@@ -53,7 +54,7 @@ LeadParser::parseFunctionArguments(const CommonFunctionInfo & func_info, DB::Act
     }
 
     node = parseExpression(actions_dag, arg1);
-    node = ActionsDAGUtil::convertNodeType(actions_dag, node, BIGINT());
+    node = ActionsDAGUtil::convertNodeType(actions_dag, node, BIGINT(), getContext());
     actions_dag.addOrReplaceInOutputs(*node);
     args.push_back(node);
 
@@ -86,6 +87,7 @@ LagParser::parseFunctionArguments(const CommonFunctionInfo & func_info, DB::Acti
             actions_dag,
             arg0_col,
             makeNullable(arg0_col_type),
+            getContext(),
             arg0_col_name);
         actions_dag.addOrReplaceInOutputs(*node);
         args.push_back(node);
@@ -101,7 +103,7 @@ LagParser::parseFunctionArguments(const CommonFunctionInfo & func_info, DB::Acti
     auto real_field = 0 - literal_result.second.safeGet<Int32>();
     node = &actions_dag.addColumn(ColumnWithTypeAndName(
         literal_result.first->createColumnConst(1, real_field), literal_result.first, getUniqueName(toString(real_field))));
-    node = ActionsDAGUtil::convertNodeType(actions_dag, node, BIGINT());
+    node = ActionsDAGUtil::convertNodeType(actions_dag, node, BIGINT(), getContext());
     actions_dag.addOrReplaceInOutputs(*node);
     args.push_back(node);
 

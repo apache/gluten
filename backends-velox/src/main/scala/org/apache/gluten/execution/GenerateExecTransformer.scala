@@ -136,7 +136,7 @@ case class GenerateExecTransformer(
       } else {
         // Other generator function only have one param, so we just check whether
         // the only param(generator.children.head) is attribute reference or not.
-        !isAttributeReference(generator.children.head, true);
+        !isAttributeReference(generator.children.head, true)
       }
 
       parametersStr

@@ -143,7 +143,7 @@ void RelMetric::serialize(Writer<StringBuffer> & writer, bool) const
             writer.Key("name");
             writer.String(step->getName().c_str());
             writer.Key("description");
-            writer.String(step->getStepDescription().c_str());
+            writer.String(step->getStepDescription().data());
             writer.Key("processors");
             writer.StartArray();
             for (const auto & processor : step->getProcessors())

@@ -21,7 +21,7 @@ import org.apache.spark.sql.TPCDSSchema
 import scala.collection.mutable.ArrayBuffer
 
 class TPCDSSchemaProvider extends TPCDSSchema {
-  def getTableSchema: Map[String, String] = tableColumns;
+  def getTableSchema: Map[String, String] = tableColumns
 }
 object GenTPCDSTableScripts {
   val providerInSpark = new TPCDSSchemaProvider()

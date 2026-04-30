@@ -159,7 +159,8 @@ void DeltaWriter::writeDeletionVector(const DB::Block & block)
     for (size_t row_idx = 0; row_idx < block.rows(); row_idx++)
     {
         const auto file_path = file_path_columns.column->getDataAt(row_idx);
-        auto bitmap = bitmap_columns.column->getDataAt(row_idx).toString();
+        const auto str_bitmap = bitmap_columns.column->getDataAt(row_idx);
+        auto bitmap = std::string(str_bitmap.data(), str_bitmap.size());
         auto cardinality = cardinality_src_columns.column->get64(row_idx); // alisa deletedRowIndexCount
 
         if (size_of_current_bin > 0 && bitmap.length() + size_of_current_bin > packing_target_size)
@@ -189,7 +190,7 @@ void DeltaWriter::writeDeletionVector(const DB::Block & block)
                 {
                     // use already existing deletion vector
                     auto dv_descriptor_field = existing_deletion_vector_descriptor.createDeletionVectorDescriptorField();
-                    file_path_column->insert(file_path.data);
+                    file_path_column->insert(file_path.data());
                     dv_descriptor_column->insert(dv_descriptor_field);
                     matched_row_count_col->insert(cardinality);
                     continue;
@@ -213,7 +214,7 @@ void DeltaWriter::writeDeletionVector(const DB::Block & block)
         DeletionVectorDescriptor descriptor(cardinality, bitmap_size, DeletionVectorDescriptor::UUID_DV_MARKER, offset, prefix + encoded);
         auto dv_descriptor_field = descriptor.createDeletionVectorDescriptorField();
 
-        file_path_column->insert(file_path.data);
+        file_path_column->insert(file_path.data());
         dv_descriptor_column->insert(dv_descriptor_field);
         matched_row_count_col->insert(cardinality);
 

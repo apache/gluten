@@ -46,9 +46,9 @@ object SparkVectorUtil {
     val buffers = new java.util.ArrayList[ArrowBuf]()
     cols.foreach(
       vector => {
-        appendNodes(vector.asInstanceOf[FieldVector], nodes, buffers);
+        appendNodes(vector.asInstanceOf[FieldVector], nodes, buffers)
       })
-    new ArrowRecordBatch(numRows, nodes, buffers);
+    new ArrowRecordBatch(numRows, nodes, buffers)
   }
 
   def getArrowBuffers(vector: FieldVector): Array[ArrowBuf] = {

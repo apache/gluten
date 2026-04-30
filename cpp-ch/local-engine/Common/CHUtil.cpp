@@ -409,6 +409,7 @@ const DB::ActionsDAG::Node * ActionsDAGUtil::convertNodeType(
     DB::ActionsDAG & actions_dag,
     const DB::ActionsDAG::Node * node,
     const DB::DataTypePtr & cast_to_type,
+    DB::ContextPtr context,
     const std::string & result_name,
     DB::CastType cast_type)
 {
@@ -421,7 +422,7 @@ const DB::ActionsDAG::Node * ActionsDAGUtil::convertNodeType(
     DB::CastDiagnostic diagnostic = {node->result_name, node->result_name};
     DB::ColumnWithTypeAndName left_column{nullptr, node->result_type, {}};
     DB::ActionsDAG::NodeRawConstPtrs children = {left_arg, right_arg};
-    auto func_base_cast = createInternalCast(std::move(left_column), cast_to_type, cast_type, diagnostic);
+    auto func_base_cast = createInternalCast(std::move(left_column), cast_to_type, cast_type, diagnostic, context);
 
     return &actions_dag.addFunction(func_base_cast, std::move(children), result_name);
 }
@@ -430,13 +431,14 @@ const DB::ActionsDAG::Node * ActionsDAGUtil::convertNodeTypeIfNeeded(
     DB::ActionsDAG & actions_dag,
     const DB::ActionsDAG::Node * node,
     const DB::DataTypePtr & dst_type,
+    DB::ContextPtr context,
     const std::string & result_name,
     DB::CastType cast_type)
 {
     if (node->result_type->equals(*dst_type))
         return node;
 
-    return convertNodeType(actions_dag, node, dst_type, result_name, cast_type);
+    return convertNodeType(actions_dag, node, dst_type, context, result_name, cast_type);
 }
 
 String QueryPipelineUtil::explainPipeline(DB::QueryPipeline & pipeline)

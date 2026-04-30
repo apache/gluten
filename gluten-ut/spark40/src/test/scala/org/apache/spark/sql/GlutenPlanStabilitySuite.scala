@@ -267,7 +267,8 @@ trait GlutenPlanStabilityTestTrait {
     withSQLConf(
       SQLConf.READ_SIDE_CHAR_PADDING.key -> "false",
       SQLConf.LEGACY_NO_CHAR_PADDING_IN_PREDICATE.key -> "true",
-      SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "10MB") {
+      SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "10MB"
+    ) {
       val qe = sql(queryString).queryExecution
       val plan = qe.executedPlan
       val explain = glutenNormalizeLocation(glutenNormalizeIds(qe.explainString(FormattedMode)))

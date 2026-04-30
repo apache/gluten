@@ -223,7 +223,7 @@ bool FunctionArrayDistinctSpark::executeString(
     if (!src_data_concrete)
         return false;
 
-    using Set = ClearableHashSetWithStackMemory<StringRef, StringRefHash,
+    using Set = ClearableHashSetWithStackMemory<std::string_view, StringViewHash,
         INITIAL_SIZE_DEGREE>;
 
     const PaddedPODArray<UInt8> * src_null_map = nullptr;
@@ -253,12 +253,12 @@ bool FunctionArrayDistinctSpark::executeString(
                 continue;
             }
 
-            StringRef str_ref = src_data_concrete->getDataAt(j);
+            std::string_view str_ref = src_data_concrete->getDataAt(j);
 
             if (!set.find(str_ref))
             {
                 set.insert(str_ref);
-                res_data_col.insertData(str_ref.data, str_ref.size);
+                res_data_col.insertData(str_ref.data(), str_ref.size());
             }
         }
 

@@ -193,7 +193,7 @@ private class CelebornColumnarBatchSerializerInstance(
 
     @throws(classOf[EOFException])
     override def readValue[T: ClassTag](): T = {
-      initStream();
+      initStream()
       if (cb != null) {
         cb.close()
         cb = null

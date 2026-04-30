@@ -59,8 +59,7 @@ DB::ActionsDAG::NodeRawConstPtrs CountParser::parseFunctionArguments(
         auto uint8_type = std::make_shared<DB::DataTypeUInt8>();
         DB::Field null_field;
         auto nullable_uint8_type = std::make_shared<DB::DataTypeNullable>(uint8_type);
-        auto nullable_uint_col = nullable_uint8_type->createColumn();
-        nullable_uint_col->insertDefault();
+        auto nullable_uint_col = nullable_uint8_type->createColumnConst(1, nullable_uint8_type->getDefault());
         const auto * const_1_node
             = &actions_dag.addColumn(DB::ColumnWithTypeAndName(uint8_type->createColumnConst(1, 1), uint8_type, getUniqueName("1")));
         const auto * null_node

@@ -43,7 +43,8 @@ class GlutenClickHouseTPCHParquetAQEConcurrentSuite extends ParquetTPCHSuite {
       df =>
         val result = df.collect()
         val schema = df.schema
-        if (schema.exists(_.dataType == DoubleType)) {} else {
+        if (schema.exists(_.dataType == DoubleType)) {}
+        else {
           compareResultStr(s"q$queryNum", result, queriesResults)
         }
         checkDataFrame(noFallBack = true, NOOP, df)

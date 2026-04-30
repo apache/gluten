@@ -1750,6 +1750,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("SPARK-35640: int as long should throw schema incompatible error")
     // Velox parquet reader not allow offset zero.
     .includeCH("SPARK-40128 read DELTA_LENGTH_BYTE_ARRAY encoded strings")
+    .exclude("SPARK-34167: read LongDecimals with precision < 10, VectorizedReader true")
+    .exclude("SPARK-34167: read LongDecimals with precision < 10, VectorizedReader false")
   enableSuite[GlutenParquetInteroperabilitySuite]
     .exclude("parquet timestamp conversion")
   enableSuite[GlutenParquetProtobufCompatibilitySuite]

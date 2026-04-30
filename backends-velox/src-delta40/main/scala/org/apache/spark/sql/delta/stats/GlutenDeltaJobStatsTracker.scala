@@ -302,7 +302,7 @@ object GlutenDeltaJobStatsTracker extends Logging {
                   } catch {
                     case _: InterruptedException =>
                       Thread.currentThread().interrupt()
-                      return false;
+                      return false
                   }
                 if (tmp.isDefined) {
                   batch = tmp.get

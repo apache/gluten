@@ -103,7 +103,8 @@ case class TestFileSourceScanExecTransformer(
     optionalNumCoalescedBuckets,
     dataFilters,
     tableIdentifier,
-    disableBucketedScan) {
+    disableBucketedScan
+  ) {
 
   override def getPartitions: Seq[Partition] =
     BackendsApiManager.getTransformerApiInstance

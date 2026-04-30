@@ -138,8 +138,8 @@ namespace
                 res_data.reserve_exact(src_const_str.size() * input_rows_count);
                 for (size_t row = 0; row < input_rows_count; ++row)
                 {
-                    StringRef trim_str_ref = trim_col->getDataAt(row);
-                    std::unique_ptr<std::bitset<256>> trim_set = buildTrimSet(trim_str_ref.data, trim_str_ref.size);
+                    std::string_view trim_str_ref = trim_col->getDataAt(row);
+                    std::unique_ptr<std::bitset<256>> trim_set = buildTrimSet(trim_str_ref.data(), trim_str_ref.size());
                     executeRow(src_const_str.c_str(), src_const_str.size(), res_data, res_offsets, row, *trim_set);
                 }
                 return std::move(res_col);
@@ -152,8 +152,8 @@ namespace
                 std::unique_ptr<std::bitset<256>> trim_set = buildTrimSet(trim_const_str.c_str(), trim_const_str.size());
                 for (size_t row = 0; row < input_rows_count; ++row)
                 {
-                    StringRef src_str_ref = src_col->getDataAt(row);
-                    executeRow(src_str_ref.data, src_str_ref.size, res_data, res_offsets, row, *trim_set);
+                    std::string_view src_str_ref = src_col->getDataAt(row);
+                    executeRow(src_str_ref.data(), src_str_ref.size(), res_data, res_offsets, row, *trim_set);
                 }
                 return std::move(res_col);
             }
@@ -162,10 +162,10 @@ namespace
             res_data.reserve(src_col->getChars().size());
             for (size_t row = 0; row < input_rows_count; ++row)
             {
-                StringRef src_str_ref = src_col->getDataAt(row);
-                StringRef trim_str_ref = trim_col->getDataAt(row);
-                std::unique_ptr<std::bitset<256>> trim_set = buildTrimSet(trim_str_ref.data, trim_str_ref.size);
-                executeRow(src_str_ref.data, src_str_ref.size, res_data, res_offsets, row, *trim_set);
+                std::string_view src_str_ref = src_col->getDataAt(row);
+                std::string_view trim_str_ref = trim_col->getDataAt(row);
+                std::unique_ptr<std::bitset<256>> trim_set = buildTrimSet(trim_str_ref.data(), trim_str_ref.size());
+                executeRow(src_str_ref.data(), src_str_ref.size(), res_data, res_offsets, row, *trim_set);
             }
             return std::move(res_col);
         }

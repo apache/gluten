@@ -125,7 +125,15 @@ readNormalSimpleData(DB::ReadBuffer & in, DB::ColumnPtr & column, size_t rows, N
 {
     ISerialization::DeserializeBinaryBulkSettings settings;
     settings.getter = [&](ISerialization::SubstreamPath) -> ReadBuffer * { return &in; };
-    settings.avg_value_size_hint = column_parse_util.avg_value_size_hint;
+    // settings.avg_value_size_hint = column_parse_util.avg_value_size_hint;
+    settings.get_avg_value_size_hint_callback = [&column_parse_util](const ISerialization::SubstreamPath & /* substream_path */) -> double
+    {
+        return column_parse_util.avg_value_size_hint;
+    };
+    settings.update_avg_value_size_hint_callback = [&column_parse_util](const ISerialization::SubstreamPath &, const IColumn &) -> void
+    {
+        // TODO: rebase-25.12, how to update
+    };
     settings.position_independent_encoding = false;
     settings.native_format = true;
 
@@ -141,7 +149,15 @@ readNormalComplexData(DB::ReadBuffer & in, DB::ColumnPtr & column, size_t rows, 
 {
     ISerialization::DeserializeBinaryBulkSettings settings;
     settings.getter = [&](ISerialization::SubstreamPath) -> ReadBuffer * { return &in; };
-    settings.avg_value_size_hint = column_parse_util.avg_value_size_hint;
+    // settings.avg_value_size_hint = column_parse_util.avg_value_size_hint;
+    settings.get_avg_value_size_hint_callback = [&column_parse_util](const ISerialization::SubstreamPath & /* substream_path */) -> double
+    {
+        return column_parse_util.avg_value_size_hint;
+    };
+    settings.update_avg_value_size_hint_callback = [&column_parse_util](const ISerialization::SubstreamPath &, const IColumn &) -> void
+    {
+        // TODO: rebase-25.12, how to update
+    };
     settings.position_independent_encoding = false;
     settings.native_format = true;
 

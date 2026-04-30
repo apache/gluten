@@ -16,8 +16,8 @@
  */
 #pragma once
 #include <Disks/IDiskTransaction.h>
-#include <Disks/ObjectStorages/DiskObjectStorageMetadata.h>
-#include <Disks/ObjectStorages/IMetadataStorage.h>
+#include <Disks/DiskObjectStorage/MetadataStorages/DiskObjectStorageMetadata.h>
+#include <Disks/DiskObjectStorage/MetadataStorages/IMetadataStorage.h>
 #include <Interpreters/TemporaryDataOnDisk.h>
 
 
@@ -71,7 +71,7 @@ class CompactObjectStorageDiskTransaction: public DB::IDiskTransaction {
 
     void commit(const DB::TransactionCommitOptionsVariant & options) override;
 
-    void undo() override
+    void undo() noexcept override
     {
         throw DB::Exception(DB::ErrorCodes::NOT_IMPLEMENTED, "Operation `undo` is not implemented");
     }
@@ -89,11 +89,6 @@ class CompactObjectStorageDiskTransaction: public DB::IDiskTransaction {
     void createFile(const std::string & path) override
     {
         disk.createFile(path);
-    }
-
-    void clearDirectory(const std::string & path) override
-    {
-        throw DB::Exception(DB::ErrorCodes::NOT_IMPLEMENTED, "Operation `clearDirectory` is not implemented");
     }
 
     void moveDirectory(const std::string & from_path, const std::string & to_path) override
@@ -116,12 +111,17 @@ class CompactObjectStorageDiskTransaction: public DB::IDiskTransaction {
         throw DB::Exception(DB::ErrorCodes::NOT_IMPLEMENTED, "Operation `copyFile` is not implemented");
     }
 
+    std::unique_ptr<DB::WriteBufferFromFileBase> writeFileWithAutoCommit(
+        const std::string & path,
+        size_t buf_size,
+        DB::WriteMode mode,
+        const DB::WriteSettings & settings) override;
+
     std::unique_ptr<DB::WriteBufferFromFileBase> writeFile( /// NOLINT
         const std::string & path,
         size_t buf_size,
         DB::WriteMode mode,
-        const DB::WriteSettings & settings,
-        bool /*autocommit */) override;
+        const DB::WriteSettings & settings) override;
 
 
     void writeFileUsingBlobWritingFunction(const String & path, DB::WriteMode mode, WriteBlobFunction && write_blob_function) override

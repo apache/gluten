@@ -912,6 +912,59 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
 
       val aggregate_sql = "select ids, aggregate(ids, 3, (acc, x) -> acc + x) from tb_array"
       runQueryAndCompare(aggregate_sql)(checkGlutenPlan[ProjectExecTransformer])
+
+      val aggregate_finish_sql =
+        """
+          |select
+          | aggregate(
+          |   ids,
+          |   cast(struct(0 as count, 0.0 as sum) as struct<count:int, sum:double>),
+          |   (acc, x) -> struct(acc.count + 1, acc.sum + coalesce(cast(x as double), 0.0)),
+          |   acc -> acc.sum
+          | )
+          |from tb_array
+          |""".stripMargin
+      runQueryAndCompare(aggregate_finish_sql)(checkGlutenPlan[ProjectExecTransformer])
+    }
+  }
+
+  test("array aggregate with nested struct and nulls") {
+    withTable("tb_array_complex") {
+      sql("create table tb_array_complex(items array<struct<v:int, w:double>>) using parquet")
+      sql("""
+            |insert into tb_array_complex values
+            |(array(named_struct('v', 1, 'w', 1.5), named_struct('v', null, 'w', 2.0), null)),
+            |(array()),
+            |(null),
+            |(array(named_struct('v', 2, 'w', null), named_struct('v', 3, 'w', 4.5)))
+            |""".stripMargin)
+
+      val aggregate_struct_sql =
+        """
+          |select
+          | aggregate(
+          |   items,
+          |   cast(struct(0 as cnt, 0.0 as sum) as struct<cnt:int, sum:double>),
+          |   (acc, x) -> struct(
+          |     acc.cnt + if(x is null or x.v is null, 0, 1),
+          |     acc.sum + coalesce(x.w, 0.0)
+          |   ),
+          |   acc -> if(acc.cnt = 0, cast(null as double), acc.sum / acc.cnt)
+          | ) as avg_w
+          |from tb_array_complex
+          |""".stripMargin
+      runQueryAndCompare(aggregate_struct_sql)(checkGlutenPlan[ProjectExecTransformer])
+
+      val transform_filter_sql =
+        """
+          |select
+          | transform(
+          |   filter(items, x -> x is not null),
+          |   x -> coalesce(x.v, 0) + cast(coalesce(x.w, 0.0) as int)
+          | )
+          |from tb_array_complex
+          |""".stripMargin
+      runQueryAndCompare(transform_filter_sql)(checkGlutenPlan[ProjectExecTransformer])
     }
   }
 

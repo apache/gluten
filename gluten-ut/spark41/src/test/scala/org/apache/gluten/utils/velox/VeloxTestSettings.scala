@@ -1171,8 +1171,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("detect escaped path and report the migration guide")
     .exclude("ignore the escaped path check when the flag is off")
     .excludeByPrefix("SPARK-51187")
-    // Rewrite for the query plan check
-    .excludeByPrefix("SPARK-49905")
     // TODO: fix on Spark-4.1 introduced by https://github.com/apache/spark/pull/52645
     .exclude("SPARK-53942: changing the number of stateless shuffle partitions via config")
     .exclude("SPARK-53942: stateful shuffle partitions are retained from old checkpoint")
@@ -1205,45 +1203,49 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSQLMetricsSuite]
   enableSuite[GlutenAcceptsLatestSeenOffsetSuite]
   enableSuite[GlutenCommitLogSuite]
-  // TODO: 4.x enableSuite[GlutenEventTimeWatermarkSuite]
+  enableSuite[GlutenEventTimeWatermarkSuite]
   enableSuite[GlutenFileStreamSinkV1Suite]
-  // TODO: 4.x enableSuite[GlutenFileStreamSinkV2Suite]  // 1 failure
+  enableSuite[GlutenFileStreamSinkV2Suite]
   enableSuite[GlutenFileStreamSourceStressTestSuite]
-  // TODO: 4.x enableSuite[GlutenFileStreamSourceSuite]
+  enableSuite[GlutenFileStreamSourceSuite]
   enableSuite[GlutenFileStreamStressSuite]
-  // TODO: 4.x enableSuite[GlutenFlatMapGroupsInPandasWithStateDistributionSuite]  // failures with GlutenPlugin
+  enableSuite[GlutenFlatMapGroupsInPandasWithStateDistributionSuite]
   enableSuite[GlutenFlatMapGroupsInPandasWithStateSuite]
-  // TODO: 4.x enableSuite[GlutenFlatMapGroupsWithStateDistributionSuite]
-  // TODO: 4.x enableSuite[GlutenFlatMapGroupsWithStateSuite]
+  enableSuite[GlutenFlatMapGroupsWithStateDistributionSuite]
+  enableSuite[GlutenFlatMapGroupsWithStateSuite]
   enableSuite[GlutenFlatMapGroupsWithStateWithInitialStateSuite]
   enableSuite[GlutenGroupStateSuite]
   enableSuite[GlutenLongOffsetSuite]
   enableSuite[GlutenMemorySourceStressSuite]
-  // TODO: 4.x enableSuite[GlutenMultiStatefulOperatorsSuite]  // 2 failures
+  enableSuite[GlutenMultiStatefulOperatorsSuite]
   enableSuite[GlutenReportSinkMetricsSuite]
-  // TODO: 4.x enableSuite[GlutenRocksDBStateStoreFlatMapGroupsWithStateSuite]
-  // TODO: 4.x enableSuite[GlutenRocksDBStateStoreStreamingAggregationSuite]
-  // TODO: 4.x enableSuite[GlutenRocksDBStateStoreStreamingDeduplicationSuite]
-  // TODO: 4.x enableSuite[GlutenStreamSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingAggregationDistributionSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingAggregationSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingDeduplicationDistributionSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingDeduplicationSuite]
+  enableSuite[GlutenRocksDBStateStoreFlatMapGroupsWithStateSuite]
+  enableSuite[GlutenRocksDBStateStoreStreamingAggregationSuite]
+    // Spark 4.x: these cases can hang waiting for expected failure with stateSchemaCheck off.
+    .excludeByPrefix("changing schema of state when restarting query - schema check off")
+  enableSuite[GlutenRocksDBStateStoreStreamingDeduplicationSuite]
+  enableSuite[GlutenStreamSuite]
+  enableSuite[GlutenStreamingAggregationDistributionSuite]
+  enableSuite[GlutenStreamingAggregationSuite]
+    // Spark 4.x: these cases can hang waiting for expected failure with stateSchemaCheck off.
+    .excludeByPrefix("changing schema of state when restarting query - schema check off")
+  enableSuite[GlutenStreamingDeduplicationDistributionSuite]
+  enableSuite[GlutenStreamingDeduplicationSuite]
   enableSuite[GlutenStreamingDeduplicationWithinWatermarkSuite]
   enableSuite[GlutenStreamingFullOuterJoinSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingInnerJoinSuite]
+  enableSuite[GlutenStreamingInnerJoinSuite]
   enableSuite[GlutenStreamingLeftSemiJoinSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingOuterJoinSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingQueryHashPartitionVerifySuite]
+  enableSuite[GlutenStreamingOuterJoinSuite]
+  enableSuite[GlutenStreamingQueryHashPartitionVerifySuite]
   enableSuite[GlutenStreamingQueryListenerSuite]
   enableSuite[GlutenStreamingQueryListenersConfSuite]
   enableSuite[GlutenStreamingQueryManagerSuite]
   enableSuite[GlutenStreamingQueryOptimizationCorrectnessSuite]
   enableSuite[GlutenStreamingQueryStatusAndProgressSuite]
   enableSuite[GlutenStreamingSelfUnionSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingSessionWindowDistributionSuite]
+  enableSuite[GlutenStreamingSessionWindowDistributionSuite]
   enableSuite[GlutenStreamingSessionWindowSuite]
-  // TODO: 4.x enableSuite[GlutenStreamingStateStoreFormatCompatibilitySuite]
+  enableSuite[GlutenStreamingStateStoreFormatCompatibilitySuite]
   enableSuite[GlutenStreamingSymmetricHashJoinHelperSuite]
   enableSuite[GlutenTransformWithListStateSuite]
   enableSuite[GlutenTransformWithListStateTTLSuite]

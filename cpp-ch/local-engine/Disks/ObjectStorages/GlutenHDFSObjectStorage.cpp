@@ -24,7 +24,6 @@ namespace local_engine
 std::unique_ptr<ReadBufferFromFileBase> GlutenHDFSObjectStorage::readObject( /// NOLINT
     const StoredObject & object,
     const ReadSettings & read_settings,
-    std::optional<size_t>,
     std::optional<size_t>) const
 {
     size_t begin_of_path = object.remote_path.find('/', object.remote_path.find("//") + 2);
@@ -39,12 +38,5 @@ std::unique_ptr<ReadBufferFromFileBase> GlutenHDFSObjectStorage::readObject( ///
         read_settings.remote_read_buffer_use_external_buffer);
 }
 
-DB::ObjectStorageKey local_engine::GlutenHDFSObjectStorage::generateObjectKeyForPath(const std::string & path, const std::optional<std::string> & key_prefix) const
-{
-    initializeHDFSFS();
-    /// what ever data_source_description.description value is, consider that key as relative key
-    chassert(data_directory.starts_with("/"));
-    return ObjectStorageKey::createAsRelative(fs::path(url_without_path) / data_directory.substr(1), path);
-}
 }
 #endif

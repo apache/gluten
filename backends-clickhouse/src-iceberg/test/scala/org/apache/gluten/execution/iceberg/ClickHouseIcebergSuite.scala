@@ -466,8 +466,8 @@ class ClickHouseIcebergSuite extends GlutenClickHouseWholeStageTransformerSuite 
 
       val df =
         spark.sql("select snapshot_id from default.iceberg_tm.snapshots where parent_id is null")
-      val value = df.collectAsList().get(0).getAs[Long](0);
-      spark.sql(s"call system.set_current_snapshot('default.iceberg_tm',$value)");
+      val value = df.collectAsList().get(0).getAs[Long](0)
+      spark.sql(s"call system.set_current_snapshot('default.iceberg_tm',$value)")
       val data = runQueryAndCompare("select * from iceberg_tm") { _ => }
       checkLengthAndPlan(data, 2)
       checkAnswer(data, Row(1, "v1") :: Row(2, "v2") :: Nil)

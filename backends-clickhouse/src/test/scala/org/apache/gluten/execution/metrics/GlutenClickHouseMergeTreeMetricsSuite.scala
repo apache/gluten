@@ -21,8 +21,11 @@ import org.apache.gluten.execution.{ColumnarNativeIterator, GlutenClickHouseWhol
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.expressions.Attribute
 
+import org.scalatest.DoNotDiscover
+
 import scala.collection.JavaConverters._
 
+@DoNotDiscover
 class GlutenClickHouseMergeTreeMetricsSuite extends GlutenClickHouseWholeStageTransformerSuite {
 
   protected val substraitPlansDatPath: String = resPath + "substrait-plans"

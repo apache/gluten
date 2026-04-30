@@ -169,7 +169,7 @@ public:
                 LOG_DEBUG(
                     getLogger("LocalDigitsToAsciiDigitForDateFunction"),
                     "Converted local digit string {} to ascii digit string: {}",
-                    col_str->getDataAt(row_index).toString(),
+                    String(col_str->getDataAt(row_index).data(), col_str->getDataAt(row_index).size()),
                     converted);
                 res_col->insertData(converted.c_str(), converted.size());
             }
@@ -231,18 +231,18 @@ private:
 #endif
     }
 
-    bool convertLocalDigitIfNeeded(StringRef str, std::string & result) const
+    bool convertLocalDigitIfNeeded(std::string_view str, std::string & result) const
     {
-        if (!str.size)
+        if (!str.size())
             return false;
-        if (!hasNonAsciiSimd(str.data, str.size))
+        if (!hasNonAsciiSimd(str.data(), str.size()))
             return false;
         result.clear();
-        result.reserve(str.size);
+        result.reserve(str.size());
         bool has_local_digit = false;
-        for (size_t i = 0; i < str.size;)
+        for (size_t i = 0; i < str.size();)
         {
-            unsigned char c = str.data[i];
+            unsigned char c = str.data()[i];
             char32_t cp = 0;
             if ((c & 0x80) == 0) // 1-byte
             {
@@ -252,7 +252,7 @@ private:
             }
             else if ((c & 0xE0) == 0xC0) // 2-byte
             {
-                unsigned char b1 = str.data[i + 1];
+                unsigned char b1 = str.data()[i + 1];
                 if (c == 0xD9 && b1 >= 0xA0 && b1 <= 0xA9) // Arabic-Indic
                 {
                     result.push_back(static_cast<char>('0' + (b1 - 0xA0)));
@@ -284,8 +284,8 @@ private:
             }
             else if ((c & 0xF0) == 0xE0) // 3-byte
             {
-                unsigned char b1 = str.data[i + 1];
-                unsigned char b2 = str.data[i + 2];
+                unsigned char b1 = str.data()[i + 1];
+                unsigned char b2 = str.data()[i + 2];
                 if (c == 0xE0)
                 {
                     if ((b1 == 0xA5 && b2 >= 0xA6 && b2 <= 0xAF) || // Devanagari
@@ -329,9 +329,9 @@ private:
             }
             else if ((c & 0xF8) == 0xF0) // 4-byte
             {
-                unsigned char b1 = str.data[i + 1];
-                unsigned char b2 = str.data[i + 2];
-                unsigned char b3 = str.data[i + 3];
+                unsigned char b1 = str.data()[i + 1];
+                unsigned char b2 = str.data()[i + 2];
+                unsigned char b3 = str.data()[i + 3];
                 cp = ((c & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
                 auto local_digit = toAsciiDigit(cp);
                 if (local_digit)

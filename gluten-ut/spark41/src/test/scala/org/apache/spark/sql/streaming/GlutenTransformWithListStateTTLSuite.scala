@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenSQLTestsTrait
+import org.apache.spark.sql.GlutenStreamingSQLTestsTrait
 
 class GlutenTransformWithListStateTTLSuite
   extends TransformWithListStateTTLSuite
-  with GlutenSQLTestsTrait {}
+  with GlutenStreamingSQLTestsTrait {}

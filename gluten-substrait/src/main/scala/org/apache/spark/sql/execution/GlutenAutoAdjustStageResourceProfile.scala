@@ -117,13 +117,13 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
     val totalCount = planNodes.size
 
     if (1.0 * fallenNodeCnt / totalCount >= glutenConf.autoAdjustStageFallenNodeThreshold) {
-      val newMemoryAmount = memoryRequest.get.amount * glutenConf.autoAdjustStageRPHeapRatio;
+      val newMemoryAmount = memoryRequest.get.amount * glutenConf.autoAdjustStageRPHeapRatio
       val newExecutorMemory =
         new ExecutorResourceRequest(ResourceProfile.MEMORY, newMemoryAmount.toLong)
       executorResource.put(ResourceProfile.MEMORY, newExecutorMemory)
 
       val newOffHeapMemoryAmount =
-        offheapRequest.get.amount * glutenConf.autoAdjustStageRPOffHeapRatio;
+        offheapRequest.get.amount * glutenConf.autoAdjustStageRPOffHeapRatio
       val newExecutorOffheap =
         new ExecutorResourceRequest(ResourceProfile.OFFHEAP_MEM, newOffHeapMemoryAmount.toLong)
       executorResource.put(ResourceProfile.OFFHEAP_MEM, newExecutorOffheap)

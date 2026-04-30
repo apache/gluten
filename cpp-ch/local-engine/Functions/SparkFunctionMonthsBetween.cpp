@@ -115,9 +115,9 @@ DB::ColumnPtr SparkFunctionMonthsBetween::executeImpl(
     size_t rows = input_rows_count;
     auto res = result_type->createColumn();
     res->reserve(rows);
-    std::string timezone_str = "";
+    std::string_view timezone_str = "";
     if (arguments.size() == 4 && rows) // We know that timezone is constant
-        timezone_str = arguments[3].column->getDataAt(0).toString();
+        timezone_str = arguments[3].column->getDataAt(0);
     auto & timezone = DateLUT::instance(timezone_str);
 
     for (size_t i = 0; i < rows; ++i)

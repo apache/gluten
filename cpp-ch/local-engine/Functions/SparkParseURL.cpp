@@ -242,7 +242,8 @@ struct SparkExtractURLOneQuery
         {
             try 
             {
-                const String s = col.getDataAt(i).toString();
+                const auto str_data = col.getDataAt(i);
+                const String s = String(str_data.data(), str_data.size());
                 Poco::URI uri(s, false);
                 
                 String protocol_prefix = uri.getScheme() + "://";

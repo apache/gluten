@@ -69,7 +69,7 @@ class Parameterized(
   private val coordinates: mutable.LinkedHashMap[Coordinate, Seq[(String, String)]] = {
     val dimCount = configDimensions.size
     val coordinateMap = mutable.LinkedHashMap[Coordinate, Seq[(String, String)]]()
-    val nextId: AtomicInteger = new AtomicInteger(1);
+    val nextId: AtomicInteger = new AtomicInteger(1)
 
     def fillCoordinates(
         dimOffset: Int,

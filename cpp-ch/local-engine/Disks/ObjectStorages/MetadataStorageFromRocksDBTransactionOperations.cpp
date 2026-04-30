@@ -72,7 +72,7 @@ std::vector<String> listKeys(rocksdb::DB & db, const std::string & path)
     return result;
 }
 
-void RocksDBWriteFileOperation::execute(std::unique_lock<DB::SharedMutex> &)
+void RocksDBWriteFileOperation::execute()
 {
     auto status = db.Get({}, path, &prev_data);
     if (status.IsNotFound())
@@ -82,7 +82,7 @@ void RocksDBWriteFileOperation::execute(std::unique_lock<DB::SharedMutex> &)
     db.Put({}, path, data);
 }
 
-void RocksDBWriteFileOperation::undo(std::unique_lock<DB::SharedMutex> &)
+void RocksDBWriteFileOperation::undo()
 {
     if (existed)
         throwRockDBErrorNotOk(db.Put({}, path, prev_data));
@@ -90,7 +90,7 @@ void RocksDBWriteFileOperation::undo(std::unique_lock<DB::SharedMutex> &)
         throwRockDBErrorNotOk(db.Delete({}, path));
 }
 
-void RocksDBCreateDirectoryOperation::execute(std::unique_lock<DB::SharedMutex> &)
+void RocksDBCreateDirectoryOperation::execute()
 {
     existed = exist(db, path);
     if (existed)
@@ -98,13 +98,13 @@ void RocksDBCreateDirectoryOperation::execute(std::unique_lock<DB::SharedMutex> 
     throwRockDBErrorNotOk(db.Put({}, path, DIR_DATA));
 }
 
-void RocksDBCreateDirectoryOperation::undo(std::unique_lock<DB::SharedMutex> &)
+void RocksDBCreateDirectoryOperation::undo()
 {
     if (existed) return;
     throwRockDBErrorNotOk(db.Delete({}, path));
 }
 
-void RocksDBCreateDirectoryRecursiveOperation::execute(std::unique_lock<DB::SharedMutex> & )
+void RocksDBCreateDirectoryRecursiveOperation::execute( )
 {
     namespace fs = std::filesystem;
     fs::path p(path);
@@ -119,13 +119,13 @@ void RocksDBCreateDirectoryRecursiveOperation::execute(std::unique_lock<DB::Shar
         throwRockDBErrorNotOk(db.Put({}, path_to_create, RocksDBCreateDirectoryOperation::DIR_DATA));
 }
 
-void RocksDBCreateDirectoryRecursiveOperation::undo(std::unique_lock<DB::SharedMutex> & )
+void RocksDBCreateDirectoryRecursiveOperation::undo( )
 {
     for (const auto & path_created : paths_created)
         throwRockDBErrorNotOk(db.Delete({}, path_created));
 }
 
-void RocksDBRemoveDirectoryOperation::execute(std::unique_lock<DB::SharedMutex> &)
+void RocksDBRemoveDirectoryOperation::execute()
 {
     auto *it = db.NewIterator({});
     bool empty_dir = true;
@@ -147,13 +147,13 @@ void RocksDBRemoveDirectoryOperation::execute(std::unique_lock<DB::SharedMutex> 
         throwRockDBErrorNotOk(db.Delete({}, path));
 }
 
-void RocksDBRemoveDirectoryOperation::undo(std::unique_lock<DB::SharedMutex> &)
+void RocksDBRemoveDirectoryOperation::undo()
 {
     if (existed)
         throwRockDBErrorNotOk(db.Put({}, path, RocksDBCreateDirectoryOperation::DIR_DATA));
 }
 
-void RocksDBRemoveRecursiveOperation::execute(std::unique_lock<DB::SharedMutex> &)
+void RocksDBRemoveRecursiveOperation::execute()
 {
     auto *it = db.NewIterator({});
     for (it->Seek(path); it->Valid() && it->key().starts_with(path); it->Next())
@@ -163,19 +163,19 @@ void RocksDBRemoveRecursiveOperation::execute(std::unique_lock<DB::SharedMutex> 
     }
 }
 
-void RocksDBRemoveRecursiveOperation::undo(std::unique_lock<DB::SharedMutex> &)
+void RocksDBRemoveRecursiveOperation::undo()
 {
     for (const auto & [key, value] : files)
         throwRockDBErrorNotOk(db.Put({}, key, value));
 }
 
-void RocksDBUnlinkFileOperation::execute(std::unique_lock<DB::SharedMutex> &)
+void RocksDBUnlinkFileOperation::execute()
 {
     prev_data = getData(db, path);
     throwRockDBErrorNotOk(db.Delete({}, path));
 }
 
-void RocksDBUnlinkFileOperation::undo(std::unique_lock<DB::SharedMutex> &)
+void RocksDBUnlinkFileOperation::undo()
 {
     throwRockDBErrorNotOk(db.Put({}, path, prev_data));
 }

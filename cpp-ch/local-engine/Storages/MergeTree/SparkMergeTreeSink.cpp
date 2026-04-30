@@ -22,6 +22,7 @@
 #include <Interpreters/MergeTreeTransaction.h>
 #include <Storages/MergeTree/MetaDataHelper.h>
 #include <Common/QueryContext.h>
+#include <Common/setThreadName.h>
 
 namespace CurrentMetrics
 {
@@ -177,7 +178,7 @@ void SinkHelper::doMergePartsAsync(const std::vector<PartWithStats> & merge_part
     thread_pool.scheduleOrThrow(
         [this, merge_parts_with_stats, thread_group = CurrentThread::getGroup()]() -> void
         {
-            ThreadGroupSwitcher switcher(thread_group, "AsyncMerge");
+            ThreadGroupSwitcher switcher(thread_group, ThreadName::ASYNC_MERGE);
 
             Stopwatch watch;
             size_t before_size = 0;

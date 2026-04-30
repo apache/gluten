@@ -42,7 +42,7 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
       sql(
         "CREATE TABLE test_orc (name STRING, favorite_color STRING)" +
           " USING hive OPTIONS(fileFormat 'orc')")
-      sql("INSERT INTO test_orc VALUES('test_1', 'red')");
+      sql("INSERT INTO test_orc VALUES('test_1', 'red')")
       val df = spark.sql("select * from test_orc")
       checkAnswer(df, Seq(Row("test_1", "red")))
       checkOperatorMatch[HiveTableScanExecTransformer](df)
@@ -126,7 +126,7 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
           " label STRUCT<label_1:STRING, label_2:STRING>) USING hive OPTIONS(fileFormat 'parquet')")
       sql(
         "INSERT INTO test_subfield VALUES('test_1', 'red', named_struct('label_1', 'label-a'," +
-          "'label_2', 'label-b'))");
+          "'label_2', 'label-b'))")
       val df = spark.sql("select * from test_subfield where name='test_1'")
       checkAnswer(df, Seq(Row("test_1", "red", Row("label-a", "label-b"))))
       checkOperatorMatch[HiveTableScanExecTransformer](df)

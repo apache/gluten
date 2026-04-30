@@ -114,7 +114,7 @@ DB::ColumnWithTypeAndName convertFixedStringToAggregateState(const DB::ColumnWit
         agg_function->create(place);
 
         auto value = col.column->getDataAt(i);
-        memcpy(place, value.data, value.size);
+        memcpy(place, value.data(), value.size());
 
         vec.push_back(place);
     }

@@ -17,8 +17,8 @@
 #pragma once
 #include <config.h>
 #if USE_ROCKSDB
-#include <Disks/ObjectStorages/IMetadataOperation.h>
-#include <Disks/ObjectStorages/IMetadataStorage.h>
+#include <Disks/DiskObjectStorage/MetadataStorages/IMetadataOperation.h>
+#include <Disks/DiskObjectStorage/MetadataStorages/IMetadataStorage.h>
 #include <rocksdb/db.h>
 
 namespace local_engine
@@ -36,9 +36,9 @@ struct RocksDBWriteFileOperation final : public DB::IMetadataOperation
     {
     }
 
-    void execute(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void execute() override;
 
-    void undo(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void undo() override;
 
 private:
     std::string path;
@@ -54,9 +54,9 @@ struct RocksDBCreateDirectoryOperation final : public DB::IMetadataOperation
     {
     }
 
-    void execute(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void execute() override;
 
-    void undo(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void undo() override;
 
     const static inline String DIR_DATA = "__DIR__";
 private:
@@ -72,9 +72,9 @@ struct RocksDBCreateDirectoryRecursiveOperation final : public DB::IMetadataOper
     {
     };
 
-    void execute(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void execute() override;
 
-    void undo(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void undo() override;
 
 private:
     std::string path;
@@ -88,9 +88,9 @@ struct RocksDBRemoveDirectoryOperation final : public DB::IMetadataOperation
     {
     }
 
-    void execute(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void execute() override;
 
-    void undo(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void undo() override;
 
 private:
     std::string path;
@@ -104,9 +104,9 @@ struct RocksDBRemoveRecursiveOperation final : public DB::IMetadataOperation
     {
     }
 
-    void execute(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void execute() override;
 
-    void undo(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void undo() override;
 
 private:
     std::string path;
@@ -120,9 +120,9 @@ struct RocksDBUnlinkFileOperation final : public DB::IMetadataOperation
     {
     }
 
-    void execute(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void execute() override;
 
-    void undo(std::unique_lock<DB::SharedMutex> & metadata_lock) override;
+    void undo() override;
 
 private:
     std::string path;

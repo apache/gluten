@@ -19,7 +19,9 @@
 #include <iomanip>
 #include <sstream>
 #include <Core/Field.h>
+#include <Core/Settings.h>
 #include <Interpreters/Context.h>
+#include <IO/WriteHelpers.h>
 #include <base/unit.h>
 #include <Common/ConcurrentMap.h>
 #include <Common/CurrentThread.h>
@@ -34,6 +36,11 @@ namespace DB
 namespace ErrorCodes
 {
 extern const int LOGICAL_ERROR;
+}
+
+namespace Setting
+{
+extern const SettingsInt32 os_threads_nice_value_query;
 }
 }
 
@@ -118,10 +125,10 @@ int64_t QueryContext::initializeQuery(const String & task_id)
     //
     // Notice:
     // this generated random query id a qualified global queryid for the spark query
-    query_context->query_context->setCurrentQueryId(toString(UUIDHelpers::generateV4()) + "_" + task_id);
+    query_context->query_context->setCurrentQueryId(DB::toString(UUIDHelpers::generateV4()) + "_" + task_id);
     auto config = MemoryConfig::loadFromContext(query_context->query_context);
     query_context->thread_status = std::make_shared<ThreadStatus>();
-    query_context->thread_group = std::make_shared<ThreadGroup>(query_context->query_context);
+    query_context->thread_group = std::make_shared<ThreadGroup>(query_context->query_context, query_context->query_context->getSettingsRef()[Setting::os_threads_nice_value_query]);
     CurrentThread::attachToGroup(query_context->thread_group);
     auto memory_limit = config.off_heap_per_task;
 
@@ -167,7 +174,7 @@ void QueryContext::logCurrentPerformanceCounters(ProfileEvents::Counters & count
         msg << "\n---------------------Task Performance Counters(" << task_id << ")-----------------------------\n";
         for (ProfileEvents::Event event = ProfileEvents::Event(0); event < counters.num_counters; event++)
         {
-            const auto * name = ProfileEvents::getName(event);
+            const auto name = ProfileEvents::getName(event);
             const auto * doc = ProfileEvents::getDocumentation(event);
             auto & count = counters[event];
             if (count == 0)

@@ -117,10 +117,8 @@ import scala.util.control.NonFatal
  * detected, it creates three test cases:
  *
  *   - Scala UDF test case with a Scalar UDF registered as the name 'udf'.
- *
  *   - Python UDF test case with a Python UDF registered as the name 'udf' iff Python executable and
  *     pyspark are available.
- *
  *   - Scalar Pandas UDF test case with a Scalar Pandas UDF registered as the name 'udf' iff Python
  *     executable, pyspark, pandas and pyarrow are available.
  *
@@ -556,7 +554,8 @@ class GlutenSQLQueryTestSuite
         assert(
           segments.size == outputs.size * 3 + 1,
           s"Expected ${outputs.size * 3 + 1} blocks in result file but got ${segments.size}. " +
-            s"Try regenerate the result files.")
+            s"Try regenerate the result files."
+        )
         Seq.tabulate(outputs.size) {
           i =>
             QueryOutput(
