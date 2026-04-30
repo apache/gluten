@@ -23,6 +23,7 @@ import org.apache.spark.SparkException
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.optimizer.NullPropagation
 import org.apache.spark.sql.execution.ProjectExec
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
 abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
@@ -1605,6 +1606,31 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       checkGlutenPlan[ProjectExecTransformer](df)
       checkFallbackOperators(df, 0)
       df.collect()
+    }
+  }
+
+  test("str_to_map with MAP_KEY_DEDUP_POLICY EXCEPTION") {
+    withTempPath {
+      path =>
+        Seq("a:1,b:2,c:3", "x:10,y:20", "single:99")
+          .toDF("s")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("str_to_map_tbl")
+        log.info("Testing str_to_map offloading with MAP_KEY_DEDUP_POLICY set to EXCEPTION")
+
+        withSQLConf(
+          SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.EXCEPTION.toString) {
+          // Explicit delimiters
+          runQueryAndCompare("SELECT s, str_to_map(s, ',', ':') FROM str_to_map_tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+          // Default delimiters (, and :)
+          runQueryAndCompare("SELECT s, str_to_map(s) FROM str_to_map_tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+        }
     }
   }
 }
