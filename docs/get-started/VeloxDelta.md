@@ -7,7 +7,11 @@ This document summarizes the support status of **Delta Lake table features** whe
 | Spark profile | Spark version | Scala version | Delta Lake version | Status |
 |---|---|---|---|---|
 | `spark-3.5` | Spark 3.5.x | 2.12 | 3.3.x | Supported |
-| `spark-4.0` | Spark 4.0.x | 2.13 | 4.0.x | Supported (including native Delta write path) |
+| `spark-4.0` | Spark 4.0.x | 2.13 | 4.0.x | Supported |
+
+Native Delta write is supported in both Spark 3.5 and Spark 4.0 profiles. The difference between
+the two rows above is the Spark/Delta compatibility target (Spark 3.5 + Delta 3.3 vs Spark 4.0 +
+Delta 4.0), not a native-write capability gap.
 
 ## Build and runtime notes
 
