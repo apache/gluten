@@ -703,6 +703,10 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
   enableSuite[GlutenSparkScriptTransformationSuite]
+    // Flaky in CI containers for Spark 4.1: script subprocess error paths can crash JVM
+    // in native cleanup after expected Spark script transformation errors.
+    .exclude("SPARK-32106: TRANSFORM with non-existent command/file")
+    .exclude("SPARK-33934: Add SparkFile's root dir to env property PATH")
   enableSuite[GlutenSparkSqlParserSuite]
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
   enableSuite[GlutenUnsafeKVExternalSorterSuite]

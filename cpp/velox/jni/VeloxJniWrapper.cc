@@ -715,6 +715,72 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_columnarbatch_VeloxColumnarBatchJ
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
+JNIEXPORT jint JNICALL Java_org_apache_gluten_columnarbatch_VeloxColumnarBatchJniWrapper_firstNullColumnIndex( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong veloxBatchHandle,
+    jintArray columnOrdinals) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto runtime = dynamic_cast<VeloxRuntime*>(ctx);
+  auto batch = ObjectStore::retrieve<ColumnarBatch>(veloxBatchHandle);
+  auto safeColumnOrdinals = getIntArrayElementsSafe(env, columnOrdinals);
+
+  const auto numColumnsToCheck = safeColumnOrdinals.length();
+  if (numColumnsToCheck == 0 || batch->numRows() == 0) {
+    return -1;
+  }
+
+  auto veloxBatch = VeloxColumnarBatch::from(runtime->memoryManager()->getLeafMemoryPool().get(), batch);
+  auto rowVector = veloxBatch->getRowVector();
+  const auto rowCount = rowVector->size();
+  const auto columnCount = static_cast<int32_t>(rowVector->childrenSize());
+
+  for (int i = 0; i < numColumnsToCheck; ++i) {
+    const auto ordinal = safeColumnOrdinals.elems()[i];
+    GLUTEN_CHECK(ordinal >= 0 && ordinal < columnCount, "Column ordinal overflow when checking Delta invariant");
+  }
+
+  if (rowVector->mayHaveNulls()) {
+    const auto nullCount = rowVector->getNullCount();
+    if (nullCount.has_value()) {
+      if (*nullCount > 0) {
+        return 0;
+      }
+    } else {
+      for (auto row = 0; row < rowCount; ++row) {
+        if (rowVector->isNullAt(row)) {
+          return 0;
+        }
+      }
+    }
+  }
+
+  for (int i = 0; i < numColumnsToCheck; ++i) {
+    const auto ordinal = safeColumnOrdinals.elems()[i];
+    const auto child = rowVector->childAt(ordinal);
+    VELOX_CHECK_NOT_NULL(child, "Column vector is null when checking Delta invariant.");
+    if (!child->mayHaveNulls()) {
+      continue;
+    }
+    const auto nullCount = child->getNullCount();
+    if (nullCount.has_value()) {
+      if (*nullCount > 0) {
+        return i;
+      }
+      continue;
+    }
+    for (auto row = 0; row < rowCount; ++row) {
+      if (child->isNullAt(row)) {
+        return i;
+      }
+    }
+  }
+
+  return -1;
+  JNI_METHOD_END(-1)
+}
+
 JNIEXPORT void JNICALL Java_org_apache_gluten_monitor_VeloxMemoryProfiler_start( // NOLINT
     JNIEnv* env,
     jclass) {
