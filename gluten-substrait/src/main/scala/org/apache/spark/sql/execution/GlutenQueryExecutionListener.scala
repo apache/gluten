@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.execution
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.events.GlutenPlanFallbackEvent
 
 import org.apache.spark.SparkContext
@@ -37,6 +38,18 @@ class GlutenQueryExecutionListener(sc: SparkContext) extends SparkListener with 
       val qe = event.qe
       if (qe == null) {
         // History Server replay or edge case. Rely on per-stage events already in event log.
+        return
+      }
+
+      // Skip posting if Gluten was not involved in this query execution.
+      // This can happen when Gluten is disabled via session config (e.g., vanilla Spark
+      // baseline runs in comparison tests) but the listener is still registered globally.
+      // Read directly from qe.sparkSession's conf to avoid thread-local SQLConf issues.
+      if (
+        !qe.sparkSession.sessionState.conf.getConfString(
+          GlutenConfig.GLUTEN_ENABLED.key,
+          GlutenConfig.GLUTEN_ENABLED.defaultValueString).toBoolean
+      ) {
         return
       }
 
