@@ -324,6 +324,10 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
         }
       }
     }
+    // Drain any pending events from previous tests before registering the listener.
+    // Spark's LiveListenerBus is async, so events posted but not yet dispatched will
+    // still be delivered to listeners added afterwards, contaminating `events` here.
+    GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
     spark.sparkContext.addSparkListener(listener)
     withSQLConf(GlutenConfig.COLUMNAR_SORT_ENABLED.key -> "false") {
       try {
@@ -345,7 +349,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
         val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
         assert(fallbackReasons.nonEmpty)
         assert(
-          fallbackReasons.exists(
+          fallbackReasons.forall(
             _.contains("[FallbackByUserOptions] Validation failed on node Sort")))
       } finally {
         spark.sparkContext.removeSparkListener(listener)
