@@ -1203,8 +1203,8 @@ bool SubstraitToVeloxPlanValidator::validateAggRelFunctionType(const ::substrait
           "  Input types: [{}]\n"
           "  Registered signatures:\n    {}",
           funcName,
-          fmt::join(inputTypeStrs, ", "),
-          fmt::join(signatureStrs, "\n    ")));
+          folly::join(", ", inputTypeStrs),
+          folly::join("\n    ", signatureStrs)));
       return false;
     }
   }
