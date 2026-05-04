@@ -18,13 +18,11 @@ package org.apache.spark.sql
 
 import org.apache.gluten.config.GlutenConfig
 
-import org.apache.spark.sql.classic.RuntimeConfig
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.shim.GlutenTestsTrait
 
 class GlutenRuntimeConfigSuite extends RuntimeConfigSuite with GlutenTestsTrait {
   test("Gluten configs report correct runtime modifiability") {
-    val conf = new RuntimeConfig(new SQLConf)
+    val conf = SparkSession.active.conf
     assert(conf.isModifiable(GlutenConfig.COLUMNAR_FILESCAN_ENABLED.key))
     assert(!conf.isModifiable(GlutenConfig.GLUTEN_UI_ENABLED.key))
   }
