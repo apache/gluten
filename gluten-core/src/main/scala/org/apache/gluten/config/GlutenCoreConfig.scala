@@ -18,6 +18,7 @@ package org.apache.gluten.config
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.util.ByteUnit
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.internal.{SQLConf, SQLConfProvider}
 
 class GlutenCoreConfig(conf: SQLConf) extends Logging {
@@ -62,7 +63,14 @@ class GlutenCoreConfig(conf: SQLConf) extends Logging {
  */
 object GlutenCoreConfig extends ConfigRegistry {
   override def get: GlutenCoreConfig = {
-    new GlutenCoreConfig(SQLConf.get)
+    new GlutenCoreConfig(activeSQLConf)
+  }
+
+  private[gluten] def activeSQLConf: SQLConf = {
+    SparkSession.getActiveSession
+      .filterNot(_.sparkContext.isStopped)
+      .map(_.sessionState.conf)
+      .getOrElse(SQLConf.get)
   }
 
   val SPARK_OFFHEAP_SIZE_KEY = "spark.memory.offHeap.size"
