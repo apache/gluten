@@ -465,4 +465,81 @@ class VeloxIcebergSuite extends IcebergSuite {
       )
     }
   }
+  test("iceberg show stats has non-empty min max for store sales table") {
+    withTable("store_sales_10_rows") {
+      spark.sql("""
+                  |CREATE TABLE store_sales_10_rows (
+                  |  ss_sold_date_sk INT,
+                  |  ss_sold_time_sk INT,
+                  |  ss_item_sk INT,
+                  |  ss_customer_sk INT,
+                  |  ss_cdemo_sk INT,
+                  |  ss_hdemo_sk INT,
+                  |  ss_addr_sk INT,
+                  |  ss_store_sk INT,
+                  |  ss_promo_sk INT,
+                  |  ss_ticket_number BIGINT,
+                  |  ss_quantity INT,
+                  |  ss_wholesale_cost DECIMAL(7,2),
+                  |  ss_list_price DECIMAL(7,2),
+                  |  ss_sales_price DECIMAL(7,2),
+                  |  ss_ext_discount_amt DECIMAL(7,2),
+                  |  ss_ext_sales_price DECIMAL(7,2),
+                  |  ss_ext_wholesale_cost DECIMAL(7,2),
+                  |  ss_ext_list_price DECIMAL(7,2),
+                  |  ss_ext_tax DECIMAL(7,2),
+                  |  ss_coupon_amt DECIMAL(7,2),
+                  |  ss_net_paid DECIMAL(7,2),
+                  |  ss_net_paid_inc_tax DECIMAL(7,2),
+                  |  ss_net_profit DECIMAL(7,2)
+                  |) USING iceberg
+                  |""".stripMargin)
+
+      spark.sql(
+        """
+          |INSERT INTO store_sales_10_rows VALUES
+          |(2450899, null, 174781, null, null, 5105, 712262, null, null, 875206344, null, 75.64, 105.13, null, 0.00, null, 3328.16, 4625.72, null, 0.00, null, null, null),
+          |(2450899, 45381, 240260, 63498438, 1296795, 5105, 712262, 542, 1925, 875206344, 13, 5.12, 7.27, 2.18, 0.00, 28.34, 66.56, 94.51, 1.98, 0.00, 28.34, 30.32, -38.22),
+          |(2450899, 45381, 360506, 63498438, 1296795, 5105, 712262, 542, 332, 875206344, 69, 36.45, 70.34, 16.17, 0.00, 1115.73, 2515.05, 4853.46, 22.31, 0.00, 1115.73, 1138.04, -1399.32),
+          |(2450899, 45381, 197360, 63498438, 1296795, 5105, 712262, 542, 1486, 875206344, 50, 92.87, 167.16, 58.50, 0.00, 2925.00, 4643.50, 8358.00, 204.75, 0.00, 2925.00, 3129.75, -1718.50),
+          |(2450899, 45381, 58255, 63498438, 1296795, 5105, 712262, 542, 359, 875206344, 100, 85.99, 105.76, 47.59, 523.49, 4759.00, 8599.00, 10576.00, 296.48, 523.49, 4235.51, 4531.99, -4363.49),
+          |(2450899, 45381, 219500, 63498438, 1296795, 5105, 712262, 542, 8, 875206344, 77, 80.61, 121.72, 26.77, 2020.06, 2061.29, 6206.97, 9372.44, 1.64, 2020.06, 41.23, 42.87, -6165.74),
+          |(2450899, 45381, 60157, 63498438, 1296795, 5105, 712262, 542, 484, 875206344, 9, 44.58, 62.85, 50.28, 0.00, 452.52, 401.22, 565.65, 27.15, 0.00, 452.52, 479.67, 51.30),
+          |(2450899, 45381, 132362, 63498438, 1296795, 5105, 712262, 542, 1575, 875206344, 86, 30.79, 31.71, 25.68, 0.00, 2208.48, 2647.94, 2727.06, 22.08, 0.00, 2208.48, 2230.56, -439.46),
+          |(2450899, 45381, 41590, 63498438, 1296795, 5105, 712262, 542, 441, 875206344, 40, 79.99, 137.58, 12.38, 0.00, 495.20, 3199.60, 5503.20, 9.90, 0.00, 495.20, 505.10, -2704.40)
+          |""".stripMargin)
+
+      spark.sql("ANALYZE store_sales_10_rows")
+
+      withSQLConf("spark.sql.statistics.ignoreStatsCalculatorFailures" -> "false") {
+        val stats = spark.sql("SHOW STATS FOR store_sales_10_rows")
+
+        val statsByColumn =
+          stats.collect().map(row => row.getAs[String]("column_name") -> row).toMap
+
+        Seq(
+          "ss_sold_date_sk",
+          "ss_item_sk",
+          "ss_ticket_number",
+          "ss_quantity",
+          "ss_wholesale_cost",
+          "ss_list_price",
+          "ss_sales_price",
+          "ss_ext_sales_price",
+          "ss_net_profit"
+        ).foreach {
+          colName =>
+            val row = statsByColumn(colName)
+
+            assert(
+              Option(row.getAs[Any]("min")).exists(_.toString.nonEmpty),
+              s"Expected non-empty min for $colName in SHOW STATS output: $row")
+
+            assert(
+              Option(row.getAs[Any]("max")).exists(_.toString.nonEmpty),
+              s"Expected non-empty max for $colName in SHOW STATS output: $row")
+        }
+      }
+    }
+  }
 }
