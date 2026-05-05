@@ -24,7 +24,7 @@ import org.scalatest.Tag
 class GlutenSparkSqlParserSuite extends SparkSqlParserSuite with GlutenSQLTestsBaseTrait {
   private var registerQuotedConfigParserTest = false
 
-  protected override def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
+  override protected def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
       pos: Position): Unit = {
     if (isConfigParserCoverage(testName) && !registerQuotedConfigParserTest) {
       ()
