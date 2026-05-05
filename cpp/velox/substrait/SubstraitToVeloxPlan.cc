@@ -21,6 +21,7 @@
 #include "VariantToVectorConverter.h"
 #include "compute/delta/DeltaConnector.h"
 #include "compute/delta/DeltaSplitInfo.h"
+#include "compute/iceberg/IcebergPlanConverter.h"
 #include "jni/JniHashTable.h"
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
@@ -1584,7 +1585,10 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   connector::ConnectorTableHandlePtr tableHandle;
   auto remainingFilter = readRel.has_filter() ? exprConverter_->toVeloxExpr(readRel.filter(), baseSchema) : nullptr;
   auto connectorId = isDeltaSplitInfo(splitInfo) ? connectorIds_.delta : connectorIds_.hive;
-  if (connectorId == connectorIds_.hive && useCudfTableHandle(splitInfos_) &&
+  if (std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo)) {
+    connectorId = connectorIds_.iceberg;
+  }
+  if ((connectorId == connectorIds_.hive || connectorId == connectorIds_.iceberg) && useCudfTableHandle(splitInfos_) &&
       veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
 #ifdef GLUTEN_ENABLE_GPU

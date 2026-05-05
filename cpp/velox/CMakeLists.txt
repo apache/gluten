@@ -230,10 +230,8 @@ if(ENABLE_GPU)
     memory/GpuBufferColumnarBatch.cc)
 endif()
 
-if(ENABLE_ENHANCED_FEATURES)
-  list(APPEND VELOX_SRCS compute/iceberg/IcebergFormat.cc
-       compute/iceberg/IcebergWriter.cc)
-endif()
+list(APPEND VELOX_SRCS compute/iceberg/IcebergFormat.cc
+     compute/iceberg/IcebergWriter.cc)
 
 if(BUILD_TESTS OR BUILD_BENCHMARKS)
   set(BUILD_TEST_UTILS ON)
