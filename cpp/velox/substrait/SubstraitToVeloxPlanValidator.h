@@ -41,7 +41,11 @@ class SubstraitToVeloxPlanValidator {
         pool,
         veloxCfg_.get(),
         std::vector<std::shared_ptr<ResultIterator>>{},
-        VeloxConnectorIds{.hive = kHiveConnectorId, .iterator = kIteratorConnectorId, .cudfHive = kCudfHiveConnectorId},
+        VeloxConnectorIds{
+            .hive = kHiveConnectorId,
+            .iceberg = kIcebergConnectorId,
+            .iterator = kIteratorConnectorId,
+            .cudfHive = kCudfHiveConnectorId},
         std::nullopt,
         std::nullopt,
         true);

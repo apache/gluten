@@ -39,7 +39,7 @@ const int32_t kZSTDDefaultCompressionLevel = 3;
 } // namespace
 
 std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOption(
-  const std::unordered_map<std::string, std::string>& sparkConfs) {
+    const std::unordered_map<std::string, std::string>& sparkConfs) {
   int64_t maxRowGroupBytes = 134217728; // 128MB
   int64_t maxRowGroupRows = 100000000; // 100M
   if (auto it = sparkConfs.find(kParquetBlockSize); it != sparkConfs.end()) {
