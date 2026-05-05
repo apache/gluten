@@ -20,6 +20,7 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.types.Type;
@@ -85,19 +86,64 @@ public class PartitionDataJson implements StructLike {
       throw new UncheckedIOException(
           "Conversion from JSON failed for PartitionData: " + partitionDataAsJson, e);
     }
-    if (jsonNode.isNull()) {
+
+    if (jsonNode == null || jsonNode.isNull()) {
       return null;
     }
 
-    JsonNode partitionValues = jsonNode.get(PARTITION_VALUES_FIELD);
     Object[] objects = new Object[partitionSpec.fields().size()];
-    int index = 0;
-    for (JsonNode partitionValue : partitionValues) {
-      Type partionType = partitionSpec.partitionType().fields().get(index).type();
-      objects[index] = getValue(partitionValue, partionType);
-      index++;
+
+    if (jsonNode.isArray()) {
+      int index = 0;
+      for (JsonNode partitionValue : jsonNode) {
+        if (index >= objects.length) {
+          throw new IllegalArgumentException(
+              "Too many partition values in JSON: " + partitionDataAsJson);
+        }
+
+        Type partitionType = partitionSpec.partitionType().fields().get(index).type();
+        objects[index] = getValue(partitionValue, partitionType);
+        index++;
+      }
+
+      if (index != objects.length) {
+        throw new IllegalArgumentException(
+            "Partition value count mismatch. Expected "
+                + objects.length
+                + ", got "
+                + index
+                + ": "
+                + partitionDataAsJson);
+      }
+
+      return new PartitionDataJson(objects);
     }
-    return new PartitionDataJson(objects);
+
+    if (jsonNode.isObject()) {
+      for (int index = 0; index < partitionSpec.fields().size(); index++) {
+        PartitionField field = partitionSpec.fields().get(index);
+        Type partitionType = partitionSpec.partitionType().fields().get(index).type();
+
+        JsonNode partitionValue = jsonNode.get(field.name());
+
+        if (partitionValue == null) {
+          String sourceName = partitionSpec.schema().findColumnName(field.sourceId());
+          if (sourceName != null) {
+            partitionValue = jsonNode.get(sourceName);
+          }
+        }
+
+        if (partitionValue == null || partitionValue.isNull()) {
+          objects[index] = null;
+        } else {
+          objects[index] = getValue(partitionValue, partitionType);
+        }
+      }
+
+      return new PartitionDataJson(objects);
+    }
+
+    throw new IllegalArgumentException("Invalid partition data JSON: " + partitionDataAsJson);
   }
 
   public static Object getValue(JsonNode partitionValue, Type type) {

@@ -24,6 +24,7 @@
 #include "velox/connectors/hive/iceberg/IcebergDataSink.h"
 
 namespace gluten {
+class IcebergNestedField;
 
 struct WriteStats {
   uint64_t numWrittenBytes{0};
@@ -47,7 +48,7 @@ class IcebergWriter {
       int64_t taskId,
       const std::string& operationId,
       std::shared_ptr<const facebook::velox::connector::hive::iceberg::IcebergPartitionSpec> spec,
-      const gluten::IcebergNestedField& field,
+      const IcebergNestedField& field,
       const std::unordered_map<std::string, std::string>& sparkConfs,
       std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool,
       std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool);
@@ -60,7 +61,7 @@ class IcebergWriter {
 
  private:
   facebook::velox::RowTypePtr rowType_;
-  const facebook::velox::connector::hive::iceberg::IcebergNestedField field_;
+  const facebook::velox::parquet::ParquetFieldId field_;
   int32_t partitionId_;
   int64_t taskId_;
   std::string operationId_;
@@ -69,6 +70,7 @@ class IcebergWriter {
   std::shared_ptr<facebook::velox::connector::hive::HiveConfig> connectorConfig_;
   std::shared_ptr<facebook::velox::config::ConfigBase> connectorSessionProperties_;
 
+  std::shared_ptr<facebook::velox::core::QueryCtx> queryCtx_;
   std::unique_ptr<facebook::velox::connector::ConnectorQueryCtx> connectorQueryCtx_;
 
   std::unique_ptr<facebook::velox::connector::hive::iceberg::IcebergDataSink> dataSink_;
