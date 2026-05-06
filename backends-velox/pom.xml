@@ -516,6 +516,17 @@
       </dependencies>
     </profile>
     <profile>
+      <id>spark-3.5</id>
+      <dependencies>
+        <dependency>
+          <groupId>io.delta</groupId>
+          <artifactId>delta-iceberg_${scala.binary.version}</artifactId>
+          <version>${delta.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
       <id>delta</id>
       <dependencies>
         <dependency>
@@ -533,12 +544,6 @@
         <dependency>
           <groupId>io.delta</groupId>
           <artifactId>${delta.package.name}_${scala.binary.version}</artifactId>
-          <scope>provided</scope>
-        </dependency>
-        <dependency>
-          <groupId>io.delta</groupId>
-          <artifactId>delta-iceberg_${scala.binary.version}</artifactId>
-          <version>${delta.version}</version>
           <scope>provided</scope>
         </dependency>
         <dependency>
