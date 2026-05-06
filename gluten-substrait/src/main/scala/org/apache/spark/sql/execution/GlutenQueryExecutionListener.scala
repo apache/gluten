@@ -22,19 +22,51 @@ import org.apache.gluten.events.GlutenPlanFallbackEvent
 import org.apache.spark.SparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
-import org.apache.spark.sql.execution.ui.{GlutenUIUtils, SparkListenerSQLExecutionEnd}
+import org.apache.spark.sql.execution.ui.{GlutenUIUtils, SparkListenerSQLExecutionEnd, SparkListenerSQLExecutionStart}
+
+import scala.collection.mutable
 
 /** A SparkListener that generates complete Gluten UI data after query execution completes. */
 class GlutenQueryExecutionListener(sc: SparkContext) extends SparkListener with Logging {
+  private val executionToGlutenEnabled = mutable.HashMap.empty[Long, Boolean]
 
   override def onOtherEvent(event: SparkListenerEvent): Unit = event match {
+    case e: SparkListenerSQLExecutionStart =>
+      onSQLExecutionStart(e)
     case e: SparkListenerSQLExecutionEnd =>
       onSQLExecutionEnd(e)
     case _ =>
   }
 
+  private def onSQLExecutionStart(event: SparkListenerSQLExecutionStart): Unit = {
+    val enabled = event.modifiedConfigs
+      .get(GlutenConfig.GLUTEN_ENABLED.key)
+      .map(_.toBoolean)
+      .getOrElse(
+        sc.getConf
+          .get(
+            GlutenConfig.GLUTEN_ENABLED.key,
+            GlutenConfig.GLUTEN_ENABLED.defaultValueString)
+          .toBoolean)
+    executionToGlutenEnabled.synchronized {
+      executionToGlutenEnabled.put(event.executionId, enabled)
+    }
+  }
+
   private def onSQLExecutionEnd(event: SparkListenerSQLExecutionEnd): Unit = {
     try {
+      val enabledAtStart = executionToGlutenEnabled.synchronized {
+        executionToGlutenEnabled.remove(event.executionId)
+      }.getOrElse {
+        Option(event.qe)
+          .map(
+            _.sparkSession.sessionState.conf
+              .getConfString(
+                GlutenConfig.GLUTEN_ENABLED.key,
+                GlutenConfig.GLUTEN_ENABLED.defaultValueString)
+              .toBoolean)
+          .getOrElse(GlutenConfig.GLUTEN_ENABLED.defaultValue.get)
+      }
       val qe = event.qe
       if (qe == null) {
         // History Server replay or edge case. Rely on per-stage events already in event log.
@@ -44,12 +76,7 @@ class GlutenQueryExecutionListener(sc: SparkContext) extends SparkListener with 
       // Skip posting if Gluten was not involved in this query execution.
       // This can happen when Gluten is disabled via session config (e.g., vanilla Spark
       // baseline runs in comparison tests) but the listener is still registered globally.
-      // Read directly from qe.sparkSession's conf to avoid thread-local SQLConf issues.
-      if (
-        !qe.sparkSession.sessionState.conf.getConfString(
-          GlutenConfig.GLUTEN_ENABLED.key,
-          GlutenConfig.GLUTEN_ENABLED.defaultValueString).toBoolean
-      ) {
+      if (!enabledAtStart) {
         return
       }
 
