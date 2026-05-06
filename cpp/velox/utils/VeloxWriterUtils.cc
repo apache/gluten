@@ -19,6 +19,9 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include <cctype>
+#include <string_view>
+
 #include "config/GlutenConfig.h"
 #include "utils/ConfigExtractor.h"
 #include "utils/Exception.h"
@@ -36,6 +39,110 @@ using namespace facebook::velox::common;
 namespace {
 const int32_t kGzipWindowBits4k = 12;
 const int32_t kZSTDDefaultCompressionLevel = 3;
+
+class ParquetFieldIdParser {
+ public:
+  explicit ParquetFieldIdParser(std::string_view value) : value_(value) {}
+
+  std::vector<ParquetFieldId> parse() {
+    skipWhitespace();
+    if (atEnd()) {
+      return {};
+    }
+    auto fieldIds = parseList('\0');
+    skipWhitespace();
+    if (!atEnd()) {
+      throw GlutenException("Invalid parquet field id tree: unexpected trailing input.");
+    }
+    return fieldIds;
+  }
+
+ private:
+  std::vector<ParquetFieldId> parseList(char terminator) {
+    std::vector<ParquetFieldId> fieldIds;
+    while (true) {
+      skipWhitespace();
+      if (atEnd()) {
+        if (terminator != '\0') {
+          throw GlutenException("Invalid parquet field id tree: missing closing delimiter.");
+        }
+        return fieldIds;
+      }
+      if (terminator != '\0' && value_[position_] == terminator) {
+        ++position_;
+        return fieldIds;
+      }
+
+      fieldIds.push_back(parseNode());
+      skipWhitespace();
+      if (atEnd()) {
+        if (terminator != '\0') {
+          throw GlutenException("Invalid parquet field id tree: missing closing delimiter.");
+        }
+        return fieldIds;
+      }
+      if (value_[position_] == ',') {
+        ++position_;
+      } else if (terminator != '\0' && value_[position_] == terminator) {
+        ++position_;
+        return fieldIds;
+      } else {
+        throw GlutenException("Invalid parquet field id tree: expected ',' or closing delimiter.");
+      }
+    }
+  }
+
+  ParquetFieldId parseNode() {
+    ParquetFieldId fieldId;
+    fieldId.fieldId = parseInteger();
+    skipWhitespace();
+    if (!atEnd() && value_[position_] == '(') {
+      ++position_;
+      fieldId.children = parseList(')');
+    }
+    return fieldId;
+  }
+
+  int32_t parseInteger() {
+    skipWhitespace();
+    if (atEnd()) {
+      throw GlutenException("Invalid parquet field id tree: expected integer.");
+    }
+
+    int sign = 1;
+    if (value_[position_] == '-') {
+      sign = -1;
+      ++position_;
+    }
+    if (atEnd() || !std::isdigit(static_cast<unsigned char>(value_[position_]))) {
+      throw GlutenException("Invalid parquet field id tree: expected integer.");
+    }
+
+    int64_t value = 0;
+    while (!atEnd() && std::isdigit(static_cast<unsigned char>(value_[position_]))) {
+      value = value * 10 + value_[position_] - '0';
+      ++position_;
+    }
+    return static_cast<int32_t>(sign * value);
+  }
+
+  void skipWhitespace() {
+    while (!atEnd() && std::isspace(static_cast<unsigned char>(value_[position_]))) {
+      ++position_;
+    }
+  }
+
+  bool atEnd() const {
+    return position_ >= value_.size();
+  }
+
+  std::string_view value_;
+  size_t position_{0};
+};
+
+std::vector<ParquetFieldId> parseParquetFieldIds(std::string_view value) {
+  return ParquetFieldIdParser(value).parse();
+}
 } // namespace
 
 std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<std::string, std::string>& sparkConfs) {
@@ -111,6 +218,9 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
     } else {
       writeOption->enableDictionary = false;
     }
+  }
+  if (auto it = sparkConfs.find(kParquetFieldIds); it != sparkConfs.end()) {
+    writeOption->parquetFieldIds = parseParquetFieldIds(it->second);
   }
   return writeOption;
 }

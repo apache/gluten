@@ -52,7 +52,8 @@ class VeloxParquetWriterInjects extends VeloxFormatWriterInjects {
       GlutenConfig.PARQUET_ZSTD_COMPRESSION_LEVEL,
       GlutenConfig.PARQUET_DATAPAGE_SIZE,
       GlutenConfig.PARQUET_ENABLE_DICTIONARY,
-      GlutenConfig.PARQUET_WRITER_VERSION
+      GlutenConfig.PARQUET_WRITER_VERSION,
+      GlutenConfig.PARQUET_FIELD_IDS
     ).foreach(key => options.get(key).foreach(sparkOptions.put(key, _)))
     sparkOptions.asJava
   }

@@ -536,6 +536,12 @@
           <scope>provided</scope>
         </dependency>
         <dependency>
+          <groupId>io.delta</groupId>
+          <artifactId>delta-iceberg_${scala.binary.version}</artifactId>
+          <version>${delta.version}</version>
+          <scope>provided</scope>
+        </dependency>
+        <dependency>
           <groupId>com.amazonaws</groupId>
           <artifactId>aws-java-sdk-dynamodb</artifactId>
           <version>${aws-java-sdk-dynamodb.version}</version>

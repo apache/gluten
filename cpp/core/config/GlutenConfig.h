@@ -69,6 +69,8 @@ const std::string kParquetEnableDictionary = "parquet.enable.dictionary";
 
 const std::string kParquetWriterVersion = "parquet.writer.version";
 
+const std::string kParquetFieldIds = "parquet.field.ids";
+
 const std::string kParquetCompressionCodec = "spark.sql.parquet.compression.codec";
 
 const std::string kColumnarToRowMemoryThreshold = "spark.gluten.sql.columnarToRowMemoryThreshold";

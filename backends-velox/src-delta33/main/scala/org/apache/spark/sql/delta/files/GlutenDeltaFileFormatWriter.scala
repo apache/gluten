@@ -34,7 +34,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, DateTimeUtils}
 import org.apache.spark.sql.connector.write.WriterCommitMessage
-import org.apache.spark.sql.delta.DeltaOptions
+import org.apache.spark.sql.delta.{DeltaOptions, GlutenDeltaParquetFieldId, GlutenDeltaParquetFileFormat}
 import org.apache.spark.sql.delta.logging.DeltaLogKeys
 import org.apache.spark.sql.delta.stats.GlutenDeltaJobStatsTracker
 import org.apache.spark.sql.errors.QueryExecutionErrors
@@ -116,17 +116,29 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     val writerBucketSpec = V1WritesUtils.getWriterBucketSpec(bucketSpec, dataColumns, options)
     val sortColumns = V1WritesUtils.getBucketSortColumns(bucketSpec, dataColumns)
 
-    val caseInsensitiveOptions = CaseInsensitiveMap(options)
+    val initialCaseInsensitiveOptions = CaseInsensitiveMap(options)
 
     val dataSchema = dataColumns.toStructType
     DataSourceUtils.verifySchema(fileFormat, dataSchema)
     DataSourceUtils.checkFieldNames(fileFormat, dataSchema)
     val isNativeWritable = true
 
+    val shouldWritePartitionColumns =
+      initialCaseInsensitiveOptions.get(DeltaOptions.WRITE_PARTITION_COLUMNS).contains("true")
     val outputDataColumns =
-      if (caseInsensitiveOptions.get(DeltaOptions.WRITE_PARTITION_COLUMNS).contains("true")) {
+      if (shouldWritePartitionColumns) {
         dataColumns ++ partitionColumns
       } else dataColumns
+
+    val writeOptions = fileFormat match {
+      case deltaFormat: GlutenDeltaParquetFileFormat =>
+        GlutenDeltaParquetFieldId.withParquetFieldIds(
+          options,
+          outputDataColumns.toStructType,
+          deltaFormat.metadata)
+      case _ => options
+    }
+    val caseInsensitiveOptions = CaseInsensitiveMap(writeOptions)
 
     // Note: prepareWrite has side effect. It sets "job".
     val outputWriterFactory =
