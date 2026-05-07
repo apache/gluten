@@ -79,7 +79,12 @@ class DeltaSplitReader : public DeltaSplitReaderBase {
       const ConnectorQueryCtx* connectorQueryCtx,
       const std::shared_ptr<const DeltaConfig>& fileConfig,
       const RowTypePtr& readerOutputType,
+#if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
+      const std::shared_ptr<io::IoStatistics>& dataIoStats,
+      const std::shared_ptr<io::IoStatistics>& metadataIoStats,
+#else
       const std::shared_ptr<io::IoStatistics>& ioStatistics,
+#endif
       const std::shared_ptr<IoStats>& ioStats,
       FileHandleFactory* fileHandleFactory,
       folly::Executor* executor,
