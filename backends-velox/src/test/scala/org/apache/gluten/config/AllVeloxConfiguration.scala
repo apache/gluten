@@ -16,8 +16,6 @@
  */
 package org.apache.gluten.config
 
-import org.apache.spark.sql.internal.SQLConf
-
 import org.scalatest.funsuite.AnyFunSuite
 
 import java.nio.file.Paths
@@ -26,11 +24,6 @@ class AllVeloxConfiguration extends AnyFunSuite {
   private val glutenHome: String =
     AllGlutenConfiguration.getCodeSourceLocation(this.getClass).split("backends-velox")(0)
   private val markdown = Paths.get(glutenHome, "docs", "velox-configuration.md").toAbsolutePath
-
-  private def configStatus(entry: ConfigEntry[_]): String = {
-    if (SQLConf.isStaticConfigKey(entry.key)) s"${Character.toString(0x2693)} Static"
-    else s"${new String(Character.toChars(0x1f504))} Dynamic"
-  }
 
   test("Check velox backend configs") {
     val builder = MarkdownBuilder(getClass.getName)
@@ -60,7 +53,11 @@ class AllVeloxConfiguration extends AnyFunSuite {
       .foreach {
         entry =>
           val dft = entry.defaultValueString.replace("<", "&lt;").replace(">", "&gt;")
-          builder += Seq(s"${entry.key}", configStatus(entry), s"$dft", s"${entry.doc}")
+          builder += Seq(
+            s"${entry.key}",
+            AllGlutenConfiguration.configStatus(entry),
+            s"$dft",
+            s"${entry.doc}")
             .mkString("|")
       }
 
@@ -79,7 +76,11 @@ class AllVeloxConfiguration extends AnyFunSuite {
       .foreach {
         entry =>
           val dft = entry.defaultValueString.replace("<", "&lt;").replace(">", "&gt;")
-          builder += Seq(s"${entry.key}", configStatus(entry), s"$dft", s"${entry.doc}")
+          builder += Seq(
+            s"${entry.key}",
+            AllGlutenConfiguration.configStatus(entry),
+            s"$dft",
+            s"${entry.doc}")
             .mkString("|")
       }
 
