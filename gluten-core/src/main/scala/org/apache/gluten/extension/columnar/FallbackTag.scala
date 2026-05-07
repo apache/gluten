@@ -22,6 +22,8 @@ import org.apache.spark.sql.execution.SparkPlan
 
 import org.apache.commons.lang3.exception.ExceptionUtils
 
+import scala.collection.immutable.HashSet
+
 sealed trait FallbackTag {
   val stacktrace: Option[String] =
     if (FallbackTags.DEBUG) {
@@ -33,8 +35,16 @@ sealed trait FallbackTag {
 
 object FallbackTag {
 
-  /** A tag that stores one reason text of fall back. */
-  case class Appendable(override val reason: String) extends FallbackTag
+  /** A tag that stores distinct reason texts of fall back. */
+  case class Appendable private (private val reasonSet: HashSet[String]) extends FallbackTag {
+    override def reason(): String = reasonSet.mkString("; ")
+
+    def append(other: Appendable): Appendable = Appendable(reasonSet ++ other.reasonSet)
+  }
+
+  object Appendable {
+    def apply(reason: String): Appendable = new Appendable(HashSet(reason))
+  }
 
   /**
    * A tag that stores reason text of fall back. Other reasons will be discarded when this tag is
@@ -93,7 +103,7 @@ object FallbackTags {
         case (exclusive: FallbackTag.Exclusive, _) =>
           exclusive
         case (l: FallbackTag.Appendable, r: FallbackTag.Appendable) =>
-          FallbackTag.Appendable(s"${l.reason}; ${r.reason}")
+          l.append(r)
       }
     mergedTagOption
       .foreach(mergedTag => plan.setTagValue(TAG, mergedTag))
