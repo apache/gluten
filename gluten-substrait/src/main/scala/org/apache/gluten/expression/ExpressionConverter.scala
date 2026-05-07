@@ -467,6 +467,22 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       case s: ScalarSubquery =>
         ScalarSubqueryTransformer(substraitExprName, s)
       case c: Cast =>
+        // Gluten uses session-level timezone for cast. If the per-expression timezone
+        // differs from session timezone and the cast involves timestamp type, we must
+        // fall back to Spark native execution to ensure correctness.
+        c.timeZoneId.foreach {
+          tz =>
+            val sessionTz = SQLConf.get.sessionLocalTimeZone
+            if (tz != sessionTz) {
+              val involvesTimestamp = c.child.dataType == TimestampType ||
+                c.dataType == TimestampType
+              if (involvesTimestamp) {
+                throw new GlutenNotSupportException(
+                  s"Cast with per-expression timezone '$tz' different from session timezone " +
+                    s"'$sessionTz' is not supported when timestamp type is involved")
+              }
+            }
+        }
         // Add trim node, as necessary.
         val newCast =
           BackendsApiManager.getSparkPlanExecApiInstance.genCastWithNewChild(c)
