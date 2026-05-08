@@ -24,10 +24,11 @@ import org.apache.gluten.utils.DecimalArithmeticUtil
 
 import org.apache.spark.{SPARK_REVISION, SPARK_VERSION_SHORT}
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.SQLConfHelper
+import org.apache.spark.sql.catalyst.{InternalRow, SQLConfHelper}
 import org.apache.spark.sql.catalyst.expressions.{StringTrimBoth, _}
 import org.apache.spark.sql.catalyst.expressions.objects.{Invoke, StaticInvoke, StructsToJsonInvoke}
 import org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero
+import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.execution.ScalarSubquery
 import org.apache.spark.sql.hive.HiveUDFTransformer
 import org.apache.spark.sql.internal.SQLConf
@@ -40,6 +41,11 @@ trait Transformable {
 }
 
 object ExpressionConverter extends SQLConfHelper with Logging {
+
+  private val DeltaInterleaveBitsClassName =
+    "org.apache.spark.sql.delta.expressions.InterleaveBits"
+  private val DeltaPartitionerExprClassName =
+    "org.apache.spark.sql.delta.expressions.PartitionerExpr"
 
   def replaceWithExpressionTransformer(
       exprs: Seq[Expression],
@@ -246,6 +252,95 @@ object ExpressionConverter extends SQLConfHelper with Logging {
     }
   }
 
+  private def replaceDeltaInterleaveBitsWithExpressionTransformer(
+      expr: Expression,
+      attributeSeq: Seq[Attribute],
+      expressionsMap: Map[Class[_], String]): ExpressionTransformer = {
+    GenericExpressionTransformer(
+      ExpressionNames.INTERLEAVE_BITS,
+      expr.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+      expr)
+  }
+
+  private def replaceDeltaPartitionerExprWithExpressionTransformer(
+      expr: Expression,
+      attributeSeq: Seq[Attribute],
+      expressionsMap: Map[Class[_], String]): ExpressionTransformer = {
+    val child = expr.children.headOption.getOrElse {
+      throw new GlutenNotSupportException(s"Delta PartitionerExpr has no child: $expr")
+    }
+    validateDeltaPartitionerType(child.dataType, expr)
+    val partitioner = invokeNoArg(expr, "partitioner")
+    if (partitioner == null || !isSupportedDeltaRangePartitioner(partitioner)) {
+      throw new GlutenNotSupportException(s"Unsupported Delta partitioner: $partitioner")
+    }
+    val ascending = getFieldValue(partitioner, "ascending").asInstanceOf[Boolean]
+    if (!ascending) {
+      throw new GlutenNotSupportException(
+        "Delta PartitionerExpr with descending bounds is not supported")
+    }
+    val rangeBounds = getFieldValue(partitioner, "rangeBounds")
+    val boundsDataType = ArrayType(child.dataType, containsNull = true)
+    val boundsLiteral =
+      LiteralTransformer(
+        Literal(
+          new GenericArrayData(
+            arrayToSeq(rangeBounds).map(extractRangeBoundValue(_, child.dataType)).toArray),
+          boundsDataType))
+
+    FunctionArgumentExpressionTransformer(
+      ExpressionNames.RANGE_PARTITION_ID,
+      Seq(replaceWithExpressionTransformer0(child, attributeSeq, expressionsMap), boundsLiteral),
+      expr,
+      Seq(child.dataType, boundsDataType)
+    )
+  }
+
+  private def validateDeltaPartitionerType(dataType: DataType, expr: Expression): Unit = {
+    dataType match {
+      case ByteType | ShortType | IntegerType | LongType | DateType =>
+      case _ =>
+        throw new GlutenNotSupportException(
+          s"Delta PartitionerExpr is not supported for $dataType: $expr")
+    }
+  }
+
+  private def isSupportedDeltaRangePartitioner(partitioner: AnyRef): Boolean = {
+    partitioner.getClass.getName == "org.apache.spark.RangePartitioner"
+  }
+
+  private def invokeNoArg(target: AnyRef, methodName: String): AnyRef = {
+    val method = target.getClass.getMethod(methodName)
+    method.invoke(target).asInstanceOf[AnyRef]
+  }
+
+  private def getFieldValue(target: AnyRef, fieldName: String): AnyRef = {
+    val field = target.getClass.getDeclaredField(fieldName)
+    field.setAccessible(true)
+    field.get(target).asInstanceOf[AnyRef]
+  }
+
+  private def arrayToSeq(array: AnyRef): Seq[AnyRef] = {
+    if (array == null || !array.getClass.isArray) {
+      throw new GlutenNotSupportException(s"Expected RangePartitioner bounds array, got: $array")
+    }
+    (0 until java.lang.reflect.Array.getLength(array)).map {
+      index => java.lang.reflect.Array.get(array, index).asInstanceOf[AnyRef]
+    }
+  }
+
+  private def extractRangeBoundValue(bound: AnyRef, dataType: DataType): Any = {
+    bound match {
+      case row: InternalRow =>
+        if (row.isNullAt(0)) {
+          null
+        } else {
+          row.get(0, dataType)
+        }
+      case other => other
+    }
+  }
+
   private def replaceWithExpressionTransformer0(
       expr: Expression,
       attributeSeq: Seq[Attribute],
@@ -297,6 +392,12 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           replaceStaticInvokeWithExpressionTransformer(staticInvoke, attributeSeq, expressionsMap))
       case invoke: Invoke =>
         Option(replaceInvokeWithExpressionTransformer(invoke, attributeSeq, expressionsMap))
+      case _ if expr.getClass.getName == DeltaInterleaveBitsClassName =>
+        Option(
+          replaceDeltaInterleaveBitsWithExpressionTransformer(expr, attributeSeq, expressionsMap))
+      case _ if expr.getClass.getName == DeltaPartitionerExprClassName =>
+        Option(
+          replaceDeltaPartitionerExprWithExpressionTransformer(expr, attributeSeq, expressionsMap))
       case _ =>
         None
     }

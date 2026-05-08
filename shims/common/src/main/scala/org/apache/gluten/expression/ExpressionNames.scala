@@ -353,6 +353,8 @@ object ExpressionNames {
   final val NULLIF = "nullif"
   final val NVL = "nvl"
   final val NVL2 = "nvl2"
+  final val INTERLEAVE_BITS = "interleave_bits"
+  final val RANGE_PARTITION_ID = "range_partition_id"
 
   // Directly use child expression transformer
   final val KNOWN_NULLABLE = "known_nullable"

@@ -49,11 +49,9 @@ case class OffloadDeltaCommand() extends OffloadSingleNode with DeltaCommand {
     }
   }
 
-  // Currently only plain OPTIMIZE bin-packing is supported for command offload. OPTIMIZE
-  // variants with layout-specific semantics, such as ZORDER, REORG, OPTIMIZE FULL, or
-  // liquid clustering, continue to use Delta's original command path.
+  // Currently OPTIMIZE bin-packing and ZORDER are supported for command offload.
+  // REORG, OPTIMIZE FULL, and liquid clustering continue to use Delta's original command path.
   private def shouldOffloadOptimize(optimize: OptimizeTableCommand): Boolean = {
-    optimize.zOrderBy.isEmpty &&
     optimize.optimizeContext.reorg.isEmpty &&
     !optimize.optimizeContext.isFull &&
     !isClusteredOptimize(optimize)

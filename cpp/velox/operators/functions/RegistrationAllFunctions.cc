@@ -17,6 +17,7 @@
 #include "operators/functions/RegistrationAllFunctions.h"
 
 #include "operators/functions/Arithmetic.h"
+#include "operators/functions/DeltaZOrder.h"
 #include "operators/functions/RowConstructorWithNull.h"
 #include "operators/functions/RowFunctionWithNull.h"
 #include "velox/expression/SpecialFormRegistry.h"
@@ -56,6 +57,27 @@ void registerFunctionOverwrite() {
   velox::registerFunction<RoundFunction, int64_t, int64_t, int32_t>({"round"});
   velox::registerFunction<RoundFunction, double, double, int32_t>({"round"});
   velox::registerFunction<RoundFunction, float, float, int32_t>({"round"});
+  velox::registerFunction<DeltaInterleaveBitsFunction, velox::Varbinary, velox::Variadic<int32_t>>({"interleave_bits"});
+  velox::registerFunction<DeltaRangePartitionIdTinyintFunction, int32_t, velox::Variadic<int8_t>>(
+      {"range_partition_id"});
+  velox::registerFunction<DeltaRangePartitionIdTinyintArrayFunction, int32_t, int8_t, velox::Array<int8_t>>(
+      {"range_partition_id"});
+  velox::registerFunction<DeltaRangePartitionIdSmallintFunction, int32_t, velox::Variadic<int16_t>>(
+      {"range_partition_id"});
+  velox::registerFunction<DeltaRangePartitionIdSmallintArrayFunction, int32_t, int16_t, velox::Array<int16_t>>(
+      {"range_partition_id"});
+  velox::registerFunction<DeltaRangePartitionIdIntegerFunction, int32_t, velox::Variadic<int32_t>>(
+      {"range_partition_id"});
+  velox::registerFunction<DeltaRangePartitionIdIntegerArrayFunction, int32_t, int32_t, velox::Array<int32_t>>(
+      {"range_partition_id"});
+  velox::registerFunction<DeltaRangePartitionIdBigintFunction, int32_t, velox::Variadic<int64_t>>(
+      {"range_partition_id"});
+  velox::registerFunction<DeltaRangePartitionIdBigintArrayFunction, int32_t, int64_t, velox::Array<int64_t>>(
+      {"range_partition_id"});
+  velox::registerFunction<DeltaRangePartitionIdDateFunction, int32_t, velox::Variadic<velox::Date>>(
+      {"range_partition_id"});
+  velox::registerFunction<DeltaRangePartitionIdDateArrayFunction, int32_t, velox::Date, velox::Array<velox::Date>>(
+      {"range_partition_id"});
 
   auto kRowConstructorWithNull = RowConstructorWithNullCallToSpecialForm::kRowConstructorWithNull;
   velox::exec::registerVectorFunction(

@@ -67,6 +67,22 @@ case class GenericExpressionTransformer(
     original: Expression)
   extends ExpressionTransformer
 
+case class FunctionArgumentExpressionTransformer(
+    substraitExprName: String,
+    children: Seq[ExpressionTransformer],
+    original: Expression,
+    functionTypes: Seq[DataType] = Nil)
+  extends ExpressionTransformer {
+  override def doTransform(context: SubstraitContext): ExpressionNode = {
+    val inputTypes = if (functionTypes.nonEmpty) functionTypes else children.map(_.dataType)
+    val funcName = ConverterUtils.makeFuncName(substraitExprName, inputTypes)
+    val functionId = context.registerFunction(funcName)
+    val childNodes = children.map(_.doTransform(context)).asJava
+    val typeNode = ConverterUtils.getTypeNode(dataType, nullable)
+    ExpressionBuilder.makeScalarFunction(functionId, childNodes, typeNode)
+  }
+}
+
 object GenericExpressionTransformer {
   def apply(
       substraitExprName: String,
