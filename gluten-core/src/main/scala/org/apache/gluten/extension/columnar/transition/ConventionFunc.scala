@@ -185,6 +185,14 @@ object ConventionFunc {
             ConventionReq.of(
               ConventionReq.RowType.Is(Convention.RowType.VanillaRowType),
               ConventionReq.BatchType.Any))
+      case other if other.supportsColumnar && SparkPlanUtil.supportsRowBased(other) =>
+        // A dual-mode parent can keep columnar children and still satisfy a row-based output
+        // requirement itself. Align with Spark's transition insertion behavior.
+        val childReq = ConventionReq.ofBatch(ConventionReq.BatchType.Is(batchTypeOf(other)))
+        Seq.tabulate(other.children.size)(
+          _ => {
+            childReq
+          })
       case other =>
         // In the normal case, children's convention should follow parent node's convention.
         val childReq = conventionOf0(other).asReq()

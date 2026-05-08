@@ -90,6 +90,24 @@ object TransitionSuiteBase {
     override def output: Seq[Attribute] = child.output
   }
 
+  case class DualModeUnary(
+      rowType0: Convention.RowType,
+      batchType0: Convention.BatchType,
+      override val child: SparkPlan)
+    extends UnaryExecNode
+    with GlutenPlan {
+    override def batchType(): Convention.BatchType = batchType0
+
+    override def rowType(): Convention.RowType = rowType0
+
+    override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
+      copy(child = newChild)
+
+    override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
+
+    override def output: Seq[Attribute] = child.output
+  }
+
   case class RowBinary(
       override val rowType: Convention.RowType,
       override val left: SparkPlan,
