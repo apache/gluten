@@ -42,6 +42,9 @@ extern const Event CachedReadBufferCreateBufferMicroseconds;
 
 extern const Event CachedReadBufferReadFromCacheHits;
 extern const Event CachedReadBufferReadFromCacheMisses;
+
+extern const Event ParquetMetadataCacheHits;
+extern const Event ParquetMetadataCacheMisses;
 }
 
 namespace local_engine
@@ -57,6 +60,8 @@ static void writeCacheHits(Writer<StringBuffer> & writer)
     auto read_miss_bytes = counters[ProfileEvents::CachedReadBufferReadFromSourceBytes].load();
     auto read_cache_millisecond = counters[ProfileEvents::CachedReadBufferReadFromCacheMicroseconds].load() / 1000;
     auto miss_cache_millisecond = counters[ProfileEvents::CachedReadBufferReadFromSourceMicroseconds].load() / 1000;
+    auto parquet_metadata_cache_hits = counters[ProfileEvents::ParquetMetadataCacheHits].load();
+    auto parquet_metadata_cache_misses = counters[ProfileEvents::ParquetMetadataCacheMisses].load();
 
     writer.Key("read_cache_hits");
     writer.Uint64(read_cache_hits);
@@ -70,6 +75,10 @@ static void writeCacheHits(Writer<StringBuffer> & writer)
     writer.Uint64(read_cache_millisecond);
     writer.Key("miss_cache_millisecond");
     writer.Uint64(miss_cache_millisecond);
+    writer.Key("parquet_metadata_cache_hits");
+    writer.Uint64(parquet_metadata_cache_hits);
+    writer.Key("parquet_metadata_cache_misses");
+    writer.Uint64(parquet_metadata_cache_misses);
 }
 
 RelMetric::RelMetric(size_t id_, const String & name_, std::vector<DB::IQueryPlanStep *> & steps_) : id(id_), name(name_), steps(steps_)

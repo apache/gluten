@@ -47,7 +47,8 @@ class FunctionTest : public ::testing::Test, public test::VectorTestBase {
       std::make_shared<gluten::SubstraitToVeloxPlanConverter>(
           pool(),
           veloxCfg_.get(),
-          std::vector<std::shared_ptr<ResultIterator>>());
+          std::vector<std::shared_ptr<ResultIterator>>{},
+          VeloxConnectorIds{});
 };
 
 TEST_F(FunctionTest, makeNames) {

@@ -19,7 +19,7 @@ package org.apache.gluten.extension.columnar
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, CreateNamedStruct, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, CreateNamedStruct, Expression, If, NamedExpression}
 import org.apache.spark.sql.catalyst.optimizer.CollapseProjectShim
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
@@ -56,11 +56,22 @@ object CollapseProjectExecTransformer extends Rule[SparkPlan] {
 
   /**
    * In Velox, CreateNamedStruct will generate a special output named obj, We cannot collapse such
-   * project transformer, otherwise it will result in a bind reference failure.
+   * project transformer, otherwise it will result in a bind reference failure. Checks for
+   * CreateNamedStruct as direct Alias child or wrapped in If (null-guard pattern from
+   * reconcileFieldNames), but not deeply nested inside arbitrary expressions.
    */
   private def containsNamedStructAlias(projectList: Seq[NamedExpression]): Boolean = {
     projectList.exists {
-      case a: Alias => a.child.exists(_.isInstanceOf[CreateNamedStruct])
+      case a: Alias => isOrWrapsCreateNamedStruct(a.child)
+      case _ => false
+    }
+  }
+
+  private def isOrWrapsCreateNamedStruct(expr: Expression): Boolean = {
+    expr match {
+      case _: CreateNamedStruct => true
+      case If(_, trueValue, falseValue) =>
+        isOrWrapsCreateNamedStruct(trueValue) || isOrWrapsCreateNamedStruct(falseValue)
       case _ => false
     }
   }

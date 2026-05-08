@@ -68,9 +68,6 @@ DECLARE_bool(velox_ssd_odirect);
 DECLARE_bool(velox_memory_pool_capacity_transfer_across_tasks);
 DECLARE_int32(cache_prefetch_min_pct);
 
-DECLARE_int32(gluten_velox_async_timeout_on_task_stopping);
-DEFINE_int32(gluten_velox_async_timeout_on_task_stopping, 30000, "Async timout when task is being stopped");
-
 using namespace facebook;
 
 namespace gluten {
@@ -146,14 +143,10 @@ void VeloxBackend::init(
   // Set velox_memory_use_hugepages.
   FLAGS_velox_memory_use_hugepages = backendConf_->get<bool>(kMemoryUseHugePages, kMemoryUseHugePagesDefault);
 
-  // Async timeout.
-  FLAGS_gluten_velox_async_timeout_on_task_stopping =
-      backendConf_->get<int32_t>(kVeloxAsyncTimeoutOnTaskStopping, kVeloxAsyncTimeoutOnTaskStoppingDefault);
-
   // Set cache_prefetch_min_pct default as 0 to force all loads are prefetched in DirectBufferInput.
   FLAGS_cache_prefetch_min_pct = backendConf_->get<int>(kCachePrefetchMinPct, 0);
 
-  auto hiveConf = createHiveConnectorConfig(backendConf_);
+  hiveConnectorConfig_ = createHiveConnectorConfig(backendConf_);
 
   // Setup and register.
   velox::filesystems::registerLocalFileSystem();
@@ -169,7 +162,7 @@ void VeloxBackend::init(
 #endif
 #ifdef ENABLE_ABFS
   velox::filesystems::registerAbfsFileSystem();
-  velox::filesystems::registerAzureClientProvider(*hiveConf);
+  velox::filesystems::registerAzureClientProvider(*hiveConnectorConfig_);
 #endif
 
 #ifdef GLUTEN_ENABLE_GPU
@@ -190,8 +183,20 @@ void VeloxBackend::init(
   }
 #endif
 
+  const auto spillThreadNum = backendConf_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
+  if (spillThreadNum > 0) {
+    spillExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(spillThreadNum);
+  }
+  auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, kVeloxIOThreadsDefault);
+  GLUTEN_CHECK(
+      ioThreads >= 0,
+      kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
+  if (ioThreads > 0) {
+    ioExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+        ioThreads, std::make_unique<folly::UnboundedBlockingQueue<folly::CPUThreadPoolExecutor::CPUTask>>());
+  }
+
   initJolFilesystem();
-  initConnector(hiveConf);
 
   velox::dwio::common::registerFileSinks();
   velox::parquet::registerParquetReaderFactory();
@@ -312,33 +317,26 @@ void VeloxBackend::initCache() {
   }
 }
 
-void VeloxBackend::initConnector(const std::shared_ptr<velox::config::ConfigBase>& hiveConf) {
-  auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, kVeloxIOThreadsDefault);
-  GLUTEN_CHECK(
-      ioThreads >= 0,
-      kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
-  if (ioThreads > 0) {
-    ioExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
-        ioThreads, std::make_unique<folly::UnboundedBlockingQueue<folly::CPUThreadPoolExecutor::CPUTask>>());
-  }
-  velox::connector::registerConnector(
-      std::make_shared<velox::connector::hive::HiveConnector>(kHiveConnectorId, hiveConf, ioExecutor_.get()));
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createHiveConnector(
+    const std::string& connectorId,
+    folly::Executor* ioExecutor) const {
+  return std::make_shared<velox::connector::hive::HiveConnector>(connectorId, hiveConnectorConfig_, ioExecutor);
+}
 
-  // Register value-stream connector for runtime iterator-based inputs
-  auto valueStreamDynamicFilterEnabled =
-      backendConf_->get<bool>(kValueStreamDynamicFilterEnabled, kValueStreamDynamicFilterEnabledDefault);
-  velox::connector::registerConnector(
-      std::make_shared<ValueStreamConnector>(kIteratorConnectorId, hiveConf, valueStreamDynamicFilterEnabled));
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createValueStreamConnector(
+    const std::string& connectorId,
+    bool dynamicFilterEnabled) const {
+  return std::make_shared<ValueStreamConnector>(connectorId, hiveConnectorConfig_, dynamicFilterEnabled);
+}
 
 #ifdef GLUTEN_ENABLE_GPU
-  if (backendConf_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
-      backendConf_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
-    facebook::velox::cudf_velox::connector::hive::CudfHiveConnectorFactory factory;
-    auto hiveConnector = factory.newConnector(kCudfHiveConnectorId, hiveConf, ioExecutor_.get());
-    facebook::velox::connector::registerConnector(hiveConnector);
-  }
-#endif
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createCudfHiveConnector(
+    const std::string& connectorId,
+    folly::Executor* ioExecutor) const {
+  facebook::velox::cudf_velox::connector::hive::CudfHiveConnectorFactory factory;
+  return factory.newConnector(connectorId, hiveConnectorConfig_, ioExecutor);
 }
+#endif
 
 void VeloxBackend::initUdf() {
   auto got = backendConf_->get<std::string>(kVeloxUdfLibraryPaths, "");
@@ -378,7 +376,10 @@ void VeloxBackend::tearDown() {
   // Destruct IOThreadPoolExecutor will join all threads.
   // On threads exit, thread local variables can be constructed with referencing global variables.
   // So, we need to destruct IOThreadPoolExecutor and stop the threads before global variables get destructed.
+  executor_.reset();
+  spillExecutor_.reset();
   ioExecutor_.reset();
+  ssdCacheExecutor_.reset();
   globalMemoryManager_.reset();
 
   // dump cache stats on exit if enabled

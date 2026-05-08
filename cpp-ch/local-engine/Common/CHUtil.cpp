@@ -92,6 +92,10 @@ extern const ServerSettingsString vector_similarity_index_cache_policy;
 extern const ServerSettingsUInt64 vector_similarity_index_cache_size;
 extern const ServerSettingsUInt64 vector_similarity_index_cache_max_entries;
 extern const ServerSettingsDouble vector_similarity_index_cache_size_ratio;
+extern const ServerSettingsString parquet_metadata_cache_policy;
+extern const ServerSettingsUInt64 parquet_metadata_cache_size;
+extern const ServerSettingsUInt64 parquet_metadata_cache_max_entries;
+extern const ServerSettingsDouble parquet_metadata_cache_size_ratio;
 }
 namespace Setting
 {
@@ -733,6 +737,8 @@ void BackendInitializerUtil::initSettings(const SparkConfigs::ConfigMap & spark_
     settings.set("input_format_orc_skip_columns_with_unsupported_types_in_schema_inference", true);
     settings.set("input_format_parquet_allow_missing_columns", true);
     settings.set("input_format_parquet_case_insensitive_column_matching", true);
+    // TODO: will remove this parameter later, there are some errors when it's true
+    settings.set("input_format_parquet_use_native_reader_with_filter_push_down", false);
     settings.set("input_format_parquet_import_nested", true);
     settings.set("input_format_json_read_numbers_as_strings", true);
     settings.set("input_format_json_read_bools_as_numbers", false);
@@ -854,6 +860,13 @@ void BackendInitializerUtil::initContexts(DB::Context::ConfigurationPtr config)
 
         // We must set the application type to CLIENT to avoid ServerUUID::get() throw exception
         global_context->setApplicationType(Context::ApplicationType::CLIENT);
+
+        // create parquet meta data cache
+        String parquet_metadata_cache_policy = server_settings[ServerSetting::parquet_metadata_cache_policy];
+        size_t parquet_metadata_cache_size = server_settings[ServerSetting::parquet_metadata_cache_size];
+        size_t parquet_metadata_cache_max_entries = server_settings[ServerSetting::parquet_metadata_cache_max_entries];
+        double parquet_metadata_cache_size_ratio = server_settings[ServerSetting::parquet_metadata_cache_size_ratio];
+        global_context->setParquetMetadataCache(parquet_metadata_cache_policy, parquet_metadata_cache_size, parquet_metadata_cache_max_entries, parquet_metadata_cache_size_ratio);
     }
     else
     {

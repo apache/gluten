@@ -387,4 +387,37 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
       spark.sparkContext.removeSparkListener(listener)
     }
   }
+
+  test("no fallback event emitted for vanilla Spark execution with gluten disabled") {
+    // Regression test: before the fix, GlutenQueryExecutionListener would post a
+    // GlutenPlanFallbackEvent even when spark.gluten.enabled=false (e.g. the vanilla baseline run
+    // inside runQueryAndCompare). All nodes would appear as fallback with the generic reason
+    // "Gluten does not touch it or does not support it".
+    val events = new ArrayBuffer[GlutenPlanFallbackEvent]
+    val listener = new SparkListener {
+      override def onOtherEvent(event: SparkListenerEvent): Unit = {
+        event match {
+          case e: GlutenPlanFallbackEvent => events.append(e)
+          case _ =>
+        }
+      }
+    }
+    spark.sparkContext.addSparkListener(listener)
+    try {
+      // Execute a query with gluten disabled — this mimics what runQueryAndCompare does for the
+      // vanilla baseline run. No GlutenPlanFallbackEvent should be emitted at all.
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql("SELECT c1, count(*) FROM tmp1 GROUP BY c1").collect()
+      }
+      GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+      assert(
+        events.isEmpty,
+        s"Expected no GlutenPlanFallbackEvent for vanilla Spark execution, " +
+          s"but got ${events.size} event(s). " +
+          s"First event fallback reasons: ${events.headOption.map(_.fallbackNodeToReason)}"
+      )
+    } finally {
+      spark.sparkContext.removeSparkListener(listener)
+    }
+  }
 }

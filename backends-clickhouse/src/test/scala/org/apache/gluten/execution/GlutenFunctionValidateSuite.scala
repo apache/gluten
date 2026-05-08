@@ -25,7 +25,7 @@ import org.apache.spark.sql.{DataFrame, GlutenTestUtils, Row}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, LogicalPlan, Project}
+import org.apache.spark.sql.catalyst.plans.logical.Aggregate
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.v2.clickhouse.ClickHouseConfig
 import org.apache.spark.sql.internal.SQLConf
@@ -265,88 +265,6 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
     runQueryAndCompare(
       "SELECT get_json_object(get_json_object(string_field1, '$.a'), '$.x') from json_test") {
       checkGlutenPlan[ProjectExecTransformer]
-    }
-  }
-
-  test("GLUTEN-8304: Optimize nested get_json_object") {
-    def checkExpression(expr: Expression, path: String): Boolean = {
-      expr match {
-        case g: GetJsonObject
-            if g.path.isInstanceOf[Literal] && g.path.dataType.isInstanceOf[StringType] =>
-          g.path.asInstanceOf[Literal].value.toString.equals(path) || g.children.exists(
-            c => checkExpression(c, path))
-        case _ =>
-          if (expr.children.isEmpty) {
-            false
-          } else {
-            expr.children.exists(c => checkExpression(c, path))
-          }
-      }
-    }
-
-    def checkPlan(plan: LogicalPlan, path: String): Boolean = plan match {
-      case p: Project =>
-        p.projectList.exists(x => checkExpression(x, path)) || checkPlan(p.child, path)
-      case f: Filter =>
-        checkExpression(f.condition, path) || checkPlan(f.child, path)
-      case _ =>
-        if (plan.children.isEmpty) {
-          false
-        } else {
-          plan.children.exists(c => checkPlan(c, path))
-        }
-    }
-
-    def checkGetJsonObjectPath(df: DataFrame, path: String): Boolean = {
-      checkPlan(df.queryExecution.analyzed, path)
-    }
-
-    withSQLConf((GlutenConfig.ENABLE_COLLAPSE_GET_JSON_OBJECT.key, "true")) {
-      runQueryAndCompare(
-        "select get_json_object(get_json_object(string_field1, '$.a'), '$.y') " +
-          " from json_test where int_field1 = 6") {
-        x => assert(checkGetJsonObjectPath(x, "$.a.y"))
-      }
-      runQueryAndCompare(
-        "select get_json_object(get_json_object(string_field1, '$[a]'), '$[y]') " +
-          " from json_test where int_field1 = 6") {
-        x => assert(checkGetJsonObjectPath(x, "$[a][y]"))
-      }
-      runQueryAndCompare(
-        "select get_json_object(get_json_object(get_json_object(string_field1, " +
-          "'$.a'), '$.y'), '$.z') from json_test where int_field1 = 6") {
-        x => assert(checkGetJsonObjectPath(x, "$.a.y.z"))
-      }
-      runQueryAndCompare(
-        "select get_json_object(get_json_object(get_json_object(string_field1, '$.a')," +
-          " string_field1), '$.z') from json_test where int_field1 = 6",
-        noFallBack = false
-      )(x => assert(checkGetJsonObjectPath(x, "$.a") && checkGetJsonObjectPath(x, "$.z")))
-      runQueryAndCompare(
-        "select get_json_object(get_json_object(get_json_object(string_field1, " +
-          " string_field1), '$.a'), '$.z') from json_test where int_field1 = 6",
-        noFallBack = false
-      )(x => assert(checkGetJsonObjectPath(x, "$.a.z")))
-      runQueryAndCompare(
-        "select get_json_object(get_json_object(get_json_object(" +
-          " substring(string_field1, 10), '$.a'), '$.z'), string_field1) " +
-          " from json_test where int_field1 = 6",
-        noFallBack = false
-      )(x => assert(checkGetJsonObjectPath(x, "$.a.z")))
-      runQueryAndCompare(
-        "select get_json_object(get_json_object(string_field1, '$.a[0]'), '$.y') " +
-          " from json_test where int_field1 = 7") {
-        x => assert(checkGetJsonObjectPath(x, "$.a[0].y"))
-      }
-      runQueryAndCompare(
-        "select get_json_object(get_json_object(get_json_object(string_field1, " +
-          " '$.a[1]'), '$.z[1]'), '$.n') from json_test where int_field1 = 7") {
-        x => assert(checkGetJsonObjectPath(x, "$.a[1].z[1].n"))
-      }
-      runQueryAndCompare(
-        "select * from json_test where " +
-          " get_json_object(get_json_object(get_json_object(string_field1, '$.a'), " +
-          "'$.y'), '$.z') != null")(x => assert(checkGetJsonObjectPath(x, "$.a.y.z")))
     }
   }
 

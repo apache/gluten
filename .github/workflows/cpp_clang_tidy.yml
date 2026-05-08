@@ -38,6 +38,10 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
+      # Workspaces bind-mounted into containers are often owned by a different UID than the
+      # container user; Git 2.35+ refuses operations unless the directory is marked safe.
+      - name: Configure Git safe directory (container)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Detect C++ file changes
         id: filter
         run: |

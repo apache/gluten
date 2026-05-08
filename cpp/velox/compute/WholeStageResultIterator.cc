@@ -19,7 +19,6 @@
 #include "VeloxPlanConverter.h"
 #include "VeloxRuntime.h"
 #include "config/VeloxConfig.h"
-#include "jni/JniCommon.h"
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
@@ -76,6 +75,9 @@ WholeStageResultIterator::WholeStageResultIterator(
     const std::vector<facebook::velox::core::PlanNodeId>& scanNodeIds,
     const std::vector<std::shared_ptr<SplitInfo>>& scanInfos,
     const std::vector<facebook::velox::core::PlanNodeId>& streamIds,
+    folly::Executor* executor,
+    folly::Executor* spillExecutor,
+    VeloxConnectorIds connectorIds,
     const std::string spillDir,
     const std::shared_ptr<facebook::velox::config::ConfigBase>& veloxCfg,
     const SparkTaskInfo& taskInfo)
@@ -85,21 +87,14 @@ WholeStageResultIterator::WholeStageResultIterator(
       enableCudf_(veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)),
 #endif
       taskInfo_(taskInfo),
+      executor_(executor),
       veloxPlan_(planNode),
+      spillExecutor_(spillExecutor),
+      connectorIds_(std::move(connectorIds)),
       scanNodeIds_(scanNodeIds),
       scanInfos_(scanInfos),
       streamIds_(streamIds) {
   spillStrategy_ = veloxCfg_->get<std::string>(kSpillStrategy, kSpillStrategyDefaultValue);
-  auto spillThreadNum = veloxCfg_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
-  if (spillThreadNum > 0) {
-    // INVARIANT: spillExecutor_ threads must never call libhdfs.
-    // JniAwareThreadFactory calls DetachCurrentThread at thread exit (inside the
-    // thread fn body, before any pthread_key destructor). If libhdfs were used on
-    // these threads, hdfsThreadDestructor would fire afterward with a stale JNIEnv*,
-    // causing SIGSEGV. Spill always uses local or heap-over-local filesystem.
-    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
-        spillThreadNum, std::make_shared<gluten::JniAwareThreadFactory>());
-  }
   getOrderedNodeIds(veloxPlan_, orderedNodeIds_);
 
   auto fileSystem = velox::filesystems::getFileSystem(spillDir, nullptr);
@@ -166,7 +161,7 @@ WholeStageResultIterator::WholeStageResultIterator(
         std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", "hive-iceberg"}};
         auto deleteFiles = icebergSplitInfo->deleteFilesVec[idx];
         split = std::make_shared<velox::connector::hive::iceberg::HiveIcebergSplit>(
-            kHiveConnectorId,
+            connectorIds_.hive,
             paths[idx],
             format,
             starts[idx],
@@ -180,11 +175,11 @@ WholeStageResultIterator::WholeStageResultIterator(
             metadataColumn,
             properties[idx]);
       } else {
-        auto connectorId = kHiveConnectorId;
+        auto connectorId = connectorIds_.hive;
 #ifdef GLUTEN_ENABLE_GPU
         if (canUseCudfConnector && enableCudf_ &&
             veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault)) {
-          connectorId = kCudfHiveConnectorId;
+          connectorId = connectorIds_.cudfHive;
         }
 #endif
         split = std::make_shared<velox::connector::hive::HiveConnectorSplit>(
@@ -219,14 +214,21 @@ WholeStageResultIterator::WholeStageResultIterator(
 
 std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQueryCtx() {
   std::unordered_map<std::string, std::shared_ptr<velox::config::ConfigBase>> connectorConfigs;
-  connectorConfigs[kHiveConnectorId] = createHiveConnectorSessionConfig(veloxCfg_);
+  auto hiveSessionConfig = createHiveConnectorSessionConfig(veloxCfg_);
+  connectorConfigs[connectorIds_.hive] = hiveSessionConfig;
+  connectorConfigs[connectorIds_.iterator] = hiveSessionConfig;
+#ifdef GLUTEN_ENABLE_GPU
+  if (!connectorIds_.cudfHive.empty()) {
+    connectorConfigs[connectorIds_.cudfHive] = hiveSessionConfig;
+  }
+#endif
   std::shared_ptr<velox::core::QueryCtx> ctx = velox::core::QueryCtx::create(
-      nullptr,
+      executor_,
       facebook::velox::core::QueryConfig{getQueryContextConf()},
       connectorConfigs,
       gluten::VeloxBackend::get()->getAsyncDataCache(),
       memoryManager_->getAggregateMemoryPool(),
-      spillExecutor_.get(),
+      spillExecutor_,
       fmt::format(
           "Gluten_Stage_{}_TID_{}_VTID_{}",
           std::to_string(taskInfo_.stageId),
@@ -372,7 +374,7 @@ void WholeStageResultIterator::addIteratorSplits(const std::vector<std::shared_p
     if (inputIterators[i] == nullptr) {
       continue;
     }
-    auto connectorSplit = std::make_shared<IteratorConnectorSplit>(kIteratorConnectorId, inputIterators[i]);
+    auto connectorSplit = std::make_shared<IteratorConnectorSplit>(connectorIds_.iterator, inputIterators[i]);
     exec::Split split(folly::copy(connectorSplit), -1);
     task_->addSplit(streamIds_[i], std::move(split));
   }

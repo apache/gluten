@@ -1,6 +1,32 @@
-# Delta Lake Feature Support Status in Apache Gluten (Velox Backend, Spark 3.5)
+# Delta Lake Feature Support Status in Apache Gluten (Velox Backend)
 
-This document summarizes the current support status of **Delta Lake table features** when used with **Apache Gluten (Velox backend)** on **Apache Spark 3.5**.
+This document summarizes the support status of **Delta Lake table features** when used with **Apache Gluten (Velox backend)**.
+
+## Supported Spark / Delta combinations
+
+| Spark profile | Spark version | Scala version | Delta Lake version | Status |
+|---|---|---|---|---|
+| `spark-3.5` | Spark 3.5.x | 2.12 | 3.3.x | Supported |
+| `spark-4.0` | Spark 4.0.x | 2.13 | 4.0.x | Supported |
+
+Native Delta write is supported in both Spark 3.5 and Spark 4.0 profiles. The difference between
+the two rows above is the Spark/Delta compatibility target (Spark 3.5 + Delta 3.3 vs Spark 4.0 +
+Delta 4.0), not a native-write capability gap.
+
+## Build and runtime notes
+
+Build Gluten with Delta support by enabling `-Pdelta` together with the Velox backend profile and a Spark profile.
+
+- Spark 3.5 build example:
+  - `mvn clean package -Pbackends-velox -Pdelta -Pspark-3.5 -DskipTests`
+- Spark 4.0 build example:
+  - `mvn clean package -Pbackends-velox -Pdelta -Pspark-4.0 -Pscala-2.13 -Pjava-17 -DskipTests`
+
+Native Delta write is controlled by:
+
+- `spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite`
+  - Default: `false`
+  - Type: experimental
 
 | Feature | Delta minWriterVersion | Delta minReaderVersion | Iceberg format-version | Feature type | Supported by Gluten (Velox) |
 |---|---:|---:|---:|---|---|

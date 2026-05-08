@@ -85,6 +85,7 @@ include_directories(
   ${ClickHouse_SOURCE_DIR}/contrib/azure/sdk/storage/azure-storage-blobs/inc
   ${ClickHouse_SOURCE_DIR}/contrib/azure/sdk/core/azure-core/inc
   ${ClickHouse_SOURCE_DIR}/contrib/azure/sdk/storage/azure-storage-common/inc
+  ${ClickHouse_SOURCE_DIR}/contrib/azure/sdk/identity/azure-identity/inc
   ${ClickHouse_SOURCE_DIR}/contrib/llvm-project/llvm/include
   ${ClickHouse_SOURCE_DIR}/contrib/llvm-project/utils/bazel/llvm-project-overlay/llvm/include
   ${ClickHouse_SOURCE_DIR}/contrib/libdivide

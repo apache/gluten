@@ -13,7 +13,6 @@ hs_err_pid*
 
 # IDEA config
 .idea/
-!.idea/vcs.xml
 # vscode config
 .vscode
 # vscode scala

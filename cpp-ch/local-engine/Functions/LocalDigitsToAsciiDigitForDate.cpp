@@ -219,7 +219,8 @@ private:
         size_t i = 0;
         for (; i + kBlockSize <= size; i += kBlockSize)
         {
-            if (!simd8_u8::load(reinterpret_cast<const uint8_t *>(data + i)).is_ascii())
+            const auto chunk = simd8_u8(simd8_u8::load(reinterpret_cast<const uint8_t *>(data + i)));
+            if (chunk.any_bits_set_anywhere(simd8_u8(0x80)))
                 return true;
         }
         for (; i < size; ++i)

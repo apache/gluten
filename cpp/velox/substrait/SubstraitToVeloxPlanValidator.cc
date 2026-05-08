@@ -1153,7 +1153,7 @@ bool SubstraitToVeloxPlanValidator::validateAggRelFunctionType(const ::substrait
     auto funcName = planConverter_->toAggregationFunctionName(baseFuncName, funcStep, resultType);
     auto signaturesOpt = exec::getAggregateFunctionSignatures(funcName);
     if (!signaturesOpt) {
-      LOG_VALIDATION_MSG("can not find function signature for " + funcName + " in AggregateRel.");
+      LOG_VALIDATION_MSG("No function signatures found for function name: " + funcName);
       return false;
     }
 
@@ -1179,8 +1179,8 @@ bool SubstraitToVeloxPlanValidator::validateAggRelFunctionType(const ::substrait
         }
 
         if (resolveType == nullptr) {
-          LOG_VALIDATION_MSG("Validation failed for function " + funcName + " resolve type in AggregateRel.");
-          return false;
+          LOG_VALIDATION_MSG("Failed to resolve intermediate/return type for function " + funcName);
+          break;
         }
 
         resolved = true;
@@ -1188,7 +1188,23 @@ bool SubstraitToVeloxPlanValidator::validateAggRelFunctionType(const ::substrait
       }
     }
     if (!resolved) {
-      LOG_VALIDATION_MSG("Validation failed for function " + funcName + " bind signatures in AggregateRel.");
+      std::vector<std::string> inputTypeStrs;
+      for (const auto& type : types) {
+        inputTypeStrs.push_back(type->toString());
+      }
+
+      std::vector<std::string> signatureStrs;
+      for (const auto& signature : signaturesOpt.value()) {
+        signatureStrs.push_back(signature->toString());
+      }
+
+      LOG_VALIDATION_MSG(fmt::format(
+          "Validation failed for function {} when binding signatures.\n"
+          "  Input types: [{}]\n"
+          "  Registered signatures:\n    {}",
+          funcName,
+          folly::join(", ", inputTypeStrs),
+          folly::join("\n    ", signatureStrs)));
       return false;
     }
   }

@@ -51,7 +51,7 @@ trait SubstraitBackend extends Backend with Logging {
       SoftAffinityListener.register(sc)
     }
 
-    postBuildInfoEvent(sc)
+    postBuildInfoEvent(sc, info())
     setBuildInfoConfig(conf)
 
     setPredefinedConfigs(conf)
@@ -96,7 +96,7 @@ trait SubstraitBackend extends Backend with Logging {
 object SubstraitBackend extends Logging {
 
   /** Since https://github.com/apache/gluten/pull/2247. */
-  private def postBuildInfoEvent(sc: SparkContext): Unit = {
+  private def postBuildInfoEvent(sc: SparkContext, infos: Map[String, String]): Unit = {
     // export gluten version to property to spark
     System.setProperty("gluten.version", GlutenBuildInfo.VERSION)
 
@@ -113,6 +113,7 @@ object SubstraitBackend extends Logging {
     glutenBuildInfo.put("Gluten Revision Time", GlutenBuildInfo.REVISION_TIME)
     glutenBuildInfo.put("Gluten Build Time", GlutenBuildInfo.BUILD_DATE)
     glutenBuildInfo.put("Gluten Repo URL", GlutenBuildInfo.REPO_URL)
+    infos.foreach { case (key, value) => glutenBuildInfo.put(key, value) }
 
     val loggingInfo = glutenBuildInfo
       .map { case (name, value) => s"$name: $value" }

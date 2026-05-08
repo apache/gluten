@@ -874,7 +874,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   const auto& compressionKind =
       writerOptions->compressionKind.value_or(common::CompressionKind::CompressionKind_SNAPPY);
   std::shared_ptr<core::InsertTableHandle> tableHandle = std::make_shared<core::InsertTableHandle>(
-      kHiveConnectorId,
+      connectorIds_.hive,
       makeHiveInsertTableHandle(
           tableColumnNames, /*inputType->names() clolumn name is different*/
           inputType->children(),
@@ -1408,7 +1408,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(
   // Create TableHandle
   bool dynamicFilterEnabled =
       veloxCfg_->get<bool>(kValueStreamDynamicFilterEnabled, kValueStreamDynamicFilterEnabledDefault);
-  auto tableHandle = std::make_shared<ValueStreamTableHandle>(kIteratorConnectorId, dynamicFilterEnabled);
+  auto tableHandle = std::make_shared<ValueStreamTableHandle>(connectorIds_.iterator, dynamicFilterEnabled);
 
   // Create column assignments
   connector::ColumnHandleMap assignments;
@@ -1573,11 +1573,11 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
   connector::ConnectorTableHandlePtr tableHandle;
   auto remainingFilter = readRel.has_filter() ? exprConverter_->toVeloxExpr(readRel.filter(), baseSchema) : nullptr;
-  auto connectorId = kHiveConnectorId;
+  auto connectorId = connectorIds_.hive;
   if (useCudfTableHandle(splitInfos_) && veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
 #ifdef GLUTEN_ENABLE_GPU
-    connectorId = kCudfHiveConnectorId;
+    connectorId = connectorIds_.cudfHive;
 #endif
   }
   common::SubfieldFilters subfieldFilters;

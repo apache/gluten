@@ -91,8 +91,10 @@ object ClickHouseSQLQueryTestSettings extends SQLQueryTestSettings {
     // CH- "null-propagation.sql",
     "operators.sql",
     // TODO: rebase-25.12, fix later
+    // the results are the same, but the order of the unsorted data is different.
     // "order-by-nulls-ordering.sql",
     // TODO: rebase-25.12, fix later
+    // the results are the same, but the order of the unsorted data is different.
     // "order-by-ordinal.sql",
     "outer-join.sql",
     "parse-schema-string.sql",
@@ -120,20 +122,22 @@ object ClickHouseSQLQueryTestSettings extends SQLQueryTestSettings {
     "subquery/exists-subquery/exists-having.sql",
     "subquery/exists-subquery/exists-joins-and-set-ops.sql",
     // TODO: rebase-25.12, fix later
+    // the results are the same, but the order of the unsorted data is different.
     // "subquery/exists-subquery/exists-orderby-limit.sql",
     "subquery/exists-subquery/exists-within-and-or.sql",
     "subquery/in-subquery/in-basic.sql",
     "subquery/in-subquery/in-group-by.sql",
     "subquery/in-subquery/in-having.sql",
     // TODO: rebase-25.12, fix later
+    // the results are the same, but the order of the unsorted data is different.
     // "subquery/in-subquery/in-joins.sql",
     "subquery/in-subquery/in-limit.sql",
     "subquery/in-subquery/in-multiple-columns.sql",
     // TODO: rebase-25.12, fix later
+    // the results are the same, but the order of the unsorted data is different.
     // "subquery/in-subquery/in-order-by.sql",
     // CH- "subquery/in-subquery/in-set-operations.sql",
-    // TODO: rebase-25.12, fix later, will core dump
-    // "subquery/in-subquery/in-with-cte.sql",
+    "subquery/in-subquery/in-with-cte.sql",
     "subquery/in-subquery/nested-not-in.sql",
     "subquery/in-subquery/not-in-group-by.sql",
     "subquery/in-subquery/not-in-joins.sql",

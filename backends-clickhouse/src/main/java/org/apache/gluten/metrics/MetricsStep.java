@@ -53,6 +53,12 @@ public class MetricsStep {
   @JsonProperty("miss_cache_millisecond")
   protected long missCacheMillisecond;
 
+  @JsonProperty("parquet_metadata_cache_hits")
+  protected long parquetMetadataCacheHits;
+
+  @JsonProperty("parquet_metadata_cache_misses")
+  protected long parquetMetadataCacheMisses;
+
   public String getName() {
     return name;
   }
@@ -147,5 +153,21 @@ public class MetricsStep {
 
   public void setMissCacheMillisecond(long missCacheMillisecond) {
     this.missCacheMillisecond = missCacheMillisecond;
+  }
+
+  public long getParquetMetadataCacheHits() {
+    return parquetMetadataCacheHits;
+  }
+
+  public void setParquetMetadataCacheHits(long parquetMetadataCacheHits) {
+    this.parquetMetadataCacheHits = parquetMetadataCacheHits;
+  }
+
+  public long getParquetMetadataCacheMisses() {
+    return parquetMetadataCacheMisses;
+  }
+
+  public void setParquetMetadataCacheMisses(long parquetMetadataCacheMisses) {
+    this.parquetMetadataCacheMisses = parquetMetadataCacheMisses;
   }
 }

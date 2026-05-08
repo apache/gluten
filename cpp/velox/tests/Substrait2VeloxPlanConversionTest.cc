@@ -71,8 +71,11 @@ class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBa
   std::shared_ptr<exec::test::TempDirectoryPath> tmpDir_{exec::test::TempDirectoryPath::create()};
   std::shared_ptr<facebook::velox::config::ConfigBase> veloxCfg_ =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
-  std::shared_ptr<VeloxPlanConverter> planConverter_ =
-      std::make_shared<VeloxPlanConverter>(pool(), veloxCfg_.get(), std::vector<std::shared_ptr<ResultIterator>>());
+  std::shared_ptr<VeloxPlanConverter> planConverter_ = std::make_shared<VeloxPlanConverter>(
+      pool(),
+      veloxCfg_.get(),
+      std::vector<std::shared_ptr<ResultIterator>>{},
+      VeloxConnectorIds{.hive = facebook::velox::exec::test::kHiveConnectorId});
 };
 
 // This test will firstly generate mock TPC-H lineitem ORC file. Then, Velox's

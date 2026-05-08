@@ -19,6 +19,7 @@
 #include <jni.h>
 
 #include <Builder/SerializedPlanBuilder.h>
+#include <Columns/ColumnReplicated.h>
 #include <Compression/CompressedReadBuffer.h>
 #include <DataTypes/DataTypeNullable.h>
 #include <Join/BroadCastJoinBuilder.h>
@@ -539,7 +540,16 @@ Java_org_apache_gluten_vectorized_CHNativeBlock_nativeBlockStats(JNIEnv * env, j
     }
     else
     {
-        const auto * nullable = checkAndGetColumn<DB::ColumnNullable>(&*col.column);
+        const DB::ColumnNullable * nullable;
+        if (col.column->isReplicated())
+        {
+            auto * replicated_col = checkAndGetColumn<DB::ColumnReplicated>(&*col.column);
+            nullable = checkAndGetColumn<DB::ColumnNullable>(&*replicated_col->getNestedColumn());
+        }
+        else
+        {
+            nullable = checkAndGetColumn<DB::ColumnNullable>(&*col.column);
+        }
         const auto & null_map_data = nullable->getNullMapData();
 
         jobject block_stats = env->NewObject(

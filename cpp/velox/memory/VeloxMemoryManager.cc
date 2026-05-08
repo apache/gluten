@@ -31,8 +31,6 @@
 #include "memory/ArrowMemoryPool.h"
 #include "utils/Exception.h"
 
-DECLARE_int32(gluten_velox_async_timeout_on_task_stopping);
-
 namespace gluten {
 
 using namespace facebook;
@@ -443,26 +441,9 @@ bool VeloxMemoryManager::tryDestructSafe() {
 }
 
 VeloxMemoryManager::~VeloxMemoryManager() {
-  static const uint32_t kWaitTimeoutMs = FLAGS_gluten_velox_async_timeout_on_task_stopping; // 30s by default
-  uint32_t accumulatedWaitMs = 0UL;
-  bool destructed = false;
-  for (int32_t tryCount = 0; accumulatedWaitMs < kWaitTimeoutMs; tryCount++) {
-    destructed = tryDestructSafe();
-    if (destructed) {
-      if (tryCount > 0) {
-        LOG(INFO) << "All the outstanding memory resources successfully released. ";
-      }
-      break;
-    }
-    uint32_t waitMs = 50 * static_cast<uint32_t>(pow(1.5, tryCount)); // 50ms, 75ms, 112.5ms ...
-    LOG(INFO) << "There are still outstanding Velox memory allocations. Waiting for " << waitMs
-              << " ms to let possible async tasks done... ";
-    usleep(waitMs * 1000);
-    accumulatedWaitMs += waitMs;
-  }
+  bool destructed = tryDestructSafe();
   if (!destructed) {
-    LOG(ERROR) << "Failed to release Velox memory manager after " << accumulatedWaitMs
-               << "ms as there are still outstanding memory resources. ";
+    LOG(ERROR) << "Failed to release Velox memory manager as there are still outstanding memory resources. ";
   }
 #ifdef ENABLE_JEMALLOC_STATS
   malloc_stats_print(nullptr, nullptr, nullptr);

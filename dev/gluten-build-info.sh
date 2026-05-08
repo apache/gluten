@@ -21,6 +21,7 @@ GLUTEN_ROOT=$(cd $(dirname -- $0)/..; pwd -P)
 
 EXTRA_RESOURCE_DIR=$GLUTEN_ROOT/gluten-core/target/generated-resources
 BUILD_INFO="$EXTRA_RESOURCE_DIR"/gluten-build-info.properties
+BACKEND_HOME=""
 
 # Delete old build-info file before regenerating
 rm -f "$BUILD_INFO"
@@ -38,15 +39,44 @@ function echo_revision_info() {
 function echo_velox_revision_info() {
   BACKEND_HOME=$1
   echo gcc_version=$(strings $GLUTEN_ROOT/cpp/build/releases/libgluten.so | grep "GCC:" | head -n 1)
-  echo velox_branch=$(git -C $BACKEND_HOME rev-parse --abbrev-ref HEAD)
-  echo velox_revision=$(git -C $BACKEND_HOME rev-parse HEAD)
-  echo velox_revision_time=$(git -C $BACKEND_HOME show -s --format=%ci HEAD)
+  echo velox_branch=$(git -C "$BACKEND_HOME" rev-parse --abbrev-ref HEAD)
+  echo velox_revision=$(git -C "$BACKEND_HOME" rev-parse HEAD)
+  echo velox_revision_time=$(git -C "$BACKEND_HOME" show -s --format=%ci HEAD)
 }
 
 function echo_clickhouse_revision_info() {
   echo ch_org=$(cat $GLUTEN_ROOT/cpp-ch/clickhouse.version | grep -oP '(?<=^CH_ORG=).*')
   echo ch_branch=$(cat $GLUTEN_ROOT/cpp-ch/clickhouse.version | grep -oP '(?<=^CH_BRANCH=).*')
   echo ch_commit=$(cat $GLUTEN_ROOT/cpp-ch/clickhouse.version | grep -oP '(?<=^CH_COMMIT=).*')
+}
+
+function read_cmake_cache_value() {
+  CACHE_FILE="$GLUTEN_ROOT/cpp/build/CMakeCache.txt"
+  CACHE_KEY="$1"
+  if [ -f "$CACHE_FILE" ]; then
+    # Command-line -D values are stored as UNINITIALIZED unless CMake is given an explicit type.
+    grep "^${CACHE_KEY}:" "$CACHE_FILE" | cut -d= -f2- | head -n 1
+  fi
+}
+
+function resolve_velox_home() {
+  if [ -n "$BACKEND_HOME" ]; then
+    echo "$BACKEND_HOME"
+    return
+  fi
+
+  if [ -n "${VELOX_HOME:-}" ]; then
+    echo "$VELOX_HOME"
+    return
+  fi
+
+  CACHED_VELOX_HOME=$(read_cmake_cache_value VELOX_HOME)
+  if [ -n "$CACHED_VELOX_HOME" ]; then
+    echo "$CACHED_VELOX_HOME"
+    return
+  fi
+
+  echo "$GLUTEN_ROOT/ep/build-velox/build/velox_ep"
 }
 
 while (( "$#" )); do
@@ -60,10 +90,15 @@ while (( "$#" )); do
       echo backend_type="$BACKEND_TYPE" >> "$BUILD_INFO"
       # Compute backend home path based on type
       if [ "velox" = "$BACKEND_TYPE" ]; then
-        BACKEND_HOME="$GLUTEN_ROOT/ep/build-velox/build/velox_ep"
+        BACKEND_HOME=$(resolve_velox_home)
         echo_velox_revision_info "$BACKEND_HOME" >> "$BUILD_INFO"
       elif [ "ch" = "$BACKEND_TYPE" ] || [ "clickhouse" = "$BACKEND_TYPE" ]; then
         echo_clickhouse_revision_info >> "$BUILD_INFO"
+      fi
+      ;;
+    --backend_home|--velox_home)
+      if [ -n "$2" ]; then
+        BACKEND_HOME="$2"
       fi
       ;;
     --java)

@@ -98,7 +98,11 @@ case class CollapseGetJsonObjectExpressionRule(spark: SparkSession) extends Rule
           }
         }
       case _ =>
-        val newChildren = expr.children.map(x => optimizeNestedFunctions(x, path))
+        // Do not propagate the accumulated path into children of non-GJO expressions.
+        // A non-GJO function (e.g. regexp_extract, substring) transforms the JSON string,
+        // so we cannot merge the outer GJO path with any inner GJO path across it.
+        // Each child starts fresh optimization with empty path.
+        val newChildren = expr.children.map(x => optimizeNestedFunctions(x))
         val newExpr = expr.withNewChildren(newChildren)
         if (isNested && path.nonEmpty) {
           val pathExpr = Literal.apply("$" + path)
