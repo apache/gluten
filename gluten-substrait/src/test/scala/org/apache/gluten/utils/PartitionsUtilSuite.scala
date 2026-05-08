@@ -30,10 +30,17 @@ class PartitionsUtilSuite extends AnyFunSuite {
   private def makeFilePartitions(
       files: Seq[PartitionedFile],
       numPartitions: Int): Seq[FilePartition] = {
-    val numGroups = files.size / numPartitions +
-      (if (files.size % numPartitions == 0) 0 else 1)
-    files.grouped(numGroups).toSeq.zipWithIndex.map {
-      case (p, idx) => FilePartition(idx, p.toArray)
+    val groupedFiles = files.zipWithIndex.groupBy {
+      case (_, idx) => idx % numPartitions
+    }
+
+    (0 until numPartitions).map { idx =>
+      val partitionFiles = groupedFiles
+        .getOrElse(idx, Seq.empty)
+        .map(_._1)
+        .toArray
+
+      FilePartition(idx, partitionFiles)
     }
   }
 
