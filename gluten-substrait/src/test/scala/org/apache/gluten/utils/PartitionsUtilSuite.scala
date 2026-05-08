@@ -34,13 +34,14 @@ class PartitionsUtilSuite extends AnyFunSuite {
       case (_, idx) => idx % numPartitions
     }
 
-    (0 until numPartitions).map { idx =>
-      val partitionFiles = groupedFiles
-        .getOrElse(idx, Seq.empty)
-        .map(_._1)
-        .toArray
+    (0 until numPartitions).map {
+      idx =>
+        val partitionFiles = groupedFiles
+          .getOrElse(idx, Seq.empty)
+          .map(_._1)
+          .toArray
 
-      FilePartition(idx, partitionFiles)
+        FilePartition(idx, partitionFiles)
     }
   }
 
