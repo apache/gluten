@@ -932,8 +932,8 @@ object ExpressionConverter extends SQLConfHelper with Logging {
   }
 
   /**
-   * Recursively checks whether the given data type is, or contains, a TimestampType,
-   * including nested array/map/struct/UDT element types.
+   * Recursively checks whether the given data type is, or contains, a TimestampType, including
+   * nested array/map/struct/UDT element types.
    */
   private def involvesTimestampType(dataType: DataType): Boolean = dataType match {
     case TimestampType => true
