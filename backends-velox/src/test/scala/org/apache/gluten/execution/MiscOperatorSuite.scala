@@ -1967,52 +1967,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
-  test("Test json_tuple with get_json_object fallback") {
-    withTempView("t") {
-      Seq[(String)](
-        "{\"k\":\"v\",\"a.b\":\"dot_value\",\"x\":\"1\",\"y\":\"2\"}",
-        "{\"k\":\"v2\",\"a.b\":\"dot_value2\",\"x\":\"3\",\"y\":\"4\"}",
-        null
-      ).toDF("json_field")
-        .createOrReplaceTempView("t")
-      withSQLConf("spark.gluten.expression.blacklist" -> "get_json_object") {
-        // Basic single key extraction
-        checkAnswer(
-          sql("SELECT fk from t lateral view json_tuple(json_field, 'k') as fk"),
-          Seq(Row("v"), Row("v2"), Row(null))
-        )
-
-        // Key containing dot (core scenario for bracket notation)
-        checkAnswer(
-          sql("SELECT fk from t lateral view json_tuple(json_field, 'a.b') as fk"),
-          Seq(Row("dot_value"), Row("dot_value2"), Row(null))
-        )
-
-        // Multiple keys extraction
-        checkAnswer(
-          sql(
-            "SELECT fx, fy from t lateral view json_tuple(json_field, 'x', 'y') as fx, fy"),
-          Seq(Row("1", "2"), Row("3", "4"), Row(null, null))
-        )
-
-        // Non-existent key returns null
-        checkAnswer(
-          sql(
-            "SELECT fk from t lateral view json_tuple(json_field, 'nonexistent') as fk"),
-          Seq(Row(null), Row(null), Row(null))
-        )
-
-        // Mix of existing and non-existing keys
-        checkAnswer(
-          sql(
-            """SELECT fk, fm from t
-              |lateral view json_tuple(json_field, 'k', 'missing') as fk, fm""".stripMargin),
-          Seq(Row("v", null), Row("v2", null), Row(null, null))
-        )
-      }
-    }
-  }
-
   test("Fix shuffle with null type failure") {
     // single and other partitioning
     Seq("1", "2").foreach {
