@@ -98,6 +98,7 @@ abstract class HashAggregateExecBaseTransformer(
 
   protected def checkType(dataType: DataType): Boolean = {
     dataType match {
+      case dt if ConverterUtils.isSupportedTimeType(dt) => true
       case BooleanType | StringType | TimestampType | DateType | BinaryType =>
         true
       case _: NumericType => true

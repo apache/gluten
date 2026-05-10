@@ -34,6 +34,7 @@ class VeloxLiteralSuite extends VeloxWholeStageTransformerSuite {
       .set("spark.sql.shuffle.partitions", "1")
       .set("spark.memory.offHeap.size", "2g")
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
+      .set("spark.sql.ansi.enabled", "false")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
       .set("spark.sql.sources.useV1SourceList", "avro")
   }
@@ -54,6 +55,16 @@ class VeloxLiteralSuite extends VeloxWholeStageTransformerSuite {
         assert(plan.find(_.isInstanceOf[ProjectExecTransformer]).isEmpty, sql)
         assert(plan.find(_.isInstanceOf[ProjectExec]).isDefined, sql)
     }
+  }
+
+  def validateOffloadPlan(sql: String): Unit = {
+    val df = spark.sql(sql)
+    val plan = df.queryExecution.executedPlan
+    assert(plan.find(_.isInstanceOf[ProjectExecTransformer]).isDefined, sql)
+    assert(plan.find(_.isInstanceOf[ProjectExec]).isEmpty, sql)
+    val wholeStageTransformers = plan.collect { case w: WholeStageTransformer => w }
+    assert(wholeStageTransformers.nonEmpty, sql)
+    wholeStageTransformers.foreach(_.nativePlanString())
   }
 
   test("Struct Literal") {
@@ -133,6 +144,14 @@ class VeloxLiteralSuite extends VeloxWholeStageTransformerSuite {
     validateOffloadResult("SELECT TIMESTAMP'2020-12-31', TIMESTAMP'2020-12-30'")
     validateOffloadResult("SELECT X'1234', X'a'")
     validateOffloadResult("SELECT DATE'2020-12-31', DATE'2020-12-30'")
+  }
+
+  testWithMinSparkVersion("Time Literal", "4.1") {
+    // Spark 4.1 cannot collect TIME through Row encoders yet, so this validates planning and
+    // native plan conversion without comparing collected results.
+    validateOffloadPlan("SELECT TIME'12:34:56.123456', TIME'00:00:00'")
+    validateOffloadPlan("SELECT array(TIME'12:34:56.123456', TIME'00:00:00')")
+    validateOffloadPlan("SELECT struct(TIME'12:34:56.123456')")
   }
 
   test("Literal Fallback") {

@@ -69,6 +69,10 @@ public class TypeBuilder {
     return new DateTypeNode(nullable);
   }
 
+  public static TypeNode makeTime(Boolean nullable) {
+    return new TimeTypeNode(nullable);
+  }
+
   public static TypeNode makeIntervalYear(Boolean nullable) {
     return new IntervalYearTypeNode(nullable);
   }

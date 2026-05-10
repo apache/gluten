@@ -31,6 +31,12 @@ const ::substrait::Type& VeloxToSubstraitTypeConvertor::toSubstraitType(
     substraitType->set_allocated_date(substraitDate);
     return *substraitType;
   }
+  if (type->equivalent(*velox::TIME_MICRO_UTC())) {
+    auto substraitTime = google::protobuf::Arena::CreateMessage<::substrait::Type_Time>(&arena);
+    substraitTime->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    substraitType->set_allocated_time(substraitTime);
+    return *substraitType;
+  }
 
   switch (type->kind()) {
     case velox::TypeKind::BOOLEAN: {

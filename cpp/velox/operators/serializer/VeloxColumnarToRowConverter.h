@@ -42,6 +42,7 @@ class VeloxColumnarToRowConverter final : public ColumnarToRowConverter {
   std::shared_ptr<facebook::velox::memory::MemoryPool> veloxPool_;
   std::shared_ptr<facebook::velox::row::UnsafeRowFast> fast_;
   facebook::velox::BufferPtr veloxBuffers_;
+  facebook::velox::RowVectorPtr rowVectorForUnsafeRow_;
   int64_t memThreshold_;
 };
 

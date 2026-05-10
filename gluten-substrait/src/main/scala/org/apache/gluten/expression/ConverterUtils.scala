@@ -26,6 +26,7 @@ import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.util.SparkReflectionUtil
 
 import com.google.protobuf.CodedInputStream
 import io.substrait.proto.Type
@@ -33,10 +34,79 @@ import io.substrait.proto.Type
 import java.util.{ArrayList => JArrayList, List => JList, Locale}
 
 import scala.collection.JavaConverters._
+import scala.util.control.NonFatal
 
 case class ExpressionType(dataType: DataType, nullable: Boolean) {}
 
 object ConverterUtils extends Logging {
+  final private val SparkTimeTypeClassName = "org.apache.spark.sql.types.TimeType"
+  final private val SparkTimeTypeObjectClassName = SparkTimeTypeClassName + "$"
+  final private val TimeMicroPrecision = 6
+  final private val TimeCatalogPattern = "time(?:\\((\\d+)\\))?".r
+
+  private lazy val sparkTimeTypeClass: Option[Class[_]] = {
+    try {
+      Some(SparkReflectionUtil.classForName(SparkTimeTypeClassName))
+    } catch {
+      case _: ClassNotFoundException => None
+    }
+  }
+
+  def isTimeType(dataType: DataType): Boolean = {
+    val typeName = dataType.typeName.toLowerCase(Locale.ROOT)
+    val catalogString = dataType.catalogString.toLowerCase(Locale.ROOT)
+    sparkTimeTypeClass.exists(_.isInstance(dataType)) ||
+    typeName == "time" ||
+    catalogString == "time" ||
+    catalogString.startsWith("time(")
+  }
+
+  def isSupportedTimeType(dataType: DataType): Boolean = {
+    isTimeType(dataType) && timePrecision(dataType).forall(_ <= TimeMicroPrecision)
+  }
+
+  private def timePrecision(dataType: DataType): Option[Int] = {
+    if (!isTimeType(dataType)) {
+      return None
+    }
+    try {
+      Some(dataType.getClass.getMethod("precision").invoke(dataType).asInstanceOf[Int])
+    } catch {
+      case NonFatal(_) =>
+        dataType.catalogString.toLowerCase(Locale.ROOT) match {
+          case TimeCatalogPattern(precision) if precision != null =>
+            Some(precision.toInt)
+          case TimeCatalogPattern(_) =>
+            None
+          case _ =>
+            None
+        }
+    }
+  }
+
+  private def validateTimeType(dataType: DataType): Unit = {
+    timePrecision(dataType).foreach {
+      precision =>
+        if (precision > TimeMicroPrecision) {
+          throw new GlutenNotSupportException(
+            s"Type $dataType is not supported. Velox TIME_MICRO_UTC supports up to " +
+              s"$TimeMicroPrecision fractional digits.")
+        }
+    }
+  }
+
+  private def defaultTimeType(): DataType = {
+    try {
+      val module =
+        SparkReflectionUtil.classForName(SparkTimeTypeObjectClassName).getField("MODULE$").get(null)
+      module.getClass.getMethod("apply").invoke(module).asInstanceOf[DataType]
+    } catch {
+      case NonFatal(e) =>
+        throw new GlutenNotSupportException(
+          "Substrait TIME is only supported when Spark TimeType is available.",
+          e)
+    }
+  }
 
   /**
    * Get the source Attribute for the input Expression. It will traverse the Expression tree in a
@@ -162,6 +232,8 @@ object ConverterUtils extends Logging {
         (BinaryType, isNullable(substraitType.getBinary.getNullability))
       case Type.KindCase.TIMESTAMP_TZ =>
         (TimestampType, isNullable(substraitType.getTimestampTz.getNullability))
+      case Type.KindCase.TIME =>
+        (defaultTimeType(), isNullable(substraitType.getTime.getNullability))
       case Type.KindCase.DATE =>
         (DateType, isNullable(substraitType.getDate.getNullability))
       case Type.KindCase.DECIMAL =>
@@ -197,6 +269,9 @@ object ConverterUtils extends Logging {
 
   def getTypeNode(datatype: DataType, nullable: Boolean): TypeNode = {
     datatype match {
+      case dt if isTimeType(dt) =>
+        validateTimeType(dt)
+        TypeBuilder.makeTime(nullable)
       case BooleanType =>
         TypeBuilder.makeBoolean(nullable)
       case FloatType =>
@@ -271,6 +346,8 @@ object ConverterUtils extends Logging {
         BinaryType
       case _: DateTypeNode =>
         DateType
+      case _: TimeTypeNode =>
+        defaultTimeType()
       case _: IntervalYearTypeNode =>
         YearMonthIntervalType.DEFAULT
       case d: DecimalTypeNode =>
@@ -398,6 +475,7 @@ object ConverterUtils extends Logging {
       case FloatType => "fp32"
       case DoubleType => "fp64"
       case DateType => "date"
+      case dt if isTimeType(dt) => "time"
       case TimestampType => "ts"
       case StringType => "str"
       case BinaryType => "vbin"

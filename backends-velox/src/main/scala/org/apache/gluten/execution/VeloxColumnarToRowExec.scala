@@ -19,6 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
 import org.apache.gluten.exception.GlutenNotSupportException
+import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.vectorized.{NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
@@ -41,6 +42,7 @@ case class VeloxColumnarToRowExec(child: SparkPlan) extends ColumnarToRowExecBas
     // Depending on the input type, VeloxColumnarToRowConverter.
     for (field <- schema.fields) {
       field.dataType match {
+        case dt if ConverterUtils.isSupportedTimeType(dt) =>
         case _: BooleanType =>
         case _: ByteType =>
         case _: ShortType =>

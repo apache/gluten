@@ -62,4 +62,11 @@ TEST_F(VeloxToSubstraitTypeTest, basic) {
   testTypeConversion(ROW({}, {}));
 }
 
+TEST_F(VeloxToSubstraitTypeTest, time) {
+  google::protobuf::Arena arena;
+  auto substraitType = typeConvertor_->toSubstraitType(arena, TIME_MICRO_UTC());
+  ASSERT_EQ(substraitType.kind_case(), ::substrait::Type::KindCase::kTime);
+  ASSERT_TRUE(SubstraitParser::parseType(substraitType)->equivalent(*TIME_MICRO_UTC()));
+}
+
 } // namespace gluten

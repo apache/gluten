@@ -24,6 +24,9 @@ std::string VeloxSubstraitSignature::toSubstraitSignature(const TypePtr& type) {
   if (type->isDate()) {
     return "date";
   }
+  if (type->equivalent(*TIME_MICRO_UTC())) {
+    return "time";
+  }
 
   switch (type->kind()) {
     case TypeKind::BOOLEAN:
@@ -157,6 +160,10 @@ TypePtr VeloxSubstraitSignature::fromSubstraitSignature(const std::string& signa
 
   if (signature == "date") {
     return DATE();
+  }
+
+  if (signature == "time") {
+    return TIME_MICRO_UTC();
   }
 
   if (signature == "nothing") {

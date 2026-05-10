@@ -56,6 +56,7 @@ TEST_F(VeloxSubstraitSignatureTest, toSubstraitSignatureWithType) {
   ASSERT_EQ(toSubstraitSignature(VARBINARY()), "vbin");
   ASSERT_EQ(toSubstraitSignature(TIMESTAMP()), "ts");
   ASSERT_EQ(toSubstraitSignature(DATE()), "date");
+  ASSERT_EQ(toSubstraitSignature(TIME_MICRO_UTC()), "time");
   ASSERT_EQ(toSubstraitSignature(ARRAY(BOOLEAN())), "list");
   ASSERT_EQ(toSubstraitSignature(ARRAY(INTEGER())), "list");
   ASSERT_EQ(toSubstraitSignature(MAP(INTEGER(), BIGINT())), "map");
@@ -107,6 +108,7 @@ TEST_F(VeloxSubstraitSignatureTest, fromSubstraitSignature) {
   ASSERT_EQ(fromSubstraitSignature("vbin")->kind(), TypeKind::VARBINARY);
   ASSERT_EQ(fromSubstraitSignature("ts")->kind(), TypeKind::TIMESTAMP);
   ASSERT_EQ(fromSubstraitSignature("date")->kind(), TypeKind::INTEGER);
+  ASSERT_TRUE(fromSubstraitSignature("time")->equivalent(*TIME_MICRO_UTC()));
   ASSERT_EQ(fromSubstraitSignature("dec<18,2>")->kind(), TypeKind::BIGINT);
   ASSERT_EQ(fromSubstraitSignature("dec<19,2>")->kind(), TypeKind::HUGEINT);
 

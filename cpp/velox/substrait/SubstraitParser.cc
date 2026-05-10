@@ -76,6 +76,8 @@ TypePtr SubstraitParser::parseType(const ::substrait::Type& substraitType, bool 
       return UNKNOWN();
     case ::substrait::Type::KindCase::kDate:
       return DATE();
+    case ::substrait::Type::KindCase::kTime:
+      return TIME_MICRO_UTC();
     case ::substrait::Type::KindCase::kTimestampTz:
       return TIMESTAMP();
     case ::substrait::Type::KindCase::kDecimal: {
@@ -356,6 +358,9 @@ int64_t SubstraitParser::getLiteralValue(const ::substrait::Expression::Literal&
     memcpy(&decimalValue, decimal.c_str(), 16);
     return static_cast<int64_t>(decimalValue);
   }
+  if (literal.has_time()) {
+    return literal.time();
+  }
   return literal.i64();
 }
 
@@ -431,6 +436,7 @@ const std::unordered_map<std::string, std::string> SubstraitParser::typeMap_ = {
     {"fp32", "REAL"},
     {"fp64", "DOUBLE"},
     {"date", "DATE"},
+    {"time", "TIME MICRO UTC"},
     {"ts", "TIMESTAMP"},
     {"str", "VARCHAR"},
     {"vbin", "VARBINARY"},

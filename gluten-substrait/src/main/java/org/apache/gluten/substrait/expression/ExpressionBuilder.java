@@ -110,6 +110,14 @@ public class ExpressionBuilder {
     return new TimestampLiteralNode(vTimestamp, typeNode);
   }
 
+  public static TimeLiteralNode makeTimeLiteral(Long vTime) {
+    return new TimeLiteralNode(vTime);
+  }
+
+  public static TimeLiteralNode makeTimeLiteral(Long vTime, TypeNode typeNode) {
+    return new TimeLiteralNode(vTime, typeNode);
+  }
+
   public static StringLiteralNode makeStringLiteral(String vString) {
     return new StringLiteralNode(vString);
   }
@@ -176,6 +184,11 @@ public class ExpressionBuilder {
     }
     if (typeNode instanceof TimestampTypeNode) {
       return makeTimestampLiteral((Long) obj, typeNode);
+    }
+    if (typeNode instanceof TimeTypeNode) {
+      // Spark stores TimeType literals as nanoseconds since midnight. Substrait time literals
+      // and Velox TIME_MICRO_UTC use microseconds since midnight.
+      return makeTimeLiteral(((Long) obj) / 1000L, typeNode);
     }
     if (typeNode instanceof StringTypeNode) {
       return makeStringLiteral(obj.toString(), typeNode);

@@ -94,4 +94,13 @@ TEST_F(VeloxColumnarToRowTest, Buffer_int64_int64_with_null) {
   testRowBufferAddr(vector, expectArr, sizeof(expectArr));
 }
 
+TEST_F(VeloxColumnarToRowTest, Buffer_time_micro_utc) {
+  auto vector = makeRowVector({makeFlatVector<int64_t>({1, 2}, TIME_MICRO_UTC())});
+
+  uint8_t expectArr[] = {
+      0, 0, 0, 0, 0, 0, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 208, 7, 0, 0, 0, 0, 0, 0,
+  };
+  testRowBufferAddr(vector, expectArr, sizeof(expectArr));
+}
+
 } // namespace gluten

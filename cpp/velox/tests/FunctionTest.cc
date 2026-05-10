@@ -25,6 +25,7 @@
 #include "velox/vector/tests/utils/VectorTestBase.h"
 
 #include "substrait/SubstraitParser.h"
+#include "substrait/SubstraitToVeloxExpr.h"
 #include "substrait/SubstraitToVeloxPlan.h"
 #include "substrait/TypeUtils.h"
 #include "substrait/VariantToVectorConverter.h"
@@ -75,6 +76,22 @@ TEST_F(FunctionTest, getIdxFromNodeName) {
   std::string nodeName = "n1_0";
   int index = SubstraitParser::getIdxFromNodeName(nodeName);
   ASSERT_EQ(index, 0);
+}
+
+TEST_F(FunctionTest, substraitTime) {
+  ::substrait::Type type;
+  type.mutable_time()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+  auto parsedType = SubstraitParser::parseType(type);
+  ASSERT_TRUE(parsedType->equivalent(*TIME_MICRO_UTC()));
+
+  ::substrait::Expression_Literal literal;
+  literal.set_time(45'296'123'456L);
+  ASSERT_EQ(SubstraitParser::getLiteralValue<int64_t>(literal), 45'296'123'456L);
+
+  SubstraitVeloxExprConverter exprConverter(pool(), {});
+  auto constant = exprConverter.toVeloxExpr(literal);
+  ASSERT_TRUE(constant->type()->equivalent(*TIME_MICRO_UTC()));
+  ASSERT_EQ(constant->value().value<TypeKind::BIGINT>(), 45'296'123'456L);
 }
 
 TEST_F(FunctionTest, getNameBeforeDelimiter) {
