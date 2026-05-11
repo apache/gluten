@@ -152,6 +152,7 @@ object GlutenDeltaJobStatsTracker extends Logging {
     }
     private val statsAttrs = aggregates.flatMap(_.aggregateFunction.aggBufferAttributes)
     private val statsResultAttrs = aggregates.flatMap(_.aggregateFunction.inputAggBufferAttributes)
+    private val dataColIndices = dataCols.indices.toArray
     private val veloxAggTask: ColumnarBatchOutIterator = {
       val inputNode = StatisticsInputNode(Seq(dummyKeyAttr), dataCols)
       val aggOp = SortAggregateExec(
@@ -261,6 +262,16 @@ object GlutenDeltaJobStatsTracker extends Logging {
         case t: TerminalRow =>
           val valueBatch = t.batch()
           val numRows = valueBatch.numRows()
+          val statsValueBatch = if (valueBatch.numCols() == dataCols.size) {
+            valueBatch
+          } else {
+            assert(
+              valueBatch.numCols() > dataCols.size,
+              s"Delta stats input has ${valueBatch.numCols()} columns, " +
+                s"but the stats schema needs ${dataCols.size} columns."
+            )
+            ColumnarBatches.select(BackendsApiManager.getBackendName, valueBatch, dataColIndices)
+          }
           val dummyKeyVec = ArrowWritableColumnVector
             .allocateColumns(numRows, new StructType().add(dummyKeyAttr.name, IntegerType))
             .head
@@ -269,10 +280,15 @@ object GlutenDeltaJobStatsTracker extends Logging {
             ColumnarBatches.offload(
               ArrowBufferAllocators.contextInstance(),
               new ColumnarBatch(Array[ColumnVector](dummyKeyVec), numRows)))
-          val compositeBatch = VeloxColumnarBatches.compose(dummyKeyBatch, valueBatch)
-          dummyKeyBatch.close()
-          valueBatch.close()
-          inputBatchQueue.put(Some(compositeBatch))
+          try {
+            val compositeBatch = VeloxColumnarBatches.compose(dummyKeyBatch, statsValueBatch)
+            inputBatchQueue.put(Some(compositeBatch))
+          } finally {
+            dummyKeyBatch.close()
+            if (statsValueBatch ne valueBatch) {
+              statsValueBatch.close()
+            }
+          }
       }
     }
 

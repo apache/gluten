@@ -434,6 +434,42 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
     }
   }
 
+  test("native delta Iceberg-compatible partitioned write should collect stats") {
+    withNativeWriteOffloadConf(collectStats = true) {
+      withSQLConf(DeltaSQLConf.DELTA_OPTIMIZE_WRITE_ENABLED.key -> "true") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            val input = spark
+              .range(0, 12, 1, 3)
+              .selectExpr("id", "cast(id % 3 as int) as part")
+
+            val plans = collectExecutedPlans {
+              input.write
+                .format("delta")
+                .option(DeltaConfigs.COLUMN_MAPPING_MODE.key, "name")
+                .option(DeltaConfigs.ICEBERG_COMPAT_V1_ENABLED.key, "true")
+                .partitionBy("part")
+                .mode("overwrite")
+                .save(path)
+            }
+
+            assertContainsNativeWriteCommand(
+              plans,
+              "Iceberg-compatible partitioned DataFrameWriter.save(overwrite) with stats")
+            assert(spark.read.format("delta").load(path).collect().toSet == input.collect().toSet)
+
+            val snapshot = DeltaLog.forTable(spark, path).update()
+            assert(IcebergCompatV1.isEnabled(snapshot.metadata))
+            val addFiles = snapshot.allFiles.collect()
+            assert(addFiles.nonEmpty, "Expected Delta write to add files")
+            val stats = addFiles.map(add => readStatsJson(add.stats))
+            assert(stats.map(numRecords).sum == 12)
+        }
+      }
+    }
+  }
+
   test("native delta optimize command should be offloaded") {
     withNativeWriteOffloadConf {
       withTempDir {

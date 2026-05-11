@@ -564,6 +564,14 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
           }
       }.toArray
 
+    private val reservePartitionColumns: Boolean =
+      description.partitionColumns.exists {
+        pcol =>
+          description.dataColumns.exists {
+            dcol => dcol.name == pcol.name && dcol.exprId == pcol.exprId
+          }
+      }
+
     private def beforeWrite(record: InternalRow): Unit = {
       val nextPartitionValues = if (isPartitioned) Some(getPartitionValues(record)) else None
       val nextBucketId = if (isBucketed) Some(getBucketId(record)) else None
@@ -662,7 +670,8 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
           .splitBlockByPartitionAndBucket(
             terminalRow.batch(),
             partitionColIndice,
-            isBucketed)
+            isBucketed,
+            reservePartitionColumns)
         try {
           val iter = blockStripes.iterator()
           while (iter.hasNext) {

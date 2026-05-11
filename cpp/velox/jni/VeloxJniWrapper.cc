@@ -583,7 +583,8 @@ Java_org_apache_gluten_datasource_VeloxDataSourceJniWrapper_splitBlockByPartitio
     jobject wrapper,
     jlong batchHandle,
     jintArray partitionColIndices,
-    jboolean hasBucket) {
+    jboolean hasBucket,
+    jboolean reservePartitionColumns) {
   JNI_METHOD_START
 
   GLUTEN_CHECK(!hasBucket, "Bucketing not supported by splitBlockByPartitionAndBucket");
@@ -600,12 +601,15 @@ Java_org_apache_gluten_datasource_VeloxDataSourceJniWrapper_splitBlockByPartitio
     partitionColIndicesVec.emplace_back(partitionColumnIndex);
   }
 
-  std::vector<int32_t> dataColIndicesVec;
+  std::vector<int32_t> outputColIndicesVec;
   for (int i = 0; i < batch->numColumns(); ++i) {
     if (std::find(partitionColIndicesVec.begin(), partitionColIndicesVec.end(), i) == partitionColIndicesVec.end()) {
-      // The column is not a partition column. Add it to the data column vector.
-      dataColIndicesVec.emplace_back(i);
+      // Write data columns first, matching Spark's dynamic partition writer output schema.
+      outputColIndicesVec.emplace_back(i);
     }
+  }
+  if (reservePartitionColumns) {
+    outputColIndicesVec.insert(outputColIndicesVec.end(), partitionColIndicesVec.begin(), partitionColIndicesVec.end());
   }
 
   auto pool = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager())->getLeafMemoryPool();
@@ -656,9 +660,8 @@ Java_org_apache_gluten_datasource_VeloxDataSourceJniWrapper_splitBlockByPartitio
         : exec::wrap(partitionSize, partitionRows[partitionId], inputRowVector);
 
     const std::shared_ptr<VeloxColumnarBatch> partitionBatch = std::make_shared<VeloxColumnarBatch>(rowVector);
-    const std::shared_ptr<VeloxColumnarBatch> partitionBatchWithoutPartitionColumns =
-        partitionBatch->select(pool.get(), dataColIndicesVec);
-    partitionBatchHandles[partitionId] = ctx->saveObject(partitionBatchWithoutPartitionColumns);
+    const std::shared_ptr<VeloxColumnarBatch> outputBatch = partitionBatch->select(pool.get(), outputColIndicesVec);
+    partitionBatchHandles[partitionId] = ctx->saveObject(outputBatch);
     const auto headingRow = partitionBatch->toUnsafeRow(0);
     const auto headingRowBytes = headingRow.data();
     const auto headingRowNumBytes = headingRow.size();
