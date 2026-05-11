@@ -379,6 +379,10 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
     getConf(PARQUET_UNEXPECTED_METADATA_FALLBACK_FILE_LIMIT)
   }
 
+  def parquetMetadataFallbackSamplePercentage: Double = {
+    getConf(PARQUET_UNEXPECTED_METADATA_FALLBACK_SAMPLE_PERCENTAGE)
+  }
+
   def enableColumnarRange: Boolean = getConf(COLUMNAR_RANGE_ENABLED)
   def enableColumnarCollectLimit: Boolean = getConf(COLUMNAR_COLLECT_LIMIT_ENABLED)
   def enableColumnarCollectTail: Boolean = getConf(COLUMNAR_COLLECT_TAIL_ENABLED)
@@ -1569,6 +1573,16 @@ object GlutenConfig extends ConfigRegistry {
       .intConf
       .checkValue(_ > 0, s"must be positive.")
       .createWithDefault(10)
+
+  val PARQUET_UNEXPECTED_METADATA_FALLBACK_SAMPLE_PERCENTAGE =
+    buildConf("spark.gluten.sql.fallbackUnexpectedMetadataParquet.samplePercentage")
+      .doc("The percentage of root paths to sample for metadata validation when the number" +
+        " of root paths is large. Value range is (0, 1.0]. 1.0 means check all paths" +
+        " (no sampling). A smaller value reduces validation cost for tables with many" +
+        " partitions.")
+      .doubleConf
+      .checkValue(v => v > 0 && v <= 1.0, "must be in range (0, 1.0].")
+      .createWithDefault(0.1)
 
   val COLUMNAR_RANGE_ENABLED =
     buildConf("spark.gluten.sql.columnar.range")

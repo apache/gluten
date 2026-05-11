@@ -52,7 +52,14 @@ object ParquetMetadataUtils extends Logging {
     if (!GlutenConfig.get.parquetMetadataValidationEnabled) {
       None
     } else {
-      rootPaths.foreach {
+      val samplePercentage = GlutenConfig.get.parquetMetadataFallbackSamplePercentage
+      val sampledPaths = sampleRootPaths(rootPaths, samplePercentage)
+
+      logDebug(s"Parquet metadata validation: total rootPaths=${rootPaths.size}, " +
+        s"sampled=${sampledPaths.size}, samplePercentage=$samplePercentage, " +
+        s"fileLimit=$fileLimit")
+
+      sampledPaths.foreach {
         rootPath =>
           val fs = new Path(rootPath).getFileSystem(hadoopConf)
           try {
@@ -73,6 +80,33 @@ object ParquetMetadataUtils extends Logging {
       }
       None
     }
+  }
+
+  /**
+   * Samples root paths based on the given percentage. When the number of root paths is large,
+   * sampling reduces the cost of metadata validation significantly.
+   *
+   * The sampling strategy selects paths at evenly spaced intervals to ensure good coverage across
+   * different partitions.
+   *
+   * @param rootPaths
+   *   All root paths to sample from
+   * @param samplePercentage
+   *   Percentage of paths to sample, in range (0, 1.0]
+   * @return
+   *   Sampled subset of root paths
+   */
+  private def sampleRootPaths(rootPaths: Seq[String], samplePercentage: Double): Seq[String] = {
+    if (samplePercentage >= 1.0 || rootPaths.size <= 1) {
+      return rootPaths
+    }
+    val sampleCount = math.max(1, math.ceil(rootPaths.size * samplePercentage).toInt)
+    if (sampleCount >= rootPaths.size) {
+      return rootPaths
+    }
+    // Use evenly spaced interval sampling for better coverage across partitions
+    val step = rootPaths.size.toDouble / sampleCount
+    (0 until sampleCount).map(i => rootPaths((i * step).toInt))
   }
 
   def validateCodec(footer: ParquetMetadata): Option[String] = {

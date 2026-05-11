@@ -207,10 +207,26 @@ object VeloxBackendSettings extends BackendSettingsApi {
         // Only Parquet is needed for metadata validation so far.
         return None
       }
+      // Skip root paths that do not exist yet (e.g., during INSERT operations where
+      // the target directory may not be created yet). Do not filter out local
+      // (file://) paths here because metadata validation is independent of native
+      // file system registration and must still run for local paths in test envs.
+      val existingRootPaths = rootPaths.filter {
+        p =>
+          try {
+            val path = new Path(p)
+            path.getFileSystem(hadoopConf).exists(path)
+          } catch {
+            case _: Exception => false
+          }
+      }
+      if (existingRootPaths.isEmpty) {
+        return None
+      }
       val fileLimit = GlutenConfig.get.parquetMetadataFallbackFileLimit
       val parquetOptions = new ParquetOptions(CaseInsensitiveMap(properties), SQLConf.get)
       ParquetMetadataUtils
-        .validateMetadata(rootPaths, hadoopConf, parquetOptions, fileLimit)
+        .validateMetadata(existingRootPaths, hadoopConf, parquetOptions, fileLimit)
         .map(reason => s"Detected unsupported metadata in parquet files: $reason")
     }
 

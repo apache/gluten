@@ -162,4 +162,72 @@ class ParquetEncryptionDetectionSuite extends SharedSparkSession {
         assertFalse(isFileEncrypted(filePath))
     }
   }
+
+  test("Metadata validation with sampling - encrypted file detected in sampled paths") {
+    withTempDir {
+      tempDir =>
+        // Create multiple subdirectories simulating partitions
+        val numPartitions = 20
+        val encryptedPartitionIndex = 5
+        val paths = (0 until numPartitions).map {
+          i =>
+            val partDir = s"${tempDir.getAbsolutePath}/partition=$i"
+            new java.io.File(partDir).mkdirs()
+            val filePath = s"$partDir/data.parquet"
+            if (i == encryptedPartitionIndex) {
+              val encryptionProps = FileEncryptionProperties
+                .builder(Base64.getDecoder.decode(masterKey))
+                .withEncryptedColumns(
+                  Map(
+                    ColumnPath.get("name") -> ColumnEncryptionProperties
+                      .builder(ColumnPath.get("name"))
+                      .withKey(Base64.getDecoder.decode(columnKey))
+                      .build()).asJava)
+                .build()
+              writeParquet(filePath, Some(encryptionProps), Seq(Map("id" -> i, "name" -> "Test")))
+            } else {
+              writeParquet(filePath, None, Seq(Map("id" -> i, "name" -> "Test")))
+            }
+            partDir
+        }
+
+        // With 100% sampling, the encrypted file should always be detected
+        withSQLConf(
+          GlutenConfig.PARQUET_UNEXPECTED_METADATA_FALLBACK_SAMPLE_PERCENTAGE.key -> "1.0") {
+          val parquetOptions = new ParquetOptions(CaseInsensitiveMap(Map()), SQLConf.get)
+          val result = ParquetMetadataUtils
+            .validateMetadata(paths, new Configuration(), parquetOptions, 100)
+          assertTrue(
+            "Should detect encrypted file with 100% sampling",
+            result.isDefined)
+        }
+    }
+  }
+
+  test("Metadata validation with sampling - all plain files pass validation") {
+    withTempDir {
+      tempDir =>
+        // Create multiple subdirectories with only plain files
+        val numPartitions = 10
+        val paths = (0 until numPartitions).map {
+          i =>
+            val partDir = s"${tempDir.getAbsolutePath}/partition=$i"
+            new java.io.File(partDir).mkdirs()
+            val filePath = s"$partDir/data.parquet"
+            writeParquet(filePath, None, Seq(Map("id" -> i, "name" -> "Test")))
+            partDir
+        }
+
+        // With any sampling percentage, all plain files should pass
+        withSQLConf(
+          GlutenConfig.PARQUET_UNEXPECTED_METADATA_FALLBACK_SAMPLE_PERCENTAGE.key -> "0.3") {
+          val parquetOptions = new ParquetOptions(CaseInsensitiveMap(Map()), SQLConf.get)
+          val result = ParquetMetadataUtils
+            .validateMetadata(paths, new Configuration(), parquetOptions, 100)
+          assertFalse(
+            "Should pass validation when all files are plain",
+            result.isDefined)
+        }
+    }
+  }
 }
