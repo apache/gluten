@@ -25,6 +25,7 @@ import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.commands.optimize.OptimizeMetrics
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
+import org.apache.spark.sql.delta.util.JsonUtils
 import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
@@ -45,14 +46,22 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
     .exists(_.toLowerCase(java.util.Locale.ROOT).contains("mac"))
 
   private def withNativeWriteOffloadConf[T](f: => T): T = {
+    withNativeWriteOffloadConf(collectStats = false)(f)
+  }
+
+  private def withNativeWriteOffloadConf[T](collectStats: Boolean)(f: => T): T = {
     val confs = Seq(
       SQLConf.ANSI_ENABLED.key -> "false",
       SQLConf.SESSION_LOCAL_TIMEZONE.key -> "UTC",
       GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false",
-      DeltaSQLConf.DELTA_COLLECT_STATS.key -> "false"
+      DeltaSQLConf.DELTA_COLLECT_STATS.key -> collectStats.toString
     ) ++
       (if (isMac) {
-         Seq(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false")
+         Seq(
+           GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false",
+           GlutenConfig.COLUMNAR_FILESCAN_ENABLED.key -> "false",
+           GlutenConfig.COLUMNAR_BATCHSCAN_ENABLED.key -> "false"
+         )
        } else {
          Seq.empty
        })
@@ -71,14 +80,27 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
         s"${GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key} should be false in native write tests"
       )
       assert(
-        !spark.sessionState.conf.getConf(DeltaSQLConf.DELTA_COLLECT_STATS),
-        s"${DeltaSQLConf.DELTA_COLLECT_STATS.key} should be false in native write tests")
+        spark.sessionState.conf.getConf(DeltaSQLConf.DELTA_COLLECT_STATS) == collectStats,
+        s"${DeltaSQLConf.DELTA_COLLECT_STATS.key} should be $collectStats in native write tests"
+      )
       if (isMac) {
         assert(
           !spark.sessionState.conf
             .getConfString(GlutenConfig.NATIVE_VALIDATION_ENABLED.key)
             .toBoolean,
           s"${GlutenConfig.NATIVE_VALIDATION_ENABLED.key} should be false on macOS"
+        )
+        assert(
+          !spark.sessionState.conf
+            .getConfString(GlutenConfig.COLUMNAR_FILESCAN_ENABLED.key)
+            .toBoolean,
+          s"${GlutenConfig.COLUMNAR_FILESCAN_ENABLED.key} should be false on macOS"
+        )
+        assert(
+          !spark.sessionState.conf
+            .getConfString(GlutenConfig.COLUMNAR_BATCHSCAN_ENABLED.key)
+            .toBoolean,
+          s"${GlutenConfig.COLUMNAR_BATCHSCAN_ENABLED.key} should be false on macOS"
         )
       }
       f
@@ -205,6 +227,18 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
           metrics.partitionsOptimized == expected,
           s"Expected $expected optimized partitions for $context, got " +
             metrics.partitionsOptimized)
+    }
+  }
+
+  private def readStatsJson(stats: String): Map[String, Any] = {
+    assert(stats != null && stats.nonEmpty, "Expected Delta AddFile stats to be recorded")
+    JsonUtils.fromJson[Map[String, Any]](stats)
+  }
+
+  private def numRecords(stats: Map[String, Any]): Long = {
+    stats("numRecords") match {
+      case number: Number => number.longValue()
+      case other => other.toString.toLong
     }
   }
 
@@ -342,6 +376,60 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
             result.select("id", "value", "part").collect().toSet == Set(
               Row(1, "a", 0),
               Row(2, "b", 1)))
+      }
+    }
+  }
+
+  test("native delta optimized partitioned write should collect stats and honor file layout") {
+    withNativeWriteOffloadConf(collectStats = true) {
+      withSQLConf(DeltaSQLConf.DELTA_OPTIMIZE_WRITE_ENABLED.key -> "true") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            val maxRecordsPerFile = 4L
+            val input = spark
+              .range(0, 40, 1, 4)
+              .selectExpr(
+                "id",
+                "concat('v', cast(id as string)) as value",
+                "cast(id % 4 as int) as part")
+
+            val plans = collectExecutedPlans {
+              input.write
+                .format("delta")
+                .partitionBy("part")
+                .option("maxRecordsPerFile", maxRecordsPerFile.toString)
+                .mode("overwrite")
+                .save(path)
+            }
+
+            assertContainsNativeWriteCommand(
+              plans,
+              "optimized partitioned DataFrameWriter.save(overwrite) with stats")
+            assert(spark.read.format("delta").load(path).collect().toSet == input.collect().toSet)
+
+            val addFiles = DeltaLog.forTable(spark, path).update().allFiles.collect()
+            assert(addFiles.nonEmpty, "Expected Delta write to add files")
+            val fileStats = addFiles.map(add => add -> readStatsJson(add.stats))
+            assert(fileStats.map { case (_, stat) => numRecords(stat) }.sum == 40)
+            fileStats.foreach {
+              case (_, stat) =>
+                val fileNumRecords = numRecords(stat)
+                assert(
+                  fileNumRecords <= maxRecordsPerFile,
+                  s"Expected at most $maxRecordsPerFile rows per file, got $fileNumRecords")
+                assert(stat.contains("minValues"), s"Missing minValues in stats: $stat")
+                assert(stat.contains("maxValues"), s"Missing maxValues in stats: $stat")
+                assert(stat.contains("nullCount"), s"Missing nullCount in stats: $stat")
+            }
+            val recordsByPartition = fileStats
+              .groupBy { case (add, _) => add.partitionValues("part") }
+              .map {
+                case (partition, files) =>
+                  partition -> files.map { case (_, stat) => numRecords(stat) }.sum
+              }
+            assert(recordsByPartition == Map("0" -> 10L, "1" -> 10L, "2" -> 10L, "3" -> 10L))
+        }
       }
     }
   }
