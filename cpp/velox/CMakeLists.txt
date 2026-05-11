@@ -76,6 +76,7 @@ if(NOT DEFINED VELOX_BUILD_PATH)
 endif()
 
 find_package(Roaring REQUIRED)
+set(GLUTEN_ROARING_LINK_LIBRARY roaring)
 
 set(VELOX_PROTO_SRC_DIR
     ${GLUTEN_HOME}/backends-velox/src/main/resources/org/apache/gluten/proto)
@@ -326,7 +327,7 @@ endif()
 target_link_libraries(velox PUBLIC facebook::velox)
 
 target_link_libraries(velox PUBLIC Folly::folly)
-target_link_libraries(velox PUBLIC roaring)
+target_link_libraries(velox PUBLIC ${GLUTEN_ROARING_LINK_LIBRARY})
 
 find_re2()
 target_link_libraries(velox PUBLIC ${RE2_LIBRARY})
