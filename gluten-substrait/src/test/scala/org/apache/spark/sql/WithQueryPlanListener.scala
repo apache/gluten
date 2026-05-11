@@ -51,10 +51,10 @@ trait WithQueryPlanListener extends SharedSparkSession with AnyFunSuiteLike {
 
   override def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
       pos: Position): Unit = {
-    super.test(testName, testTags: _*)({
+    super.test(testName, testTags: _*) {
       testFun
       listeners().foreach(_.invokeAll())
-    })(pos)
+    }(pos)
   }
 
   override def beforeEach(): Unit = {

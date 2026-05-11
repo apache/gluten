@@ -25,6 +25,7 @@
 #include <Common/ProfileEvents.h>
 #include <Common/ProfileEventsScope.h>
 #include <Common/ThreadFuzzer.h>
+#include <Common/setThreadName.h>
 
 namespace DB
 {
@@ -58,7 +59,7 @@ bool MergeSparkMergeTreeTask::executeStep()
     std::optional<ThreadGroupSwitcher> switcher;
     if (merge_list_entry)
     {
-        switcher.emplace((*merge_list_entry)->thread_group, "", /*allow_existing_group*/ true);
+        switcher.emplace((*merge_list_entry)->thread_group, ThreadName::GLUTEN_MERGE_MERGETREE, /*allow_existing_group*/ true);
     }
 
     switch (state)

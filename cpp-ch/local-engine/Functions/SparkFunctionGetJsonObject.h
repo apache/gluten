@@ -570,9 +570,9 @@ public:
     }
 
 private:
-    static std::pair<DB::TokenType, StringRef> prevToken(DB::IParser::Pos & iter, size_t n = 1);
+    static std::pair<DB::TokenType, std::string_view> prevToken(DB::IParser::Pos & iter, size_t n = 1);
 
-    static std::pair<DB::TokenType, StringRef> nextToken(DB::IParser::Pos & iter, size_t n = 1);
+    static std::pair<DB::TokenType, std::string_view> nextToken(DB::IParser::Pos & iter, size_t n = 1);
 
     static bool isSubPathBegin(DB::IParser::Pos & iter);
 
@@ -602,7 +602,8 @@ public:
         String json_fields;
         if (const auto * json_fields_col = typeid_cast<const DB::ColumnConst *>(arguments[1].column.get()))
         {
-            json_fields = json_fields_col->getDataAt(0).toString();
+            const auto str_json_fields = json_fields_col->getDataAt(0);
+            json_fields = std::string(str_json_fields.data(), str_json_fields.size());
         }
         else
         {
@@ -692,7 +693,8 @@ private:
         const auto & first_column = arguments[0];
         if (const auto * required_fields_col = typeid_cast<const DB::ColumnConst *>(arguments[1].column.get()))
         {
-            std::string json_fields = required_fields_col->getDataAt(0).toString();
+            const auto str_json_fields = required_fields_col->getDataAt(0);
+            std::string json_fields = std::string(str_json_fields.data(), str_json_fields.size());
             Poco::StringTokenizer tokenizer(json_fields, "|");
             bool path_parsed = true;
             for (const auto & field : tokenizer)

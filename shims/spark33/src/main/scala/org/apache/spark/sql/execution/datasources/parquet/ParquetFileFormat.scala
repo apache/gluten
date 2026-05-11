@@ -535,10 +535,9 @@ object ParquetFileFormat extends Logging {
    *      that file. Thus we only need to retrieve the location of the last block. However, Hadoop
    *      `FileSystem` only provides API to retrieve locations of all blocks, which can be
    *      potentially expensive.
-   *
-   * 2. This optimization is mainly useful for S3, where file metadata operations can be pretty
-   * slow. And basically locality is not available when using S3 (you can't run computation on S3
-   * nodes).
+   *   2. This optimization is mainly useful for S3, where file metadata operations can be pretty
+   *      slow. And basically locality is not available when using S3 (you can't run computation on
+   *      S3 nodes).
    */
   def mergeSchemasInParallel(
       parameters: Map[String, String],

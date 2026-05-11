@@ -16,7 +16,8 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.backendsapi.velox.VeloxValidatorApi
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 
 import org.apache.spark.SparkConf
 
@@ -476,6 +477,19 @@ class VeloxParquetDataTypeValidationSuite extends VeloxWholeStageTransformerSuit
         val executedPlan = getExecutedPlan(df)
         assert(!executedPlan.exists(plan => plan.isInstanceOf[BatchScanExecTransformer]))
         checkAnswer(df, inputDf)
+    }
+  }
+
+  testWithMinSparkVersion(
+    "Schema validation for TimestampNTZ respects enableTimestampNtzValidation",
+    "3.4") {
+    val ntzType = spark.sql("SELECT TIMESTAMP_NTZ'2024-01-01'").schema.head.dataType
+    Seq("true", "false").foreach {
+      enabled =>
+        withSQLConf(VeloxConfig.ENABLE_TIMESTAMP_NTZ_VALIDATION.key -> enabled) {
+          val result = VeloxValidatorApi.validateSchema(ntzType)
+          assert(result.isDefined == enabled.toBoolean)
+        }
     }
   }
 

@@ -75,7 +75,7 @@ DB::ExpressionActionsPtr create_rename_action(const DB::Block & input, const DB:
     return std::make_shared<DB::ExpressionActions>(std::move(actions_dag));
 }
 
-DB::ExpressionActionsPtr create_project_action(const DB::Block & input, const DB::Block & output)
+DB::ExpressionActionsPtr create_project_action(const DB::Block & input, const DB::Block & output, const DB::ContextPtr context)
 {
     DB::ColumnsWithTypeAndName final_cols;
     std::ranges::transform(
@@ -89,11 +89,11 @@ DB::ExpressionActionsPtr create_project_action(const DB::Block & input, const DB
     assert(final_cols.size() == output.columns());
 
     const auto & original_cols = input.getColumnsWithTypeAndName();
-    ActionsDAG final_project = ActionsDAG::makeConvertingActions(original_cols, final_cols, ActionsDAG::MatchColumnsMode::Position);
+    ActionsDAG final_project = ActionsDAG::makeConvertingActions(original_cols, final_cols, ActionsDAG::MatchColumnsMode::Position, context);
     return std::make_shared<DB::ExpressionActions>(std::move(final_project));
 }
 
-void adjust_output(const DB::QueryPipelineBuilderPtr & builder, const DB::Block & output)
+void adjust_output(const DB::QueryPipelineBuilderPtr & builder, const DB::Block & output, const ContextPtr context)
 {
     const auto input = builder->getHeader();
     if (input.columns() != output.columns())
@@ -111,7 +111,7 @@ void adjust_output(const DB::QueryPipelineBuilderPtr & builder, const DB::Block 
             convert_action = create_rename_action(input, output); // name_is_different
     }
     else
-        convert_action = create_project_action(input, output); // type_is_different
+        convert_action = create_project_action(input, output, context); // type_is_different
 
     if (!convert_action)
         return;
@@ -205,7 +205,7 @@ void addSinkTransform(const DB::ContextPtr & context, const substrait::WriteRel 
     {
         MergeTreeTable merge_tree_table(write, table_schema);
         auto output = toShared(TypeParser::buildBlockFromNamedStruct(table_schema, merge_tree_table.low_card_key));
-        adjust_output(builder, *output);
+        adjust_output(builder, *output, context);
 
         builder->addSimpleTransform(
             [&](const SharedHeader & in_header) -> ProcessorPtr { return std::make_shared<MaterializingTransform>(in_header, false); });
@@ -224,7 +224,7 @@ void addSinkTransform(const DB::ContextPtr & context, const substrait::WriteRel 
     else
     {
         auto output = toShared(TypeParser::buildBlockFromNamedStruct(table_schema));
-        adjust_output(builder, *output);
+        adjust_output(builder, *output, context);
         const auto partition_by = collect_partition_cols(*output, table_schema, partition_indexes);
         addNormalFileWriterSinkTransform(context, builder, write.common().format(), output, partition_by);
     }

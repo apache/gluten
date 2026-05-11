@@ -63,7 +63,7 @@ public:
         /// filter with index argument.
         const auto * range_end_node = toFunctionNode(actions_dag, "length", {toFunctionNode(actions_dag, "assumeNotNull", {parsed_args[0]})});
         range_end_node = ActionsDAGUtil::convertNodeType(
-            actions_dag, range_end_node, makeNullable(INT()), range_end_node->result_name);
+            actions_dag, range_end_node, makeNullable(INT()), getContext(), range_end_node->result_name);
         const auto * index_array_node = toFunctionNode(
             actions_dag,
             "range",
@@ -102,14 +102,14 @@ public:
             DataTypePtr dst_array_type = std::make_shared<DataTypeArray>(lambda_args.front().type);
             if (src_array_type->isNullable())
                 dst_array_type = std::make_shared<DataTypeNullable>(dst_array_type);
-            const auto * dst_array_arg = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, parsed_args[0], dst_array_type);
+            const auto * dst_array_arg = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, parsed_args[0], dst_array_type, getContext());
             return toFunctionNode(actions_dag, ch_func_name, {parsed_args[1], dst_array_arg});
         }
 
         /// transform with index argument.
         const auto * range_end_node = toFunctionNode(actions_dag, "length", {toFunctionNode(actions_dag, "assumeNotNull", {parsed_args[0]})});
         range_end_node = ActionsDAGUtil::convertNodeType(
-            actions_dag, range_end_node, makeNullable(INT()), range_end_node->result_name);
+            actions_dag, range_end_node, makeNullable(INT()), getContext(), range_end_node->result_name);
         const auto * index_array_node = toFunctionNode(
             actions_dag,
             "range",
@@ -128,35 +128,57 @@ public:
     String getName() const override { return name; }
     String getCHFunctionName(const substrait::Expression_ScalarFunction & scalar_function) const override
     {
-        return "arrayFold";
+        return "sparkArrayFold";
     }
     const DB::ActionsDAG::Node *
     parse(const substrait::Expression_ScalarFunction & substrait_func, DB::ActionsDAG & actions_dag) const override
     {
         auto ch_func_name = getCHFunctionName(substrait_func);
         auto parsed_args = parseFunctionArguments(substrait_func, actions_dag);
-        assert(parsed_args.size() == 3);
+        if (parsed_args.size() != 3 && parsed_args.size() != 4)
+            throw DB::Exception(DB::ErrorCodes::SIZES_OF_COLUMNS_DOESNT_MATCH, "aggregate function must have three or four arguments");
 
-        const auto * function_type = typeid_cast<const DataTypeFunction *>(parsed_args[2]->result_type.get());
-        if (!function_type)
+        const auto * merge_function_type = typeid_cast<const DataTypeFunction *>(parsed_args[2]->result_type.get());
+        if (!merge_function_type)
             throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "The third argument of aggregate function must be a lambda function");
 
-        if (!parsed_args[1]->result_type->equals(*(function_type->getReturnType())))
+        const auto & merge_arg_types = merge_function_type->getArgumentTypes();
+        if (merge_arg_types.size() != 2)
+            throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "The third argument of aggregate function must be a lambda function with 2 arguments");
+
+        if (!parsed_args[1]->result_type->equals(*(merge_arg_types.front())))
         {
             parsed_args[1] = ActionsDAGUtil::convertNodeType(
                 actions_dag,
                 parsed_args[1],
-                function_type->getReturnType(),
+                merge_arg_types.front(),
+                getContext(),
                 parsed_args[1]->result_name);
         }
 
+        if (parsed_args.size() == 4)
+        {
+            const auto * finish_function_type = typeid_cast<const DataTypeFunction *>(parsed_args[3]->result_type.get());
+            if (!finish_function_type || finish_function_type->getArgumentTypes().size() != 1)
+                throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "The fourth argument of aggregate function must be a lambda function");
+        }
+
+        /// Align array element type with merge lambda argument type.
+        const auto & merge_element_type = merge_arg_types.back();
+        const auto & src_array_type = parsed_args[0]->result_type;
+        DataTypePtr dst_array_type = std::make_shared<DataTypeArray>(merge_element_type);
+        if (src_array_type->isNullable())
+            dst_array_type = std::make_shared<DataTypeNullable>(dst_array_type);
+        const auto * array_col_node = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, parsed_args[0], dst_array_type, getContext());
+
         /// arrayFold cannot accept nullable(array)
-        const auto * array_col_node = parsed_args[0];
         if (parsed_args[0]->result_type->isNullable())
         {
             array_col_node = toFunctionNode(actions_dag, "assumeNotNull", {parsed_args[0]});
         }
-        const auto * func_node = toFunctionNode(actions_dag, ch_func_name, {parsed_args[2], array_col_node, parsed_args[1]});
+        const auto * func_node = parsed_args.size() == 4
+            ? toFunctionNode(actions_dag, ch_func_name, {parsed_args[2], array_col_node, parsed_args[1], parsed_args[3]})
+            : toFunctionNode(actions_dag, ch_func_name, {parsed_args[2], array_col_node, parsed_args[1]});
         /// For null array, result is null.
         /// TODO: make a new version of arrayFold that can handle nullable array.
         const auto * is_null_node = toFunctionNode(actions_dag, "isNull", {parsed_args[0]});
@@ -205,7 +227,7 @@ public:
         DataTypePtr dst_array_type = std::make_shared<DataTypeArray>(lambda_args.front().type);
         if (src_array_type->isNullable())
             dst_array_type = std::make_shared<DataTypeNullable>(dst_array_type);
-        parsed_args[0] = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, parsed_args[0], dst_array_type);
+        parsed_args[0] = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, parsed_args[0], dst_array_type, getContext());
 
         return toFunctionNode(actions_dag, ch_func_name, {parsed_args[1], parsed_args[0]});
     }

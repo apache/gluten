@@ -480,9 +480,6 @@ object GlutenConfig extends ConfigRegistry {
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS.key,
     "spark.io.compression.codec",
     "spark.sql.decimalOperations.allowPrecisionLoss",
-    "spark.gluten.sql.columnar.backend.velox.bloomFilter.expectedNumItems",
-    "spark.gluten.sql.columnar.backend.velox.bloomFilter.numBits",
-    "spark.gluten.sql.columnar.backend.velox.bloomFilter.maxNumBits",
     // s3 config
     SPARK_S3_ACCESS_KEY,
     SPARK_S3_SECRET_KEY,
@@ -714,7 +711,7 @@ object GlutenConfig extends ConfigRegistry {
     buildConf("spark.gluten.sql.supported.flattenNestedFunctions")
       .doc("Flatten nested functions as one for optimization.")
       .stringConf
-      .createWithDefault("and,or");
+      .createWithDefault("and,or")
 
   val PUSH_AGGREGATE_THROUGH_JOIN_ENABLED =
     buildConf("spark.gluten.sql.pushAggregateThroughJoin.enabled")
@@ -1376,13 +1373,13 @@ object GlutenConfig extends ConfigRegistry {
     buildConf("spark.gluten.sql.text.input.max.block.size")
       .doc("the max block size for text input rows")
       .bytesConf(ByteUnit.BYTE)
-      .createWithDefaultString("8KB");
+      .createWithDefaultString("8KB")
 
   val TEXT_INPUT_EMPTY_AS_DEFAULT =
     buildConf("spark.gluten.sql.text.input.empty.as.default")
       .doc("treat empty fields in CSV input as default values.")
       .booleanConf
-      .createWithDefault(false);
+      .createWithDefault(false)
 
   val ENABLE_REWRITE_DATE_TIMESTAMP_COMPARISON =
     buildConf("spark.gluten.sql.rewrite.dateTimestampComparison")

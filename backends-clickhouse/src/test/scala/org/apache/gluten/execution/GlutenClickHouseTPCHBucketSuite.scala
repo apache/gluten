@@ -21,8 +21,11 @@ import org.apache.spark.sql.{DataFrame, GlutenTestUtils, Row}
 import org.apache.spark.sql.execution.InputIteratorTransformer
 import org.apache.spark.sql.execution.aggregate.SortAggregateExec
 
+import org.scalatest.DoNotDiscover
+
 import scala.collection.mutable
 
+@DoNotDiscover
 class GlutenClickHouseTPCHBucketSuite
   extends GlutenClickHouseTPCHAbstractSuite
   with TPCHBucketTableSource

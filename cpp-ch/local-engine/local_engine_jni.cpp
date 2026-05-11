@@ -19,6 +19,7 @@
 #include <jni.h>
 
 #include <Builder/SerializedPlanBuilder.h>
+#include <Columns/ColumnReplicated.h>
 #include <Compression/CompressedReadBuffer.h>
 #include <DataTypes/DataTypeNullable.h>
 #include <Join/BroadCastJoinBuilder.h>
@@ -404,7 +405,7 @@ JNIEXPORT jbyte Java_org_apache_gluten_vectorized_CHColumnVector_nativeGetByte(
     DB::ColumnPtr nested_col = col.column;
     if (const auto * nullable_col = checkAndGetColumn<DB::ColumnNullable>(nested_col.get()))
         nested_col = nullable_col->getNestedColumnPtr();
-    return reinterpret_cast<const jbyte *>(nested_col->getDataAt(row_id).data)[0];
+    return reinterpret_cast<const jbyte *>(nested_col->getDataAt(row_id).data())[0];
     LOCAL_ENGINE_JNI_METHOD_END(env, 0)
 }
 
@@ -416,7 +417,7 @@ JNIEXPORT jshort Java_org_apache_gluten_vectorized_CHColumnVector_nativeGetShort
     DB::ColumnPtr nested_col = col.column;
     if (const auto * nullable_col = checkAndGetColumn<DB::ColumnNullable>(nested_col.get()))
         nested_col = nullable_col->getNestedColumnPtr();
-    return reinterpret_cast<const jshort *>(nested_col->getDataAt(row_id).data)[0];
+    return reinterpret_cast<const jshort *>(nested_col->getDataAt(row_id).data())[0];
     LOCAL_ENGINE_JNI_METHOD_END(env, -1)
 }
 
@@ -481,7 +482,7 @@ JNIEXPORT jstring Java_org_apache_gluten_vectorized_CHColumnVector_nativeGetStri
         nested_col = nullable_col->getNestedColumnPtr();
     const auto * string_col = checkAndGetColumn<DB::ColumnString>(nested_col.get());
     auto result = string_col->getDataAt(row_id);
-    return local_engine::charTojstring(env, result.toString().c_str());
+    return local_engine::charTojstring(env, result.data());
     LOCAL_ENGINE_JNI_METHOD_END(env, local_engine::charTojstring(env, ""))
 }
 
@@ -539,7 +540,16 @@ Java_org_apache_gluten_vectorized_CHNativeBlock_nativeBlockStats(JNIEnv * env, j
     }
     else
     {
-        const auto * nullable = checkAndGetColumn<DB::ColumnNullable>(&*col.column);
+        const DB::ColumnNullable * nullable;
+        if (col.column->isReplicated())
+        {
+            auto * replicated_col = checkAndGetColumn<DB::ColumnReplicated>(&*col.column);
+            nullable = checkAndGetColumn<DB::ColumnNullable>(&*replicated_col->getNestedColumn());
+        }
+        else
+        {
+            nullable = checkAndGetColumn<DB::ColumnNullable>(&*col.column);
+        }
         const auto & null_map_data = nullable->getNullMapData();
 
         jobject block_stats = env->NewObject(

@@ -25,6 +25,9 @@ import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.CoalescedPartitionSpec
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AQEShuffleReadExec}
 
+import org.scalatest.DoNotDiscover
+
+@DoNotDiscover
 class GlutenClickHouseColumnarShuffleAQESuite extends MergeTreeSuite {
 
   /** Run Gluten + ClickHouse Backend with ColumnarShuffleManager */

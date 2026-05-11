@@ -129,7 +129,7 @@ DB::Array PercentileParserBase::parseFunctionParameters(
                     if (arg_nodes[i]->result_type->isNullable())
                         dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
-                    arg_nodes[i] = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, arg_nodes[i], dst_type);
+                    arg_nodes[i] = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, arg_nodes[i], dst_type, getContext());
                 }
 
                 new_arg_nodes.emplace_back(arg_nodes[i]);

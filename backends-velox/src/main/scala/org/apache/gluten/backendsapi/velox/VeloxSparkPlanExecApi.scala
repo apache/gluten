@@ -162,10 +162,9 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
   }
 
-  override def getDecimalArithmeticExprName(exprName: String): String = if (
-    !SQLConf.get.decimalOperationsAllowPrecisionLoss
-  ) { exprName + "_deny_precision_loss" }
-  else { exprName }
+  override def getDecimalArithmeticExprName(exprName: String): String =
+    if (!SQLConf.get.decimalOperationsAllowPrecisionLoss) { exprName + "_deny_precision_loss" }
+    else { exprName }
 
   /** Transform map_entries to Substrait. */
   override def genMapEntriesTransformer(
@@ -925,8 +924,11 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
       expr: Expression): ExpressionTransformer = {
+    // Calling `.toString` on both sides ensures compatibility across all Spark versions.
+    // Starting from Spark 4.1, `SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)` returns
+    // an enum instead of a String.
     if (
-      SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)
+      SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toString
         != SQLConf.MapKeyDedupPolicy.EXCEPTION.toString
     ) {
       GlutenExceptionUtil.throwsNotFullySupported(

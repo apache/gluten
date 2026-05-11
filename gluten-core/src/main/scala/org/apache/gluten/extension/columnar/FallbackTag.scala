@@ -115,7 +115,21 @@ object FallbackTags {
 
 case class RemoveFallbackTagRule() extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = {
-    plan.foreach(FallbackTags.untag)
+    plan.foreach {
+      // Nodes without a logicalLink (e.g. SortExec/BroadcastExchange added by
+      // EnsureRequirements) have no place to forward the fallback reason via
+      // GlutenFallbackReporter. Keep the tag on the physical node so that
+      // GlutenExplainUtils.handleVanillaSparkPlan can still read it directly.
+      // We intentionally do NOT inject a synthetic logicalLink here, because
+      // AdaptiveSparkPlanExec.setLogicalLinkForNewQueryStage relies on these
+      // EnsureRequirements-generated nodes having no logicalLink in order to
+      // walk down to the real logical node; a synthetic link would poison
+      // AQE's stage-to-logical-plan mapping (breaking AQEPropagateEmptyRelation,
+      // ValidateSparkPlan-driven re-plans, etc.).
+      case p if FallbackTags.nonEmpty(p) && p.logicalLink.isEmpty =>
+      case p =>
+        FallbackTags.untag(p)
+    }
     plan
   }
 }

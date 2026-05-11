@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenSQLTestsTrait
+import org.apache.spark.sql.GlutenStreamingSQLTestsTrait
 
-class GlutenFileStreamSinkV1Suite extends FileStreamSinkV1Suite with GlutenSQLTestsTrait {}
+class GlutenFileStreamSinkV1Suite extends FileStreamSinkV1Suite with GlutenStreamingSQLTestsTrait {}
 
-class GlutenFileStreamSinkV2Suite extends FileStreamSinkV2Suite with GlutenSQLTestsTrait {}
+class GlutenFileStreamSinkV2Suite extends FileStreamSinkV2Suite with GlutenStreamingSQLTestsTrait {}

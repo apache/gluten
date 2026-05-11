@@ -75,6 +75,8 @@ if(NOT DEFINED VELOX_BUILD_PATH)
   endif()
 endif()
 
+find_package(Roaring REQUIRED)
+
 set(VELOX_PROTO_SRC_DIR
     ${GLUTEN_HOME}/backends-velox/src/main/resources/org/apache/gluten/proto)
 message(STATUS "Set Gluten Proto Directory in ${VELOX_PROTO_SRC_DIR}")
@@ -157,6 +159,7 @@ set(VELOX_SRCS
     compute/VeloxRuntime.cc
     compute/VeloxPlanConverter.cc
     compute/WholeStageResultIterator.cc
+    compute/delta/RoaringBitmapArray.cpp
     compute/iceberg/IcebergPlanConverter.cc
     jni/JniFileSystem.cc
     jni/JniUdf.cc
@@ -323,6 +326,7 @@ endif()
 target_link_libraries(velox PUBLIC facebook::velox)
 
 target_link_libraries(velox PUBLIC Folly::folly)
+target_link_libraries(velox PUBLIC roaring)
 
 find_re2()
 target_link_libraries(velox PUBLIC ${RE2_LIBRARY})
@@ -387,6 +391,7 @@ target_link_libraries(velox PUBLIC ICU::i18n ICU::uc ICU::data)
 
 if(BUILD_TESTS)
   add_subdirectory(tests)
+  add_subdirectory(compute/delta/tests)
 endif()
 
 if(BUILD_BENCHMARKS)

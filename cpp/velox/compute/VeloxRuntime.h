@@ -19,9 +19,11 @@
 
 #include "WholeStageResultIterator.h"
 #include "compute/Runtime.h"
+#include "compute/VeloxConnectorIds.h"
 #ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
 #include "iceberg/IcebergWriter.h"
 #endif
+#include <folly/Executor.h>
 #include "memory/VeloxMemoryManager.h"
 #include "operators/serializer/VeloxColumnarBatchSerializer.h"
 #include "operators/serializer/VeloxColumnarToRowConverter.h"
@@ -41,6 +43,8 @@ class VeloxRuntime final : public Runtime {
       const std::string& kind,
       VeloxMemoryManager* vmm,
       const std::unordered_map<std::string, std::string>& confMap);
+
+  ~VeloxRuntime() override;
 
   void setSparkTaskInfo(SparkTaskInfo taskInfo) override {
     static std::atomic<uint32_t> vtId{0};
@@ -120,6 +124,22 @@ class VeloxRuntime final : public Runtime {
     return debugModeEnabled_;
   }
 
+  folly::Executor* executor() const {
+    return executor_.get();
+  }
+
+  folly::Executor* spillExecutor() const {
+    return spillExecutor_.get();
+  }
+
+  folly::Executor* ioExecutor() const {
+    return ioExecutor_.get();
+  }
+
+  const VeloxConnectorIds& connectorIds() const {
+    return connectorIds_;
+  }
+
   static void getInfoAndIds(
       const std::unordered_map<facebook::velox::core::PlanNodeId, std::shared_ptr<SplitInfo>>& splitInfoMap,
       const std::unordered_set<facebook::velox::core::PlanNodeId>& leafPlanNodeIds,
@@ -128,9 +148,17 @@ class VeloxRuntime final : public Runtime {
       std::vector<facebook::velox::core::PlanNodeId>& streamIds);
 
  private:
+  void initializeExecutors();
+  void registerConnectors();
+  void unregisterConnectors();
+
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
   std::shared_ptr<facebook::velox::config::ConfigBase> veloxCfg_;
   bool debugModeEnabled_{false};
+  std::unique_ptr<folly::Executor> executor_;
+  std::unique_ptr<folly::Executor> spillExecutor_;
+  std::unique_ptr<folly::Executor> ioExecutor_;
+  VeloxConnectorIds connectorIds_;
 
   std::unordered_map<int32_t, std::shared_ptr<VeloxColumnarBatch>> emptySchemaBatchLoopUp_;
 };

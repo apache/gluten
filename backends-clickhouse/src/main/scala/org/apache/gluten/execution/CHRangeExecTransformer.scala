@@ -34,7 +34,7 @@ import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import com.google.protobuf.StringValue
 import io.substrait.proto.NamedStruct
 
-import scala.collection.JavaConverters;
+import scala.collection.JavaConverters
 
 case class CHRangeExecTransformer(range: LogicalRange)
   extends ColumnarRangeBaseExec

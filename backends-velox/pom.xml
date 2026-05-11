@@ -586,7 +586,7 @@
         </dependency>
         <dependency>
           <groupId>org.apache.paimon</groupId>
-          <artifactId>paimon-spark-${sparkbundle.version}</artifactId>
+          <artifactId>paimon-spark-${sparkbundle.version}_${scala.binary.version}</artifactId>
           <version>${paimon.version}</version>
           <scope>provided</scope>
         </dependency>

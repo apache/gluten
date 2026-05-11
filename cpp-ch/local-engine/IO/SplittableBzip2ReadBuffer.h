@@ -22,7 +22,6 @@
 #if USE_BZIP2
 #include <vector>
 #include <IO/CompressedReadBufferWrapper.h>
-#include <base/StringRef.h>
 #include <iostream>
 
 namespace DB

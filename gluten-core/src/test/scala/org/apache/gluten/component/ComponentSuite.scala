@@ -171,7 +171,7 @@ object ComponentSuite {
   }
 
   private trait CompatibilityHelper extends Component {
-    private var _isRuntimeCompatible: Boolean = true;
+    private var _isRuntimeCompatible: Boolean = true
 
     override def isRuntimeCompatible: Boolean = _isRuntimeCompatible
 

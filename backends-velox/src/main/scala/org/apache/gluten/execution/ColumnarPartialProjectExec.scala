@@ -250,10 +250,10 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
     a2c += System.currentTimeMillis() - start2
     Iterators
       .wrap(Iterator.single(veloxBatch))
-      .recycleIterator({
+      .recycleIterator {
         arrowBatch.close()
         targetBatch.close()
-      })
+      }
       .create()
     // TODO: should check the size <= 1, but now it has bug, will change iterator to empty
   }

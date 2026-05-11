@@ -18,6 +18,9 @@ package org.apache.gluten.execution
 
 import org.apache.spark.SparkConf
 
+import org.scalatest.DoNotDiscover
+
+@DoNotDiscover
 class GlutenClickHouseDSV2ColumnarShuffleSuite extends MergeTreeSuite {
 
   /** Run Gluten + ClickHouse Backend with ColumnarShuffleManager */

@@ -20,13 +20,14 @@ import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
 import org.apache.spark.sql.delta.catalog.DeltaCatalog
-import org.apache.spark.sql.delta.commands.{DeleteCommand, UpdateCommand}
+import org.apache.spark.sql.delta.commands.{DeleteCommand, DeltaCommand, OptimizeTableCommand, UpdateCommand}
+import org.apache.spark.sql.delta.skipping.clustering.ClusteredTableUtils
 import org.apache.spark.sql.delta.sources.DeltaDataSource
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
 import org.apache.spark.sql.execution.datasources.SaveIntoDataSourceCommand
 
-case class OffloadDeltaCommand() extends OffloadSingleNode {
+case class OffloadDeltaCommand() extends OffloadSingleNode with DeltaCommand {
   override def offload(plan: SparkPlan): SparkPlan = {
     if (!VeloxDeltaConfig.get.enableNativeWrite) {
       return plan
@@ -36,6 +37,8 @@ case class OffloadDeltaCommand() extends OffloadSingleNode {
         ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(uc))
       case ExecutedCommandExec(dc: DeleteCommand) =>
         ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(dc))
+      case ExecutedCommandExec(optimize: OptimizeTableCommand) if shouldOffloadOptimize(optimize) =>
+        ExecutedCommandExec(GlutenDeltaRunnableCommand(optimize))
       case ExecutedCommandExec(s @ SaveIntoDataSourceCommand(_, _: DeltaDataSource, _, _)) =>
         ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(s))
       case ctas: AtomicCreateTableAsSelectExec if ctas.catalog.isInstanceOf[DeltaCatalog] =>
@@ -44,5 +47,20 @@ case class OffloadDeltaCommand() extends OffloadSingleNode {
         GlutenDeltaLeafV2CommandExec(rtas)
       case other => other
     }
+  }
+
+  // Currently only plain OPTIMIZE bin-packing is supported for command offload. OPTIMIZE
+  // variants with layout-specific semantics, such as ZORDER, REORG, OPTIMIZE FULL, or
+  // liquid clustering, continue to use Delta's original command path.
+  private def shouldOffloadOptimize(optimize: OptimizeTableCommand): Boolean = {
+    optimize.zOrderBy.isEmpty &&
+    optimize.optimizeContext.reorg.isEmpty &&
+    !optimize.optimizeContext.isFull &&
+    !isClusteredOptimize(optimize)
+  }
+
+  private def isClusteredOptimize(optimize: OptimizeTableCommand): Boolean = {
+    val snapshot = getDeltaTable(optimize.child, "OPTIMIZE").update()
+    ClusteredTableUtils.isSupported(snapshot.protocol)
   }
 }

@@ -63,7 +63,7 @@ SimpleParquetReader::SimpleParquetReader(
     // TODO: set min_bytes_for_seek
     ParquetReader::Settings settings{
         .arrow_properties = parquet::ArrowReaderProperties(),
-        .reader_properties = parquet::ReaderProperties(ArrowMemoryPool::instance()),
+        .reader_properties = parquet::ReaderProperties(arrow::default_memory_pool()),
         .format_settings = format_settings};
 
     read_buffer_reader_ = read_buffer_builder->build(file_info);

@@ -20,7 +20,7 @@
 #include <Interpreters/Context_fwd.h>
 #include <base/types.h>
 #include <boost/core/noncopyable.hpp>
-#include <roaring.hh>
+#include <roaring/roaring.hh>
 
 namespace local_engine
 {

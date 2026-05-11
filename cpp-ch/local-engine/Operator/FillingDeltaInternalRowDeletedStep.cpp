@@ -109,7 +109,8 @@ void FillingDeltaInternalRowDeletedTransform::transform(DB::Chunk & chunk)
 
     for (size_t i = 0; i < num_rows; ++i)
     {
-        std::string part_name = part_path_key_column_data.getDataAt(i).toString();
+        const std::string_view str_data = part_path_key_column_data.getDataAt(i);
+        std::string part_name = std::string(str_data.data(), str_data.size());
         if (dv_map.contains(part_name))
         {
             vec[i] = dv_map.at(part_name)->rb_contains(row_index_column_data.get64(i));

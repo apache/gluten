@@ -79,9 +79,6 @@ const std::string kSparkBloomFilterExpectedNumItems = "spark.sql.optimizer.runti
 const std::string kSparkBloomFilterNumBits = "spark.sql.optimizer.runtime.bloomFilter.numBits";
 const std::string kSparkBloomFilterMaxNumBits = "spark.sql.optimizer.runtime.bloomFilter.maxNumBits";
 const std::string kSparkBloomFilterMaxNumItems = "spark.sql.optimizer.runtime.bloomFilter.maxNumItems";
-const std::string kBloomFilterExpectedNumItems = "spark.gluten.sql.columnar.backend.velox.bloomFilter.expectedNumItems";
-const std::string kBloomFilterNumBits = "spark.gluten.sql.columnar.backend.velox.bloomFilter.numBits";
-const std::string kBloomFilterMaxNumBits = "spark.gluten.sql.columnar.backend.velox.bloomFilter.maxNumBits";
 const std::string kVeloxSplitPreloadPerDriver = "spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver";
 
 const std::string kHashProbeDynamicFilterPushdownEnabled =
@@ -175,7 +172,7 @@ const std::string kOrcUseColumnNames = "spark.gluten.sql.columnar.backend.velox.
 const std::string kParquetUseColumnNames = "spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames";
 const std::string kAllowInt32Narrowing = "spark.gluten.sql.columnar.backend.velox.allowInt32Narrowing";
 
-// write fies
+// write files
 const std::string kMaxPartitions = "spark.gluten.sql.columnar.backend.velox.maxPartitionsPerWritersSession";
 const std::string kMaxTargetFileSize = "spark.gluten.sql.columnar.backend.velox.maxTargetFileSize";
 
@@ -184,6 +181,9 @@ const uint32_t kGlogVerboseLevelDefault = 0;
 const uint32_t kGlogVerboseLevelMaximum = 99;
 const std::string kGlogSeverityLevel = "spark.gluten.sql.columnar.backend.velox.glogSeverityLevel";
 const uint32_t kGlogSeverityLevelDefault = 1;
+
+// Iceberg write configs
+const std::string kWriteParquetPageSizeBytes = "spark.gluten.sql.columnar.backend.velox.parquet.pageSizeBytes";
 
 // Query trace
 /// Enable query tracing flag.

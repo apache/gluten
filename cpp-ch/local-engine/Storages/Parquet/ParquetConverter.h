@@ -162,8 +162,8 @@ struct ConverterString
         buf.resize(count);
         for (size_t i = 0; i < count; ++i)
         {
-            StringRef s = column.getDataAt(offset + i);
-            buf[i] = parquet::ByteArray(static_cast<UInt32>(s.size), reinterpret_cast<const uint8_t *>(s.data));
+            auto s = column.getDataAt(offset + i);
+            buf[i] = parquet::ByteArray(static_cast<UInt32>(s.size()), reinterpret_cast<const uint8_t *>(s.data()));
         }
         return buf.data();
     }

@@ -16,7 +16,6 @@
  */
 package org.apache.gluten.execution.tpch
 
-import org.apache.gluten.backendsapi.clickhouse.CHConfig
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 
@@ -34,9 +33,6 @@ class GlutenClickHouseTPCHSaltNullNativeParquetSuite
       .set("spark.sql.shuffle.partitions", "5")
       .set("spark.sql.autoBroadcastJoinThreshold", "10MB")
       .set(GlutenConfig.GLUTEN_SUPPORTED_SCALA_UDFS.key, "my_add")
-      .set(
-        CHConfig.runtimeSettings("input_format_parquet_use_native_reader_with_filter_push_down"),
-        "true")
   }
 
   final override val testCases: Seq[Int] = Seq(

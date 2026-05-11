@@ -55,4 +55,5 @@ object GlutenBuildInfo {
   val VELOX_REVISION_TIME: String = props.getProperty("velox_revision_time", unknown)
   val CH_BRANCH: String = props.getProperty("ch_branch", unknown)
   val CH_COMMIT: String = props.getProperty("ch_commit", unknown)
+  val CH_ORG: String = props.getProperty("ch_org", unknown)
 }

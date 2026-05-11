@@ -63,14 +63,14 @@ public:
         for (size_t i = 0; i < size; ++i)
         {
             auto str = src_col->getDataAt(i);
-            if (str.size < 4)
+            if (str.size() < 4)
             {
                 null_container[i] = true;
                 continue;
             }
             else
             {
-                DB::ReadBufferFromMemory buf(str.data, str.size);
+                DB::ReadBufferFromMemory buf(str.data(), str.size());
                 while(!buf.eof() && *buf.position() == ' ')
                 {
                     buf.position() ++;

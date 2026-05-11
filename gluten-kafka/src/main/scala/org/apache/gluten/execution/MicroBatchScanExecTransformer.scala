@@ -105,7 +105,7 @@ case class MicroBatchScanExecTransformer(
 
   override protected def doTransform(context: SubstraitContext): TransformContext = {
     val ctx = super.doTransform(context)
-    ctx.root.asInstanceOf[ReadRelNode].setStreamKafka(true);
+    ctx.root.asInstanceOf[ReadRelNode].setStreamKafka(true)
     ctx
   }
 }

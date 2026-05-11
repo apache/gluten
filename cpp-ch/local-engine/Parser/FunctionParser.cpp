@@ -131,6 +131,7 @@ const ActionsDAG::Node * FunctionParser::convertNodeTypeIfNeeded(
                     // as stated in isTypeMatched， currently we don't change nullability of the result type
                     func_node->result_type->isNullable() ? local_engine::wrapNullableType(true, result_type)
                                                          : local_engine::removeNullable(result_type),
+                    getContext(),
                     func_node->result_name,
                     CastType::accurateOrNull);
             }
@@ -139,7 +140,7 @@ const ActionsDAG::Node * FunctionParser::convertNodeTypeIfNeeded(
                 // as stated in isTypeMatched， currently we don't change nullability of the result type
                 auto target_type = func_node->result_type->isNullable() ? local_engine::wrapNullableType(true, result_type)
                                                                         : local_engine::removeNullable(result_type);
-                return ActionsDAGUtil::convertNodeType(actions_dag, func_node, target_type, func_node->result_name);
+                return ActionsDAGUtil::convertNodeType(actions_dag, func_node, target_type, getContext(), func_node->result_name);
             }
         }
         else

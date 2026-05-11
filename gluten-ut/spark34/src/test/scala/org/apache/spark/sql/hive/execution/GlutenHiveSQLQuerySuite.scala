@@ -38,7 +38,7 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
       sql(
         "CREATE TABLE test_orc (name STRING, favorite_color STRING)" +
           " USING hive OPTIONS(fileFormat 'orc')")
-      sql("INSERT INTO test_orc VALUES('test_1', 'red')");
+      sql("INSERT INTO test_orc VALUES('test_1', 'red')")
       val df = spark.sql("select * from test_orc")
       checkAnswer(df, Seq(Row("test_1", "red")))
       checkOperatorMatch[HiveTableScanExecTransformer](df)

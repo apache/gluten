@@ -38,7 +38,7 @@
     <spark.major.version>3</spark.major.version>
     <delta.package.name>delta-core</delta.package.name>
     <delta.version>2.4.0</delta.version>
-    <celeborn.version>0.6.1</celeborn.version>
+    <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
     <gluten.version>1.7.0-SNAPSHOT</gluten.version>
     <tpch.version>1.1</tpch.version>
@@ -46,7 +46,7 @@
 
     <spotless.version>2.27.2</spotless.version>
     <googlejavaformat.version>1.7</googlejavaformat.version>
-    <spotless.scalafmt.version>3.8.3</spotless.scalafmt.version>
+    <spotless.scalafmt.version>3.10.1</spotless.scalafmt.version>
     <spotless.delimiter>package</spotless.delimiter>
     <!-- spotless:off -->
     <spotless.license.header>
@@ -346,7 +346,7 @@
     <profile>
       <id>celeborn-0.6</id>
       <properties>
-        <celeborn.version>0.6.1</celeborn.version>
+        <celeborn.version>0.6.3</celeborn.version>
       </properties>
     </profile>
   </profiles>

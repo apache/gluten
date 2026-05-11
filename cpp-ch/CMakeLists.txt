@@ -114,9 +114,10 @@ else()
       -DENABLE_MYSQL=OFF -DENABLE_BCRYPT=OFF -DENABLE_LDAP=OFF
       -DENABLE_MSGPACK=OFF -DUSE_REPLXX=OFF -DENABLE_CLICKHOUSE_ALL=OFF
       -DENABLE_GWP_ASAN=OFF -DENABLE_NUMACTL=OFF -DENABLE_GOOGLE_CLOUD_CPP=OFF
-      -DENABLE_ARROW_FLIGHT=OFF -DCOMPILER_FLAGS='-fvisibility=hidden
-      -fvisibility-inlines-hidden' -S ${CH_SOURCE_DIR} -G Ninja -B
-      ${CH_BINARY_DIR} && cmake --build ${CH_BINARY_DIR} --target libch\"
+      -DENABLE_ARROW_FLIGHT=OFF -DENABLE_XRAY=0
+      -DCOMPILER_FLAGS='-fvisibility=hidden -fvisibility-inlines-hidden' -S
+      ${CH_SOURCE_DIR} -G Ninja -B ${CH_BINARY_DIR} && cmake --build
+      ${CH_BINARY_DIR} --target libch\"
     OUTPUT _build_ch)
 endif()
 

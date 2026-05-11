@@ -23,7 +23,6 @@
 #include <Functions/FunctionFactory.h>
 #include <Functions/IFunction.h>
 #include <Interpreters/Context_fwd.h>
-#include <base/StringRef.h>
 
 using namespace DB;
 
@@ -107,8 +106,8 @@ public:
         for (size_t i = 0; i < array_col->size(); ++i)
         {
             String res;
-            const StringRef delim = const_delim_col ? delim_col->getDataAt(0) : delim_col->getDataAt(i);
-            StringRef null_replacement = StringRef(nullptr, 0);
+            const std::string_view delim = const_delim_col ? delim_col->getDataAt(0) : delim_col->getDataAt(i);
+            std::string_view null_replacement = std::string_view(nullptr, 0);
             if (null_replacement_col)
             {
                 null_replacement = const_null_replacement_col ? null_replacement_col->getDataAt(0) : null_replacement_col->getDataAt(i);
@@ -120,22 +119,24 @@ public:
             {
                 if (array_nested_col && array_nested_col->isNullAt(j + array_pos))
                 {
-                    if (null_replacement.data)
+                    if (null_replacement.data())
                     {
-                        res += null_replacement.toString();
+                        res += String(null_replacement.data(), null_replacement.size());
                         if (j != array_size - 1)
-                            res += delim.toString();
+                            res += String(delim.data(), delim.size());
                     }
                     else if (j == array_size - 1)
                         res = res.substr(0, last_not_null_pos);
                 }
                 else
                 {
-                    const StringRef s(&string_data[data_pos], string_offsets[j + array_pos] - data_pos);
-                    res += s.toString();
+                    // TODO: rebase-25.12, is it correct to reinterpret_cast
+                    const std::string_view s(
+                        reinterpret_cast<const char *>(&string_data[data_pos]), string_offsets[j + array_pos] - data_pos);
+                    res += String(s.data(), s.size());
                     last_not_null_pos = res.size();
                     if (j != array_size - 1)
-                        res += delim.toString();
+                        res += String(delim.data(), delim.size());
                 }
                 data_pos = string_offsets[j + array_pos];
             }

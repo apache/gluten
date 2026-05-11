@@ -724,71 +724,71 @@ ColumnIndexPtr ColumnIndex::create(
 ///
 const ColumnIndexFilter::AtomMap ColumnIndexFilter::atom_map{
     {"notEquals",
-     [](RPNElement & out, const DB::Field & value)
+     [](DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field & value)
      {
-         out.function = RPNElement::FUNCTION_NOT_EQUALS;
+         out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_NOT_EQUALS;
          out.value = value;
          return true;
      }},
     {"equals",
-     [](RPNElement & out, const DB::Field & value)
+     [](DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field & value)
      {
-         out.function = RPNElement::FUNCTION_EQUALS;
+         out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_EQUALS;
          out.value = value;
          return true;
      }},
     {"less",
-     [](RPNElement & out, const DB::Field & value)
+     [](DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field & value)
      {
-         out.function = RPNElement::FUNCTION_LESS;
+         out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_LESS;
          out.value = value;
          return true;
      }},
     {"greater",
-     [](RPNElement & out, const DB::Field & value)
+     [](DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field & value)
      {
-         out.function = RPNElement::FUNCTION_GREATER;
+         out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_GREATER;
          out.value = value;
          return true;
      }},
     {"lessOrEquals",
-     [](RPNElement & out, const DB::Field & value)
+     [](DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field & value)
      {
-         out.function = RPNElement::FUNCTION_LESS_OR_EQUALS;
+         out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_LESS_OR_EQUALS;
          out.value = value;
          return true;
      }},
     {"greaterOrEquals",
-     [](RPNElement & out, const DB::Field & value)
+     [](DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field & value)
      {
-         out.function = RPNElement::FUNCTION_GREATER_OR_EQUALS;
+         out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_GREATER_OR_EQUALS;
          out.value = value;
          return true;
      }},
     {"in",
-     [](RPNElement & out, const DB::Field &)
+     [](DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field &)
      {
-         out.function = RPNElement::FUNCTION_IN;
+         out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_IN;
          return true;
      }},
     {"notIn",
-     [](RPNElement & out, const DB::Field &)
+     [](DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field &)
      {
-         out.function = RPNElement::FUNCTION_NOT_IN;
+         out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_NOT_IN;
          return true;
      }},
     {"isNotNull",
-     [](RPNElement & out, const DB::Field &)
+     [](DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field &)
      {
          /// Field's default constructor constructs a null value
-         out.function = RPNElement::FUNCTION_NOT_EQUALS;
+         out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_NOT_EQUALS;
          return true;
      }},
     {"isNull",
-     [](RPNElement & out, const DB::Field &)
+     [](DB::GlutenParquetColumnIndexFilter::RPNElement & out, const DB::Field &)
      {
          /// Field's default constructor constructs a null value
-         out.function = RPNElement::FUNCTION_EQUALS;
+         out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_EQUALS;
          return true;
      }}};
 
@@ -797,14 +797,14 @@ ColumnIndexFilter::ColumnIndexFilter(const DB::ActionsDAG & filter_dag, DB::Cont
     DB::ActionsDAGWithInversionPushDown inverted_dag(filter_dag.getOutputs().front(), context);
     assert(inverted_dag.predicate != nullptr);
 
-    DB::RPNBuilder<RPNElement> builder(
+    DB::RPNBuilder<DB::GlutenParquetColumnIndexFilter::RPNElement> builder(
         inverted_dag.predicate,
         std::move(context),
-        [&](const DB::RPNBuilderTreeNode & node, RPNElement & out) { return extractAtomFromTree(node, out); });
+        [&](const DB::RPNBuilderTreeNode & node, DB::GlutenParquetColumnIndexFilter::RPNElement & out) { return extractAtomFromTree(node, out); });
     rpn_ = std::move(builder).extractRPN();
 }
 
-bool tryPrepareSetIndex(const DB::RPNBuilderFunctionTreeNode & func, ColumnIndexFilter::RPNElement & out)
+bool tryPrepareSetIndex(const DB::RPNBuilderFunctionTreeNode & func, DB::GlutenParquetColumnIndexFilter::RPNElement & out)
 {
     const auto right_arg = func.getArgumentAt(1);
     const auto future_set = right_arg.tryGetPreparedSet();
@@ -829,7 +829,7 @@ bool tryPrepareSetIndex(const DB::RPNBuilderFunctionTreeNode & func, ColumnIndex
     return true;
 }
 
-bool ColumnIndexFilter::extractAtomFromTree(const DB::RPNBuilderTreeNode & node, RPNElement & out)
+bool ColumnIndexFilter::extractAtomFromTree(const DB::RPNBuilderTreeNode & node, DB::GlutenParquetColumnIndexFilter::RPNElement & out)
 {
     DB::Field const_value;
     DB::DataTypePtr const_type;
@@ -857,7 +857,7 @@ bool ColumnIndexFilter::extractAtomFromTree(const DB::RPNBuilderTreeNode & node,
                 /// If the const operand is null, the atom will be always false
                 if (const_value.isNull())
                 {
-                    out.function = RPNElement::ALWAYS_FALSE;
+                    out.function = DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_FALSE;
                     return true;
                 }
                 out.columnName = func.getArgumentAt(0).getColumnName();
@@ -879,17 +879,17 @@ bool ColumnIndexFilter::extractAtomFromTree(const DB::RPNBuilderTreeNode & node,
         /// For cases where it says, for example, `WHERE 0 AND something`
         if (const_value.getType() == DB::Field::Types::UInt64)
         {
-            out.function = const_value.safeGet<UInt64>() ? RPNElement::ALWAYS_TRUE : RPNElement::ALWAYS_FALSE;
+            out.function = const_value.safeGet<UInt64>() ? DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_TRUE : DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_FALSE;
             return true;
         }
         else if (const_value.getType() == DB::Field::Types::Int64)
         {
-            out.function = const_value.safeGet<Int64>() ? RPNElement::ALWAYS_TRUE : RPNElement::ALWAYS_FALSE;
+            out.function = const_value.safeGet<Int64>() ? DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_TRUE : DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_FALSE;
             return true;
         }
         else if (const_value.getType() == DB::Field::Types::Float64)
         {
-            out.function = const_value.safeGet<Float64>() != 0.0 ? RPNElement::ALWAYS_TRUE : RPNElement::ALWAYS_FALSE;
+            out.function = const_value.safeGet<Float64>() != 0.0 ? DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_TRUE : DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_FALSE;
             return true;
         }
     }
@@ -899,7 +899,7 @@ bool ColumnIndexFilter::extractAtomFromTree(const DB::RPNBuilderTreeNode & node,
 RowRanges ColumnIndexFilter::calculateRowRanges(const ColumnIndexStore & index_store, size_t rowgroup_count) const
 {
     using LOGICAL_OP = RowRanges (*)(const RowRanges &, const RowRanges &);
-    using OPERATOR = std::function<PageIndexs(const ColumnIndex &, const RPNElement &)>;
+    using OPERATOR = std::function<PageIndexs(const ColumnIndex &, const DB::GlutenParquetColumnIndexFilter::RPNElement &)>;
     std::vector<RowRanges> rpn_stack;
 
     auto CALL_LOGICAL_OP = [&rpn_stack](const LOGICAL_OP & op)
@@ -911,7 +911,7 @@ RowRanges ColumnIndexFilter::calculateRowRanges(const ColumnIndexStore & index_s
         rpn_stack.back() = op(arg1, arg2);
     };
 
-    auto CALL_OPERATOR = [&rpn_stack, &index_store, rowgroup_count](const RPNElement & element, const OPERATOR & callback)
+    auto CALL_OPERATOR = [&rpn_stack, &index_store, rowgroup_count](const DB::GlutenParquetColumnIndexFilter::RPNElement & element, const OPERATOR & callback)
     {
         const auto it = index_store.find(element.columnName);
         if (it != index_store.end() && it->second->hasParquetColumnIndex())
@@ -938,48 +938,48 @@ RowRanges ColumnIndexFilter::calculateRowRanges(const ColumnIndexStore & index_s
     {
         switch (element.function)
         {
-            case RPNElement::FUNCTION_EQUALS:
-                CALL_OPERATOR(element, [](const ColumnIndex & index, const RPNElement & e) { return index.eq(e.value); });
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_EQUALS:
+                CALL_OPERATOR(element, [](const ColumnIndex & index, const DB::GlutenParquetColumnIndexFilter::RPNElement & e) { return index.eq(e.value); });
                 break;
-            case RPNElement::FUNCTION_NOT_EQUALS:
-                CALL_OPERATOR(element, [](const ColumnIndex & index, const RPNElement & e) { return index.notEq(e.value); });
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_NOT_EQUALS:
+                CALL_OPERATOR(element, [](const ColumnIndex & index, const DB::GlutenParquetColumnIndexFilter::RPNElement & e) { return index.notEq(e.value); });
                 break;
-            case RPNElement::FUNCTION_LESS:
-                CALL_OPERATOR(element, [](const ColumnIndex & index, const RPNElement & e) { return index.lt(e.value); });
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_LESS:
+                CALL_OPERATOR(element, [](const ColumnIndex & index, const DB::GlutenParquetColumnIndexFilter::RPNElement & e) { return index.lt(e.value); });
                 break;
-            case RPNElement::FUNCTION_GREATER:
-                CALL_OPERATOR(element, [](const ColumnIndex & index, const RPNElement & e) { return index.gt(e.value); });
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_GREATER:
+                CALL_OPERATOR(element, [](const ColumnIndex & index, const DB::GlutenParquetColumnIndexFilter::RPNElement & e) { return index.gt(e.value); });
                 break;
-            case RPNElement::FUNCTION_LESS_OR_EQUALS:
-                CALL_OPERATOR(element, [](const ColumnIndex & index, const RPNElement & e) { return index.ltEg(e.value); });
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_LESS_OR_EQUALS:
+                CALL_OPERATOR(element, [](const ColumnIndex & index, const DB::GlutenParquetColumnIndexFilter::RPNElement & e) { return index.ltEg(e.value); });
                 break;
-            case RPNElement::FUNCTION_GREATER_OR_EQUALS:
-                CALL_OPERATOR(element, [](const ColumnIndex & index, const RPNElement & e) { return index.gtEg(e.value); });
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_GREATER_OR_EQUALS:
+                CALL_OPERATOR(element, [](const ColumnIndex & index, const DB::GlutenParquetColumnIndexFilter::RPNElement & e) { return index.gtEg(e.value); });
                 break;
-            case RPNElement::FUNCTION_IN:
-                CALL_OPERATOR(element, [](const ColumnIndex & index, const RPNElement & e) { return index.in(e.column); });
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_IN:
+                CALL_OPERATOR(element, [](const ColumnIndex & index, const DB::GlutenParquetColumnIndexFilter::RPNElement & e) { return index.in(e.column); });
                 break;
-            case RPNElement::FUNCTION_NOT_IN:
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_NOT_IN:
                 rpn_stack.emplace_back(RowRanges::createSingle(rowgroup_count));
                 break;
-            case RPNElement::FUNCTION_UNKNOWN:
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_UNKNOWN:
                 rpn_stack.emplace_back(RowRanges::createSingle(rowgroup_count));
                 break;
-            case RPNElement::FUNCTION_NOT:
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_NOT:
                 assert(!rpn_stack.empty());
                 rpn_stack.back() = RowRanges::createSingle(rowgroup_count);
                 break;
-            case RPNElement::FUNCTION_AND:
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_AND:
                 CALL_LOGICAL_OP(RowRanges::intersection);
                 break;
-            case RPNElement::FUNCTION_OR:
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::FUNCTION_OR:
                 CALL_LOGICAL_OP(RowRanges::unionRanges);
                 break;
-            case RPNElement::ALWAYS_FALSE:
-                throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR, "RPNElement::ALWAYS_FALSE in ColumnIndexFilter::calculateRowRanges");
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_FALSE:
+                throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR, "DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_FALSE in ColumnIndexFilter::calculateRowRanges");
                 break;
-            case RPNElement::ALWAYS_TRUE:
-                throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR, "RPNElement::ALWAYS_TRUE in ColumnIndexFilter::calculateRowRanges");
+            case DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_TRUE:
+                throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR, "DB::GlutenParquetColumnIndexFilter::RPNElement::ALWAYS_TRUE in ColumnIndexFilter::calculateRowRanges");
                 break;
         }
     }

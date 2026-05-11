@@ -196,7 +196,7 @@ const DB::ActionsDAG::Node * AggregateFunctionParser::convertNodeTypeIfNeeded(
     bool need_convert_type = !TypeParser::isTypeMatched(output_type, func_node->result_type, !with_nullability);
     if (need_convert_type)
     {
-        func_node = ActionsDAGUtil::convertNodeType(actions_dag, func_node, TypeParser::parseType(output_type), func_node->result_name);
+        func_node = ActionsDAGUtil::convertNodeType(actions_dag, func_node, TypeParser::parseType(output_type), getContext(), func_node->result_name);
         actions_dag.addOrReplaceInOutputs(*func_node);
     }
 
@@ -227,8 +227,7 @@ const DB::ActionsDAG::Node * AggregateFunctionParser::convertNanToNullIfNeed(
     /// result is nullable.
     /// if result is NaN, convert it to NULL.
     auto is_nan_func_node = toFunctionNode(actions_dag, "isNaN", getUniqueName("isNaN"), {func_node});
-    auto nullable_col = func_node->result_type->createColumn();
-    nullable_col->insertDefault();
+    auto nullable_col = func_node->result_type->createColumnConst(1, func_node->result_type->getDefault());
     const auto * null_node
         = &actions_dag.addColumn(DB::ColumnWithTypeAndName(std::move(nullable_col), func_node->result_type, getUniqueName("null")));
     DB::ActionsDAG::NodeRawConstPtrs convert_nan_func_args = {is_nan_func_node, null_node, func_node};

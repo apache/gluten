@@ -92,7 +92,8 @@ class GlutenOrcSourceSuite extends OrcSourceSuite with GlutenSQLTestsBaseTrait {
                 spark.read.orc(path),
                 Seq(
                   Row(java.sql.Timestamp.valueOf("1001-01-01 01:02:03.123456")),
-                  Row(java.sql.Timestamp.valueOf("1582-10-15 11:12:13.654321"))))
+                  Row(java.sql.Timestamp.valueOf("1582-10-15 11:12:13.654321")))
+              )
             }
         }
     }

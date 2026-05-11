@@ -136,7 +136,7 @@ case class GenerateExecTransformer(
       } else {
         // Other generator function only have one param, so we just check whether
         // the only param(generator.children.head) is attribute reference or not.
-        !isAttributeReference(generator.children.head, true);
+        !isAttributeReference(generator.children.head, true)
       }
 
       parametersStr
@@ -232,16 +232,16 @@ object PullOutGenerateProjectHelper extends PullOutProjectHelper {
               case jsonPath if jsonPath.foldable =>
                 Option(jsonPath.eval()) match {
                   case Some(path) =>
-                    GetJsonObject(jsonObj, Literal.create("$[" + path + "]"))
+                    GetJsonObject(jsonObj, Literal.create("$['" + path + "']"))
                   case _ =>
                     Literal.create(null)
                 }
               case jsonPath =>
                 // Build bracket notation uniformly to
-                // allow dot-containing field names in JSON paths, e.g., $[a.b]
+                // allow dot-containing field names in JSON paths, e.g., $['a.b']
                 GetJsonObject(
                   jsonObj,
-                  Concat(Seq(Literal.create("$["), jsonPath, Literal.create("]"))))
+                  Concat(Seq(Literal.create("$['"), jsonPath, Literal.create("']"))))
             }.toIndexedSeq
           }
           val preGenerateExprs =

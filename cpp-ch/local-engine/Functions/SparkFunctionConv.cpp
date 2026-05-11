@@ -195,7 +195,8 @@ DB::ColumnPtr SparkFunctionConv::executeImpl(
     int err = 0;
     for (size_t i = 0; i < input_rows_count; ++i)
     {
-        auto value_str = arguments[0].column->getDataAt(i).toString();
+        auto str_data = arguments[0].column->getDataAt(i);
+        auto value_str = String(str_data.data(), str_data.size());
         if (from_base < 0)
             dec = my_strntoull_8bit(value_str.data(), value_str.length(), -from_base, &endptr, &err);
         else

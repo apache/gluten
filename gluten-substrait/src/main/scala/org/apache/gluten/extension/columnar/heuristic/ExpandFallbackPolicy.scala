@@ -22,6 +22,7 @@ import org.apache.gluten.extension.columnar.{FallbackTag, FallbackTags}
 import org.apache.gluten.extension.columnar.FallbackTags.add
 import org.apache.gluten.extension.columnar.transition.{BackendTransitions, ColumnarToRowLike, RowToColumnarLike}
 import org.apache.gluten.utils.PlanUtil
+
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNode
 import org.apache.spark.sql.execution._

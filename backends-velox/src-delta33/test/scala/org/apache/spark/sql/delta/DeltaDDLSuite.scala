@@ -484,7 +484,8 @@ abstract class DeltaDDLTestBase extends QueryTest with DeltaSQLTestUtils {
   testAlterTableNestedFields("struct in nested arrays")(
     initialColumnType = "array<array<struct<a: int>>>",
     fieldToAdd = "element.element.b" -> "string",
-    updatedColumnType = "array<array<struct<a: int, b: string>>>")
+    updatedColumnType = "array<array<struct<a: int, b: string>>>"
+  )
 
   testAlterTableNestedFields("struct in nested array and map")(
     initialColumnType = "array<map<int, struct<a: int>>>",

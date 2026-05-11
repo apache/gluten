@@ -605,7 +605,7 @@ jobs:
       fail-fast: false
       matrix:
         spark: [ "spark-3.3" ]
-        celeborn: [ "celeborn-0.6.1", "celeborn-0.5.4"]
+        celeborn: [ "celeborn-0.6.3", "celeborn-0.5.4"]
         writer: ["sort", "hash"]
     runs-on: ubuntu-22.04
     container: centos:8
@@ -640,7 +640,7 @@ jobs:
           EXTRA_PROFILE=""
           if [ "${{ matrix.celeborn }}" = "celeborn-0.5.4" ]; then
             EXTRA_PROFILE="-Pceleborn-0.5"
-          elif [ "${{ matrix.celeborn }}" = "celeborn-0.6.1" ]; then
+          elif [ "${{ matrix.celeborn }}" = "celeborn-0.6.3" ]; then
             EXTRA_PROFILE="-Pceleborn-0.6"
           fi
           echo "EXTRA_PROFILE: ${EXTRA_PROFILE}"
@@ -1279,7 +1279,7 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta \
+          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon \
           -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
           -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
@@ -1327,7 +1327,7 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
+          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
           -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
       - name: Upload test report
@@ -1426,7 +1426,7 @@ jobs:
         run: |
           rm -rf /opt/shims/spark41
           bash .github/workflows/util/install-spark-resources.sh 4.1
-      - name: Build and Run unit test for Spark 4.0 (slow tests)
+      - name: Build and Run unit test for Spark 4.1 (slow tests)
         run: |
           cd $GITHUB_WORKSPACE/
           yum install -y java-17-openjdk-devel

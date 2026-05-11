@@ -92,6 +92,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def parquetUseColumnNames: Boolean = getConf(PARQUET_USE_COLUMN_NAMES)
 
+  def parquetPageSizeBytes: Long = getConf(PARQUET_PAGE_SIZE_BYTES)
+
   def hashProbeBloomFilterPushdownMaxSize: Long = getConf(HASH_PROBE_BLOOM_FILTER_PUSHDOWN_MAX_SIZE)
 
   def hashProbeDynamicFilterPushdownEnabled: Boolean =
@@ -215,14 +217,12 @@ object VeloxConfig extends ConfigRegistry {
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("32MB")
 
-  val COLUMNAR_VELOX_ASYNC_TIMEOUT =
+  val COLUMNAR_VELOX_ASYNC_TIMEOUT_ON_TASK_STOPPING =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping")
-      .doc(
-        "Timeout for asynchronous execution when task is being stopped in Velox backend. " +
-          "It's recommended to set to a number larger than network connection timeout that the " +
-          "possible async tasks are relying on.")
+      .doc("Timeout in milliseconds when waiting for runtime-scoped async work to finish during" +
+        " teardown.")
       .timeConf(TimeUnit.MILLISECONDS)
-      .createWithDefault(30000)
+      .createWithDefault(30000L)
 
   val COLUMNAR_VELOX_SPLIT_PRELOAD_PER_DRIVER =
     buildConf("spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver")
@@ -714,7 +714,7 @@ object VeloxConfig extends ConfigRegistry {
   val CUDF_SHUFFLE_MAX_PREFETCH_BYTES =
     buildConf("spark.gluten.sql.columnar.backend.velox.cudf.shuffleMaxPrefetchBytes")
       .doc("Maximum bytes to prefetch in CPU memory during GPU shuffle read while waiting" +
-        "for GPU available.")
+        " for GPU available.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("1028MB")
 
@@ -775,6 +775,12 @@ object VeloxConfig extends ConfigRegistry {
       .doc("Maps table field names to file field names using names, not indices for Parquet files.")
       .booleanConf
       .createWithDefault(true)
+
+  val PARQUET_PAGE_SIZE_BYTES =
+    buildConf("spark.gluten.sql.columnar.backend.velox.parquet.pageSizeBytes")
+      .doc("The page size in bytes is for compression.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("1MB")
 
   val ENABLE_TIMESTAMP_NTZ_VALIDATION =
     buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")

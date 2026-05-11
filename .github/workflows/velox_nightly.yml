@@ -353,7 +353,7 @@ jobs:
           name: nightly-gluten-velox-bundle-package-jdk8-x86-${{ steps.date.outputs.date }}
           path: package/
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@0dc935cdecc5f5e571865e60d2a6cdc673704823
+        uses: burnett01/rsync-deployments@7659d600d8bdd035bb5cdfba1d4bd0dd4a307ca6 # 8.0.3
         with:
           switches: -avzr --delete
           path: package/gluten-velox-bundle-*.jar
@@ -382,7 +382,7 @@ jobs:
           name: nightly-gluten-velox-bundle-package-jdk17-x86-${{ steps.date.outputs.date }}
           path: package/
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@0dc935cdecc5f5e571865e60d2a6cdc673704823
+        uses: burnett01/rsync-deployments@7659d600d8bdd035bb5cdfba1d4bd0dd4a307ca6 # 8.0.3
         with:
           switches: -avzr --delete
           path: package/gluten-velox-bundle-*.jar
@@ -411,7 +411,7 @@ jobs:
           name: nightly-gluten-velox-bundle-package-jdk21-x86-${{ steps.date.outputs.date }}
           path: package/
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@0dc935cdecc5f5e571865e60d2a6cdc673704823
+        uses: burnett01/rsync-deployments@7659d600d8bdd035bb5cdfba1d4bd0dd4a307ca6 # 8.0.3
         with:
           switches: -avzr --delete
           path: package/gluten-velox-bundle-*.jar
@@ -424,6 +424,7 @@ jobs:
 
   # Build velox with enhanced features
   build-native-lib-enhanced:
+    if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -458,6 +459,7 @@ jobs:
           name: velox-arrow-jar-centos-7-enhanced-${{github.sha}}
 
   build-bundle-enhanced-package-centos8-jdk17:
+    if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-enhanced
     runs-on: ubuntu-22.04
     container: centos:8
@@ -496,7 +498,7 @@ jobs:
           path: package/target/gluten-velox-bundle-*.jar
           retention-days: 7
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@0dc935cdecc5f5e571865e60d2a6cdc673704823
+        uses: burnett01/rsync-deployments@7659d600d8bdd035bb5cdfba1d4bd0dd4a307ca6 # 8.0.3
         with:
           switches: -avzr
           path: package/target/gluten-velox-bundle-*.jar

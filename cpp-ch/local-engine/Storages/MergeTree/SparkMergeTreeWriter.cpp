@@ -119,12 +119,12 @@ std::unique_ptr<SparkMergeTreeWriter> SparkMergeTreeWriter::create(
     //
     // auto stats = std::make_shared<MergeTreeStats>(header, sink_helper);
     // chain.addSink(stats);
-    return std::make_unique<SparkMergeTreeWriter>(header, sink_helper, QueryPipeline{std::move(chain)}, spark_job_id);
+    return std::make_unique<SparkMergeTreeWriter>(header, sink_helper, QueryPipeline{std::move(chain)}, spark_job_id, context);
 }
 
 SparkMergeTreeWriter::SparkMergeTreeWriter(
-    const DB::Block & header_, const SinkHelper & sink_helper_, DB::QueryPipeline && pipeline_, const std::string & spark_job_id_)
-    : header{header_}, sink_helper{sink_helper_}, pipeline{std::move(pipeline_)}, executor{pipeline}, spark_job_id(spark_job_id_)
+    const DB::Block & header_, const SinkHelper & sink_helper_, DB::QueryPipeline && pipeline_, const std::string & spark_job_id_, const DB::ContextPtr & context_)
+    : header{header_}, sink_helper{sink_helper_}, pipeline{std::move(pipeline_)}, executor{pipeline}, spark_job_id(spark_job_id_), context(context_)
 {
 }
 
@@ -132,7 +132,7 @@ void SparkMergeTreeWriter::write(const DB::Block & block)
 {
     auto new_block = removeColumnSuffix(block);
     auto converter = ActionsDAG::makeConvertingActions(
-        new_block.getColumnsWithTypeAndName(), header.getColumnsWithTypeAndName(), DB::ActionsDAG::MatchColumnsMode::Position);
+        new_block.getColumnsWithTypeAndName(), header.getColumnsWithTypeAndName(), DB::ActionsDAG::MatchColumnsMode::Position, context);
     const ExpressionActions expression_actions{std::move(converter)};
     expression_actions.execute(new_block);
     executor.push(new_block);

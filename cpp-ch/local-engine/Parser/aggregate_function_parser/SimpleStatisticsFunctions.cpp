@@ -53,8 +53,7 @@ public:
         /// if result is NaN, convert it to NULL.
         auto is_nan_func_node = toFunctionNode(actions_dag, "isNaN", getUniqueName("isNaN"), {func_node});
         auto null_type = DB::makeNullable(func_node->result_type);
-        auto nullable_col = null_type->createColumn();
-        nullable_col->insertDefault();
+        auto nullable_col = null_type->createColumnConst(1, null_type->getDefault());
         const auto * null_node
             = &actions_dag.addColumn(DB::ColumnWithTypeAndName(std::move(nullable_col), null_type, getUniqueName("null")));
         DB::ActionsDAG::NodeRawConstPtrs convert_nan_func_args = {is_nan_func_node, null_node, func_node};

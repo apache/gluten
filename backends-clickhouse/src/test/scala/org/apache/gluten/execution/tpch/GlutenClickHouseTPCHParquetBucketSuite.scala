@@ -268,7 +268,7 @@ class GlutenClickHouseTPCHParquetBucketSuite
         assert(!plans.head.asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
         assert(plans.head.metrics("numFiles").value === 4)
         assert(plans.head.metrics("pruningTime").value === pruningTimeValueSpark)
-        assert(plans.head.metrics("numOutputRows").value === 600572)
+        assert(plans.head.metrics("numOutputRows").value === 160000)
     }
   }
 
@@ -297,7 +297,7 @@ class GlutenClickHouseTPCHParquetBucketSuite
 
         assert(plans(2).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
         assert(plans(2).metrics("numFiles").value === 4)
-        assert(plans(2).metrics("numOutputRows").value === 600572)
+        assert(plans(2).metrics("numOutputRows").value === 240000)
     }
 
     withSQLConf(

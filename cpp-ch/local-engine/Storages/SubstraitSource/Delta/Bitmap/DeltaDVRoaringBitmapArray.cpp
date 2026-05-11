@@ -22,7 +22,7 @@
 #include <IO/WriteHelpers.h>
 #include <Storages/SubstraitSource/ReadBufferBuilder.h>
 #include <substrait/plan.pb.h>
-#include <roaring.hh>
+#include <roaring/roaring.hh>
 #include <Poco/URI.h>
 #include <Common/PODArray.h>
 

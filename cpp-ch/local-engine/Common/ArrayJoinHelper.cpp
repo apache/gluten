@@ -25,6 +25,7 @@
 #include <Processors/QueryPlan/ExpressionStep.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/QueryPlanSerializationSettings.h>
 #include <Poco/Logger.h>
 #include <Common/DebugUtils.h>
 #include <Common/logger_useful.h>
@@ -39,6 +40,7 @@ extern const int LOGICAL_ERROR;
 namespace Setting
 {
 extern const SettingsUInt64 max_block_size;
+extern const SettingsBool enable_lazy_columns_replication;
 }
 }
 
@@ -146,7 +148,7 @@ addArrayJoinStep(DB::ContextPtr context, DB::QueryPlan & plan, const DB::Actions
         array_join.columns = std::move(array_joined_columns);
         array_join.is_left = is_left;
         auto array_join_step = std::make_unique<DB::ArrayJoinStep>(
-            plan.getCurrentHeader(), std::move(array_join), false, context->getSettingsRef()[DB::Setting::max_block_size]);
+            plan.getCurrentHeader(), std::move(array_join), false, context->getSettingsRef()[DB::Setting::max_block_size], context->getSettingsRef()[DB::Setting::enable_lazy_columns_replication]);
         array_join_step->setStepDescription("ARRAY JOIN In Generate");
         steps.emplace_back(array_join_step.get());
         plan.addStep(std::move(array_join_step));

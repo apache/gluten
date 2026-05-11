@@ -2233,7 +2233,7 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
         |  ) t1
         |) t2 where rank = 1 order by p_partkey limit 100
         |""".stripMargin
-    runQueryAndCompare(sql)({ _ => })
+    runQueryAndCompare(sql) { _ => }
   }
 
   test("GLUTEN-7979: fix different output schema array<void> and array<string> before union") {
@@ -2283,7 +2283,7 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
         |group by
         |    a.multi_peer_user_id
         |""".stripMargin
-    runQueryAndCompare(sql)({ _ => })
+    runQueryAndCompare(sql) { _ => }
   }
 
   test("GLUTEN-4190: crush on flattening a const null column") {
@@ -2292,7 +2292,7 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
         | select n_nationkey, rank() over (partition by n_regionkey, null order by n_nationkey)
         |from nation
         |""".stripMargin
-    runQueryAndCompare(sql)({ _ => })
+    runQueryAndCompare(sql) { _ => }
   }
 
   test("GLUTEN-4115 aggregate without any function") {
@@ -2312,7 +2312,7 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
         |values(0,'d', 4.0,1), (1, 'a', 1.0, 0), (0, 'b', 2.0, 1), (1, 'c', 3.0, 0) as data(a,b,c,d)
         |)
         |""".stripMargin
-    runQueryAndCompare(sql)({ _ => })
+    runQueryAndCompare(sql) { _ => }
   }
 
   test("GLUTEN-4085: Fix unix_timestamp/to_unix_timestamp") {
@@ -2412,7 +2412,7 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
           |  select l_orderkey, l_partkey from lineitem group by l_orderkey, l_partkey
           |)
           |""".stripMargin
-      runQueryAndCompare(sql)({ _ => })
+      runQueryAndCompare(sql) { _ => }
     }
   }
 
@@ -2448,26 +2448,26 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
     // single percentage
     val sql1 = "select l_linenumber % 10, approx_percentile(l_extendedprice, 0.5) " +
       "from lineitem group by l_linenumber % 10"
-    runQueryAndCompare(sql1)({ _ => })
+    runQueryAndCompare(sql1) { _ => }
 
     // multiple percentages
     val sql2 =
       "select l_linenumber % 10, approx_percentile(l_extendedprice, array(0.1, 0.2, 0.3)) " +
         "from lineitem group by l_linenumber % 10"
-    runQueryAndCompare(sql2)({ _ => })
+    runQueryAndCompare(sql2) { _ => }
   }
 
   test("aggregate function percentile") {
     // single percentage
     val sql1 = "select l_linenumber % 10, percentile(l_extendedprice, 0.5) " +
       "from lineitem group by l_linenumber % 10"
-    runQueryAndCompare(sql1)({ _ => })
+    runQueryAndCompare(sql1) { _ => }
 
     // multiple percentages
     val sql2 =
       "select l_linenumber % 10, percentile(l_extendedprice, array(0.1, 0.2, 0.3)) " +
         "from lineitem group by l_linenumber % 10"
-    runQueryAndCompare(sql2)({ _ => })
+    runQueryAndCompare(sql2) { _ => }
   }
 
   test("GLUTEN-5096: Bug fix regexp_extract diff") {

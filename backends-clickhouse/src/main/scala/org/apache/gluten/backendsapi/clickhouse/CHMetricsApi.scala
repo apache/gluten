@@ -168,7 +168,13 @@ class CHMetricsApi extends MetricsApi with Logging with LogLevelUtil {
         "Time reading from filesystem cache"),
       "missCacheMillisecond" -> SQLMetrics.createTimingMetric(
         sparkContext,
-        "Time reading from filesystem cache source (from remote filesystem, etc)")
+        "Time reading from filesystem cache source (from remote filesystem, etc)"),
+      "parquetMetadataCacheHits" -> SQLMetrics.createMetric(
+        sparkContext,
+        "Number of times parquet metadata has been found in the cache"),
+      "parquetMetadataCacheMisses" -> SQLMetrics.createMetric(
+        sparkContext,
+        "Number of times parquet metadata has not been found in the cache")
     )
 
   override def genFileSourceScanTransformerMetricsUpdater(
