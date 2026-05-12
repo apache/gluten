@@ -1212,6 +1212,14 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     VeloxColumnarToCarrierRowExec.enforce(plan)
   }
 
+  override def isSupportLocalTableScanExec(plan: LocalTableScanExec): Boolean = {
+    // Skip offloading when stream is defined (structured streaming source)
+    plan.getStream.isEmpty
+  }
+
+  override def getLocalTableScanTransform(plan: LocalTableScanExec): LocalTableScanTransformer =
+    VeloxLocalTableScanTransformer.replace(plan)
+
   override def genTimestampAddTransformer(
       substraitExprName: String,
       left: ExpressionTransformer,
