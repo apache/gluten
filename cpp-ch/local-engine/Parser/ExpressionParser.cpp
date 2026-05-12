@@ -264,7 +264,13 @@ ExpressionParser::addConstColumn(DB::ActionsDAG & actions_dag, const DB::DataTyp
 {
     String name = DB::fieldToString(field).substr(0, 10);
     name = getUniqueName(name);
-    const auto * res_node = &actions_dag.addColumn(DB::ColumnWithTypeAndName(type->createColumnConst(1, field), type, name));
+    /// Substrait null literals carry a concrete type; CH `createColumnConst` inserts into the nested column (e.g. ColumnArray),
+    /// which cannot accept `Field::Null` unless the type is Nullable(...).
+    DB::DataTypePtr const_type = type;
+    if (field.isNull() && !type->isNullable())
+        const_type = makeNullable(type);
+    const auto * res_node = &actions_dag.addColumn(
+        DB::ColumnWithTypeAndName(const_type->createColumnConst(1, field), const_type, name));
     if (reuseCSE())
     {
         // The new node, res_node will be remained in the ActionsDAG, but it will not affect the execution.
@@ -307,6 +313,7 @@ ExpressionParser::NodeRawConstPtr ExpressionParser::parseExpression(ActionsDAG &
             const auto & input_type = args[0]->result_type;
             DataTypePtr denull_input_type = removeNullable(input_type);
             DataTypePtr output_type = TypeParser::parseType(substrait_type);
+            DataTypePtr cast_output_type = input_type->isNullable() && !output_type->isNullable() ? makeNullable(output_type) : output_type;
             DataTypePtr denull_output_type = removeNullable(output_type);
             const ActionsDAG::Node * result_node = nullptr;
             if (substrait_type.has_binary())
@@ -351,7 +358,7 @@ ExpressionParser::NodeRawConstPtr ExpressionParser::parseExpression(ActionsDAG &
             else if (isString(denull_input_type) && substrait_type.has_bool_())
             {
                 /// cast(string to boolean)
-                args.emplace_back(addConstColumn(actions_dag, std::make_shared<DataTypeString>(), output_type->getName()));
+                args.emplace_back(addConstColumn(actions_dag, std::make_shared<DataTypeString>(), cast_output_type->getName()));
                 result_node = toFunctionNode(actions_dag, "accurateCastOrNull", args);
             }
             else if (isString(denull_input_type) && isInt(denull_output_type))
@@ -360,13 +367,13 @@ ExpressionParser::NodeRawConstPtr ExpressionParser::parseExpression(ActionsDAG &
                 /// Refer to https://github.com/apache/gluten/issues/4956 and https://github.com/apache/gluten/issues/8598
                 const auto * trim_str_arg = addConstColumn(actions_dag, std::make_shared<DataTypeString>(), " \t\n\r\f");
                 args[0] = toFunctionNode(actions_dag, "trimBothSpark", {args[0], trim_str_arg});
-                args.emplace_back(addConstColumn(actions_dag, std::make_shared<DataTypeString>(), output_type->getName()));
+                args.emplace_back(addConstColumn(actions_dag, std::make_shared<DataTypeString>(), cast_output_type->getName()));
                 result_node = toFunctionNode(actions_dag, "CAST", args);
             }
             else
             {
                 /// Common process: CAST(input, type)
-                args.emplace_back(addConstColumn(actions_dag, std::make_shared<DataTypeString>(), output_type->getName()));
+                args.emplace_back(addConstColumn(actions_dag, std::make_shared<DataTypeString>(), cast_output_type->getName()));
                 result_node = toFunctionNode(actions_dag, "CAST", args);
             }
 

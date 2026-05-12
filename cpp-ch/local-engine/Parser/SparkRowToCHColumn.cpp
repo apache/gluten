@@ -64,7 +64,14 @@ ALWAYS_INLINE static void writeRowToColumns(const std::vector<MutableColumnPtr> 
                 columns[i]->insert(spark_row_reader.getField(i)); // read decimal128
         }
         else
-            columns[i]->insert(spark_row_reader.getField(i));
+        {
+            DB::Field field = spark_row_reader.getField(i);
+            /// Spark UnsafeRow marks null top-level values; CH non-Nullable columns cannot insert Null (e.g. Array/Map/Tuple).
+            if (field.isNull() && !spark_row_reader.getFieldTypes()[i]->isNullable())
+                columns[i]->insertDefault();
+            else
+                columns[i]->insert(std::move(field));
+        }
     }
 }
 
