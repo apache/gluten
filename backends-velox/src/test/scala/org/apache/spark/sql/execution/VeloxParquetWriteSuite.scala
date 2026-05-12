@@ -314,9 +314,7 @@ class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite w
              |INSERT OVERWRITE DIRECTORY USING PARQUET
              |OPTIONS ('path' '${hadoopConfDir.getCanonicalPath}')
              |SELECT * FROM parquet_dictionary_source
-             |""".stripMargin,
-          expectNative = isSparkVersionGE("3.4")
-        )
+             |""".stripMargin)
         val columnEncodings = parquetColumnEncodings(hadoopConfDir)
         assert(columnEncodings.nonEmpty)
         assert(!columnEncodings.exists(_.exists(dictionaryEncodingNames.contains)))
