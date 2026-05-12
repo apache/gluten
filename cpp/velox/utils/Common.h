@@ -35,11 +35,27 @@ static inline void fastCopy(void* dst, const void* src, size_t n) {
   facebook::velox::simd::memcpy(dst, src, n);
 }
 
-#define SCOPED_TIMER(timing)                                                              \
-  do {                                                                                    \
-    auto ptiming = &timing;                                                               \
-    facebook::velox::DeltaCpuWallTimer timer{                                             \
-        [ptiming](const facebook::velox::CpuWallTiming& delta) { ptiming->add(delta); }}; \
-  } while (0)
+// SCOPED_TIMER — RAII-style timer that lives until the end of the
+// enclosing scope and reports elapsed CPU+wall time to `timing` on
+// destruction.
+//
+// Implementation note: a `do { … } while (0)` wrapper would destroy
+// the DeltaCpuWallTimer immediately at the end of the do-block,
+// recording essentially zero. Use uniquely-named local variables at
+// the call site so the timer survives until the enclosing scope
+// closes (which is what every existing call site already expects).
+//
+// Note: we capture the timing target by pointer in a unique local
+// variable rather than directly in the lambda, because `timing` may
+// be an arbitrary expression (e.g. `array_[idx]`) that is not a valid
+// lambda capture name.
+#define GLUTEN_SCOPED_TIMER_CONCAT_INNER(a, b) a##b
+#define GLUTEN_SCOPED_TIMER_CONCAT(a, b) GLUTEN_SCOPED_TIMER_CONCAT_INNER(a, b)
+#define SCOPED_TIMER(timing)                                                                         \
+  auto GLUTEN_SCOPED_TIMER_CONCAT(_glutenScopedTimerTarget_, __LINE__) = &(timing);                  \
+  facebook::velox::DeltaCpuWallTimer GLUTEN_SCOPED_TIMER_CONCAT(_glutenScopedTimer_, __LINE__) {     \
+    [_glutenScopedTimerTargetPtr = GLUTEN_SCOPED_TIMER_CONCAT(_glutenScopedTimerTarget_, __LINE__)]( \
+        const facebook::velox::CpuWallTiming& delta) { _glutenScopedTimerTargetPtr->add(delta); }    \
+  }
 
 } // namespace gluten
