@@ -64,15 +64,13 @@ case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
       min: Int,
       max: Int,
       preferredBatchBytes: Long): SparkPlan = {
-    plan match {
-      case shuffle: ColumnarShuffleExchangeExec
-          if shuffle.shuffleWriterType.requiresResizingShuffleInput =>
-        val appendBatches =
-          VeloxResizeBatchesExec(shuffle.child, min, max, preferredBatchBytes)
-        shuffle.withNewChildren(Seq(appendBatches))
-      case other =>
-        other.withNewChildren(other.children.map(
-          p => addResizeBatchesForShuffleInput(p, min, max, preferredBatchBytes)))
+    plan.transformUp {
+       case shuffle: ColumnarShuffleExchangeExec
+           if shuffle.shuffleWriterType.requiresResizingShuffleInput =>
+         val appendBatches =
+           VeloxResizeBatchesExec(shuffle.child, min, max, preferredBatchBytes)
+         shuffle.withNewChildren(Seq(appendBatches))
+       case other => other
     }
   }
 
