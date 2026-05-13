@@ -104,6 +104,7 @@ abstract class ColumnarShuffleExchangeExecBase(
       case _: RangePartitioning => ValidationResult.succeeded
       case SinglePartition => ValidationResult.succeeded
       case _: RoundRobinPartitioning => ValidationResult.succeeded
+      case _: KeyGroupedPartitioning => ValidationResult.succeeded
       case _ =>
         ValidationResult.failed(
           s"Unsupported partitioning ${outputPartitioning.getClass.getSimpleName}")
