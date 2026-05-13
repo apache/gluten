@@ -634,7 +634,6 @@ arrow::Status VeloxHashShuffleWriter::splitBinaryType(
     const facebook::velox::FlatVector<facebook::velox::StringView>& src,
     std::vector<BinaryBuf>& dst) {
   const auto* srcRawValues = src.rawValues();
-  const auto* srcRawNulls = src.rawNulls();
 
   for (auto& pid : partitionUsed_) {
     auto& binaryBuf = dst[pid];
@@ -653,8 +652,7 @@ arrow::Status VeloxHashShuffleWriter::splitBinaryType(
     for (auto i = 0; i < numRows; i++) {
       auto rowId = rowOffset2RowId_[rowOffsetBase + i];
       auto& stringView = srcRawValues[rowId];
-      size_t isNull = srcRawNulls && facebook::velox::bits::isBitNull(srcRawNulls, rowId);
-      auto stringLen = (isNull - 1) & stringView.size();
+      auto stringLen = src.isNullAt(rowId) ? 0 : stringView.size();
 
       // 1. copy length, update offset.
       dstLengthBase[i] = stringLen;
@@ -850,12 +848,10 @@ uint32_t VeloxHashShuffleWriter::calculatePartitionBufferSize(const facebook::ve
     auto column = rv.childAt(binaryColumnIndices_[i])->asFlatVector<facebook::velox::StringView>();
 
     const auto* srcRawValues = column->rawValues();
-    const auto* srcRawNulls = column->rawNulls();
 
     for (auto idx = 0; idx < numRows; idx++) {
       auto& stringView = srcRawValues[idx];
-      size_t isNull = srcRawNulls && facebook::velox::bits::isBitNull(srcRawNulls, idx);
-      auto stringLen = (isNull - 1) & stringView.size();
+      auto stringLen = column->isNullAt(idx) ? 0 : stringView.size();
       binarySizeBytes += stringLen;
     }
 
