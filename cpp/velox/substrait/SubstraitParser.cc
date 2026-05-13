@@ -297,7 +297,7 @@ bool SubstraitParser::checkWindowFunction(
     google::protobuf::StringValue msg;
     extension.optimization().UnpackTo(&msg);
     std::size_t pos = msg.value().find(config);
-    if ((pos != std::string::npos) && (msg.value().size() >= targetFunction.size()) &&
+    if ((pos != std::string::npos) && (msg.value().size() >= pos + config.size() + targetFunction.size()) &&
         (msg.value().substr(pos + config.size(), targetFunction.size()) == targetFunction)) {
       return true;
     }
