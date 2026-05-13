@@ -22,7 +22,6 @@ import org.apache.gluten.execution.VeloxResizeBatchesExec
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, ShuffleQueryStageExec}
-import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 
 /**
  * Try to append [[VeloxResizeBatchesExec]] for shuffle input and output to make the batch sizes in
@@ -65,12 +64,11 @@ case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
       max: Int,
       preferredBatchBytes: Long): SparkPlan = {
     plan.transformUp {
-       case shuffle: ColumnarShuffleExchangeExec
-           if shuffle.shuffleWriterType.requiresResizingShuffleInput =>
-         val appendBatches =
-           VeloxResizeBatchesExec(shuffle.child, min, max, preferredBatchBytes)
-         shuffle.withNewChildren(Seq(appendBatches))
-       case other => other
+      case shuffle: ColumnarShuffleExchangeExec
+          if shuffle.shuffleWriterType.requiresResizingShuffleInput =>
+        val appendBatches =
+          VeloxResizeBatchesExec(shuffle.child, min, max, preferredBatchBytes)
+        shuffle.withNewChildren(Seq(appendBatches))
     }
   }
 
@@ -80,12 +78,6 @@ case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
       max: Int,
       preferredBatchBytes: Long): SparkPlan = {
     plan match {
-      case shuffle: ColumnarShuffleExchangeExec
-          if !isAdaptiveContext && shuffle.shuffleWriterType.requiresResizingShuffleOutput =>
-        VeloxResizeBatchesExec(shuffle, min, max, preferredBatchBytes)
-      case reused @ ReusedExchangeExec(_, shuffle: ColumnarShuffleExchangeExec)
-          if !isAdaptiveContext && shuffle.shuffleWriterType.requiresResizingShuffleOutput =>
-        VeloxResizeBatchesExec(reused, min, max, preferredBatchBytes)
       case s: ShuffleQueryStageExec if requiresResizingShuffleOutput(s) =>
         VeloxResizeBatchesExec(s, min, max, preferredBatchBytes)
       case a @ AQEShuffleReadExec(s @ ShuffleQueryStageExec(_, _, _), _)
