@@ -440,7 +440,39 @@ arrow::Status VeloxHashShuffleWriter::doSplit(const facebook::velox::RowVector& 
   printPartitionBuffer();
 
   setSplitState(SplitState::kInit);
+  if (evictPartitionSize_ > 0) {
+    // After split, evict large partition buffers to free up memory for the next input RowVector.
+    const auto partitionBytes = estimatePartitionBufferBytes();
+    for (uint32_t pid = 0; pid < partitionBytes.size(); ++pid) {
+      if (partitionBufferBase_[pid] > 0 && partitionBytes[pid] >= evictPartitionSize_) {
+        RETURN_NOT_OK(evictPartitionBuffers(pid, false));
+      }
+    }
+  }
   return arrow::Status::OK();
+}
+
+std::vector<int64_t> VeloxHashShuffleWriter::estimatePartitionBufferBytes() const {
+  std::vector<int64_t> partitionBytes(numPartitions_, 0);
+
+  for (const auto& columnBuffers : partitionBuffers_) {
+    for (uint32_t pid = 0; pid < columnBuffers.size(); ++pid) {
+      for (const auto& buffer : columnBuffers[pid]) {
+        if (buffer) {
+          partitionBytes[pid] += buffer->capacity();
+        }
+      }
+    }
+  }
+
+  for (uint32_t pid = 0; pid < complexTypeFlushBuffer_.size(); ++pid) {
+    const auto& buffer = complexTypeFlushBuffer_[pid];
+    if (buffer) {
+      partitionBytes[pid] += buffer->capacity();
+    }
+  }
+
+  return partitionBytes;
 }
 
 arrow::Status VeloxHashShuffleWriter::splitRowVector(const facebook::velox::RowVector& rv) {

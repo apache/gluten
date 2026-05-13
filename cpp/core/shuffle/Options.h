@@ -27,6 +27,7 @@
 namespace gluten {
 
 static constexpr int16_t kDefaultBatchSize = 4096;
+static constexpr int32_t kDefaultEvictPartitionSize = 256 * 1024;
 static constexpr int32_t kDefaultShuffleWriterBufferSize = 4096;
 static constexpr int64_t kDefaultSortBufferThreshold = 64 << 20;
 static constexpr int64_t kDefaultPushMemoryThreshold = 4096;
@@ -81,6 +82,7 @@ struct ShuffleWriterOptions {
 struct HashShuffleWriterOptions : ShuffleWriterOptions {
   int32_t splitBufferSize = kDefaultShuffleWriterBufferSize;
   double splitBufferReallocThreshold = kDefaultSplitBufferReallocThreshold;
+  int32_t evictPartitionSize = kDefaultEvictPartitionSize;
 
   HashShuffleWriterOptions() : ShuffleWriterOptions(ShuffleWriterType::kHashShuffle) {}
 
@@ -88,10 +90,12 @@ struct HashShuffleWriterOptions : ShuffleWriterOptions {
       Partitioning partitioning,
       int32_t startPartitionId,
       int32_t partitionBufferSize,
-      double partitionBufferReallocThreshold)
+      double partitionBufferReallocThreshold,
+      int32_t partitionEvictPartitionSize = kDefaultEvictPartitionSize)
       : ShuffleWriterOptions(ShuffleWriterType::kHashShuffle, partitioning, startPartitionId),
         splitBufferSize(partitionBufferSize),
-        splitBufferReallocThreshold(partitionBufferReallocThreshold) {}
+        splitBufferReallocThreshold(partitionBufferReallocThreshold),
+        evictPartitionSize(partitionEvictPartitionSize) {}
 
  protected:
   HashShuffleWriterOptions(ShuffleWriterType shuffleWriterType) : ShuffleWriterOptions(shuffleWriterType) {}
@@ -101,10 +105,12 @@ struct HashShuffleWriterOptions : ShuffleWriterOptions {
       Partitioning partitioning,
       int32_t startPartitionId,
       int32_t partitionBufferSize,
-      double partitionBufferReallocThreshold)
+      double partitionBufferReallocThreshold,
+      int32_t partitionEvictPartitionSize = kDefaultEvictPartitionSize)
       : ShuffleWriterOptions(shuffleWriterType, partitioning, startPartitionId),
         splitBufferSize(partitionBufferSize),
-        splitBufferReallocThreshold(partitionBufferReallocThreshold) {}
+        splitBufferReallocThreshold(partitionBufferReallocThreshold),
+        evictPartitionSize(partitionEvictPartitionSize) {}
 };
 
 struct SortShuffleWriterOptions : ShuffleWriterOptions {

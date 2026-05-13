@@ -214,7 +214,8 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
       MemoryManager* memoryManager)
       : VeloxShuffleWriter(numPartitions, partitionWriter, options, memoryManager),
         splitBufferSize_(options->splitBufferSize),
-        splitBufferReallocThreshold_(options->splitBufferReallocThreshold) {
+        splitBufferReallocThreshold_(options->splitBufferReallocThreshold),
+        evictPartitionSize_(options->evictPartitionSize) {
     arenas_.resize(numPartitions);
   }
 
@@ -222,6 +223,8 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
   arrow::Status initPartitions();
 
   arrow::Status initColumnTypes(const facebook::velox::RowVector& rv);
+
+  std::vector<int64_t> estimatePartitionBufferBytes() const;
 
   arrow::Status splitRowVector(const facebook::velox::RowVector& rv);
 
@@ -326,6 +329,7 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
  protected:
   int32_t splitBufferSize_;
   double splitBufferReallocThreshold_;
+  int32_t evictPartitionSize_;
 
   std::shared_ptr<arrow::Schema> schema_;
 
