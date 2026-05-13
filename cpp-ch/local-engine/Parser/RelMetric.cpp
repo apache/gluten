@@ -153,6 +153,11 @@ void RelMetric::serialize(Writer<StringBuffer> & writer, bool) const
             writer.String(step->getName().c_str());
             writer.Key("description");
             writer.String(step->getStepDescription().data());
+            writer.Key("parquet_reader_version");
+            if (step->getStepDescription() == "ParquetReaderV3")
+                writer.String("1");
+            else
+                writer.String("0");
             writer.Key("processors");
             writer.StartArray();
             for (const auto & processor : step->getProcessors())

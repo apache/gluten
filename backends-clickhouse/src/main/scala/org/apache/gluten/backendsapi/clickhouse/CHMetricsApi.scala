@@ -174,7 +174,10 @@ class CHMetricsApi extends MetricsApi with Logging with LogLevelUtil {
         "Number of times parquet metadata has been found in the cache"),
       "parquetMetadataCacheMisses" -> SQLMetrics.createMetric(
         sparkContext,
-        "Number of times parquet metadata has not been found in the cache")
+        "Number of times parquet metadata has not been found in the cache"),
+      "isParquetReaderV3" -> SQLMetrics.createMetric(
+        sparkContext,
+        "Is it the CH Parquet Reader V3 (greater than 0)")
     )
 
   override def genFileSourceScanTransformerMetricsUpdater(
