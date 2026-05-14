@@ -18,34 +18,14 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
-import org.scalactic.source.Position
-import org.scalatest.Tag
-
 class GlutenSparkSqlParserSuite extends SparkSqlParserSuite with GlutenSQLTestsBaseTrait {
-  private var registerQuotedConfigParserTest = false
-
-  override protected def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
-      pos: Position): Unit = {
-    if (isConfigParserCoverage(testName) && !registerQuotedConfigParserTest) {
-      ()
-    } else {
-      super.test(testName, testTags: _*)(testFun)(pos)
-    }
-  }
-
-  registerQuotedConfigParserTest = true
-  test("Checks if SET/RESET can parse all the configurations") {
+  testGluten("Checks if SET/RESET can parse all the configurations") {
     sqlConf.getAllDefinedConfs.map(_._1).foreach {
       key: String =>
         val quotedKey = quoteConfigKey(key)
         spark.sessionState.sqlParser.parsePlan(s"SET $quotedKey")
         spark.sessionState.sqlParser.parsePlan(s"RESET $quotedKey")
     }
-  }
-  registerQuotedConfigParserTest = false
-
-  private def isConfigParserCoverage(testName: String): Boolean = {
-    testName == "Checks if SET/RESET can parse all the configurations"
   }
 
   private def quoteConfigKey(key: String): String = {

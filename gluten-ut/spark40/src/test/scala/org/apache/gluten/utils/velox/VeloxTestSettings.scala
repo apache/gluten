@@ -724,6 +724,7 @@ class VeloxTestSettings extends BackendTestSettings {
     // `/tmp/test-resource*.py: Permission denied` and can crash JVM.
     .exclude("SPARK-33934: Add SparkFile's root dir to env property PATH")
   enableSuite[GlutenSparkSqlParserSuite]
+    .exclude("Checks if SET/RESET can parse all the configurations")
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
   enableSuite[GlutenUnsafeKVExternalSorterSuite]
   enableSuite[GlutenUnsafeRowSerializerSuite]
