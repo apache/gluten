@@ -210,7 +210,34 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       argument: ExpressionTransformer,
       function: ExpressionTransformer,
       expr: ArraySort): ExpressionTransformer = {
-    GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
+    // Spark's default array_sort comparator includes null-handling logic that
+    // Velox's rewriteArraySortCall cannot parse. Detect it and strip the lambda
+    // so Velox uses its 1-arg array_sort (ascending, nulls-last) which has
+    // identical semantics.
+    if (isDefaultArraySortComparator(expr)) {
+      logInfo("Stripping default comparator from array_sort for Velox offloading")
+      GenericExpressionTransformer(substraitExprName, Seq(argument), expr)
+    } else {
+      GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
+    }
+  }
+
+  /**
+   * Checks whether the ArraySort expression uses Spark's default comparator. The default comparator
+   * wraps the simple ascending comparison in null-handling if-else logic that Velox's
+   * SimpleComparisonMatcher cannot parse. Since Velox's 1-arg array_sort already provides ascending
+   * sort with nulls-last (matching Spark's default semantics), we can safely strip the comparator
+   * lambda.
+   */
+  private def isDefaultArraySortComparator(expr: ArraySort): Boolean = {
+    expr.function match {
+      case LambdaFunction(body, args, _) if args.size == 2 =>
+        val left = args(0)
+        val right = args(1)
+        val defaultWithNulls = ArraySort.comparator(left, right)
+        body.semanticEquals(defaultWithNulls)
+      case _ => false
+    }
   }
 
   /** Transform array exists to Substrait */

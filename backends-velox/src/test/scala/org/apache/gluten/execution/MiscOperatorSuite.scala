@@ -1244,6 +1244,38 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("array_sort - default comparator offloading") {
+    withTable("t_arr_sort_default") {
+      sql("create table t_arr_sort_default (a array<int>) using parquet")
+      sql(
+        "insert into t_arr_sort_default values " +
+          "(array(3, 1, 2, 5, 4)), (array(10, 20, 30)), (array(null, 2, 1)), (array())")
+
+      // Default ascending sort (no lambda) — Spark generates a null-handling
+      // comparator that Velox cannot parse without the stripping logic.
+      runQueryAndCompare("select a, array_sort(a) from t_arr_sort_default") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      // sort_array also uses default comparator under the hood
+      runQueryAndCompare("select a, sort_array(a) from t_arr_sort_default") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      // Descending sort_array
+      runQueryAndCompare("select a, sort_array(a, false) from t_arr_sort_default") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      // Custom comparator (descending) — must still be offloaded with 2-arg form
+      runQueryAndCompare(
+        "select a, array_sort(a, (l, r) -> " +
+          "IF(l > r, -1, IF(l < r, 1, 0))) from t_arr_sort_default") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
   test("Support bool type filter in scan") {
     withTable("t") {
       sql("create table t (id int, b boolean) using parquet")
