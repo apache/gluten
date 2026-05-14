@@ -1068,6 +1068,56 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
       }
   }
 
+  // Test approx_percentile with all fallback modes.
+  List(Offload, FallbackPartial, FallbackFinal, FallbackAll).foreach {
+    mode =>
+      test(s"test fallback approx_percentile, $mode") {
+        mode match {
+          case Offload => doApproxPercentileTest()
+          case FallbackPartial =>
+            FallbackInjects.fallbackOn {
+              case agg: BaseAggregateExec =>
+                agg.aggregateExpressions.exists(_.mode == Partial)
+            } {
+              doApproxPercentileTest()
+            }
+          case FallbackFinal =>
+            FallbackInjects.fallbackOn {
+              case agg: BaseAggregateExec =>
+                agg.aggregateExpressions.exists(_.mode == Final)
+            } {
+              doApproxPercentileTest()
+            }
+          case FallbackAll =>
+            FallbackInjects.fallbackOn { case _: BaseAggregateExec => true } {
+              doApproxPercentileTest()
+            }
+        }
+
+        def doApproxPercentileTest(): Unit = {
+          withTempView("approx_pct_tmp") {
+            Seq(0, 6, 7, 9, 10)
+              .toDF("col")
+              .createOrReplaceTempView("approx_pct_tmp")
+
+            // single percentile
+            runQueryAndCompare("SELECT approx_percentile(col, 0.5) FROM approx_pct_tmp") { _ => }
+
+            // array percentile
+            runQueryAndCompare(
+              "SELECT approx_percentile(col, array(0.25, 0.5, 0.75)) FROM approx_pct_tmp") { _ => }
+
+            // with group by
+            Seq((1, 10), (1, 20), (1, 30), (2, 5), (2, 10), (2, 15))
+              .toDF("grp", "val")
+              .createOrReplaceTempView("approx_pct_grp")
+            runQueryAndCompare(
+              "SELECT grp, approx_percentile(val, 0.5) FROM approx_pct_grp GROUP BY grp") { _ => }
+          }
+        }
+      }
+  }
+
   test("count(1)") {
     runQueryAndCompare(
       """

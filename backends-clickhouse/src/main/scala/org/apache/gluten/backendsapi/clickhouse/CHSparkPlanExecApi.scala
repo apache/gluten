@@ -41,7 +41,7 @@ import org.apache.spark.shuffle.utils.CHShuffleUtil
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, BloomFilterAggregate, CollectList, CollectSet}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, ApproximatePercentile, BloomFilterAggregate, CollectList, CollectSet}
 import org.apache.spark.sql.catalyst.optimizer.BuildSide
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.physical.{BroadcastMode, HashPartitioning, Partitioning, RangePartitioning}
@@ -596,6 +596,7 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
   /** Define backend specfic expression mappings. */
   override def extraExpressionMappings: Seq[Sig] = {
     List(
+      Sig[ApproximatePercentile](ExpressionNames.APPROX_PERCENTILE),
       Sig[CollectList](ExpressionNames.COLLECT_LIST),
       Sig[CollectSet](ExpressionNames.COLLECT_SET),
       Sig[MonotonicallyIncreasingID](MONOTONICALLY_INCREASING_ID),

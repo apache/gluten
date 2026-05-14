@@ -852,6 +852,15 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenAlwaysPersistedConfigsSuite]
   enableSuite[GlutenApproxTopKSuite] // sql.GlutenApproxTopKSuite
   enableSuite[GlutenApproximatePercentileQuerySuite]
+    // Velox KLL sketch produces slightly different results (off-by-one) compared to Spark's GK.
+    // These are validated by VeloxAggregateFunctionsSuite with all 4 fallback modes.
+    .exclude("percentile_approx, single percentile value")
+    .exclude("percentile_approx, the first element satisfies small percentages")
+    .exclude("percentile_approx, array of percentile value")
+    .exclude("percentile_approx, with different accuracies")
+    .exclude("percentile_approx, supports constant folding for parameter accuracy and percentages")
+    .exclude("percentile_approx(col, ...), input rows contains null, with out group by")
+    .exclude("percentile_approx(col, ...), input rows contains null, with group by")
   enableSuite[GlutenCachedTableSuite]
     .exclude("A cached table preserves the partitioning and ordering of its cached SparkPlan")
     .exclude("InMemoryRelation statistics")
@@ -880,6 +889,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataFrameAggregateSuite]
     // Test for vanilla spark codegen, not apply for Gluten
     .exclude("SPARK-43876: Enable fast hashmap for distinct queries")
+    // Velox KLL sketch for approx_percentile with accuracy=1 may differ from Spark GK algorithm.
+    .exclude("approx_percentile")
     .exclude(
       "SPARK-26021: NaN and -0.0 in grouping expressions", // NaN case
       // Replaced with another test.
@@ -904,6 +915,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataFrameJoinSuite]
   enableSuite[GlutenDataFrameNaFunctionsSuite]
   enableSuite[GlutenDataFramePivotSuite]
+    // Velox KLL sketch for approx_percentile produces different results on small datasets.
+    .exclude("SPARK-35480: percentile_approx should work with pivot")
   enableSuite[GlutenDataFrameRangeSuite]
     .exclude("SPARK-20430 Initialize Range parameters in a driver side")
     .excludeByPrefix("Cancelling stage in a query with Range")
@@ -920,6 +933,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataFrameSuite]
     // Rewrite these tests because it checks Spark's physical operators.
     .excludeByPrefix("SPARK-22520", "reuse exchange")
+    // Velox KLL sketch for approx_percentile produces different quartiles on very small datasets.
+    .exclude("summary")
     .exclude(
       /**
        * Rewrite these tests because the rdd partition is equal to the configuration

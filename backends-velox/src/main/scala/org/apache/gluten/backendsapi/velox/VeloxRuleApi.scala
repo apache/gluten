@@ -59,6 +59,7 @@ object VeloxRuleApi {
     injector.injectOptimizerRule(RewriteUnboundedWindow.apply)
     injector.injectOptimizerRule(PushAggregateThroughJoinBatch.apply)
     injector.injectPlannerStrategy(ImplementJoinAggregate.apply)
+    injector.injectOptimizerRule(ApproxPercentileRewriteRule.apply)
 
     if (!BackendsApiManager.getSettings.enableJoinKeysRewrite()) {
       injector.injectPlannerStrategy(_ => org.apache.gluten.extension.GlutenJoinKeysCapture())

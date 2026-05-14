@@ -21,7 +21,7 @@ import org.apache.gluten.config.{GlutenConfig, HashShuffleWriterType, ReservedKe
 import org.apache.gluten.exception.{GlutenExceptionUtil, GlutenNotSupportException}
 import org.apache.gluten.execution._
 import org.apache.gluten.expression._
-import org.apache.gluten.expression.aggregate.{HLLAdapter, VeloxBloomFilterAggregate, VeloxCollectList, VeloxCollectSet}
+import org.apache.gluten.expression.aggregate.{HLLAdapter, VeloxApproximatePercentile, VeloxBloomFilterAggregate, VeloxCollectList, VeloxCollectSet}
 import org.apache.gluten.extension.JoinKeysTag
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.shuffle.NeedCustomColumnarBatchSerializer
@@ -1128,6 +1128,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       Sig[CollectList](ExpressionNames.COLLECT_LIST),
       Sig[VeloxCollectSet](ExpressionNames.COLLECT_SET),
       Sig[CollectSet](ExpressionNames.COLLECT_SET),
+      Sig[VeloxApproximatePercentile](ExpressionNames.APPROX_PERCENTILE),
       Sig[VeloxBloomFilterMightContain](ExpressionNames.MIGHT_CONTAIN),
       Sig[VeloxBloomFilterAggregate](ExpressionNames.BLOOM_FILTER_AGG),
       Sig[MapFilter](ExpressionNames.MAP_FILTER),
