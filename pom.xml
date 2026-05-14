@@ -1156,6 +1156,23 @@
       </properties>
     </profile>
     <profile>
+      <id>java-25</id>
+      <activation>
+        <jdk>25</jdk>
+      </activation>
+      <properties>
+        <java.version>25</java.version>
+        <scala.release.version>21</scala.release.version>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <caffeine.version>3.1.8</caffeine.version>
+        <spotless.version>2.44.4</spotless.version>
+        <googlejavaformat.version>1.25.2</googlejavaformat.version>
+        <!-- spotless-maven-plugin 2.44.x is not compatible with JDK 25 due to internal API changes -->
+        <spotless.check.skip>true</spotless.check.skip>
+      </properties>
+    </profile>
+    <profile>
       <id>spark-3.3</id>
       <properties>
         <sparkbundle.version>3.3</sparkbundle.version>
@@ -1298,7 +1315,7 @@
                   <rules>
                     <requireActiveProfile>
                       <!-- Spark 4.0 requires Java 17+ -->
-                      <profiles>java-17,java-21</profiles>
+                      <profiles>java-17,java-21,java-25</profiles>
                       <all>false</all>
                       <message>"-P spark-4.0" requires JDK 17+</message>
                     </requireActiveProfile>
@@ -1378,7 +1395,7 @@
                   <rules>
                     <requireActiveProfile>
                       <!-- Spark 4.1 requires Java 17+ -->
-                      <profiles>java-17,java-21</profiles>
+                      <profiles>java-17,java-21,java-25</profiles>
                       <all>false</all>
                       <message>"-P spark-4.1" requires JDK 17+</message>
                     </requireActiveProfile>
