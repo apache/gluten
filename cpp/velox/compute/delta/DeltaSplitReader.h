@@ -103,12 +103,6 @@ class DeltaSplitReader : public DeltaSplitReaderBase {
   uint64_t next(uint64_t size, VectorPtr& output) override;
 
  private:
-  /// Validate that the protocol supports deletion vectors.
-  /// Throws if protocol version is too low or feature flag is missing.
-  /// This is defense-in-depth validation - Gluten should already validate
-  /// at table level, but we check again at split level for safety.
-  void validateProtocolForDeletionVectors(const DeltaProtocolInfo& protocol);
-
   /// Validate that file statistics are consistent with deletion vector.
   /// Per Delta spec: numRecords is required when DV is present.
   /// Also validates that cardinality doesn't exceed numRecords.

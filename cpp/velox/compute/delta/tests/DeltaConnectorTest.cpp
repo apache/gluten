@@ -33,8 +33,15 @@
 #include <gtest/gtest.h>
 
 #include "compute/delta/DeltaConnector.h"
+#include "compute/delta/DeltaSplit.h"
+#include "compute/delta/RoaringBitmapArray.h"
 #include "velox/connectors/Connector.h"
 #include "velox/connectors/hive/HiveConfig.h"
+#include "velox/exec/tests/utils/AssertQueryBuilder.h"
+#include "velox/exec/tests/utils/HiveConnectorTestBase.h"
+#include "velox/exec/tests/utils/PlanBuilder.h"
+
+#include <limits>
 
 namespace gluten::delta {
 
@@ -79,6 +86,82 @@ TEST_F(DeltaConnectorTest, connectorProperties) {
   ASSERT_NE(deltaConnector, nullptr);
   ASSERT_TRUE(deltaConnector->canAddDynamicFilter());
   ASSERT_TRUE(deltaConnector->supportsSplitPreload());
+}
+
+class DeltaConnectorExecutionTest : public facebook::velox::exec::test::HiveConnectorTestBase {
+ protected:
+  static constexpr const char* kConnectorId = "test-delta";
+
+  void SetUp() override {
+    facebook::velox::exec::test::HiveConnectorTestBase::SetUp();
+    registerDeltaConnector();
+  }
+
+  void TearDown() override {
+    unregisterConnector(kConnectorId);
+    facebook::velox::exec::test::HiveConnectorTestBase::TearDown();
+  }
+
+  void registerDeltaConnector(
+      std::shared_ptr<const config::ConfigBase> config =
+          std::make_shared<config::ConfigBase>(std::unordered_map<std::string, std::string>{})) {
+    unregisterConnector(kConnectorId);
+
+    DeltaConnectorFactory factory;
+    registerConnector(factory.newConnector(kConnectorId, std::move(config)));
+  }
+
+  std::string createSerializedPayload(const std::vector<int64_t>& deletedRows) {
+    RoaringBitmapArray bitmap;
+    for (auto row : deletedRows) {
+      bitmap.addSafe(row);
+    }
+
+    const auto serializedSize = bitmap.serializedSizeInBytes();
+    auto buffer = AlignedBuffer::allocate<char>(serializedSize, pool());
+    bitmap.serialize(buffer->asMutable<char>());
+    return std::string(buffer->as<char>(), serializedSize);
+  }
+
+  std::shared_ptr<HiveDeltaSplit>
+  makeDeltaSplit(const std::string& filePath, const std::string& serializedPayload, uint64_t cardinality) {
+    SplitPayloadBufferView payloadView{
+        reinterpret_cast<const uint8_t*>(serializedPayload.data()), static_cast<int32_t>(serializedPayload.size())};
+
+    return std::make_shared<HiveDeltaSplit>(
+        kConnectorId,
+        filePath,
+        facebook::velox::dwio::common::FileFormat::DWRF,
+        0,
+        std::numeric_limits<uint64_t>::max(),
+        std::unordered_map<std::string, std::optional<std::string>>{},
+        std::nullopt,
+        std::unordered_map<std::string, std::string>{{"table_format", "delta"}},
+        nullptr,
+        std::unordered_map<std::string, std::string>{},
+        true,
+        DeltaDeletionVectorDescriptor::serialized(cardinality, payloadView));
+  }
+};
+
+TEST_F(DeltaConnectorExecutionTest, filtersRowsUsingMaterializedDeletionVector) {
+  const auto rowType = ROW({"id"}, {BIGINT()});
+  const auto input = makeRowVector({"id"}, {makeFlatVector<int64_t>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9})});
+  const auto file = facebook::velox::exec::test::TempFilePath::create();
+  writeToFile(file->getPath(), input);
+
+  const auto plan = facebook::velox::exec::test::PlanBuilder(pool())
+                        .startTableScan()
+                        .connectorId(kConnectorId)
+                        .outputType(rowType)
+                        .endTableScan()
+                        .planNode();
+
+  const auto payload = createSerializedPayload({2, 5, 8});
+  const auto split = makeDeltaSplit(file->getPath(), payload, 3);
+  const auto expected = makeRowVector({"id"}, {makeFlatVector<int64_t>({0, 1, 3, 4, 6, 7, 9})});
+
+  facebook::velox::exec::test::AssertQueryBuilder(plan).split(split).assertResults(expected);
 }
 
 } // namespace

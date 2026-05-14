@@ -32,7 +32,6 @@
 
 #include "compute/delta/DeltaSplitReader.h"
 
-#include <sstream>
 #include <string_view>
 
 #include "compute/delta/DeltaSplit.h"
@@ -105,6 +104,7 @@ void DeltaSplitReader::prepareSplit(
     std::shared_ptr<common::MetadataFilter> metadataFilter,
     dwio::common::RuntimeStatistics& runtimeStats,
     const folly::F14FastMap<std::string, std::string>& fileReadOps) {
+  (void)fileReadOps;
 #if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
   HiveSplitReader::prepareSplit(std::move(metadataFilter), runtimeStats, fileReadOps);
   if (emptySplit() || !baseRowReader_) {
@@ -127,48 +127,6 @@ void DeltaSplitReader::prepareSplit(
   }
 
   const auto& descriptor = *deltaSplit->deletionVector;
-
-  // Extract and validate protocol from Hadoop configuration (passed via fileReadOps)
-  auto readerVersionIt = fileReadOps.find("spark.gluten.delta.protocol.reader.version");
-  auto writerVersionIt = fileReadOps.find("spark.gluten.delta.protocol.writer.version");
-
-  if (readerVersionIt != fileReadOps.end() && writerVersionIt != fileReadOps.end()) {
-    DeltaProtocolInfo protocolInfo;
-    protocolInfo.minReaderVersion = std::stoi(readerVersionIt->second);
-    protocolInfo.minWriterVersion = std::stoi(writerVersionIt->second);
-
-    // Extract reader features if present
-    auto readerFeaturesIt = fileReadOps.find("spark.gluten.delta.protocol.reader.features");
-    if (readerFeaturesIt != fileReadOps.end() && !readerFeaturesIt->second.empty()) {
-      std::vector<std::string> features;
-      std::istringstream iss(readerFeaturesIt->second);
-      std::string feature;
-      while (std::getline(iss, feature, ',')) {
-        features.push_back(feature);
-      }
-      protocolInfo.readerFeatures = std::move(features);
-    }
-
-    // Extract writer features if present
-    auto writerFeaturesIt = fileReadOps.find("spark.gluten.delta.protocol.writer.features");
-    if (writerFeaturesIt != fileReadOps.end() && !writerFeaturesIt->second.empty()) {
-      std::vector<std::string> features;
-      std::istringstream iss(writerFeaturesIt->second);
-      std::string feature;
-      while (std::getline(iss, feature, ',')) {
-        features.push_back(feature);
-      }
-      protocolInfo.writerFeatures = std::move(features);
-    }
-
-    // Validate protocol for deletion vectors
-    validateProtocolForDeletionVectors(protocolInfo);
-  }
-
-  // Validate protocol if also provided in split (backward compatibility)
-  if (deltaSplit->protocolInfo.has_value()) {
-    validateProtocolForDeletionVectors(*deltaSplit->protocolInfo);
-  }
 
   // Validate statistics if provided
   if (deltaSplit->statistics.has_value()) {
@@ -218,23 +176,6 @@ uint64_t DeltaSplitReader::next(uint64_t size, VectorPtr& output) {
     applyBucketConversion(output, bucketConversionRows(*output->asChecked<RowVector>()));
   }
   return rowsScanned;
-}
-
-void DeltaSplitReader::validateProtocolForDeletionVectors(const DeltaProtocolInfo& protocol) {
-  if (!protocol.supportsDeletionVectors()) {
-    std::string readerFeatures = "none";
-    if (protocol.readerFeatures.has_value()) {
-      readerFeatures = folly::join(", ", *protocol.readerFeatures);
-    }
-
-    VELOX_USER_FAIL(
-        "Deletion vectors require reader protocol version 3+ and writer "
-        "protocol version 7+ with 'deletionVectors' feature enabled. "
-        "Found: minReaderVersion={}, minWriterVersion={}, readerFeatures=[{}]",
-        protocol.minReaderVersion,
-        protocol.minWriterVersion,
-        readerFeatures);
-  }
 }
 
 void DeltaSplitReader::validateStatisticsForDeletionVectors(

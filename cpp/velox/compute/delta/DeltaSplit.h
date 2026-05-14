@@ -32,7 +32,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <limits>
 #include <optional>
 #include <vector>
@@ -50,32 +49,6 @@ enum class DeltaRowIndexFilterType {
   kKeepAll,
   kIfContained,
   kIfNotContained,
-};
-
-/// Protocol version information for a Delta table.
-/// Used to validate that the table supports deletion vectors.
-/// Per Delta spec: DVs require Reader v3+ and Writer v7+ with
-/// 'deletionVectors' feature flag.
-struct DeltaProtocolInfo {
-  int32_t minReaderVersion;
-  int32_t minWriterVersion;
-  std::optional<std::vector<std::string>> readerFeatures;
-  std::optional<std::vector<std::string>> writerFeatures;
-
-  /// Check if this protocol supports deletion vectors.
-  /// Returns true if:
-  /// - minReaderVersion >= 3
-  /// - minWriterVersion >= 7
-  /// - 'deletionVectors' is in readerFeatures
-  bool supportsDeletionVectors() const {
-    if (minReaderVersion < 3 || minWriterVersion < 7) {
-      return false;
-    }
-    if (!readerFeatures.has_value()) {
-      return false;
-    }
-    return std::find(readerFeatures->begin(), readerFeatures->end(), "deletionVectors") != readerFeatures->end();
-  }
 };
 
 struct DeltaDeletionVectorDescriptor {
@@ -124,7 +97,6 @@ struct DeltaFileStatistics {
 
 struct HiveDeltaSplit : public connector::hive::HiveConnectorSplit {
   std::optional<DeltaDeletionVectorDescriptor> deletionVector;
-  std::optional<DeltaProtocolInfo> protocolInfo;
   std::optional<DeltaFileStatistics> statistics;
   DeltaRowIndexFilterType filterType;
 
@@ -141,7 +113,6 @@ struct HiveDeltaSplit : public connector::hive::HiveConnectorSplit {
       const std::unordered_map<std::string, std::string>& serdeParameters = {},
       bool cacheable = true,
       std::optional<DeltaDeletionVectorDescriptor> deletionVector = std::nullopt,
-      std::optional<DeltaProtocolInfo> protocolInfo = std::nullopt,
       std::optional<DeltaFileStatistics> statistics = std::nullopt,
       DeltaRowIndexFilterType filterType = DeltaRowIndexFilterType::kKeepAll,
       const std::unordered_map<std::string, std::string>& infoColumns = {},

@@ -65,6 +65,10 @@ class DeltaDeletionVectorReader {
   DeltaDeletionVectorReader() = default;
 
   /// Loads a deletion vector from an already decoded serialized Delta payload.
+  /// expectedCardinality is the deletion-vector cardinality from Delta metadata
+  /// when available. Native uses it as a corruption check after deserializing
+  /// the materialized bitmap; omit it when the metadata did not provide a
+  /// cardinality.
   void loadSerializedDeletionVector(
       std::string_view serializedPayload,
       std::optional<uint64_t> expectedCardinality = std::nullopt);

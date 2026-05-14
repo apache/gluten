@@ -47,7 +47,6 @@ HiveDeltaSplit::HiveDeltaSplit(
     const std::unordered_map<std::string, std::string>& serdeParameters,
     bool cacheable,
     std::optional<DeltaDeletionVectorDescriptor> deletionVector,
-    std::optional<DeltaProtocolInfo> protocolInfo,
     std::optional<DeltaFileStatistics> statistics,
     DeltaRowIndexFilterType filterType,
     const std::unordered_map<std::string, std::string>& infoColumns,
@@ -70,7 +69,6 @@ HiveDeltaSplit::HiveDeltaSplit(
           std::nullopt,
           std::nullopt),
       deletionVector(std::move(deletionVector)),
-      protocolInfo(std::move(protocolInfo)),
       statistics(std::move(statistics)),
       filterType(filterType) {}
 

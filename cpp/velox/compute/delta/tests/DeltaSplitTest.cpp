@@ -69,7 +69,6 @@ TEST(DeltaSplitTest, SplitCarriesDeletionVectorDescriptor) {
       true,
       descriptor,
       std::nullopt,
-      std::nullopt,
       DeltaRowIndexFilterType::kIfContained,
       std::unordered_map<std::string, std::string>{},
       std::nullopt);
