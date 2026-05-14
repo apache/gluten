@@ -76,7 +76,7 @@ MarkupSafe==2.0.1
 matplotlib==3.5.2
 matplotlib-inline==0.1.7
 metakernel==0.30.2
-mistune==3.0.2
+mistune==3.2.1
 more-itertools==8.10.0
 mypy-extensions==1.0.0
 nbclassic==1.1.0
