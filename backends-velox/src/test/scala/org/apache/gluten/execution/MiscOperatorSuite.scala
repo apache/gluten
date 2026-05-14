@@ -1251,7 +1251,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         "insert into t_arr_sort_default values " +
           "(array(3, 1, 2, 5, 4)), (array(10, 20, 30)), (array(null, 2, 1)), (array())")
 
-      // Default ascending sort (no lambda) — Spark generates a null-handling
+      // Default ascending sort (no lambda) - Spark generates a null-handling
       // comparator that Velox cannot parse without the stripping logic.
       runQueryAndCompare("select a, array_sort(a) from t_arr_sort_default") {
         checkGlutenPlan[ProjectExecTransformer]
@@ -1267,7 +1267,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         checkGlutenPlan[ProjectExecTransformer]
       }
 
-      // Custom comparator (descending) — must still be offloaded with 2-arg form
+      // Custom comparator (descending) - must still be offloaded with 2-arg form
       runQueryAndCompare(
         "select a, array_sort(a, (l, r) -> " +
           "IF(l > r, -1, IF(l < r, 1, 0))) from t_arr_sort_default") {
