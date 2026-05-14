@@ -467,6 +467,22 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       case s: ScalarSubquery =>
         ScalarSubqueryTransformer(substraitExprName, s)
       case c: Cast =>
+        // Gluten uses session-level timezone for cast. If the per-expression timezone
+        // differs from session timezone and the cast involves timestamp type, we must
+        // fall back to Spark native execution to ensure correctness.
+        // Note: Spark Cast applies zoneId recursively to array/map/struct elements,
+        // so we must check nested types as well.
+        c.timeZoneId.foreach {
+          tz =>
+            val sessionTz = SQLConf.get.sessionLocalTimeZone
+            if (tz != sessionTz) {
+              if (involvesTimestampType(c.child.dataType) || involvesTimestampType(c.dataType)) {
+                throw new GlutenNotSupportException(
+                  s"Cast with per-expression timezone '$tz' different from session timezone " +
+                    s"'$sessionTz' is not supported when timestamp type is involved")
+              }
+            }
+        }
         // Add trim node, as necessary.
         val newCast =
           BackendsApiManager.getSparkPlanExecApiInstance.genCastWithNewChild(c)
@@ -913,6 +929,19 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           expr
         )
     }
+  }
+
+  /**
+   * Recursively checks whether the given data type is, or contains, a TimestampType, including
+   * nested array/map/struct/UDT element types.
+   */
+  private def involvesTimestampType(dataType: DataType): Boolean = dataType match {
+    case TimestampType => true
+    case a: ArrayType => involvesTimestampType(a.elementType)
+    case m: MapType => involvesTimestampType(m.keyType) || involvesTimestampType(m.valueType)
+    case s: StructType => s.exists(f => involvesTimestampType(f.dataType))
+    case udt: UserDefinedType[_] => involvesTimestampType(udt.sqlType)
+    case _ => false
   }
 
   private def getAndCheckSubstraitName(

@@ -65,6 +65,20 @@ class TransitionSuite extends SharedSparkSession with TransitionSuiteBase with W
         BatchUnary(BatchTypeA, RowToBatch(RowTypeA, BatchTypeA, RowLeaf(RowTypeA)))))
   }
 
+  test("SPARK-51474: Dual-mode parent keeps columnar child for row output") {
+    val in = DualModeUnary(RowTypeA, BatchTypeA, BatchLeaf(BatchTypeA))
+    val out = insertTransitions(in, ConventionReq.ofRow(ConventionReq.RowType.Is(RowTypeA)))
+    assert(out == in)
+  }
+
+  test("SPARK-51474: Dual-mode parent only needs batch child convention") {
+    val in = DualModeUnary(RowTypeA, BatchTypeA, RowLeaf(RowTypeA))
+    val out = insertTransitions(in, ConventionReq.ofRow(ConventionReq.RowType.Is(RowTypeA)))
+    assert(
+      out ==
+        DualModeUnary(RowTypeA, BatchTypeA, RowToBatch(RowTypeA, BatchTypeA, RowLeaf(RowTypeA))))
+  }
+
   test("Insert C2R2C") {
     val in = BatchUnary(BatchTypeA, BatchLeaf(BatchTypeB))
     val out = insertTransitions(in, ConventionReq.ofRow(ConventionReq.RowType.Is(RowTypeA)))

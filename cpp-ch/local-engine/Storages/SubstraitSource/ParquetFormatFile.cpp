@@ -283,17 +283,5 @@ std::optional<size_t> ParquetFormatFile::getTotalRows()
     }
 }
 
-bool ParquetFormatFile::onlyHasFlatType(const Block & header)
-{
-    return std::ranges::all_of(
-        header,
-        [](ColumnWithTypeAndName const & col)
-        {
-            const DataTypePtr type_not_nullable = removeNullable(col.type);
-            const WhichDataType which(type_not_nullable);
-            return !isArray(which) && !isMap(which) && !isTuple(which);
-        });
-}
-
 }
 #endif

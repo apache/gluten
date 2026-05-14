@@ -260,7 +260,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // is in test-jar without shaded Guava, while SubExprEvaluationRuntime is shaded.
   enableSuite[GlutenSubexpressionEliminationSuite]
   enableSuite[GlutenTimeWindowSuite]
-  // TODO: 4.x enableSuite[GlutenToPrettyStringSuite]  // 1 failure
+  enableSuite[GlutenToPrettyStringSuite]
   enableSuite[GlutenUnsafeRowConverterSuite]
   enableSuite[GlutenUnwrapUDTExpressionSuite]
   enableSuite[GlutenV2ExpressionUtilsSuite]
@@ -664,7 +664,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // Generated suites for org.apache.spark.sql.execution
   enableSuite[GlutenAggregatingAccumulatorSuite]
   enableSuite[GlutenCoGroupedIteratorSuite]
-  // TODO: 4.x enableSuite[GlutenColumnarRulesSuite]  // 1 failure
+  enableSuite[GlutenColumnarRulesSuite]
   enableSuite[GlutenDataSourceScanExecRedactionSuite]
     .exclude("explain is redacted using SQLConf")
     .exclude("SPARK-31793: FileSourceScanExec metadata should contain limited file paths")
@@ -703,6 +703,9 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
   enableSuite[GlutenSparkScriptTransformationSuite]
+    // Flaky in CI containers for Spark 4.1: intermittently fails with
+    // `/tmp/test-resource*.py: Permission denied` and can crash JVM.
+    .exclude("SPARK-33934: Add SparkFile's root dir to env property PATH")
   enableSuite[GlutenSparkSqlParserSuite]
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
   enableSuite[GlutenUnsafeKVExternalSorterSuite]

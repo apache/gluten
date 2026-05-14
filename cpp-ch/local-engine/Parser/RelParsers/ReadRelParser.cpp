@@ -19,6 +19,7 @@
 #include <memory>
 #include <Core/Block.h>
 #include <Core/Settings.h>
+#include <Formats/FormatFactory.h>
 #include <IO/ReadBufferFromString.h>
 #include <Interpreters/Context.h>
 #include <Operator/BlocksBufferPoolTransform.h>
@@ -27,6 +28,7 @@
 #include <Parser/SubstraitParserUtils.h>
 #include <Parser/TypeParser.h>
 #include <Processors/QueryPlan/ReadFromPreparedSource.h>
+#include <Storages/Parquet/ParquetMeta.h>
 #include <Storages/SourceFromJavaIter.h>
 #include <Storages/SourceFromRange.h>
 #include <Storages/SubstraitSource/SubstraitFileSource.h>
@@ -182,6 +184,11 @@ QueryPlanStepPtr ReadRelParser::parseReadRelWithLocalFile(const substrait::ReadR
 {
     auto header = TypeParser::buildBlockFromNamedStruct(rel.base_schema());
 
+    auto format_settings = getFormatSettings(getContext());
+    // TODO: check with the Delta DV
+    bool readRowIndex = ParquetVirtualMeta::hasMetaColumns(header);
+    bool onlyFlatType = onlyHasFlatType(header);
+
     substrait::ReadRel::LocalFiles local_files;
     if (rel.has_local_files())
         local_files = rel.local_files();
@@ -194,7 +201,10 @@ QueryPlanStepPtr ReadRelParser::parseReadRelWithLocalFile(const substrait::ReadR
     auto source = std::make_shared<SubstraitFileSource>(getContext(), header, local_files);
     auto source_pipe = Pipe(source);
     auto source_step = std::make_unique<SubstraitFileSourceStep>(getContext(), std::move(source_pipe), "substrait local files");
-    source_step->setStepDescription("read local files");
+    if (format_settings.parquet.use_native_reader_v3 && !readRowIndex && onlyFlatType)
+        source_step->setStepDescription("ParquetReaderV3");
+    else
+        source_step->setStepDescription("ParquetReader");
 
     if (rel.has_filter())
     {

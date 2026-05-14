@@ -249,7 +249,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // is in test-jar without shaded Guava, while SubExprEvaluationRuntime is shaded.
   enableSuite[GlutenSubexpressionEliminationSuite]
   enableSuite[GlutenTimeWindowSuite]
-  // TODO: 4.x enableSuite[GlutenToPrettyStringSuite]  // 1 failure
+  enableSuite[GlutenToPrettyStringSuite]
   enableSuite[GlutenUnsafeRowConverterSuite]
   enableSuite[GlutenUnwrapUDTExpressionSuite]
   enableSuite[GlutenV2ExpressionUtilsSuite]

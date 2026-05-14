@@ -79,9 +79,6 @@ const std::string kSparkBloomFilterExpectedNumItems = "spark.sql.optimizer.runti
 const std::string kSparkBloomFilterNumBits = "spark.sql.optimizer.runtime.bloomFilter.numBits";
 const std::string kSparkBloomFilterMaxNumBits = "spark.sql.optimizer.runtime.bloomFilter.maxNumBits";
 const std::string kSparkBloomFilterMaxNumItems = "spark.sql.optimizer.runtime.bloomFilter.maxNumItems";
-const std::string kBloomFilterExpectedNumItems = "spark.gluten.sql.columnar.backend.velox.bloomFilter.expectedNumItems";
-const std::string kBloomFilterNumBits = "spark.gluten.sql.columnar.backend.velox.bloomFilter.numBits";
-const std::string kBloomFilterMaxNumBits = "spark.gluten.sql.columnar.backend.velox.bloomFilter.maxNumBits";
 const std::string kVeloxSplitPreloadPerDriver = "spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver";
 
 const std::string kHashProbeDynamicFilterPushdownEnabled =
