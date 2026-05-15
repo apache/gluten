@@ -25,7 +25,6 @@ import org.apache.spark.sql.execution.command._
 import org.apache.spark.sql.hive.test.{TestHive, TestHiveQueryExecution}
 
 import java.io.{File, FileOutputStream}
-import java.nio.file.Files
 import java.util
 import java.util.Locale
 
@@ -153,7 +152,7 @@ trait GlutenHiveComparisonTestSupport extends GlutenHiveResourcePathSupport {
             cachedAnswerFile =>
               logDebug(s"Looking for cached answer file $cachedAnswerFile.")
               if (cachedAnswerFile.exists) {
-                Some(Files.readString(cachedAnswerFile.toPath))
+                Some(fileToString(cachedAnswerFile))
               } else {
                 logDebug(s"File $cachedAnswerFile not found")
                 None
