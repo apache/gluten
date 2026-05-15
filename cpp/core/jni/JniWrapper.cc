@@ -990,7 +990,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
     jint startPartitionId,
     jint splitBufferSize,
     jdouble splitBufferReallocThreshold,
-    jint evictPartitionSize,
+    jint partitionBufferEvictThreshold,
     jlong partitionWriterHandle) {
   JNI_METHOD_START
   const auto ctx = getRuntime(env, wrapper);
@@ -1006,7 +1006,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
       startPartitionId,
       splitBufferSize,
       splitBufferReallocThreshold,
-      evictPartitionSize);
+      partitionBufferEvictThreshold);
 
   return ctx->saveObject(ctx->createShuffleWriter(numPartitions, partitionWriter, shuffleWriterOptions));
   JNI_METHOD_END(kInvalidObjectHandle)

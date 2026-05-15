@@ -225,7 +225,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def columnarShuffleReallocThreshold: Double = getConf(COLUMNAR_SHUFFLE_REALLOC_THRESHOLD)
 
-  def columnarShuffleEvictPartitionSize: Int = getConf(COLUMNAR_SHUFFLE_EVICT_PARTITION_SIZE)
+  def columnarShufflePartitionBufferEvictThreshold: Int =
+    getConf(COLUMNAR_SHUFFLE_PARTITION_BUFFER_EVICT_THRESHOLD)
 
   def columnarShuffleMergeThreshold: Double = getConf(SHUFFLE_WRITER_MERGE_THRESHOLD)
 
@@ -1063,13 +1064,13 @@ object GlutenConfig extends ConfigRegistry {
       .checkValue(v => v >= 0 && v <= 1, "Buffer reallocation threshold must between [0, 1]")
       .createWithDefault(0.25)
 
-  val COLUMNAR_SHUFFLE_EVICT_PARTITION_SIZE =
-    buildConf("spark.gluten.sql.columnar.shuffle.evictPartitionSize")
+  val COLUMNAR_SHUFFLE_PARTITION_BUFFER_EVICT_THRESHOLD =
+    buildConf("spark.gluten.sql.columnar.shuffle.partitionBufferEvictThreshold")
       .doc(
         "For Velox hash shuffle writer, evict partition buffers larger than this threshold " +
-          "after splitting an input batch.")
+          "after splitting an input batch. Use non-positive value to disable this feature.")
       .intConf
-      .createWithDefault(256 * 1024)
+      .createWithDefault(-1)
 
   val COLUMNAR_SHUFFLE_CODEC =
     buildConf("spark.gluten.sql.columnar.shuffle.codec")
