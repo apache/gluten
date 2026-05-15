@@ -922,6 +922,12 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           substraitExprName,
           replaceWithExpressionTransformer0(errorMessage, attributeSeq, expressionsMap),
           re)
+      case c: Concat =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genConcatTransformer(
+          substraitExprName,
+          c.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          c
+        )
       case expr =>
         GenericExpressionTransformer(
           substraitExprName,

@@ -228,6 +228,19 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
   }
 
+  /**
+   * Transform Spark's Concat expression to Substrait.
+   *
+   * Handles StringType, BinaryType, and ArrayType inputs. Backends may override to customize
+   * behavior if their native concat semantics differ from Spark's.
+   */
+  def genConcatTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      original: Concat): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, original)
+  }
+
   def genAtLeastNNonNullsTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],

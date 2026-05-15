@@ -17,10 +17,8 @@
 package org.apache.gluten.execution
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.catalyst.expressions.{Alias, Literal}
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
-import org.apache.spark.sql.classic.ClassicColumn
-import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.functions.{col, lit}
 import org.apache.spark.sql.types.StringType
 
 class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
@@ -38,7 +36,7 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
     createTPCHNotNullTables()
     spark
       .table("lineitem")
-      .select(col("*"), ClassicColumn(Alias(Literal(null, StringType), NULL_STR_COL)()))
+      .select(col("*"), lit(null).cast(StringType).as(NULL_STR_COL))
       .createOrReplaceTempView(LINEITEM_TABLE)
   }
 
@@ -73,6 +71,67 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
     runQueryAndCompare(
       s"select l_orderkey, concat(l_comment, 'hello', 'world') " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+    // Single-argument concat is identity
+    runQueryAndCompare(
+      s"select l_orderkey, concat(l_comment) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+    // Verify null-in-null-out: concat with a NULL input returns NULL
+    runQueryAndCompare(
+      s"select l_orderkey, concat(l_comment, $NULL_STR_COL) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+    runQueryAndCompare(
+      s"select l_orderkey, concat($NULL_STR_COL, 'hello', l_comment) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+    // All-NULL inputs should return NULL (not empty string)
+    runQueryAndCompare(
+      s"select l_orderkey, concat($NULL_STR_COL, $NULL_STR_COL) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+  }
+
+  test("concat falls back for zero arguments") {
+    // Zero-argument concat returns '' in Spark; should fall back gracefully
+    runQueryAndCompare(
+      s"select l_orderkey, concat() " +
+        s"from $LINEITEM_TABLE limit $LENGTH") {
+      df =>
+        val plan = df.queryExecution.executedPlan
+        // Zero-arg concat should be constant-folded or fall back; either way
+        // it should not appear as a native concat expression
+        val nativeProjects = plan.collect { case p: ProjectExecTransformer => p }
+        assert(
+          nativeProjects.isEmpty ||
+            !nativeProjects.exists(_.projectList.exists(
+              _.find(_.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Concat]).isDefined)),
+          "zero-arg concat should not go native"
+        )
+    }
+  }
+
+  test("concat falls back for ArrayType") {
+    // Array concat has different null semantics in Spark 3.4+; should fall back
+    runQueryAndCompare(
+      s"select l_orderkey, concat(array(1, 2), array(3, 4)) " +
+        s"from $LINEITEM_TABLE limit $LENGTH") {
+      df =>
+        val plan = df.queryExecution.executedPlan
+        val nativeProjects = plan.collect { case p: ProjectExecTransformer => p }
+        assert(
+          nativeProjects.isEmpty ||
+            !nativeProjects.exists(_.projectList.exists(
+              _.find(_.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Concat]).isDefined)),
+          "array concat should not go native"
+        )
+    }
+  }
+
+  test("concat with BinaryType") {
+    // BinaryType concat should work natively with null-in-null-out semantics
+    runQueryAndCompare(
+      s"select l_orderkey, concat(cast(l_comment as binary), cast('hello' as binary)) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+    runQueryAndCompare(
+      s"select l_orderkey, concat(cast(l_comment as binary), cast(null as binary)) " +
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
   }
 

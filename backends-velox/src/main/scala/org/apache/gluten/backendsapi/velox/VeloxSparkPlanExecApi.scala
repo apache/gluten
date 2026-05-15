@@ -97,6 +97,38 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       newExpr)
   }
 
+  override def genConcatTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      original: Concat): ExpressionTransformer = {
+    // Zero-argument concat: Spark returns '' for StringType and empty byte array for
+    // BinaryType. Velox requires at least one argument, so fall back to Spark.
+    if (original.children.isEmpty) {
+      throw new GlutenNotSupportException("Native concat with zero arguments is not supported")
+    }
+
+    original.dataType match {
+      // Velox's array concat uses defaultNullBehavior=true (returns NULL if ANY input is NULL),
+      // but Spark 3.4+ (SPARK-41296) skips NULL array inputs and only returns NULL when ALL
+      // inputs are NULL. Fall back to Spark for ArrayType until null-skipping is implemented.
+      case _: ArrayType =>
+        throw new GlutenNotSupportException(
+          "Native array concat is not supported: Velox null semantics differ from Spark 3.4+")
+      case StringType | BinaryType =>
+      case other =>
+        throw new GlutenNotSupportException(
+          s"Native concat is not supported for type: ${other.simpleString}")
+    }
+
+    // Single-argument concat is a no-op (returns the argument as-is). Velox requires
+    // at least 2 arguments for concat, so return the child expression directly.
+    if (original.children.size == 1) {
+      return children.head
+    }
+
+    GenericExpressionTransformer(substraitExprName, children, original)
+  }
+
   override def genAtLeastNNonNullsTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
