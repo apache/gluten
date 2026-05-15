@@ -68,8 +68,8 @@ public class Parameterized implements Callable<Integer> {
   private String[] excludedDims = new String[0];
 
   private static final Pattern dimPattern1 =
-      Pattern.compile("([\\w-]+):([^,:]+)((?:,[^=,]+=[^=,]+)*)");
-  private static final Pattern dimPattern2 = Pattern.compile("([^,:]+)((?:,[^=,]+=[^=,]+)*)");
+      Pattern.compile("([\\w-]+):([^,:=]+)((?:,[^=,]+=[^=,]+)*)");
+  private static final Pattern dimPattern2 = Pattern.compile("([^,:=]+)((?:,[^=,]+=[^=,]+)*)");
 
   private static final Pattern excludedDimsPattern =
       Pattern.compile("[\\w-]+:[^,:]+(?:,[\\w-]+:[^,:]+)*");

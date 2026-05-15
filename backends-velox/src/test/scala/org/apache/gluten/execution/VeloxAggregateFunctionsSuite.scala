@@ -1258,20 +1258,26 @@ class VeloxAggregateFunctionsFlushSuite extends VeloxAggregateFunctionsSuite {
     }
   }
 
-  test("flushable aggregate rule - agg input already distributed by keys") {
+  test("flushable aggregate rule - count distinct keeps partial merge regular") {
     withSQLConf(
       SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
       SQLConf.FILES_MAX_PARTITION_BYTES.key -> "1k") {
-      runQueryAndCompare(
-        "select * from (select distinct l_orderkey,l_partkey from lineitem) a" +
-          " inner join (select l_orderkey from lineitem limit 10) b" +
-          " on a.l_orderkey = b.l_orderkey limit 10") {
+      runQueryAndCompare("select count(distinct l_partkey) from lineitem group by l_orderkey") {
         df =>
           val executedPlan = getExecutedPlan(df)
+          val regularAggCount = executedPlan.count {
+            plan => plan.isInstanceOf[RegularHashAggregateExecTransformer]
+          }
+          val flushableAggCount = executedPlan.count {
+            plan => plan.isInstanceOf[FlushableHashAggregateExecTransformer]
+          }
           assert(
-            executedPlan.exists(plan => plan.isInstanceOf[RegularHashAggregateExecTransformer]))
+            regularAggCount == 2,
+            s"expected 2 regular hash aggregates in one-distinct pipeline, got $regularAggCount")
           assert(
-            executedPlan.exists(plan => plan.isInstanceOf[FlushableHashAggregateExecTransformer]))
+            flushableAggCount == 2,
+            s"expected 2 flushable hash aggregates in one-distinct pipeline, got" +
+              s" $flushableAggCount")
       }
     }
   }
