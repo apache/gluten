@@ -777,6 +777,11 @@ trait SparkPlanExecApi {
   def getRDDScanTransform(plan: RDDScanExec): RDDScanTransformer =
     throw new GlutenNotSupportException("RDDScanExec is not supported")
 
+  def isSupportLocalTableScanExec(plan: LocalTableScanExec): Boolean = false
+
+  def getLocalTableScanTransform(plan: LocalTableScanExec): LocalTableScanTransformer =
+    throw new GlutenNotSupportException("LocalTableScanExec is not supported")
+
   def copyColumnarBatch(batch: ColumnarBatch): ColumnarBatch =
     throw new GlutenNotSupportException("Copying ColumnarBatch is not supported")
 
