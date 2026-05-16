@@ -40,6 +40,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableHashShuffleReaderStreamMerge: Boolean =
     getConf(COLUMNAR_VELOX_HASH_SHUFFLE_READER_STREAM_MERGE_ENABLED)
 
+  def enableVeloxResizeBatchesCopyRanges: Boolean =
+    getConf(COLUMNAR_VELOX_RESIZE_BATCHES_COPY_RANGES_ENABLED)
+
   case class ResizeRange(min: Int, max: Int) {
     assert(max >= min)
     assert(min > 0, "Min batch size should be larger than 0")
@@ -338,6 +341,24 @@ object VeloxConfig extends ConfigRegistry {
           "shuffle payload is returned as its own columnar batch.")
       .booleanConf
       .createWithDefault(false)
+
+  val COLUMNAR_VELOX_RESIZE_BATCHES_COPY_RANGES_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.resizeBatches.copyRanges.enabled")
+      .doc(
+        "Enables a VeloxResizeBatchesExec fast path that combines eligible batches using " +
+          "Velox vector copyRanges instead of generic RowVector append. When possible, it " +
+          "collects the small input batches for one VeloxResizeBatchesExec output, allocates " +
+          "the output RowVector once, and bulk-copies child vector ranges. This is most useful " +
+          "for shuffle-read outputs where plain hash shuffle payloads are materialized as " +
+          "dense flat vectors. Complex vectors can also use copyRanges, but ARRAY and MAP " +
+          "still rebuild nested offsets and sizes while bulk-copying child ranges. Unsupported " +
+          "encodings such as dictionary and constant vectors fall back to the generic copy " +
+          "path. This option is enabled by default and complements the reader-side raw " +
+          "payload merge fast path: that path avoids materializing small plain payload " +
+          "batches, while this option optimizes VeloxResizeBatchesExec when that operator " +
+          "is enabled.")
+      .booleanConf
+      .createWithDefault(true)
 
   val COLUMNAR_VELOX_RESIZE_BATCHES_SHUFFLE_INPUT_MIN_SIZE =
     buildConf("spark.gluten.sql.columnar.backend.velox.resizeBatches.shuffleInput.minSize")

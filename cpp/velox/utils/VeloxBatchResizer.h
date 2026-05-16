@@ -23,6 +23,15 @@
 
 namespace gluten {
 
+struct VeloxBatchResizeStats {
+  int64_t copyRangesBatches{0};
+  int64_t copyRangesOutputBatches{0};
+  // Counts generic copies: RowVector::append when copyRanges is disabled and
+  // RowVector::copy fallbacks when copyRanges is enabled.
+  int64_t appendCopyBatches{0};
+  int64_t copyRangesFallbackBatches{0};
+};
+
 class VeloxBatchResizer : public ColumnarBatchIterator {
  public:
   VeloxBatchResizer(
@@ -30,7 +39,9 @@ class VeloxBatchResizer : public ColumnarBatchIterator {
       int32_t minOutputBatchSize,
       int32_t maxOutputBatchSize,
       int64_t preferredBatchBytes,
-      std::unique_ptr<ColumnarBatchIterator> in);
+      std::unique_ptr<ColumnarBatchIterator> in,
+      bool enableCopyRanges = true,
+      VeloxBatchResizeStats* stats = nullptr);
 
   std::shared_ptr<ColumnarBatch> next() override;
 
@@ -41,9 +52,17 @@ class VeloxBatchResizer : public ColumnarBatchIterator {
   const int32_t minOutputBatchSize_;
   const int32_t maxOutputBatchSize_;
   const uint64_t preferredBatchBytes_;
+  const bool enableCopyRanges_;
   std::unique_ptr<ColumnarBatchIterator> in_;
+  VeloxBatchResizeStats* stats_;
 
   std::unique_ptr<ColumnarBatchIterator> next_ = nullptr;
+
+  void appendToBuffer(facebook::velox::RowVectorPtr& buffer, const facebook::velox::RowVectorPtr& input);
+
+  facebook::velox::RowVectorPtr copyBufferedInputs(const std::vector<facebook::velox::RowVectorPtr>& inputs);
+
+  std::shared_ptr<ColumnarBatch> collectAndCopy(facebook::velox::RowVectorPtr firstInput, uint64_t numBytes);
 };
 
 } // namespace gluten
