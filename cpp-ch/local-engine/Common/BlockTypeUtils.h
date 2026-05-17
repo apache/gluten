@@ -103,6 +103,7 @@ inline DB::ColumnWithTypeAndName toColumnType(const DB::NameAndTypePair & type)
 DB::Block toSampleBlock(const RowType & type);
 RowType blockToRowType(const DB::Block & header);
 DB::DataTypePtr wrapNullableType(bool nullable, DB::DataTypePtr nested_type);
+bool onlyHasFlatType(const DB::Block & header);
 
 inline DB::DataTypePtr wrapNullableType(DB::DataTypePtr nested_type)
 {

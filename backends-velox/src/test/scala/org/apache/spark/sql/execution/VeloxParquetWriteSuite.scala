@@ -27,6 +27,10 @@ import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
 
+import java.io.File
+
+import scala.collection.JavaConverters._
+
 class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteUtils {
 
   override protected val resourcePath: String = "/tpch-data-parquet"
@@ -264,6 +268,56 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
 
         val parquetDf = spark.read.parquet(f.getCanonicalPath)
         checkAnswer(parquetDf, spark.range(100).toDF("id"))
+    }
+  }
+}
+
+class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite with WriteUtils {
+
+  override protected val resourcePath: String = ""
+  override protected val fileFormat: String = "parquet"
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.NATIVE_WRITER_ENABLED.key, "true")
+      .set(s"spark.hadoop.parquet.enable.dictionary", "false")
+  }
+
+  private val dictionaryEncodingNames = Set("PLAIN_DICTIONARY", "RLE_DICTIONARY")
+
+  private def parquetColumnEncodings(dir: File): Seq[Set[String]] = {
+    val parquetFiles = dir.list((_, name) => name.contains("parquet"))
+    assert(parquetFiles.nonEmpty)
+    parquetFiles.flatMap {
+      file =>
+        val path = new Path(dir.getAbsolutePath, file)
+        val in = HadoopInputFile.fromPath(path, spark.sessionState.newHadoopConf())
+        Utils.tryWithResource(ParquetFileReader.open(in)) {
+          reader =>
+            reader.getFooter.getBlocks.asScala.flatMap {
+              block => block.getColumns.asScala.map(_.getEncodings.asScala.map(_.name()).toSet)
+            }
+        }
+    }.toSeq
+  }
+
+  test("native writer should respect parquet dictionary config from spark.hadoop config") {
+    spark
+      .range(0, 20000, 1, 1)
+      .selectExpr("concat('gluten-parquet-dictionary-', CAST(id % 10 AS STRING)) AS payload")
+      .createOrReplaceTempView("parquet_dictionary_source")
+
+    withTempPath {
+      hadoopConfDir =>
+        checkNativeWrite(
+          s"""
+             |INSERT OVERWRITE DIRECTORY USING PARQUET
+             |OPTIONS ('path' '${hadoopConfDir.getCanonicalPath}')
+             |SELECT * FROM parquet_dictionary_source
+             |""".stripMargin)
+        val columnEncodings = parquetColumnEncodings(hadoopConfDir)
+        assert(columnEncodings.nonEmpty)
+        assert(!columnEncodings.exists(_.exists(dictionaryEncodingNames.contains)))
     }
   }
 }

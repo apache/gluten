@@ -16,8 +16,33 @@
  */
 package org.apache.spark.utils
 
+import org.apache.gluten.events.GlutenPlanFallbackEvent
+
 import org.apache.spark.SparkContext
+import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
+
+import scala.collection.mutable.ArrayBuffer
 
 object GlutenSuiteUtils {
   def waitUntilEmpty(ctx: SparkContext): Unit = ctx.listenerBus.waitUntilEmpty()
+
+  // Drain any pending events from previous tests before registering the listener.
+  // Spark's LiveListenerBus is async, so events posted but not yet dispatched would
+  // still be delivered to a listener added afterwards, contaminating the buffer.
+  // After the body finishes, callers should invoke waitUntilEmpty before reading
+  // the events buffer.
+  def withFallbackEventListener(ctx: SparkContext)(
+      body: ArrayBuffer[GlutenPlanFallbackEvent] => Unit): Unit = {
+    waitUntilEmpty(ctx)
+    val events = new ArrayBuffer[GlutenPlanFallbackEvent]
+    val listener = new SparkListener {
+      override def onOtherEvent(event: SparkListenerEvent): Unit = event match {
+        case e: GlutenPlanFallbackEvent => events.append(e)
+        case _ =>
+      }
+    }
+    ctx.addSparkListener(listener)
+    try body(events)
+    finally ctx.removeSparkListener(listener)
+  }
 }

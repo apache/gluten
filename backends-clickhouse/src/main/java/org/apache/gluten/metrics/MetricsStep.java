@@ -24,6 +24,10 @@ public class MetricsStep {
 
   protected String name;
   protected String description;
+
+  @JsonProperty("parquet_reader_version")
+  protected long parquetReaderVersion;
+
   protected List<MetricsProcessor> processors;
 
   @JsonProperty("total_marks_pk")
@@ -169,5 +173,13 @@ public class MetricsStep {
 
   public void setParquetMetadataCacheMisses(long parquetMetadataCacheMisses) {
     this.parquetMetadataCacheMisses = parquetMetadataCacheMisses;
+  }
+
+  public long getParquetReaderVersion() {
+    return parquetReaderVersion;
+  }
+
+  public void setParquetReaderVersion(long parquetReaderVersion) {
+    this.parquetReaderVersion = parquetReaderVersion;
   }
 }

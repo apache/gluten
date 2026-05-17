@@ -16,12 +16,13 @@ Gluten supports Ubuntu 20.04/22.04, CentOS 7/8, and MacOS.
 Gluten supports JDK 8 for Spark 3.3, 3.4, and 3.5. For Spark 3.3 and later versions, Gluten
 also supports JDK 11 and 17.
 
-Note: Starting with Spark 4.0, the minimum required JDK version is 17.
+Note: Starting with Spark 4.0, the minimum required JDK version is 17. JDK 21 and 25 are also
+supported for Spark 4.0 and later versions.
 We recommend using a higher JDK version now to ease migration when deploying Gluten for Spark 4.0
 in the future. In addition, we may upgrade Arrow from 15.0.0 to a newer release, which will require
 JDK 11 as the minimum version.
 
-By default, Gluten compiles packages using JDK 8. Enable maven profile by `-Pjava-17` or `-Pjava-11` to use the corresponding JDK version, and ensure that the JDK version is available in your environment.
+By default, Gluten compiles packages using JDK 8. Enable maven profile by `-Pjava-17`, `-Pjava-21`, `-Pjava-25` or `-Pjava-11` to use the corresponding JDK version, and ensure that the JDK version is available in your environment.
 
 If JDK 11 or a higher version is used, Spark and Arrow require setting the java args `-Dio.netty.tryReflectionSetAccessible=true`, see [SPARK-29924](https://issues.apache.org/jira/browse/SPARK-29924) and [ARROW-6206](https://issues.apache.org/jira/browse/ARROW-6206).
 

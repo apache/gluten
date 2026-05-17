@@ -1057,8 +1057,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     return gluten::getHashTableObjStore()->save(builder);
   }
 
-  // Use thread pool (executor) instead of creating threads directly
-  auto executor = VeloxBackend::get()->executor();
+  // Use thread pool (executor) instead of creating threads directly.
+  // FIXME: This reuses the io executor which is supposed to only serve async IO tasks.
+  auto executor = VeloxBackend::get()->ioExecutor();
 
   std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(numThreads);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(numThreads);

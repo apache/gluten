@@ -46,6 +46,7 @@ class FileSourceScanMetricsUpdater(@transient val metrics: Map[String, SQLMetric
   val missCacheMillisecond: SQLMetric = metrics("missCacheMillisecond")
   val parquetMetadataCacheHits: SQLMetric = metrics("parquetMetadataCacheHits")
   val parquetMetadataCacheMisses: SQLMetric = metrics("parquetMetadataCacheMisses")
+  val isParquetReaderV3: SQLMetric = metrics("isParquetReaderV3")
 
   override def updateInputMetrics(inputMetrics: InputMetricsWrapper): Unit = {
     // inputMetrics.bridgeIncBytesRead(metrics("inputBytes").value)
@@ -75,6 +76,7 @@ class FileSourceScanMetricsUpdater(@transient val metrics: Map[String, SQLMetric
             missCacheMillisecond += step.missCacheMillisecond
             parquetMetadataCacheHits += step.parquetMetadataCacheHits
             parquetMetadataCacheMisses += step.parquetMetadataCacheMisses
+            isParquetReaderV3 += step.parquetReaderVersion
           })
 
         MetricsUtil.updateExtraTimeMetric(

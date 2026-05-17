@@ -32,6 +32,7 @@ import org.apache.spark.Partition
 import org.apache.spark.internal.Logging
 import org.apache.spark.rpc.GlutenDriverEndpoint
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
+import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, PartitionDirectory}
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.hive.execution.HiveFileFormat
@@ -43,6 +44,8 @@ import com.google.protobuf.{Any, Message}
 import org.apache.commons.lang3.math.NumberUtils
 
 import java.util.{Map => JMap}
+
+import scala.collection.JavaConverters._
 
 class VeloxTransformerApi extends TransformerApi with Logging {
 
@@ -131,11 +134,17 @@ class VeloxTransformerApi extends TransformerApi with Logging {
         // Only Parquet is supported. It's safe to set a fixed "parquet" here
         // because others already fell back by WriteFilesExecTransformer's validation.
         val shortName = "parquet"
+        val writeOptions = Option(write.session).map {
+          session =>
+            val hadoopConf = session.sessionState.newHadoopConfWithOptions(write.options)
+            CaseInsensitiveMap(hadoopConf.iterator().asScala.map(
+              entry => entry.getKey -> entry.getValue).toMap)
+        }.getOrElse(write.caseInsensitiveOptions)
         val nativeConf =
           GlutenFormatFactory(shortName)
             .nativeConf(
-              write.caseInsensitiveOptions,
-              WriteFilesExecTransformer.getCompressionCodec(write.caseInsensitiveOptions))
+              writeOptions,
+              WriteFilesExecTransformer.getCompressionCodec(writeOptions))
         packPBMessage(
           ConfigMap
             .newBuilder()

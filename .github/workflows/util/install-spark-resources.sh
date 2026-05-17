@@ -80,7 +80,8 @@ function install_spark() {
   mv python ${INSTALL_DIR}/shims/spark"${spark_version_short}""${scala_suffix}"/spark_home
   mv bin ${INSTALL_DIR}/shims/spark"${spark_version_short}""${scala_suffix}"/spark_home
 
-  tar --strip-components=1 -xf "${local_source}" spark-"${spark_version}"/sql/core/src/test/resources/
+  tar --strip-components=1 -xf "${local_source}" spark-"${spark_version}"/sql/core/src/test/resources/ \
+    spark-"${spark_version}"/sql/hive/src/test/resources/
   mkdir -p shims/spark"${spark_version_short}${scala_suffix}"/spark_home/
   mv sql shims/spark"${spark_version_short}${scala_suffix}"/spark_home/
 

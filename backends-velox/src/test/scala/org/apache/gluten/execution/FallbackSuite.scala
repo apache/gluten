@@ -17,17 +17,13 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
-import org.apache.gluten.events.GlutenPlanFallbackEvent
 
 import org.apache.spark.SparkConf
-import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
 import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarShuffleExchangeExec, SortExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, BroadcastNestedLoopJoinExec, SortMergeJoinExec}
 import org.apache.spark.utils.GlutenSuiteUtils
-
-import scala.collection.mutable.ArrayBuffer
 
 class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPlanHelper {
   protected val rootPath: String = getClass.getResource("/").getPath
@@ -315,80 +311,53 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   }
 
   test("get correct fallback reason on nodes without logicalLink") {
-    val events = new ArrayBuffer[GlutenPlanFallbackEvent]
-    val listener = new SparkListener {
-      override def onOtherEvent(event: SparkListenerEvent): Unit = {
-        event match {
-          case e: GlutenPlanFallbackEvent => events.append(e)
-          case _ =>
-        }
-      }
-    }
-    // Drain any pending events from previous tests before registering the listener.
-    // Spark's LiveListenerBus is async, so events posted but not yet dispatched will
-    // still be delivered to listeners added afterwards, contaminating `events` here.
-    GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
-    spark.sparkContext.addSparkListener(listener)
     withSQLConf(GlutenConfig.COLUMNAR_SORT_ENABLED.key -> "false") {
-      try {
-        val df = spark.sql("""
-                             |SELECT
-                             |  c1,
-                             |  c2,
-                             |  ROW_NUMBER() OVER (PARTITION BY c1 ORDER BY c2) as row_num,
-                             |  RANK() OVER (PARTITION BY c1 ORDER BY c2) as rank_num
-                             |FROM tmp1
-                             |
-                             |""".stripMargin)
-        df.collect()
-        GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
-        val sort = find(df.queryExecution.executedPlan) {
-          _.isInstanceOf[SortExec]
-        }
-        assert(sort.isDefined)
-        val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
-        assert(fallbackReasons.nonEmpty)
-        assert(
-          fallbackReasons.forall(
-            _.contains("[FallbackByUserOptions] Validation failed on node Sort")))
-      } finally {
-        spark.sparkContext.removeSparkListener(listener)
+      GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+        events =>
+          val df = spark.sql("""
+                               |SELECT
+                               |  c1,
+                               |  c2,
+                               |  ROW_NUMBER() OVER (PARTITION BY c1 ORDER BY c2) as row_num,
+                               |  RANK() OVER (PARTITION BY c1 ORDER BY c2) as rank_num
+                               |FROM tmp1
+                               |
+                               |""".stripMargin)
+          df.collect()
+          GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+          val sort = find(df.queryExecution.executedPlan) {
+            _.isInstanceOf[SortExec]
+          }
+          assert(sort.isDefined)
+          val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
+          assert(fallbackReasons.nonEmpty)
+          assert(
+            fallbackReasons.forall(
+              _.contains("[FallbackByUserOptions] Validation failed on node Sort")))
       }
     }
   }
 
   test("fallback when nested loop join has unsupported expression") {
-    val events = new ArrayBuffer[GlutenPlanFallbackEvent]
-    val listener = new SparkListener {
-      override def onOtherEvent(event: SparkListenerEvent): Unit = {
-        event match {
-          case e: GlutenPlanFallbackEvent => events.append(e)
-          case _ =>
+    GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+      events =>
+        val df = spark.sql("""
+                             |select tmp1.c1, tmp1.c2 from tmp1
+                             |left join tmp2 on (
+                             |  tmp1.c1 = regexp_extract(tmp2.c1, '(?<=@)[^.]+(?=\.)', 0)
+                             |  or tmp2.c1 > 10
+                             |)
+                             |""".stripMargin)
+        df.collect()
+        GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+
+        val nestedLoopJoin = find(df.queryExecution.executedPlan) {
+          _.isInstanceOf[BroadcastNestedLoopJoinExec]
         }
-      }
-    }
-    spark.sparkContext.addSparkListener(listener)
-
-    try {
-      val df = spark.sql("""
-                           |select tmp1.c1, tmp1.c2 from tmp1
-                           |left join tmp2 on (
-                           |  tmp1.c1 = regexp_extract(tmp2.c1, '(?<=@)[^.]+(?=\.)', 0)
-                           |  or tmp2.c1 > 10
-                           |)
-                           |""".stripMargin)
-      df.collect()
-      GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
-
-      val nestedLoopJoin = find(df.queryExecution.executedPlan) {
-        _.isInstanceOf[BroadcastNestedLoopJoinExec]
-      }
-      assert(nestedLoopJoin.isDefined)
-      val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
-      assert(fallbackReasons.nonEmpty)
-      assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
-    } finally {
-      spark.sparkContext.removeSparkListener(listener)
+        assert(nestedLoopJoin.isDefined)
+        val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
+        assert(fallbackReasons.nonEmpty)
+        assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
     }
   }
 
@@ -397,31 +366,20 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     // GlutenPlanFallbackEvent even when spark.gluten.enabled=false (e.g. the vanilla baseline run
     // inside runQueryAndCompare). All nodes would appear as fallback with the generic reason
     // "Gluten does not touch it or does not support it".
-    val events = new ArrayBuffer[GlutenPlanFallbackEvent]
-    val listener = new SparkListener {
-      override def onOtherEvent(event: SparkListenerEvent): Unit = {
-        event match {
-          case e: GlutenPlanFallbackEvent => events.append(e)
-          case _ =>
-        }
+    withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+      GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+        events =>
+          // Execute a query with gluten disabled — this mimics what runQueryAndCompare does for
+          // the vanilla baseline run. No GlutenPlanFallbackEvent should be emitted at all.
+          spark.sql("SELECT c1, count(*) FROM tmp1 GROUP BY c1").collect()
+          GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+          assert(
+            events.isEmpty,
+            s"Expected no GlutenPlanFallbackEvent for vanilla Spark execution, " +
+              s"but got ${events.size} event(s). " +
+              s"First event fallback reasons: ${events.headOption.map(_.fallbackNodeToReason)}"
+          )
       }
-    }
-    spark.sparkContext.addSparkListener(listener)
-    try {
-      // Execute a query with gluten disabled — this mimics what runQueryAndCompare does for the
-      // vanilla baseline run. No GlutenPlanFallbackEvent should be emitted at all.
-      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
-        spark.sql("SELECT c1, count(*) FROM tmp1 GROUP BY c1").collect()
-      }
-      GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
-      assert(
-        events.isEmpty,
-        s"Expected no GlutenPlanFallbackEvent for vanilla Spark execution, " +
-          s"but got ${events.size} event(s). " +
-          s"First event fallback reasons: ${events.headOption.map(_.fallbackNodeToReason)}"
-      )
-    } finally {
-      spark.sparkContext.removeSparkListener(listener)
     }
   }
 }

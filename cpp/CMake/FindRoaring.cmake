@@ -150,12 +150,10 @@ if(Roaring_INCLUDE_DIR
 endif()
 
 if(_roaring_found_via_pkgconfig)
-  add_library(roaring INTERFACE)
-  target_link_libraries(roaring INTERFACE PkgConfig::Roaring)
-  _gluten_roaring_add_headers(roaring)
-  set(Roaring_FOUND TRUE)
-  message(STATUS "Found roaring via pkg-config imported target fallback.")
-  return()
+  message(
+    STATUS
+      "Found roaring via pkg-config without direct library; using FetchContent."
+  )
 endif()
 
 include(BuildRoaring)
