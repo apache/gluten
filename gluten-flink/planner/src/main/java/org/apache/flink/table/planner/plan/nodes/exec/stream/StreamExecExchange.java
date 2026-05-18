@@ -19,24 +19,12 @@ package org.apache.flink.table.planner.plan.nodes.exec.stream;
 import org.apache.gluten.streaming.api.operators.GlutenOperator;
 import org.apache.gluten.streaming.runtime.partitioner.GlutenKeyGroupStreamPartitioner;
 import org.apache.gluten.table.runtime.keyselector.GlutenKeySelector;
-import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
-import org.apache.gluten.util.LogicalTypeConverter;
-import org.apache.gluten.util.PlanNodeIdGenerator;
-
-import io.github.zhztheplayer.velox4j.plan.EmptyNode;
-import io.github.zhztheplayer.velox4j.plan.HashPartitionFunctionSpec;
-import io.github.zhztheplayer.velox4j.plan.LocalPartitionNode;
-import io.github.zhztheplayer.velox4j.plan.PartitionFunctionSpec;
-import io.github.zhztheplayer.velox4j.plan.PlanNode;
-import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
-import io.github.zhztheplayer.velox4j.plan.StreamPartitionNode;
 
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.configuration.ReadableConfig;
-import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.transformations.OneInputTransformation;
 import org.apache.flink.streaming.api.transformations.PartitionTransformation;
 import org.apache.flink.streaming.runtime.partitioner.GlobalPartitioner;
@@ -45,7 +33,6 @@ import org.apache.flink.streaming.runtime.partitioner.StreamPartitioner;
 import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.delegation.PlannerBase;
-import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeConfig;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeContext;
@@ -53,8 +40,6 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty.HashDistribution;
 import org.apache.flink.table.planner.plan.nodes.exec.common.CommonExecExchange;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.TransformationMetadata;
 import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
@@ -62,11 +47,8 @@ import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 import static org.apache.flink.runtime.state.KeyGroupRangeAssignment.DEFAULT_LOWER_BOUND_MAX_PARALLELISM;
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -144,44 +126,45 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
           // should set it when operator init.
           parallelism = inputTransform.getParallelism();
           keySelector = new GlutenKeySelector();
-          final ExecEdge inputEdge = getInputEdges().get(0);
-          io.github.zhztheplayer.velox4j.type.RowType glutenInputType =
-              (io.github.zhztheplayer.velox4j.type.RowType)
-                  LogicalTypeConverter.toVLType(inputEdge.getOutputType());
-          io.github.zhztheplayer.velox4j.type.RowType outputType =
-              (io.github.zhztheplayer.velox4j.type.RowType)
-                  LogicalTypeConverter.toVLType(getOutputType());
-          String id = PlanNodeIdGenerator.newId();
-          List<Integer> keyIndexes = Arrays.stream(keys).boxed().collect(Collectors.toList());
-          PartitionFunctionSpec partitionFunctionSpec =
-              new HashPartitionFunctionSpec(glutenInputType, keyIndexes);
-          PlanNode localPartition =
-              new LocalPartitionNode(
-                  id,
-                  List.of(new EmptyNode(outputType)),
-                  "REPARTITION",
-                  false,
-                  partitionFunctionSpec);
-          PlanNode exchange = new StreamPartitionNode(id, localPartition, parallelism);
-          final OneInputStreamOperator exchangeKeyGenerator =
-              new GlutenOneInputOperator(
-                  new StatefulPlanNode(id, exchange),
-                  id,
-                  glutenInputType,
-                  Map.of(id, outputType),
-                  RowData.class,
-                  RowData.class,
-                  "StreamExecExchange");
-          inputTransform =
-              ExecNodeUtil.createOneInputTransformation(
-                  inputTransform,
-                  new TransformationMetadata("exchange-hash", "Gluten exchange hash"),
-                  exchangeKeyGenerator,
-                  inputTransform.getOutputType(),
-                  parallelism,
-                  false);
+          //   final ExecEdge inputEdge = getInputEdges().get(0);
+          //   io.github.zhztheplayer.velox4j.type.RowType glutenInputType =
+          //       (io.github.zhztheplayer.velox4j.type.RowType)
+          //           LogicalTypeConverter.toVLType(inputEdge.getOutputType());
+          //   io.github.zhztheplayer.velox4j.type.RowType outputType =
+          //       (io.github.zhztheplayer.velox4j.type.RowType)
+          //           LogicalTypeConverter.toVLType(getOutputType());
+          //   String id = PlanNodeIdGenerator.newId();
+          //   List<Integer> keyIndexes = Arrays.stream(keys).boxed().collect(Collectors.toList());
+          //   PartitionFunctionSpec partitionFunctionSpec =
+          //       new HashPartitionFunctionSpec(glutenInputType, keyIndexes);
+          //   PlanNode localPartition =
+          //       new LocalPartitionNode(
+          //           id,
+          //           List.of(new EmptyNode(outputType)),
+          //           "REPARTITION",
+          //           false,
+          //           partitionFunctionSpec);
+          //   PlanNode exchange = new StreamPartitionNode(id, localPartition, parallelism);
+          //   final OneInputStreamOperator exchangeKeyGenerator =
+          //       new GlutenOneInputOperator(
+          //           new StatefulPlanNode(id, exchange),
+          //           id,
+          //           glutenInputType,
+          //           Map.of(id, outputType),
+          //           RowData.class,
+          //           RowData.class,
+          //           "StreamExecExchange");
+          //   inputTransform =
+          //       ExecNodeUtil.createOneInputTransformation(
+          //           inputTransform,
+          //           new TransformationMetadata("exchange-hash", "Gluten exchange hash"),
+          //           exchangeKeyGenerator,
+          //           inputTransform.getOutputType(),
+          //           parallelism,
+          //           false);
           partitioner =
-              new GlutenKeyGroupStreamPartitioner(keySelector, DEFAULT_LOWER_BOUND_MAX_PARALLELISM);
+              new GlutenKeyGroupStreamPartitioner(
+                  keySelector, DEFAULT_LOWER_BOUND_MAX_PARALLELISM, parallelism);
         } else {
           parallelism = ExecutionConfig.PARALLELISM_DEFAULT;
           partitioner =

@@ -176,7 +176,7 @@ public class StreamExecLocalWindowAggregate extends StreamExecWindowAggregateBas
             .limit(aggCalls.length)
             .collect(Collectors.toList());
     List<Integer> keyIndexes = Arrays.stream(grouping).boxed().collect(Collectors.toList());
-    PartitionFunctionSpec keySelectorSpec = new HashPartitionFunctionSpec(inputType, keyIndexes);
+    PartitionFunctionSpec keySelectorSpec = new HashPartitionFunctionSpec(outputType, keyIndexes);
     // TODO: support more window types.
     Tuple5<Long, Long, Long, Integer, Integer> windowSpecParams =
         WindowUtils.extractWindowParameters(windowing);

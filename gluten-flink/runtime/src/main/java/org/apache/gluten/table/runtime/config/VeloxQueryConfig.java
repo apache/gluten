@@ -33,6 +33,9 @@ public class VeloxQueryConfig {
   private static final String keyVeloxSessionTimezone = "session_timezone";
   private static final String kStreamingAggregationMinOutputBatchRows =
       "streaming_aggregation_min_output_batch_rows";
+  private static final String kMaxOutputBatchRows = "max_output_batch_rows";
+  private static final String kPreferredOutputBatchRows = "preferred_output_batch_rows";
+  private static final String kStatefulTaskParallelism = "stateful_task_parallelism";
 
   public static Config getConfig(RuntimeContext context) {
     if (!(context instanceof StreamingRuntimeContext)) {
@@ -50,6 +53,11 @@ public class VeloxQueryConfig {
       configMap.put(keyVeloxSessionTimezone, localTimeZone);
     }
     configMap.put(kStreamingAggregationMinOutputBatchRows, String.valueOf(1));
+    configMap.put(kMaxOutputBatchRows, String.valueOf(Integer.MAX_VALUE));
+    configMap.put(kPreferredOutputBatchRows, String.valueOf(Integer.MAX_VALUE));
+    configMap.put(
+        kStatefulTaskParallelism,
+        String.valueOf(context.getTaskInfo().getNumberOfParallelSubtasks()));
     return Config.create(configMap);
   }
 }
