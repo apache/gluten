@@ -239,6 +239,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> VeloxHashShuffleWriter::generateCo
 
 arrow::Status VeloxHashShuffleWriter::write(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) {
   writtenBytes_ = 0;
+  accumulateInputEncodingCounts(*cb);
   if (partitioning_ == Partitioning::kSingle) {
     auto veloxColumnBatch = VeloxColumnarBatch::from(veloxPool_.get(), cb);
     VELOX_CHECK_NOT_NULL(veloxColumnBatch);
@@ -1315,6 +1316,47 @@ uint64_t VeloxHashShuffleWriter::valueBufferSizeForFixedWidthArray(uint32_t fixe
   return valueBufferSize;
 }
 
+void VeloxHashShuffleWriter::accumulateInputEncodingCounts(const ColumnarBatch& cb) {
+  // Only velox-typed batches expose per-child encoding; foreign batches
+  // (e.g. arrow round-trips coming from non-velox sources) will be flattened
+  // by `VeloxColumnarBatch::from` later and we'd undercount, so just skip
+  // them here rather than reporting a misleading "all flat" mix.
+  if (cb.getType() != "velox") {
+    return;
+  }
+  const auto* veloxBatch = dynamic_cast<const VeloxColumnarBatch*>(&cb);
+  if (veloxBatch == nullptr) {
+    return;
+  }
+  const auto& rowVector = veloxBatch->getRowVector();
+  if (rowVector == nullptr) {
+    return;
+  }
+  for (const auto& child : rowVector->children()) {
+    if (child == nullptr) {
+      ++inputEncodingCounts_[kInputEncodingOther];
+      continue;
+    }
+    switch (child->encoding()) {
+      case facebook::velox::VectorEncoding::Simple::FLAT:
+        ++inputEncodingCounts_[kInputEncodingFlat];
+        break;
+      case facebook::velox::VectorEncoding::Simple::DICTIONARY:
+        ++inputEncodingCounts_[kInputEncodingDictionary];
+        break;
+      case facebook::velox::VectorEncoding::Simple::CONSTANT:
+        ++inputEncodingCounts_[kInputEncodingConstant];
+        break;
+      case facebook::velox::VectorEncoding::Simple::LAZY:
+        ++inputEncodingCounts_[kInputEncodingLazy];
+        break;
+      default:
+        ++inputEncodingCounts_[kInputEncodingOther];
+        break;
+    }
+  }
+}
+
 void VeloxHashShuffleWriter::stat() const {
 #if VELOX_SHUFFLE_WRITER_LOG_FLAG
   for (int i = CpuWallTimingBegin; i != CpuWallTimingEnd; ++i) {
@@ -1325,6 +1367,22 @@ void VeloxHashShuffleWriter::stat() const {
     if (timing.count > 0) {
       oss << " wallNanos-avg:" << timing.wallNanos / timing.count;
       oss << " cpuNanos-avg:" << timing.cpuNanos / timing.count;
+    }
+    LOG(INFO) << oss.str();
+  }
+  {
+    std::ostringstream oss;
+    oss << "Velox shuffle writer stat:InputEncoding";
+    int64_t total = 0;
+    for (auto v : inputEncodingCounts_) {
+      total += v;
+    }
+    for (int b = 0; b < kInputEncodingNum; ++b) {
+      auto v = inputEncodingCounts_[b];
+      oss << " " << inputEncodingName(static_cast<InputEncodingBucket>(b)) << "=" << v;
+      if (total > 0) {
+        oss << "(" << (100.0 * static_cast<double>(v) / static_cast<double>(total)) << "%)";
+      }
     }
     LOG(INFO) << oss.str();
   }

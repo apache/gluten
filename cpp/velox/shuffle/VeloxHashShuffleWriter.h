@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -140,6 +141,45 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
 
   // For test only.
   void setPartitionBufferSize(uint32_t newSize) override;
+
+  // Read-only counters of incoming column-vector encodings observed at the
+  // entry of every `write(...)` call, BEFORE flattening. Mirrors the layout
+  // of `cpuWallTimingList_` (always-on counter, logged via `stat()` when
+  // `VELOX_SHUFFLE_WRITER_LOG_FLAG=1`). Useful as the "what shape did the
+  // writer actually see" companion to `cpuWallTimingList_`'s "where did the
+  // time go" view (post-#12083).
+  //
+  // The 5 buckets map to `facebook::velox::VectorEncoding::Simple` values:
+  // FLAT, DICTIONARY, CONSTANT, LAZY, anything-else (kOther).
+  enum InputEncodingBucket {
+    kInputEncodingFlat = 0,
+    kInputEncodingDictionary,
+    kInputEncodingConstant,
+    kInputEncodingLazy,
+    kInputEncodingOther,
+    kInputEncodingNum,
+  };
+
+  static const char* inputEncodingName(InputEncodingBucket b) {
+    switch (b) {
+      case kInputEncodingFlat:
+        return "Flat";
+      case kInputEncodingDictionary:
+        return "Dictionary";
+      case kInputEncodingConstant:
+        return "Constant";
+      case kInputEncodingLazy:
+        return "Lazy";
+      case kInputEncodingOther:
+        return "Other";
+      default:
+        return "Unknown";
+    }
+  }
+
+  const std::array<int64_t, kInputEncodingNum>& inputEncodingCounts() const {
+    return inputEncodingCounts_;
+  }
 
   // for debugging
   void printColumnsInfo() const {
@@ -323,6 +363,12 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
 
   arrow::Status partitioningAndDoSplit(facebook::velox::RowVectorPtr rv, int64_t memLimit);
 
+  // Read child-vector encodings of `cb` (no mutation, no flatten) and
+  // accumulate into `inputEncodingCounts_`. Called once per `write()` call,
+  // BEFORE any `getFlattenedRowVector()` invocation, so the counts reflect
+  // the encoding the writer actually receives — not the post-flatten shape.
+  void accumulateInputEncodingCounts(const ColumnarBatch& cb);
+
  protected:
   int32_t splitBufferSize_;
   double splitBufferReallocThreshold_;
@@ -436,6 +482,9 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
   std::optional<uint32_t> partitionBufferInUse_{std::nullopt};
 
   std::vector<std::unique_ptr<facebook::velox::StreamArena>> arenas_;
+
+  // See InputEncodingBucket / inputEncodingCounts() above.
+  std::array<int64_t, kInputEncodingNum> inputEncodingCounts_{};
 }; // class VeloxHashBasedShuffleWriter
 
 } // namespace gluten
