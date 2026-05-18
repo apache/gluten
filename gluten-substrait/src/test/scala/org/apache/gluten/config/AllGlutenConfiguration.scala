@@ -69,42 +69,44 @@ class AllGlutenConfiguration extends AnyFunSuite {
       s"""
          |## Spark base configurations for Gluten plugin
          |
-         | Key | Status | Recommend Setting | Description
+         | Key | Modifiability | Recommend Setting | Description
          | --- | --- | --- | ---
          |"""
 
     // scalastyle:off
     builder += Seq(
       "spark.plugins",
-      AllGlutenConfiguration.staticConfigStatus,
+      AllGlutenConfiguration.configModifiability("spark.plugins"),
       "org.apache.gluten.GlutenPlugin",
-      "To load Gluten's components by Spark's plug-in loader.").mkString("|")
+      "To load Gluten's components by Spark's plug-in loader."
+    ).mkString("|")
     builder += Seq(
       "spark.memory.offHeap.enabled",
-      AllGlutenConfiguration.staticConfigStatus,
+      AllGlutenConfiguration.configModifiability("spark.memory.offHeap.enabled"),
       "true",
-      "Gluten use off-heap memory for certain operations.").mkString("|")
+      "Gluten use off-heap memory for certain operations."
+    ).mkString("|")
     builder += Seq(
       "spark.memory.offHeap.size",
-      AllGlutenConfiguration.staticConfigStatus,
+      AllGlutenConfiguration.configModifiability("spark.memory.offHeap.size"),
       "30G",
       "The absolute amount of memory which can be used for off-heap allocation, in bytes unless otherwise specified.<br /> Note: Gluten Plugin will leverage this setting to allocate memory space for native usage even offHeap is disabled. <br /> The value is based on your system and it is recommended to set it larger if you are facing Out of Memory issue in Gluten Plugin."
     ).mkString("|")
     builder += Seq(
       "spark.shuffle.manager",
-      AllGlutenConfiguration.staticConfigStatus,
+      AllGlutenConfiguration.configModifiability("spark.shuffle.manager"),
       "org.apache.spark.shuffle.sort.ColumnarShuffleManager",
       "To turn on Gluten Columnar Shuffle Plugin."
     ).mkString("|")
     builder += Seq(
       "spark.driver.extraClassPath",
-      AllGlutenConfiguration.staticConfigStatus,
+      AllGlutenConfiguration.configModifiability("spark.driver.extraClassPath"),
       "/path/to/gluten_jar_file",
       "Gluten Plugin jar file to prepend to the classpath of the driver."
     ).mkString("|")
     builder += Seq(
       "spark.executor.extraClassPath",
-      AllGlutenConfiguration.staticConfigStatus,
+      AllGlutenConfiguration.configModifiability("spark.executor.extraClassPath"),
       "/path/to/gluten_jar_file",
       "Gluten Plugin jar file to prepend to the classpath of executors."
     ).mkString("|")
@@ -114,7 +116,7 @@ class AllGlutenConfiguration extends AnyFunSuite {
       s"""
          |## Gluten configurations
          |
-         | Key | Status | Default | Description
+         | Key | Modifiability | Default | Description
          | --- | --- | --- | ---
          |"""
 
@@ -129,7 +131,7 @@ class AllGlutenConfiguration extends AnyFunSuite {
           val dft = entry.defaultValueString.replace("<", "&lt;").replace(">", "&gt;")
           builder += Seq(
             s"${entry.key}",
-            AllGlutenConfiguration.configStatus(entry),
+            AllGlutenConfiguration.configModifiability(entry.key),
             s"$dft",
             s"${entry.doc}")
             .mkString("|")
@@ -139,7 +141,7 @@ class AllGlutenConfiguration extends AnyFunSuite {
       s"""
          |## Gluten *experimental* configurations
          |
-         | Key | Status | Default | Description
+         | Key | Modifiability | Default | Description
          | --- | --- | --- | ---
          |"""
 
@@ -152,7 +154,7 @@ class AllGlutenConfiguration extends AnyFunSuite {
           val dft = entry.defaultValueString.replace("<", "&lt;").replace(">", "&gt;")
           builder += Seq(
             s"${entry.key}",
-            AllGlutenConfiguration.configStatus(entry),
+            AllGlutenConfiguration.configModifiability(entry.key),
             s"$dft",
             s"${entry.doc}")
             .mkString("|")
@@ -169,11 +171,15 @@ object AllGlutenConfiguration {
   private val Anchor = Character.toString(0x2693)
   private val CounterclockwiseArrows = new String(Character.toChars(0x1f504))
 
-  val staticConfigStatus: String = s"$Anchor Static"
-  val dynamicConfigStatus: String = s"$CounterclockwiseArrows Dynamic"
+  val staticConfigLabel: String = s"$Anchor Static"
+  val dynamicConfigLabel: String = s"$CounterclockwiseArrows Dynamic"
 
-  def configStatus(entry: ConfigEntry[_]): String = {
-    if (SQLConf.isStaticConfigKey(entry.key)) staticConfigStatus else dynamicConfigStatus
+  def configModifiability(key: String): String = {
+    if (SQLConf.get.isModifiable(key)) {
+      dynamicConfigLabel
+    } else {
+      staticConfigLabel
+    }
   }
 
   def isRegenerateGoldenFiles: Boolean = sys.env.get("GLUTEN_UPDATE").contains("1")

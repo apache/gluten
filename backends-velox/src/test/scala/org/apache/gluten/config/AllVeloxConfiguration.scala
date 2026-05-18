@@ -42,7 +42,7 @@ class AllVeloxConfiguration extends AnyFunSuite {
       s"""
          |## Gluten Velox backend configurations
          |
-         | Key | Status | Default | Description
+         | Key | Modifiability | Default | Description
          | --- | --- | --- | ---
          |"""
 
@@ -55,7 +55,7 @@ class AllVeloxConfiguration extends AnyFunSuite {
           val dft = entry.defaultValueString.replace("<", "&lt;").replace(">", "&gt;")
           builder += Seq(
             s"${entry.key}",
-            AllGlutenConfiguration.configStatus(entry),
+            AllGlutenConfiguration.configModifiability(entry.key),
             s"$dft",
             s"${entry.doc}")
             .mkString("|")
@@ -65,7 +65,7 @@ class AllVeloxConfiguration extends AnyFunSuite {
       s"""
          |## Gluten Velox backend *experimental* configurations
          |
-         | Key | Status | Default | Description
+         | Key | Modifiability | Default | Description
          | --- | --- | --- | ---
          |"""
 
@@ -78,7 +78,7 @@ class AllVeloxConfiguration extends AnyFunSuite {
           val dft = entry.defaultValueString.replace("<", "&lt;").replace(">", "&gt;")
           builder += Seq(
             s"${entry.key}",
-            AllGlutenConfiguration.configStatus(entry),
+            AllGlutenConfiguration.configModifiability(entry.key),
             s"$dft",
             s"${entry.doc}")
             .mkString("|")
