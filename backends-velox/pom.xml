@@ -544,6 +544,32 @@
       </dependencies>
     </profile>
     <profile>
+      <id>spark-4.1</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>add-spark41-delta-test-sources</id>
+                <goals>
+                  <goal>add-test-source</goal>
+                </goals>
+                <phase>generate-test-sources</phase>
+                <configuration>
+                  <sources>
+                    <source>${project.basedir}/src-delta40-spark41/test/scala</source>
+                    <source>${project.basedir}/src-delta40-spark41/test/java</source>
+                  </sources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
       <id>hudi</id>
       <dependencies>
         <dependency>
