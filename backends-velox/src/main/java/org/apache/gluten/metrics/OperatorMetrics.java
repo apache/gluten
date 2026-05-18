@@ -40,6 +40,7 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long numReplacedWithDynamicFilterRows;
   public long numDynamicFilterInputRows;
   public long flushRowCount;
+  public long abandonedPartialAggregation;
   public long loadedToValueHook;
   public long bloomFilterBlocksByteSize;
   public long skippedSplits;
@@ -87,6 +88,7 @@ public class OperatorMetrics implements IOperatorMetrics {
       long numReplacedWithDynamicFilterRows,
       long numDynamicFilterInputRows,
       long flushRowCount,
+      long abandonedPartialAggregation,
       long loadedToValueHook,
       long bloomFilterBlocksByteSize,
       long scanTime,
@@ -131,6 +133,7 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.numReplacedWithDynamicFilterRows = numReplacedWithDynamicFilterRows;
     this.numDynamicFilterInputRows = numDynamicFilterInputRows;
     this.flushRowCount = flushRowCount;
+    this.abandonedPartialAggregation = abandonedPartialAggregation;
     this.loadedToValueHook = loadedToValueHook;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
     this.skippedSplits = skippedSplits;

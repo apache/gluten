@@ -311,6 +311,9 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "number of spilled partitions"),
       "aggSpilledFiles" -> SQLMetrics.createMetric(sparkContext, "number of spilled files"),
       "flushRowCount" -> SQLMetrics.createMetric(sparkContext, "number of flushed rows"),
+      "abandonedPartialAggregation" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of abandoned partial aggregations"),
       "loadedToValueHook" -> SQLMetrics.createMetric(
         sparkContext,
         "number of pushdown aggregations"),
