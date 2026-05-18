@@ -250,6 +250,9 @@ trait SparkShims {
 
   def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType
 
+  // Spark 4.1+ (SPARK-53968) embeds allowDecimalPrecisionLoss in each arithmetic expression's
+  // evalContext at analysis time. Spark41Shims overrides this to read from the expression.
+  // All earlier versions have no evalContext field, so reading SQLConf.get here is correct.
   def decimalAllowPrecisionLoss(expr: BinaryArithmetic): Boolean =
     SQLConf.get.decimalOperationsAllowPrecisionLoss
 

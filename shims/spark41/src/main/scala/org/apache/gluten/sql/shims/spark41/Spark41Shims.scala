@@ -615,6 +615,9 @@ class Spark41Shims extends SparkShims {
     case s: Subtract => s.evalContext.allowDecimalPrecisionLoss
     case m: Multiply => m.evalContext.allowDecimalPrecisionLoss
     case d: Divide => d.evalContext.allowDecimalPrecisionLoss
+    // Remainder and Pmod do not carry evalContext in Spark 4.1. They also throw
+    // GlutenNotSupportException in DecimalArithmeticUtil.getResultType, so they never
+    // reach Velox execution; SQLConf.get is a safe fallback for the name-lookup path.
     case _ => SQLConf.get.decimalOperationsAllowPrecisionLoss
   }
 
