@@ -149,13 +149,24 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
   // writer actually see" companion to `cpuWallTimingList_`'s "where did the
   // time go" view (post-#12083).
   //
-  // The 5 buckets map to `facebook::velox::VectorEncoding::Simple` values:
-  // FLAT, DICTIONARY, CONSTANT, LAZY, anything-else (kOther).
+  // The 6 buckets map to `facebook::velox::VectorEncoding::Simple` values:
+  //   Flat       — FLAT
+  //   Dictionary — DICTIONARY
+  //   Constant   — CONSTANT
+  //   Lazy       — LAZY
+  //   Complex    — ROW, MAP, FLAT_MAP, ARRAY  (struct/map/array column types,
+  //                expected in normal Spark workloads — kept distinct from
+  //                "Other" so the log doesn't conflate a struct column with
+  //                a rare/unknown encoding)
+  //   Other      — BIASED, SEQUENCE, FUNCTION  (rarely seen at the shuffle
+  //                writer entry; this bucket is the catch-all for future
+  //                additions to VectorEncoding::Simple)
   enum InputEncodingBucket {
     kInputEncodingFlat = 0,
     kInputEncodingDictionary,
     kInputEncodingConstant,
     kInputEncodingLazy,
+    kInputEncodingComplex,
     kInputEncodingOther,
     kInputEncodingNum,
   };
@@ -170,6 +181,8 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
         return "Constant";
       case kInputEncodingLazy:
         return "Lazy";
+      case kInputEncodingComplex:
+        return "Complex";
       case kInputEncodingOther:
         return "Other";
       default:
@@ -179,6 +192,17 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
 
   const std::array<int64_t, kInputEncodingNum>& inputEncodingCounts() const {
     return inputEncodingCounts_;
+  }
+
+  // Count of `write(cb, ...)` calls in which `cb` was not a velox-typed
+  // `ColumnarBatch`. `accumulateInputEncodingCounts` early-returns on those
+  // (it cannot inspect their per-child encodings without forcing an
+  // arrow-bridge round-trip), so they contribute 0 to `inputEncodingCounts_`.
+  // Surfaced separately in the `stat()` log so a reader can tell whether a
+  // low total in the encoding bucket is "writer saw few children" or
+  // "writer saw many children but most were not velox-typed".
+  int64_t inputEncodingSkippedBatches() const {
+    return inputEncodingSkippedBatches_;
   }
 
   // for debugging
@@ -485,6 +509,9 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
 
   // See InputEncodingBucket / inputEncodingCounts() above.
   std::array<int64_t, kInputEncodingNum> inputEncodingCounts_{};
+
+  // See inputEncodingSkippedBatches() above.
+  int64_t inputEncodingSkippedBatches_{0};
 }; // class VeloxHashBasedShuffleWriter
 
 } // namespace gluten

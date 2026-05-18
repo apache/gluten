@@ -98,7 +98,9 @@ TEST_F(HashShuffleWriterInputEncodingTest, allFlat) {
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingDictionary], 0);
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingConstant], 0);
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingLazy], 0);
+  EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingComplex], 0);
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingOther], 0);
+  EXPECT_EQ(writer->inputEncodingSkippedBatches(), 0);
 }
 
 // Mixed flat + dictionary + constant in a single batch: one increment per bucket.
@@ -128,7 +130,9 @@ TEST_F(HashShuffleWriterInputEncodingTest, mixedFlatDictConst) {
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingDictionary], 1);
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingConstant], 1);
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingLazy], 0);
+  EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingComplex], 0);
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingOther], 0);
+  EXPECT_EQ(writer->inputEncodingSkippedBatches(), 0);
 }
 
 // Lazy child should land in the LAZY bucket (encoding is reported before
@@ -156,7 +160,37 @@ TEST_F(HashShuffleWriterInputEncodingTest, lazy) {
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingLazy], 1);
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingDictionary], 0);
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingConstant], 0);
+  EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingComplex], 0);
   EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingOther], 0);
+  EXPECT_EQ(writer->inputEncodingSkippedBatches(), 0);
+}
+
+// ARRAY / MAP / ROW children land in the COMPLEX bucket, not OTHER. The sibling
+// `VeloxShuffleWriterTest` exercises these via `makeArrayVector` / `makeMapVector`,
+// so this is the typical-Spark-workload case, not an edge case.
+TEST_F(HashShuffleWriterInputEncodingTest, complex) {
+  auto writer = createWriter(2);
+  ASSERT_NE(writer, nullptr);
+
+  auto arrayChild = makeArrayVector<int64_t>({{1, 2}, {3, 4}, {5}, {6, 7, 8}});
+  auto mapChild = makeMapVector<int32_t, facebook::velox::StringView>(
+      {{{1, "a"}, {2, "b"}}, {{3, "c"}}, {{4, "d"}, {5, "e"}}, {{6, "f"}}});
+
+  auto rv = makeRowVector({
+      makeFlatVector<int32_t>({0, 1, 0, 1}), // partition key (FLAT)
+      arrayChild, // ARRAY
+      mapChild, // MAP
+  });
+  ASSERT_NOT_OK(writeBatch(*writer, rv));
+
+  const auto& counts = writer->inputEncodingCounts();
+  EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingFlat], 1);
+  EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingComplex], 2);
+  EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingDictionary], 0);
+  EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingConstant], 0);
+  EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingLazy], 0);
+  EXPECT_EQ(counts[VeloxHashShuffleWriter::kInputEncodingOther], 0);
+  EXPECT_EQ(writer->inputEncodingSkippedBatches(), 0);
 }
 
 } // namespace gluten

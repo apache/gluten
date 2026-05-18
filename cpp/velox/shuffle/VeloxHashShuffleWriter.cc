@@ -1320,16 +1320,22 @@ void VeloxHashShuffleWriter::accumulateInputEncodingCounts(const ColumnarBatch& 
   // Only velox-typed batches expose per-child encoding; foreign batches
   // (e.g. arrow round-trips coming from non-velox sources) will be flattened
   // by `VeloxColumnarBatch::from` later and we'd undercount, so just skip
-  // them here rather than reporting a misleading "all flat" mix.
+  // them here rather than reporting a misleading "all flat" mix. The skip
+  // counter is exposed via `inputEncodingSkippedBatches()` and printed in
+  // `stat()` so a reader can tell whether a low encoding-bucket total means
+  // "writer saw few children" or "writer saw many but most were not velox".
   if (cb.getType() != "velox") {
+    ++inputEncodingSkippedBatches_;
     return;
   }
   const auto* veloxBatch = dynamic_cast<const VeloxColumnarBatch*>(&cb);
   if (veloxBatch == nullptr) {
+    ++inputEncodingSkippedBatches_;
     return;
   }
   const auto& rowVector = veloxBatch->getRowVector();
   if (rowVector == nullptr) {
+    ++inputEncodingSkippedBatches_;
     return;
   }
   for (const auto& child : rowVector->children()) {
@@ -1350,7 +1356,20 @@ void VeloxHashShuffleWriter::accumulateInputEncodingCounts(const ColumnarBatch& 
       case facebook::velox::VectorEncoding::Simple::LAZY:
         ++inputEncodingCounts_[kInputEncodingLazy];
         break;
+      case facebook::velox::VectorEncoding::Simple::ROW:
+      case facebook::velox::VectorEncoding::Simple::MAP:
+      case facebook::velox::VectorEncoding::Simple::FLAT_MAP:
+      case facebook::velox::VectorEncoding::Simple::ARRAY:
+        // Struct / map / array column types — first-class in Spark workloads
+        // and exercised by the sibling shuffle writer tests
+        // (`makeArrayVector` / `makeMapVector`). Kept distinct from `Other`
+        // so a reader interpreting the log doesn't conflate a struct column
+        // with a rare encoding.
+        ++inputEncodingCounts_[kInputEncodingComplex];
+        break;
       default:
+        // BIASED, SEQUENCE, FUNCTION, and any future additions to
+        // `VectorEncoding::Simple`.
         ++inputEncodingCounts_[kInputEncodingOther];
         break;
     }
@@ -1384,6 +1403,10 @@ void VeloxHashShuffleWriter::stat() const {
         oss << "(" << (100.0 * static_cast<double>(v) / static_cast<double>(total)) << "%)";
       }
     }
+    // Non-velox `write()` calls contribute 0 to the buckets above; expose the
+    // skip count so the denominator (total = sum of buckets) is comparable to
+    // the `count` field in the `cpuWallTimingList_` lines emitted above.
+    oss << " SkippedNonVeloxBatches=" << inputEncodingSkippedBatches_;
     LOG(INFO) << oss.str();
   }
 #endif
