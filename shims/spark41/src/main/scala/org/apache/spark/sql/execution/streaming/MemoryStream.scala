@@ -19,6 +19,10 @@ package org.apache.spark.sql.execution.streaming
 import org.apache.spark.sql.{Encoder, SQLContext}
 import org.apache.spark.sql.execution.streaming.runtime.{MemoryStream => RuntimeMemoryStream}
 
+/**
+ * Compatibility wrapper for Delta test sources that still import Spark 4.0's MemoryStream package.
+ * Spark 4.1 moved MemoryStream under execution.streaming.runtime.
+ */
 object MemoryStream {
   def apply[A: Encoder](implicit sqlContext: SQLContext): RuntimeMemoryStream[A] = {
     RuntimeMemoryStream[A]()(implicitly[Encoder[A]], sqlContext)
