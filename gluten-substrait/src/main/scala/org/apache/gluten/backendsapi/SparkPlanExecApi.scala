@@ -264,7 +264,7 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
   }
 
-  def getDecimalArithmeticExprName(exprName: String): String = exprName
+  def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String = exprName
 
   /** Transform map_entries to Substrait. */
   def genMapEntriesTransformer(

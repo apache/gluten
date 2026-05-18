@@ -24,7 +24,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, RaiseError, UnBase64}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryArithmetic, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, RaiseError, UnBase64}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -249,6 +249,9 @@ trait SparkShims {
   def unBase64FunctionFailsOnError(unBase64: UnBase64): Boolean = false
 
   def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType
+
+  def decimalAllowPrecisionLoss(expr: BinaryArithmetic): Boolean =
+    SQLConf.get.decimalOperationsAllowPrecisionLoss
 
   def getRewriteCreateTableAsSelect(session: SparkSession): SparkStrategy = _ => Seq.empty
 
