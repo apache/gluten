@@ -275,6 +275,19 @@
       </properties>
     </profile>
     <profile>
+      <id>java-25</id>
+      <activation>
+        <jdk>25</jdk>
+      </activation>
+      <properties>
+        <java.version>25</java.version>
+        <spotless.version>2.44.4</spotless.version>
+        <googlejavaformat.version>1.25.2</googlejavaformat.version>
+        <!-- spotless-maven-plugin 2.44.x is not compatible with JDK 25 due to internal API changes -->
+        <spotless.check.skip>true</spotless.check.skip>
+      </properties>
+    </profile>
+    <profile>
       <id>spark-3.3</id>
       <properties>
         <spark.version>3.3.1</spark.version>
@@ -308,7 +321,7 @@
       <id>spark-4.0</id>
       <properties>
         <spark.version>4.0.1</spark.version>
-        <scala.version>2.13.16</scala.version>
+        <scala.version>2.13.17</scala.version>
         <scala.binary.version>2.13</scala.binary.version>
         <delta.package.name>delta-spark</delta.package.name>
         <delta.version>4.0.0</delta.version>

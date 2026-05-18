@@ -28,7 +28,8 @@
 #define GLUTEN_EXPAND(x) x
 #define GLUTEN_STRINGIFY(x) #x
 #define GLUTEN_TOSTRING(x) GLUTEN_STRINGIFY(x)
-#define GLUTEN_CONCAT(x, y) x##y
+#define GLUTEN_CONCAT_INNER(x, y) x##y
+#define GLUTEN_CONCAT(x, y) GLUTEN_CONCAT_INNER(x, y)
 
 #define TIME_NANO_DIFF(finish, start) (finish.tv_sec - start.tv_sec) * 1000000000 + (finish.tv_nsec - start.tv_nsec)
 

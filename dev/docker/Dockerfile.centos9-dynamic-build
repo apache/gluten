@@ -23,6 +23,8 @@ ARG JAVA_VERSION=1.8.0
 ENV JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-openjdk
 ENV PATH=$JAVA_HOME/bin:$PATH
 
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
 RUN set -ex; \
     yum update -y && yum install -y epel-release sudo dnf && yum install -y ccache; \
