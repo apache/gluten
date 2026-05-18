@@ -680,6 +680,8 @@ jobs:
   spark-test-spark33:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    env:
+      SPARK_TESTING: true
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
@@ -710,7 +712,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-3.3 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark33/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -736,6 +738,10 @@ jobs:
   spark-test-spark33-slow:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    env:
+      SPARK_TESTING: true
+      LANG: C.UTF-8 #TODO remove after image update
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
@@ -749,6 +755,10 @@ jobs:
         with:
           name: arrow-jars-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
+      - name: Prepare Spark Resources for Spark 3.3.1 #TODO remove after image update
+        run: |
+          rm -rf /opt/shims/spark33
+          bash .github/workflows/util/install-spark-resources.sh 3.3
 
       - name: Build and Run unit test for Spark 3.3.1 (slow tests)
         run: |
@@ -760,6 +770,9 @@ jobs:
           $MVN_CMD clean test -Pspark-3.3 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark33/spark_home/" \
           -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
+          $MVN_CMD clean test -Pspark-3.3 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+          -DargLine="-Dspark.test.home=/opt/shims/spark33/spark_home/" \
+          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -810,7 +823,7 @@ jobs:
           export SPARK_HOME=/opt/shims/spark34/spark_home/
           ls -l $SPARK_HOME
           $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
           -DargLine="-Dspark.test.home=$SPARK_HOME"
       - name: Upload test report
         if: always()
@@ -837,6 +850,9 @@ jobs:
   spark-test-spark34-slow:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    env: #TODO remove after image update
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
@@ -850,6 +866,10 @@ jobs:
         with:
           name: arrow-jars-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
+      - name: Prepare Spark Resources for Spark 3.4.4 #TODO remove after image update
+        run: |
+          rm -rf /opt/shims/spark34
+          bash .github/workflows/util/install-spark-resources.sh 3.4
       - name: Build and Run unit test for Spark 3.4.4 (slow tests)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -861,6 +881,9 @@ jobs:
           ls -l $SPARK_HOME
           $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
           -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest \
+          -DargLine="-Dspark.test.home=$SPARK_HOME"
+          $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest \
           -DargLine="-Dspark.test.home=$SPARK_HOME"
       - name: Upload test report
         if: always()
@@ -913,7 +936,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -971,7 +994,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg \
           -Pdelta -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark35-scala-2.13/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -993,6 +1016,8 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
+      LANG: C.UTF-8 #TODO remove after image update
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
@@ -1006,6 +1031,10 @@ jobs:
         with:
           name: arrow-jars-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
+      - name: Prepare Spark Resources for Spark 3.5.5 #TODO remove after image update
+        run: |
+          rm -rf /opt/shims/spark35
+          bash .github/workflows/util/install-spark-resources.sh 3.5
       - name: Build and Run unit test for Spark 3.5.5 (slow tests)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1016,6 +1045,9 @@ jobs:
           $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
           -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
+          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
+          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -1067,7 +1099,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.sql.columnar.forceShuffledHashJoin=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
         uses: actions/upload-artifact@v4
         with:
@@ -1088,6 +1120,8 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
+      LANG: C.UTF-8 #TODO remove after image update
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
@@ -1101,6 +1135,10 @@ jobs:
         with:
           name: arrow-jars-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
+      - name: Prepare Spark Resources for Spark 3.5.5 #TODO remove after image update
+        run: |
+          rm -rf /opt/shims/spark35
+          bash .github/workflows/util/install-spark-resources.sh 3.5
       - name: Build and Run unit test for Spark 3.5.5 (slow tests)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1111,6 +1149,9 @@ jobs:
           $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.sql.columnar.forceShuffledHashJoin=false" \
           -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
+          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Ppaimon -Pspark-ut \
+          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.sql.columnar.forceShuffledHashJoin=false" \
+          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
       - name: Upload test report
         uses: actions/upload-artifact@v4
         with:
@@ -1281,7 +1322,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon \
           -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -1303,6 +1344,8 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
+      LANG: C.UTF-8 #TODO remove after image update
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v4
@@ -1330,6 +1373,9 @@ jobs:
           $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
           -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
+          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
+          -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
+          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -1387,7 +1433,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
           -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -1409,6 +1455,8 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
+      LANG: C.UTF-8 #TODO remove after image update
+      LC_ALL: C.UTF-8
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v4
@@ -1436,6 +1484,9 @@ jobs:
           $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
           -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
+          $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+          -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
+          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4

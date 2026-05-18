@@ -1024,6 +1024,19 @@ object GlutenConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val COLUMNAR_TABLE_CACHE_PARTITION_STATS_ENABLED =
+    buildConf("spark.gluten.sql.columnar.tableCache.partitionStats.enabled")
+      .doc(
+        "When true, the Velox columnar cache serializer computes per-partition " +
+          "min/max/null/row-count stats and embeds them in the cached payload so " +
+          "that the Spark optimizer can prune whole partitions on equality / " +
+          "range predicates. When false (default) the serializer writes the " +
+          "legacy raw payload with no stats, and partition pruning is disabled. " +
+          "Default is off until cross-workload benchmarks confirm zero regression " +
+          "on non-pruning queries.")
+      .booleanConf
+      .createWithDefault(false)
+
   val COLUMNAR_PHYSICAL_JOIN_OPTIMIZATION_THROTTLE =
     buildConf("spark.gluten.sql.columnar.physicalJoinOptimizationLevel")
       .doc("Fallback to row operators if there are several continuous joins.")
