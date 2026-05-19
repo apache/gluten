@@ -269,7 +269,8 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   jniByteInputStreamClose = getMethodIdOrError(env, jniByteInputStreamClass, "close", "()V");
 
   splitResultClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/GlutenSplitResult;");
-  splitResultConstructor = getMethodIdOrError(env, splitResultClass, "<init>", "(JJJJJJJJJJDJ[J[J)V");
+  splitResultConstructor =
+      getMethodIdOrError(env, splitResultClass, "<init>", "(JJJJJJJJJJDJ[J[J[Ljava/lang/String;[J)V");
 
   metricsBuilderClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/Metrics;");
 
@@ -1161,6 +1162,28 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrap
   auto rawSrc = reinterpret_cast<const jlong*>(rawPartitionLengths.data());
   env->SetLongArrayRegion(rawPartitionLengthArr, 0, rawPartitionLengths.size(), rawSrc);
 
+  // Marshal backend-specific custom metrics as two parallel arrays. Keeping
+  // them parallel (rather than constructing a Java HashMap from JNI) keeps
+  // the JNI call cheap; the Java POJO reconstructs the map lazily on the
+  // first `getCustomMetrics()` call.
+  const auto& customMetrics = shuffleWriter->customMetrics();
+  auto customMetricsKeyArr = env->NewObjectArray(customMetrics.size(), env->FindClass("java/lang/String"), nullptr);
+  auto customMetricsValueArr = env->NewLongArray(customMetrics.size());
+  {
+    std::vector<jlong> customMetricsValues;
+    customMetricsValues.reserve(customMetrics.size());
+    jsize idx = 0;
+    for (const auto& kv : customMetrics) {
+      jstring keyStr = env->NewStringUTF(kv.first.c_str());
+      env->SetObjectArrayElement(customMetricsKeyArr, idx++, keyStr);
+      env->DeleteLocalRef(keyStr);
+      customMetricsValues.push_back(static_cast<jlong>(kv.second));
+    }
+    if (!customMetricsValues.empty()) {
+      env->SetLongArrayRegion(customMetricsValueArr, 0, customMetricsValues.size(), customMetricsValues.data());
+    }
+  }
+
   jobject splitResult = env->NewObject(
       splitResultClass,
       splitResultConstructor,
@@ -1177,7 +1200,9 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrap
       shuffleWriter->avgDictionaryFields(),
       shuffleWriter->dictionarySize(),
       partitionLengthArr,
-      rawPartitionLengthArr);
+      rawPartitionLengthArr,
+      customMetricsKeyArr,
+      customMetricsValueArr);
 
   return splitResult;
   JNI_METHOD_END(nullptr)

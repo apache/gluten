@@ -67,6 +67,10 @@ class ShuffleWriter : public Reclaimable {
 
   const std::vector<int64_t>& rawPartitionLengths() const;
 
+  // Backend-specific shuffle writer metrics. See `ShuffleWriterMetrics`
+  // declaration in `Options.h` for the key-naming convention.
+  const std::unordered_map<std::string, int64_t>& customMetrics() const;
+
  protected:
   ShuffleWriter(int32_t numPartitions, Partitioning partitioning);
 

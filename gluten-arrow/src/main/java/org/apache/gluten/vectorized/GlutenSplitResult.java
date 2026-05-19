@@ -16,6 +16,10 @@
  */
 package org.apache.gluten.vectorized;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 public class GlutenSplitResult {
   private final long totalComputePidTime;
   private final long totalWriteTime;
@@ -32,6 +36,15 @@ public class GlutenSplitResult {
   private final double avgDictionaryFields;
   private final long dictionarySize;
 
+  // Backend-specific shuffle writer metrics. Marshalled across JNI as two
+  // parallel arrays (keys + values) to keep the JNI call cheap; reassembled
+  // here into a Map on first access. See `ShuffleWriterMetrics::customMetrics`
+  // in `cpp/core/shuffle/Options.h` for the key-naming convention
+  // (`<Backend>.<Family>.<Stat>`).
+  private final String[] customMetricsKeys;
+  private final long[] customMetricsValues;
+  private volatile Map<String, Long> customMetricsCache;
+
   public GlutenSplitResult(
       long totalComputePidTime,
       long totalWriteTime,
@@ -46,7 +59,9 @@ public class GlutenSplitResult {
       double avgDictionaryFields,
       long dictionarySize,
       long[] partitionLengths,
-      long[] rawPartitionLengths) {
+      long[] rawPartitionLengths,
+      String[] customMetricsKeys,
+      long[] customMetricsValues) {
     this.totalComputePidTime = totalComputePidTime;
     this.totalWriteTime = totalWriteTime;
     this.totalEvictTime = totalEvictTime;
@@ -61,6 +76,8 @@ public class GlutenSplitResult {
     this.c2rTime = totalC2RTime;
     this.avgDictionaryFields = avgDictionaryFields;
     this.dictionarySize = dictionarySize;
+    this.customMetricsKeys = customMetricsKeys;
+    this.customMetricsValues = customMetricsValues;
   }
 
   public long getTotalComputePidTime() {
@@ -121,5 +138,33 @@ public class GlutenSplitResult {
 
   public long getDictionarySize() {
     return dictionarySize;
+  }
+
+  /**
+   * Backend-specific shuffle writer metrics, keyed by `<Backend>.<Family>.<Stat>`. The map
+   * preserves the iteration order JNI marshalled, but callers should treat the map as unordered.
+   * Returns an empty map if the native side did not populate any custom metrics (e.g. older Gluten
+   * libs, or backends that don't yet emit any). The returned map is unmodifiable.
+   */
+  public Map<String, Long> getCustomMetrics() {
+    Map<String, Long> cached = customMetricsCache;
+    if (cached != null) {
+      return cached;
+    }
+    synchronized (this) {
+      if (customMetricsCache != null) {
+        return customMetricsCache;
+      }
+      if (customMetricsKeys == null || customMetricsKeys.length == 0) {
+        customMetricsCache = Collections.emptyMap();
+      } else {
+        LinkedHashMap<String, Long> map = new LinkedHashMap<>(customMetricsKeys.length);
+        for (int i = 0; i < customMetricsKeys.length; i++) {
+          map.put(customMetricsKeys[i], customMetricsValues[i]);
+        }
+        customMetricsCache = Collections.unmodifiableMap(map);
+      }
+      return customMetricsCache;
+    }
   }
 }

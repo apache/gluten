@@ -109,6 +109,10 @@ const std::vector<int64_t>& ShuffleWriter::rawPartitionLengths() const {
   return metrics_.rawPartitionLengths;
 }
 
+const std::unordered_map<std::string, int64_t>& ShuffleWriter::customMetrics() const {
+  return metrics_.customMetrics;
+}
+
 ShuffleWriter::ShuffleWriter(int32_t numPartitions, Partitioning partitioning)
     : numPartitions_(numPartitions), partitioning_(partitioning) {}
 } // namespace gluten

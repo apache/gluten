@@ -24,6 +24,9 @@
 #include <arrow/ipc/options.h>
 #include <arrow/util/compression.h>
 
+#include <string>
+#include <unordered_map>
+
 namespace gluten {
 
 static constexpr int16_t kDefaultBatchSize = 4096;
@@ -234,5 +237,20 @@ struct ShuffleWriterMetrics {
   int64_t dictionarySize{0};
   std::vector<int64_t> partitionLengths{};
   std::vector<int64_t> rawPartitionLengths{}; // Uncompressed size.
+
+  // Backend-specific shuffle writer metrics that don't justify a dedicated
+  // scalar field on this struct (see CONTRIBUTING note in #12107 / #12108 /
+  // #12109 — Velox backend uses this for per-stage timer breakdowns + input
+  // encoding mix; ClickHouse / GPU / RSS backends are free to populate
+  // whatever scalar counters they want under their own namespaced keys).
+  //
+  // Convention for keys: "<Backend>.<Family>.<Stat>" — e.g.
+  //   "Velox.InputEncoding.Flat" / "Velox.SplitRV.FixedWidthWallNanos".
+  // Spark-side surfacing (registration as SQLMetrics, naming, accumulation
+  // across tasks) happens per-key in `VeloxMetricsApi` / `CHMetricsApi`;
+  // unknown keys are silently dropped so a backend can ship new metrics
+  // ahead of the Spark-side registration without breaking older Spark
+  // versions of Gluten.
+  std::unordered_map<std::string, int64_t> customMetrics{};
 };
 } // namespace gluten
