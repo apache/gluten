@@ -574,10 +574,10 @@ jobs:
         run: |
           export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
           if [ ! -e "/opt/apache-uniffle-${{ matrix.uniffle }}-bin.tar.gz" ]; then
-            ${WGET_CMD} https://www.apache.org/dyn/closer.lua/uniffle/${{ matrix.uniffle }}/apache-uniffle-${{ matrix.uniffle }}-bin.tar.gz?action=download -P /opt
+            ${WGET_CMD} https://www.apache.org/dyn/closer.lua/uniffle/${{ matrix.uniffle }}/apache-uniffle-${{ matrix.uniffle }}-bin.tar.gz?action=download -O /opt/apache-uniffle-${{ matrix.uniffle }}-bin.tar.gz
           fi
           if [ ! -e "/opt/hadoop-${{ matrix.hadoop }}.tar.gz" ]; then
-            ${WGET_CMD} https://www.apache.org/dyn/closer.lua/hadoop/common/hadoop-${{ matrix.hadoop }}/hadoop-${{ matrix.hadoop }}.tar.gz?action=download -P /opt
+            ${WGET_CMD} https://www.apache.org/dyn/closer.lua/hadoop/common/hadoop-${{ matrix.hadoop }}/hadoop-${{ matrix.hadoop }}.tar.gz?action=download -O /opt/hadoop-${{ matrix.hadoop }}.tar.gz
           fi
           cd /opt && rm -rf shims && \
           mkdir /opt/uniffle && tar xzf apache-uniffle-${{ matrix.uniffle }}-bin.tar.gz -C /opt/uniffle --strip-components=1 && \
