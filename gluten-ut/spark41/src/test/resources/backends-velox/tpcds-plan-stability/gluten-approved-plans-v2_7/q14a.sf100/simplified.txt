@@ -103,7 +103,7 @@ VeloxColumnarToRow
                                                                                                   VeloxResizeBatches
                                                                                                     WholeStageCodegenTransformer (22)
                                                                                                       ProjectExecTransformer [brand_id,class_id,category_id]
-                                                                                                        RegularHashAggregateExecTransformer [brand_id,class_id,category_id]
+                                                                                                        FlushableHashAggregateExecTransformer [brand_id,class_id,category_id]
                                                                                                           InputIteratorTransformer
                                                                                                             InputAdapter
                                                                                                               ColumnarExchange [brand_id,class_id,category_id] #7

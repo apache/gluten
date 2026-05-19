@@ -9,7 +9,7 @@ VeloxColumnarToRow (106)
                   +- VeloxResizeBatches (97)
                      +- ^ ProjectExecTransformer (95)
                         +- ^ ProjectExecTransformer (94)
-                           +- ^ RegularHashAggregateExecTransformer (93)
+                           +- ^ FlushableHashAggregateExecTransformer (93)
                               +- ^ InputIteratorTransformer (92)
                                  +- ColumnarExchange (90)
                                     +- VeloxResizeBatches (89)
@@ -475,7 +475,7 @@ Input [6]: [total_sum#27, s_state#8, s_county#7, g_state#28, g_county#29, lochie
 (92) InputIteratorTransformer
 Input [6]: [total_sum#27, s_state#8, s_county#7, g_state#28, g_county#29, lochierarchy#30]
 
-(93) RegularHashAggregateExecTransformer
+(93) FlushableHashAggregateExecTransformer
 Input [6]: [total_sum#27, s_state#8, s_county#7, g_state#28, g_county#29, lochierarchy#30]
 Keys [6]: [total_sum#27, s_state#8, s_county#7, g_state#28, g_county#29, lochierarchy#30]
 Functions: []

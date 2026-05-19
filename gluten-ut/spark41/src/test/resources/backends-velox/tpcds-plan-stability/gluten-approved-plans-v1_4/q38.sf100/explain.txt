@@ -8,7 +8,7 @@ VeloxColumnarToRow (104)
          :  :  +- ColumnarExchange (34)
          :  :     +- VeloxResizeBatches (33)
          :  :        +- ^ ProjectExecTransformer (31)
-         :  :           +- ^ RegularHashAggregateExecTransformer (30)
+         :  :           +- ^ FlushableHashAggregateExecTransformer (30)
          :  :              +- ^ InputIteratorTransformer (29)
          :  :                 +- ColumnarExchange (27)
          :  :                    +- VeloxResizeBatches (26)
@@ -35,7 +35,7 @@ VeloxColumnarToRow (104)
          :     +- ColumnarExchange (65)
          :        +- VeloxResizeBatches (64)
          :           +- ^ ProjectExecTransformer (62)
-         :              +- ^ RegularHashAggregateExecTransformer (61)
+         :              +- ^ FlushableHashAggregateExecTransformer (61)
          :                 +- ^ InputIteratorTransformer (60)
          :                    +- ColumnarExchange (58)
          :                       +- VeloxResizeBatches (57)
@@ -58,7 +58,7 @@ VeloxColumnarToRow (104)
             +- ColumnarExchange (97)
                +- VeloxResizeBatches (96)
                   +- ^ ProjectExecTransformer (94)
-                     +- ^ RegularHashAggregateExecTransformer (93)
+                     +- ^ FlushableHashAggregateExecTransformer (93)
                         +- ^ InputIteratorTransformer (92)
                            +- ColumnarExchange (90)
                               +- VeloxResizeBatches (89)
@@ -200,7 +200,7 @@ Input [3]: [c_last_name#9, c_first_name#8, d_date#5]
 (29) InputIteratorTransformer
 Input [3]: [c_last_name#9, c_first_name#8, d_date#5]
 
-(30) RegularHashAggregateExecTransformer
+(30) FlushableHashAggregateExecTransformer
 Input [3]: [c_last_name#9, c_first_name#8, d_date#5]
 Keys [3]: [c_last_name#9, c_first_name#8, d_date#5]
 Functions: []
@@ -326,7 +326,7 @@ Input [3]: [c_last_name#20, c_first_name#19, d_date#16]
 (60) InputIteratorTransformer
 Input [3]: [c_last_name#20, c_first_name#19, d_date#16]
 
-(61) RegularHashAggregateExecTransformer
+(61) FlushableHashAggregateExecTransformer
 Input [3]: [c_last_name#20, c_first_name#19, d_date#16]
 Keys [3]: [c_last_name#20, c_first_name#19, d_date#16]
 Functions: []
@@ -458,7 +458,7 @@ Input [3]: [c_last_name#30, c_first_name#29, d_date#26]
 (92) InputIteratorTransformer
 Input [3]: [c_last_name#30, c_first_name#29, d_date#26]
 
-(93) RegularHashAggregateExecTransformer
+(93) FlushableHashAggregateExecTransformer
 Input [3]: [c_last_name#30, c_first_name#29, d_date#26]
 Keys [3]: [c_last_name#30, c_first_name#29, d_date#26]
 Functions: []

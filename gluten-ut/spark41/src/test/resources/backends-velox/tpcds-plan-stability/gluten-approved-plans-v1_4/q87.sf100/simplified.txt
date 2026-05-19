@@ -10,7 +10,7 @@ VeloxColumnarToRow
                   VeloxResizeBatches
                     WholeStageCodegenTransformer (6)
                       ProjectExecTransformer [c_last_name,c_first_name,d_date]
-                        RegularHashAggregateExecTransformer [c_last_name,c_first_name,d_date]
+                        FlushableHashAggregateExecTransformer [c_last_name,c_first_name,d_date]
                           InputIteratorTransformer
                             InputAdapter
                               ColumnarExchange [c_last_name,c_first_name,d_date] #2
@@ -52,7 +52,7 @@ VeloxColumnarToRow
                   VeloxResizeBatches
                     WholeStageCodegenTransformer (12)
                       ProjectExecTransformer [c_last_name,c_first_name,d_date]
-                        RegularHashAggregateExecTransformer [c_last_name,c_first_name,d_date]
+                        FlushableHashAggregateExecTransformer [c_last_name,c_first_name,d_date]
                           InputIteratorTransformer
                             InputAdapter
                               ColumnarExchange [c_last_name,c_first_name,d_date] #7
@@ -84,7 +84,7 @@ VeloxColumnarToRow
                 VeloxResizeBatches
                   WholeStageCodegenTransformer (18)
                     ProjectExecTransformer [c_last_name,c_first_name,d_date]
-                      RegularHashAggregateExecTransformer [c_last_name,c_first_name,d_date]
+                      FlushableHashAggregateExecTransformer [c_last_name,c_first_name,d_date]
                         InputIteratorTransformer
                           InputAdapter
                             ColumnarExchange [c_last_name,c_first_name,d_date] #10
