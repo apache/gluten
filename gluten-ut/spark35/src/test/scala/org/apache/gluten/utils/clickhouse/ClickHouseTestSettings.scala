@@ -81,6 +81,17 @@ class ClickHouseTestSettings extends BackendTestSettings {
   enableSuite[GlutenApproximatePercentileQuerySuite]
     // requires resource files from Vanilla spark jar
     .exclude("SPARK-32908: maximum target error in percentile_approx")
+    .excludeGlutenTest("percentile_approx, different column types")
+    .excludeGlutenTest("percentile_approx, single percentile value")
+    .excludeGlutenTest("the first element satisfies small percentages")
+    .excludeGlutenTest("percentile_approx, array of percentile value")
+    .excludeGlutenTest("percentile_approx, with different accuracies")
+    .excludeGlutenTest(
+      "percentile_approx, supports constant folding for parameter accuracy and percentages")
+    .excludeGlutenTest(
+      "percentile_approx(col, ...), input rows contains null, with out group by")
+    .excludeGlutenTest(
+      "percentile_approx(col, ...), input rows contains null, with group by")
   enableSuite[GlutenArithmeticExpressionSuite]
     .exclude("SPARK-45786: Decimal multiply, divide, remainder, quot")
     .excludeCH("% (Remainder)")

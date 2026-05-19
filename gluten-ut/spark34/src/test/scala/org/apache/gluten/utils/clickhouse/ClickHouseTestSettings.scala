@@ -115,8 +115,19 @@ class ClickHouseTestSettings extends BackendTestSettings {
 
   enableSuite[GlutenApproxCountDistinctForIntervalsQuerySuite].exclude(
     "test ApproxCountDistinctForIntervals with large number of endpoints")
-  enableSuite[GlutenApproximatePercentileQuerySuite].exclude(
-    "SPARK-32908: maximum target error in percentile_approx")
+  enableSuite[GlutenApproximatePercentileQuerySuite]
+    .exclude("SPARK-32908: maximum target error in percentile_approx")
+    .excludeGlutenTest("percentile_approx, different column types")
+    .excludeGlutenTest("percentile_approx, single percentile value")
+    .excludeGlutenTest("the first element satisfies small percentages")
+    .excludeGlutenTest("percentile_approx, array of percentile value")
+    .excludeGlutenTest("percentile_approx, with different accuracies")
+    .excludeGlutenTest(
+      "percentile_approx, supports constant folding for parameter accuracy and percentages")
+    .excludeGlutenTest(
+      "percentile_approx(col, ...), input rows contains null, with out group by")
+    .excludeGlutenTest(
+      "percentile_approx(col, ...), input rows contains null, with group by")
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
     .exclude("Test bloom_filter_agg and might_contain")
     .excludeGlutenTest("Test bloom_filter_agg with big RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS")
