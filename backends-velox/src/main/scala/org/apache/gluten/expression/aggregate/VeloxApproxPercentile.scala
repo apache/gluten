@@ -97,7 +97,7 @@ case class VeloxApproximatePercentile(
   private lazy val percentilesIsArrayBuf: AttributeReference =
     AttributeReference("percentilesIsArray", BooleanType)()
   private lazy val accuracyBuf: AttributeReference =
-    AttributeReference("accuracy", DoubleType)()
+    AttributeReference("accuracy", IntegerType)()
   private lazy val kBuf: AttributeReference =
     AttributeReference("k", IntegerType)()
   private lazy val nBuf: AttributeReference =
@@ -138,7 +138,7 @@ case class VeloxApproximatePercentile(
   override lazy val initialValues: Seq[Expression] = Seq(
     percentilesLiteral, // percentiles
     Literal.create(returnPercentileArray, BooleanType), // percentilesIsArray
-    Literal.create(accuracy.toDouble, DoubleType), // accuracy
+    Literal.create(accuracy, IntegerType), // accuracy
     Literal.create(kValue, IntegerType), // k
     Literal.create(0L, LongType), // n
     Literal.create(null, child.dataType), // minValue
@@ -223,7 +223,7 @@ object KllSketchFieldIndex {
     Array(
       StructField("percentiles", ArrayType(DoubleType), nullable = true),
       StructField("percentilesIsArray", BooleanType, nullable = true),
-      StructField("accuracy", DoubleType, nullable = true),
+      StructField("accuracy", IntegerType, nullable = true),
       StructField("k", IntegerType, nullable = true),
       StructField("n", LongType, nullable = true),
       StructField("minValue", childType, nullable = true),
@@ -304,7 +304,7 @@ object KllSketchHelper {
     InternalRow(
       percentiles, // percentiles
       isArray, // percentilesIsArray
-      accuracy.toDouble, // accuracy
+      accuracy, // accuracy
       k, // k
       0L, // n
       null, // minValue
@@ -825,7 +825,7 @@ object KllSketchHelper {
     InternalRow(
       left.getArray(KllSketchFieldIndex.PERCENTILES),
       left.getBoolean(KllSketchFieldIndex.PERCENTILES_IS_ARRAY),
-      left.getDouble(KllSketchFieldIndex.ACCURACY),
+      left.getInt(KllSketchFieldIndex.ACCURACY),
       k,
       newN,
       fromDouble(mergedMin, childType),
@@ -965,7 +965,7 @@ object KllSketchHelper {
     InternalRow(
       sketch.getArray(KllSketchFieldIndex.PERCENTILES),
       sketch.getBoolean(KllSketchFieldIndex.PERCENTILES_IS_ARRAY),
-      sketch.getDouble(KllSketchFieldIndex.ACCURACY),
+      sketch.getInt(KllSketchFieldIndex.ACCURACY),
       k,
       n,
       fromDouble(minVal, childType),

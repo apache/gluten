@@ -44,6 +44,11 @@ class GlutenApproximatePercentileQuerySuite
     Thread.currentThread().getContextClassLoader.getResource(fileName).toString
   }
 
+  // Ignore parent test that does exact value comparison - KLL vs GK produces off-by-one results.
+  override def testNameBlackList: Seq[String] = Seq(
+    "percentile_approx, different column types"
+  )
+
   private val ptable = "percentile_approx"
 
   // KLL vs GK algorithm may pick different values at percentile boundaries.

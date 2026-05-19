@@ -43,6 +43,11 @@ class GlutenApproximatePercentileQuerySuite
     Thread.currentThread().getContextClassLoader.getResource(fileName).toString
   }
 
+  // Ignore parent test that does exact value comparison - KLL vs GK produces off-by-one results.
+  override def testNameBlackList: Seq[String] = Seq(
+    "percentile_approx, different column types"
+  )
+
   private val ptable = "percentile_approx"
 
   // KLL vs GK algorithm may pick different values at percentile boundaries.
@@ -78,6 +83,33 @@ class GlutenApproximatePercentileQuerySuite
       actualSeq.length == expected.length,
       s"Length mismatch: got ${actualSeq.length}, expected ${expected.length}")
     actualSeq.zip(expected).foreach { case (a, e) => assertApproxEqual(a, e, tolerance) }
+  }
+
+  // Override: KLL and GK algorithms produce slightly different results for decimal/date/timestamp.
+  testGluten("percentile_approx, different column types") {
+    withTempView(ptable) {
+      val intSeq = 1 to 1000
+      val data: Seq[(java.math.BigDecimal, Date, Timestamp)] = intSeq.map {
+        i =>
+          (
+            new java.math.BigDecimal(i),
+            DateTimeUtils.toJavaDate(i),
+            DateTimeUtils.toJavaTimestamp(i))
+      }
+      data.toDF("cdecimal", "cdate", "ctimestamp").createOrReplaceTempView(ptable)
+      val result = spark
+        .sql(s"""SELECT
+                |  percentile_approx(cdecimal, array(0.25, 0.5, 0.75D)),
+                |  percentile_approx(cdate, array(0.25, 0.5, 0.75D)),
+                |  percentile_approx(ctimestamp, array(0.25, 0.5, 0.75D))
+                |FROM $ptable
+         """.stripMargin)
+        .collect()
+        .head
+      assertApproxSeqEqual(result.get(0), Seq(250.0, 500.0, 750.0), kllTolerance)
+      assertApproxSeqEqual(result.get(1), Seq(250.0, 500.0, 750.0), kllTolerance)
+      assertApproxSeqEqual(result.get(2), Seq(250.0, 500.0, 750.0), kllTolerance)
+    }
   }
 
   // Override: KLL and GK algorithms may select different values at percentile boundaries.

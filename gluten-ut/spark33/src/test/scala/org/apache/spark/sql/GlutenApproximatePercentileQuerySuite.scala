@@ -43,11 +43,56 @@ class GlutenApproximatePercentileQuerySuite
     Thread.currentThread().getContextClassLoader.getResource(fileName).toString
   }
 
+  // Ignore parent test that does exact value comparison - KLL vs GK produces off-by-one results.
+  override def testNameBlackList: Seq[String] = Seq(
+    "percentile_approx, different column types"
+  )
+
   private val ptable = "percentile_approx"
 
   // KLL vs GK algorithm may pick different values at percentile boundaries.
   // For N=1000, the difference is typically 1-2 elements.
   private val kllTolerance = 2
+
+  // Override: KLL and GK algorithms produce slightly different results for decimal/date/timestamp.
+  testGluten("percentile_approx, different column types") {
+    withTempView(ptable) {
+      val intSeq = 1 to 1000
+      val data: Seq[(java.math.BigDecimal, Date, Timestamp)] = intSeq.map {
+        i =>
+          (
+            new java.math.BigDecimal(i),
+            DateTimeUtils.toJavaDate(i),
+            DateTimeUtils.toJavaTimestamp(i))
+      }
+      data.toDF("cdecimal", "cdate", "ctimestamp").createOrReplaceTempView(ptable)
+      val result = spark
+        .sql(
+          s"""SELECT
+             |  percentile_approx(cdecimal, array(0.25, 0.5, 0.75D)),
+             |  percentile_approx(cdate, array(0.25, 0.5, 0.75D)),
+             |  percentile_approx(ctimestamp, array(0.25, 0.5, 0.75D))
+             |FROM $ptable
+           """.stripMargin)
+        .collect()
+        .head
+      // decimal: expected ~250, ~500, ~750
+      val decimals = result.getSeq[java.math.BigDecimal](0)
+      assert(Math.abs(decimals(0).doubleValue() - 250.0) <= kllTolerance)
+      assert(Math.abs(decimals(1).doubleValue() - 500.0) <= kllTolerance)
+      assert(Math.abs(decimals(2).doubleValue() - 750.0) <= kllTolerance)
+      // date: expected ~250, ~500, ~750 (as days since epoch)
+      val dates = result.getSeq[Date](1)
+      assert(Math.abs(DateTimeUtils.fromJavaDate(dates(0)) - 250) <= kllTolerance)
+      assert(Math.abs(DateTimeUtils.fromJavaDate(dates(1)) - 500) <= kllTolerance)
+      assert(Math.abs(DateTimeUtils.fromJavaDate(dates(2)) - 750) <= kllTolerance)
+      // timestamp: expected ~250, ~500, ~750 (as microseconds since epoch)
+      val timestamps = result.getSeq[Timestamp](2)
+      assert(Math.abs(DateTimeUtils.fromJavaTimestamp(timestamps(0)) - 250) <= kllTolerance)
+      assert(Math.abs(DateTimeUtils.fromJavaTimestamp(timestamps(1)) - 500) <= kllTolerance)
+      assert(Math.abs(DateTimeUtils.fromJavaTimestamp(timestamps(2)) - 750) <= kllTolerance)
+    }
+  }
 
   private def assertApproxEqual(actual: Any, expected: Double, tolerance: Double): Unit = {
     val actualDouble = actual match {

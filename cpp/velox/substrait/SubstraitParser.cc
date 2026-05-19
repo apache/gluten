@@ -420,8 +420,7 @@ std::unordered_map<std::string, std::string> SubstraitParser::substraitVeloxFunc
     {"xxhash64", "xxhash64_with_seed"},
     {"modulus", "remainder"},
     {"negative", "unaryminus"},
-    {"get_array_item", "get"},
-    {"approx_percentile", "spark_approx_percentile"}};
+    {"get_array_item", "get"}};
 
 const std::unordered_map<std::string, std::string> SubstraitParser::typeMap_ = {
     {"bool", "BOOLEAN"},
