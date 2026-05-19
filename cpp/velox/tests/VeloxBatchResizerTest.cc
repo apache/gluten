@@ -73,6 +73,39 @@ class VeloxBatchResizerTest : public ::testing::Test, public test::VectorTestBas
          makeFlatVector<StringView>(numRows, [&strings](auto row) { return StringView(strings[row]); })});
   }
 
+  RowVectorPtr newNullableBoolVector(size_t numRows, int32_t start = 0) {
+    std::vector<std::optional<bool>> flags;
+    flags.reserve(numRows);
+    for (auto i = 0; i < numRows; ++i) {
+      if ((start + i) % 5 == 0) {
+        flags.emplace_back(std::nullopt);
+      } else {
+        flags.emplace_back((start + i) % 3 == 0);
+      }
+    }
+    return makeRowVector({"flag"}, {makeNullableFlatVector<bool>(flags)});
+  }
+
+  RowVectorPtr newDenseFlatVectorWithNullableBool(size_t numRows, int32_t start = 0) {
+    std::vector<std::optional<bool>> nullableFlags;
+    nullableFlags.reserve(numRows);
+    std::vector<std::optional<int64_t>> nullableValues;
+    nullableValues.reserve(numRows);
+    for (auto i = 0; i < numRows; ++i) {
+      if ((start + i) % 7 == 0) {
+        nullableFlags.emplace_back(std::nullopt);
+      } else {
+        nullableFlags.emplace_back((start + i) % 2 == 0);
+      }
+      nullableValues.emplace_back((start + i) % 4 == 0 ? std::nullopt : std::optional<int64_t>(start + i));
+    }
+    return makeRowVector(
+        {"i32", "flag", "i64"},
+        {makeFlatVector<int32_t>(numRows, [start](auto row) { return start + row; }),
+         makeNullableFlatVector<bool>(nullableFlags),
+         makeNullableFlatVector<int64_t>(nullableValues)});
+  }
+
   RowVectorPtr newFlatIntVector(size_t numRows, int32_t start = 0) {
     return makeRowVector({"i32"}, {makeFlatVector<int32_t>(numRows, [start](auto row) { return start + row; })});
   }
@@ -261,6 +294,75 @@ TEST_F(VeloxBatchResizerTest, denseFlatCopyEnabledUsesCopyRangesForFixedWidthAnd
   EXPECT_EQ(stats.copyRangesBatches, 2);
   EXPECT_EQ(stats.copyRangesOutputBatches, 1);
   EXPECT_EQ(stats.appendCopyBatches, 0);
+}
+
+TEST_F(VeloxBatchResizerTest, copyRangesEnabledHandlesNullableBoolBitmaps) {
+  VeloxBatchResizeStats stats;
+  auto vectors = std::vector<RowVectorPtr>{
+      newNullableBoolVector(3, 0),
+      newNullableBoolVector(5, 100),
+      newNullableBoolVector(9, 200),
+      newNullableBoolVector(17, 300),
+  };
+  auto appendStats = VeloxBatchResizeStats{};
+  auto expected = resizeOnce(vectors, false, &appendStats);
+
+  auto actual = resizeOnce(vectors, true, &stats);
+
+  test::assertEqualVectors(expected, actual);
+  EXPECT_EQ(stats.copyRangesBatches, 4);
+  EXPECT_EQ(stats.copyRangesOutputBatches, 1);
+  EXPECT_EQ(stats.appendCopyBatches, 0);
+  EXPECT_EQ(stats.copyRangesFallbackBatches, 0);
+}
+
+TEST_F(VeloxBatchResizerTest, copyRangesEnabledHandlesMixedNullableBitmapsAtUnalignedOffsets) {
+  VeloxBatchResizeStats stats;
+  auto vectors = std::vector<RowVectorPtr>{
+      newDenseFlatVectorWithNullableBool(1, 0),
+      newDenseFlatVectorWithNullableBool(6, 100),
+      newDenseFlatVectorWithNullableBool(10, 200),
+      newDenseFlatVectorWithNullableBool(15, 300),
+  };
+  auto appendStats = VeloxBatchResizeStats{};
+  auto expected = resizeOnce(vectors, false, &appendStats);
+
+  auto actual = resizeOnce(vectors, true, &stats);
+
+  test::assertEqualVectors(expected, actual);
+  EXPECT_EQ(stats.copyRangesBatches, 4);
+  EXPECT_EQ(stats.copyRangesOutputBatches, 1);
+  EXPECT_EQ(stats.appendCopyBatches, 0);
+  EXPECT_EQ(stats.copyRangesFallbackBatches, 0);
+}
+
+TEST_F(VeloxBatchResizerTest, veloxCopyRangesHandlesNullableBoolBitmapsAtUnalignedOffsets) {
+  auto source = newNullableBoolVector(48, 100)->childAt(0)->loadedVector();
+  auto actual = newNullableBoolVector(64, 500)->childAt(0);
+  auto expected = newNullableBoolVector(64, 500)->childAt(0);
+  auto expectedFlat = expected->asFlatVector<bool>();
+  auto sourceFlat = source->asFlatVector<bool>();
+  const std::vector<BaseVector::CopyRange> ranges{
+      {.sourceIndex = 1, .targetIndex = 2, .count = 5},
+      {.sourceIndex = 7, .targetIndex = 11, .count = 9},
+      {.sourceIndex = 18, .targetIndex = 24, .count = 13},
+      {.sourceIndex = 33, .targetIndex = 43, .count = 4},
+  };
+  for (const auto& range : ranges) {
+    for (auto i = 0; i < range.count; ++i) {
+      const auto sourceIndex = range.sourceIndex + i;
+      const auto targetIndex = range.targetIndex + i;
+      if (source->isNullAt(sourceIndex)) {
+        expectedFlat->setNull(targetIndex, true);
+      } else {
+        expectedFlat->set(targetIndex, sourceFlat->valueAt(sourceIndex));
+      }
+    }
+  }
+
+  actual->copyRanges(source.get(), ranges);
+
+  test::assertEqualVectors(expected, actual);
 }
 
 TEST_F(VeloxBatchResizerTest, copyRangesEnabledSupportsComplexType) {
