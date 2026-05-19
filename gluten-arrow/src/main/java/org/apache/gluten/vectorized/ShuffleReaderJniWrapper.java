@@ -42,7 +42,8 @@ public class ShuffleReaderJniWrapper implements RuntimeAware {
       int batchSize,
       long readerBufferSize,
       long deserializerBufferSize,
-      String shuffleWriterType);
+      String shuffleWriterType,
+      boolean enableHashShuffleReaderStreamMerge);
 
   public native long read(long shuffleReaderHandle, ShuffleStreamReader streamReader);
 

@@ -14,22 +14,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.sql.delta
+package org.apache.spark.sql.execution.streaming
 
-object DeltaInsertIntoTableSuiteShims {
-  private val isSpark41 = org.apache.spark.SPARK_VERSION.startsWith("4.1")
+import org.apache.spark.sql.{Encoder, SQLContext}
+import org.apache.spark.sql.execution.streaming.runtime.{MemoryStream => RuntimeMemoryStream}
 
-  val INSERT_INTO_TMP_VIEW_ERROR_MSG =
-    if (isSpark41) {
-      "[TABLE_OR_VIEW_NOT_FOUND]"
-    } else {
-      "[EXPECT_TABLE_NOT_VIEW.NO_ALTERNATIVE]"
-    }
+object MemoryStream {
+  def apply[A: Encoder](implicit sqlContext: SQLContext): RuntimeMemoryStream[A] = {
+    RuntimeMemoryStream[A](implicitly[Encoder[A]], sqlContext.sparkSession)
+  }
 
-  val INVALID_COLUMN_DEFAULT_VALUE_ERROR_MSG =
-    if (isSpark41) {
-      "INVALID_DEFAULT_VALUE.UNRESOLVED_EXPRESSION"
-    } else {
-      "INVALID_DEFAULT_VALUE.NOT_CONSTANT"
-    }
+  def apply[A: Encoder](
+      numPartitions: Int)(
+      implicit sqlContext: SQLContext): RuntimeMemoryStream[A] = {
+    RuntimeMemoryStream[A](numPartitions)(implicitly[Encoder[A]], sqlContext.sparkSession)
+  }
 }

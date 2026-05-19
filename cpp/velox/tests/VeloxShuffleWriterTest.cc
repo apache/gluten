@@ -18,6 +18,10 @@
 #include <arrow/c/bridge.h>
 #include <arrow/io/api.h>
 
+#include <cstring>
+#include <optional>
+
+#include "shuffle/Payload.h"
 #include "shuffle/VeloxHashShuffleWriter.h"
 #include "shuffle/VeloxRssSortShuffleWriter.h"
 #include "shuffle/VeloxSortShuffleWriter.h"
@@ -190,6 +194,23 @@ std::shared_ptr<PartitionWriter> createPartitionWriter(
       throw GlutenException("Unsupported partition writer type.");
   }
 }
+
+class MultiStreamReader : public StreamReader {
+ public:
+  explicit MultiStreamReader(std::vector<std::shared_ptr<arrow::io::InputStream>> streams)
+      : streams_(std::move(streams)) {}
+
+  std::shared_ptr<arrow::io::InputStream> readNextStream(arrow::MemoryPool*) override {
+    if (index_ >= streams_.size()) {
+      return nullptr;
+    }
+    return std::move(streams_[index_++]);
+  }
+
+ private:
+  std::vector<std::shared_ptr<arrow::io::InputStream>> streams_;
+  size_t index_{0};
+};
 
 } // namespace
 
@@ -440,6 +461,307 @@ class RoundRobinPartitioningShuffleWriterTest : public VeloxShuffleWriterTest {
     return createShuffleWriterOptions(Partitioning::kRoundRobin, 4096);
   }
 };
+
+class VeloxShuffleReaderStreamMergeTest : public ::testing::Test, public VeloxShuffleWriterTestBase {
+ protected:
+  void SetUp() override {
+    VeloxShuffleWriterTestBase::setUpTestData();
+  }
+
+  std::shared_ptr<arrow::io::InputStream> writeSinglePartitionStream(
+      const RowVectorPtr& vector,
+      bool enableDictionary = false) {
+    return writeSinglePartitionStream(std::vector<RowVectorPtr>{vector}, enableDictionary);
+  }
+
+  std::shared_ptr<arrow::io::InputStream> writeSinglePartitionStream(
+      const std::vector<RowVectorPtr>& vectors,
+      bool enableDictionary = false) {
+    GLUTEN_ASSIGN_OR_THROW(auto dataFile, createTempShuffleFile(localDirs_[0]));
+
+    auto shuffleWriterOptions = std::make_shared<HashShuffleWriterOptions>();
+    shuffleWriterOptions->partitioning = Partitioning::kSingle;
+    shuffleWriterOptions->splitBufferSize = 1024;
+
+    auto partitionWriter = createPartitionWriter(
+        PartitionWriterType::kLocal, 1, dataFile, localDirs_, arrow::Compression::UNCOMPRESSED, 0, 0, enableDictionary);
+    GLUTEN_ASSIGN_OR_THROW(
+        auto shuffleWriter,
+        VeloxShuffleWriter::create(
+            ShuffleWriterType::kHashShuffle, 1, partitionWriter, shuffleWriterOptions, getDefaultMemoryManager()));
+
+    for (const auto& vector : vectors) {
+      GLUTEN_THROW_NOT_OK(
+          shuffleWriter->write(std::make_shared<VeloxColumnarBatch>(vector), ShuffleWriter::kMinMemLimit));
+    }
+    GLUTEN_THROW_NOT_OK(shuffleWriter->stop());
+
+    const auto& lengths = shuffleWriter->partitionLengths();
+    VELOX_CHECK_EQ(lengths.size(), 1);
+
+    std::shared_ptr<arrow::io::ReadableFile> file;
+    GLUTEN_ASSIGN_OR_THROW(file, arrow::io::ReadableFile::Open(dataFile));
+    readableFiles_.push_back(file);
+
+    GLUTEN_ASSIGN_OR_THROW(auto in, arrow::io::RandomAccessFile::GetStream(file, 0, lengths[0]));
+    return in;
+  }
+
+  std::shared_ptr<arrow::io::InputStream> makeDictionaryPayloadOnlyStream(uint32_t numRows) {
+    GLUTEN_ASSIGN_OR_THROW(
+        auto indices, arrow::AllocateResizableBuffer(sizeof(int32_t) * numRows, arrow::default_memory_pool()));
+    std::vector<int32_t> rawIndices(numRows, 0);
+    std::memcpy(indices->mutable_data(), rawIndices.data(), sizeof(int32_t) * numRows);
+    std::shared_ptr<arrow::Buffer> indicesBuffer = std::move(indices);
+
+    std::vector<std::shared_ptr<arrow::Buffer>> buffers{std::shared_ptr<arrow::Buffer>{}, indicesBuffer};
+    static const std::vector<bool> kStringDictionaryPayloadValidity = {true, false};
+    GLUTEN_ASSIGN_OR_THROW(
+        auto payload,
+        BlockPayload::fromBuffers(
+            Payload::kUncompressed,
+            numRows,
+            std::move(buffers),
+            &kStringDictionaryPayloadValidity,
+            arrow::default_memory_pool(),
+            nullptr));
+
+    GLUTEN_ASSIGN_OR_THROW(auto os, arrow::io::BufferOutputStream::Create(1024, arrow::default_memory_pool()));
+    static constexpr uint8_t kDictionaryPayload = static_cast<uint8_t>(BlockType::kDictionaryPayload);
+    GLUTEN_THROW_NOT_OK(os->Write(&kDictionaryPayload, sizeof(kDictionaryPayload)));
+    GLUTEN_THROW_NOT_OK(payload->serialize(os.get()));
+
+    GLUTEN_ASSIGN_OR_THROW(auto buffer, os->Finish());
+    return std::make_shared<arrow::io::BufferReader>(buffer);
+  }
+
+  std::vector<RowVectorPtr> readStreams(
+      const RowTypePtr& rowType,
+      int32_t batchSize,
+      std::vector<std::shared_ptr<arrow::io::InputStream>> streams,
+      std::optional<bool> enableStreamMerge = std::nullopt) {
+    const auto schema = toArrowSchema(rowType, getDefaultMemoryManager()->getLeafMemoryPool().get());
+    std::shared_ptr<arrow::util::Codec> codec =
+        createCompressionCodec(arrow::Compression::UNCOMPRESSED, CodecBackend::NONE);
+    std::unique_ptr<VeloxShuffleReaderDeserializerFactory> deserializerFactory;
+    if (enableStreamMerge.has_value()) {
+      deserializerFactory = std::make_unique<VeloxShuffleReaderDeserializerFactory>(
+          schema,
+          codec,
+          arrowCompressionTypeToVelox(arrow::Compression::UNCOMPRESSED),
+          rowType,
+          batchSize,
+          kDefaultReadBufferSize,
+          kDefaultDeserializerBufferSize,
+          getDefaultMemoryManager(),
+          ShuffleWriterType::kHashShuffle,
+          enableStreamMerge.value());
+    } else {
+      deserializerFactory = std::make_unique<VeloxShuffleReaderDeserializerFactory>(
+          schema,
+          codec,
+          arrowCompressionTypeToVelox(arrow::Compression::UNCOMPRESSED),
+          rowType,
+          batchSize,
+          kDefaultReadBufferSize,
+          kDefaultDeserializerBufferSize,
+          getDefaultMemoryManager(),
+          ShuffleWriterType::kHashShuffle);
+    }
+
+    auto reader = std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
+    const auto iter = reader->read(std::make_shared<MultiStreamReader>(std::move(streams)));
+
+    std::vector<RowVectorPtr> output;
+    while (iter->hasNext()) {
+      output.push_back(std::dynamic_pointer_cast<VeloxColumnarBatch>(iter->next())->getRowVector());
+    }
+    return output;
+  }
+
+  std::vector<std::shared_ptr<arrow::io::ReadableFile>> readableFiles_;
+};
+
+TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderMergesWithinStream) {
+  constexpr int32_t kBatchSize = 6;
+  std::vector<RowVectorPtr> inputs = {
+      makeRowVector({
+          makeFlatVector<int32_t>({1, 2}),
+          makeFlatVector<bool>({true, false}),
+          makeFlatVector<StringView>({"a", "bb"}),
+          makeNullableFlatVector<int64_t>({10, std::nullopt}),
+      }),
+      makeRowVector({
+          makeFlatVector<int32_t>({3, 4}),
+          makeFlatVector<bool>({false, true}),
+          makeFlatVector<StringView>({"ccc", "dddd"}),
+          makeNullableFlatVector<int64_t>({std::nullopt, 40}),
+      }),
+      makeRowVector({
+          makeFlatVector<int32_t>({5, 6}),
+          makeFlatVector<bool>({true, true}),
+          makeFlatVector<StringView>({"eeeee", "ffffff"}),
+          makeNullableFlatVector<int64_t>({50, 60}),
+      }),
+      makeRowVector({
+          makeFlatVector<int32_t>({7, 8}),
+          makeFlatVector<bool>({false, false}),
+          makeFlatVector<StringView>({"ggggggg", "hhhhhhhh"}),
+          makeNullableFlatVector<int64_t>({std::nullopt, std::nullopt}),
+      })};
+
+  std::vector<std::shared_ptr<arrow::io::InputStream>> streams = {writeSinglePartitionStream(inputs)};
+
+  auto output = readStreams(facebook::velox::asRowType(inputs[0]->type()), kBatchSize, std::move(streams), true);
+
+  ASSERT_EQ(output.size(), 2);
+  ASSERT_EQ(output[0]->size(), kBatchSize);
+  ASSERT_EQ(output[1]->size(), inputs[3]->size());
+  facebook::velox::test::assertEqualVectors(mergeRowVectors({inputs[0], inputs[1], inputs[2]}), output[0]);
+  facebook::velox::test::assertEqualVectors(inputs[3], output[1]);
+}
+
+TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderDoesNotMergeByDefault) {
+  constexpr int32_t kBatchSize = 100;
+  std::vector<RowVectorPtr> inputs = {
+      makeRowVector({makeFlatVector<int32_t>({1, 2})}),
+      makeRowVector({makeFlatVector<int32_t>({3, 4})}),
+      makeRowVector({makeFlatVector<int32_t>({5, 6})})};
+
+  const auto rowType = facebook::velox::asRowType(inputs[0]->type());
+  auto output = readStreams(rowType, kBatchSize, {writeSinglePartitionStream(inputs)});
+
+  ASSERT_EQ(output.size(), inputs.size());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    facebook::velox::test::assertEqualVectors(inputs[i], output[i]);
+  }
+}
+
+TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderMergesWithinEachStreamOnly) {
+  constexpr int32_t kBatchSize = 100;
+  std::vector<RowVectorPtr> inputs = {
+      makeRowVector({makeFlatVector<int32_t>({1, 2})}),
+      makeRowVector({makeFlatVector<int32_t>({3, 4})}),
+      makeRowVector({makeFlatVector<int32_t>({5, 6})}),
+      makeRowVector({makeFlatVector<int32_t>({7, 8})})};
+
+  std::vector<std::shared_ptr<arrow::io::InputStream>> streams = {
+      writeSinglePartitionStream({inputs[0], inputs[1]}), writeSinglePartitionStream({inputs[2], inputs[3]})};
+
+  auto output = readStreams(facebook::velox::asRowType(inputs[0]->type()), kBatchSize, std::move(streams), true);
+
+  ASSERT_EQ(output.size(), 2);
+  facebook::velox::test::assertEqualVectors(mergeRowVectors({inputs[0], inputs[1]}), output[0]);
+  facebook::velox::test::assertEqualVectors(mergeRowVectors({inputs[2], inputs[3]}), output[1]);
+}
+
+TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderDoesNotMergeAcrossStreams) {
+  constexpr int32_t kBatchSize = 6;
+  std::vector<RowVectorPtr> inputs = {
+      makeRowVector({makeFlatVector<int32_t>({1, 2})}),
+      makeRowVector({makeFlatVector<int32_t>({3, 4})}),
+      makeRowVector({makeFlatVector<int32_t>({5, 6})}),
+      makeRowVector({makeFlatVector<int32_t>({7, 8})})};
+
+  std::vector<std::shared_ptr<arrow::io::InputStream>> streams;
+  streams.reserve(inputs.size());
+  for (const auto& input : inputs) {
+    streams.push_back(writeSinglePartitionStream(input));
+  }
+
+  auto output = readStreams(facebook::velox::asRowType(inputs[0]->type()), kBatchSize, std::move(streams), true);
+
+  ASSERT_EQ(output.size(), inputs.size());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    facebook::velox::test::assertEqualVectors(inputs[i], output[i]);
+  }
+}
+
+TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderRejectsNonPositiveBatchSize) {
+  auto input = makeRowVector({makeFlatVector<int32_t>({1})});
+  const auto rowType = facebook::velox::asRowType(input->type());
+
+  EXPECT_THROW((void)readStreams(rowType, 0, {}), GlutenException);
+  EXPECT_THROW((void)readStreams(rowType, -1, {}), GlutenException);
+}
+
+TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderCarriesOverPayloadThatWouldExceedBatchSize) {
+  constexpr int32_t kBatchSize = 6;
+  std::vector<RowVectorPtr> inputs = {
+      makeRowVector({makeFlatVector<int32_t>({1, 2, 3, 4})}),
+      makeRowVector({makeFlatVector<int32_t>({5, 6, 7, 8})}),
+      makeRowVector({makeFlatVector<int32_t>({9})})};
+
+  std::vector<std::shared_ptr<arrow::io::InputStream>> streams = {writeSinglePartitionStream(inputs)};
+
+  auto output = readStreams(facebook::velox::asRowType(inputs[0]->type()), kBatchSize, std::move(streams), true);
+
+  ASSERT_EQ(output.size(), 2);
+  facebook::velox::test::assertEqualVectors(inputs[0], output[0]);
+  facebook::velox::test::assertEqualVectors(mergeRowVectors({inputs[1], inputs[2]}), output[1]);
+}
+
+TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderFlushesMergedRowsBeforeDictionaryStream) {
+  constexpr int32_t kBatchSize = 100;
+  auto plainInput = makeRowVector({makeFlatVector<StringView>({"plain-1", "plain-2"})});
+  auto dictionaryInput = makeRowVector({makeFlatVector<StringView>({"same", "same", "same", "same"})});
+  std::vector<std::shared_ptr<arrow::io::InputStream>> streams = {
+      writeSinglePartitionStream(plainInput), writeSinglePartitionStream(dictionaryInput, true)};
+
+  auto output = readStreams(facebook::velox::asRowType(plainInput->type()), kBatchSize, std::move(streams), true);
+
+  ASSERT_EQ(output.size(), 2);
+  facebook::velox::test::assertEqualVectors(plainInput, output[0]);
+  facebook::velox::test::assertEqualVectors(dictionaryInput, output[1]);
+}
+
+TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderDoesNotMergeComplexTypeStreams) {
+  constexpr int32_t kBatchSize = 100;
+  std::vector<RowVectorPtr> inputs = {
+      makeRowVector({makeArrayVector<int64_t>({{1, 2}, {3}})}),
+      makeRowVector({makeArrayVector<int64_t>({{4}, {5, 6}})})};
+
+  std::vector<std::shared_ptr<arrow::io::InputStream>> streams;
+  streams.reserve(inputs.size());
+  for (const auto& input : inputs) {
+    streams.push_back(writeSinglePartitionStream(input));
+  }
+
+  auto output = readStreams(facebook::velox::asRowType(inputs[0]->type()), kBatchSize, std::move(streams), true);
+
+  ASSERT_EQ(output.size(), inputs.size());
+  facebook::velox::test::assertEqualVectors(inputs[0], output[0]);
+  facebook::velox::test::assertEqualVectors(inputs[1], output[1]);
+}
+
+TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderDoesNotReuseDictionaryAcrossStreams) {
+  auto dictionaryInput = makeRowVector({makeFlatVector<StringView>({"same", "same", "same", "same"})});
+  std::vector<std::shared_ptr<arrow::io::InputStream>> streams = {
+      writeSinglePartitionStream(dictionaryInput, true), makeDictionaryPayloadOnlyStream(2)};
+
+  const auto rowType = facebook::velox::asRowType(dictionaryInput->type());
+  const auto schema = toArrowSchema(rowType, getDefaultMemoryManager()->getLeafMemoryPool().get());
+  std::shared_ptr<arrow::util::Codec> codec =
+      createCompressionCodec(arrow::Compression::UNCOMPRESSED, CodecBackend::NONE);
+  auto deserializerFactory = std::make_unique<VeloxShuffleReaderDeserializerFactory>(
+      schema,
+      codec,
+      arrowCompressionTypeToVelox(arrow::Compression::UNCOMPRESSED),
+      rowType,
+      kDefaultBatchSize,
+      kDefaultReadBufferSize,
+      kDefaultDeserializerBufferSize,
+      getDefaultMemoryManager(),
+      ShuffleWriterType::kHashShuffle);
+
+  auto reader = std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
+  const auto iter = reader->read(std::make_shared<MultiStreamReader>(std::move(streams)));
+
+  ASSERT_TRUE(iter->hasNext());
+  facebook::velox::test::assertEqualVectors(
+      dictionaryInput, std::dynamic_pointer_cast<VeloxColumnarBatch>(iter->next())->getRowVector());
+  EXPECT_THROW((void)iter->hasNext(), GlutenException);
+}
 
 TEST_P(SinglePartitioningShuffleWriterTest, single) {
   if (GetParam().shuffleWriterType != ShuffleWriterType::kHashShuffle) {

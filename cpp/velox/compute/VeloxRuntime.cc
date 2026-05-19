@@ -585,7 +585,8 @@ std::shared_ptr<ShuffleReader> VeloxRuntime::createShuffleReader(
       options.readerBufferSize,
       options.deserializerBufferSize,
       memoryManager(),
-      options.shuffleWriterType);
+      options.shuffleWriterType,
+      options.enableHashShuffleReaderStreamMerge);
 
   return std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
 }

@@ -990,6 +990,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
     jint startPartitionId,
     jint splitBufferSize,
     jdouble splitBufferReallocThreshold,
+    jint partitionBufferEvictThreshold,
     jlong partitionWriterHandle) {
   JNI_METHOD_START
   const auto ctx = getRuntime(env, wrapper);
@@ -1004,7 +1005,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
       toPartitioning(jStringToCString(env, partitioningNameJstr)),
       startPartitionId,
       splitBufferSize,
-      splitBufferReallocThreshold);
+      splitBufferReallocThreshold,
+      partitionBufferEvictThreshold);
 
   return ctx->saveObject(ctx->createShuffleWriter(numPartitions, partitionWriter, shuffleWriterOptions));
   JNI_METHOD_END(kInvalidObjectHandle)
@@ -1211,7 +1213,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrappe
     jint batchSize,
     jlong readerBufferSize,
     jlong deserializerBufferSize,
-    jstring shuffleWriterType) {
+    jstring shuffleWriterType,
+    jboolean enableHashShuffleReaderStreamMerge) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
 
@@ -1223,6 +1226,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrappe
   options.batchSize = batchSize;
   options.readerBufferSize = readerBufferSize;
   options.deserializerBufferSize = deserializerBufferSize;
+  options.enableHashShuffleReaderStreamMerge = enableHashShuffleReaderStreamMerge;
 
   options.shuffleWriterType = ShuffleWriter::stringToType(jStringToCString(env, shuffleWriterType));
   std::shared_ptr<arrow::Schema> schema =

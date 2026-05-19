@@ -60,7 +60,7 @@ arrow::Result<uint8_t> readPayloadType(arrow::io::InputStream* is) {
 }
 
 arrow::Result<int64_t> compressBuffer(
-    const std::shared_ptr<arrow::Buffer>& buffer,
+    const std::shared_ptr<arrow::Buffer> buffer,
     uint8_t* output,
     int64_t outputLength,
     arrow::util::Codec* codec) {

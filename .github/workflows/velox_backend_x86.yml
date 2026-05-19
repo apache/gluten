@@ -1432,7 +1432,7 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
-          -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
+          -Pspark-ut -Pdelta -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
           -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
         if: always()

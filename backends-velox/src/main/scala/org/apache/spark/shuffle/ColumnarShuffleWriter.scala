@@ -192,6 +192,7 @@ class ColumnarShuffleWriter[K, V](
                 taskContext.partitionId),
               nativeBufferSize,
               reallocThreshold,
+              GlutenConfig.get.columnarShufflePartitionBufferEvictThreshold,
               partitionWriterHandle
             )
           }

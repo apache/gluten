@@ -239,6 +239,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> VeloxHashShuffleWriter::generateCo
 
 arrow::Status VeloxHashShuffleWriter::write(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) {
   writtenBytes_ = 0;
+  accumulateInputEncodingCounts(*cb);
   if (partitioning_ == Partitioning::kSingle) {
     auto veloxColumnBatch = VeloxColumnarBatch::from(veloxPool_.get(), cb);
     VELOX_CHECK_NOT_NULL(veloxColumnBatch);
@@ -440,7 +441,39 @@ arrow::Status VeloxHashShuffleWriter::doSplit(const facebook::velox::RowVector& 
   printPartitionBuffer();
 
   setSplitState(SplitState::kInit);
+  if (partitionBufferEvictThreshold_ > 0) {
+    // After split, evict large partition buffers to free up memory for the next input RowVector.
+    const auto partitionBytes = estimatePartitionBufferBytes();
+    for (uint32_t pid = 0; pid < partitionBytes.size(); ++pid) {
+      if (partitionBufferBase_[pid] > 0 && partitionBytes[pid] >= partitionBufferEvictThreshold_) {
+        RETURN_NOT_OK(evictPartitionBuffers(pid, false));
+      }
+    }
+  }
   return arrow::Status::OK();
+}
+
+std::vector<int64_t> VeloxHashShuffleWriter::estimatePartitionBufferBytes() const {
+  std::vector<int64_t> partitionBytes(numPartitions_, 0);
+
+  for (const auto& columnBuffers : partitionBuffers_) {
+    for (uint32_t pid = 0; pid < columnBuffers.size(); ++pid) {
+      for (const auto& buffer : columnBuffers[pid]) {
+        if (buffer) {
+          partitionBytes[pid] += buffer->capacity();
+        }
+      }
+    }
+  }
+
+  for (uint32_t pid = 0; pid < complexTypeFlushBuffer_.size(); ++pid) {
+    const auto& buffer = complexTypeFlushBuffer_[pid];
+    if (buffer) {
+      partitionBytes[pid] += buffer->capacity();
+    }
+  }
+
+  return partitionBytes;
 }
 
 arrow::Status VeloxHashShuffleWriter::splitRowVector(const facebook::velox::RowVector& rv) {
@@ -1315,6 +1348,66 @@ uint64_t VeloxHashShuffleWriter::valueBufferSizeForFixedWidthArray(uint32_t fixe
   return valueBufferSize;
 }
 
+void VeloxHashShuffleWriter::accumulateInputEncodingCounts(const ColumnarBatch& cb) {
+  // Only velox-typed batches expose per-child encoding; foreign batches
+  // (e.g. arrow round-trips coming from non-velox sources) will be flattened
+  // by `VeloxColumnarBatch::from` later and we'd undercount, so just skip
+  // them here rather than reporting a misleading "all flat" mix. The skip
+  // counter is exposed via `inputEncodingSkippedBatches()` and printed in
+  // `stat()` so a reader can tell whether a low encoding-bucket total means
+  // "writer saw few children" or "writer saw many but most were not velox".
+  if (cb.getType() != "velox") {
+    ++inputEncodingSkippedBatches_;
+    return;
+  }
+  const auto* veloxBatch = dynamic_cast<const VeloxColumnarBatch*>(&cb);
+  if (veloxBatch == nullptr) {
+    ++inputEncodingSkippedBatches_;
+    return;
+  }
+  const auto& rowVector = veloxBatch->getRowVector();
+  if (rowVector == nullptr) {
+    ++inputEncodingSkippedBatches_;
+    return;
+  }
+  for (const auto& child : rowVector->children()) {
+    if (child == nullptr) {
+      ++inputEncodingCounts_[kInputEncodingOther];
+      continue;
+    }
+    switch (child->encoding()) {
+      case facebook::velox::VectorEncoding::Simple::FLAT:
+        ++inputEncodingCounts_[kInputEncodingFlat];
+        break;
+      case facebook::velox::VectorEncoding::Simple::DICTIONARY:
+        ++inputEncodingCounts_[kInputEncodingDictionary];
+        break;
+      case facebook::velox::VectorEncoding::Simple::CONSTANT:
+        ++inputEncodingCounts_[kInputEncodingConstant];
+        break;
+      case facebook::velox::VectorEncoding::Simple::LAZY:
+        ++inputEncodingCounts_[kInputEncodingLazy];
+        break;
+      case facebook::velox::VectorEncoding::Simple::ROW:
+      case facebook::velox::VectorEncoding::Simple::MAP:
+      case facebook::velox::VectorEncoding::Simple::FLAT_MAP:
+      case facebook::velox::VectorEncoding::Simple::ARRAY:
+        // Struct / map / array column types — first-class in Spark workloads
+        // and exercised by the sibling shuffle writer tests
+        // (`makeArrayVector` / `makeMapVector`). Kept distinct from `Other`
+        // so a reader interpreting the log doesn't conflate a struct column
+        // with a rare encoding.
+        ++inputEncodingCounts_[kInputEncodingComplex];
+        break;
+      default:
+        // BIASED, SEQUENCE, FUNCTION, and any future additions to
+        // `VectorEncoding::Simple`.
+        ++inputEncodingCounts_[kInputEncodingOther];
+        break;
+    }
+  }
+}
+
 void VeloxHashShuffleWriter::stat() const {
 #if VELOX_SHUFFLE_WRITER_LOG_FLAG
   for (int i = CpuWallTimingBegin; i != CpuWallTimingEnd; ++i) {
@@ -1326,6 +1419,26 @@ void VeloxHashShuffleWriter::stat() const {
       oss << " wallNanos-avg:" << timing.wallNanos / timing.count;
       oss << " cpuNanos-avg:" << timing.cpuNanos / timing.count;
     }
+    LOG(INFO) << oss.str();
+  }
+  {
+    std::ostringstream oss;
+    oss << "Velox shuffle writer stat:InputEncoding";
+    int64_t total = 0;
+    for (auto v : inputEncodingCounts_) {
+      total += v;
+    }
+    for (int b = 0; b < kInputEncodingNum; ++b) {
+      auto v = inputEncodingCounts_[b];
+      oss << " " << inputEncodingName(static_cast<InputEncodingBucket>(b)) << "=" << v;
+      if (total > 0) {
+        oss << "(" << (100.0 * static_cast<double>(v) / static_cast<double>(total)) << "%)";
+      }
+    }
+    // Non-velox `write()` calls contribute 0 to the buckets above; expose the
+    // skip count so the denominator (total = sum of buckets) is comparable to
+    // the `count` field in the `cpuWallTimingList_` lines emitted above.
+    oss << " SkippedNonVeloxBatches=" << inputEncodingSkippedBatches_;
     LOG(INFO) << oss.str();
   }
 #endif
