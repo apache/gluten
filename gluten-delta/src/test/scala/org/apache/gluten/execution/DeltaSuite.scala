@@ -126,6 +126,29 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
+  test("delta: data skipping with non-correlated exists subquery") {
+    withTable("input1", "input2") {
+      spark.sql(s"""
+                   |create table input1 (id int, name string) using delta
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |insert into input1 values (1, "a"), (2, "b"), (3, "c")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |create table input2 (id int) using delta
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |insert into input2 values (1)
+                   |""".stripMargin)
+
+      val df = runQueryAndCompare("select * from input1 where not exists (select 1 from input2)") {
+        _ =>
+      }
+      checkLengthAndPlan(df, 0)
+      checkAnswer(df, Nil)
+    }
+  }
+
   testWithMinSparkVersion("basic test with stats.skipping disabled", "3.2") {
     withTable("delta_test2") {
       withSQLConf("spark.databricks.delta.stats.skipping" -> "false") {
