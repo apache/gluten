@@ -56,6 +56,11 @@ arrow::Result<BlockType> readBlockType(arrow::io::InputStream* inputStream) {
   return type;
 }
 
+uint32_t validateHashShuffleReaderBatchSize(int32_t batchSize) {
+  GLUTEN_CHECK(batchSize > 0, fmt::format("Hash shuffle reader batch size must be positive, but got {}", batchSize));
+  return static_cast<uint32_t>(batchSize);
+}
+
 struct BufferViewReleaser {
   BufferViewReleaser() : BufferViewReleaser(nullptr) {}
 
@@ -300,6 +305,23 @@ std::shared_ptr<VeloxColumnarBatch> makeColumnarBatch(
   return std::make_shared<VeloxColumnarBatch>(std::move(rowVector));
 }
 
+std::shared_ptr<VeloxColumnarBatch> makeColumnarBatch(
+    RowTypePtr type,
+    std::unique_ptr<InMemoryPayload> payload,
+    memory::MemoryPool* pool,
+    int64_t& deserializeTime) {
+  ScopedTimer timer(&deserializeTime);
+  std::vector<BufferPtr> veloxBuffers;
+  auto numBuffers = payload->numBuffers();
+  veloxBuffers.reserve(numBuffers);
+  for (size_t i = 0; i < numBuffers; ++i) {
+    GLUTEN_ASSIGN_OR_THROW(auto buffer, payload->readBufferAt(i));
+    veloxBuffers.push_back(convertToVeloxBuffer(std::move(buffer)));
+  }
+  auto rowVector = deserialize(type, payload->numRows(), veloxBuffers, {}, {}, pool);
+  return std::make_shared<VeloxColumnarBatch>(std::move(rowVector));
+}
+
 arrow::Result<BufferPtr>
 readDictionaryBuffer(arrow::io::InputStream* in, facebook::velox::memory::MemoryPool* pool, arrow::util::Codec* codec) {
   size_t bufferSize;
@@ -444,23 +466,45 @@ VeloxHashShuffleReaderDeserializer::VeloxHashShuffleReaderDeserializer(
     const std::shared_ptr<arrow::Schema>& schema,
     const std::shared_ptr<arrow::util::Codec>& codec,
     const facebook::velox::RowTypePtr& rowType,
+    int32_t batchSize,
     int64_t readerBufferSize,
     VeloxMemoryManager* memoryManager,
+    std::vector<bool> isValidityBuffer,
+    bool hasComplexType,
+    bool enableStreamMerge,
     int64_t& deserializeTime,
     int64_t& decompressTime)
     : streamReader_(streamReader),
       schema_(schema),
       codec_(codec),
       rowType_(rowType),
+      batchSize_(validateHashShuffleReaderBatchSize(batchSize)),
       readerBufferSize_(readerBufferSize),
       memoryManager_(memoryManager),
+      isValidityBuffer_(std::move(isValidityBuffer)),
+      hasComplexType_(hasComplexType),
+      enableStreamMerge_(enableStreamMerge),
       deserializeTime_(deserializeTime),
       decompressTime_(decompressTime) {}
 
+bool VeloxHashShuffleReaderDeserializer::shouldSkipMerge() const {
+  // Stream merge is a reader-side raw payload fast path: for plain payloads it
+  // concatenates buffers before Velox vectors are materialized, avoiding the generic
+  // RowVector append cost paid by VeloxResizeBatchesExec. Keep complex and dictionary
+  // payloads on the existing per-payload path; VeloxResizeBatchesExec can be enabled
+  // separately as the generic complement for those cases.
+  return !enableStreamMerge_ || hasComplexType_ || !dictionaryFields_.empty();
+}
+
 bool VeloxHashShuffleReaderDeserializer::resolveNextBlockType() {
+  if (blockTypeResolved_) {
+    return true;
+  }
+
   GLUTEN_ASSIGN_OR_THROW(auto blockType, readBlockType(in_.get()));
   switch (blockType) {
     case BlockType::kEndOfStream:
+      in_ = nullptr;
       return false;
     case BlockType::kDictionary: {
       VeloxDictionaryReader reader(rowType_, memoryManager_->getLeafMemoryPool().get(), codec_.get());
@@ -485,6 +529,7 @@ bool VeloxHashShuffleReaderDeserializer::resolveNextBlockType() {
     default:
       throw GlutenException(fmt::format("Unsupported block type: {}", static_cast<int32_t>(blockType)));
   }
+  blockTypeResolved_ = true;
   return true;
 }
 
@@ -499,6 +544,12 @@ void VeloxHashShuffleReaderDeserializer::loadNextStream() {
     return;
   }
 
+  if (!dictionaryFields_.empty() || !dictionaries_.empty()) {
+    dictionaryFields_.clear();
+    dictionaries_.clear();
+  }
+  blockTypeResolved_ = false;
+
   if (readerBufferSize_ > 0) {
     GLUTEN_ASSIGN_OR_THROW(
         in_,
@@ -510,36 +561,106 @@ void VeloxHashShuffleReaderDeserializer::loadNextStream() {
 }
 
 std::shared_ptr<ColumnarBatch> VeloxHashShuffleReaderDeserializer::next() {
-  if (in_ == nullptr) {
-    loadNextStream();
+  while (true) {
+    if (in_ == nullptr) {
+      if (merged_) {
+        return makeColumnarBatch(
+            rowType_, std::move(merged_), memoryManager_->getLeafMemoryPool().get(), deserializeTime_);
+      }
 
-    if (reachedEos_) {
-      return nullptr;
+      loadNextStream();
+
+      if (reachedEos_) {
+        return nullptr;
+      }
+    }
+    if (resolveNextBlockType()) {
+      break;
     }
   }
 
-  while (!resolveNextBlockType()) {
-    loadNextStream();
-
-    if (reachedEos_) {
-      return nullptr;
+  if (shouldSkipMerge()) {
+    if (merged_) {
+      return makeColumnarBatch(
+          rowType_, std::move(merged_), memoryManager_->getLeafMemoryPool().get(), deserializeTime_);
     }
+
+    uint32_t numRows = 0;
+    GLUTEN_ASSIGN_OR_THROW(
+        auto arrowBuffers,
+        BlockPayload::deserialize(
+            in_.get(), codec_, memoryManager_->defaultArrowMemoryPool(), numRows, deserializeTime_, decompressTime_));
+
+    blockTypeResolved_ = false;
+
+    return makeColumnarBatch(
+        rowType_,
+        numRows,
+        std::move(arrowBuffers),
+        dictionaryFields_,
+        dictionaries_,
+        memoryManager_->getLeafMemoryPool().get(),
+        deserializeTime_);
   }
 
+  std::vector<std::shared_ptr<arrow::Buffer>> arrowBuffers{};
   uint32_t numRows = 0;
-  GLUTEN_ASSIGN_OR_THROW(
-      auto arrowBuffers,
-      BlockPayload::deserialize(
-          in_.get(), codec_, memoryManager_->defaultArrowMemoryPool(), numRows, deserializeTime_, decompressTime_));
+  while (!merged_ || merged_->numRows() < batchSize_) {
+    if (in_ == nullptr) {
+      if (merged_) {
+        break;
+      }
 
-  return makeColumnarBatch(
-      rowType_,
-      numRows,
-      std::move(arrowBuffers),
-      dictionaryFields_,
-      dictionaries_,
-      memoryManager_->getLeafMemoryPool().get(),
-      deserializeTime_);
+      loadNextStream();
+      if (reachedEos_) {
+        break;
+      }
+    }
+    if (!resolveNextBlockType()) {
+      continue;
+    }
+
+    if (shouldSkipMerge()) {
+      break;
+    }
+
+    GLUTEN_ASSIGN_OR_THROW(
+        arrowBuffers,
+        BlockPayload::deserialize(
+            in_.get(), codec_, memoryManager_->defaultArrowMemoryPool(), numRows, deserializeTime_, decompressTime_));
+
+    blockTypeResolved_ = false;
+
+    if (!merged_) {
+      merged_ = std::make_unique<InMemoryPayload>(numRows, &isValidityBuffer_, schema_, std::move(arrowBuffers));
+      arrowBuffers.clear();
+      continue;
+    }
+
+    auto mergedRows = merged_->numRows() + numRows;
+    if (mergedRows > batchSize_) {
+      break;
+    }
+
+    auto append = std::make_unique<InMemoryPayload>(numRows, &isValidityBuffer_, schema_, std::move(arrowBuffers));
+    GLUTEN_ASSIGN_OR_THROW(
+        merged_,
+        InMemoryPayload::merge(std::move(merged_), std::move(append), memoryManager_->defaultArrowMemoryPool()));
+    arrowBuffers.clear();
+  }
+
+  if (!merged_) {
+    return nullptr;
+  }
+
+  auto columnarBatch =
+      makeColumnarBatch(rowType_, std::move(merged_), memoryManager_->getLeafMemoryPool().get(), deserializeTime_);
+
+  if (!arrowBuffers.empty()) {
+    merged_ = std::make_unique<InMemoryPayload>(numRows, &isValidityBuffer_, schema_, std::move(arrowBuffers));
+  }
+
+  return columnarBatch;
 }
 
 VeloxSortShuffleReaderDeserializer::VeloxSortShuffleReaderDeserializer(
@@ -797,7 +918,8 @@ VeloxShuffleReaderDeserializerFactory::VeloxShuffleReaderDeserializerFactory(
     int64_t readerBufferSize,
     int64_t deserializerBufferSize,
     VeloxMemoryManager* memoryManager,
-    ShuffleWriterType shuffleWriterType)
+    ShuffleWriterType shuffleWriterType,
+    bool enableHashShuffleReaderStreamMerge)
     : schema_(schema),
       codec_(codec),
       veloxCompressionType_(veloxCompressionType),
@@ -806,7 +928,8 @@ VeloxShuffleReaderDeserializerFactory::VeloxShuffleReaderDeserializerFactory(
       readerBufferSize_(readerBufferSize),
       deserializerBufferSize_(deserializerBufferSize),
       memoryManager_(memoryManager),
-      shuffleWriterType_(shuffleWriterType) {
+      shuffleWriterType_(shuffleWriterType),
+      enableHashShuffleReaderStreamMerge_(enableHashShuffleReaderStreamMerge) {
   initFromSchema();
 }
 
@@ -832,8 +955,12 @@ std::unique_ptr<ColumnarBatchIterator> VeloxShuffleReaderDeserializerFactory::cr
           schema_,
           codec_,
           rowType_,
+          batchSize_,
           readerBufferSize_,
           memoryManager_,
+          isValidityBuffer_,
+          hasComplexType_,
+          enableHashShuffleReaderStreamMerge_,
           deserializeTime_,
           decompressTime_);
     case ShuffleWriterType::kSortShuffle:

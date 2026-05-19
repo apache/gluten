@@ -34,14 +34,20 @@ class VeloxHashShuffleReaderDeserializer final : public ColumnarBatchIterator {
       const std::shared_ptr<arrow::Schema>& schema,
       const std::shared_ptr<arrow::util::Codec>& codec,
       const facebook::velox::RowTypePtr& rowType,
+      int32_t batchSize,
       int64_t readerBufferSize,
       VeloxMemoryManager* memoryManager,
+      std::vector<bool> isValidityBuffer,
+      bool hasComplexType,
+      bool enableStreamMerge,
       int64_t& deserializeTime,
       int64_t& decompressTime);
 
   std::shared_ptr<ColumnarBatch> next() override;
 
  private:
+  bool shouldSkipMerge() const;
+
   bool resolveNextBlockType();
 
   void loadNextStream();
@@ -50,15 +56,21 @@ class VeloxHashShuffleReaderDeserializer final : public ColumnarBatchIterator {
   std::shared_ptr<arrow::Schema> schema_;
   std::shared_ptr<arrow::util::Codec> codec_;
   facebook::velox::RowTypePtr rowType_;
+  uint32_t batchSize_;
   int64_t readerBufferSize_;
   VeloxMemoryManager* memoryManager_;
+  std::vector<bool> isValidityBuffer_;
+  bool hasComplexType_;
+  bool enableStreamMerge_;
 
   int64_t& deserializeTime_;
   int64_t& decompressTime_;
 
   std::shared_ptr<arrow::io::InputStream> in_{nullptr};
 
+  std::unique_ptr<InMemoryPayload> merged_{nullptr};
   bool reachedEos_{false};
+  bool blockTypeResolved_{false};
 
   std::vector<int32_t> dictionaryFields_{};
   std::vector<facebook::velox::VectorPtr> dictionaries_{};
@@ -161,7 +173,8 @@ class VeloxShuffleReaderDeserializerFactory {
       int64_t readerBufferSize,
       int64_t deserializerBufferSize,
       VeloxMemoryManager* memoryManager,
-      ShuffleWriterType shuffleWriterType);
+      ShuffleWriterType shuffleWriterType,
+      bool enableHashShuffleReaderStreamMerge = false);
 
   std::unique_ptr<ColumnarBatchIterator> createDeserializer(const std::shared_ptr<StreamReader>& streamReader);
 
@@ -185,6 +198,7 @@ class VeloxShuffleReaderDeserializerFactory {
   bool hasComplexType_{false};
 
   ShuffleWriterType shuffleWriterType_;
+  bool enableHashShuffleReaderStreamMerge_;
 
   int64_t deserializeTime_{0};
   int64_t decompressTime_{0};

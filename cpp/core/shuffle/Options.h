@@ -64,6 +64,10 @@ struct ShuffleReaderOptions {
 
   // Buffer size when deserializing rows into columnar batches. Only used for sort-based shuffle.
   int64_t deserializerBufferSize = kDefaultDeserializerBufferSize;
+
+  // Whether to enable the reader-side raw payload merge fast path for plain hash shuffle payloads within one input
+  // stream.
+  bool enableHashShuffleReaderStreamMerge = false;
 };
 
 struct ShuffleWriterOptions {

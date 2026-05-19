@@ -41,7 +41,7 @@ import org.apache.spark.sql.execution.metric.{GlutenCustomMetricsSuite, GlutenSQ
 import org.apache.spark.sql.execution.python._
 import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenSessionExtensionSuite}
 import org.apache.spark.sql.gluten.{GlutenFallbackStrategiesSuite, GlutenFallbackSuite}
-import org.apache.spark.sql.hive.execution.GlutenHiveSQLQuerySuite
+import org.apache.spark.sql.hive.execution._
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.streaming._
 
@@ -1042,7 +1042,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSerializationSuite]
   enableSuite[GlutenFileSourceSQLInsertTestSuite]
   enableSuite[GlutenDSV2SQLInsertTestSuite]
-  enableSuite[GlutenSQLQuerySuite]
+  enableSuite[org.apache.spark.sql.GlutenSQLQuerySuite]
     // Decimal precision exceeds.
     .exclude("should be able to resolve a persistent view")
     // Unstable. Needs to be fixed.
@@ -1093,7 +1093,38 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenUnsafeRowChecksumSuite]
   enableSuite[GlutenXPathFunctionsSuite]
   enableSuite[GlutenFallbackSuite]
+  enableSuite[GlutenHashAggregationQuerySuite]
+    // TODO: fix on https://github.com/apache/gluten/issues/11919
+    .exclude("udaf with all data types")
+  enableSuite[GlutenHashAggregationQueryWithControlledFallbackSuite]
+    // TODO: fix on https://github.com/apache/gluten/issues/11919
+    .exclude("udaf with all data types")
+  enableSuite[GlutenHiveCommandSuite]
+  enableSuite[GlutenHiveDDLSuite]
+  enableSuite[GlutenHiveExplainSuite]
+    .exclude("explain output of physical plan should contain proper codegen stage ID")
+    .exclude("EXPLAIN CODEGEN command")
+  enableSuite[GlutenHivePlanTest]
+  enableSuite[GlutenHiveQuerySuite]
+  enableSuite[GlutenHiveResolutionSuite]
   enableSuite[GlutenHiveSQLQuerySuite]
+  enableSuite[GlutenHiveSQLViewSuite]
+  enableSuite[GlutenHiveScriptTransformationSuite]
+  enableSuite[GlutenHiveSerDeReadWriteSuite]
+  enableSuite[GlutenHiveSerDeSuite]
+  enableSuite[GlutenHiveTableScanSuite]
+  enableSuite[GlutenHiveTypeCoercionSuite]
+  enableSuite[GlutenHiveUDAFSuite]
+  enableSuite[org.apache.spark.sql.hive.execution.GlutenHiveUDFSuite]
+  enableSuite[GlutenObjectHashAggregateSuite]
+  enableSuite[GlutenPruneHiveTablePartitionsSuite]
+  enableSuite[GlutenPruningSuite]
+  enableSuite[org.apache.spark.sql.hive.execution.GlutenSQLMetricsSuite]
+  enableSuite[org.apache.spark.sql.hive.execution.GlutenSQLQuerySuite]
+  enableSuite[GlutenHashUDAQuerySuite]
+  enableSuite[GlutenHashUDAQueryWithControlledFallbackSuite]
+  enableSuite[GlutenSQLQuerySuiteAE]
+  enableSuite[GlutenWindowQuerySuite]
   enableSuite[GlutenCollapseProjectExecTransformerSuite]
   // TODO: 4.x enableSuite[GlutenSparkSessionExtensionSuite]  // 1 failure
   enableSuite[GlutenGroupBasedDeleteFromTableSuite]

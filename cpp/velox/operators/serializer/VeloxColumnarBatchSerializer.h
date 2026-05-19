@@ -22,8 +22,20 @@
 #include "memory/ColumnarBatch.h"
 #include "operators/serializer/ColumnarBatchSerializer.h"
 #include "velox/serializers/PrestoSerializer.h"
+#include "velox/type/Variant.h"
 
 namespace gluten {
+
+// Per-column min/max + nullCount carrier consumed by the JVM cache stats marshaling.
+// Unsupported / NaN-poisoned columns emit hasLowerBound=hasUpperBound=false, which the JVM
+// buildFilter treats as pass-through.
+struct ColumnStats {
+  bool hasLowerBound{false};
+  bool hasUpperBound{false};
+  facebook::velox::variant lowerBound;
+  facebook::velox::variant upperBound;
+  int64_t nullCount{0};
+};
 
 class VeloxColumnarBatchSerializer : public ColumnarBatchSerializer {
  public:
@@ -39,6 +51,16 @@ class VeloxColumnarBatchSerializer : public ColumnarBatchSerializer {
   void serializeTo(uint8_t* address, int64_t size) override;
 
   std::shared_ptr<ColumnarBatch> deserialize(uint8_t* data, int32_t size) override;
+
+  // Per-column min/max scan. Returns hasLowerBound/UpperBound=true for supported scalar types
+  // (integer / decimal / float / double / bool / timestamp / varchar); other types degrade to
+  // false so the JVM side falls back to pass-through in buildFilter.
+  std::vector<ColumnStats> computeStats(facebook::velox::RowVectorPtr rowVector);
+
+  // Returns framed bytes: [STATS_FRAMED_MAGIC: 4B] [statsLen: u32 LE] [statsBlob] [bytesLen: u32 LE]
+  // [bytesBlob]. statsBlob layout matches the JVM-side reader (CachedColumnarBatchKryoSerializer
+  // .deserializeStats). Magic 0xFE 0xCA 0x53 0x02 aligns with the JVM Kryo STATS_FRAMED_MAGIC.
+  std::vector<uint8_t> framedSerializeWithStats(const std::shared_ptr<ColumnarBatch>& batch) override;
 
  protected:
   std::shared_ptr<facebook::velox::memory::MemoryPool> veloxPool_;

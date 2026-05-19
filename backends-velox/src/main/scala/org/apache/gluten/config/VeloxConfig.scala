@@ -37,6 +37,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def veloxResizeBatchesShuffleOutput: Boolean =
     getConf(COLUMNAR_VELOX_RESIZE_BATCHES_SHUFFLE_OUTPUT)
 
+  def enableHashShuffleReaderStreamMerge: Boolean =
+    getConf(COLUMNAR_VELOX_HASH_SHUFFLE_READER_STREAM_MERGE_ENABLED)
+
   case class ResizeRange(min: Int, max: Int) {
     assert(max >= min)
     assert(min > 0, "Min batch size should be larger than 0")
@@ -319,6 +322,20 @@ object VeloxConfig extends ConfigRegistry {
         s"If true, combine small columnar batches together right after shuffle read. " +
           s"The default minimum output batch size is equal to 0.25 * " +
           s"${GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key}")
+      .booleanConf
+      .createWithDefault(false)
+
+  val COLUMNAR_VELOX_HASH_SHUFFLE_READER_STREAM_MERGE_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.hashShuffle.reader.streamMerge.enabled")
+      .doc(
+        "Enables a reader-side raw payload merge fast path for plain hash shuffle payloads " +
+          "within each shuffle input stream. This path merges payload buffers before Velox " +
+          "vectors are materialized, so it has lower per-batch overhead than generic " +
+          "VeloxResizeBatchesExec resizing, but it only covers plain payloads. Complex types " +
+          "and dictionary-encoded payloads are not merged by this path. " +
+          "VeloxResizeBatchesExec can still be enabled separately as a generic complement " +
+          "for types and encodings not covered by this fast path. If false, each hash " +
+          "shuffle payload is returned as its own columnar batch.")
       .booleanConf
       .createWithDefault(false)
 

@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
 import org.apache.spark.sql.catalyst.parser.LegacyTypeStringParser
-import org.apache.spark.sql.catalyst.util.DateTimeUtils
+import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, DateTimeUtils}
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.WholeStageCodegenExec
 import org.apache.spark.sql.execution.datasources._
@@ -77,11 +77,18 @@ class ParquetFileFormat extends FileFormat with DataSourceRegister with Logging 
     if (sparkSession.sparkContext.getLocalProperty("isNativeApplicable") == "true") {
       // Pass compression to job conf so that the file extension can be aware of it.
       val conf = ContextUtil.getConfiguration(job)
-      val parquetOptions = new ParquetOptions(options, sparkSession.sessionState.conf)
+      val writeOptions = CaseInsensitiveMap(
+        sparkSession.sessionState
+          .newHadoopConfWithOptions(options)
+          .iterator()
+          .asScala
+          .map(entry => entry.getKey -> entry.getValue)
+          .toMap)
+      val parquetOptions = new ParquetOptions(writeOptions, sparkSession.sessionState.conf)
       conf.set(ParquetOutputFormat.COMPRESSION, parquetOptions.compressionCodecClassName)
       val nativeConf =
         GlutenFormatFactory(shortName())
-          .nativeConf(options, parquetOptions.compressionCodecClassName)
+          .nativeConf(writeOptions, parquetOptions.compressionCodecClassName)
 
       new OutputWriterFactory {
         override def getFileExtension(context: TaskAttemptContext): String = {

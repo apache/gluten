@@ -100,6 +100,9 @@ set(VELOX_TEST_COMMON_SRCS JsonToProtoConverter.cc FilePathGenerator.cc)
 
 add_velox_test(velox_shuffle_writer_test SOURCES VeloxShuffleWriterTest.cc)
 
+add_velox_test(velox_hash_shuffle_writer_input_encoding_test SOURCES
+               VeloxHashShuffleWriterInputEncodingTest.cc)
+
 add_velox_test(velox_shuffle_writer_spill_test SOURCES
                VeloxShuffleWriterSpillTest.cc)
 
@@ -134,6 +137,7 @@ add_velox_test(spark_functions_test SOURCES SparkFunctionTest.cc
 add_velox_test(runtime_test SOURCES RuntimeTest.cc)
 add_velox_test(velox_memory_test SOURCES MemoryManagerTest.cc)
 add_velox_test(buffer_outputstream_test SOURCES BufferOutputStreamTest.cc)
+add_velox_test(scoped_timer_test SOURCES ScopedTimerTest.cc)
 if(BUILD_EXAMPLES)
   add_velox_test(my_udf_test SOURCES MyUdfTest.cc)
 endif()
