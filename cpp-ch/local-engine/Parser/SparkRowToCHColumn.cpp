@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #include "SparkRowToCHColumn.h"
+#include <algorithm>
 #include <memory>
 #include <Columns/ColumnNullable.h>
 #include <Columns/ColumnString.h>
@@ -47,6 +48,69 @@ jmethodID SparkRowToCHColumn::spark_row_interator_hasNext = nullptr;
 jmethodID SparkRowToCHColumn::spark_row_interator_next = nullptr;
 jmethodID SparkRowToCHColumn::spark_row_iterator_nextBatch = nullptr;
 
+static Field normalizeFieldForType(Field field, const DataTypePtr & type)
+{
+    const auto type_without_nullable = removeNullable(type);
+
+    if (field.isNull())
+        return type->isNullable() ? field : type_without_nullable->getDefault();
+
+    if (type->isNullable())
+        return normalizeFieldForType(std::move(field), type_without_nullable);
+
+    if (const auto * array_type = typeid_cast<const DataTypeArray *>(type_without_nullable.get()))
+    {
+        if (field.getType() != Field::Types::Array)
+            return field;
+
+        auto & array = field.safeGet<Array>();
+        const auto & nested_type = array_type->getNestedType();
+        for (auto & element : array)
+            element = normalizeFieldForType(std::move(element), nested_type);
+        return field;
+    }
+
+    if (const auto * map_type = typeid_cast<const DataTypeMap *>(type_without_nullable.get()))
+    {
+        if (field.getType() != Field::Types::Map)
+            return field;
+
+        auto & map = field.safeGet<Map>();
+        const auto & key_type = map_type->getKeyType();
+        const auto & value_type = map_type->getValueType();
+        for (auto & entry : map)
+        {
+            if (entry.isNull())
+            {
+                entry = Tuple{key_type->getDefault(), value_type->getDefault()};
+                continue;
+            }
+
+            auto & tuple = entry.safeGet<Tuple>();
+            if (tuple.size() == 2)
+            {
+                tuple[0] = normalizeFieldForType(std::move(tuple[0]), key_type);
+                tuple[1] = normalizeFieldForType(std::move(tuple[1]), value_type);
+            }
+        }
+        return field;
+    }
+
+    if (const auto * tuple_type = typeid_cast<const DataTypeTuple *>(type_without_nullable.get()))
+    {
+        if (field.getType() != Field::Types::Tuple)
+            return field;
+
+        auto & tuple = field.safeGet<Tuple>();
+        const auto & element_types = tuple_type->getElements();
+        for (size_t i = 0; i < std::min(tuple.size(), element_types.size()); ++i)
+            tuple[i] = normalizeFieldForType(std::move(tuple[i]), element_types[i]);
+        return field;
+    }
+
+    return field;
+}
+
 ALWAYS_INLINE static void writeRowToColumns(const std::vector<MutableColumnPtr> & columns, const SparkRowReader & spark_row_reader)
 {
     auto num_fields = columns.size();
@@ -66,11 +130,7 @@ ALWAYS_INLINE static void writeRowToColumns(const std::vector<MutableColumnPtr> 
         else
         {
             DB::Field field = spark_row_reader.getField(i);
-            /// Spark UnsafeRow marks null top-level values; CH non-Nullable columns cannot insert Null (e.g. Array/Map/Tuple).
-            if (field.isNull() && !spark_row_reader.getFieldTypes()[i]->isNullable())
-                columns[i]->insertDefault();
-            else
-                columns[i]->insert(std::move(field));
+            columns[i]->insert(normalizeFieldForType(std::move(field), spark_row_reader.getFieldTypes()[i]));
         }
     }
 }
