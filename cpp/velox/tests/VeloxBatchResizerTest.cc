@@ -337,7 +337,8 @@ TEST_F(VeloxBatchResizerTest, copyRangesEnabledHandlesMixedNullableBitmapsAtUnal
 }
 
 TEST_F(VeloxBatchResizerTest, veloxCopyRangesHandlesNullableBoolBitmapsAtUnalignedOffsets) {
-  auto source = newNullableBoolVector(48, 100)->childAt(0)->loadedVector();
+  auto sourceRow = newNullableBoolVector(48, 100);
+  auto source = sourceRow->childAt(0)->loadedVector();
   auto actual = newNullableBoolVector(64, 500)->childAt(0);
   auto expected = newNullableBoolVector(64, 500)->childAt(0);
   auto expectedFlat = expected->asFlatVector<bool>();
@@ -360,7 +361,7 @@ TEST_F(VeloxBatchResizerTest, veloxCopyRangesHandlesNullableBoolBitmapsAtUnalign
     }
   }
 
-  actual->copyRanges(source.get(), ranges);
+  actual->copyRanges(source, ranges);
 
   test::assertEqualVectors(expected, actual);
 }
