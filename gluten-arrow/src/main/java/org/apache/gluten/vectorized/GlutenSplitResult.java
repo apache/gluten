@@ -143,8 +143,8 @@ public class GlutenSplitResult {
   /**
    * Backend-specific shuffle writer metrics, keyed by `<Backend>.<Family>.<Stat>`. The map
    * preserves the iteration order JNI marshalled, but callers should treat the map as unordered.
-   * Returns an empty map if the native side did not populate any custom metrics (e.g. older Gluten
-   * libs, or backends that don't yet emit any). The returned map is unmodifiable.
+   * Returns an empty map if the native side did not populate any custom metrics. The returned map
+   * is unmodifiable.
    */
   public Map<String, Long> getCustomMetrics() {
     Map<String, Long> cached = customMetricsCache;
@@ -158,6 +158,19 @@ public class GlutenSplitResult {
       if (customMetricsKeys == null || customMetricsKeys.length == 0) {
         customMetricsCache = Collections.emptyMap();
       } else {
+        // Defensive check: if a future native-side producer ever ships
+        // mismatched arrays, fail loudly here (before the cache field is
+        // assigned to a partial result). Without this, the AIOOBE inside the
+        // loop would leave `customMetricsCache` null and every subsequent
+        // `getCustomMetrics()` call would re-enter the synchronized block
+        // and re-throw — a confusing failure mode.
+        if (customMetricsValues == null || customMetricsValues.length != customMetricsKeys.length) {
+          throw new IllegalStateException(
+              "customMetricsKeys / customMetricsValues length mismatch: "
+                  + customMetricsKeys.length
+                  + " vs "
+                  + (customMetricsValues == null ? "null" : customMetricsValues.length));
+        }
         LinkedHashMap<String, Long> map = new LinkedHashMap<>(customMetricsKeys.length);
         for (int i = 0; i < customMetricsKeys.length; i++) {
           map.put(customMetricsKeys[i], customMetricsValues[i]);

@@ -94,4 +94,23 @@ class GlutenSplitResultSuite extends SparkFunSuite {
     assert(empty.isEmpty)
     assert(!populated.isEmpty)
   }
+
+  test("getCustomMetrics fails loudly on mismatched key/value array lengths") {
+    // A future native-side producer that ships mismatched arrays must not
+    // silently corrupt the metrics map (and must not leave the lazy cache
+    // field unassigned so subsequent calls re-enter and re-throw). Assert
+    // that the first call throws IllegalStateException with both lengths
+    // mentioned, and that a second call still throws (the cache field is
+    // never assigned to a partial map).
+    val r = newResult(Array("a", "b"), Array(1L))
+    val ex = intercept[IllegalStateException](r.getCustomMetrics)
+    assert(ex.getMessage.contains("2") && ex.getMessage.contains("1"))
+    intercept[IllegalStateException](r.getCustomMetrics)
+  }
+
+  test("getCustomMetrics fails loudly when values array is null but keys is non-empty") {
+    val r = newResult(Array("a"), null)
+    val ex = intercept[IllegalStateException](r.getCustomMetrics)
+    assert(ex.getMessage.contains("null"))
+  }
 }
