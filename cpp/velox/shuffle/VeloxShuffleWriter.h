@@ -113,6 +113,85 @@ class VeloxShuffleWriter : public ShuffleWriter {
     return partitionBufferPool_->max_memory() + veloxPool_->peakBytes();
   }
 
+  // stat
+  enum CpuWallTimingType {
+    CpuWallTimingBegin = 0,
+    CpuWallTimingCompute = CpuWallTimingBegin,
+    CpuWallTimingBuildPartition,
+    CpuWallTimingEvictPartition,
+    CpuWallTimingHasNull,
+    CpuWallTimingCalculateBufferSize,
+    CpuWallTimingAllocateBuffer,
+    CpuWallTimingCreateRbFromBuffer,
+    CpuWallTimingMakeRB,
+    CpuWallTimingCacheRB,
+    CpuWallTimingFlattenRV,
+    // Outer SplitRV bucket wraps `splitRowVector()` end-to-end. The four
+    // entries below subdivide its body so reviewers / profilers can tell
+    // which inner split path dominates when SplitRV does. Inner buckets
+    // overlap the outer in time (the outer continues to run while each
+    // inner is active); the outer minus the sum-of-inners is therefore
+    // the time spent in `splitRowVector()` outside the four sub-paths
+    // (mostly the post-split `partitionBufferBase_` update loop).
+    CpuWallTimingSplitRV,
+    CpuWallTimingSplitFixedWidth,
+    CpuWallTimingSplitValidity,
+    CpuWallTimingSplitBinary,
+    CpuWallTimingSplitComplex,
+    CpuWallTimingIteratePartitions,
+    CpuWallTimingStop,
+    CpuWallTimingEnd,
+    CpuWallTimingNum = CpuWallTimingEnd - CpuWallTimingBegin
+  };
+
+  static std::string CpuWallTimingName(CpuWallTimingType type) {
+    switch (type) {
+      case CpuWallTimingCompute:
+        return "CpuWallTimingCompute";
+      case CpuWallTimingBuildPartition:
+        return "CpuWallTimingBuildPartition";
+      case CpuWallTimingEvictPartition:
+        return "CpuWallTimingEvictPartition";
+      case CpuWallTimingHasNull:
+        return "CpuWallTimingHasNull";
+      case CpuWallTimingCalculateBufferSize:
+        return "CpuWallTimingCalculateBufferSize";
+      case CpuWallTimingAllocateBuffer:
+        return "CpuWallTimingAllocateBuffer";
+      case CpuWallTimingCreateRbFromBuffer:
+        return "CpuWallTimingCreateRbFromBuffer";
+      case CpuWallTimingMakeRB:
+        return "CpuWallTimingMakeRB";
+      case CpuWallTimingCacheRB:
+        return "CpuWallTimingCacheRB";
+      case CpuWallTimingFlattenRV:
+        return "CpuWallTimingFlattenRV";
+      case CpuWallTimingSplitRV:
+        return "CpuWallTimingSplitRV";
+      case CpuWallTimingSplitFixedWidth:
+        return "CpuWallTimingSplitFixedWidth";
+      case CpuWallTimingSplitValidity:
+        return "CpuWallTimingSplitValidity";
+      case CpuWallTimingSplitBinary:
+        return "CpuWallTimingSplitBinary";
+      case CpuWallTimingSplitComplex:
+        return "CpuWallTimingSplitComplex";
+      case CpuWallTimingIteratePartitions:
+        return "CpuWallTimingIteratePartitions";
+      case CpuWallTimingStop:
+        return "CpuWallTimingStop";
+      default:
+        return "CpuWallTimingUnknown";
+    }
+  }
+
+  // Read-only access to a single per-stage timer. Useful for tests and for
+  // anyone wanting to drive the existing `cpuWallTimingList_` data through a
+  // channel other than the `VELOX_SHUFFLE_WRITER_LOG_FLAG` compile-time log.
+  const facebook::velox::CpuWallTiming& cpuWallTiming(CpuWallTimingType type) const {
+    return cpuWallTimingList_[type];
+  }
+
  protected:
   VeloxShuffleWriter(
       uint32_t numPartitions,
@@ -146,59 +225,6 @@ class VeloxShuffleWriter : public ShuffleWriter {
   int32_t maxBatchSize_{0};
 
   enum EvictState { kEvictable, kUnevictable };
-
-  // stat
-  enum CpuWallTimingType {
-    CpuWallTimingBegin = 0,
-    CpuWallTimingCompute = CpuWallTimingBegin,
-    CpuWallTimingBuildPartition,
-    CpuWallTimingEvictPartition,
-    CpuWallTimingHasNull,
-    CpuWallTimingCalculateBufferSize,
-    CpuWallTimingAllocateBuffer,
-    CpuWallTimingCreateRbFromBuffer,
-    CpuWallTimingMakeRB,
-    CpuWallTimingCacheRB,
-    CpuWallTimingFlattenRV,
-    CpuWallTimingSplitRV,
-    CpuWallTimingIteratePartitions,
-    CpuWallTimingStop,
-    CpuWallTimingEnd,
-    CpuWallTimingNum = CpuWallTimingEnd - CpuWallTimingBegin
-  };
-
-  static std::string CpuWallTimingName(CpuWallTimingType type) {
-    switch (type) {
-      case CpuWallTimingCompute:
-        return "CpuWallTimingCompute";
-      case CpuWallTimingBuildPartition:
-        return "CpuWallTimingBuildPartition";
-      case CpuWallTimingEvictPartition:
-        return "CpuWallTimingEvictPartition";
-      case CpuWallTimingHasNull:
-        return "CpuWallTimingHasNull";
-      case CpuWallTimingCalculateBufferSize:
-        return "CpuWallTimingCalculateBufferSize";
-      case CpuWallTimingAllocateBuffer:
-        return "CpuWallTimingAllocateBuffer";
-      case CpuWallTimingCreateRbFromBuffer:
-        return "CpuWallTimingCreateRbFromBuffer";
-      case CpuWallTimingMakeRB:
-        return "CpuWallTimingMakeRB";
-      case CpuWallTimingCacheRB:
-        return "CpuWallTimingCacheRB";
-      case CpuWallTimingFlattenRV:
-        return "CpuWallTimingFlattenRV";
-      case CpuWallTimingSplitRV:
-        return "CpuWallTimingSplitRV";
-      case CpuWallTimingIteratePartitions:
-        return "CpuWallTimingIteratePartitions";
-      case CpuWallTimingStop:
-        return "CpuWallTimingStop";
-      default:
-        return "CpuWallTimingUnknown";
-    }
-  }
 
   facebook::velox::CpuWallTiming cpuWallTimingList_[CpuWallTimingNum];
 

@@ -494,6 +494,7 @@ arrow::Status VeloxHashShuffleWriter::splitRowVector(const facebook::velox::RowV
 }
 
 arrow::Status VeloxHashShuffleWriter::splitFixedWidthValueBuffer(const facebook::velox::RowVector& rv) {
+  SCOPED_TIMER(cpuWallTimingList_[CpuWallTimingSplitFixedWidth]);
   for (auto col = 0; col < fixedWidthColumnCount_; ++col) {
     auto colIdx = simpleColumnIndices_[col];
     auto& column = rv.childAt(colIdx);
@@ -636,6 +637,7 @@ void VeloxHashShuffleWriter::splitBoolType(const uint8_t* srcAddr, const std::ve
 }
 
 arrow::Status VeloxHashShuffleWriter::splitValidityBuffer(const facebook::velox::RowVector& rv) {
+  SCOPED_TIMER(cpuWallTimingList_[CpuWallTimingSplitValidity]);
   for (size_t col = 0; col < simpleColumnIndices_.size(); ++col) {
     auto colIdx = simpleColumnIndices_[col];
     auto& column = rv.childAt(colIdx);
@@ -727,6 +729,7 @@ arrow::Status VeloxHashShuffleWriter::splitBinaryType(
 }
 
 arrow::Status VeloxHashShuffleWriter::splitBinaryArray(const facebook::velox::RowVector& rv) {
+  SCOPED_TIMER(cpuWallTimingList_[CpuWallTimingSplitBinary]);
   for (auto col = fixedWidthColumnCount_; col < simpleColumnIndices_.size(); ++col) {
     auto binaryIdx = col - fixedWidthColumnCount_;
     auto& dstAddrs = partitionBinaryAddrs_[binaryIdx];
@@ -738,6 +741,7 @@ arrow::Status VeloxHashShuffleWriter::splitBinaryArray(const facebook::velox::Ro
 }
 
 arrow::Status VeloxHashShuffleWriter::splitComplexType(const facebook::velox::RowVector& rv) {
+  SCOPED_TIMER(cpuWallTimingList_[CpuWallTimingSplitComplex]);
   if (complexColumnIndices_.size() == 0) {
     return arrow::Status::OK();
   }
