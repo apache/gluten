@@ -344,15 +344,15 @@ object UDFResolver extends Logging {
 
     val allowTypeConversion = checkAllowTypeConversion
     val signatures =
-      UDFMap.getOrElse(name, throw new GlutenNotSupportException(errorMessage))
-    signatures.find(sig => tryBind(sig, children.map(_.dataType), allowTypeConversion)) match {
-      case Some(sig) =>
+      UDFMap.getOrElse(name, throw new GlutenNotSupportException(errorMessage)).toSeq
+    tryBind(signatures, children.map(_.dataType), allowTypeConversion) match {
+      case Some((sig, withTypeConversion)) =>
         UDFExpression(
           name,
           alias,
           sig.expressionType.dataType,
           sig.expressionType.nullable,
-          if (!allowTypeConversion && !sig.allowTypeConversion) children
+          if (!withTypeConversion) children
           else applyCast(children, sig)
         )
       case None =>
@@ -366,17 +366,15 @@ object UDFResolver extends Logging {
 
     val allowTypeConversion = checkAllowTypeConversion
     val signatures =
-      UDAFMap.getOrElse(
-        name,
-        throw new GlutenNotSupportException(errorMessage)
-      )
-    signatures.find(sig => tryBind(sig, children.map(_.dataType), allowTypeConversion)) match {
-      case Some(sig) =>
+      UDAFMap.getOrElse(name, throw new GlutenNotSupportException(errorMessage)).toSeq
+
+    tryBind(signatures, children.map(_.dataType), allowTypeConversion) match {
+      case Some((sig, withTypeConversion)) =>
         UserDefinedAggregateFunction(
           name,
           sig.expressionType.dataType,
           sig.expressionType.nullable,
-          if (!allowTypeConversion && !sig.allowTypeConversion) children
+          if (!withTypeConversion) children
           else applyCast(children, sig),
           sig.intermediateAttrs
         )
@@ -385,16 +383,23 @@ object UDFResolver extends Logging {
     }
   }
 
-  private def tryBind(
-      sig: UDFSignatureBase,
+  private def tryBind[U <: UDFSignatureBase](
+      signatures: Seq[U],
       requiredDataTypes: Seq[DataType],
-      allowTypeConversion: Boolean): Boolean = {
-    if (
-      !tryBindStrict(sig, requiredDataTypes) && (allowTypeConversion || sig.allowTypeConversion)
-    ) {
-      tryBindWithTypeConversion(sig, requiredDataTypes)
-    } else {
-      true
+      allowTypeConversion: Boolean): Option[(U, Boolean)] = {
+    signatures.find(sig => tryBindStrict(sig, requiredDataTypes)) match {
+      case Some(sig) => Some((sig, false))
+      case None =>
+        val allowTypeConversionSignatures = if (allowTypeConversion) {
+          signatures
+        } else {
+          signatures.filter(_.allowTypeConversion)
+        }
+        allowTypeConversionSignatures.find(
+          sig => tryBindWithTypeConversion(sig, requiredDataTypes)) match {
+          case Some(sig) => Some((sig, true))
+          case None => None
+        }
     }
   }
 
