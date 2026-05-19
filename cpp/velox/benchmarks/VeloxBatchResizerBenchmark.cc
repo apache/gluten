@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -31,6 +32,7 @@
 #include "utils/Exception.h"
 #include "utils/VeloxBatchResizer.h"
 #include "velox/common/memory/Memory.h"
+#include "velox/vector/BaseVector.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
 
@@ -72,6 +74,31 @@ constexpr DenseBenchmarkScenario
     kLongString64x64{kInputBatches, kRowsPerBatch, DenseVectorKind::kStringOnly, 0, 64, 0, false};
 constexpr DenseBenchmarkScenario
     kBoolHeavy64x64{kInputBatches, kRowsPerBatch, DenseVectorKind::kBoolHeavy, 0, 0, 8, false};
+
+enum class EncodedVectorKind {
+  kDictionary,
+  kConstant,
+};
+
+struct EncodedBenchmarkScenario {
+  int32_t inputBatches;
+  int32_t rowsPerBatch;
+  EncodedVectorKind kind;
+  int32_t columns;
+};
+
+constexpr EncodedBenchmarkScenario kDictionaryHeavy64x64{
+    kInputBatches,
+    kRowsPerBatch,
+    EncodedVectorKind::kDictionary,
+    8,
+};
+constexpr EncodedBenchmarkScenario kConstantHeavy64x64{
+    kInputBatches,
+    kRowsPerBatch,
+    EncodedVectorKind::kConstant,
+    8,
+};
 
 class ColumnarBatchArray : public ColumnarBatchIterator {
  public:
@@ -196,6 +223,66 @@ std::vector<RowVectorPtr> makeSmallVectors(memory::MemoryPool* pool, const Dense
   return vectors;
 }
 
+RowVectorPtr
+makeDictionaryHeavyVector(memory::MemoryPool* pool, const EncodedBenchmarkScenario& scenario, int32_t start) {
+  const auto rows = scenario.rowsPerBatch;
+  const auto dictionarySize = std::max<int32_t>(1, rows / 4);
+  std::vector<VectorPtr> children;
+  std::vector<TypePtr> types;
+  children.reserve(scenario.columns);
+  types.reserve(scenario.columns);
+  for (auto channel = 0; channel < scenario.columns; ++channel) {
+    auto base = BaseVector::create<FlatVector<int64_t>>(BIGINT(), dictionarySize, pool);
+    for (auto row = 0; row < dictionarySize; ++row) {
+      base->set(row, static_cast<int64_t>(start + row + channel));
+    }
+
+    auto indices = allocateIndices(rows, pool);
+    auto* rawIndices = indices->asMutable<vector_size_t>();
+    for (auto row = 0; row < rows; ++row) {
+      rawIndices[row] = (start + row + channel) % dictionarySize;
+    }
+    children.push_back(BaseVector::wrapInDictionary(nullptr, std::move(indices), rows, std::move(base)));
+    types.push_back(BIGINT());
+  }
+
+  return std::make_shared<RowVector>(pool, ROW(std::move(types)), nullptr, rows, std::move(children));
+}
+
+RowVectorPtr
+makeConstantHeavyVector(memory::MemoryPool* pool, const EncodedBenchmarkScenario& scenario, int32_t start) {
+  const auto rows = scenario.rowsPerBatch;
+  std::vector<VectorPtr> children;
+  std::vector<TypePtr> types;
+  children.reserve(scenario.columns);
+  types.reserve(scenario.columns);
+  for (auto channel = 0; channel < scenario.columns; ++channel) {
+    children.push_back(BaseVector::createConstant(BIGINT(), static_cast<int64_t>(start + channel), rows, pool));
+    types.push_back(BIGINT());
+  }
+
+  return std::make_shared<RowVector>(pool, ROW(std::move(types)), nullptr, rows, std::move(children));
+}
+
+RowVectorPtr makeEncodedVector(memory::MemoryPool* pool, const EncodedBenchmarkScenario& scenario, int32_t start) {
+  switch (scenario.kind) {
+    case EncodedVectorKind::kDictionary:
+      return makeDictionaryHeavyVector(pool, scenario, start);
+    case EncodedVectorKind::kConstant:
+      return makeConstantHeavyVector(pool, scenario, start);
+  }
+  VELOX_UNREACHABLE();
+}
+
+std::vector<RowVectorPtr> makeSmallVectors(memory::MemoryPool* pool, const EncodedBenchmarkScenario& scenario) {
+  std::vector<RowVectorPtr> vectors;
+  vectors.reserve(scenario.inputBatches);
+  for (auto batch = 0; batch < scenario.inputBatches; ++batch) {
+    vectors.push_back(makeEncodedVector(pool, scenario, batch * scenario.rowsPerBatch));
+  }
+  return vectors;
+}
+
 std::unique_ptr<ColumnarBatchIterator> makeIterator(const std::vector<RowVectorPtr>& vectors) {
   std::vector<std::shared_ptr<ColumnarBatch>> batches;
   batches.reserve(vectors.size());
@@ -206,6 +293,10 @@ std::unique_ptr<ColumnarBatchIterator> makeIterator(const std::vector<RowVectorP
 }
 
 int64_t totalRows(const DenseBenchmarkScenario& scenario) {
+  return static_cast<int64_t>(scenario.inputBatches) * scenario.rowsPerBatch;
+}
+
+int64_t totalRows(const EncodedBenchmarkScenario& scenario) {
   return static_cast<int64_t>(scenario.inputBatches) * scenario.rowsPerBatch;
 }
 
@@ -232,6 +323,25 @@ void runResizeBenchmark(
     const DenseBenchmarkScenario& scenario,
     std::optional<bool> enableCopyRanges) {
   auto pool = memory::memoryManager()->addLeafPool("VeloxBatchResizerBenchmark");
+  const auto vectors = makeSmallVectors(pool.get(), scenario);
+  int64_t rows = 0;
+
+  for (auto _ : state) {
+    auto resizer = makeResizeBenchmarkResizer(pool.get(), totalRows(scenario), makeIterator(vectors), enableCopyRanges);
+    while (auto out = resizer.next()) {
+      rows += out->numRows();
+    }
+  }
+
+  benchmark::DoNotOptimize(rows);
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * totalRows(scenario));
+}
+
+void runFallbackResizeBenchmark(
+    benchmark::State& state,
+    const EncodedBenchmarkScenario& scenario,
+    std::optional<bool> enableCopyRanges) {
+  auto pool = memory::memoryManager()->addLeafPool("VeloxBatchResizerFallbackBenchmark");
   const auto vectors = makeSmallVectors(pool.get(), scenario);
   int64_t rows = 0;
 
@@ -491,6 +601,14 @@ void BM_VeloxBatchResizerDefaultCopyRanges(benchmark::State& state, DenseBenchma
   runResizeBenchmark(state, scenario, std::nullopt);
 }
 
+void BM_VeloxBatchResizerFallbackAppendOptOutBaseline(benchmark::State& state, EncodedBenchmarkScenario scenario) {
+  runFallbackResizeBenchmark(state, scenario, false);
+}
+
+void BM_VeloxBatchResizerDefaultCopyRangesFallback(benchmark::State& state, EncodedBenchmarkScenario scenario) {
+  runFallbackResizeBenchmark(state, scenario, std::nullopt);
+}
+
 void BM_DirectChildCopyRanges(benchmark::State& state, DenseBenchmarkScenario scenario) {
   runDirectChildCopyRangesBenchmark(state, scenario);
 }
@@ -546,6 +664,10 @@ void BM_ReaderSidePreMergedBatchModel(benchmark::State& state, DenseBenchmarkSce
   BENCHMARK_CAPTURE(BM_ReaderSideRawPayloadBulkCopyModel, name, scenario);     \
   BENCHMARK_CAPTURE(BM_ReaderSidePreMergedBatchModel, name, scenario)
 
+#define REGISTER_FALLBACK_SCENARIO_BENCHMARKS(name, scenario)                          \
+  BENCHMARK_CAPTURE(BM_VeloxBatchResizerFallbackAppendOptOutBaseline, name, scenario); \
+  BENCHMARK_CAPTURE(BM_VeloxBatchResizerDefaultCopyRangesFallback, name, scenario)
+
 REGISTER_DENSE_SCENARIO_BENCHMARKS(Mixed_64x64, kMixed64x64);
 REGISTER_DENSE_SCENARIO_BENCHMARKS(Mixed_16x256, kMixed16x256);
 REGISTER_DENSE_SCENARIO_BENCHMARKS(Mixed_256x16, kMixed256x16);
@@ -553,8 +675,11 @@ REGISTER_DENSE_SCENARIO_BENCHMARKS(Fixed2_64x64, kFixed2_64x64);
 REGISTER_DENSE_SCENARIO_BENCHMARKS(Fixed16_64x64, kFixed16_64x64);
 REGISTER_DENSE_SCENARIO_BENCHMARKS(LongString_64x64, kLongString64x64);
 REGISTER_DENSE_SCENARIO_BENCHMARKS(BoolHeavy_64x64, kBoolHeavy64x64);
+REGISTER_FALLBACK_SCENARIO_BENCHMARKS(DictionaryHeavy_64x64, kDictionaryHeavy64x64);
+REGISTER_FALLBACK_SCENARIO_BENCHMARKS(ConstantHeavy_64x64, kConstantHeavy64x64);
 
 #undef REGISTER_DENSE_SCENARIO_BENCHMARKS
+#undef REGISTER_FALLBACK_SCENARIO_BENCHMARKS
 
 } // namespace
 } // namespace gluten
