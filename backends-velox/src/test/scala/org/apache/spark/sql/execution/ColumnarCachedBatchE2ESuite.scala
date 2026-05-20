@@ -321,6 +321,49 @@ class ColumnarCachedBatchE2ESuite
     }
   }
 
+  test("non-binary collation StringType: sentinel demotion keeps batch (no silent prune)") {
+    assume(
+      spark.version.startsWith("4."),
+      "COLLATE syntax requires Spark 4.0+; sentinel path is also gated to Spark 4.x shims")
+    val cached = spark
+      .range(N)
+      .selectExpr("concat('k_', lpad(cast(id as string), 4, '0')) COLLATE UTF8_LCASE as s")
+      .repartitionByRange(P, col("s"))
+      .cache()
+    try {
+      cached.count()
+      val result = cached.filter(col("s") === "K_0500").count()
+      assert(
+        result == 1L,
+        s"non-binary collation equality must return the matching row, got $result")
+    } finally {
+      cached.unpersist()
+    }
+  }
+
+  // ICU collation coverage: UNICODE_CI is a separate collation family
+  // (ICU collator, not just lowercase) from UTF8_LCASE. Same wrapper-strip
+  // behavior expected, proving the mechanism is not specific to one collation kind.
+  test("non-binary collation StringType (UNICODE_CI): pass-through, no silent prune") {
+    assume(
+      spark.version.startsWith("4."),
+      "COLLATE syntax requires Spark 4.0+")
+    val cached = spark
+      .range(N)
+      .selectExpr("concat('k_', lpad(cast(id as string), 4, '0')) COLLATE UNICODE_CI as s")
+      .repartitionByRange(P, col("s"))
+      .cache()
+    try {
+      cached.count()
+      val result = cached.filter(col("s") === "K_0500").count()
+      assert(
+        result == 1L,
+        s"UNICODE_CI equality must return the matching row, got $result")
+    } finally {
+      cached.unpersist()
+    }
+  }
+
   // Config-gate negative test: with partition stats disabled (the production default),
   // serializeWithStats must NOT be invoked -- the legacy serialize() path is taken and stats
   // are emitted as null. A bug in the gate could silently activate stats for all users, or

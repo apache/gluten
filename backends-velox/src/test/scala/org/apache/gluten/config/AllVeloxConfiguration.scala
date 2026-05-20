@@ -89,4 +89,9 @@ class AllVeloxConfiguration extends AnyFunSuite {
       builder.toMarkdown,
       "dev/gen-all-config-docs.sh")
   }
+
+  test("Velox resize batches copyRanges is enabled by default") {
+    assert(
+      VeloxConfig.COLUMNAR_VELOX_RESIZE_BATCHES_COPY_RANGES_ENABLED.defaultValue.contains(true))
+  }
 }

@@ -23,6 +23,7 @@ import org.apache.gluten.execution.{RowToVeloxColumnarExec, VeloxColumnarToRowEx
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
+import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.ArrowAbiUtil
 import org.apache.gluten.vectorized.ColumnarBatchSerializerJniWrapper
 
@@ -31,8 +32,10 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config.Kryo.KRYO_SERIALIZER_MAX_BUFFER_SIZE
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, GenericInternalRow}
-import org.apache.spark.sql.columnar.{CachedBatch, SimpleMetricsCachedBatch, SimpleMetricsCachedBatchSerializer}
+import org.apache.spark.sql.catalyst.expressions.{And, Attribute, Expression, ExprId}
+import org.apache.spark.sql.catalyst.expressions.{GenericInternalRow, PredicateHelper}
+import org.apache.spark.sql.columnar.{CachedBatch, SimpleMetricsCachedBatch}
+import org.apache.spark.sql.columnar.SimpleMetricsCachedBatchSerializer
 import org.apache.spark.sql.execution.columnar.DefaultCachedBatchSerializer
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
@@ -243,7 +246,12 @@ object CachedColumnarBatchKryoSerializer {
       case FloatType => true // 4B IEEE 754; NaN guard in cpp scanMinMax
       case DoubleType => true // 8B IEEE 754; NaN guard in cpp scanMinMax
       case BooleanType => true
-      case _: StringType => true // truncated to 256B; see encodeStringBounds (any collation)
+      case s: StringType if SparkShimLoader.getSparkShims.isBinaryCollationString(s) => true
+      // Non-binary collation: cpp scanMinMax byte-order disagrees with Spark's
+      // collation-aware String ordering at runtime (PhysicalStringType.ordering
+      // dispatches to CollationFactory.fetchCollation(id).comparator). Demote to
+      // supported=0; the buildFilter wrapper strips any AND-conjunct that
+      // references such columns to guarantee pass-through.
       case _ => false
     }
 
@@ -612,7 +620,8 @@ object CachedColumnarBatchKryoSerializer {
  * Velox columnar cache serializer. Supports column pruning; converts row-based input via
  * [[RowToVeloxColumnarExec]] and falls back to vanilla Spark serialization for unsupported schemas.
  */
-class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer {
+class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
+  with PredicateHelper {
   private lazy val rowBasedCachedBatchSerializer = new DefaultCachedBatchSerializer
 
   private def glutenConf: GlutenConfig = GlutenConfig.get
@@ -840,11 +849,49 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer {
   // split, vanilla SimpleMetricsCachedBatchSerializer.buildFilter NPEs on
   // partitionFilter.eval(null) for non-trivial predicates -- the codegen and interpreted
   // paths both have no fallback for null stats.
+  //
+  // Strip every AND-conjunct that references a non-binary collation StringType attribute
+  // (writer-side gate demoted those columns to supported=0; the cpp byte-order min/max
+  // bytes do not agree with collation-aware String ordering at runtime, so feeding such
+  // a conjunct to super.buildFilter would let the stats-bound check wrongly prune).
+  // Or sub-trees are left intact; one disjunct losing stats already loses the Or anyway.
+  private def stripUnsupportedConjuncts(
+      predicates: Seq[Expression],
+      cachedAttributes: Seq[Attribute]): Seq[Expression] = {
+    val skipAttrIds: Set[ExprId] = cachedAttributes.collect {
+      case a if (a.dataType match {
+            case s: StringType => !SparkShimLoader.getSparkShims.isBinaryCollationString(s)
+            case _ => false
+          }) =>
+        a.exprId
+    }.toSet
+    if (skipAttrIds.isEmpty) {
+      predicates
+    } else {
+      predicates.flatMap {
+        p =>
+          val conjuncts = splitConjunctivePredicates(p)
+          val kept = conjuncts.filterNot(
+            c =>
+              c.references.exists(r => skipAttrIds.contains(r.exprId)))
+          if (kept.isEmpty) None else Some(kept.reduce(And))
+      }
+    }
+  }
+
   override def buildFilter(
       predicates: Seq[Expression],
       cachedAttributes: Seq[Attribute])
       : (Int, Iterator[CachedBatch]) => Iterator[CachedBatch] = {
-    val parent = super.buildFilter(predicates, cachedAttributes)
+    // cachedAttributes carries the cached relation's output ExprIds (the underlying scan
+    // attributes), so ExprId-based matching is stable here -- no aliased ExprIds reach
+    // this layer. Stripping is intentionally done before super.buildFilter sees the
+    // predicate vector; empty filteredPredicates degrade gracefully because
+    // super reduces partitionFilters with .reduceOption(And).getOrElse(Literal(true))
+    // -- verified against spark-sql_2.13-4.0.1-sources CachedBatchSerializer.scala.
+    val parent = super.buildFilter(
+      stripUnsupportedConjuncts(predicates, cachedAttributes),
+      cachedAttributes)
     (index, cachedBatchIterator) =>
       new Iterator[CachedBatch] {
         private val peekable = cachedBatchIterator.buffered

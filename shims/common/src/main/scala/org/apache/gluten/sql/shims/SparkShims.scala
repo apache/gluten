@@ -41,7 +41,7 @@ import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.window.WindowGroupLimitExecShim
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DecimalType, StructType}
+import org.apache.spark.sql.types.{DecimalType, StringType, StructType}
 import org.apache.spark.util.SparkShimVersionUtil
 
 import org.apache.hadoop.fs.{FileStatus, Path}
@@ -292,4 +292,19 @@ trait SparkShims {
    * similar to LeftOuter. Default implementation returns false for Spark 3.x compatibility.
    */
   def isLeftSingleJoinType(joinType: JoinType): Boolean = false
+
+  /**
+   * Returns true iff the given StringType uses the UTF8_BINARY collation (id == 0).
+   *
+   * Spark 4.0 introduced collation-aware StringType. Bound computation in gluten cached batch
+   * partition-stats uses unsigned byte order, which only matches Spark's predicate semantics for
+   * UTF8_BINARY. Non-binary collations must be gated out of the dispatch fast path;
+   * deserializeStats fills a sentinel bound so vanilla
+   * SimpleMetricsCachedBatchSerializer.buildFilter pass-throughs them.
+   *
+   * Default returns true (Spark 3.x has no collation concept; all StringType is binary). Any future
+   * Spark 4.0+ shim MUST override and consult collationId, otherwise the binary-only invariant
+   * degrades silently to "accept any collation".
+   */
+  def isBinaryCollationString(dt: StringType): Boolean = true
 }

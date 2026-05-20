@@ -125,7 +125,9 @@ class ColumnarCacheShipBlockerMarshalSuite extends AnyFunSuite {
     val schema = StructType(Seq(StructField("s", StringType)))
     val blob = CachedColumnarBatchKryoSerializer.serializeStats(stats, schema)
     val read = CachedColumnarBatchKryoSerializer.deserializeStats(blob, schema)
-    assert(read.isNullAt(0), "lower bound must be null when carry overflows")
-    assert(read.isNullAt(1), "upper bound must be null when carry overflows")
+    // supported=0 StringType: no sentinel bound; left null. The buildFilter wrapper
+    // strips conjuncts referencing demoted columns before super sees them.
+    assert(read.isNullAt(0))
+    assert(read.isNullAt(1))
   }
 }

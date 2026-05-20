@@ -55,6 +55,8 @@ class Payload {
     return numRows_;
   }
 
+  // Marks buffers merged with bit-level row offsets, including null validity
+  // bitmaps and CPU boolean value bitmaps.
   const std::vector<bool>* isValidityBuffer() const {
     return isValidityBuffer_;
   }
