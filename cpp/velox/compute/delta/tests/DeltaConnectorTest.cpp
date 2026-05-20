@@ -147,7 +147,7 @@ class DeltaConnectorExecutionTest : public facebook::velox::exec::test::HiveConn
 
 TEST_F(DeltaConnectorExecutionTest, filtersRowsUsingMaterializedDeletionVector) {
   const auto rowType = ROW({"id"}, {BIGINT()});
-  const auto input = makeRowVector({"id"}, {makeFlatVector<int64_t>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9})});
+  const auto input = makeRowVector({"id"}, {makeFlatVector<int64_t>({10, 11, 12, 13, 14, 15, 16, 17, 18, 19})});
   const auto file = facebook::velox::exec::test::TempFilePath::create();
   writeToFile(file->getPath(), input);
 
@@ -160,9 +160,13 @@ TEST_F(DeltaConnectorExecutionTest, filtersRowsUsingMaterializedDeletionVector) 
 
   const auto payload = createSerializedPayload({2, 5, 8});
   const auto split = makeDeltaSplit(file->getPath(), payload, 3);
-  const auto expected = makeRowVector({"id"}, {makeFlatVector<int64_t>({0, 1, 3, 4, 6, 7, 9})});
+  const auto expected = makeRowVector({"id"}, {makeFlatVector<int64_t>({10, 11, 13, 14, 16, 17, 19})});
 
   facebook::velox::exec::test::AssertQueryBuilder(plan).split(split).assertResults(expected);
+
+  const auto nonMatchingPayload = createSerializedPayload({42});
+  const auto nonMatchingSplit = makeDeltaSplit(file->getPath(), nonMatchingPayload, 1);
+  facebook::velox::exec::test::AssertQueryBuilder(plan).split(nonMatchingSplit).assertResults(input);
 }
 
 } // namespace
