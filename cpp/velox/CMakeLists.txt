@@ -239,6 +239,18 @@ endif()
 
 add_library(velox SHARED ${VELOX_SRCS})
 
+# Keep ABI sensitive Velox feature macros in sync
+set(GLUTEN_VELOX_CMAKE_CACHE "${VELOX_BUILD_PATH}/CMakeCache.txt")
+set(GLUTEN_VELOX_ENABLE_PARQUET ${VELOX_ENABLE_PARQUET})
+if(NOT GLUTEN_VELOX_ENABLE_PARQUET AND EXISTS "${GLUTEN_VELOX_CMAKE_CACHE}")
+  file(STRINGS "${GLUTEN_VELOX_CMAKE_CACHE}" GLUTEN_VELOX_ENABLE_PARQUET
+       REGEX "^VELOX_ENABLE_PARQUET:BOOL=(ON|TRUE|1)$")
+endif()
+if(GLUTEN_VELOX_ENABLE_PARQUET)
+  target_compile_definitions(velox PRIVATE VELOX_ENABLE_PARQUET)
+  message(STATUS "Propagating VELOX_ENABLE_PARQUET to Gluten Velox backend")
+endif()
+
 if(ENABLE_GLUTEN_VCPKG AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
   # Hide some symbols to avoid conflict.
   target_link_options(
