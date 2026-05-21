@@ -151,6 +151,17 @@ BlockUtil::convertColumnAsNecessary(const DB::ColumnWithTypeAndName & column, co
         DB::JoinCommon::convertColumnToNullable(nullable_column);
         return {nullable_column.column, sample_column.type, sample_column.name};
     }
+    else if (!sample_column.type->isNullable() && column.type->isNullable() && sample_column.type->equals(*DB::removeNullable(column.type)))
+    {
+        const auto * nullable_column = DB::checkAndGetColumn<DB::ColumnNullable>(column.column.get());
+        if (!nullable_column || std::ranges::any_of(nullable_column->getNullMapData(), [](UInt8 is_null) { return is_null != 0; }))
+            throw DB::Exception(
+                DB::ErrorCodes::LOGICAL_ERROR,
+                "Cannot convert nullable column with NULL values to non-nullable type. original:{} expected:{}",
+                column.dumpStructure(),
+                sample_column.dumpStructure());
+        return {nullable_column->getNestedColumnPtr(), sample_column.type, sample_column.name};
+    }
     else
         throw DB::Exception(
             DB::ErrorCodes::LOGICAL_ERROR,
