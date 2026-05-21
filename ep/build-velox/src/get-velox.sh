@@ -140,6 +140,22 @@ function apply_provided_velox_patch {
   fi
 }
 
+function apply_local_velox_patches {
+  local patches=(
+    "${CURRENT_DIR}/debug-decimalutil-parse-logging.patch"
+  )
+
+  pushd $VELOX_HOME
+  for patch_name in "${patches[@]}"; do
+    echo "Applying local Velox patch ${patch_name} ..."
+    (git apply --check "$patch_name" && git apply "$patch_name") || {
+      echo "Failed to apply local Velox patch ${patch_name}"
+      exit 1
+    }
+  done
+  popd
+}
+
 function apply_compilation_fixes {
   sudo cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
   sudo cp ${CURRENT_DIR}/modify_arrow_dataset_scan_option.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
@@ -227,6 +243,7 @@ if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
 fi
 
 apply_provided_velox_patch
+apply_local_velox_patches
 
 apply_compilation_fixes
 
