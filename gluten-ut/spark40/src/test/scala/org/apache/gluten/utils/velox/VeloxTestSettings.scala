@@ -138,6 +138,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeGlutenTest("Shuffle")
     // Rewrite
     .exclude("MapFromEntries")
+    // See https://github.com/facebookincubator/velox/issues/17593.
+    .exclude("Fast fail for cast string type to decimal type in ansi mode")
   enableSuite[GlutenConditionalExpressionSuite]
   enableSuite[GlutenDateExpressionsSuite]
     // Has exception in fallback execution when we use resultDF.collect in evaluation.
