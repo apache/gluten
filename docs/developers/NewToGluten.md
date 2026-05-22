@@ -41,6 +41,13 @@ Gluten requires Maven  3.6.3 or above.
 
 Gluten requires GCC 11 or above.
 
+### Dev Container
+
+To skip the manual environment setup, you can develop Gluten inside a pre-built Docker
+image using the [Dev Container](https://containers.dev/) configuration shipped at
+`.devcontainer/devcontainer.json`. See [Dev Container](./dev-container.md) for a brief
+guide and the list of available Gluten Docker images.
+
 ## Development
 
 To debug Java/Scala code, follow the steps in [build-gluten-with-velox-backend](../get-started/Velox.md#build-gluten-with-velox-backend).
