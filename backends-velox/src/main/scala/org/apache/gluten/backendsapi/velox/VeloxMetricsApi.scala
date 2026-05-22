@@ -99,6 +99,12 @@ class VeloxMetricsApi extends MetricsApi with Logging {
   }
 
   override def genBatchScanTransformerMetrics(sparkContext: SparkContext): Map[String, SQLMetric] =
+    ScanMetricsUtil.filterScanMetrics(
+      genBatchScanTransformerMetricsFull(sparkContext),
+      ScanMetricsUtil.VELOX_BATCH_SCAN_MINIMAL_METRICS)
+
+  private def genBatchScanTransformerMetricsFull(
+      sparkContext: SparkContext): Map[String, SQLMetric] =
     Map(
       "numInputRows" -> SQLMetrics.createMetric(sparkContext, "number of input rows"),
       "inputVectors" -> SQLMetrics.createMetric(sparkContext, "number of input vectors"),
@@ -147,6 +153,12 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       metrics: Map[String, SQLMetric]): MetricsUpdater = new BatchScanMetricsUpdater(metrics)
 
   override def genHiveTableScanTransformerMetrics(
+      sparkContext: SparkContext): Map[String, SQLMetric] =
+    ScanMetricsUtil.filterScanMetrics(
+      genHiveTableScanTransformerMetricsFull(sparkContext),
+      ScanMetricsUtil.VELOX_HIVE_SCAN_MINIMAL_METRICS)
+
+  private def genHiveTableScanTransformerMetricsFull(
       sparkContext: SparkContext): Map[String, SQLMetric] =
     Map(
       "rawInputRows" -> SQLMetrics.createMetric(sparkContext, "number of raw input rows"),
@@ -199,6 +211,12 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       metrics: Map[String, SQLMetric]): MetricsUpdater = new HiveTableScanMetricsUpdater(metrics)
 
   override def genFileSourceScanTransformerMetrics(
+      sparkContext: SparkContext): Map[String, SQLMetric] =
+    ScanMetricsUtil.filterScanMetrics(
+      genFileSourceScanTransformerMetricsFull(sparkContext),
+      ScanMetricsUtil.VELOX_FILE_SCAN_MINIMAL_METRICS)
+
+  private def genFileSourceScanTransformerMetricsFull(
       sparkContext: SparkContext): Map[String, SQLMetric] =
     Map(
       "rawInputRows" -> SQLMetrics.createMetric(sparkContext, "number of raw input rows"),

@@ -19,46 +19,82 @@ package org.apache.gluten.metrics
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.utils.SparkInputMetricsUtil.InputMetricsWrapper
 
-class BatchScanMetricsUpdater(val metrics: Map[String, SQLMetric]) extends MetricsUpdater {
+/**
+ * See [[FileSourceScanMetricsUpdater]]: @transient metrics map with per-metric fields captured on
+ * the driver for executor serialization.
+ */
+class BatchScanMetricsUpdater(@transient val metrics: Map[String, SQLMetric])
+  extends MetricsUpdater {
+
+  private def metric(key: String): Option[SQLMetric] = Option(metrics).flatMap(_.get(key))
+
+  private val numInputRows: Option[SQLMetric] = metric("numInputRows")
+  private val inputVectors: Option[SQLMetric] = metric("inputVectors")
+  private val inputBytes: Option[SQLMetric] = metric("inputBytes")
+  private val rawInputRows: Option[SQLMetric] = metric("rawInputRows")
+  private val rawInputBytes: Option[SQLMetric] = metric("rawInputBytes")
+  private val outputRows: Option[SQLMetric] = metric("numOutputRows")
+  private val outputVectors: Option[SQLMetric] = metric("outputVectors")
+  private val outputBytes: Option[SQLMetric] = metric("outputBytes")
+  private val cpuCount: Option[SQLMetric] = metric("cpuCount")
+  private val scanTime: Option[SQLMetric] = metric("scanTime")
+  private val wallNanos: Option[SQLMetric] = metric("wallNanos")
+  private val peakMemoryBytes: Option[SQLMetric] = metric("peakMemoryBytes")
+  private val numMemoryAllocations: Option[SQLMetric] = metric("numMemoryAllocations")
+  private val numDynamicFiltersAccepted: Option[SQLMetric] = metric("numDynamicFiltersAccepted")
+  private val skippedSplits: Option[SQLMetric] = metric("skippedSplits")
+  private val processedSplits: Option[SQLMetric] = metric("processedSplits")
+  private val skippedStrides: Option[SQLMetric] = metric("skippedStrides")
+  private val processedStrides: Option[SQLMetric] = metric("processedStrides")
+  private val remainingFilterTime: Option[SQLMetric] = metric("remainingFilterTime")
+  private val ioWaitTime: Option[SQLMetric] = metric("ioWaitTime")
+  private val storageReadBytes: Option[SQLMetric] = metric("storageReadBytes")
+  private val storageReads: Option[SQLMetric] = metric("storageReads")
+  private val localReadBytes: Option[SQLMetric] = metric("localReadBytes")
+  private val ramReadBytes: Option[SQLMetric] = metric("ramReadBytes")
+  private val preloadSplits: Option[SQLMetric] = metric("preloadSplits")
+  private val pageLoadTime: Option[SQLMetric] = metric("pageLoadTime")
+  private val dataSourceAddSplitTime: Option[SQLMetric] = metric("dataSourceAddSplitTime")
+  private val dataSourceReadTime: Option[SQLMetric] = metric("dataSourceReadTime")
+  private val loadLazyVectorTime: Option[SQLMetric] = metric("loadLazyVectorTime")
 
   override def updateInputMetrics(inputMetrics: InputMetricsWrapper): Unit = {
-    inputMetrics.bridgeIncBytesRead(metrics("rawInputBytes").value)
-    inputMetrics.bridgeIncRecordsRead(metrics("rawInputRows").value)
+    rawInputBytes.foreach(m => inputMetrics.bridgeIncBytesRead(m.value))
+    rawInputRows.foreach(m => inputMetrics.bridgeIncRecordsRead(m.value))
   }
 
   override def updateNativeMetrics(opMetrics: IOperatorMetrics): Unit = {
     if (opMetrics != null) {
       val operatorMetrics = opMetrics.asInstanceOf[OperatorMetrics]
-      metrics("numInputRows") += operatorMetrics.inputRows
-      metrics("inputVectors") += operatorMetrics.inputVectors
-      metrics("inputBytes") += operatorMetrics.inputBytes
-      metrics("rawInputRows") += operatorMetrics.rawInputRows
-      metrics("rawInputBytes") += operatorMetrics.rawInputBytes
-      metrics("numOutputRows") += operatorMetrics.outputRows
-      metrics("outputVectors") += operatorMetrics.outputVectors
-      metrics("outputBytes") += operatorMetrics.outputBytes
-      metrics("cpuCount") += operatorMetrics.cpuCount
-      metrics("scanTime") += operatorMetrics.scanTime
-      metrics("wallNanos") += operatorMetrics.wallNanos
-      metrics("peakMemoryBytes") += operatorMetrics.peakMemoryBytes
-      metrics("numMemoryAllocations") += operatorMetrics.numMemoryAllocations
-      // Number of dynamic filters received.
-      metrics("numDynamicFiltersAccepted") += operatorMetrics.numDynamicFiltersAccepted
-      metrics("skippedSplits") += operatorMetrics.skippedSplits
-      metrics("processedSplits") += operatorMetrics.processedSplits
-      metrics("skippedStrides") += operatorMetrics.skippedStrides
-      metrics("processedStrides") += operatorMetrics.processedStrides
-      metrics("remainingFilterTime") += operatorMetrics.remainingFilterTime
-      metrics("ioWaitTime") += operatorMetrics.ioWaitTime
-      metrics("storageReadBytes") += operatorMetrics.storageReadBytes
-      metrics("storageReads") += operatorMetrics.storageReads
-      metrics("localReadBytes") += operatorMetrics.localReadBytes
-      metrics("ramReadBytes") += operatorMetrics.ramReadBytes
-      metrics("preloadSplits") += operatorMetrics.preloadSplits
-      metrics("pageLoadTime") += operatorMetrics.pageLoadTime
-      metrics("dataSourceAddSplitTime") += operatorMetrics.dataSourceAddSplitTime
-      metrics("dataSourceReadTime") += operatorMetrics.dataSourceReadTime
-      metrics("loadLazyVectorTime") += operatorMetrics.loadLazyVectorTime
+      ScanMetricsUtil.inc(numInputRows, operatorMetrics.inputRows)
+      ScanMetricsUtil.inc(inputVectors, operatorMetrics.inputVectors)
+      ScanMetricsUtil.inc(inputBytes, operatorMetrics.inputBytes)
+      ScanMetricsUtil.inc(rawInputRows, operatorMetrics.rawInputRows)
+      ScanMetricsUtil.inc(rawInputBytes, operatorMetrics.rawInputBytes)
+      ScanMetricsUtil.inc(outputRows, operatorMetrics.outputRows)
+      ScanMetricsUtil.inc(outputVectors, operatorMetrics.outputVectors)
+      ScanMetricsUtil.inc(outputBytes, operatorMetrics.outputBytes)
+      ScanMetricsUtil.inc(cpuCount, operatorMetrics.cpuCount)
+      ScanMetricsUtil.inc(scanTime, operatorMetrics.scanTime)
+      ScanMetricsUtil.inc(wallNanos, operatorMetrics.wallNanos)
+      ScanMetricsUtil.inc(peakMemoryBytes, operatorMetrics.peakMemoryBytes)
+      ScanMetricsUtil.inc(numMemoryAllocations, operatorMetrics.numMemoryAllocations)
+      ScanMetricsUtil.inc(numDynamicFiltersAccepted, operatorMetrics.numDynamicFiltersAccepted)
+      ScanMetricsUtil.inc(skippedSplits, operatorMetrics.skippedSplits)
+      ScanMetricsUtil.inc(processedSplits, operatorMetrics.processedSplits)
+      ScanMetricsUtil.inc(skippedStrides, operatorMetrics.skippedStrides)
+      ScanMetricsUtil.inc(processedStrides, operatorMetrics.processedStrides)
+      ScanMetricsUtil.inc(remainingFilterTime, operatorMetrics.remainingFilterTime)
+      ScanMetricsUtil.inc(ioWaitTime, operatorMetrics.ioWaitTime)
+      ScanMetricsUtil.inc(storageReadBytes, operatorMetrics.storageReadBytes)
+      ScanMetricsUtil.inc(storageReads, operatorMetrics.storageReads)
+      ScanMetricsUtil.inc(localReadBytes, operatorMetrics.localReadBytes)
+      ScanMetricsUtil.inc(ramReadBytes, operatorMetrics.ramReadBytes)
+      ScanMetricsUtil.inc(preloadSplits, operatorMetrics.preloadSplits)
+      ScanMetricsUtil.inc(pageLoadTime, operatorMetrics.pageLoadTime)
+      ScanMetricsUtil.inc(dataSourceAddSplitTime, operatorMetrics.dataSourceAddSplitTime)
+      ScanMetricsUtil.inc(dataSourceReadTime, operatorMetrics.dataSourceReadTime)
+      ScanMetricsUtil.inc(loadLazyVectorTime, operatorMetrics.loadLazyVectorTime)
     }
   }
 }

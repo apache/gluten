@@ -327,6 +327,10 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def debug: Boolean = getConf(DEBUG_ENABLED)
 
+  /** Full scan SQL metrics; also enabled when [[debug]] is true. */
+  def detailedScanMetricsEnabled: Boolean =
+    getConf(SCAN_DETAILED_METRICS_ENABLED) || debug
+
   def collectUtStats: Boolean = getConf(UT_STATISTIC)
 
   def benchmarkStageId: Int = getConf(BENCHMARK_TASK_STAGEID)
@@ -1287,6 +1291,16 @@ object GlutenConfig extends ConfigRegistry {
   val DEBUG_ENABLED =
     buildConf("spark.gluten.sql.debug")
       .internal()
+      .booleanConf
+      .createWithDefault(false)
+
+  val SCAN_DETAILED_METRICS_ENABLED =
+    buildConf("spark.gluten.sql.scan.detailedMetrics.enabled")
+      .doc(
+        "When true, Velox backend scan operators register all detailed SQL metrics. When false " +
+          "(default), only essential scan metrics are registered to reduce driver memory usage. " +
+          "Also enabled automatically when spark.gluten.sql.debug is true. " +
+          "Does not affect the ClickHouse backend.")
       .booleanConf
       .createWithDefault(false)
 
