@@ -267,10 +267,21 @@ ExpressionParser::addConstColumn(DB::ActionsDAG & actions_dag, const DB::DataTyp
     /// Substrait null literals carry a concrete type; CH `createColumnConst` inserts into the nested column (e.g. ColumnArray),
     /// which cannot accept `Field::Null` unless the type is Nullable(...).
     DB::DataTypePtr const_type = type;
+    DB::Field const_field = field;
     if (field.isNull() && !type->isNullable())
-        const_type = makeNullable(type);
+    {
+        // Some complex types intentionally drop top-level nullability in CH representation, e.g. LIST -> Array(...).
+        // Keep the literal consistent with the non-nullable CH type so later tuple casts do not try to remove a real NULL.
+        const auto type_without_nullable = DB::removeNullable(type);
+        if (typeid_cast<const DB::DataTypeArray *>(type_without_nullable.get())
+            || typeid_cast<const DB::DataTypeMap *>(type_without_nullable.get())
+            || typeid_cast<const DB::DataTypeTuple *>(type_without_nullable.get()))
+            const_field = type->getDefault();
+        else
+            const_type = makeNullable(type);
+    }
     const auto * res_node = &actions_dag.addColumn(
-        DB::ColumnWithTypeAndName(const_type->createColumnConst(1, field), const_type, name));
+        DB::ColumnWithTypeAndName(const_type->createColumnConst(1, const_field), const_type, name));
     if (reuseCSE())
     {
         // The new node, res_node will be remained in the ActionsDAG, but it will not affect the execution.
