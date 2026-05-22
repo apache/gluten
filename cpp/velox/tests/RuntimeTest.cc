@@ -103,7 +103,7 @@ class DummyRuntime final : public Runtime {
     throw GlutenException("Not yet implemented");
   }
   Metrics* getMetrics(ColumnarBatchIterator* rawIter, int64_t exportNanos) override {
-    static Metrics m(1);
+    static Metrics m(0, R"({"orderedNodeIds":[],"omittedNodeIds":[],"loadLazyVectorTime":0,"nodeStats":{}})");
     return &m;
   }
   std::shared_ptr<ShuffleReader> createShuffleReader(

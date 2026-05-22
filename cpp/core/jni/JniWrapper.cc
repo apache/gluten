@@ -309,11 +309,8 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
 
   metricsBuilderClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/Metrics;");
 
-  metricsBuilderConstructor = getMethodIdOrError(
-      env,
-      metricsBuilderClass,
-      "<init>",
-      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
+  metricsBuilderConstructor =
+      getMethodIdOrError(env, metricsBuilderClass, "<init>", "(Ljava/lang/String;IJLjava/lang/String;)V");
 
   nativeColumnarToRowInfoClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/NativeColumnarToRowInfo;");
@@ -341,6 +338,7 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
   env->DeleteGlobalRef(splitResultClass);
   env->DeleteGlobalRef(nativeColumnarToRowInfoClass);
   env->DeleteGlobalRef(byteArrayClass);
+  env->DeleteGlobalRef(metricsBuilderClass);
   env->DeleteGlobalRef(jniUnsafeByteBufferClass);
   env->DeleteGlobalRef(shuffleReaderMetricsClass);
 
@@ -626,63 +624,15 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
     numMetrics = metrics->numMetrics;
   }
 
-  jlongArray longArray[Metrics::kNum];
-  for (auto i = static_cast<int>(Metrics::kBegin); i != static_cast<int>(Metrics::kEnd); ++i) {
-    longArray[i] = env->NewLongArray(numMetrics);
-    if (metrics) {
-      env->SetLongArrayRegion(longArray[i], 0, numMetrics, metrics->get((Metrics::TYPE)i));
-    }
-  }
-
+  jstring metricsJson = env->NewStringUTF(metrics ? metrics->json.c_str() : "");
+  jstring taskStats = metrics && metrics->stats.has_value() ? env->NewStringUTF(metrics->stats->c_str()) : nullptr;
   return env->NewObject(
       metricsBuilderClass,
       metricsBuilderConstructor,
-      longArray[Metrics::kInputRows],
-      longArray[Metrics::kInputVectors],
-      longArray[Metrics::kInputBytes],
-      longArray[Metrics::kRawInputRows],
-      longArray[Metrics::kRawInputBytes],
-      longArray[Metrics::kOutputRows],
-      longArray[Metrics::kOutputVectors],
-      longArray[Metrics::kOutputBytes],
-      longArray[Metrics::kCpuCount],
-      longArray[Metrics::kWallNanos],
+      metricsJson,
+      static_cast<jint>(numMetrics),
       metrics ? metrics->veloxToArrow : -1,
-      longArray[Metrics::kPeakMemoryBytes],
-      longArray[Metrics::kNumMemoryAllocations],
-      longArray[Metrics::kSpilledInputBytes],
-      longArray[Metrics::kSpilledBytes],
-      longArray[Metrics::kSpilledRows],
-      longArray[Metrics::kSpilledPartitions],
-      longArray[Metrics::kSpilledFiles],
-      longArray[Metrics::kNumDynamicFiltersProduced],
-      longArray[Metrics::kNumDynamicFiltersAccepted],
-      longArray[Metrics::kNumReplacedWithDynamicFilterRows],
-      longArray[Metrics::kNumDynamicFilterInputRows],
-      longArray[Metrics::kFlushRowCount],
-      longArray[Metrics::kAbandonedPartialAggregationRows],
-      longArray[Metrics::kLoadedToValueHook],
-      longArray[Metrics::kBloomFilterBlocksByteSize],
-      longArray[Metrics::kScanTime],
-      longArray[Metrics::kSkippedSplits],
-      longArray[Metrics::kProcessedSplits],
-      longArray[Metrics::kSkippedStrides],
-      longArray[Metrics::kProcessedStrides],
-      longArray[Metrics::kRemainingFilterTime],
-      longArray[Metrics::kIoWaitTime],
-      longArray[Metrics::kStorageReadBytes],
-      longArray[Metrics::kStorageReads],
-      longArray[Metrics::kLocalReadBytes],
-      longArray[Metrics::kRamReadBytes],
-      longArray[Metrics::kPreloadSplits],
-      longArray[Metrics::kPageLoadTime],
-      longArray[Metrics::kDataSourceAddSplitWallNanos],
-      longArray[Metrics::kDataSourceReadWallNanos],
-      longArray[Metrics::kPhysicalWrittenBytes],
-      longArray[Metrics::kWriteIOTime],
-      longArray[Metrics::kNumWrittenFiles],
-      longArray[Metrics::kLoadLazyVectorTime],
-      metrics && metrics->stats.has_value() ? env->NewStringUTF(metrics->stats->c_str()) : nullptr);
+      taskStats);
 
   JNI_METHOD_END(nullptr)
 }
