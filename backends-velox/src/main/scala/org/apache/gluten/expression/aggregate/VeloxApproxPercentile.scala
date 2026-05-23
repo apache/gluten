@@ -265,6 +265,13 @@ object KllSketchFieldIndex {
 object KllSketchHelper {
 
   private val MIN_BUFFER_WIDTH = 8
+  // Absolute hard upper bound for any KLL sketch buffer allocation. The KLL
+  // sketch is logarithmic in N, so even for trillions of items the buffer
+  // never legitimately exceeds tens of thousands of doubles. We cap at 1M
+  // doubles (~8 MiB) to defend against corrupted intermediate state coming
+  // from upstream merges (e.g. negative or stale `levels` boundaries) that
+  // would otherwise inflate the allocation to GiB scale and OOM the executor.
+  private val MAX_KLL_BUFFER_SIZE = 1 << 20 // 1,048,576
   private val random = new java.util.Random()
 
   /** Compute level capacity: max(8, k * (2/3)^(numLevels - height - 1)). */
@@ -600,8 +607,10 @@ object KllSketchHelper {
 
     var level = 0
     while (level < currentNumLevels) {
-      // If at current top level, add an empty level above for convenience
-      if (level == currentNumLevels - 1) {
+      // If at current top level, add an empty level above for convenience.
+      // Guard against writing past the end of inLevels (which would corrupt
+      // memory and inflate targetItemCount via stale reads later).
+      if (level == currentNumLevels - 1 && level + 2 < inLevels.length) {
         inLevels(level + 2) = inLevels(level + 1)
       }
 
@@ -618,7 +627,8 @@ object KllSketchHelper {
         outLevels(level + 1) = outLevels(level) + rawPop
       } else {
         // Compact this level
-        val popAbove = inLevels(level + 2) - rawLim
+        val popAbove =
+          if (level + 2 < inLevels.length) inLevels(level + 2) - rawLim else 0
         val oddPop = rawPop & 1
         val adjBeg = rawBeg + oddPop
         val adjPop = rawPop - oddPop
@@ -645,7 +655,9 @@ object KllSketchHelper {
         currentItemCount -= halfAdjPop
         inLevels(level + 1) = inLevels(level + 1) - halfAdjPop
 
-        if (level == currentNumLevels - 1) {
+        // Only promote a new top level if we have room for it; otherwise stop
+        // growing to avoid runaway targetItemCount inflation.
+        if (level == currentNumLevels - 1 && currentNumLevels + 1 < inLevels.length) {
           currentNumLevels += 1
           targetItemCount += levelCapacity(k, currentNumLevels, 0)
         }
@@ -712,21 +724,33 @@ object KllSketchHelper {
     val newN = leftN + rightN
     val provisionalNumLevels = math.max(leftNumLevels, rightNumLevels)
 
-    // Compute total number of items needed
-    var tmpNumItems = 0
-    // Left items retained
-    if (leftLevelsArr.length > 1) {
-      tmpNumItems += leftLevelsArr.last - leftLevelsArr(0)
-    }
-    // Right items retained
-    if (rightLevelsArr.length > 1) {
-      tmpNumItems += rightLevelsArr.last - rightLevelsArr(0)
-    }
+    // Compute total number of items needed. Defensively clamp each side to
+    // its actual items array size: if the levels array is corrupted (e.g.
+    // levels.last is huge or negative), we must not trust it for sizing the
+    // workbuf allocation.
+    val safeLeftSpan =
+      if (leftLevelsArr.length > 1) {
+        val span = leftLevelsArr.last - leftLevelsArr(0)
+        math.max(0, math.min(span, leftItemsArr.length))
+      } else 0
+    val safeRightSpan =
+      if (rightLevelsArr.length > 1) {
+        val span = rightLevelsArr.last - rightLevelsArr(0)
+        math.max(0, math.min(span, rightItemsArr.length))
+      } else 0
+    val tmpNumItems = math.min(safeLeftSpan + safeRightSpan, MAX_KLL_BUFFER_SIZE)
 
     // Build work buffer merging all levels
     val workbuf = new Array[Double](tmpNumItems)
     val ub = 1 + floorLog2(newN, 1)
-    val workLevelsSize = ub + 2
+    // The work levels array must be large enough to hold:
+    //   - at least `provisionalNumLevels + 1` boundary entries already present in input
+    //   - plus extra slots that generalCompress may add when the top level is compacted
+    //     (each compaction at the current top promotes a new empty level above).
+    // Without enough headroom, generalCompress writes inLevels(level+2) past the end,
+    // causing subsequent reads to pick up garbage and inflating finalCapacity to GiB
+    // scale, which leads to OOM when allocating finalItems.
+    val workLevelsSize = math.max(ub, provisionalNumLevels) + 8
     val worklevels = new Array[Int](workLevelsSize)
     val outlevels = new Array[Int](workLevelsSize)
 
@@ -807,17 +831,33 @@ object KllSketchHelper {
     }
 
     // Run generalCompress
-    val (finalNumLevels, finalCapacity, finalNumItems) =
+    val (finalNumLevels, finalCapacityRaw, finalNumItems) =
       generalCompress(k, provisionalNumLevels, workbuf, worklevels, outlevels, false)
 
+    // Sanity-clamp finalCapacity. In pathological cases (e.g. corrupted intermediate
+    // state coming from upstream merges), generalCompress may return an inflated
+    // capacity that would allocate gigabytes for finalItems. Bound it by:
+    //   - the actual number of items that survived compaction
+    //   - the theoretical maximum capacity of a sketch with `finalNumLevels` levels
+    //   - tmpNumItems (we cannot end up with more items than were fed in)
+    //   - MAX_KLL_BUFFER_SIZE as an absolute backstop
+    val safeFinalNumLevels = math.max(1, math.min(finalNumLevels, 64))
+    val theoreticalCap = computeTotalCapacity(k, safeFinalNumLevels)
+    val safeFinalNumItems = math.max(0, math.min(finalNumItems, MAX_KLL_BUFFER_SIZE))
+    val finalCapacity = math.max(
+      safeFinalNumItems,
+      math.min(
+        math.min(finalCapacityRaw, math.max(theoreticalCap, tmpNumItems)),
+        MAX_KLL_BUFFER_SIZE))
+
     // Transfer results
-    val freeSpaceAtBottom = finalCapacity - finalNumItems
+    val freeSpaceAtBottom = finalCapacity - safeFinalNumItems
     val finalItems = new Array[Double](finalCapacity)
-    System.arraycopy(workbuf, outlevels(0), finalItems, freeSpaceAtBottom, finalNumItems)
-    val finalLevels = new Array[Int](finalNumLevels + 1)
+    System.arraycopy(workbuf, outlevels(0), finalItems, freeSpaceAtBottom, safeFinalNumItems)
+    val finalLevels = new Array[Int](safeFinalNumLevels + 1)
     val offset = freeSpaceAtBottom - outlevels(0)
     i = 0
-    while (i <= finalNumLevels) {
+    while (i <= safeFinalNumLevels) {
       finalLevels(i) = outlevels(i) + offset
       i += 1
     }

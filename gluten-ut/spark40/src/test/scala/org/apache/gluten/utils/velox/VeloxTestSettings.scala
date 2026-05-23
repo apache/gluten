@@ -865,6 +865,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenXmlFunctionsSuite]
   enableSuite[GlutenApproxCountDistinctForIntervalsQuerySuite]
   enableSuite[GlutenApproximatePercentileQuerySuite]
+    // requires resource files from Vanilla spark jar
+    .exclude("SPARK-32908: maximum target error in percentile_approx")
     // Velox KLL sketch produces slightly different results (off-by-one) compared to Spark's GK.
     // These are validated by VeloxAggregateFunctionsSuite with all 4 fallback modes.
     .exclude("percentile_approx, single percentile value")
@@ -941,6 +943,10 @@ class VeloxTestSettings extends BackendTestSettings {
     // Not really an issue.
     .exclude("SPARK-10740: handle nondeterministic expressions correctly for set operations")
   enableSuite[GlutenDataFrameStatSuite]
+    // Velox KLL sketch produces different approximate quantile values vs Spark's GK
+    // when relativeError > 1. For example: KLL returns 510, GK returns 524.
+    .exclude(
+      "approximate quantile 2: test relativeError greater than 1 return the same result as 1")
   enableSuite[GlutenDataFrameSuite]
     // Rewrite these tests because it checks Spark's physical operators.
     .excludeByPrefix("SPARK-22520", "reuse exchange")

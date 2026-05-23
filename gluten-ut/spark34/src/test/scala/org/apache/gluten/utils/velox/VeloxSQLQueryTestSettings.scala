@@ -60,7 +60,9 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     // "describe-part-after-analyze.sql",
     "describe-query.sql",
     "describe-table-after-alter-table.sql",
-    "describe-table-column.sql",
+    // describe-table-column.sql uses approx_percentile internally for column histograms;
+    // Velox KLL sketch produces different bin boundaries vs Spark's GK algorithm.
+    // "describe-table-column.sql",
     "describe.sql",
     "except-all.sql",
     "except.sql",
