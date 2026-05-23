@@ -18,4 +18,17 @@ package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
-class GlutenSparkSqlParserSuite extends SparkSqlParserSuite with GlutenSQLTestsBaseTrait {}
+class GlutenSparkSqlParserSuite extends SparkSqlParserSuite with GlutenSQLTestsBaseTrait {
+  testGluten("Checks if SET/RESET can parse all the configurations") {
+    sqlConf.getAllDefinedConfs.map(_._1).foreach {
+      key: String =>
+        val quotedKey = quoteConfigKey(key)
+        spark.sessionState.sqlParser.parsePlan(s"SET $quotedKey")
+        spark.sessionState.sqlParser.parsePlan(s"RESET $quotedKey")
+    }
+  }
+
+  private def quoteConfigKey(key: String): String = {
+    s"`${key.replace("`", "``")}`"
+  }
+}

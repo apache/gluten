@@ -23,3 +23,15 @@ add_test(
   NAME velox_roaring_bitmap_array_test
   COMMAND velox_roaring_bitmap_array_test
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(
+  velox_delta_read_test DeltaConnectorTest.cpp
+                        DeltaDeletionVectorReaderTest.cpp DeltaSplitTest.cpp)
+
+target_link_libraries(velox_delta_read_test velox roaring
+                      facebook::velox::exec_test_lib GTest::gtest)
+
+add_test(
+  NAME velox_delta_read_test
+  COMMAND velox_delta_read_test
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

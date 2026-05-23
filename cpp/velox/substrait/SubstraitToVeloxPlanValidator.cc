@@ -25,6 +25,7 @@
 #include "velox/exec/Aggregate.h"
 #include "velox/expression/Expr.h"
 #include "velox/expression/SignatureBinder.h"
+#include "velox/type/TypeCoercer.h"
 
 namespace gluten {
 namespace {
@@ -1159,7 +1160,7 @@ bool SubstraitToVeloxPlanValidator::validateAggRelFunctionType(const ::substrait
 
     bool resolved = false;
     for (const auto& signature : signaturesOpt.value()) {
-      exec::SignatureBinder binder(*signature, types);
+      exec::SignatureBinder binder(*signature, types, facebook::velox::TypeCoercer::defaults());
       if (binder.tryBind()) {
         TypePtr resolveType = nullptr;
         try {

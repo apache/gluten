@@ -74,6 +74,10 @@ class VeloxBackend {
       const std::string& connectorId,
       folly::Executor* ioExecutor) const;
 
+  std::shared_ptr<facebook::velox::connector::Connector> createDeltaConnector(
+      const std::string& connectorId,
+      folly::Executor* ioExecutor) const;
+
   std::shared_ptr<facebook::velox::connector::Connector> createValueStreamConnector(
       const std::string& connectorId,
       bool dynamicFilterEnabled) const;
