@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 
 #include "compute/Runtime.h"
 #include "config/GlutenConfig.h"
@@ -463,6 +464,7 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeCreateKernelWith
     jobject wrapper,
     jbyteArray planArr,
     jobjectArray splitInfosArr,
+    jobjectArray splitPayloadsArr,
     jobjectArray batchItrArray,
     jint stageId,
     jint partitionId,
@@ -492,6 +494,30 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeCreateKernelWith
       jsize splitInfoSize = env->GetArrayLength(splitInfoArray);
       auto safeSplitArray = getByteArrayElementsSafe(env, splitInfoArray);
       auto splitInfoData = safeSplitArray.elems();
+
+      if (splitPayloadsArr != nullptr) {
+        jobjectArray splitPayloadArray = static_cast<jobjectArray>(env->GetObjectArrayElement(splitPayloadsArr, i));
+        if (splitPayloadArray != nullptr) {
+          std::vector<SplitPayloadBufferView> splitPayloads;
+          splitPayloads.reserve(env->GetArrayLength(splitPayloadArray));
+          for (jsize payloadIndex = 0, payloadCount = env->GetArrayLength(splitPayloadArray);
+               payloadIndex < payloadCount;
+               ++payloadIndex) {
+            jobject payloadBuffer = env->GetObjectArrayElement(splitPayloadArray, payloadIndex);
+            GLUTEN_CHECK(payloadBuffer != nullptr, "Split payload buffer must not be null");
+            auto* payloadData = reinterpret_cast<const uint8_t*>(env->GetDirectBufferAddress(payloadBuffer));
+            const auto payloadCapacity = env->GetDirectBufferCapacity(payloadBuffer);
+            GLUTEN_CHECK(payloadData != nullptr, "Split payload buffer must be a direct ByteBuffer");
+            GLUTEN_CHECK(
+                payloadCapacity >= 0 && payloadCapacity <= std::numeric_limits<int32_t>::max(),
+                "Split payload buffer capacity must fit int32_t");
+            splitPayloads.push_back({payloadData, static_cast<int32_t>(payloadCapacity)});
+            env->DeleteLocalRef(payloadBuffer);
+          }
+          ctx->setSplitPayloads(i, std::move(splitPayloads));
+          env->DeleteLocalRef(splitPayloadArray);
+        }
+      }
 
       ctx->parseSplitInfo(splitInfoData, splitInfoSize, i);
     }

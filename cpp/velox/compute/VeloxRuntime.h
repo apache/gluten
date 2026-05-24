@@ -56,6 +56,8 @@ class VeloxRuntime final : public Runtime {
 
   void parseSplitInfo(const uint8_t* data, int32_t size, int32_t splitIndex) override;
 
+  void setSplitPayloads(int32_t splitIndex, std::vector<SplitPayloadBufferView> payloads) override;
+
   VeloxMemoryManager* memoryManager() override;
 
   // FIXME This is not thread-safe?
@@ -159,6 +161,7 @@ class VeloxRuntime final : public Runtime {
   std::unique_ptr<folly::Executor> spillExecutor_;
   std::unique_ptr<folly::Executor> ioExecutor_;
   VeloxConnectorIds connectorIds_;
+  std::unordered_map<int32_t, std::vector<SplitPayloadBufferView>> splitPayloads_;
 
   std::unordered_map<int32_t, std::shared_ptr<VeloxColumnarBatch>> emptySchemaBatchLoopUp_;
 };

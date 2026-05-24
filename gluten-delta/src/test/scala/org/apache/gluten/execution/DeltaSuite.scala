@@ -18,7 +18,10 @@ package org.apache.gluten.execution
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.execution.FileSourceScanExec
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.types._
+import org.apache.spark.util.SparkVersionUtil
 
 import scala.collection.JavaConverters._
 
@@ -37,6 +40,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
       .set("spark.memory.offHeap.size", "2g")
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
+      .set("spark.sql.ansi.enabled", "false")
       .set("spark.sql.sources.useV1SourceList", "avro")
       .set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
       .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
@@ -209,13 +213,37 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
         checkAnswer(spark.read.format("delta").load(path), df1.union(df2))
         spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (${values2.mkString(", ")})")
-        import org.apache.spark.sql.execution.GlutenImplicits._
         val df = spark.read.format("delta").load(path)
-        assert(
-          df.fallbackSummary.fallbackNodeToReason
-            .flatMap(_.values)
-            .exists(_.contains("Deletion vector is not supported in native")))
+        val executedPlan = df.queryExecution.executedPlan
+        if (SparkVersionUtil.gteSpark35) {
+          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty)
+          val planText = executedPlan.toString()
+          assert(!planText.contains("__delta_internal_is_row_deleted"))
+          assert(!planText.contains("__delta_internal_row_index"))
+        } else {
+          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.isEmpty)
+        }
         checkAnswer(df, df1)
+    }
+  }
+
+  testWithMinSparkVersion("delta: _delta_log scan should fallback", "3.4") {
+    withTempPath {
+      p =>
+        import testImplicits._
+        val path = p.getCanonicalPath
+        Seq((1, "a"), (2, "b")).toDF("id", "value").write.format("delta").save(path)
+
+        val deltaLogDf = spark.read.json(s"$path/_delta_log/*.json")
+        val executedPlan = deltaLogDf.queryExecution.executedPlan
+
+        assert(executedPlan.collect { case _: FileSourceScanExecTransformerBase => true }.isEmpty)
+        assert(executedPlan.collect { case _: BatchScanExecTransformerBase => true }.isEmpty)
+        assert(executedPlan.collect {
+          case _: FileSourceScanExec => true
+          case _: BatchScanExec => true
+        }.nonEmpty)
+        assert(deltaLogDf.count() > 0)
     }
   }
 
@@ -320,13 +348,13 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     withSQLConf("spark.gluten.sql.columnar.scanOnly" -> "true") {
       withTable("delta_pf") {
         spark.sql(s"""
-                     |create table test (id int, name string) using delta
+                     |create table delta_pf (id int, name string) using delta
                      |""".stripMargin)
         spark.sql(s"""
-                     |insert into test values (1, "v1"), (2, "v2"), (3, "v1"), (4, "v2")
+                     |insert into delta_pf values (1, "v1"), (2, "v2"), (3, "v1"), (4, "v2")
                      |""".stripMargin)
         runQueryAndCompare(
-          "select id from test where name > 'v1'",
+          "select id from delta_pf where name > 'v1'",
           compareResult = true,
           noFallBack = false) {
           df =>

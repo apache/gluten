@@ -20,6 +20,8 @@ import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.RuntimeAware;
 import org.apache.gluten.validate.NativePlanValidationInfo;
 
+import java.nio.ByteBuffer;
+
 /**
  * This class is implemented in JNI. This provides the Java interface to invoke functions in JNI.
  * This file is used to generate the .h files required for jni. Avoid all external dependencies in
@@ -72,6 +74,7 @@ public class PlanEvaluatorJniWrapper implements RuntimeAware {
   public native long nativeCreateKernelWithIterator(
       byte[] wsPlan,
       byte[][] splitInfo,
+      ByteBuffer[][] splitPayloads,
       ColumnarBatchInIterator[] batchItr,
       int stageId,
       int partitionId,
