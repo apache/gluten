@@ -37,7 +37,8 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
     case scan: FileSourceScanExec if shouldFallbackSpark34DeletionVectorScan(scan) =>
       FallbackTags.add(scan, "fallback Spark 3.4 Delta DV scan")
       scan
-    case scan: FileSourceScanExec if shouldFallbackSpark35DeletionVectorScanWithoutMetadataRowIndex(
+    case scan: FileSourceScanExec
+        if shouldFallbackSpark35DeletionVectorScanWithoutMetadataRowIndex(
           scan) =>
       FallbackTags.add(scan, "fallback Spark 3.5 Delta DV scan without metadata row index")
       scan
