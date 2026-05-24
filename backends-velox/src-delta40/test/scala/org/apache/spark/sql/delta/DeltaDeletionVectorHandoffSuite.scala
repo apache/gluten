@@ -55,13 +55,15 @@ class DeltaDeletionVectorHandoffSuite
 
         spark.sql(
           s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+        spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)")
 
+        val log = DeltaLog.forTable(spark, new Path(path))
+        assert(log.update().allFiles.collect().exists(_.deletionVector != null))
+
+        // This covers scan behavior over an existing DV. Delta 4 may choose a non-DV DELETE
+        // path when metadata row indexes are disabled during DML, so keep DV creation on the
+        // default path and disable metadata-row-index only for the read.
         withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "false") {
-          spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)")
-
-          val log = DeltaLog.forTable(spark, new Path(path))
-          assert(log.update().allFiles.collect().exists(_.deletionVector != null))
-
           val df = spark.read.format("delta").load(path)
           val executedPlan = df.queryExecution.executedPlan
           assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty)

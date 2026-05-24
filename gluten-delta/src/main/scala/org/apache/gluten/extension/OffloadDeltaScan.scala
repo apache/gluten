@@ -24,6 +24,7 @@ import org.apache.spark.sql.delta.DeltaParquetFileFormat
 import org.apache.spark.sql.delta.SnapshotDescriptor
 import org.apache.spark.sql.delta.commands.DeletionVectorUtils.deletionVectorsReadable
 import org.apache.spark.sql.delta.files.TahoeFileIndex
+import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.util.SparkVersionUtil
@@ -35,6 +36,10 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
       scan
     case scan: FileSourceScanExec if shouldFallbackSpark34DeletionVectorScan(scan) =>
       FallbackTags.add(scan, "fallback Spark 3.4 Delta DV scan")
+      scan
+    case scan: FileSourceScanExec if shouldFallbackSpark35DeletionVectorScanWithoutMetadataRowIndex(
+          scan) =>
+      FallbackTags.add(scan, "fallback Spark 3.5 Delta DV scan without metadata row index")
       scan
     case scan: FileSourceScanExec if isDeltaScan(scan) =>
       DeltaScanTransformer(scan)
@@ -69,6 +74,25 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
       return false
     }
 
+    containsDeletionVector(scan)
+  }
+
+  private def shouldFallbackSpark35DeletionVectorScanWithoutMetadataRowIndex(
+      scan: FileSourceScanExec): Boolean = {
+    if (!SparkVersionUtil.gteSpark35 || SparkVersionUtil.gteSpark40) {
+      return false
+    }
+
+    // Delta 3.3/Spark 3.5 DML tests force this path and rely on Spark's injected
+    // row-index filter column for correctness. Keep it on Spark until the native path can
+    // prove the same contract for UPDATE-generated DVs.
+    val useMetadataRowIndex =
+      scan.relation.sparkSession.sessionState.conf.getConf(
+        DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX)
+    !useMetadataRowIndex && containsDeletionVector(scan)
+  }
+
+  private def containsDeletionVector(scan: FileSourceScanExec): Boolean = {
     scan.relation.location match {
       case preparedIndex: PreparedDeltaFileIndex =>
         preparedIndex.preparedScan.files.exists(_.deletionVector != null)
