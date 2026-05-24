@@ -24,12 +24,14 @@ import org.apache.spark.sql.delta.DeltaParquetFileFormat
 import org.apache.spark.sql.delta.SnapshotDescriptor
 import org.apache.spark.sql.delta.commands.DeletionVectorUtils.deletionVectorsReadable
 import org.apache.spark.sql.delta.files.TahoeFileIndex
-import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.util.SparkVersionUtil
 
 case class OffloadDeltaScan() extends OffloadSingleNode {
+  private val DeletionVectorsUseMetadataRowIndexKey =
+    "spark.databricks.delta.deletionVectors.useMetadataRowIndex"
+
   override def offload(plan: SparkPlan): SparkPlan = plan match {
     case scan: FileSourceScanExec if isDeltaLogScan(scan) =>
       FallbackTags.add(scan, "fallback Delta _delta_log scan")
@@ -38,9 +40,8 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
       FallbackTags.add(scan, "fallback Spark 3.4 Delta DV scan")
       scan
     case scan: FileSourceScanExec
-        if shouldFallbackSpark35DeletionVectorScanWithoutMetadataRowIndex(
-          scan) =>
-      FallbackTags.add(scan, "fallback Spark 3.5 Delta DV scan without metadata row index")
+        if shouldFallbackDeletionVectorScanWithoutMetadataRowIndex(scan) =>
+      FallbackTags.add(scan, "fallback Delta DV scan without metadata row index")
       scan
     case scan: FileSourceScanExec if isDeltaScan(scan) =>
       DeltaScanTransformer(scan)
@@ -78,18 +79,19 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
     containsDeletionVector(scan)
   }
 
-  private def shouldFallbackSpark35DeletionVectorScanWithoutMetadataRowIndex(
+  private def shouldFallbackDeletionVectorScanWithoutMetadataRowIndex(
       scan: FileSourceScanExec): Boolean = {
-    if (!SparkVersionUtil.gteSpark35 || SparkVersionUtil.gteSpark40) {
+    if (!SparkVersionUtil.gteSpark35) {
       return false
     }
 
-    // Delta 3.3/Spark 3.5 DML tests force this path and rely on Spark's injected
+    // Delta DML tests force this path and rely on Spark's injected
     // row-index filter column for correctness. Keep it on Spark until the native path can
-    // prove the same contract for UPDATE-generated DVs.
+    // prove the same contract for DML-generated DVs.
     val useMetadataRowIndex =
-      scan.relation.sparkSession.sessionState.conf.getConf(
-        DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX)
+      scan.relation.sparkSession.sessionState.conf
+        .getConfString(DeletionVectorsUseMetadataRowIndexKey, "true")
+        .toBoolean
     !useMetadataRowIndex && containsDeletionVector(scan)
   }
 

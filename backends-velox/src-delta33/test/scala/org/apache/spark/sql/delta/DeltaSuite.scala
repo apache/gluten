@@ -197,7 +197,7 @@ class DeltaSuite
     checkAnswer(data.toDF(), Row(1) :: Row(2) :: Row(3) :: Row(4) :: Row(5) :: Row(6) :: Nil)
   }
 
-  test("native DV scan when metadata row index is disabled") {
+  test("DV scan without metadata row index falls back and stays correct") {
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
@@ -219,7 +219,7 @@ class DeltaSuite
 
           val df = spark.read.format("delta").load(path)
           val executedPlan = df.queryExecution.executedPlan
-          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty)
+          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.isEmpty)
           checkAnswer(df, Seq(Row(1, "a"), Row(2, "b")))
         }
     }

@@ -42,7 +42,7 @@ class DeltaDeletionVectorHandoffSuite
 
   import testImplicits._
 
-  test("Spark 4 Delta DV scan should stay native when metadata row index is disabled") {
+  test("Spark 4 Delta DV scan should fall back when metadata row index is disabled") {
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
@@ -60,13 +60,12 @@ class DeltaDeletionVectorHandoffSuite
         val log = DeltaLog.forTable(spark, new Path(path))
         assert(log.update().allFiles.collect().exists(_.deletionVector != null))
 
-        // This covers scan behavior over an existing DV. Delta 4 may choose a non-DV DELETE
-        // path when metadata row indexes are disabled during DML, so keep DV creation on the
-        // default path and disable metadata-row-index only for the read.
+        // This covers scan behavior over an existing DV. Keep the no-metadata-row-index
+        // path on Spark until the native path can prove the same contract for DML DVs.
         withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "false") {
           val df = spark.read.format("delta").load(path)
           val executedPlan = df.queryExecution.executedPlan
-          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty)
+          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.isEmpty)
           checkAnswer(df, Seq((1, "a"), (2, "b")).toDF())
         }
     }
