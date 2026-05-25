@@ -22,9 +22,10 @@
 #include "config/VeloxConfig.h"
 #include "operators/plannodes/IteratorSplit.h"
 #include "velox/core/QueryCtx.h"
+#include "velox/functions/sparksql/SparkQueryConfig.h"
 
 using namespace facebook;
-
+using facebook::velox::functions::sparksql::SparkQueryConfig;
 namespace gluten {
 
 /// This class is used to validate whether the computing of
@@ -33,7 +34,8 @@ class SubstraitToVeloxPlanValidator {
  public:
   SubstraitToVeloxPlanValidator(memory::MemoryPool* pool) {
     std::unordered_map<std::string, std::string> configs{
-        {velox::core::QueryConfig::kSparkPartitionId, "0"}, {velox::core::QueryConfig::kSessionTimezone, "UTC"}};
+        {SparkQueryConfig::qualify(SparkQueryConfig::kPartitionId), "0"},
+        {velox::core::QueryConfig::kSessionTimezone, "UTC"}};
     veloxCfg_ = std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
     planConverter_ = std::make_unique<SubstraitToVeloxPlanConverter>(
         pool,
