@@ -191,8 +191,10 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
 
   test("Hash aggregate metrics include abandoned partial aggregation rows") {
     withSQLConf(
+      GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "10",
       VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_ROWS.key -> "0",
-      VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_PCT.key -> "0") {
+      VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_PCT.key -> "0"
+    ) {
       runQueryAndCompare("SELECT c2, sum(c1) FROM metrics_t1 GROUP BY c2") {
         df =>
           val aggregates = collect(df.queryExecution.executedPlan) {
