@@ -189,7 +189,7 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
-  test("Hash aggregate metrics include abandoned partial aggregation") {
+  test("Hash aggregate metrics include abandoned partial aggregation rows") {
     withSQLConf(
       VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_ROWS.key -> "0",
       VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_PCT.key -> "0") {
@@ -199,15 +199,15 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
             case agg: HashAggregateExecBaseTransformer => agg
           }
           assert(aggregates.nonEmpty)
-          val numTotalAbandonedPartialAggregations = aggregates.map {
+          val numTotalAbandonedPartialAggregationRows = aggregates.map {
             agg =>
               val metrics = agg.metrics
-              assert(metrics.contains("abandonedPartialAggregation"))
-              val num = metrics("abandonedPartialAggregation").value
+              assert(metrics.contains("abandonedPartialAggregationRows"))
+              val num = metrics("abandonedPartialAggregationRows").value
               assert(num >= 0)
               num
           }.sum
-          assert(numTotalAbandonedPartialAggregations > 0)
+          assert(numTotalAbandonedPartialAggregationRows > 0)
       }
     }
   }

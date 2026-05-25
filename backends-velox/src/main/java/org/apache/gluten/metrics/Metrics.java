@@ -42,7 +42,7 @@ public class Metrics implements IMetrics {
   public long[] numReplacedWithDynamicFilterRows;
   public long[] numDynamicFilterInputRows;
   public long[] flushRowCount;
-  public long[] abandonedPartialAggregation;
+  public long[] abandonedPartialAggregationRows;
   public long[] loadedToValueHook;
   public long[] bloomFilterBlocksByteSize;
   public long[] skippedSplits;
@@ -95,7 +95,7 @@ public class Metrics implements IMetrics {
       long[] numReplacedWithDynamicFilterRows,
       long[] numDynamicFilterInputRows,
       long[] flushRowCount,
-      long[] abandonedPartialAggregation,
+      long[] abandonedPartialAggregationRows,
       long[] loadedToValueHook,
       long[] bloomFilterBlocksByteSize,
       long[] scanTime,
@@ -142,7 +142,7 @@ public class Metrics implements IMetrics {
     this.numReplacedWithDynamicFilterRows = numReplacedWithDynamicFilterRows;
     this.numDynamicFilterInputRows = numDynamicFilterInputRows;
     this.flushRowCount = flushRowCount;
-    this.abandonedPartialAggregation = abandonedPartialAggregation;
+    this.abandonedPartialAggregationRows = abandonedPartialAggregationRows;
     this.loadedToValueHook = loadedToValueHook;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
     this.skippedSplits = skippedSplits;
@@ -195,7 +195,7 @@ public class Metrics implements IMetrics {
         numReplacedWithDynamicFilterRows[index],
         numDynamicFilterInputRows[index],
         flushRowCount[index],
-        abandonedPartialAggregation[index],
+        abandonedPartialAggregationRows[index],
         loadedToValueHook[index],
         bloomFilterBlocksByteSize[index],
         scanTime[index],

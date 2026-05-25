@@ -595,7 +595,7 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
       longArray[Metrics::kNumReplacedWithDynamicFilterRows],
       longArray[Metrics::kNumDynamicFilterInputRows],
       longArray[Metrics::kFlushRowCount],
-      longArray[Metrics::kAbandonedPartialAggregation],
+      longArray[Metrics::kAbandonedPartialAggregationRows],
       longArray[Metrics::kLoadedToValueHook],
       longArray[Metrics::kBloomFilterBlocksByteSize],
       longArray[Metrics::kScanTime],

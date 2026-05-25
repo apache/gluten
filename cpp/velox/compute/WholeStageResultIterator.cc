@@ -44,7 +44,7 @@ const std::string kDynamicFiltersAccepted = "dynamicFiltersAccepted";
 const std::string kReplacedWithDynamicFilterRows = "replacedWithDynamicFilterRows";
 const std::string kDynamicFilterInputRows = "dynamicFilterInputRows";
 const std::string kFlushRowCount = "flushRowCount";
-const std::string kAbandonedPartialAggregation = "abandonedPartialAggregation";
+const std::string kAbandonedPartialAggregationRows = "abandonedPartialAggregationRows";
 const std::string kLoadedToValueHook = "loadedToValueHook";
 const std::string kBloomFilterBlocksByteSize = "bloomFilterSize";
 const std::string kTotalScanTime = "totalScanTime";
@@ -505,8 +505,8 @@ void WholeStageResultIterator::collectMetrics() {
       metrics_->get(Metrics::kNumDynamicFilterInputRows)[metricIndex] =
           runtimeMetric("sum", second->customStats, kDynamicFilterInputRows);
       metrics_->get(Metrics::kFlushRowCount)[metricIndex] = runtimeMetric("sum", second->customStats, kFlushRowCount);
-      metrics_->get(Metrics::kAbandonedPartialAggregation)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kAbandonedPartialAggregation);
+      metrics_->get(Metrics::kAbandonedPartialAggregationRows)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kAbandonedPartialAggregationRows);
       metrics_->get(Metrics::kLoadedToValueHook)[metricIndex] =
           runtimeMetric("sum", second->customStats, kLoadedToValueHook);
       metrics_->get(Metrics::kBloomFilterBlocksByteSize)[metricIndex] =

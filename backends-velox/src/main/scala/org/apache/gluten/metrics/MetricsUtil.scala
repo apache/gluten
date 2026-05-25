@@ -122,7 +122,7 @@ object MetricsUtil extends Logging {
     var numReplacedWithDynamicFilterRows: Long = 0
     var numDynamicFilterInputRows: Long = 0
     var flushRowCount: Long = 0
-    var abandonedPartialAggregation: Long = 0
+    var abandonedPartialAggregationRows: Long = 0
     var loadedToValueHook: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
     var scanTime: Long = 0
@@ -160,7 +160,7 @@ object MetricsUtil extends Logging {
       numReplacedWithDynamicFilterRows += metrics.numReplacedWithDynamicFilterRows
       numDynamicFilterInputRows += metrics.numDynamicFilterInputRows
       flushRowCount += metrics.flushRowCount
-      abandonedPartialAggregation += metrics.abandonedPartialAggregation
+      abandonedPartialAggregationRows += metrics.abandonedPartialAggregationRows
       loadedToValueHook += metrics.loadedToValueHook
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
       scanTime += metrics.scanTime
@@ -205,7 +205,7 @@ object MetricsUtil extends Logging {
       numReplacedWithDynamicFilterRows,
       numDynamicFilterInputRows,
       flushRowCount,
-      abandonedPartialAggregation,
+      abandonedPartialAggregationRows,
       loadedToValueHook,
       bloomFilterBlocksByteSize,
       scanTime,

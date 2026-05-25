@@ -69,7 +69,7 @@ struct Metrics {
     kNumReplacedWithDynamicFilterRows,
     kNumDynamicFilterInputRows,
     kFlushRowCount,
-    kAbandonedPartialAggregation,
+    kAbandonedPartialAggregationRows,
     kLoadedToValueHook,
     kBloomFilterBlocksByteSize,
     kScanTime,
