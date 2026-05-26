@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 #include "WholeStageResultIterator.h"
-#include <algorithm>
 #include <optional>
 #include "VeloxBackend.h"
 #include "VeloxPlanConverter.h"
@@ -232,11 +231,6 @@ WholeStageResultIterator::WholeStageResultIterator(
     const auto& metadataColumns = scanInfo->metadataColumns;
     const auto scanNodeConnectorId = connectorIdForScanNode(veloxPlan_, scanNodeIds_[scanInfoIdx]);
     const bool isDeltaScan = scanNodeConnectorId == connectorIds_.delta || isDeltaScanInfo(scanInfo);
-    const auto deltaMetadataFiles = std::count_if(
-        metadataColumns.begin(), metadataColumns.end(), [](const auto& metadata) { return isDeltaMetadata(metadata); });
-    LOG(INFO) << "WholeStageResultIterator scanInfo[" << scanInfoIdx << "] nodeId=" << scanNodeIds_[scanInfoIdx]
-              << " files=" << paths.size() << " connectorId=" << scanNodeConnectorId << " isDeltaScan=" << isDeltaScan
-              << " deltaMetadataFiles=" << deltaMetadataFiles;
 #ifdef GLUTEN_ENABLE_GPU
     // Under the pre-condition that all the split infos has same partition column and format.
     const auto canUseCudfConnector = scanInfo->canUseCudfConnector();
@@ -290,7 +284,7 @@ WholeStageResultIterator::WholeStageResultIterator(
             metadataColumn,
             properties[idx]);
       } else {
-        auto connectorId = scanNodeConnectorId.empty() ? connectorIds_.hive : scanNodeConnectorId;
+        auto connectorId = connectorIds_.hive;
 #ifdef GLUTEN_ENABLE_GPU
         if (connectorId == connectorIds_.hive && canUseCudfConnector && enableCudf_ &&
             veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault)) {
