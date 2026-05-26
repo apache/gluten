@@ -81,7 +81,7 @@ more-itertools==8.10.0
 mypy-extensions==1.0.0
 nbclassic==1.1.0
 nbclient==0.10.0
-nbconvert==7.17.0
+nbconvert==7.17.1
 nbdime==4.0.1
 nbformat==5.10.4
 nest-asyncio==1.6.0
