@@ -19,17 +19,66 @@ package org.apache.spark.sql.execution.benchmark
 import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.benchmark.Benchmark
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions.{col, repeat}
 import org.apache.spark.storage.StorageLevel
 
+import java.io.File
+
 /**
- * Benchmark to measure performance for columnar table cache. To run this benchmark:
+ * Benchmark to measure performance for columnar table cache across source formats and schema
+ * shapes. To run this benchmark:
  * {{{
  *   1. without sbt:
  *      bin/spark-submit --class <this class> --jars <spark core test jar> <sql core test jar>
  * }}}
+ *
+ * Matrix:
+ *   - sources : parquet (velox-native columnar), csv, json (row-based fallback per GLUTEN-3456)
+ *   - shapes : numeric (5 cols mixed), wide-string (16 x ~200 char) -- the GLUTEN-3488 hazard
+ *   - cases : count / column pruning / filter for numeric; count only for wide-string
  */
 object ColumnarTableCacheBenchmark extends SqlBasedBenchmark {
-  private val numRows = 20L * 1000 * 1000
+  private val numRows = 10L * 1000 * 1000
+  private val wideStringRows = 2L * 1000 * 1000
+  private val wideStringCols = 16
+  private val wideStringLen = 200
+
+  private val sources = Seq("parquet", "csv", "json")
+
+  private def numericDf(): DataFrame = {
+    spark
+      .range(numRows)
+      .selectExpr(
+        "cast(id as int) as c0",
+        "cast(id as double) as c1",
+        "id as c2",
+        "cast(id as string) as c3",
+        "uuid() as c4")
+  }
+
+  private def wideStringDf(): DataFrame = {
+    val cols = (0 until wideStringCols).map(
+      i =>
+        repeat(col("id").cast("string"), wideStringLen / 8 + 1).as(s"c$i"))
+    spark.range(wideStringRows).select(cols: _*)
+  }
+
+  private def writeSource(df: DataFrame, source: String, dir: File): String = {
+    val path = new File(dir, source).getCanonicalPath
+    val writer = df.write.format(source)
+    val w = if (source == "csv") writer.option("header", "true") else writer
+    w.save(path)
+    path
+  }
+
+  private def readSource(source: String, path: String): DataFrame = {
+    val reader = spark.read.format(source)
+    val r = if (source == "csv") {
+      reader.option("header", "true").option("inferSchema", "true")
+    } else reader
+    r.load(path)
+  }
 
   private def doBenchmark(name: String, cardinality: Long)(f: => Unit): Unit = {
     val benchmark = new Benchmark(name, cardinality, output = output)
@@ -50,38 +99,43 @@ object ColumnarTableCacheBenchmark extends SqlBasedBenchmark {
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
     withTempPath {
       f =>
-        spark
-          .range(numRows)
-          .selectExpr(
-            "cast(id as int) as c0",
-            "cast(id as double) as c1",
-            "id as c2",
-            "cast(id as string) as c3",
-            "uuid() as c4")
-          .write
-          .parquet(f.getCanonicalPath)
+        // --- numeric workload: write once per source, run 3 cases ---
+        val numericPaths =
+          sources.map(src => src -> writeSource(numericDf(), src, new File(f, "numeric"))).toMap
 
-        doBenchmark("table cache count", numRows) {
-          spark.read.parquet(f.getCanonicalPath).persist(StorageLevel.MEMORY_ONLY).count()
-          spark.catalog.clearCache()
+        sources.foreach {
+          src =>
+            val path = numericPaths(src)
+            doBenchmark(s"numeric/$src table cache count", numRows) {
+              readSource(src, path).persist(StorageLevel.MEMORY_ONLY).count()
+              spark.catalog.clearCache()
+            }
+            doBenchmark(s"numeric/$src table cache column pruning", numRows) {
+              val cached = readSource(src, path).persist(StorageLevel.MEMORY_ONLY)
+              cached.select("c1", "c2").noop()
+              cached.select("c0", "c3").noop()
+              spark.catalog.clearCache()
+            }
+            doBenchmark(s"numeric/$src table cache filter", numRows) {
+              val cached = readSource(src, path).persist(StorageLevel.MEMORY_ONLY)
+              cached.where("c1 % 100 > 10").noop()
+              cached.where("c1 % 100 > 20").noop()
+              spark.catalog.clearCache()
+            }
         }
 
-        doBenchmark("table cache column pruning", numRows) {
-          val cached = spark.read
-            .parquet(f.getCanonicalPath)
-            .persist(StorageLevel.MEMORY_ONLY)
-          cached.select("c1", "c2").noop()
-          cached.select("c0", "c3").noop()
-          spark.catalog.clearCache()
-        }
+        // --- wide-string workload: GLUTEN-3488 hazard reproducer, count only ---
+        val wsPaths = sources.map {
+          src => src -> writeSource(wideStringDf(), src, new File(f, "widestring"))
+        }.toMap
 
-        doBenchmark("table cache filter", numRows) {
-          val cached = spark.read
-            .parquet(f.getCanonicalPath)
-            .persist(StorageLevel.MEMORY_ONLY)
-          cached.where("c1 % 100 > 10").noop()
-          cached.where("c1 % 100 > 20").noop()
-          spark.catalog.clearCache()
+        sources.foreach {
+          src =>
+            val path = wsPaths(src)
+            doBenchmark(s"wide-string/$src table cache count", wideStringRows) {
+              readSource(src, path).persist(StorageLevel.MEMORY_ONLY).count()
+              spark.catalog.clearCache()
+            }
         }
     }
   }

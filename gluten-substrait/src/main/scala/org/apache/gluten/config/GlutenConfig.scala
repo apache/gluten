@@ -1023,7 +1023,7 @@ object GlutenConfig extends ConfigRegistry {
     buildStaticConf("spark.gluten.sql.columnar.tableCache")
       .doc("Enable or disable columnar table cache.")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
 
   val COLUMNAR_TABLE_CACHE_PARTITION_STATS_ENABLED =
     buildConf("spark.gluten.sql.columnar.tableCache.partitionStats.enabled")

@@ -1,0 +1,5 @@
+{
+    "name": "Gluten Velox Backend (vcpkg-centos-9, static link)",
+    "image": "apache/gluten:vcpkg-centos-9",
+    "postCreateCommand": "./dev/ci-velox-buildstatic-centos-9.sh"
+}
