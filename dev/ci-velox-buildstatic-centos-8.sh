@@ -17,7 +17,6 @@
 
 set -e
 
-source /opt/rh/gcc-toolset-11/enable
 if [ "$(uname -m)" = "aarch64" ]; then
     export CPU_TARGET="aarch64";
     export VCPKG_FORCE_SYSTEM_BINARIES=1;

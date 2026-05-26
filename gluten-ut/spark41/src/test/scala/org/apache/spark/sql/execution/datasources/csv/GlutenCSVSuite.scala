@@ -16,7 +16,6 @@
  */
 package org.apache.spark.sql.execution.datasources.csv
 
-import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.exception.GlutenException
 
 import org.apache.spark.{SparkConf, SparkException}
@@ -29,10 +28,6 @@ import org.scalatest.exceptions.TestFailedException
 import java.sql.{Date, Timestamp}
 
 class GlutenCSVSuite extends CSVSuite with GlutenSQLTestsBaseTrait {
-
-  override def sparkConf: SparkConf =
-    super.sparkConf
-      .set(GlutenConfig.NATIVE_ARROW_READER_ENABLED.key, "true")
 
   /** Returns full path to the given file in the resource folder */
   override protected def testFile(fileName: String): String = {
@@ -54,11 +49,10 @@ class GlutenCSVv1Suite extends GlutenCSVSuite {
 class GlutenCSVv2Suite extends GlutenCSVSuite {
 
   import testImplicits._
+
   override def sparkConf: SparkConf =
     super.sparkConf
       .set(SQLConf.USE_V1_SOURCE_LIST, "")
-      .set(GlutenConfig.NATIVE_ARROW_READER_ENABLED.key, "true")
-
   override def testNameBlackList: Seq[String] = Seq(
     // overwritten with different test
     "test for FAILFAST parsing mode",

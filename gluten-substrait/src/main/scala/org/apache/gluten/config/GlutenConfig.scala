@@ -344,8 +344,6 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   // Please use `BackendsApiManager.getSettings.enableNativeWriteFiles()` instead
   def enableNativeWriter: Option[Boolean] = getConf(NATIVE_WRITER_ENABLED)
 
-  def enableNativeArrowReader: Boolean = getConf(NATIVE_ARROW_READER_ENABLED)
-
   def enableColumnarProjectCollapse: Boolean = getConf(ENABLE_COLUMNAR_PROJECT_COLLAPSE)
 
   def enableColumnarPartialProject: Boolean = getConf(ENABLE_COLUMNAR_PARTIAL_PROJECT)
@@ -1025,7 +1023,7 @@ object GlutenConfig extends ConfigRegistry {
     buildStaticConf("spark.gluten.sql.columnar.tableCache")
       .doc("Enable or disable columnar table cache.")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
 
   val COLUMNAR_TABLE_CACHE_PARTITION_STATS_ENABLED =
     buildConf("spark.gluten.sql.columnar.tableCache.partitionStats.enabled")
@@ -1352,12 +1350,6 @@ object GlutenConfig extends ConfigRegistry {
           "file type.")
       .booleanConf
       .createWithDefault(true)
-
-  val NATIVE_ARROW_READER_ENABLED =
-    buildConf("spark.gluten.sql.native.arrow.reader.enabled")
-      .doc("This is config to specify whether to enable the native columnar csv reader")
-      .booleanConf
-      .createWithDefault(false)
 
   val NATIVE_WRITE_FILES_COLUMN_METADATA_EXCLUSION_LIST =
     buildConf("spark.gluten.sql.native.writeColumnMetadataExclusionList")

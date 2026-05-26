@@ -139,8 +139,6 @@ trait BackendSettingsApi {
 
   def enableNativeWriteFiles(): Boolean
 
-  def enableNativeArrowReadFiles(): Boolean = false
-
   def shouldRewriteCount(): Boolean = false
 
   def supportCartesianProductExec(): Boolean = false

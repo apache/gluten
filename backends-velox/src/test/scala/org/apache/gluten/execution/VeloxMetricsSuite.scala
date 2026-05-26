@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
@@ -186,6 +186,31 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         val metrics = window.get.metrics
         assert(metrics("numOutputRows").value == 100)
         assert(metrics("outputVectors").value == 2)
+    }
+  }
+
+  test("Hash aggregate metrics include abandoned partial aggregation rows") {
+    withSQLConf(
+      GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "10",
+      VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_ROWS.key -> "0",
+      VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_PCT.key -> "0"
+    ) {
+      runQueryAndCompare("SELECT c2, sum(c1) FROM metrics_t1 GROUP BY c2") {
+        df =>
+          val aggregates = collect(df.queryExecution.executedPlan) {
+            case agg: HashAggregateExecBaseTransformer => agg
+          }
+          assert(aggregates.nonEmpty)
+          val numTotalAbandonedPartialAggregationRows = aggregates.map {
+            agg =>
+              val metrics = agg.metrics
+              assert(metrics.contains("abandonedPartialAggregationRows"))
+              val num = metrics("abandonedPartialAggregationRows").value
+              assert(num >= 0)
+              num
+          }.sum
+          assert(numTotalAbandonedPartialAggregationRows > 0)
+      }
     }
   }
 

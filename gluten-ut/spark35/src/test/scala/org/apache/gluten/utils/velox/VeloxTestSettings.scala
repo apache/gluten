@@ -100,6 +100,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("cast from timestamp II")
     .exclude("SPARK-36286: invalid string cast to timestamp")
     .exclude("SPARK-39749: cast Decimal to string")
+    // See https://github.com/facebookincubator/velox/issues/17593.
+    .exclude("Fast fail for cast string type to decimal type")
   enableSuite[GlutenTryCastSuite]
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
@@ -117,6 +119,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("cast string to timestamp")
     // TODO: fix after https://github.com/facebookincubator/velox/pull/14910
     .exclude("SPARK-39749: cast Decimal to string")
+    // See https://github.com/facebookincubator/velox/issues/17593.
+    .exclude("Fast fail for cast string type to decimal type in ansi mode")
   enableSuite[GlutenCollectionExpressionsSuite]
     // Rewrite in Gluten to replace Seq with Array
     .exclude("Shuffle")

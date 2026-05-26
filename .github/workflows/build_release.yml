@@ -28,8 +28,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         run: |
-          docker pull apache/gluten:vcpkg-centos-7
-          docker run -v $GITHUB_WORKSPACE:/workspace -w /work apache/gluten:vcpkg-centos-7 bash -c "
+          docker pull apache/gluten:vcpkg-centos-7-gcc13
+          docker run -v $GITHUB_WORKSPACE:/workspace -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
             set -e
             cd /workspace
             bash dev/release/build-release.sh

@@ -26,6 +26,7 @@
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #include "velox/exec/PlanNodeStats.h"
+#include "velox/functions/sparksql/SparkQueryConfig.h"
 #ifdef GLUTEN_ENABLE_GPU
 #include <cudf/io/types.hpp>
 #include "cudf/GpuLock.h"
@@ -36,6 +37,7 @@
 #include "operators/plannodes/RowVectorStream.h"
 
 using namespace facebook;
+using facebook::velox::functions::sparksql::SparkQueryConfig;
 
 namespace gluten {
 
@@ -47,6 +49,7 @@ const std::string kDynamicFiltersAccepted = "dynamicFiltersAccepted";
 const std::string kReplacedWithDynamicFilterRows = "replacedWithDynamicFilterRows";
 const std::string kDynamicFilterInputRows = "dynamicFilterInputRows";
 const std::string kFlushRowCount = "flushRowCount";
+const std::string kAbandonedPartialAggregationRows = "abandonedPartialAggregationRows";
 const std::string kLoadedToValueHook = "loadedToValueHook";
 const std::string kBloomFilterBlocksByteSize = "bloomFilterSize";
 const std::string kTotalScanTime = "totalScanTime";
@@ -613,6 +616,8 @@ void WholeStageResultIterator::collectMetrics() {
       metrics_->get(Metrics::kNumDynamicFilterInputRows)[metricIndex] =
           runtimeMetric("sum", second->customStats, kDynamicFilterInputRows);
       metrics_->get(Metrics::kFlushRowCount)[metricIndex] = runtimeMetric("sum", second->customStats, kFlushRowCount);
+      metrics_->get(Metrics::kAbandonedPartialAggregationRows)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kAbandonedPartialAggregationRows);
       metrics_->get(Metrics::kLoadedToValueHook)[metricIndex] =
           runtimeMetric("sum", second->customStats, kLoadedToValueHook);
       metrics_->get(Metrics::kBloomFilterBlocksByteSize)[metricIndex] =
@@ -695,7 +700,8 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
   configs[velox::core::QueryConfig::kPreferredOutputBatchBytes] =
       std::to_string(veloxCfg_->get<uint64_t>(kVeloxPreferredBatchBytes, 10L << 20));
   try {
-    configs[velox::core::QueryConfig::kSparkAnsiEnabled] = veloxCfg_->get<std::string>(kAnsiEnabled, "false");
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kAnsiEnabled)] =
+        veloxCfg_->get<std::string>(kAnsiEnabled, "false");
     configs[velox::core::QueryConfig::kSessionTimezone] =
         normalizeSessionTimezone(veloxCfg_->get<std::string>(kSessionTimezone, ""));
     // Adjust timestamp according to the above configured session timezone.
@@ -771,17 +777,17 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
         std::to_string(veloxCfg_->get<uint64_t>(kHashProbeBloomFilterPushdownMaxSize, 0));
 
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterExpectedNumItems)) {
-      configs[velox::core::QueryConfig::kSparkBloomFilterExpectedNumItems] = opt.value();
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterExpectedNumItems)] = opt.value();
     }
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterNumBits)) {
-      configs[velox::core::QueryConfig::kSparkBloomFilterNumBits] = opt.value();
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterNumBits)] = opt.value();
     }
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterMaxNumBits)) {
       // Velox will check memory cannot exceed 4194304.
-      configs[velox::core::QueryConfig::kSparkBloomFilterMaxNumBits] = opt.value();
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterMaxNumBits)] = opt.value();
     }
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterMaxNumItems)) {
-      configs[velox::core::QueryConfig::kSparkBloomFilterMaxNumItems] = opt.value();
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterMaxNumItems)] = opt.value();
     }
     // spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver takes no effect if
     // spark.gluten.sql.columnar.backend.velox.IOThreads is set to 0
@@ -797,14 +803,14 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     // Disable driver cpu time slicing.
     configs[velox::core::QueryConfig::kDriverCpuTimeSliceLimitMs] = "0";
 
-    configs[velox::core::QueryConfig::kSparkPartitionId] = std::to_string(taskInfo_.partitionId);
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kPartitionId)] = std::to_string(taskInfo_.partitionId);
 
     // Enable Spark legacy date formatter if spark.sql.legacy.timeParserPolicy is set to 'LEGACY'
     // or 'legacy'
     if (veloxCfg_->get<std::string>(kSparkLegacyTimeParserPolicy, "") == "LEGACY") {
-      configs[velox::core::QueryConfig::kSparkLegacyDateFormatter] = "true";
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyDateFormatter)] = "true";
     } else {
-      configs[velox::core::QueryConfig::kSparkLegacyDateFormatter] = "false";
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyDateFormatter)] = "false";
     }
 
     if (veloxCfg_->get<std::string>(kSparkMapKeyDedupPolicy, "") == "EXCEPTION") {
@@ -813,10 +819,10 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       configs[velox::core::QueryConfig::kThrowExceptionOnDuplicateMapKeys] = "false";
     }
 
-    configs[velox::core::QueryConfig::kSparkLegacyStatisticalAggregate] =
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyStatisticalAggregate)] =
         std::to_string(veloxCfg_->get<bool>(kSparkLegacyStatisticalAggregate, false));
 
-    configs[velox::core::QueryConfig::kSparkJsonIgnoreNullFields] =
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kJsonIgnoreNullFields)] =
         std::to_string(veloxCfg_->get<bool>(kSparkJsonIgnoreNullFields, true));
 
     configs[velox::core::QueryConfig::kExprMaxCompiledRegexes] =

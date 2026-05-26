@@ -17,9 +17,6 @@
 
 set -eu
 
-source /opt/rh/devtoolset-11/enable
-source /opt/rh/rh-git227/enable
-
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 GLUTEN_HOME=${CURRENT_DIR}/../../
 cd ${GLUTEN_HOME}
