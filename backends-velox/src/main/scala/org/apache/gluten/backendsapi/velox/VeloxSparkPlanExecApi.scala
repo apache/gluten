@@ -263,10 +263,15 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: Like): ExpressionTransformer = {
-    GenericExpressionTransformer(
-      substraitExprName,
-      Seq(left, right, LiteralTransformer(original.escapeChar)),
-      original)
+    original match {
+      case Like(_, r: Literal, '\\') if !r.value.toString.contains('\\') =>
+        GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+      case _ =>
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(left, right, LiteralTransformer(original.escapeChar)),
+          original)
+    }
   }
 
   /** Transform make_timestamp to Substrait. */
