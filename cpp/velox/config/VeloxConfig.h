@@ -211,6 +211,10 @@ const std::string kCudfMemoryResourceDefault =
 const std::string kCudfMemoryPercent = "spark.gluten.sql.columnar.backend.velox.cudf.memoryPercent";
 const std::string kCudfMemoryPercentDefault = "50";
 
+// Maximum number of concurrent tasks allowed to execute GPU work.
+const std::string kCudfConcurrentGpuTasks = "spark.gluten.sql.columnar.backend.velox.cudf.concurrentGpuTasks";
+const uint32_t kCudfConcurrentGpuTasksDefault = 1;
+
 /// Preferred size of batches in bytes to be returned by operators.
 const std::string kVeloxPreferredBatchBytes = "spark.gluten.sql.columnar.backend.velox.preferredBatchBytes";
 
