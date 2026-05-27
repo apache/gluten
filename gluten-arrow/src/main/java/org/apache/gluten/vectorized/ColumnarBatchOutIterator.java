@@ -32,6 +32,7 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     implements RuntimeAware {
   private final Runtime runtime;
   private final long iterHandle;
+
   // Keeps Java-owned direct buffers reachable while Velox holds raw native views into them.
   @SuppressWarnings("unused")
   private final ByteBuffer[][] retainedSplitPayloadBuffers;

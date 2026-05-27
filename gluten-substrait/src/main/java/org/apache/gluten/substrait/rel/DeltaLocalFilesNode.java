@@ -18,6 +18,7 @@ package org.apache.gluten.substrait.rel;
 
 import io.substrait.proto.ReadRel;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -91,7 +92,9 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     IF_NOT_CONTAINED
   }
 
-  public static class DeltaFileReadOptions {
+  public static class DeltaFileReadOptions implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final RowIndexFilterType rowIndexFilterType;
     private final boolean hasDeletionVector;
     private final long deletionVectorCardinality;
