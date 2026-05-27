@@ -40,7 +40,6 @@ import org.apache.spark.sql.extension.GlutenSessionExtensionSuite
 import org.apache.spark.sql.gluten.GlutenFallbackSuite
 import org.apache.spark.sql.hive.execution.GlutenHiveSQLQueryCHSuite
 import org.apache.spark.sql.sources._
-import org.apache.spark.sql.statistics.SparkFunctionStatistics
 
 // Some settings' line length exceeds 100
 // scalastyle:off line.size.limit
@@ -1875,7 +1874,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude(
       "SELECT structFieldSimple.key, arrayFieldSimple[1] FROM tableWithSchema a where int_Field=1")
     .exclude("SELECT structFieldComplex.Value.`value_(2)` FROM tableWithSchema")
-  enableSuite[SparkFunctionStatistics]
   enableSuite[GlutenImplicitsTest]
     .excludeGlutenTest("fallbackSummary with shuffle")
     .excludeGlutenTest("fallbackSummary with cache")
