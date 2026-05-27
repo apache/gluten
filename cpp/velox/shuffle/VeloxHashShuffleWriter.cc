@@ -440,7 +440,6 @@ arrow::Status VeloxHashShuffleWriter::doSplit(const facebook::velox::RowVector& 
 
   printPartitionBuffer();
 
-  setSplitState(SplitState::kInit);
   if (partitionBufferEvictThreshold_ > 0) {
     // After split, evict large partition buffers to free up memory for the next input RowVector.
     const auto partitionBytes = estimatePartitionBufferBytes();
@@ -450,6 +449,7 @@ arrow::Status VeloxHashShuffleWriter::doSplit(const facebook::velox::RowVector& 
       }
     }
   }
+  setSplitState(SplitState::kInit);
   return arrow::Status::OK();
 }
 
