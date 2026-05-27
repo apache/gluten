@@ -30,7 +30,7 @@ VeloxColumnarToRow (150)
       :                             :     :                       :  +- ColumnarExchange (58)
       :                             :     :                       :     +- VeloxResizeBatches (57)
       :                             :     :                       :        +- ^ ProjectExecTransformer (55)
-      :                             :     :                       :           +- ^ RegularHashAggregateExecTransformer (54)
+      :                             :     :                       :           +- ^ FlushableHashAggregateExecTransformer (54)
       :                             :     :                       :              +- ^ InputIteratorTransformer (53)
       :                             :     :                       :                 +- ColumnarExchange (51)
       :                             :     :                       :                    +- VeloxResizeBatches (50)
@@ -345,7 +345,7 @@ Input [3]: [brand_id#27, class_id#28, category_id#29]
 (53) InputIteratorTransformer
 Input [3]: [brand_id#27, class_id#28, category_id#29]
 
-(54) RegularHashAggregateExecTransformer
+(54) FlushableHashAggregateExecTransformer
 Input [3]: [brand_id#27, class_id#28, category_id#29]
 Keys [3]: [brand_id#27, class_id#28, category_id#29]
 Functions: []

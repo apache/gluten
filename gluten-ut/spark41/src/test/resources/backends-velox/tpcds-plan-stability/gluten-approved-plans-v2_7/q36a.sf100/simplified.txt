@@ -11,7 +11,7 @@ VeloxColumnarToRow
                     WholeStageCodegenTransformer (21)
                       ProjectExecTransformer [lochierarchy,_w0,gross_margin,i_category,i_class]
                         ProjectExecTransformer [gross_margin,i_category,i_class,lochierarchy,t_class]
-                          RegularHashAggregateExecTransformer [gross_margin,i_category,i_class,t_category,t_class,lochierarchy]
+                          FlushableHashAggregateExecTransformer [gross_margin,i_category,i_class,t_category,t_class,lochierarchy]
                             InputIteratorTransformer
                               InputAdapter
                                 ColumnarExchange [gross_margin,i_category,i_class,t_category,t_class,lochierarchy] #2

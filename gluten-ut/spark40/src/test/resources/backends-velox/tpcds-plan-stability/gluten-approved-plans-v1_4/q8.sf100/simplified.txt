@@ -44,7 +44,7 @@ VeloxColumnarToRow
                                   VeloxResizeBatches
                                     WholeStageCodegenTransformer (10)
                                       ProjectExecTransformer [ca_zip]
-                                        RegularHashAggregateExecTransformer [ca_zip]
+                                        FlushableHashAggregateExecTransformer [ca_zip]
                                           InputIteratorTransformer
                                             InputAdapter
                                               ColumnarExchange [ca_zip] #6

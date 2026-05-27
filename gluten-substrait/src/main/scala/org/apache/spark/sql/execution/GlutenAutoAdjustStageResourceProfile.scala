@@ -58,6 +58,9 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
     if (!SQLConf.get.adaptiveExecutionEnabled) {
       return plan
     }
+    if (!sparkConf.getBoolean(GlutenCoreConfig.SPARK_OFFHEAP_ENABLED_KEY, defaultValue = false)) {
+      return plan
+    }
     // Starting here, the resource profile may differ between stages. Configure resource settings
     // using the default profile to prevent any impact from the previous stage. If a new resource
     // profile is applied, the settings will be updated accordingly.
