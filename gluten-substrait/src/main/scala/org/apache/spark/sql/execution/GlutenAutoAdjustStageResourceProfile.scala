@@ -59,9 +59,6 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
       return plan
     }
     if (!sparkConf.getBoolean(GlutenCoreConfig.SPARK_OFFHEAP_ENABLED_KEY, defaultValue = false)) {
-      logWarning(
-        s"${GlutenCoreConfig.SPARK_OFFHEAP_ENABLED_KEY} is not enabled, " +
-          s"Gluten auto adjust stage resource profile will not work.")
       return plan
     }
     // Starting here, the resource profile may differ between stages. Configure resource settings
