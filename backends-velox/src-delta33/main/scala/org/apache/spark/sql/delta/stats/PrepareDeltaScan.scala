@@ -22,7 +22,15 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.delta.{DeltaTable, OptimisticTransaction, PreprocessTableWithDVs}
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 
-/** Shadow Delta's PrepareDeltaScan to inject backend-specific DV preprocessing. */
+/**
+ * Delta 3.3 compatibility shim around Delta's PrepareDeltaScan.
+ *
+ * This preserves Delta's normal scan preparation first, including stats skipping, metadata-query
+ * optimization, and transaction read tracking. After that, Gluten runs DV preprocessing so the scan
+ * exposes Delta's internal DV row-deleted column and row-index metadata. The native physical rule
+ * later strips Spark's synthetic DV predicate once the materialized DV payload is attached to the
+ * native split, so Velox applies the DV filter exactly once.
+ */
 class PrepareDeltaScan(protected val spark: SparkSession)
   extends Rule[LogicalPlan]
   with PrepareDeltaScanBase

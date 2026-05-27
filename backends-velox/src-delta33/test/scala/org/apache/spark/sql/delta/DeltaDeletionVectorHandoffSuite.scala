@@ -17,7 +17,7 @@
 package org.apache.spark.sql.delta
 
 import org.apache.gluten.backendsapi.velox.VeloxDeltaMetadataUtils
-import org.apache.gluten.backendsapi.velox.VeloxDeltaMetadataUtils.{DeltaDvCardinality, DeltaDvPayloadIndex}
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{RowIndexFilterType => GlutenRowIndexFilterType}
 
 import org.apache.spark.paths.SparkPath
 import org.apache.spark.sql.QueryTest
@@ -76,12 +76,16 @@ class DeltaDeletionVectorHandoffSuite
           partitionColumnCount = 0,
           files = Seq(partitionedFile).asJava)
         val metadata = normalized.otherMetadataColumns.get(0)
+        val deltaReadOptions = normalized.deltaReadOptions.get(0)
 
         assert(normalized.deletionVectorPayloads.length == 1)
         assert(normalized.deletionVectorPayloads.head.nonEmpty)
-        assert(metadata.get(DeltaDvPayloadIndex) == Int.box(0))
-        assert(metadata.get(DeltaDvCardinality) == Long.box(dataFile.deletionVector.cardinality))
+        assert(deltaReadOptions.hasDeletionVector())
+        assert(deltaReadOptions.deletionVectorPayloadIndex() == 0)
+        assert(deltaReadOptions.deletionVectorCardinality() == dataFile.deletionVector.cardinality)
+        assert(deltaReadOptions.rowIndexFilterType() == GlutenRowIndexFilterType.IF_CONTAINED)
         assert(!metadata.containsKey(GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_ID_ENCODED))
+        assert(!metadata.containsKey(GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_TYPE))
     }
   }
 
@@ -117,8 +121,9 @@ class DeltaDeletionVectorHandoffSuite
         val metadata = normalized.otherMetadataColumns.get(0)
 
         assert(normalized.deletionVectorPayloads.isEmpty)
-        assert(!metadata.containsKey(DeltaDvPayloadIndex))
-        assert(!metadata.containsKey(DeltaDvCardinality))
+        assert(normalized.deltaReadOptions.isEmpty)
+        assert(!metadata.containsKey(GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_ID_ENCODED))
+        assert(!metadata.containsKey(GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_TYPE))
     }
   }
 }

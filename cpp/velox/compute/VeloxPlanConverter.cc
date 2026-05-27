@@ -22,6 +22,7 @@
 #include <google/protobuf/any.pb.h>
 #include <google/protobuf/wrappers.pb.h>
 #include "config/GlutenConfig.h"
+#include "delta/DeltaSplitInfo.h"
 #include "iceberg/IcebergPlanConverter.h"
 #include "operators/plannodes/IteratorSplit.h"
 
@@ -51,8 +52,6 @@ VeloxPlanConverter::VeloxPlanConverter(
 }
 
 namespace {
-const std::string kDeltaDvPayloadIndex = "delta_dv_payload_index";
-
 std::optional<std::string> unpackMetadataValue(const google::protobuf::Any& value) {
   google::protobuf::BytesValue bytesValue;
   if (value.UnpackTo(&bytesValue)) {
@@ -82,6 +81,50 @@ std::optional<std::string> unpackMetadataValue(const google::protobuf::Any& valu
   return std::nullopt;
 }
 
+delta::DeltaRowIndexFilterType parseDeltaRowIndexFilterType(int filterType) {
+  switch (filterType) {
+    case 1:
+      return delta::DeltaRowIndexFilterType::kIfContained;
+    case 2:
+      return delta::DeltaRowIndexFilterType::kIfNotContained;
+    case 0:
+    default:
+      return delta::DeltaRowIndexFilterType::kKeepAll;
+  }
+}
+
+std::shared_ptr<DeltaSplitInfo> parseDeltaSplitInfo(
+    const substrait::ReadRel_LocalFiles_FileOrFiles& file,
+    std::shared_ptr<SplitInfo> splitInfo,
+    const std::vector<SplitPayloadBufferView>* splitPayloads) {
+  auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo)
+      ? std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo)
+      : std::make_shared<DeltaSplitInfo>(*splitInfo);
+
+  deltaSplitInfo->format = dwio::common::FileFormat::PARQUET;
+  const auto& deltaReadOptions = file.delta();
+  deltaSplitInfo->rowIndexFilterTypes.emplace_back(
+      parseDeltaRowIndexFilterType(deltaReadOptions.row_index_filter_type()));
+
+  if (!deltaReadOptions.has_deletion_vector()) {
+    deltaSplitInfo->deletionVectors.emplace_back(std::nullopt);
+    return deltaSplitInfo;
+  }
+
+  VELOX_USER_CHECK_NOT_NULL(splitPayloads, "Delta split has a deletion vector without an external payload buffer");
+  const auto payloadIndex = static_cast<size_t>(deltaReadOptions.deletion_vector_payload_index());
+  VELOX_USER_CHECK_LT(
+      payloadIndex,
+      splitPayloads->size(),
+      "Delta deletion vector payload index {} is out of range for {} payload buffers",
+      payloadIndex,
+      splitPayloads->size());
+  const auto cardinality = static_cast<uint64_t>(deltaReadOptions.deletion_vector_cardinality());
+  deltaSplitInfo->deletionVectors.emplace_back(
+      delta::DeltaDeletionVectorDescriptor::serialized(cardinality, splitPayloads->at(payloadIndex)));
+  return deltaSplitInfo;
+}
+
 std::shared_ptr<SplitInfo> parseScanSplitInfo(
     const facebook::velox::config::ConfigBase* veloxCfg,
     const google::protobuf::RepeatedPtrField<substrait::ReadRel_LocalFiles_FileOrFiles>& fileList,
@@ -96,7 +139,6 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
   splitInfo->partitionColumns.reserve(fileList.size());
   splitInfo->properties.reserve(fileList.size());
   splitInfo->metadataColumns.reserve(fileList.size());
-  splitInfo->deletionVectorPayloads.reserve(fileList.size());
   for (const auto& file : fileList) {
     // Expect all Partitions share the same index.
     splitInfo->partitionIndex = file.partition_index();
@@ -115,20 +157,6 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
       if (auto unpackedValue = unpackMetadataValue(otherMetadataColumn.value())) {
         metadataColumnMap[otherMetadataColumn.key()] = std::move(*unpackedValue);
       }
-    }
-    if (auto payloadIndexIt = metadataColumnMap.find(kDeltaDvPayloadIndex); payloadIndexIt != metadataColumnMap.end()) {
-      VELOX_USER_CHECK_NOT_NULL(splitPayloads, "Split payload index found without an external payload buffer");
-      const auto payloadIndex = static_cast<size_t>(std::stoul(payloadIndexIt->second));
-      VELOX_USER_CHECK_LT(
-          payloadIndex,
-          splitPayloads->size(),
-          "Split payload index {} is out of range for {} payload buffers",
-          payloadIndex,
-          splitPayloads->size());
-      splitInfo->deletionVectorPayloads.emplace_back(splitPayloads->at(payloadIndex));
-      metadataColumnMap.erase(payloadIndexIt);
-    } else {
-      splitInfo->deletionVectorPayloads.emplace_back(std::nullopt);
     }
     splitInfo->metadataColumns.emplace_back(metadataColumnMap);
 
@@ -157,6 +185,9 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
         break;
       case SubstraitFileFormatCase::kIceberg:
         splitInfo = IcebergPlanConverter::parseIcebergSplitInfo(file, std::move(splitInfo));
+        break;
+      case SubstraitFileFormatCase::kDelta:
+        splitInfo = parseDeltaSplitInfo(file, std::move(splitInfo), splitPayloads);
         break;
       default:
         splitInfo->format = dwio::common::FileFormat::UNKNOWN;

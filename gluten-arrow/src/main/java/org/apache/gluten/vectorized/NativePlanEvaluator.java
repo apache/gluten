@@ -125,7 +125,7 @@ public class NativePlanEvaluator {
   }
 
   private ColumnarBatchOutIterator createOutIterator(
-      Runtime runtime, long itrHandle, Object retainedReference) {
-    return new ColumnarBatchOutIterator(runtime, itrHandle, retainedReference);
+      Runtime runtime, long itrHandle, ByteBuffer[][] retainedSplitPayloadBuffers) {
+    return new ColumnarBatchOutIterator(runtime, itrHandle, retainedSplitPayloadBuffers);
   }
 }

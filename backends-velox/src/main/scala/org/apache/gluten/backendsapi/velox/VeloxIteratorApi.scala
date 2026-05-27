@@ -24,7 +24,8 @@ import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.metrics.{IMetrics, IteratorMetricsJniWrapper}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.plan.PlanNode
-import org.apache.gluten.substrait.rel.{LocalFilesBuilder, LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.{DeltaLocalFilesBuilder, LocalFilesBuilder, LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 import org.apache.gluten.vectorized._
 
@@ -50,6 +51,9 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 class VeloxIteratorApi extends IteratorApi with Logging {
+  private type NormalizedDeltaSplitMetadata =
+    (Seq[java.util.Map[String, Object]], Seq[DeltaFileReadOptions], Array[Array[Byte]])
+
   private val deltaMetadataUtilsClassName =
     "org.apache.gluten.backendsapi.velox.VeloxDeltaMetadataUtils$"
 
@@ -97,17 +101,34 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     val metadataColumns = partitionFiles
       .map(
         f => SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
-    val (otherMetadataColumns, deletionVectorPayloads) =
+    val (otherMetadataColumns, deltaReadOptions, deletionVectorPayloads) =
       normalizeDeltaSplitMetadata(partitionSchema.fields.length, partitionFiles)
         .getOrElse {
           (
             partitionFiles.map {
               f => SparkShimLoader.getSparkShims.getOtherConstantMetadataColumnValues(f)
             },
+            Seq.empty[DeltaFileReadOptions],
             Array.empty[Array[Byte]])
         }
 
-    val localFiles = setFileSchemaForLocalFiles(
+    val localFilesNode = if (deltaReadOptions.nonEmpty) {
+      DeltaLocalFilesBuilder.makeDeltaLocalFiles(
+        partitionIndex,
+        paths.asJava,
+        starts.asJava,
+        lengths.asJava,
+        fileSizes.asJava,
+        modificationTimes.asJava,
+        partitionColumns.map(_.asJava).asJava,
+        metadataColumns.asJava,
+        fileFormat,
+        locations.toList.asJava,
+        mapAsJavaMap(properties),
+        otherMetadataColumns.asJava,
+        deltaReadOptions.asJava
+      )
+    } else {
       LocalFilesBuilder.makeLocalFiles(
         partitionIndex,
         paths.asJava,
@@ -121,7 +142,11 @@ class VeloxIteratorApi extends IteratorApi with Logging {
         locations.toList.asJava,
         mapAsJavaMap(properties),
         otherMetadataColumns.asJava
-      ),
+      )
+    }
+
+    val localFiles = setFileSchemaForLocalFiles(
+      localFilesNode,
       dataSchema,
       fileFormat
     )
@@ -215,8 +240,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
 
   private def normalizeDeltaSplitMetadata(
       partitionColumnCount: Int,
-      partitionFiles: Seq[PartitionedFile])
-      : Option[(Seq[java.util.Map[String, Object]], Array[Array[Byte]])] = {
+      partitionFiles: Seq[PartitionedFile]): Option[NormalizedDeltaSplitMetadata] = {
     try {
       // scalastyle:off classforname
       val moduleClass = Class.forName(deltaMetadataUtilsClassName)
@@ -227,11 +251,17 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       val normalized =
         normalizeMethod.invoke(module, Int.box(partitionColumnCount), partitionFiles.asJava)
       val metadataMethod = normalized.getClass.getMethod("otherMetadataColumns")
+      val deltaOptionsMethod = normalized.getClass.getMethod("deltaReadOptions")
       val payloadsMethod = normalized.getClass.getMethod("deletionVectorPayloads")
       Some(
         metadataMethod
           .invoke(normalized)
           .asInstanceOf[java.util.List[java.util.Map[String, Object]]]
+          .asScala
+          .toSeq,
+        deltaOptionsMethod
+          .invoke(normalized)
+          .asInstanceOf[java.util.List[DeltaFileReadOptions]]
           .asScala
           .toSeq,
         payloadsMethod.invoke(normalized).asInstanceOf[Array[Array[Byte]]]

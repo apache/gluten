@@ -20,6 +20,7 @@
 #include "TypeUtils.h"
 #include "VariantToVectorConverter.h"
 #include "compute/delta/DeltaConnector.h"
+#include "compute/delta/DeltaSplitInfo.h"
 #include "jni/JniHashTable.h"
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
@@ -49,8 +50,6 @@ namespace {
 
 const std::string kDeltaTableFormat = "delta";
 const std::string kTableFormatKey = "table_format";
-const std::string kDeltaDvCardinality = "delta_dv_cardinality";
-const std::string kRowIndexFilterType = "row_index_filter_type";
 
 bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfos) {
 #ifdef GLUTEN_ENABLE_GPU
@@ -65,11 +64,13 @@ bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfo
 
 bool isDeltaMetadata(const std::unordered_map<std::string, std::string>& metadata) {
   auto tableFormatIt = metadata.find(kTableFormatKey);
-  return (tableFormatIt != metadata.end() && tableFormatIt->second == kDeltaTableFormat) ||
-      metadata.find(kDeltaDvCardinality) != metadata.end() || metadata.find(kRowIndexFilterType) != metadata.end();
+  return tableFormatIt != metadata.end() && tableFormatIt->second == kDeltaTableFormat;
 }
 
 bool isDeltaSplitInfo(const std::shared_ptr<SplitInfo>& splitInfo) {
+  if (std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo) != nullptr) {
+    return true;
+  }
   for (const auto& metadata : splitInfo->metadataColumns) {
     if (isDeltaMetadata(metadata)) {
       return true;

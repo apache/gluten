@@ -21,6 +21,7 @@
 #include "VeloxRuntime.h"
 #include "compute/delta/DeltaConnector.h"
 #include "compute/delta/DeltaSplit.h"
+#include "compute/delta/DeltaSplitInfo.h"
 #include "config/VeloxConfig.h"
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
@@ -74,13 +75,10 @@ const std::string kWriteIOTime = "writeIOWallNanos";
 const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
 const std::string kDeltaTableFormat = "delta";
 const std::string kTableFormatKey = "table_format";
-const std::string kDeltaDvCardinality = "delta_dv_cardinality";
-const std::string kRowIndexFilterType = "row_index_filter_type";
 
 bool isDeltaMetadata(const std::unordered_map<std::string, std::string>& metadata) {
   auto tableFormatIt = metadata.find(kTableFormatKey);
-  return (tableFormatIt != metadata.end() && tableFormatIt->second == kDeltaTableFormat) ||
-      metadata.find(kDeltaDvCardinality) != metadata.end() || metadata.find(kRowIndexFilterType) != metadata.end();
+  return tableFormatIt != metadata.end() && tableFormatIt->second == kDeltaTableFormat;
 }
 
 bool isDeltaScanInfo(const std::shared_ptr<SplitInfo>& splitInfo) {
@@ -119,42 +117,6 @@ std::string connectorIdForScanNode(
     return "";
   }
   return tableScanNode->tableHandle()->connectorId();
-}
-
-std::optional<uint64_t> getOptionalUint64(
-    const std::unordered_map<std::string, std::string>& metadata,
-    const std::string& key) {
-  auto it = metadata.find(key);
-  if (it == metadata.end() || it->second.empty()) {
-    return std::nullopt;
-  }
-  return static_cast<uint64_t>(std::stoull(it->second));
-}
-
-std::optional<gluten::delta::DeltaDeletionVectorDescriptor> parseDeltaDeletionVector(
-    const std::unordered_map<std::string, std::string>& metadata,
-    std::optional<SplitPayloadBufferView> serializedPayloadView) {
-  if (!serializedPayloadView.has_value()) {
-    return std::nullopt;
-  }
-
-  const auto cardinality = getOptionalUint64(metadata, kDeltaDvCardinality);
-  return gluten::delta::DeltaDeletionVectorDescriptor::serialized(cardinality, serializedPayloadView);
-}
-
-gluten::delta::DeltaRowIndexFilterType parseDeltaRowIndexFilterType(
-    const std::unordered_map<std::string, std::string>& metadata) {
-  auto it = metadata.find(kRowIndexFilterType);
-  if (it == metadata.end()) {
-    return gluten::delta::DeltaRowIndexFilterType::kKeepAll;
-  }
-  if (it->second == "IF_CONTAINED") {
-    return gluten::delta::DeltaRowIndexFilterType::kIfContained;
-  }
-  if (it->second == "IF_NOT_CONTAINED") {
-    return gluten::delta::DeltaRowIndexFilterType::kIfNotContained;
-  }
-  return gluten::delta::DeltaRowIndexFilterType::kKeepAll;
 }
 
 } // namespace
@@ -233,7 +195,9 @@ WholeStageResultIterator::WholeStageResultIterator(
     const auto& partitionColumns = scanInfo->partitionColumns;
     const auto& metadataColumns = scanInfo->metadataColumns;
     const auto scanNodeConnectorId = connectorIdForScanNode(veloxPlan_, scanNodeIds_[scanInfoIdx]);
-    const bool isDeltaScan = scanNodeConnectorId == connectorIds_.delta || isDeltaScanInfo(scanInfo);
+    const auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(scanInfo);
+    const bool isDeltaScan =
+        scanNodeConnectorId == connectorIds_.delta || deltaSplitInfo != nullptr || isDeltaScanInfo(scanInfo);
 #ifdef GLUTEN_ENABLE_GPU
     // Under the pre-condition that all the split infos has same partition column and format.
     const auto canUseCudfConnector = scanInfo->canUseCudfConnector();
@@ -269,6 +233,14 @@ WholeStageResultIterator::WholeStageResultIterator(
             properties[idx]);
       } else if (isDeltaScan) {
         std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", kDeltaTableFormat}};
+        std::optional<gluten::delta::DeltaDeletionVectorDescriptor> deletionVector = std::nullopt;
+        auto rowIndexFilterType = gluten::delta::DeltaRowIndexFilterType::kKeepAll;
+        if (deltaSplitInfo != nullptr) {
+          VELOX_USER_CHECK_LT(idx, deltaSplitInfo->deletionVectors.size());
+          VELOX_USER_CHECK_LT(idx, deltaSplitInfo->rowIndexFilterTypes.size());
+          deletionVector = deltaSplitInfo->deletionVectors[idx];
+          rowIndexFilterType = deltaSplitInfo->rowIndexFilterTypes[idx];
+        }
         split = std::make_shared<gluten::delta::HiveDeltaSplit>(
             connectorIds_.delta,
             paths[idx],
@@ -281,9 +253,9 @@ WholeStageResultIterator::WholeStageResultIterator(
             nullptr,
             std::unordered_map<std::string, std::string>(),
             true,
-            parseDeltaDeletionVector(metadataColumn, scanInfo->deletionVectorPayloads[idx]),
+            deletionVector,
             std::nullopt,
-            parseDeltaRowIndexFilterType(metadataColumn),
+            rowIndexFilterType,
             metadataColumn,
             properties[idx]);
       } else {
