@@ -49,7 +49,7 @@ case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
       plan
     }
 
-    val resultPlan = if (resizeBatchesShuffleOutputEnabled) {
+    val resultPlan = if (isAdaptiveContext && resizeBatchesShuffleOutputEnabled) {
       addResizeBatchesForShuffleOutput(newPlan, range.min, range.max, preferredBatchBytes)
     } else {
       newPlan
