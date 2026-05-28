@@ -36,7 +36,7 @@ import org.apache.spark.sql.types.StructType
  */
 trait PreprocessTableWithDVs extends SubqueryTransformerHelper {
   def preprocessTablesWithDVs(plan: LogicalPlan): LogicalPlan = {
-    transformWithSubqueries(plan) { case ScanWithDeletionVectors(dvScan) => dvScan }
+    plan.transformDown { case ScanWithDeletionVectors(dvScan) => dvScan }
   }
 }
 
@@ -78,9 +78,9 @@ object ScanWithDeletionVectors {
       return None
     }
 
-    require(
-      !index.isInstanceOf[TahoeLogFileIndex],
-      "Cannot work with a non-pinned table snapshot of the TahoeFileIndex")
+    if (index.isInstanceOf[TahoeLogFileIndex]) {
+      return None
+    }
 
     if (fileFormat.hasTablePath) {
       return None
@@ -109,9 +109,9 @@ object ScanWithDeletionVectors {
       return None
     }
 
-    require(
-      !index.isInstanceOf[TahoeLogFileIndex],
-      "Cannot work with a non-pinned table snapshot of the TahoeFileIndex")
+    if (index.isInstanceOf[TahoeLogFileIndex]) {
+      return None
+    }
 
     if (fileFormat.hasTablePath) {
       return None
