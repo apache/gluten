@@ -11,7 +11,7 @@ VeloxColumnarToRow
                     WholeStageCodegenTransformer (33)
                       ProjectExecTransformer [lochierarchy,_w0,total_sum,s_state,s_county]
                         ProjectExecTransformer [total_sum,s_state,s_county,lochierarchy,g_county]
-                          RegularHashAggregateExecTransformer [total_sum,s_state,s_county,g_state,g_county,lochierarchy]
+                          FlushableHashAggregateExecTransformer [total_sum,s_state,s_county,g_state,g_county,lochierarchy]
                             InputIteratorTransformer
                               InputAdapter
                                 ColumnarExchange [total_sum,s_state,s_county,g_state,g_county,lochierarchy] #2

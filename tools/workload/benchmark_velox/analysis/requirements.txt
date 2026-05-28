@@ -81,7 +81,7 @@ more-itertools==8.10.0
 mypy-extensions==1.0.0
 nbclassic==1.1.0
 nbclient==0.10.0
-nbconvert==7.17.0
+nbconvert==7.17.1
 nbdime==4.0.1
 nbformat==5.10.4
 nest-asyncio==1.6.0
@@ -101,7 +101,7 @@ parso==0.8.4
 pathspec==0.12.1
 pexpect==4.8.0
 pillow==12.2.0
-pip==26.0
+pip==26.1
 platformdirs==4.2.2
 prometheus_client==0.20.0
 prompt_toolkit==3.0.45
