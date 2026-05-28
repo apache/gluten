@@ -37,11 +37,14 @@ class GlutenBroadcastJoinSuite extends BroadcastJoinSuite with GlutenTestsCommon
    */
   override def beforeAll(): Unit = {
     super.beforeAll()
+    spark.stop()
+    SparkSession.clearActiveSession()
+    SparkSession.clearDefaultSession()
+
     val sparkBuilder = SparkSession
       .builder()
       .master("local-cluster[2,1,1024]")
       .appName("Gluten-UT")
-      .master(s"local[2]")
       .config(SQLConf.OPTIMIZER_EXCLUDED_RULES.key, ConvertToLocalRelation.ruleName)
       .config("spark.driver.memory", "1G")
       .config("spark.sql.adaptive.enabled", "true")
