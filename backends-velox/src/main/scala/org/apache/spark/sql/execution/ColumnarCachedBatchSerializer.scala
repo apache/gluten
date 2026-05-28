@@ -44,7 +44,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.unsafe.types.UTF8String
 
-import com.esotericsoftware.kryo.{Kryo, Serializer => KryoSerializer}
+import com.esotericsoftware.kryo.{Kryo, KryoException, Serializer => KryoSerializer}
 import com.esotericsoftware.kryo.DefaultSerializer
 import com.esotericsoftware.kryo.io.{Input, Output}
 import org.apache.arrow.c.ArrowSchema
@@ -152,14 +152,30 @@ class CachedColumnarBatchKryoSerializer extends KryoSerializer[CachedColumnarBat
     )
     val bytes = new Array[Byte](payloadLen)
     input.readBytes(bytes)
-    // Backward-compat with the V1 wire format (no trailing hasStats / hasSchema booleans):
-    // legacy CachedColumnarBatch instances persisted on disk (DISK_ONLY / MEMORY_AND_DISK)
-    // surviving a rolling upgrade lack these fields. available() is best-effort -- treats
-    // unavailable suffix as "absent" instead of throwing KryoException.
-    val hasStats = input.available() > 0 && input.readBoolean()
-    // Even when hasStats=false we still consume the hasSchema tag to keep the stream aligned.
-    // NB: avoid `val (a: T, b: U) = ...` -- Scala 2.13 erases Tuple2 generics and the typed
-    // pattern match throws MatchError at runtime.
+    // Read the trailing hasStats marker. Catching a Buffer-underflow KryoException
+    // here preserves backward compatibility with the V1 wire format (no trailing
+    // hasStats / hasSchema booleans), which the existing
+    // ColumnarCachedBatchKryoSuite#"V1 wire ..." test locks as a contract:
+    // an absent trailing byte must read as null, not throw.
+    //
+    // Why a try/catch instead of `input.available() > 0 && readBoolean`:
+    // Kryo `Input.available()` returns `(limit - position) + underlyingStream.available()`,
+    // and the JDK `InputStream.available()` contract permits any implementation to
+    // return 0 even when more data follows -- BufferedInputStream over shuffle-spill
+    // / network chunk boundaries routinely does so. When the Kryo buffer is drained
+    // AND the underlying stream reports 0 at the trailing-boolean byte position, the
+    // probe falsely concludes EOF, skips hasStats, and the next readClassAndObject
+    // interprets the stats payload (which contains the schema JSON) as a class name --
+    // surfacing as `ClassNotFoundException: {"type":"struct",...}` with the stack
+    // topped by `DefaultClassResolver.readName`. A try/catch on the real EOF surface
+    // (Kryo "Buffer underflow") avoids the false-EOF probe while still tolerating
+    // V1 wire.
+    //
+    // NB: avoid `val (a: T, b: U) = ...` -- Scala 2.13 erases Tuple2 generics and the
+    // typed pattern match throws MatchError at runtime.
+    val hasStats =
+      try input.readBoolean()
+      catch { case e: KryoException if isBufferUnderflow(e) => false }
     val statsAndSchema: (InternalRow, StructType) = if (hasStats) {
       val statsLen = input.readInt()
       require(
@@ -177,9 +193,21 @@ class CachedColumnarBatchKryoSerializer extends KryoSerializer[CachedColumnarBat
     CachedColumnarBatch(numRows, sizeInBytes, bytes, statsAndSchema._1, statsAndSchema._2)
   }
 
+  // Kryo signals end-of-input by throwing KryoException with a message starting
+  // with "Buffer underflow". There is no dedicated subclass, so a message-prefix
+  // check is the narrowest filter we can apply without swallowing real corruption
+  // (e.g. ClassNotFoundException wrapped during readClassAndObject).
+  private def isBufferUnderflow(e: KryoException): Boolean = {
+    val msg = e.getMessage
+    msg != null && msg.startsWith("Buffer underflow")
+  }
+
   private def readOptionalSchema(input: Input, maxLen: Long): StructType = {
-    // Treat absent trailing bytes as "no schema": V1 wire format predates this field.
-    if (input.available() <= 0 || !input.readBoolean()) {
+    // Trailing schema marker. See readSchema above for the same V1-vs-chunked-fill rationale.
+    val hasSchema =
+      try input.readBoolean()
+      catch { case e: KryoException if isBufferUnderflow(e) => false }
+    if (!hasSchema) {
       null
     } else {
       val schemaLen = input.readInt()
