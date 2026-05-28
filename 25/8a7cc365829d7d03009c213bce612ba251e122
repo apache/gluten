@@ -1,0 +1,22 @@
+cpp-ch/local-engine/Functions/SparkArrayFlatten.cpp
+  s_62f9ee7edbab89::t_6330b84d2f2113 19,111-112,117-120,122-123,125-129,131,154
+backends-clickhouse/src/test/scala/org/apache/gluten/execution/GlutenFunctionValidateSuite.scala
+  s_62f9ee7edbab89::t_6330b84d2f2113 671-686
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.12",
+  "base_commit_sha": "258a7cc365829d7d03009c213bce612ba251e122",
+  "prompts": {},
+  "logical_commit_id": "258a7cc365829d7d03009c213bce612ba251e122",
+  "sessions": {
+    "s_62f9ee7edbab89": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_191a36aefffeD9hlmfbGScelR4",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
