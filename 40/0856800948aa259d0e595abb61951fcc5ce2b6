@@ -1,0 +1,22 @@
+cpp-ch/local-engine/Functions/SparkFunctionStrToMap.cpp
+  s_62f9ee7edbab89::t_f70159b29e1304 243
+backends-clickhouse/src/test/scala/org/apache/gluten/execution/GlutenFunctionValidateSuite.scala
+  s_62f9ee7edbab89::t_f70159b29e1304 492-505
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.12",
+  "base_commit_sha": "400856800948aa259d0e595abb61951fcc5ce2b6",
+  "prompts": {},
+  "logical_commit_id": "400856800948aa259d0e595abb61951fcc5ce2b6",
+  "sessions": {
+    "s_62f9ee7edbab89": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_191a36aefffeD9hlmfbGScelR4",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
