@@ -1,0 +1,22 @@
+cpp-ch/local-engine/AggregateFunctions/GroupLimitFunctions.cpp
+  s_62f9ee7edbab89::t_1c33df126f2bca 145-146
+backends-clickhouse/src/test/scala/org/apache/gluten/execution/tpch/GlutenClickHouseTPCHSaltNullParquetSuite.scala
+  s_62f9ee7edbab89::t_1c33df126f2bca 3048-3076
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.12",
+  "base_commit_sha": "2e134bb09d31f88e956a0e1d64d716358bcdd9a1",
+  "prompts": {},
+  "logical_commit_id": "2e134bb09d31f88e956a0e1d64d716358bcdd9a1",
+  "sessions": {
+    "s_62f9ee7edbab89": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_191a36aefffeD9hlmfbGScelR4",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
