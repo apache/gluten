@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.
@@ -198,12 +198,12 @@ function setup_linux {
         exit 1
       ;;
     esac
-  elif [[ "$LINUX_DISTRIBUTION" == "rhel" ]]; then
-    case "$LINUX_VERSION_ID" in
-      9.6) ;;
-      9.7) ;;
+  elif [[ "$LINUX_DISTRIBUTION" == "rhel" || "$LINUX_DISTRIBUTION" == "rocky" || \
+    "$LINUX_DISTRIBUTION" == "almalinux" ]]; then
+    case "${LINUX_VERSION_ID%%.*}" in
+      9) ;;
       *)
-        echo "Unsupported rhel version: $LINUX_VERSION_ID"
+        echo "Unsupported ${LINUX_DISTRIBUTION} version: $LINUX_VERSION_ID"
         exit 1
       ;;
     esac
