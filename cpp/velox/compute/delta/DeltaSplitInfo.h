@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "compute/delta/DeltaSplit.h"
@@ -26,11 +28,13 @@
 namespace gluten {
 
 struct DeltaSplitInfo : SplitInfo {
+  std::vector<std::shared_ptr<std::string>> deletionVectorPayloads;
   std::vector<std::optional<delta::DeltaDeletionVectorDescriptor>> deletionVectors;
   std::vector<delta::DeltaRowIndexFilterType> rowIndexFilterTypes;
 
   DeltaSplitInfo(const SplitInfo& splitInfo) : SplitInfo(splitInfo) {
     deletionVectors.reserve(splitInfo.paths.capacity());
+    deletionVectorPayloads.reserve(splitInfo.paths.capacity());
     rowIndexFilterTypes.reserve(splitInfo.paths.capacity());
 
     const auto previousFileCount = splitInfo.paths.empty() ? 0 : splitInfo.paths.size() - 1;

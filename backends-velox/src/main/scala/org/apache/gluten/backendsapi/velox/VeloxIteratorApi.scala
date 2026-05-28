@@ -42,7 +42,6 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.SparkDirectoryUtil
 
 import java.lang.{Long => JLong}
-import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.time.ZoneOffset
 import java.util.UUID
@@ -52,7 +51,7 @@ import scala.collection.mutable
 
 class VeloxIteratorApi extends IteratorApi with Logging {
   private type NormalizedDeltaSplitMetadata =
-    (Seq[java.util.Map[String, Object]], Seq[DeltaFileReadOptions], Array[Array[Byte]])
+    (Seq[java.util.Map[String, Object]], Seq[DeltaFileReadOptions])
 
   private val deltaMetadataUtilsClassName =
     "org.apache.gluten.backendsapi.velox.VeloxDeltaMetadataUtils$"
@@ -101,15 +100,14 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     val metadataColumns = partitionFiles
       .map(
         f => SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
-    val (otherMetadataColumns, deltaReadOptions, deletionVectorPayloads) =
+    val (otherMetadataColumns, deltaReadOptions) =
       normalizeDeltaSplitMetadata(partitionSchema.fields.length, partitionFiles)
         .getOrElse {
           (
             partitionFiles.map {
               f => SparkShimLoader.getSparkShims.getOtherConstantMetadataColumnValues(f)
             },
-            Seq.empty[DeltaFileReadOptions],
-            Array.empty[Array[Byte]])
+            Seq.empty[DeltaFileReadOptions])
         }
 
     val localFilesNode = if (deltaReadOptions.nonEmpty) {
@@ -151,11 +149,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       fileFormat
     )
 
-    if (deletionVectorPayloads.nonEmpty) {
-      VeloxSplitInfoWithPayloads(localFiles, deletionVectorPayloads)
-    } else {
-      localFiles
-    }
+    localFiles
   }
 
   /** Generate native row partition. */
@@ -220,24 +214,6 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     NativePlanEvaluator.injectWriteFilesTempPath(path, fileName)
   }
 
-  private def buildSplitPayloadBuffers(splitInfos: Array[SplitInfo]): Array[Array[ByteBuffer]] = {
-    val payloadBuffers = splitInfos.map {
-      case splitInfoWithPayloads: VeloxSplitInfoWithPayloads
-          if splitInfoWithPayloads.deletionVectorPayloads.nonEmpty =>
-        splitInfoWithPayloads.deletionVectorPayloads.map(toDirectByteBuffer)
-      case _ =>
-        null
-    }
-    if (payloadBuffers.exists(_ != null)) payloadBuffers else null
-  }
-
-  private def toDirectByteBuffer(bytes: Array[Byte]): ByteBuffer = {
-    val directBuffer = ByteBuffer.allocateDirect(bytes.length)
-    directBuffer.put(bytes)
-    directBuffer.flip()
-    directBuffer
-  }
-
   private def normalizeDeltaSplitMetadata(
       partitionColumnCount: Int,
       partitionFiles: Seq[PartitionedFile]): Option[NormalizedDeltaSplitMetadata] = {
@@ -252,7 +228,6 @@ class VeloxIteratorApi extends IteratorApi with Logging {
         normalizeMethod.invoke(module, Int.box(partitionColumnCount), partitionFiles.asJava)
       val metadataMethod = normalized.getClass.getMethod("otherMetadataColumns")
       val deltaOptionsMethod = normalized.getClass.getMethod("deltaReadOptions")
-      val payloadsMethod = normalized.getClass.getMethod("deletionVectorPayloads")
       Some(
         metadataMethod
           .invoke(normalized)
@@ -263,8 +238,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
           .invoke(normalized)
           .asInstanceOf[java.util.List[DeltaFileReadOptions]]
           .asScala
-          .toSeq,
-        payloadsMethod.invoke(normalized).asInstanceOf[Array[Array[Byte]]]
+          .toSeq
       )
     } catch {
       case _: ClassNotFoundException | _: NoSuchMethodException =>
@@ -298,8 +272,6 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       .splitInfos
       .map(splitInfo => splitInfo.toProtobuf.toByteArray)
       .toArray
-    val splitPayloadBuffers =
-      buildSplitPayloadBuffers(inputPartition.asInstanceOf[GlutenPartition].splitInfos)
     val spillDirPath = SparkDirectoryUtil
       .get()
       .namespace("gluten-spill")
@@ -309,7 +281,6 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       transKernel.createKernelWithBatchIterator(
         inputPartition.plan,
         if (splitInfoByteArray.nonEmpty) splitInfoByteArray else null,
-        splitPayloadBuffers,
         if (columnarNativeIterators.nonEmpty) columnarNativeIterators.toArray else null,
         partitionIndex,
         BackendsApiManager.getSparkPlanExecApiInstance.rewriteSpillPath(spillDirPath)
@@ -363,7 +334,6 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     val nativeResultIterator =
       transKernel.createKernelWithBatchIterator(
         rootNode.toProtobuf.toByteArray,
-        null,
         null,
         if (columnarNativeIterator.nonEmpty) columnarNativeIterator.toArray else null,
         partitionIndex,

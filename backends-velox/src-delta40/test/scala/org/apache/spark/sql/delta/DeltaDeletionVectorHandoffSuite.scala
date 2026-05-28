@@ -109,10 +109,8 @@ class DeltaDeletionVectorHandoffSuite
         val metadata = normalized.otherMetadataColumns.get(0)
         val deltaReadOptions = normalized.deltaReadOptions.get(0)
 
-        assert(normalized.deletionVectorPayloads.length == 1)
-        assert(normalized.deletionVectorPayloads.head.nonEmpty)
         assert(deltaReadOptions.hasDeletionVector())
-        assert(deltaReadOptions.deletionVectorPayloadIndex() == 0)
+        assert(deltaReadOptions.serializedDeletionVector().nonEmpty)
         assert(deltaReadOptions.deletionVectorCardinality() == dataFile.deletionVector.cardinality)
         assert(deltaReadOptions.rowIndexFilterType() == GlutenRowIndexFilterType.IF_CONTAINED)
         assert(!metadata.containsKey(GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_ID_ENCODED))
@@ -154,7 +152,6 @@ class DeltaDeletionVectorHandoffSuite
           files = Seq(partitionedFile).asJava)
         val metadata = normalized.otherMetadataColumns.get(0)
 
-        assert(normalized.deletionVectorPayloads.isEmpty)
         assert(normalized.deltaReadOptions.isEmpty)
         assert(!metadata.containsKey(GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_ID_ENCODED))
         assert(!metadata.containsKey(GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_TYPE))

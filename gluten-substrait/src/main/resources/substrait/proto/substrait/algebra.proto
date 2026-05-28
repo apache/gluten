@@ -206,7 +206,7 @@ message ReadRel {
         RowIndexFilterType row_index_filter_type = 1;
         bool has_deletion_vector = 2;
         uint64 deletion_vector_cardinality = 3;
-        uint32 deletion_vector_payload_index = 4;
+        bytes serialized_deletion_vector = 4;
       }
 
       // File reading options

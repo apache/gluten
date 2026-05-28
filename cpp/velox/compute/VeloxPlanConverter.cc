@@ -17,6 +17,7 @@
 
 #include "VeloxPlanConverter.h"
 #include <filesystem>
+#include <limits>
 #include <optional>
 
 #include <google/protobuf/any.pb.h>
@@ -95,8 +96,7 @@ delta::DeltaRowIndexFilterType parseDeltaRowIndexFilterType(int filterType) {
 
 std::shared_ptr<DeltaSplitInfo> parseDeltaSplitInfo(
     const substrait::ReadRel_LocalFiles_FileOrFiles& file,
-    std::shared_ptr<SplitInfo> splitInfo,
-    const std::vector<SplitPayloadBufferView>* splitPayloads) {
+    std::shared_ptr<SplitInfo> splitInfo) {
   auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo)
       ? std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo)
       : std::make_shared<DeltaSplitInfo>(*splitInfo);
@@ -111,24 +111,25 @@ std::shared_ptr<DeltaSplitInfo> parseDeltaSplitInfo(
     return deltaSplitInfo;
   }
 
-  VELOX_USER_CHECK_NOT_NULL(splitPayloads, "Delta split has a deletion vector without an external payload buffer");
-  const auto payloadIndex = static_cast<size_t>(deltaReadOptions.deletion_vector_payload_index());
-  VELOX_USER_CHECK_LT(
-      payloadIndex,
-      splitPayloads->size(),
-      "Delta deletion vector payload index {} is out of range for {} payload buffers",
-      payloadIndex,
-      splitPayloads->size());
+  auto serializedPayload = deltaReadOptions.serialized_deletion_vector();
+  VELOX_USER_CHECK(!serializedPayload.empty(), "Delta split has a deletion vector without a serialized payload");
+  VELOX_USER_CHECK_LE(
+      serializedPayload.size(),
+      static_cast<size_t>(std::numeric_limits<int32_t>::max()),
+      "Delta deletion vector serialized payload is too large");
   const auto cardinality = static_cast<uint64_t>(deltaReadOptions.deletion_vector_cardinality());
+  auto payload = std::make_shared<std::string>(std::move(serializedPayload));
+  const SplitPayloadBufferView payloadView{
+      reinterpret_cast<const uint8_t*>(payload->data()), static_cast<int32_t>(payload->size())};
   deltaSplitInfo->deletionVectors.emplace_back(
-      delta::DeltaDeletionVectorDescriptor::serialized(cardinality, splitPayloads->at(payloadIndex)));
+      delta::DeltaDeletionVectorDescriptor::serialized(cardinality, payloadView));
+  deltaSplitInfo->deletionVectorPayloads.emplace_back(std::move(payload));
   return deltaSplitInfo;
 }
 
 std::shared_ptr<SplitInfo> parseScanSplitInfo(
     const facebook::velox::config::ConfigBase* veloxCfg,
-    const google::protobuf::RepeatedPtrField<substrait::ReadRel_LocalFiles_FileOrFiles>& fileList,
-    const std::vector<SplitPayloadBufferView>* splitPayloads) {
+    const google::protobuf::RepeatedPtrField<substrait::ReadRel_LocalFiles_FileOrFiles>& fileList) {
   using SubstraitFileFormatCase = ::substrait::ReadRel_LocalFiles_FileOrFiles::FileFormatCase;
 
   auto splitInfo = std::make_shared<SplitInfo>();
@@ -187,7 +188,7 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
         splitInfo = IcebergPlanConverter::parseIcebergSplitInfo(file, std::move(splitInfo));
         break;
       case SubstraitFileFormatCase::kDelta:
-        splitInfo = parseDeltaSplitInfo(file, std::move(splitInfo), splitPayloads);
+        splitInfo = parseDeltaSplitInfo(file, std::move(splitInfo));
         break;
       default:
         splitInfo->format = dwio::common::FileFormat::UNKNOWN;
@@ -224,16 +225,12 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
 void parseLocalFileNodes(
     SubstraitToVeloxPlanConverter* planConverter,
     const facebook::velox::config::ConfigBase* veloxCfg,
-    std::vector<::substrait::ReadRel_LocalFiles>& localFiles,
-    const std::unordered_map<int32_t, std::vector<SplitPayloadBufferView>>& splitPayloads) {
+    std::vector<::substrait::ReadRel_LocalFiles>& localFiles) {
   std::vector<std::shared_ptr<SplitInfo>> splitInfos;
   splitInfos.reserve(localFiles.size());
-  for (size_t splitIndex = 0; splitIndex < localFiles.size(); ++splitIndex) {
-    const auto& localFile = localFiles[splitIndex];
+  for (const auto& localFile : localFiles) {
     const auto& fileList = localFile.items();
-    auto payloadIt = splitPayloads.find(splitIndex);
-    splitInfos.push_back(
-        parseScanSplitInfo(veloxCfg, fileList, payloadIt == splitPayloads.end() ? nullptr : &payloadIt->second));
+    splitInfos.push_back(parseScanSplitInfo(veloxCfg, fileList));
   }
 
   planConverter->setSplitInfos(std::move(splitInfos));
@@ -242,10 +239,9 @@ void parseLocalFileNodes(
 
 std::shared_ptr<const facebook::velox::core::PlanNode> VeloxPlanConverter::toVeloxPlan(
     const ::substrait::Plan& substraitPlan,
-    std::vector<::substrait::ReadRel_LocalFiles> localFiles,
-    const std::unordered_map<int32_t, std::vector<SplitPayloadBufferView>>& splitPayloads) {
+    std::vector<::substrait::ReadRel_LocalFiles> localFiles) {
   if (!validationMode_) {
-    parseLocalFileNodes(&substraitVeloxPlanConverter_, veloxCfg_, localFiles, splitPayloads);
+    parseLocalFileNodes(&substraitVeloxPlanConverter_, veloxCfg_, localFiles);
   }
 
   return substraitVeloxPlanConverter_.toVeloxPlan(substraitPlan);

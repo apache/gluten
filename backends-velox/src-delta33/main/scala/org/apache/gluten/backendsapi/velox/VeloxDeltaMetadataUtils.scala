@@ -42,8 +42,7 @@ object VeloxDeltaMetadataUtils {
 
   final class NormalizedSplitMetadata(
       val otherMetadataColumns: JList[JMap[String, Object]],
-      val deltaReadOptions: JList[DeltaFileReadOptions],
-      val deletionVectorPayloads: Array[Array[Byte]])
+      val deltaReadOptions: JList[DeltaFileReadOptions])
     extends Serializable
 
   private def decodeDescriptor(
@@ -93,7 +92,7 @@ object VeloxDeltaMetadataUtils {
     val dvStore = new HadoopFileSystemDVStore(activeSpark.sessionState.newHadoopConf())
     val normalizedMetadataColumns = new JArrayList[JMap[String, Object]](files.size())
     val deltaReadOptions = new JArrayList[DeltaFileReadOptions](files.size())
-    val deletionVectorPayloads = scala.collection.mutable.ArrayBuffer.empty[Array[Byte]]
+    var hasDeletionVectors = false
 
     files.asScala.foreach {
       file =>
@@ -110,6 +109,7 @@ object VeloxDeltaMetadataUtils {
 
         descriptor match {
           case Some(descriptor) =>
+            hasDeletionVectors = true
             val payloadTablePath = resolveTablePath(partitionColumnCount, file)
             val serializedPayload = serializePayload(dvStore, payloadTablePath, descriptor)
             deltaReadOptions.add(
@@ -117,25 +117,21 @@ object VeloxDeltaMetadataUtils {
                 rowIndexFilterType,
                 true,
                 descriptor.cardinality,
-                deletionVectorPayloads.length))
-            deletionVectorPayloads += serializedPayload
+                serializedPayload))
             normalizedMetadataColumns.add(normalizedMetadata)
           case None =>
             deltaReadOptions.add(
-              new DeltaFileReadOptions(rowIndexFilterType, false, 0L, -1))
+              new DeltaFileReadOptions(rowIndexFilterType, false, 0L, Array.emptyByteArray))
             normalizedMetadataColumns.add(normalizedMetadata)
         }
     }
 
-    val deltaOptions = if (deletionVectorPayloads.nonEmpty) {
+    val deltaOptions = if (hasDeletionVectors) {
       deltaReadOptions
     } else {
       new JArrayList[DeltaFileReadOptions]()
     }
-    new NormalizedSplitMetadata(
-      normalizedMetadataColumns,
-      deltaOptions,
-      deletionVectorPayloads.toArray)
+    new NormalizedSplitMetadata(normalizedMetadataColumns, deltaOptions)
   }
 
   private def activeSpark: SparkSession = {

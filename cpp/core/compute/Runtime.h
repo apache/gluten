@@ -97,8 +97,6 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     throw GlutenException("Not implemented");
   }
 
-  virtual void setSplitPayloads(int32_t idx, std::vector<SplitPayloadBufferView> payloads) {}
-
   virtual std::string planString(bool details, const std::unordered_map<std::string, std::string>& sessionConf) {
     throw GlutenException("Not implemented");
   }

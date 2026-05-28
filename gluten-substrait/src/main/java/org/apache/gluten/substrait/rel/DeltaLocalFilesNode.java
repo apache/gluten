@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.substrait.rel;
 
+import com.google.protobuf.ByteString;
 import io.substrait.proto.ReadRel;
 
 import java.io.Serializable;
@@ -67,7 +68,7 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     if (options.hasDeletionVector()) {
       deltaBuilder
           .setDeletionVectorCardinality(options.deletionVectorCardinality())
-          .setDeletionVectorPayloadIndex(options.deletionVectorPayloadIndex());
+          .setSerializedDeletionVector(ByteString.copyFrom(options.serializedDeletionVector()));
     }
 
     fileBuilder.setDelta(deltaBuilder.build());
@@ -98,17 +99,18 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     private final RowIndexFilterType rowIndexFilterType;
     private final boolean hasDeletionVector;
     private final long deletionVectorCardinality;
-    private final int deletionVectorPayloadIndex;
+    private final byte[] serializedDeletionVector;
 
     public DeltaFileReadOptions(
         RowIndexFilterType rowIndexFilterType,
         boolean hasDeletionVector,
         long deletionVectorCardinality,
-        int deletionVectorPayloadIndex) {
+        byte[] serializedDeletionVector) {
       this.rowIndexFilterType = rowIndexFilterType;
       this.hasDeletionVector = hasDeletionVector;
       this.deletionVectorCardinality = deletionVectorCardinality;
-      this.deletionVectorPayloadIndex = deletionVectorPayloadIndex;
+      this.serializedDeletionVector =
+          serializedDeletionVector == null ? new byte[0] : serializedDeletionVector;
     }
 
     public RowIndexFilterType rowIndexFilterType() {
@@ -123,8 +125,8 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
       return deletionVectorCardinality;
     }
 
-    public int deletionVectorPayloadIndex() {
-      return deletionVectorPayloadIndex;
+    public byte[] serializedDeletionVector() {
+      return serializedDeletionVector;
     }
   }
 }

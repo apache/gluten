@@ -26,27 +26,16 @@ import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupporte
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     implements RuntimeAware {
   private final Runtime runtime;
   private final long iterHandle;
 
-  // Keeps Java-owned direct buffers reachable while Velox holds raw native views into them.
-  @SuppressWarnings("unused")
-  private final ByteBuffer[][] retainedSplitPayloadBuffers;
-
   public ColumnarBatchOutIterator(Runtime runtime, long iterHandle) {
-    this(runtime, iterHandle, null);
-  }
-
-  public ColumnarBatchOutIterator(
-      Runtime runtime, long iterHandle, ByteBuffer[][] retainedSplitPayloadBuffers) {
     super();
     this.runtime = runtime;
     this.iterHandle = iterHandle;
-    this.retainedSplitPayloadBuffers = retainedSplitPayloadBuffers;
   }
 
   @Override

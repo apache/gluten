@@ -363,13 +363,6 @@ void VeloxRuntime::parseSplitInfo(const uint8_t* data, int32_t size, int32_t spl
   localFiles_.push_back(localFile);
 }
 
-void VeloxRuntime::setSplitPayloads(int32_t splitIndex, std::vector<SplitPayloadBufferView> payloads) {
-  if (payloads.empty()) {
-    return;
-  }
-  splitPayloads_[splitIndex] = std::move(payloads);
-}
-
 void VeloxRuntime::getInfoAndIds(
     const std::unordered_map<velox::core::PlanNodeId, std::shared_ptr<SplitInfo>>& splitInfoMap,
     const std::unordered_set<velox::core::PlanNodeId>& leafPlanNodeIds,
@@ -405,7 +398,7 @@ std::string VeloxRuntime::planString(bool details, const std::unordered_map<std:
   auto veloxMemoryPool = gluten::defaultLeafVeloxMemoryPool();
   VeloxPlanConverter veloxPlanConverter(
       veloxMemoryPool.get(), veloxCfg_.get(), {}, connectorIds_, std::nullopt, std::nullopt, true);
-  auto veloxPlan = veloxPlanConverter.toVeloxPlan(substraitPlan_, localFiles_, splitPayloads_);
+  auto veloxPlan = veloxPlanConverter.toVeloxPlan(substraitPlan_, localFiles_);
   return veloxPlan->toString(details, true);
 }
 
@@ -427,7 +420,7 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
       connectorIds_,
       *localWriteFilesTempPath(),
       *localWriteFileName());
-  veloxPlan_ = veloxPlanConverter.toVeloxPlan(substraitPlan_, std::move(localFiles_), splitPayloads_);
+  veloxPlan_ = veloxPlanConverter.toVeloxPlan(substraitPlan_, std::move(localFiles_));
   LOG_IF(INFO, debugModeEnabled_ && taskInfo_.has_value())
       << "############### Velox plan for task " << taskInfo_.value() << " ###############" << std::endl
       << veloxPlan_->toString(true, true);
