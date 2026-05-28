@@ -21,7 +21,9 @@
 #include "memory/VeloxMemoryManager.h"
 #include "substrait/SubstraitToVeloxPlan.h"
 #include "substrait/SubstraitToVeloxPlanValidator.h"
+#include "velox/common/base/Exceptions.h"
 #include "velox/common/base/tests/GTestUtils.h"
+#include "velox/common/process/StackTrace.h"
 #include "velox/dwio/common/tests/utils/DataFiles.h"
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
 #include "velox/exec/tests/utils/HiveConnectorTestBase.h"
@@ -59,6 +61,44 @@ TEST_F(Substrait2VeloxPlanValidatorTest, group) {
   JsonToProtoConverter::readFromFile(subPlanPath, substraitPlan);
 
   ASSERT_FALSE(validatePlan(substraitPlan));
+}
+
+// Pins down the VeloxException accessor contract that the JNI diagnostic path
+// in VeloxJniWrapper.cc depends on, so any future Velox bump that breaks it
+// surfaces here instead of at runtime.
+TEST_F(Substrait2VeloxPlanValidatorTest, veloxExceptionDiagnosticAccessors) {
+  try {
+    VELOX_USER_FAIL("duplicated rule");
+  } catch (const VeloxException& e) {
+    ASSERT_NE(e.message().find("duplicated rule"), std::string::npos)
+        << "message() should contain the original VELOX_USER_FAIL text but was: '" << e.message() << "'";
+    EXPECT_FALSE(e.errorSource().empty()) << "errorSource() must not be empty";
+    EXPECT_FALSE(e.errorCode().empty()) << "errorCode() must not be empty";
+    // failingExpression() and context() may be empty outside of expression
+    // evaluation; we only require the accessors to be callable.
+    (void)e.failingExpression();
+    (void)e.context();
+    // stackTrace() is optional (controlled by FLAGS_velox_exception_*_stacktrace_enabled).
+    if (const auto* trace = e.stackTrace()) {
+      EXPECT_FALSE(trace->toString().empty());
+    }
+    return;
+  }
+  FAIL() << "Expected VELOX_USER_FAIL to throw a VeloxException";
+}
+
+// Verifies that what() returns the bare message, matching what the JVM sees
+// via JNI_METHOD_END and motivating the extra logging in the JNI catch handler.
+TEST_F(Substrait2VeloxPlanValidatorTest, veloxExceptionWhatIsBareMessage) {
+  try {
+    VELOX_USER_FAIL("duplicated rule");
+  } catch (const VeloxException& e) {
+    const std::string what = e.what();
+    EXPECT_NE(what.find("duplicated rule"), std::string::npos)
+        << "what() should contain the original error text but was: '" << what << "'";
+    return;
+  }
+  FAIL() << "Expected VELOX_USER_FAIL to throw a VeloxException";
 }
 
 } // namespace gluten

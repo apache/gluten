@@ -44,6 +44,7 @@
 #include "utils/ObjectStore.h"
 #include "utils/VeloxBatchResizer.h"
 #include "velox/common/base/BloomFilter.h"
+#include "velox/common/base/Exceptions.h"
 #include "velox/common/file/FileSystems.h"
 #include "velox/exec/HashTable.h"
 
@@ -210,6 +211,16 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeValidateWithFail
   } catch (std::invalid_argument& e) {
     LOG(INFO) << "Failed to validate substrait plan because " << e.what();
     return env->NewObject(infoCls, infoClsInitMethod, false, env->NewStringUTF(""));
+  } catch (const facebook::velox::VeloxException& e) {
+    // Log the full Velox context before JNI_METHOD_END converts the exception
+    // into a Java GlutenException, since only e.what() reaches the JVM.
+    const auto* trace = e.stackTrace();
+    LOG(ERROR) << "Velox exception during native plan validation:"
+               << "\n  message:     " << e.message() << "\n  errorSource: " << e.errorSource()
+               << "\n  errorCode:   " << e.errorCode() << "\n  failingExpr: " << e.failingExpression()
+               << "\n  context:     " << e.context() << "\n  stackTrace:\n"
+               << (trace != nullptr ? trace->toString() : std::string("<no stack trace>"));
+    throw;
   }
   JNI_METHOD_END(nullptr)
 }
