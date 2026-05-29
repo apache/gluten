@@ -1,0 +1,21 @@
+backends-clickhouse/src/test/scala/org/apache/gluten/execution/tpch/GlutenClickHouseTPCHSaltNullParquetSuite.scala
+  s_f89a8c5f5fc167::t_e330a2dff96db3 3057
+  s_f89a8c5f5fc167::t_3fa6f6bfd6ca29 3062,3064,3066
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.12",
+  "base_commit_sha": "b5981127e8f91926e8531759a2e56ebcb9674a5a",
+  "prompts": {},
+  "logical_commit_id": "b5981127e8f91926e8531759a2e56ebcb9674a5a",
+  "sessions": {
+    "s_f89a8c5f5fc167": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_18e7ff923ffe92NIstz92HtEWK",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
