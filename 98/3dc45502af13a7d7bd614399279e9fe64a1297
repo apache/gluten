@@ -1,0 +1,20 @@
+cpp-ch/local-engine/Storages/Parquet/ColumnIndexFilter.cpp
+  s_f89a8c5f5fc167::t_3494ccd367aa42 811,814,993
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.12",
+  "base_commit_sha": "983dc45502af13a7d7bd614399279e9fe64a1297",
+  "prompts": {},
+  "logical_commit_id": "983dc45502af13a7d7bd614399279e9fe64a1297",
+  "sessions": {
+    "s_f89a8c5f5fc167": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_18e7ff923ffe92NIstz92HtEWK",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
