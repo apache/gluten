@@ -979,6 +979,12 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
   override def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec =
     CHRangeExecTransformer(rangeExec.range)
 
+  override def genColumnarAttachDistributedSequenceExec(
+      plan: org.apache.spark.sql.execution.python.AttachDistributedSequenceExec)
+      : ColumnarAttachDistributedSequenceBaseExec =
+    throw new GlutenNotSupportException(
+      "AttachDistributedSequenceExec is not supported in ClickHouse backend yet.")
+
   override def expressionFlattenSupported(expr: Expression): Boolean = expr match {
     case ca: FlattenedAnd => CHFlattenedExpression.supported(ca.name)
     case co: FlattenedOr => CHFlattenedExpression.supported(co.name)

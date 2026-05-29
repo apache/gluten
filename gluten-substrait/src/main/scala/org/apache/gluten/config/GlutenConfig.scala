@@ -385,6 +385,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   }
 
   def enableColumnarRange: Boolean = getConf(COLUMNAR_RANGE_ENABLED)
+  def enableColumnarAttachDistributedSequence: Boolean =
+    getConf(COLUMNAR_ATTACH_DISTRIBUTED_SEQUENCE_ENABLED)
   def enableColumnarCollectLimit: Boolean = getConf(COLUMNAR_COLLECT_LIMIT_ENABLED)
   def enableColumnarCollectTail: Boolean = getConf(COLUMNAR_COLLECT_TAIL_ENABLED)
   def getSupportedFlattenedExpressions: String = getConf(GLUTEN_SUPPORTED_FLATTENED_FUNCTIONS)
@@ -1603,6 +1605,15 @@ object GlutenConfig extends ConfigRegistry {
   val COLUMNAR_RANGE_ENABLED =
     buildConf("spark.gluten.sql.columnar.range")
       .doc("Enable or disable columnar range.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val COLUMNAR_ATTACH_DISTRIBUTED_SEQUENCE_ENABLED =
+    buildConf("spark.gluten.sql.columnar.attachDistributedSequence")
+      .doc(
+        "Enable or disable columnar AttachDistributedSequenceExec, which prepends a " +
+          "contiguous distributed-sequence id column used by pandas-on-Spark's default " +
+          "index and DataFrame.zipWithIndex.")
       .booleanConf
       .createWithDefault(true)
 

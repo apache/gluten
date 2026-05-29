@@ -31,6 +31,7 @@ import org.apache.spark.sql.execution.datasources.WriteFilesExec
 import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, BatchScanExec, OverwriteByExpressionExec, OverwritePartitionsDynamicExec, ReplaceDataExec, WriteToDataSourceV2Exec}
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, ShuffleExchangeExec}
 import org.apache.spark.sql.execution.joins._
+import org.apache.spark.sql.execution.python.AttachDistributedSequenceExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
 import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
@@ -216,6 +217,9 @@ object Validators {
             .supportSampleExec()) =>
         fail(p)
       case p: RangeExec if !glutenConf.enableColumnarRange => fail(p)
+      case p: AttachDistributedSequenceExec
+          if !glutenConf.enableColumnarAttachDistributedSequence =>
+        fail(p)
       case p: CollectLimitExec if !glutenConf.enableColumnarCollectLimit => fail(p)
       case p: CollectTailExec if !glutenConf.enableColumnarCollectTail => fail(p)
       case _ => pass()

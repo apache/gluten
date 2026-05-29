@@ -42,6 +42,7 @@ import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
+import org.apache.spark.sql.execution.python.AttachDistributedSequenceExec
 import org.apache.spark.sql.execution.window._
 import org.apache.spark.sql.hive.HiveUDFTransformer
 import org.apache.spark.sql.types.{DecimalType, LongType, NullType, StructType}
@@ -762,6 +763,9 @@ trait SparkPlanExecApi {
       offset: Int): ColumnarCollectLimitBaseExec
 
   def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec
+
+  def genColumnarAttachDistributedSequenceExec(
+      plan: AttachDistributedSequenceExec): ColumnarAttachDistributedSequenceBaseExec
 
   def genColumnarTailExec(limit: Int, plan: SparkPlan): ColumnarCollectTailBaseExec
 

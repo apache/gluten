@@ -50,7 +50,7 @@ import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.{BuildSideRelation, HashedRelationBroadcastMode, SparkHashJoinUtils}
 import org.apache.spark.sql.execution.metric.SQLMetric
-import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
+import org.apache.spark.sql.execution.python.{ArrowEvalPythonExec, AttachDistributedSequenceExec}
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.sql.execution.utils.ExecUtil
 import org.apache.spark.sql.expression.{UDFExpression, UserDefinedAggregateFunction}
@@ -1204,6 +1204,10 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
 
   override def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec =
     ColumnarRangeExec(rangeExec.range)
+
+  override def genColumnarAttachDistributedSequenceExec(
+      plan: AttachDistributedSequenceExec): ColumnarAttachDistributedSequenceBaseExec =
+    ColumnarAttachDistributedSequenceExec(plan.sequenceAttr, plan.child)
 
   override def genColumnarTailExec(limit: Int, child: SparkPlan): ColumnarCollectTailBaseExec =
     ColumnarCollectTailExec(limit, child)
