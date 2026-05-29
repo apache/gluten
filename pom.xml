@@ -1352,7 +1352,7 @@
         <spark.version>4.1.2</spark.version>
         <iceberg.version>1.11.0</iceberg.version>
         <delta.package.name>delta-spark_4.1</delta.package.name>
-        <delta.version>4.1.0</delta.version>
+        <delta.version>4.2.0</delta.version>
         <delta.binary.version>40</delta.binary.version>
         <hudi.version>1.2.0</hudi.version>
         <fasterxml.version>2.18.2</fasterxml.version>
