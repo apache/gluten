@@ -39,8 +39,11 @@ import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
  *      prefix-sum. The batches are closed immediately; no native data is materialized for the count
  *      pass beyond what the child operator naturally produces.
  *   2. The per-partition prefix-sum is broadcast and a second pass executes the child plan again,
- *      prepending the new id column by retaining the input column vectors (zero-copy) and
- *      allocating one [[ArrowWritableColumnVector]] for the id column.
+ *      prepending the new id column. Each output column (id + copies of the input columns) is a
+ *      freshly allocated [[ArrowWritableColumnVector]] so the output batch has a uniform reference
+ *      count -- required by the downstream `OffloadArrowDataExec`'s `getRefCntHeavy` check. Input
+ *      values are copied via Arrow's `ValueVector.copyFromSafe`; the upstream input batch is left
+ *      untouched and closed by the upstream iterator.
  *
  * Why no cache? The natural choice would be to wrap the child output in
  * [[org.apache.spark.sql.execution.ColumnarCachedBatchSerializer]] and `persist` once, so the child
@@ -64,8 +67,10 @@ case class ColumnarAttachDistributedSequenceExec(
   override def requiredChildConvention(): Seq[ConventionReq] = Seq(
     ConventionReq.ofBatch(ConventionReq.BatchType.Is(ArrowJavaBatchType)))
 
-  private val idSchema: StructType =
-    StructType(Seq(StructField(sequenceAttr.name, LongType, nullable = false)))
+  private val outputSchema: StructType =
+    StructType(
+      StructField(sequenceAttr.name, LongType, nullable = false) +:
+        child.output.map(a => StructField(a.name, a.dataType, a.nullable)))
 
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = {
     val childRdd = child.executeColumnar()
@@ -107,8 +112,12 @@ case class ColumnarAttachDistributedSequenceExec(
 
   /**
    * Prepends a `Long` id column to each input batch starting from `startOffset` and incrementing by
-   * row index. The input batches are expected to be Arrow-loaded (heavy) because our
-   * `requiredChildConvention` requests `ArrowJavaBatchType`.
+   * row index. The output is a fresh heavy [[ColumnarBatch]] whose columns are all freshly
+   * allocated [[ArrowWritableColumnVector]]s with reference count 1. Input column values are copied
+   * via Arrow's `ValueVector.copyFromSafe` rather than retained zero-copy so the resulting batch
+   * satisfies the uniform-reference-count invariant required by downstream
+   * `ColumnarBatches.offload` / `getRefCntHeavy`. The original input batch is left untouched and is
+   * closed by the upstream iterator's recycling logic.
    */
   private def assignIds(
       batches: Iterator[ColumnarBatch],
@@ -122,10 +131,9 @@ case class ColumnarAttachDistributedSequenceExec(
         val inputCb = batches.next()
         ColumnarBatches.checkLoaded(inputCb)
         val numRows = inputCb.numRows()
-        val idVec = ArrowWritableColumnVector
-          .allocateColumns(numRows, idSchema)
-          .head
+        val outCols = ArrowWritableColumnVector.allocateColumns(numRows, outputSchema)
         try {
+          val idVec = outCols(0)
           var i = 0
           while (i < numRows) {
             idVec.putLong(i, running + i)
@@ -133,23 +141,29 @@ case class ColumnarAttachDistributedSequenceExec(
           }
           idVec.setValueCount(numRows)
 
-          // Retain input columns once so that closing both the input batch (by upstream) and
-          // the output batch (by the wrapping iterator) leaves the underlying Arrow buffers'
-          // ref-counts at zero.
-          ColumnarBatches.retain(inputCb)
-
-          val outCols = new Array[ColumnVector](inputCb.numCols() + 1)
-          outCols(0) = idVec
+          // Copy each input column into its corresponding freshly-allocated output column. Using
+          // Arrow's per-row `copyFromSafe` keeps the implementation type-agnostic and ensures every
+          // output column has reference count 1, matching the id column. This avoids the uniform
+          // ref-count check enforced by `ColumnarBatches.getRefCntHeavy` when the planner inserts
+          // an `OffloadArrowDataExec` between us and the next Velox consumer.
           var j = 0
           while (j < inputCb.numCols()) {
-            outCols(j + 1) = inputCb.column(j)
+            val src = inputCb.column(j).asInstanceOf[ArrowWritableColumnVector].getValueVector
+            val dst = outCols(j + 1).getValueVector
+            var r = 0
+            while (r < numRows) {
+              dst.copyFromSafe(r, r, src)
+              r += 1
+            }
+            dst.setValueCount(numRows)
             j += 1
           }
+
           running += numRows
-          new ColumnarBatch(outCols, numRows)
+          new ColumnarBatch(outCols.asInstanceOf[Array[ColumnVector]], numRows)
         } catch {
           case t: Throwable =>
-            idVec.close()
+            outCols.foreach(_.close())
             throw t
         }
       }

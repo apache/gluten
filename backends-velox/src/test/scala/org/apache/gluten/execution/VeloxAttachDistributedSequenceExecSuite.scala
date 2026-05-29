@@ -24,6 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.catalyst.plans.logical.AttachDistributedSequence
 import org.apache.spark.sql.classic.ClassicDataset
 import org.apache.spark.sql.execution.python.AttachDistributedSequenceExec
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.LongType
 
 class VeloxAttachDistributedSequenceExecSuite extends VeloxWholeStageTransformerSuite {
@@ -35,6 +36,7 @@ class VeloxAttachDistributedSequenceExecSuite extends VeloxWholeStageTransformer
     super.sparkConf
       .set("spark.sql.shuffle.partitions", "3")
       .set("spark.default.parallelism", "3")
+      .set(SQLConf.ANSI_ENABLED.key, "false")
   }
 
   /**
@@ -82,6 +84,19 @@ class VeloxAttachDistributedSequenceExecSuite extends VeloxWholeStageTransformer
     val df = attachSequence(spark.range(0, 5, 1, 1).toDF("v"))
     val rows = df.select("id", "v").collect().map(r => (r.getLong(0), r.getLong(1))).toSeq
     assert(rows == Seq((0L, 0L), (1L, 1L), (2L, 2L), (3L, 3L), (4L, 4L)))
+  }
+
+  test("output survives a downstream Velox shuffle (offload path)") {
+    // Repartition after attach forces ArrowJava -> ArrowNative -> VeloxBatch via
+    // OffloadArrowDataExec, which calls ColumnarBatches.getRefCntHeavy and
+    // requires the uniform-refCnt invariant on the output batch. This mirrors
+    // the vanilla SPARK-36338 inherited test that exposed the bug in CI.
+    val df = attachSequence(spark.range(0, 20, 1, 4).toDF("v")).repartition(3)
+    val rows = df.select("id", "v").collect().map(r => (r.getLong(0), r.getLong(1))).toSeq
+    val ids = rows.map(_._1).sorted
+    val vs = rows.map(_._2).sorted
+    assert(ids == (0L until 20L))
+    assert(vs == (0L until 20L))
   }
 
   test("falls back to vanilla exec when columnar attach-distributed-sequence is disabled") {
