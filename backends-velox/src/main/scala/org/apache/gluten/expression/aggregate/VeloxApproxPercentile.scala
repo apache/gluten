@@ -239,10 +239,16 @@ object KllSketchFieldIndex {
    * Compute K from accuracy using the same formula as Velox kFromEpsilon. accuracy is the
    * reciprocal of epsilon (e.g., 10000 means epsilon = 1/10000). K = ceil(exp(1.0285 * log(2.296 /
    * epsilon)))
+   *
+   * Note: accuracy is capped at MAX_SUPPORTED_ACCURACY (100000) to prevent K from growing
+   * excessively large. When relativeError=0.0, Spark sets accuracy=Int.MaxValue which would
+   * produce k=9,314,283,425 and cause multi-GiB memory allocation.
    */
   def kFromAccuracy(accuracy: Int): Int = {
     if (accuracy <= 0) return DEFAULT_K
-    val epsilon = 1.0 / accuracy.toDouble
+    // Cap accuracy to prevent excessively large K values that cause OOM
+    val cappedAccuracy = math.min(accuracy, 100000)
+    val epsilon = 1.0 / cappedAccuracy.toDouble
     math.ceil(math.exp(1.0285 * math.log(2.296 / epsilon))).toInt
   }
 }
