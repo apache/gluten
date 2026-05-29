@@ -46,6 +46,7 @@ import org.apache.spark.sql.execution.datasources.parquet.{ParquetFileFormat, Pa
 import org.apache.spark.sql.hive.execution.HiveFileFormat
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
@@ -113,6 +114,30 @@ object VeloxBackendSettings extends BackendSettingsApi {
       hadoopConf: Configuration,
       partitionFileFormats: Set[ReadFileFormat]): ValidationResult = {
 
+    def containsStructType(dataType: DataType): Boolean = {
+      dataType match {
+        case _: StructType => true
+        case ArrayType(elementType, _) => containsStructType(elementType)
+        case MapType(keyType, valueType, _) =>
+          containsStructType(keyType) || containsStructType(valueType)
+        case _ => false
+      }
+    }
+
+    def shouldFallbackBySpark41ParquetStructBehavior: Boolean = {
+      if (!SparkVersionUtil.gteSpark41) {
+        return false
+      }
+      if (!fields.exists(field => containsStructType(field.dataType))) {
+        return false
+      }
+      val returnNullStructIfAllFieldsMissingKey =
+        "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing"
+      !SQLConf.get
+        .getConfString(returnNullStructIfAllFieldsMissingKey, "false")
+        .toBoolean
+    }
+
     def validateScheme(): Option[String] = {
       val filteredRootPaths = distinctRootPaths(rootPaths)
       if (
@@ -156,6 +181,11 @@ object VeloxBackendSettings extends BackendSettingsApi {
           if (parquetOptions.mergeSchema) {
             // https://github.com/apache/gluten/issues/7174
             Some(s"not support when merge schema is true")
+          } else if (shouldFallbackBySpark41ParquetStructBehavior) {
+            Some(
+              "Spark 4.1 Parquet struct compatibility (all requested struct fields missing) " +
+                "is not supported by Velox native scan yet when " +
+                "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing=false")
           } else {
             None
           }
