@@ -84,8 +84,7 @@ case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
           if requiresResizingShuffleOutput(s) =>
         VeloxResizeBatchesExec(a, min, max, preferredBatchBytes)
       case other =>
-        other.withNewChildren(other.children.map(
-          p => addResizeBatchesForShuffleOutput(p, min, max, preferredBatchBytes)))
+        other.mapChildren(addResizeBatchesForShuffleOutput(_, min, max, preferredBatchBytes))
     }
   }
 
