@@ -230,7 +230,6 @@ QueryPlanStepPtr ReadRelParser::parseReadRelWithRange(const substrait::ReadRel &
 
     chassert(extension_table.has_detail());
     std::string str_range_info = toString(extension_table.detail());
-    // std::cout << "range_info:" << str_range_info << std::endl;
 
     rapidjson::Document document;
     document.Parse(str_range_info.c_str());

@@ -56,6 +56,8 @@ import java.nio.{ByteBuffer, ByteOrder}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.util.Arrays
 
+import scala.util.control.NonFatal
+
 /**
  * A Velox columnar cache batch carrying per-partition column statistics.
  *
@@ -760,36 +762,7 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
           override def next(): CachedBatch = {
             val batch = veloxBatches.next()
             val handle = ColumnarBatches.getNativeHandle(backendName, batch)
-            // Route through serializeWithStats when the partition-stats conf is enabled and the
-            // JNI extension is linked in libgluten.so. Capability is detected lazily at the
-            // call site: a new Gluten jar paired with an older native library will throw
-            // UnsatisfiedLinkError on the first invocation; we catch it once, cache the
-            // result, and fall back to the legacy serialize() path emitting stats=null. The
-            // buildFilter wrapper directs such batches through without pruning.
-            if (partitionStatsEnabled && ColumnarCachedBatchSerializer.statsExtAvailable) {
-              try {
-                val framed = jni.serializeWithStats(handle)
-                val (stats, bytesBlob) =
-                  CachedColumnarBatchKryoSerializer.parseFramedBytes(framed, structSchema)
-                CachedColumnarBatch(
-                  batch.numRows(),
-                  bytesBlob.length,
-                  bytesBlob,
-                  stats,
-                  structSchema)
-              } catch {
-                case e: UnsatisfiedLinkError =>
-                  ColumnarCachedBatchSerializer.markStatsExtUnavailable(e)
-                  val unsafeBuffer = jni.serialize(handle)
-                  val bytes = unsafeBuffer.toByteArray
-                  CachedColumnarBatch(
-                    batch.numRows(),
-                    bytes.length,
-                    bytes,
-                    stats = null,
-                    schema = null)
-              }
-            } else {
+            def legacySerializeInline(): CachedBatch = {
               val unsafeBuffer = jni.serialize(handle)
               val bytes = unsafeBuffer.toByteArray
               CachedColumnarBatch(
@@ -798,6 +771,22 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
                 bytes,
                 stats = null,
                 schema = null)
+            }
+            // Route through serializeWithStats when the partition-stats conf is enabled and the
+            // JNI extension is linked in libgluten.so. Capability is detected lazily at the
+            // call site: a new Gluten jar paired with an older native library will throw
+            // UnsatisfiedLinkError on the first invocation; we catch it once, cache the
+            // result, and fall back to the legacy serialize() path emitting stats=null. The
+            // buildFilter wrapper directs such batches through without pruning.
+            if (partitionStatsEnabled && ColumnarCachedBatchSerializer.statsExtAvailable) {
+              ColumnarCachedBatchSerializer.serializeOneBatchWithStats(
+                jni,
+                handle,
+                batch.numRows(),
+                structSchema,
+                () => legacySerializeInline())
+            } else {
+              legacySerializeInline()
             }
           }
         }
@@ -967,6 +956,60 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
 }
 
 object ColumnarCachedBatchSerializer extends Logging {
+  // Encapsulates the per-batch serializeWithStats fast path so the catch arms can
+  // be exercised in unit tests with a stubbed jni wrapper. Two-arm catch:
+  //   - UnsatisfiedLinkError trips the JVM-lifetime capability latch via
+  //     markStatsExtUnavailable (one-way; native symbol gone for the whole JVM).
+  //   - NonFatal absorbs per-batch corruption (corrupt magic, truncated frame,
+  //     Kryo decode failure) without tripping the latch; the next batch retries
+  //     the fast path. A separate counter (warnCorruptStatsFrame) caps the
+  //     warning floor so high-throughput workloads don't drown the executor log.
+  private[execution] def serializeOneBatchWithStats(
+      jni: ColumnarBatchSerializerJniWrapper,
+      handle: Long,
+      numRows: Int,
+      structSchema: StructType,
+      fallbackToLegacy: () => CachedBatch): CachedBatch = {
+    try {
+      val framed = jni.serializeWithStats(handle)
+      val (stats, bytesBlob) =
+        CachedColumnarBatchKryoSerializer.parseFramedBytes(framed, structSchema)
+      CachedColumnarBatch(numRows, bytesBlob.length, bytesBlob, stats, structSchema)
+    } catch {
+      case e: UnsatisfiedLinkError =>
+        markStatsExtUnavailable(e)
+        fallbackToLegacy()
+      case NonFatal(e) =>
+        warnCorruptStatsFrame(e)
+        fallbackToLegacy()
+    }
+  }
+
+  // Per-JVM cap on corrupt-frame warnings to avoid log flooding when a native
+  // regression produces malformed frames batch after batch. Capability latch is
+  // intentionally NOT tripped here: a corrupt frame is a per-batch event, not a
+  // capability loss, and the next batch should still attempt the fast path.
+  private val corruptFrameWarnCount = new java.util.concurrent.atomic.AtomicLong(0L)
+  private val CORRUPT_FRAME_WARN_CAP = 100L
+
+  def warnCorruptStatsFrame(cause: Throwable): Unit = {
+    val n = corruptFrameWarnCount.incrementAndGet()
+    if (n <= CORRUPT_FRAME_WARN_CAP) {
+      logWarning(
+        s"serializeWithStats produced a corrupt/undecodable frame for one cached batch; " +
+          s"falling back to legacy serialize() for this batch (stats=null). Capability " +
+          s"latch unchanged. [$n/$CORRUPT_FRAME_WARN_CAP]",
+        cause
+      )
+      if (n == CORRUPT_FRAME_WARN_CAP) {
+        logWarning(
+          s"Further corrupt-frame warnings suppressed for the JVM lifetime " +
+            s"(cap=$CORRUPT_FRAME_WARN_CAP reached). Capability latch remains active; " +
+            s"investigate native serializeWithStats output.")
+      }
+    }
+  }
+
   // Lazy capability flag for the serializeWithStats JNI symbol. A new Gluten jar paired with an
   // older libgluten.so will throw UnsatisfiedLinkError on the first invocation; the call site
   // catches it once via markStatsExtUnavailable() and we degrade to the legacy serialize() path
@@ -985,11 +1028,5 @@ object ColumnarCachedBatchSerializer extends Logging {
         cause
       )
     }
-  }
-
-  // Visible for testing: reset the capability flag so a unit test can re-exercise the
-  // probe-once semantics.
-  private[execution] def resetStatsExtAvailableForTesting(): Unit = {
-    statsExtAvailableFlag = true
   }
 }
