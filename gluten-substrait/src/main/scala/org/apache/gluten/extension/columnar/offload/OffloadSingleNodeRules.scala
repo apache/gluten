@@ -305,7 +305,8 @@ object OffloadOthers {
           }
         case plan: RangeExec =>
           ColumnarRangeBaseExec.from(plan)
-        case plan: AttachDistributedSequenceExec =>
+        case plan: AttachDistributedSequenceExec
+            if BackendsApiManager.getSettings.supportColumnarAttachDistributedSequenceExec() =>
           ColumnarAttachDistributedSequenceBaseExec.from(plan)
         case plan: SampleExec =>
           val child = plan.child

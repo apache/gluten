@@ -562,6 +562,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
 
   override def supportColumnarArrowUdf(): Boolean = true
 
+  override def supportColumnarAttachDistributedSequenceExec(): Boolean = true
+
   override def needPreComputeRangeFrameBoundary(): Boolean = true
 
   override def supportIcebergEqualityDeleteRead(): Boolean = false

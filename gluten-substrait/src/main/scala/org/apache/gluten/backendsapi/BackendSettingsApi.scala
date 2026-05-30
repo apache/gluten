@@ -149,6 +149,8 @@ trait BackendSettingsApi {
 
   def supportColumnarArrowUdf(): Boolean = false
 
+  def supportColumnarAttachDistributedSequenceExec(): Boolean = false
+
   def needPreComputeRangeFrameBoundary(): Boolean = false
 
   def supportIcebergEqualityDeleteRead(): Boolean = true
