@@ -24,13 +24,15 @@ import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.metrics.{IMetrics, IteratorMetricsJniWrapper}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.plan.PlanNode
-import org.apache.gluten.substrait.rel.{LocalFilesBuilder, LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.{DeltaLocalFilesBuilder, LocalFilesBuilder, LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeltaFileReadOptions, RowIndexFilterType}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 import org.apache.gluten.vectorized._
 
 import org.apache.spark.{Partition, SparkConf, TaskContext}
 import org.apache.spark.internal.Logging
 import org.apache.spark.softaffinity.SoftAffinity
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.catalyst.util.{DateFormatter, TimestampFormatter}
 import org.apache.spark.sql.execution.datasources.{FilePartition, PartitionedFile}
@@ -49,6 +51,10 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 class VeloxIteratorApi extends IteratorApi with Logging {
+  private type NormalizedDeltaSplitMetadata =
+    (Seq[java.util.Map[String, Object]], Seq[DeltaFileReadOptions])
+
+  private val deltaScanInfoClassName = "org.apache.gluten.delta.DeltaDeletionVectorScanInfo$"
 
   private def setFileSchemaForLocalFiles(
       localFilesNode: LocalFilesNode,
@@ -94,10 +100,33 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     val metadataColumns = partitionFiles
       .map(
         f => SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
-    val otherMetadataColumns = partitionFiles
-      .map(f => SparkShimLoader.getSparkShims.getOtherConstantMetadataColumnValues(f))
+    val (otherMetadataColumns, deltaReadOptions) =
+      normalizeDeltaSplitMetadata(partitionSchema.fields.length, partitionFiles)
+        .getOrElse {
+          (
+            partitionFiles.map {
+              f => SparkShimLoader.getSparkShims.getOtherConstantMetadataColumnValues(f)
+            },
+            Seq.empty[DeltaFileReadOptions])
+        }
 
-    setFileSchemaForLocalFiles(
+    val localFilesNode = if (deltaReadOptions.nonEmpty) {
+      DeltaLocalFilesBuilder.makeDeltaLocalFiles(
+        partitionIndex,
+        paths.asJava,
+        starts.asJava,
+        lengths.asJava,
+        fileSizes.asJava,
+        modificationTimes.asJava,
+        partitionColumns.map(_.asJava).asJava,
+        metadataColumns.asJava,
+        fileFormat,
+        locations.toList.asJava,
+        mapAsJavaMap(properties),
+        otherMetadataColumns.asJava,
+        deltaReadOptions.asJava
+      )
+    } else {
       LocalFilesBuilder.makeLocalFiles(
         partitionIndex,
         paths.asJava,
@@ -111,10 +140,16 @@ class VeloxIteratorApi extends IteratorApi with Logging {
         locations.toList.asJava,
         mapAsJavaMap(properties),
         otherMetadataColumns.asJava
-      ),
+      )
+    }
+
+    val localFiles = setFileSchemaForLocalFiles(
+      localFilesNode,
       dataSchema,
       fileFormat
     )
+
+    localFiles
   }
 
   /** Generate native row partition. */
@@ -177,6 +212,93 @@ class VeloxIteratorApi extends IteratorApi with Logging {
 
   override def injectWriteFilesTempPath(path: String, fileName: String): Unit = {
     NativePlanEvaluator.injectWriteFilesTempPath(path, fileName)
+  }
+
+  private def normalizeDeltaSplitMetadata(
+      partitionColumnCount: Int,
+      partitionFiles: Seq[PartitionedFile]): Option[NormalizedDeltaSplitMetadata] = {
+    try {
+      // scalastyle:off classforname
+      val moduleClass = Class.forName(deltaScanInfoClassName)
+      // scalastyle:on classforname
+      val module = moduleClass.getField("MODULE$").get(null)
+      val extractAllMethod = moduleClass.getMethod(
+        "extractAllFromJava",
+        classOf[SparkSession],
+        classOf[Int],
+        classOf[java.util.List[_]])
+      val scanInfos = extractAllMethod
+        .invoke(module, activeSparkSession, Int.box(partitionColumnCount), partitionFiles.asJava)
+        .asInstanceOf[java.util.List[_]]
+        .asScala
+        .toSeq
+      val splitMetadata = scanInfos.map(toDeltaSplitMetadata)
+      if (splitMetadata.exists(_._2.hasDeletionVector())) {
+        Some((splitMetadata.map(_._1), splitMetadata.map(_._2)))
+      } else {
+        None
+      }
+    } catch {
+      case _: ClassNotFoundException | _: NoSuchMethodException =>
+        None
+    }
+  }
+
+  private def toDeltaSplitMetadata(
+      scanInfo: Any): (java.util.Map[String, Object], DeltaFileReadOptions) = {
+    val metadata = scanInfo
+      .getClass
+      .getMethod("normalizedOtherMetadataColumns")
+      .invoke(scanInfo)
+      .asInstanceOf[scala.collection.Map[String, Object]]
+      .asJava
+    val deletionVectorInfo = scanInfo.getClass.getMethod("deletionVectorInfo").invoke(scanInfo)
+    val rowIndexFilterType = deletionVectorInfo
+      .getClass
+      .getMethod("rowIndexFilterType")
+      .invoke(deletionVectorInfo)
+      .toString
+    val hasDeletionVector = deletionVectorInfo
+      .getClass
+      .getMethod("hasDeletionVector")
+      .invoke(deletionVectorInfo)
+      .asInstanceOf[Boolean]
+    val cardinality = deletionVectorInfo
+      .getClass
+      .getMethod("cardinality")
+      .invoke(deletionVectorInfo)
+      .asInstanceOf[JLong]
+      .longValue()
+    val serializedDeletionVector = deletionVectorInfo
+      .getClass
+      .getMethod("serializedDeletionVector")
+      .invoke(deletionVectorInfo)
+      .asInstanceOf[Array[Byte]]
+
+    (
+      metadata,
+      new DeltaFileReadOptions(
+        toDeltaRowIndexFilterType(rowIndexFilterType),
+        hasDeletionVector,
+        cardinality,
+        serializedDeletionVector))
+  }
+
+  private def toDeltaRowIndexFilterType(rowIndexFilterType: String): RowIndexFilterType = {
+    rowIndexFilterType match {
+      case "IF_CONTAINED" => RowIndexFilterType.IF_CONTAINED
+      case "IF_NOT_CONTAINED" => RowIndexFilterType.IF_NOT_CONTAINED
+      case _ => RowIndexFilterType.KEEP_ALL
+    }
+  }
+
+  private def activeSparkSession: SparkSession = {
+    SparkSession.getActiveSession
+      .orElse(SparkSession.getDefaultSession)
+      .getOrElse {
+        throw new IllegalStateException(
+          "Active SparkSession is required to materialize Delta deletion vectors")
+      }
   }
 
   /** Generate Iterator[ColumnarBatch] for first stage. */
