@@ -23,9 +23,15 @@ import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
 
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.util.SparkReflectionUtil
 
 class VeloxDeltaComponent extends Component {
+  private val deltaDvPreprocessRuleClassName =
+    "org.apache.gluten.extension.PreprocessDeltaScanWithDeletionVectors"
+
   override def name(): String = "velox-delta"
 
   override def dependencies(): Seq[Class[_ <: Component]] = classOf[VeloxBackend] :: Nil
@@ -36,6 +42,7 @@ class VeloxDeltaComponent extends Component {
 
   override def injectRules(injector: Injector): Unit = {
     val legacy = injector.gluten.legacy
+    injector.spark.injectOptimizerRule(deltaDvPreprocessRule)
     legacy.injectTransform {
       c =>
         val offload = Seq(OffloadDeltaScan(), OffloadDeltaProject(), OffloadDeltaFilter())
@@ -45,5 +52,23 @@ class VeloxDeltaComponent extends Component {
           offload)
     }
     DeltaPostTransformRules.rules.foreach(r => legacy.injectPostTransform(_ => r))
+  }
+
+  private def deltaDvPreprocessRule(spark: SparkSession): Rule[LogicalPlan] = {
+    if (!SparkReflectionUtil.isClassPresent(deltaDvPreprocessRuleClassName)) {
+      return VeloxDeltaComponent.IdentityRule
+    }
+
+    Class
+      .forName(deltaDvPreprocessRuleClassName)
+      .getConstructor(classOf[SparkSession])
+      .newInstance(spark)
+      .asInstanceOf[Rule[LogicalPlan]]
+  }
+}
+
+object VeloxDeltaComponent {
+  private object IdentityRule extends Rule[LogicalPlan] {
+    override def apply(plan: LogicalPlan): LogicalPlan = plan
   }
 }

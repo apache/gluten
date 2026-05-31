@@ -16,28 +16,37 @@
  */
 package org.apache.gluten.extension
 
-import org.apache.gluten.execution.{DeltaScanTransformer, ProjectExecTransformer}
+import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.execution.{DeltaScanTransformer, FilterExecTransformerBase, ProjectExecTransformer}
 import org.apache.gluten.extension.columnar.transition.RemoveTransitions
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, CreateNamedStruct, Expression, GetStructField, If, InputFileBlockLength, InputFileBlockStart, InputFileName, IsNull, LambdaFunction, Literal, NamedLambdaVariable}
-import org.apache.spark.sql.catalyst.expressions.{ArrayTransform, TransformKeys, TransformValues}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, NamedExpression}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.delta.{DeltaColumnMapping, DeltaParquetFileFormat, NoMapping}
-import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
+import org.apache.spark.sql.execution.{FilterExec, ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.FileFormat
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
+import org.apache.spark.sql.types.StructType
 
-import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 object DeltaPostTransformRules {
   def rules: Seq[Rule[SparkPlan]] =
-    RemoveTransitions :: pushDownInputFileExprRule :: columnMappingRule :: Nil
+    RemoveTransitions ::
+      nativeDeletionVectorRule ::
+      pushDownInputFileExprRule ::
+      columnMappingRule :: Nil
+
+  private val deletionVectorDeletedRowColumnName = "__delta_internal_is_row_deleted"
+  private val deletionVectorRowIndexColumnName = "__delta_internal_row_index"
+  private val deletionVectorInternalColumnNames =
+    Set(deletionVectorDeletedRowColumnName, deletionVectorRowIndexColumnName)
 
   private val COLUMN_MAPPING_RULE_TAG: TreeNodeTag[String] =
     TreeNodeTag[String]("org.apache.gluten.delta.column.mapping")
+  private val PRESERVE_DELETION_VECTOR_ROW_INDEX_TAG: TreeNodeTag[Boolean] =
+    TreeNodeTag[Boolean]("org.apache.gluten.delta.preserve.deletion.vector.row.index")
 
   private def notAppliedColumnMappingRule(plan: SparkPlan): Boolean = {
     plan.getTagValue(COLUMN_MAPPING_RULE_TAG).isEmpty
@@ -65,6 +74,87 @@ object DeltaPostTransformRules {
         child.copy(output = p.output)
     }
 
+  /**
+   * Spark Delta injects synthetic deletion-vector predicates and columns into the plan. Those are
+   * needed for the JVM reader path, but for the native Delta scan path they must be stripped or
+   * they will be applied twice with incompatible semantics.
+   */
+  val nativeDeletionVectorRule: Rule[SparkPlan] = (plan: SparkPlan) => {
+    tagRowIndexRequiredSubtrees(plan)
+    plan.transformUp {
+      case scan: DeltaScanTransformer =>
+        val cleanedDataFilters = scan.dataFilters.flatMap(stripDeletionVectorPredicate)
+        val cleanedPushDownFilters =
+          scan.pushDownFilters.map(_.flatMap(stripDeletionVectorPredicate))
+        val preserveRowIndex = shouldPreserveDeletionVectorRowIndex(scan)
+        val cleanedOutput = stripDeletionVectorInternalOutput(scan.output, preserveRowIndex)
+        val cleanedRequiredSchema =
+          stripDeletionVectorInternalSchema(scan.requiredSchema, preserveRowIndex)
+        if (
+          cleanedDataFilters == scan.dataFilters &&
+          cleanedPushDownFilters == scan.pushDownFilters &&
+          cleanedOutput == scan.output &&
+          cleanedRequiredSchema == scan.requiredSchema
+        ) {
+          scan
+        } else {
+          scan.copy(
+            output = cleanedOutput,
+            requiredSchema = cleanedRequiredSchema,
+            dataFilters = cleanedDataFilters,
+            pushDownFilters = cleanedPushDownFilters)
+        }
+      case project: ProjectExecTransformer if containsNativeDeltaScan(project.child) =>
+        val cleanedProjectList = stripDeletionVectorInternalProjectList(
+          project.projectList,
+          shouldPreserveDeletionVectorRowIndex(project))
+        if (cleanedProjectList == project.projectList) {
+          project
+        } else if (cleanedProjectList.isEmpty) {
+          project.child
+        } else {
+          ProjectExecTransformer(cleanedProjectList, project.child)
+        }
+      case project: ProjectExec if containsNativeDeltaScan(project.child) =>
+        val cleanedProjectList = stripDeletionVectorInternalProjectList(
+          project.projectList,
+          shouldPreserveDeletionVectorRowIndex(project))
+        if (cleanedProjectList == project.projectList) {
+          project
+        } else if (cleanedProjectList.isEmpty) {
+          project.child
+        } else {
+          ProjectExec(cleanedProjectList, project.child)
+        }
+      case filter: FilterExecTransformerBase if containsNativeDeltaScan(filter.child) =>
+        stripDeletionVectorPredicate(filter.cond) match {
+          case Some(cleanCondition) if cleanCondition != filter.cond =>
+            BackendsApiManager.getSparkPlanExecApiInstance
+              .genFilterExecTransformer(cleanCondition, filter.child)
+          case Some(_) =>
+            filter
+          case None =>
+            filter.child
+        }
+      case filter: FilterExec if containsNativeDeltaScan(filter.child) =>
+        stripDeletionVectorPredicate(filter.condition) match {
+          case Some(cleanCondition) if cleanCondition != filter.condition =>
+            FilterExec(cleanCondition, filter.child)
+          case Some(_) =>
+            filter
+          case None =>
+            filter.child
+        }
+    }
+  }
+
+  private def containsNativeDeltaScan(plan: SparkPlan): Boolean = {
+    plan.exists {
+      case _: DeltaScanTransformer => true
+      case _ => false
+    }
+  }
+
   private def isDeltaColumnMappingFileFormat(fileFormat: FileFormat): Boolean = fileFormat match {
     case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
       true
@@ -76,6 +166,82 @@ object DeltaPostTransformRules {
     expr match {
       case _: InputFileName | _: InputFileBlockStart | _: InputFileBlockLength => true
       case _ => expr.children.exists(containsInputFileRelatedExpr)
+    }
+  }
+
+  private def referencesDeletionVectorInternalColumn(expr: Expression): Boolean = {
+    expr.references.exists(attr => deletionVectorInternalColumnNames.contains(attr.name))
+  }
+
+  private def referencesDeletionVectorRowIndex(expr: Expression): Boolean = {
+    expr.references.exists(_.name == deletionVectorRowIndexColumnName)
+  }
+
+  private def tagRowIndexRequiredSubtrees(plan: SparkPlan): Unit = {
+    def tagSubtree(subtree: SparkPlan): Unit = {
+      subtree.foreach(_.setTagValue(PRESERVE_DELETION_VECTOR_ROW_INDEX_TAG, true))
+    }
+
+    def visit(node: SparkPlan): Unit = {
+      val shouldPreserveRowIndex =
+        node.expressions.exists(containsIncrementMetricExpr) ||
+          node.expressions.exists(referencesDeletionVectorRowIndex)
+      if (shouldPreserveRowIndex) {
+        node.children.foreach(tagSubtree)
+      }
+      node.children.foreach(visit)
+    }
+
+    visit(plan)
+  }
+
+  private def shouldPreserveDeletionVectorRowIndex(plan: SparkPlan): Boolean = {
+    plan.getTagValue(PRESERVE_DELETION_VECTOR_ROW_INDEX_TAG).contains(true) ||
+    plan.expressions.exists(containsIncrementMetricExpr) ||
+    plan.expressions.exists(referencesDeletionVectorRowIndex)
+  }
+
+  private def shouldStripDeletionVectorInternalColumn(
+      columnName: String,
+      preserveRowIndex: Boolean): Boolean = {
+    columnName == deletionVectorDeletedRowColumnName ||
+    (!preserveRowIndex && columnName == deletionVectorRowIndexColumnName)
+  }
+
+  private def stripDeletionVectorInternalOutput(
+      output: Seq[Attribute],
+      preserveRowIndex: Boolean): Seq[Attribute] = {
+    output.filterNot(attr => shouldStripDeletionVectorInternalColumn(attr.name, preserveRowIndex))
+  }
+
+  private def stripDeletionVectorInternalProjectList(
+      projectList: Seq[NamedExpression],
+      preserveRowIndex: Boolean): Seq[NamedExpression] = {
+    projectList.filterNot(
+      expr => shouldStripDeletionVectorInternalColumn(expr.name, preserveRowIndex))
+  }
+
+  private def stripDeletionVectorInternalSchema(
+      schema: StructType,
+      preserveRowIndex: Boolean): StructType = {
+    StructType(
+      schema.filterNot(
+        field => shouldStripDeletionVectorInternalColumn(field.name, preserveRowIndex)))
+  }
+
+  private def stripDeletionVectorPredicate(expr: Expression): Option[Expression] = {
+    expr match {
+      case And(left, right) =>
+        (stripDeletionVectorPredicate(left), stripDeletionVectorPredicate(right)) match {
+          case (Some(cleanLeft), Some(cleanRight)) => Some(And(cleanLeft, cleanRight))
+          case (Some(cleanLeft), None) => Some(cleanLeft)
+          case (None, Some(cleanRight)) => Some(cleanRight)
+          case (None, None) => None
+        }
+      case other if referencesDeletionVectorInternalColumn(other) =>
+        None
+      case other =>
+        Some(other)
     }
   }
 
@@ -93,73 +259,6 @@ object DeltaPostTransformRules {
     expr match {
       case e if e.prettyName == "increment_metric" => true
       case _ => expr.children.exists(containsIncrementMetricExpr)
-    }
-  }
-
-  /**
-   * Checks whether two structurally compatible DataTypes have different struct field names at any
-   * nesting level.
-   */
-  private def nestedFieldNamesDiffer(logical: DataType, physical: DataType): Boolean = {
-    (logical, physical) match {
-      case (l: StructType, p: StructType) if l.length == p.length =>
-        l.zip(p).exists {
-          case (lf, pf) =>
-            lf.name != pf.name || nestedFieldNamesDiffer(lf.dataType, pf.dataType)
-        }
-      case (l: ArrayType, p: ArrayType) =>
-        nestedFieldNamesDiffer(l.elementType, p.elementType)
-      case (l: MapType, p: MapType) =>
-        nestedFieldNamesDiffer(l.keyType, p.keyType) ||
-        nestedFieldNamesDiffer(l.valueType, p.valueType)
-      case _ => false
-    }
-  }
-
-  /**
-   * Rebuilds an expression tree so that nested struct field names match the logical schema. Uses
-   * positional extraction (GetStructField) and reconstruction (CreateNamedStruct) instead of Cast,
-   * so correctness does not depend on Velox's cast_match_struct_by_name config.
-   */
-  private def reconcileFieldNames(
-      expr: Expression,
-      logical: DataType,
-      physical: DataType): Expression = {
-    (logical, physical) match {
-      case (l: StructType, p: StructType) if l.length == p.length =>
-        val rebuiltFields = l.zip(p).zipWithIndex.flatMap {
-          case ((lf, pf), i) =>
-            val extracted = GetStructField(expr, i, None)
-            val reconciled = reconcileFieldNames(extracted, lf.dataType, pf.dataType)
-            Seq(Literal(lf.name), reconciled)
-        }
-        val rebuilt = CreateNamedStruct(rebuiltFields)
-        If(IsNull(expr), Literal.create(null, l), rebuilt)
-      case (l: ArrayType, p: ArrayType) if nestedFieldNamesDiffer(l.elementType, p.elementType) =>
-        val lambdaVar = NamedLambdaVariable("element", p.elementType, p.containsNull)
-        val body = reconcileFieldNames(lambdaVar, l.elementType, p.elementType)
-        ArrayTransform(expr, LambdaFunction(body, Seq(lambdaVar)))
-      case (l: MapType, p: MapType) =>
-        val needKeys = nestedFieldNamesDiffer(l.keyType, p.keyType)
-        val needValues = nestedFieldNamesDiffer(l.valueType, p.valueType)
-        var result = expr
-        if (needValues) {
-          val keyVar = NamedLambdaVariable("key", p.keyType, false)
-          val valueVar = NamedLambdaVariable("value", p.valueType, p.valueContainsNull)
-          val body = reconcileFieldNames(valueVar, l.valueType, p.valueType)
-          result = TransformValues(result, LambdaFunction(body, Seq(keyVar, valueVar)))
-        }
-        if (needKeys) {
-          val keyVar = NamedLambdaVariable("key", p.keyType, false)
-          val valueVar = NamedLambdaVariable(
-            "value",
-            if (needValues) l.valueType else p.valueType,
-            p.valueContainsNull)
-          val body = reconcileFieldNames(keyVar, l.keyType, p.keyType)
-          result = TransformKeys(result, LambdaFunction(body, Seq(keyVar, valueVar)))
-        }
-        result
-      case _ => expr
     }
   }
 
@@ -185,9 +284,8 @@ object DeltaPostTransformRules {
       )(SparkSession.active)
       // transform output's name into physical name so Reader can read data correctly
       // should keep the columns order the same as the origin output
-      case class ColumnMapping(logicalName: String, logicalType: DataType, physicalAttr: Attribute)
-      val columnMappings = ListBuffer.empty[ColumnMapping]
-      val seenNames = mutable.Set.empty[String]
+      val originColumnNames = ListBuffer.empty[String]
+      val transformedAttrs = ListBuffer.empty[Attribute]
       def mapAttribute(attr: Attribute) = {
         val newAttr = if (plan.isMetadataColumn(attr)) {
           attr
@@ -198,8 +296,9 @@ object DeltaPostTransformRules {
             .createPhysicalAttributes(Seq(attr), fmt.referenceSchema, fmt.columnMappingMode)
             .head
         }
-        if (seenNames.add(attr.name)) {
-          columnMappings += ColumnMapping(attr.name, attr.dataType, newAttr)
+        if (!originColumnNames.contains(attr.name)) {
+          transformedAttrs += newAttr
+          originColumnNames += attr.name
         }
         newAttr
       }
@@ -239,20 +338,9 @@ object DeltaPostTransformRules {
       scanExecTransformer.copyTagsFrom(plan)
       tagColumnMappingRule(scanExecTransformer)
 
-      // Alias physical names back to logical names. For struct-typed columns, Delta column
-      // mapping renames internal field names to physical UUIDs. A top-level Alias only restores
-      // the column name, not the struct's internal field names. We rebuild the struct with
-      // logical field names using positional extraction (GetStructField/CreateNamedStruct)
-      // instead of Cast, so correctness does not depend on any Velox cast config.
-      val expr = columnMappings.map {
-        cm =>
-          val projectedExpr: Expression =
-            if (nestedFieldNamesDiffer(cm.logicalType, cm.physicalAttr.dataType)) {
-              reconcileFieldNames(cm.physicalAttr, cm.logicalType, cm.physicalAttr.dataType)
-            } else {
-              cm.physicalAttr
-            }
-          Alias(projectedExpr, cm.logicalName)(exprId = cm.physicalAttr.exprId)
+      // alias physicalName into tableName
+      val expr = (transformedAttrs, originColumnNames).zipped.map {
+        (attr, columnName) => Alias(attr, columnName)(exprId = attr.exprId)
       }
       val projectExecTransformer = ProjectExecTransformer(expr.toSeq, scanExecTransformer)
       projectExecTransformer

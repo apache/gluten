@@ -19,6 +19,8 @@
 
 #include "TypeUtils.h"
 #include "VariantToVectorConverter.h"
+#include "compute/delta/DeltaConnector.h"
+#include "compute/delta/DeltaSplitInfo.h"
 #include "jni/JniHashTable.h"
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
@@ -46,6 +48,9 @@ using namespace cudf_velox::connector::hive;
 namespace gluten {
 namespace {
 
+const std::string kDeltaTableFormat = "delta";
+const std::string kTableFormatKey = "table_format";
+
 bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfos) {
 #ifdef GLUTEN_ENABLE_GPU
   if (splitInfos.empty()) {
@@ -55,6 +60,23 @@ bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfo
 #else
   return false;
 #endif
+}
+
+bool isDeltaMetadata(const std::unordered_map<std::string, std::string>& metadata) {
+  auto tableFormatIt = metadata.find(kTableFormatKey);
+  return tableFormatIt != metadata.end() && tableFormatIt->second == kDeltaTableFormat;
+}
+
+bool isDeltaSplitInfo(const std::shared_ptr<SplitInfo>& splitInfo) {
+  if (std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo) != nullptr) {
+    return true;
+  }
+  for (const auto& metadata : splitInfo->metadataColumns) {
+    if (isDeltaMetadata(metadata)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 core::SortOrder toSortOrder(const ::substrait::SortField& sortField) {
@@ -731,17 +753,19 @@ std::shared_ptr<connector::hive::HiveInsertTableHandle> makeHiveInsertTableHandl
     }
     if (std::find(partitionedBy.cbegin(), partitionedBy.cend(), tableColumnNames.at(i)) != partitionedBy.cend()) {
       ++numPartitionColumns;
-      columnHandles.emplace_back(std::make_shared<connector::hive::HiveColumnHandle>(
-          tableColumnNames.at(i),
-          connector::hive::HiveColumnHandle::ColumnType::kPartitionKey,
-          tableColumnTypes.at(i),
-          tableColumnTypes.at(i)));
+      columnHandles.emplace_back(
+          std::make_shared<connector::hive::HiveColumnHandle>(
+              tableColumnNames.at(i),
+              connector::hive::HiveColumnHandle::ColumnType::kPartitionKey,
+              tableColumnTypes.at(i),
+              tableColumnTypes.at(i)));
     } else {
-      columnHandles.emplace_back(std::make_shared<connector::hive::HiveColumnHandle>(
-          tableColumnNames.at(i),
-          connector::hive::HiveColumnHandle::ColumnType::kRegular,
-          tableColumnTypes.at(i),
-          tableColumnTypes.at(i)));
+      columnHandles.emplace_back(
+          std::make_shared<connector::hive::HiveColumnHandle>(
+              tableColumnNames.at(i),
+              connector::hive::HiveColumnHandle::ColumnType::kRegular,
+              tableColumnTypes.at(i),
+              tableColumnTypes.at(i)));
     }
   }
   VELOX_CHECK_EQ(numPartitionColumns, partitionedBy.size());
@@ -769,10 +793,11 @@ std::shared_ptr<CudfHiveInsertTableHandle> makeCudfHiveInsertTableHandle(
   columnHandles.reserve(tableColumnNames.size());
 
   for (int i = 0; i < tableColumnNames.size(); ++i) {
-    columnHandles.push_back(std::make_shared<CudfHiveColumnHandle>(
-        tableColumnNames.at(i),
-        tableColumnTypes.at(i),
-        cudf::data_type{cudf_velox::veloxToCudfTypeId(tableColumnTypes.at(i))}));
+    columnHandles.push_back(
+        std::make_shared<CudfHiveColumnHandle>(
+            tableColumnNames.at(i),
+            tableColumnTypes.at(i),
+            cudf::data_type{cudf_velox::veloxToCudfTypeId(tableColumnTypes.at(i))}));
   }
 
   return std::make_shared<CudfHiveInsertTableHandle>(
@@ -1574,8 +1599,9 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
   connector::ConnectorTableHandlePtr tableHandle;
   auto remainingFilter = readRel.has_filter() ? exprConverter_->toVeloxExpr(readRel.filter(), baseSchema) : nullptr;
-  auto connectorId = connectorIds_.hive;
-  if (useCudfTableHandle(splitInfos_) && veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
+  auto connectorId = isDeltaSplitInfo(splitInfo) ? connectorIds_.delta : connectorIds_.hive;
+  if (connectorId == connectorIds_.hive && useCudfTableHandle(splitInfos_) &&
+      veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
 #ifdef GLUTEN_ENABLE_GPU
     connectorId = connectorIds_.cudfHive;
