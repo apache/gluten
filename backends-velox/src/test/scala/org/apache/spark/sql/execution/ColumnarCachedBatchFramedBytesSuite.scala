@@ -110,10 +110,9 @@ class ColumnarCachedBatchFramedBytesSuite extends AnyFunSuite {
   // 3 reruns). Pins the cross-language wire contract: feeding the cpp output
   // through the JVM parser MUST produce expected stats fields.
   //
-  // Update protocol on intentional wire bump: regenerate the literal by
-  // capturing a fresh printf dump from the cpp side, paste BOTH the cpp and
-  // JVM literals together in the SAME commit (the cpp test name above is the
-  // grep anchor), and explicitly call out the bump in the PR description.
+  // Update protocol on intentional wire bump: regenerate by capturing a fresh
+  // printf dump from the cpp side, paste BOTH literals in the SAME commit
+  // (cpp test name above is the grep anchor), and call out the bump in the PR.
   //
   // Spark 3.x is gated out: parseFramedBytes' schema-driven dispatch is
   // Spark-4.x-only (V2 cache plan path).
@@ -361,17 +360,15 @@ class ColumnarCachedBatchFramedBytesSuite extends AnyFunSuite {
     assert(stats.getInt(13) === 100, "col c count=100")
 
     // Col d (BIGINT all-DETERMINISTIC-0): both bounds = 0, count=100, nullCount=0.
-    // (D3-anti-pitfall rev 3: this col is intentionally NOT all-null because
-    // an all-null FlatVector poisons byte-equal goldens; emitSupported=0
-    // coverage lives in the sibling no-bounds test below.)
+    // Intentionally NOT all-null: an all-null FlatVector poisons byte-equal
+    // goldens. emitSupported=0 coverage lives in the sibling no-bounds test below.
     assert(stats.getLong(15) === 0L, "col d BIGINT lower=0")
     assert(stats.getLong(16) === 0L, "col d BIGINT upper=0")
     assert(stats.getInt(17) === 0, "col d nullCount=0")
     assert(stats.getInt(18) === 100, "col d count=100")
 
-    // bytesBlob is the Velox PrestoSerde-encoded RowVector payload; opaque to
-    // the JVM beyond the framing layer. Assert it's non-empty so a reader-side
-    // wire-bump that empties bytesBlob without changing statsLen still fires.
+    // Assert non-empty: catches a reader-side wire bump that empties bytesBlob
+    // without changing statsLen.
     assert(bytesBlob.length > 0, "bytesBlob must be non-empty")
   }
 
