@@ -40,13 +40,11 @@ import scala.util.Try
  *
  * Usage:
  * {{{
- *   org.apache.spark.sql.delta.DeltaDeleteDeletionVectorBenchmark [rows] [files] [iterations] [mode]
+ *   org.apache.spark.sql.delta.DeltaDeleteDeletionVectorBenchmark \
+ *     [rows] [files] [iterations] [deleteMode] [executionMode]
  * }}}
  *
- * Modes:
- *   - create: DELETE creates deletion vectors on a fresh table
- *   - update: DELETE updates existing deletion vectors
- *   - all: run both modes
+ * Delete modes: create, update, all. Execution modes: spark, gluten, all.
  */
 object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
   private val EnableNativeDmlRowIndexScan =
@@ -56,7 +54,13 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
       rowCount: Long = 1000 * 1000,
       files: Int = 8,
       iterations: Int = 3,
-      mode: String = "all")
+      deleteMode: String = "all",
+      executionMode: String = "spark")
+
+  private case class ExecutionMode(
+      label: String,
+      withGlutenPlugin: Boolean,
+      deleteConfs: DeleteConfs)
 
   private case class DeleteConfs(
       glutenEnabled: Boolean,
@@ -67,51 +71,70 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
       activeFiles: Long,
       filesWithDvs: Long,
       dvCardinality: Long,
-      dvPayloadBytes: Long)
+      dvPayloadBytes: Long,
+      finalRows: Long)
 
   private var sparkSession: SparkSession = _
   private var benchmarkRoot: File = _
 
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
     val conf = parseArgs(mainArgs)
-    sparkSession = createSparkSession(conf)
-    benchmarkRoot = Utils.createTempDir(namePrefix = "delta-delete-dv-benchmark")
-
-    conf.mode match {
-      case "create" =>
-        runDeleteBenchmark(
-          name = "Delta DELETE creates deletion vectors",
-          conf = conf,
-          existingDv = false,
-          measuredPredicate = "id % 10 = 0")
-      case "update" =>
-        runDeleteBenchmark(
-          name = "Delta DELETE updates existing deletion vectors",
-          conf = conf,
-          existingDv = true,
-          measuredPredicate = "id % 10 = 1")
-      case "all" =>
-        runDeleteBenchmark(
-          name = "Delta DELETE creates deletion vectors",
-          conf = conf,
-          existingDv = false,
-          measuredPredicate = "id % 10 = 0")
-        runDeleteBenchmark(
-          name = "Delta DELETE updates existing deletion vectors",
-          conf = conf,
-          existingDv = true,
-          measuredPredicate = "id % 10 = 1")
-      case other =>
-        throw new IllegalArgumentException(
-          s"Unknown mode '$other'. Expected create, update, or all.")
+    executionModes(conf.executionMode).foreach {
+      mode =>
+        sparkSession = createSparkSession(conf, mode)
+        benchmarkRoot = Utils.createTempDir(
+          namePrefix = s"delta-delete-dv-benchmark-${mode.label}")
+        try {
+          conf.deleteMode match {
+            case "create" =>
+              runDeleteBenchmark(
+                name = "Delta DELETE creates deletion vectors",
+                conf = conf,
+                mode = mode,
+                existingDv = false,
+                measuredPredicate = "id % 10 = 0",
+                expectedDeletedMods = Seq(0))
+            case "update" =>
+              runDeleteBenchmark(
+                name = "Delta DELETE updates existing deletion vectors",
+                conf = conf,
+                mode = mode,
+                existingDv = true,
+                measuredPredicate = "id % 10 = 1",
+                expectedDeletedMods = Seq(9, 1)
+              )
+            case "all" =>
+              runDeleteBenchmark(
+                name = "Delta DELETE creates deletion vectors",
+                conf = conf,
+                mode = mode,
+                existingDv = false,
+                measuredPredicate = "id % 10 = 0",
+                expectedDeletedMods = Seq(0))
+              runDeleteBenchmark(
+                name = "Delta DELETE updates existing deletion vectors",
+                conf = conf,
+                mode = mode,
+                existingDv = true,
+                measuredPredicate = "id % 10 = 1",
+                expectedDeletedMods = Seq(9, 1)
+              )
+            case other =>
+              throw new IllegalArgumentException(
+                s"Unknown delete mode '$other'. Expected create, update, or all.")
+          }
+        } finally {
+          stopSpark()
+          if (benchmarkRoot != null) {
+            Utils.deleteRecursively(benchmarkRoot)
+            benchmarkRoot = null
+          }
+        }
     }
   }
 
   override def afterAll(): Unit = {
-    if (sparkSession != null) {
-      sparkSession.stop()
-      sparkSession = null
-    }
+    stopSpark()
     if (benchmarkRoot != null) {
       Utils.deleteRecursively(benchmarkRoot)
       benchmarkRoot = null
@@ -126,31 +149,64 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
       rowCount = args.headOption.map(_.toLong).getOrElse(defaults.rowCount),
       files = args.lift(1).map(_.toInt).getOrElse(defaults.files),
       iterations = args.lift(2).map(_.toInt).getOrElse(defaults.iterations),
-      mode = args.lift(3).map(_.toLowerCase(Locale.ROOT)).getOrElse(defaults.mode)
+      deleteMode = args.lift(3).map(_.toLowerCase(Locale.ROOT)).getOrElse(defaults.deleteMode),
+      executionMode =
+        args.lift(4).map(_.toLowerCase(Locale.ROOT)).getOrElse(defaults.executionMode)
     )
   }
 
-  private def createSparkSession(conf: BenchmarkConf): SparkSession = {
+  private def executionModes(mode: String): Seq[ExecutionMode] = {
+    val sparkOnly = ExecutionMode(
+      label = "spark",
+      withGlutenPlugin = false,
+      deleteConfs = DeleteConfs(
+        glutenEnabled = false,
+        nativeWriteEnabled = false,
+        nativeDmlRowIndexScanEnabled = false))
+    val glutenNative = ExecutionMode(
+      label = "gluten-native",
+      withGlutenPlugin = true,
+      deleteConfs = DeleteConfs(
+        glutenEnabled = true,
+        nativeWriteEnabled = true,
+        nativeDmlRowIndexScanEnabled = true))
+    mode match {
+      case "spark" => Seq(sparkOnly)
+      case "gluten" => Seq(glutenNative)
+      case "all" => Seq(sparkOnly, glutenNative)
+      case other =>
+        throw new IllegalArgumentException(
+          s"Unknown execution mode '$other'. Expected spark, gluten, or all.")
+    }
+  }
+
+  private def createSparkSession(conf: BenchmarkConf, mode: ExecutionMode): SparkSession = {
     val sparkConf = new SparkConf()
-      .setAppName("DeltaDeleteDeletionVectorBenchmark")
+      .setAppName(s"DeltaDeleteDeletionVectorBenchmark-${mode.label}")
       .setIfMissing("spark.master", "local[4]")
       .set(StaticSQLConf.SPARK_SESSION_EXTENSIONS.key, classOf[DeltaSparkSessionExtension].getName)
       .set(SQLConf.V2_SESSION_CATALOG_IMPLEMENTATION.key, classOf[DeltaCatalog].getName)
-      .set("spark.plugins", "org.apache.gluten.GlutenPlugin")
-      .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
       .set("spark.default.parallelism", conf.files.toString)
       .set("spark.sql.shuffle.partitions", conf.files.toString)
-      .set("spark.memory.offHeap.enabled", "true")
-      .set("spark.memory.offHeap.size", "4g")
       .set(SQLConf.ANSI_ENABLED.key, "false")
       .set(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key, "false")
       .set(GlutenConfig.FALLBACK_REPORTER_ENABLED.key, "false")
-      .set(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key, "true")
+      .set("spark.gluten.enabled", mode.deleteConfs.glutenEnabled.toString)
+      .set(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key, mode.deleteConfs.nativeWriteEnabled.toString)
+      .set(EnableNativeDmlRowIndexScan, mode.deleteConfs.nativeDmlRowIndexScanEnabled.toString)
       .set(DeltaSQLConf.DELETE_USE_PERSISTENT_DELETION_VECTORS.key, "true")
       .set(
         DeltaConfigs.ENABLE_DELETION_VECTORS_CREATION.defaultTablePropertyKey,
         "true")
       .set(DeltaSQLConf.DELTA_COLLECT_STATS.key, "false")
+
+    if (mode.withGlutenPlugin) {
+      sparkConf
+        .set("spark.plugins", "org.apache.gluten.GlutenPlugin")
+        .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
+        .set("spark.memory.offHeap.enabled", "true")
+        .set("spark.memory.offHeap.size", "4g")
+    }
 
     SparkSession.builder.config(sparkConf).getOrCreate()
   }
@@ -158,12 +214,14 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
   private def runDeleteBenchmark(
       name: String,
       conf: BenchmarkConf,
+      mode: ExecutionMode,
       existingDv: Boolean,
-      measuredPredicate: String): Unit = {
-    val sparkPaths = prepareTables(s"$name-spark", conf, existingDv)
-    val glutenPaths = prepareTables(s"$name-gluten", conf, existingDv)
+      measuredPredicate: String,
+      expectedDeletedMods: Seq[Int]): Unit = {
+    val paths = prepareTables(s"$name-${mode.label}", conf, existingDv)
+    val expectedFinalRows = expectedRemainingRows(conf.rowCount, expectedDeletedMods)
     val benchmark = new Benchmark(
-      name = s"$name (${conf.rowCount} rows, ${conf.files} files)",
+      name = s"$name ${mode.label} (${conf.rowCount} rows, ${conf.files} files)",
       valuesPerIteration = conf.rowCount,
       minNumIters = 1,
       warmupTime = Duration.Zero,
@@ -172,30 +230,14 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
       output = output
     )
 
-    benchmark.addCase("Spark DELETE DV (Gluten disabled)", conf.iterations) {
+    benchmark.addCase(s"${mode.label} DELETE DV", conf.iterations) {
       iteration =>
         val result = runDelete(
-          sparkPaths(iteration),
+          paths(iteration),
           measuredPredicate,
-          DeleteConfs(
-            glutenEnabled = false,
-            nativeWriteEnabled = false,
-            nativeDmlRowIndexScanEnabled = false))
-        validateDeleteResult(result, existingDv)
-        printFirstIterationResult(iteration, "spark", result)
-    }
-
-    benchmark.addCase("Gluten DELETE DV (native write + DML row-index scan)", conf.iterations) {
-      iteration =>
-        val result = runDelete(
-          glutenPaths(iteration),
-          measuredPredicate,
-          DeleteConfs(
-            glutenEnabled = true,
-            nativeWriteEnabled = true,
-            nativeDmlRowIndexScanEnabled = true))
-        validateDeleteResult(result, existingDv)
-        printFirstIterationResult(iteration, "gluten-native", result)
+          mode.deleteConfs)
+        validateDeleteResult(result, existingDv, expectedFinalRows)
+        printFirstIterationResult(iteration, mode.label, result)
     }
 
     benchmark.run()
@@ -219,7 +261,10 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
               glutenEnabled = false,
               nativeWriteEnabled = false,
               nativeDmlRowIndexScanEnabled = false))
-          validateDeleteResult(result, existingDv = false)
+          validateDeleteResult(
+            result,
+            existingDv = false,
+            expectedFinalRows = expectedRemainingRows(conf.rowCount, Seq(9)))
         }
         path
     }
@@ -259,17 +304,25 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
   private def collectDeleteResult(path: String): DeleteResult = {
     val files = DeltaLog.forTable(spark, path).update().allFiles.collect()
     val filesWithDvs = files.filter(_.deletionVector != null)
+    val finalRows = spark.read.format("delta").load(path).count()
     DeleteResult(
       activeFiles = files.length,
       filesWithDvs = filesWithDvs.length,
       dvCardinality = filesWithDvs.map(_.deletionVector.cardinality).sum,
-      dvPayloadBytes = filesWithDvs.map(_.deletionVector.sizeInBytes).sum
+      dvPayloadBytes = filesWithDvs.map(_.deletionVector.sizeInBytes).sum,
+      finalRows = finalRows
     )
   }
 
-  private def validateDeleteResult(result: DeleteResult, existingDv: Boolean): Unit = {
+  private def validateDeleteResult(
+      result: DeleteResult,
+      existingDv: Boolean,
+      expectedFinalRows: Long): Unit = {
     require(result.filesWithDvs > 0, s"Expected deletion vectors, got $result")
     require(result.dvCardinality > 0, s"Expected deleted-row cardinality, got $result")
+    require(
+      result.finalRows == expectedFinalRows,
+      s"Expected $expectedFinalRows final rows, got $result")
     if (existingDv) {
       require(
         result.dvCardinality > result.filesWithDvs,
@@ -286,7 +339,8 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
         s"$label result: activeFiles=${result.activeFiles}, " +
           s"filesWithDvs=${result.filesWithDvs}, " +
           s"dvCardinality=${result.dvCardinality}, " +
-          s"dvPayloadBytes=${result.dvPayloadBytes}")
+          s"dvPayloadBytes=${result.dvPayloadBytes}, " +
+          s"finalRows=${result.finalRows}")
     }
   }
 
@@ -312,6 +366,25 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
         case (key, Some(value)) => spark.conf.set(key, value)
         case (key, None) => spark.conf.unset(key)
       }
+    }
+  }
+
+  private def expectedRemainingRows(rowCount: Long, deletedMods: Seq[Int]): Long =
+    rowCount - deletedMods.distinct.map(countRowsWithMod(rowCount, _)).sum
+
+  private def countRowsWithMod(rowCount: Long, mod: Int): Long = {
+    require(mod >= 0 && mod < 10, s"Expected modulo in [0, 10), got $mod")
+    if (rowCount <= mod) {
+      0L
+    } else {
+      ((rowCount - 1 - mod) / 10) + 1
+    }
+  }
+
+  private def stopSpark(): Unit = {
+    if (sparkSession != null) {
+      sparkSession.stop()
+      sparkSession = null
     }
   }
 
