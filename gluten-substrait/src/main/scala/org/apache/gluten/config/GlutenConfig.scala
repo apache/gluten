@@ -285,11 +285,11 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def fallbackPreferColumnar: Boolean = getConf(COLUMNAR_FALLBACK_PREFER_COLUMNAR)
 
-  def cartesianProductTransformerEnabled: Boolean =
-    getConf(CARTESIAN_PRODUCT_TRANSFORMER_ENABLED)
+  def enableColumnarCartesianProduct: Boolean =
+    getConf(COLUMNAR_CARTESIAN_PRODUCT_ENABLED)
 
-  def broadcastNestedLoopJoinTransformerTransformerEnabled: Boolean =
-    getConf(BROADCAST_NESTED_LOOP_JOIN_TRANSFORMER_ENABLED)
+  def enableColumnarBroadcastNestedLoopJoin: Boolean =
+    getConf(COLUMNAR_BROADCAST_NESTED_LOOP_JOIN_ENABLED)
 
   def transformPlanLogLevel: String = getConf(TRANSFORM_PLAN_LOG_LEVEL)
 
@@ -1462,15 +1462,15 @@ object GlutenConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
-  val CARTESIAN_PRODUCT_TRANSFORMER_ENABLED =
-    buildConf("spark.gluten.sql.cartesianProductTransformerEnabled")
-      .doc("Config to enable CartesianProductExecTransformer.")
+  val COLUMNAR_CARTESIAN_PRODUCT_ENABLED =
+    buildConf("spark.gluten.sql.columnar.cartesianProduct")
+      .doc("Enable or disable columnar cartesianProduct.")
       .booleanConf
       .createWithDefault(true)
 
-  val BROADCAST_NESTED_LOOP_JOIN_TRANSFORMER_ENABLED =
-    buildConf("spark.gluten.sql.broadcastNestedLoopJoinTransformerEnabled")
-      .doc("Config to enable BroadcastNestedLoopJoinExecTransformer.")
+  val COLUMNAR_BROADCAST_NESTED_LOOP_JOIN_ENABLED =
+    buildConf("spark.gluten.sql.columnar.broadcastNestedLoopJoin")
+      .doc("Enable or disable columnar broadcastNestedLoopJoin.")
       .booleanConf
       .createWithDefault(true)
 

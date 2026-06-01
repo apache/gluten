@@ -189,7 +189,7 @@ object Validators {
         fail(p)
       case p: GenerateExec if !glutenConf.enableColumnarGenerate => fail(p)
       case p: CoalesceExec if !glutenConf.enableColumnarCoalesce => fail(p)
-      case p: CartesianProductExec if !glutenConf.cartesianProductTransformerEnabled => fail(p)
+      case p: CartesianProductExec if !glutenConf.enableColumnarCartesianProduct => fail(p)
       case p: TakeOrderedAndProjectExec
           if !(glutenConf.enableTakeOrderedAndProject && glutenConf.enableColumnarSort &&
             glutenConf.enableColumnarShuffle && glutenConf.enableColumnarProject) =>
@@ -198,7 +198,7 @@ object Validators {
         fail(p)
       case p: BroadcastNestedLoopJoinExec
           if !(glutenConf.enableColumnarBroadcastJoin &&
-            glutenConf.broadcastNestedLoopJoinTransformerTransformerEnabled) =>
+            glutenConf.enableColumnarBroadcastNestedLoopJoin) =>
         fail(p)
       case p @ (_: HashAggregateExec | _: SortAggregateExec | _: ObjectHashAggregateExec)
           if !glutenConf.enableColumnarHashAgg =>

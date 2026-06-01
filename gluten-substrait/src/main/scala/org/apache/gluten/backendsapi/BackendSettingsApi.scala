@@ -63,8 +63,6 @@ trait BackendSettingsApi {
 
   def supportNativeRowIndexColumn(): Boolean = true
 
-  def supportExpandExec(): Boolean = false
-
   def supportSortExec(): Boolean = false
 
   def supportSortMergeJoinExec(): Boolean = true

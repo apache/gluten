@@ -397,8 +397,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
     }
   }
 
-  override def supportExpandExec(): Boolean = true
-
   override def supportSortExec(): Boolean = true
 
   override def supportSortMergeJoinExec(): Boolean = {
