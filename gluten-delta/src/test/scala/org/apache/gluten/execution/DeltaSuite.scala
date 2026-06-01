@@ -210,18 +210,20 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         spark.sql(
           s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
         checkAnswer(spark.read.format("delta").load(path), df1.union(df2))
-        spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (${values2.mkString(", ")})")
-        val df = spark.read.format("delta").load(path)
-        val executedPlan = df.queryExecution.executedPlan
-        if (SparkVersionUtil.gteSpark35) {
-          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty)
+        withSQLConf("spark.databricks.delta.deletionVectors.useMetadataRowIndex" -> "true") {
+          spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (${values2.mkString(", ")})")
+          val df = spark.read.format("delta").load(path)
+          val executedPlan = df.queryExecution.executedPlan
           val planText = executedPlan.toString()
-          assert(!planText.contains("__delta_internal_is_row_deleted"))
-          assert(!planText.contains("__delta_internal_row_index"))
-        } else {
-          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.isEmpty)
+          if (SparkVersionUtil.gteSpark35) {
+            assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty, planText)
+            assert(!planText.contains("__delta_internal_is_row_deleted"))
+            assert(!planText.contains("__delta_internal_row_index"))
+          } else {
+            assert(executedPlan.collect { case _: DeltaScanTransformer => true }.isEmpty, planText)
+          }
+          checkAnswer(df, df1)
         }
-        checkAnswer(df, df1)
     }
   }
 

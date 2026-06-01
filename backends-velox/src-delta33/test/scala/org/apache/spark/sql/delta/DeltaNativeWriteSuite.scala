@@ -93,11 +93,19 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
   }
 
   private def hasGlutenDeleteCommand(plan: SparkPlan): Boolean = {
-    plan
+    val commandClassMatch = plan
       .collectFirst {
         case ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(_: GlutenDeleteCommand)) => true
       }
       .getOrElse(false)
+
+    val commandNodeMatch = plan
+      .collectFirst {
+        case p if p.nodeName.contains("GlutenDeleteCommand") => true
+      }
+      .getOrElse(false)
+
+    commandClassMatch || commandNodeMatch || plan.treeString.contains("GlutenDeleteCommand")
   }
 
   private def assertContainsGlutenDeleteCommand(plan: SparkPlan, context: String): Unit = {
