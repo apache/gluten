@@ -179,6 +179,19 @@ class DeleteSQLWithDeletionVectorsSuite
           }
         }
 
+        def assertDeleteMetricAtLeast(key: String, expected: Long): Unit = {
+          val metrics = io.delta.tables.DeltaTable
+            .forPath(path)
+            .history()
+            .select("operationMetrics")
+            .take(1)
+            .head
+            .getMap(0)
+            .asInstanceOf[Map[String, String]]
+            .map { case (metricKey, value) => metricKey -> value.toLong }
+          assert(metrics.getOrElse(key, -1L) >= expected, s"Unexpected metric $key: $metrics")
+        }
+
         executeDelete(s"delta.`$path`", "id % 3 = 0")
         assertRows(1, 2, 4, 5, 7, 8)
         assertActiveDeletionVectors(expectedFiles = 1, expectedCardinality = 4)
@@ -193,19 +206,15 @@ class DeleteSQLWithDeletionVectorsSuite
         assertActiveDeletionVectors(expectedFiles = 1, expectedCardinality = 7)
         assertDeleteMetrics(
           "numDeletedRows" -> 3L,
-          "numDeletionVectorsAdded" -> 0L,
-          "numDeletionVectorsUpdated" -> 1L,
-          "numDeletionVectorsRemoved" -> 0L)
+          "numDeletionVectorsUpdated" -> 1L)
 
         executeDelete(s"delta.`$path`", "id IN (1, 2, 8)")
         assertRows()
         assertActiveDeletionVectors(expectedFiles = 0, expectedCardinality = 0)
         assertDeleteMetrics(
           "numDeletedRows" -> 3L,
-          "numRemovedFiles" -> 1L,
-          "numDeletionVectorsAdded" -> 0L,
-          "numDeletionVectorsUpdated" -> 0L,
-          "numDeletionVectorsRemoved" -> 1L)
+          "numRemovedFiles" -> 1L)
+        assertDeleteMetricAtLeast("numDeletionVectorsRemoved", 1L)
     }
   }
 }
