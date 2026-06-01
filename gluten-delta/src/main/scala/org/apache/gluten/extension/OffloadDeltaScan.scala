@@ -50,7 +50,9 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
       FallbackTags.add(scan, "fallback Delta DV scan without metadata row index")
       scan
     case scan: FileSourceScanExec if isDeltaScan(scan) =>
-      DeltaScanTransformer(scan)
+      val transformer = DeltaScanTransformer(scan)
+      DeltaDeletionVectorDmlUtils.copyDmlRowIndexScanTag(scan, transformer)
+      transformer
     case other => other
   }
 

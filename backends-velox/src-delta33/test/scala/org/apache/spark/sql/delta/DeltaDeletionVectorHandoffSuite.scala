@@ -93,6 +93,22 @@ class DeltaDeletionVectorHandoffSuite
     assert(!executedPlans.exists(hasNativeParentOverDmlFallbackScan), planText)
   }
 
+  private def assertReadPlanAfterDmlFallback(path: String, useMetadataRowIndex: Boolean): Unit = {
+    withSQLConf(
+      DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> useMetadataRowIndex.toString) {
+      val df = spark.read.format("delta").load(path)
+      val executedPlan = df.queryExecution.executedPlan
+      val planText = executedPlan.treeString
+      if (useMetadataRowIndex) {
+        assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty, planText)
+        assert(!planText.contains(DmlFallbackReason), planText)
+      } else {
+        assert(executedPlan.collect { case _: DeltaScanTransformer => true }.isEmpty, planText)
+      }
+      checkAnswer(df, Seq((1, "a"), (2, "b")).toDF())
+    }
+  }
+
   private def activeDvCardinality(path: String): Long = {
     val log = DeltaLog.forTable(spark, new Path(path))
     log.update().allFiles.collect().flatMap(
@@ -169,7 +185,7 @@ class DeltaDeletionVectorHandoffSuite
 
             val log = DeltaLog.forTable(spark, new Path(path))
             assert(log.update().allFiles.collect().exists(_.deletionVector != null))
-            checkAnswer(spark.read.format("delta").load(path), Seq((1, "a"), (2, "b")).toDF())
+            assertReadPlanAfterDmlFallback(path, useMetadataRowIndex)
         }
       }
   }
@@ -196,7 +212,7 @@ class DeltaDeletionVectorHandoffSuite
         assertSparkDmlFallback(captureDeletePlans(path, "id IN (3, 4)", useMetadataRowIndex = true))
         assert(activeDvCardinality(path) === 4L)
 
-        checkAnswer(spark.read.format("delta").load(path), Seq((1, "a"), (2, "b")).toDF())
+        assertReadPlanAfterDmlFallback(path, useMetadataRowIndex = true)
     }
   }
 }

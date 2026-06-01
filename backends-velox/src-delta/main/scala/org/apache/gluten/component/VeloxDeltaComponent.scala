@@ -18,7 +18,7 @@ package org.apache.gluten.component
 
 import org.apache.gluten.backendsapi.velox.VeloxBackend
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.{DeltaPostTransformRules, OffloadDeltaFilter, OffloadDeltaProject, OffloadDeltaScan}
+import org.apache.gluten.extension.{DeltaDeletionVectorDmlUtils, DeltaPostTransformRules, OffloadDeltaFilter, OffloadDeltaProject, OffloadDeltaScan}
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
@@ -43,6 +43,7 @@ class VeloxDeltaComponent extends Component {
   override def injectRules(injector: Injector): Unit = {
     val legacy = injector.gluten.legacy
     injector.spark.injectOptimizerRule(deltaDvPreprocessRule)
+    legacy.injectPreTransform(_ => DeltaDeletionVectorDmlUtils.tagDmlRowIndexScans)
     legacy.injectTransform {
       c =>
         val offload = Seq(OffloadDeltaScan(), OffloadDeltaProject(), OffloadDeltaFilter())
