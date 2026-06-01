@@ -144,6 +144,69 @@ class DeleteSQLWithDeletionVectorsSuite extends DeleteSQLSuite
       text = "SELECT key, value, 1 FROM tab",
       expectResult = Row(0, 3, 1) :: Nil)
   }
+
+  test("repeated DELETE produces, updates, and removes persistent deletion vectors") {
+    withTempDir { dir =>
+      val path = dir.getCanonicalPath
+      spark.range(0, 10, 1, numPartitions = 1).toDF("id").write.format("delta").save(path)
+      val log = DeltaLog.forTable(spark, path)
+
+      def assertRows(expected: Long*): Unit = {
+        checkAnswer(
+          sql(s"SELECT id FROM delta.`$path` ORDER BY id"),
+          expected.map(id => Row(id)))
+      }
+
+      def assertActiveDeletionVectors(expectedFiles: Int, expectedCardinality: Long): Unit = {
+        val filesWithDVs = getFilesWithDeletionVectors(log)
+        assert(filesWithDVs.size === expectedFiles)
+        assert(filesWithDVs.map(_.deletionVector.cardinality).sum === expectedCardinality)
+      }
+
+      def assertDeleteMetrics(expected: (String, Long)*): Unit = {
+        val metrics = io.delta.tables.DeltaTable
+          .forPath(path)
+          .history()
+          .select("operationMetrics")
+          .take(1)
+          .head
+          .getMap(0)
+          .asInstanceOf[Map[String, String]]
+          .map { case (key, value) => key -> value.toLong }
+        expected.foreach { case (key, value) =>
+          assert(metrics.getOrElse(key, -1L) === value, s"Unexpected metric $key: $metrics")
+        }
+      }
+
+      executeDelete(s"delta.`$path`", "id % 3 = 0")
+      assertRows(1, 2, 4, 5, 7, 8)
+      assertActiveDeletionVectors(expectedFiles = 1, expectedCardinality = 4)
+      assertDeleteMetrics(
+        "numDeletedRows" -> 4L,
+        "numDeletionVectorsAdded" -> 1L,
+        "numDeletionVectorsUpdated" -> 0L,
+        "numDeletionVectorsRemoved" -> 0L)
+
+      executeDelete(s"delta.`$path`", "id IN (4, 5, 7)")
+      assertRows(1, 2, 8)
+      assertActiveDeletionVectors(expectedFiles = 1, expectedCardinality = 7)
+      assertDeleteMetrics(
+        "numDeletedRows" -> 3L,
+        "numDeletionVectorsAdded" -> 0L,
+        "numDeletionVectorsUpdated" -> 1L,
+        "numDeletionVectorsRemoved" -> 0L)
+
+      executeDelete(s"delta.`$path`", "id IN (1, 2, 8)")
+      assertRows()
+      assertActiveDeletionVectors(expectedFiles = 0, expectedCardinality = 0)
+      assertDeleteMetrics(
+        "numDeletedRows" -> 3L,
+        "numRemovedFiles" -> 1L,
+        "numDeletionVectorsAdded" -> 0L,
+        "numDeletionVectorsUpdated" -> 0L,
+        "numDeletionVectorsRemoved" -> 1L)
+    }
+  }
 }
 
 @ExtendedSQLTest

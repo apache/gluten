@@ -22,6 +22,7 @@ import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.actions.AddFile
+import org.apache.spark.sql.delta.commands.GlutenDeleteCommand
 import org.apache.spark.sql.delta.commands.optimize.OptimizeMetrics
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
@@ -156,6 +157,28 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
     )
   }
 
+  private def hasGlutenDeleteCommand(plan: SparkPlan): Boolean = {
+    plan
+      .collectFirst {
+        case ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(_: GlutenDeleteCommand)) => true
+      }
+      .getOrElse(false)
+  }
+
+  private def assertContainsGlutenDeleteCommand(plans: Seq[SparkPlan], context: String): Unit = {
+    assert(
+      plans.exists(hasGlutenDeleteCommand),
+      s"Expected GlutenDeleteCommand for $context, but got plans:\n" +
+        plans.map(_.treeString).mkString("\n---\n"))
+  }
+
+  private def assertNoGlutenDeleteCommand(plans: Seq[SparkPlan], context: String): Unit = {
+    assert(
+      !plans.exists(hasGlutenDeleteCommand),
+      s"Expected no GlutenDeleteCommand for $context, but got plans:\n" +
+        plans.map(_.treeString).mkString("\n---\n"))
+  }
+
   private def files(deltaLog: DeltaLog): Set[AddFile] = {
     deltaLog.update().allFiles.collect().toSet
   }
@@ -238,6 +261,80 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
 
           val result = spark.read.format("delta").load(path)
           assert(result.collect().toSet == Set(Row(1, "a"), Row(2, "bb")))
+      }
+    }
+  }
+
+  test("DELETE command route is limited to persistent DV row-condition deletes") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          Seq((1, "a"), (2, "b")).toDF("id", "value").write.format("delta").save(path)
+          spark.sql(
+            s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+
+          withSQLConf(DeltaSQLConf.DELETE_USE_PERSISTENT_DELETION_VECTORS.key -> "true") {
+            val deleteDf = sql(s"DELETE FROM delta.`$path` WHERE id = 1")
+            assertContainsGlutenDeleteCommand(
+              Seq(deleteDf.queryExecution.executedPlan),
+              "persistent DV row-condition DELETE")
+            deleteDf.collect()
+          }
+          assert(spark.read.format("delta").load(path).collect().toSet == Set(Row(2, "b")))
+      }
+
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          Seq((1, "a"), (2, "b")).toDF("id", "value").write.format("delta").save(path)
+
+          val deleteDf = sql(s"DELETE FROM delta.`$path` WHERE id = 1")
+          assertNoGlutenDeleteCommand(Seq(deleteDf.queryExecution.executedPlan), "ordinary DELETE")
+          deleteDf.collect()
+          assert(spark.read.format("delta").load(path).collect().toSet == Set(Row(2, "b")))
+      }
+
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          spark
+            .range(0, 4)
+            .selectExpr("id", "cast(id % 2 as int) as part")
+            .write
+            .format("delta")
+            .partitionBy("part")
+            .save(path)
+          spark.sql(
+            s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+
+          withSQLConf(DeltaSQLConf.DELETE_USE_PERSISTENT_DELETION_VECTORS.key -> "true") {
+            val deleteDf = sql(s"DELETE FROM delta.`$path` WHERE part = 0")
+            assertNoGlutenDeleteCommand(
+              Seq(deleteDf.queryExecution.executedPlan),
+              "metadata-only DELETE")
+            deleteDf.collect()
+          }
+          assert(
+            spark.read.format("delta").load(path).select("id").collect().map(_.getLong(0)).toSet ==
+              Set(1L, 3L))
+      }
+
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          Seq((1, "a"), (2, "b")).toDF("id", "value").write.format("delta").save(path)
+          spark.sql(
+            s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+
+          withSQLConf(DeltaSQLConf.DELETE_USE_PERSISTENT_DELETION_VECTORS.key -> "true") {
+            val deleteDf = sql(s"DELETE FROM delta.`$path`")
+            assertNoGlutenDeleteCommand(
+              Seq(deleteDf.queryExecution.executedPlan),
+              "full-table DELETE")
+            deleteDf.collect()
+          }
+          assert(spark.read.format("delta").load(path).count() == 0)
       }
     }
   }

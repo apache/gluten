@@ -19,8 +19,9 @@ package org.apache.spark.sql.execution.datasources.v2
 import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.delta.catalog.DeltaCatalog
-import org.apache.spark.sql.delta.commands.{DeleteCommand, DeltaCommand, OptimizeTableCommand, UpdateCommand}
+import org.apache.spark.sql.delta.commands.{DeleteCommand, DeltaCommand, GlutenDeleteCommand, OptimizeTableCommand, UpdateCommand}
 import org.apache.spark.sql.delta.skipping.clustering.ClusteredTableUtils
 import org.apache.spark.sql.delta.sources.DeltaDataSource
 import org.apache.spark.sql.execution.SparkPlan
@@ -35,6 +36,9 @@ case class OffloadDeltaCommand() extends OffloadSingleNode with DeltaCommand {
     plan match {
       case ExecutedCommandExec(uc: UpdateCommand) =>
         ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(uc))
+      case ExecutedCommandExec(dc: DeleteCommand)
+          if GlutenDeleteCommand.shouldOffload(dc, SparkSession.active) =>
+        ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(GlutenDeleteCommand(dc)))
       case ExecutedCommandExec(dc: DeleteCommand) =>
         ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(dc))
       case ExecutedCommandExec(optimize: OptimizeTableCommand) if shouldOffloadOptimize(optimize) =>
