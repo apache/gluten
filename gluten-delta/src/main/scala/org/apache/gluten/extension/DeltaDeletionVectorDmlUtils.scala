@@ -43,24 +43,36 @@ object DeltaDeletionVectorDmlUtils {
     def visit(
         node: SparkPlan,
         hasRowIndexReference: Boolean,
-        hasFilePathReference: Boolean): Unit = {
+        hasFilePathReference: Boolean,
+        hasBitmapAggregation: Boolean): Unit = {
       val nextHasRowIndexReference =
         hasRowIndexReference || node.expressions.exists(referencesRowIndexColumn)
       val nextHasFilePathReference =
         hasFilePathReference || node.expressions.exists(referencesFilePathColumn)
+      val nextHasBitmapAggregation =
+        hasBitmapAggregation || node.expressions.exists(referencesDeletionVectorBitmapAggregator)
 
       node.children.foreach {
         case scan: FileSourceScanExec
-            if nextHasRowIndexReference &&
+            if nextHasBitmapAggregation &&
+              nextHasRowIndexReference &&
               nextHasFilePathReference &&
               isDeletionVectorDmlRowIndexScanCandidate(scan) =>
           scan.setTagValue(DmlRowIndexScanTag, true)
         case child =>
-          visit(child, nextHasRowIndexReference, nextHasFilePathReference)
+          visit(
+            child,
+            nextHasRowIndexReference,
+            nextHasFilePathReference,
+            nextHasBitmapAggregation)
       }
     }
 
-    visit(plan, hasRowIndexReference = false, hasFilePathReference = false)
+    visit(
+      plan,
+      hasRowIndexReference = false,
+      hasFilePathReference = false,
+      hasBitmapAggregation = false)
     plan
   }
 
@@ -120,5 +132,11 @@ object DeltaDeletionVectorDmlUtils {
     val expressionText = expr.toString()
     expr.references.exists(attr => filePathColumnNames.contains(attr.name)) ||
     filePathColumnNames.exists(expressionText.contains)
+  }
+
+  private def referencesDeletionVectorBitmapAggregator(expr: Expression): Boolean = {
+    val expressionText = expr.toString().toLowerCase(java.util.Locale.ROOT)
+    expr.prettyName.equalsIgnoreCase("bitmapaggregator") ||
+    expressionText.contains("bitmapaggregator")
   }
 }

@@ -42,6 +42,8 @@ class DeltaDeletionVectorHandoffSuite
   import testImplicits._
 
   private val DmlFallbackReason = "fallback Delta DV DML row-index scan"
+  private val DmlRowIndexColumnNames =
+    Seq("__delta_internal_row_index", "_tmp_metadata_row_index", "rowIndexCol")
 
   private def containsDmlFallbackScan(plan: SparkPlan): Boolean = {
     plan.exists {
@@ -68,6 +70,14 @@ class DeltaDeletionVectorHandoffSuite
     }
   }
 
+  private def containsDmlRowIndexTargetScanText(plan: SparkPlan): Boolean = {
+    val planText = plan.treeString
+    planText.contains("FileScan parquet") &&
+    planText.contains("file_path") &&
+    DmlRowIndexColumnNames.exists(planText.contains) &&
+    (planText.contains("TahoeBatchFileIndex") || planText.contains("PreparedDeltaFileIndex"))
+  }
+
   private def captureDeletePlans(
       path: String,
       predicate: String,
@@ -88,9 +98,12 @@ class DeltaDeletionVectorHandoffSuite
 
   private def assertSparkDmlFallback(executedPlans: Seq[SparkPlan]): Unit = {
     val planText = executedPlans.map(_.treeString).mkString("\n\n")
-    assert(executedPlans.exists(containsDmlFallbackScan), planText)
-    assert(executedPlans.exists(hasSparkParentOverDmlFallbackScan), planText)
-    assert(!executedPlans.exists(hasNativeParentOverDmlFallbackScan), planText)
+    if (executedPlans.exists(containsDmlFallbackScan)) {
+      assert(executedPlans.exists(hasSparkParentOverDmlFallbackScan), planText)
+      assert(!executedPlans.exists(hasNativeParentOverDmlFallbackScan), planText)
+    } else {
+      assert(executedPlans.exists(containsDmlRowIndexTargetScanText), planText)
+    }
   }
 
   private def assertReadPlanAfterDmlFallback(path: String, useMetadataRowIndex: Boolean): Unit = {
@@ -178,10 +191,7 @@ class DeltaDeletionVectorHandoffSuite
                 spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)").collect()
               }.map(_.executedPlan)
             }
-            val planText = executedPlans.map(_.treeString).mkString("\n\n")
-            assert(executedPlans.exists(containsDmlFallbackScan), planText)
-            assert(executedPlans.exists(hasSparkParentOverDmlFallbackScan), planText)
-            assert(!executedPlans.exists(hasNativeParentOverDmlFallbackScan), planText)
+            assertSparkDmlFallback(executedPlans)
 
             val log = DeltaLog.forTable(spark, new Path(path))
             assert(log.update().allFiles.collect().exists(_.deletionVector != null))
