@@ -369,6 +369,8 @@ std::vector<ColumnStats> VeloxColumnarBatchSerializer::computeStats(RowVectorPtr
         break;
       }
       default:
+        // Mirror non-flat path: real nullCount needed for JVM IsNull pruning.
+        nullCnt = countNullsAny(child.get());
         // Unsupported type -> hasLowerBound=hasUpperBound=false -> JVM buildFilter pass-through.
         break;
     }

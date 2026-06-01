@@ -610,6 +610,17 @@ class Spark41Shims extends SparkShims {
     DecimalPrecisionTypeCoercion.widerDecimalType(d1, d2)
   }
 
+  override def decimalAllowPrecisionLoss(expr: BinaryArithmetic): Boolean = expr match {
+    case a: Add => a.evalContext.allowDecimalPrecisionLoss
+    case s: Subtract => s.evalContext.allowDecimalPrecisionLoss
+    case m: Multiply => m.evalContext.allowDecimalPrecisionLoss
+    case d: Divide => d.evalContext.allowDecimalPrecisionLoss
+    // Remainder and Pmod do not carry evalContext in Spark 4.1. They also throw
+    // GlutenNotSupportException in DecimalArithmeticUtil.getResultType, so they never
+    // reach Velox execution; SQLConf.get is a safe fallback for the name-lookup path.
+    case _ => SQLConf.get.decimalOperationsAllowPrecisionLoss
+  }
+
   override def getErrorMessage(raiseError: RaiseError): Option[Expression] = {
     raiseError.errorParms match {
       case CreateMap(children, _)

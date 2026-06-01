@@ -1350,11 +1350,11 @@
         <sparkbundle.version>4.1</sparkbundle.version>
         <sparkshim.artifactId>spark-sql-columnar-shims-spark41</sparkshim.artifactId>
         <spark.version>4.1.1</spark.version>
-        <iceberg.version>1.10.0</iceberg.version>
+        <iceberg.version>1.11.0</iceberg.version>
         <delta.package.name>delta-spark_4.1</delta.package.name>
         <delta.version>4.1.0</delta.version>
         <delta.binary.version>40</delta.binary.version>
-        <hudi.version>1.1.0</hudi.version>
+        <hudi.version>1.2.0</hudi.version>
         <fasterxml.version>2.18.2</fasterxml.version>
         <fasterxml.jackson.version>2.18.2</fasterxml.jackson.version>
         <fasterxml.jackson.databind.version>2.18.2</fasterxml.jackson.databind.version>

@@ -259,11 +259,11 @@ WriteStats IcebergWriter::writeStats() const {
   const auto currentTimeNs = getCurrentTimeNano();
   VELOX_CHECK_GE(currentTimeNs, createTimeNs_);
   const auto sinkStats = dataSink_->stats();
-  return WriteStats(
+  return WriteStats{
       sinkStats.numWrittenBytes,
       sinkStats.numWrittenFiles,
       sinkStats.writeIOTimeUs * 1000,
-      currentTimeNs - createTimeNs_);
+      currentTimeNs - createTimeNs_};
 }
 
 std::shared_ptr<const iceberg::IcebergPartitionSpec>
@@ -308,7 +308,7 @@ parseIcebergPartitionSpec(const uint8_t* data, const int32_t length, RowTypePtr 
       parameter = protoField.parameter();
     }
 
-    fields.emplace_back(protoField.name(), rowType->findChild(protoField.name()), transform, parameter);
+    fields.push_back({protoField.name(), rowType->findChild(protoField.name()), transform, parameter});
   }
 
   return std::make_shared<iceberg::IcebergPartitionSpec>(protoSpec.spec_id(), fields);

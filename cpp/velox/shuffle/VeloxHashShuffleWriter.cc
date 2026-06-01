@@ -440,16 +440,17 @@ arrow::Status VeloxHashShuffleWriter::doSplit(const facebook::velox::RowVector& 
 
   printPartitionBuffer();
 
-  setSplitState(SplitState::kInit);
   if (partitionBufferEvictThreshold_ > 0) {
     // After split, evict large partition buffers to free up memory for the next input RowVector.
     const auto partitionBytes = estimatePartitionBufferBytes();
     for (uint32_t pid = 0; pid < partitionBytes.size(); ++pid) {
       if (partitionBufferBase_[pid] > 0 && partitionBytes[pid] >= partitionBufferEvictThreshold_) {
+        PartitionScopeGuard guard(partitionBufferInUse_, pid);
         RETURN_NOT_OK(evictPartitionBuffers(pid, false));
       }
     }
   }
+  setSplitState(SplitState::kInit);
   return arrow::Status::OK();
 }
 

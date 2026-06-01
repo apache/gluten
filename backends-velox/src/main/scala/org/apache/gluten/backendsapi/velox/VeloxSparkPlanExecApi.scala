@@ -162,8 +162,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
   }
 
-  override def getDecimalArithmeticExprName(exprName: String): String =
-    if (!SQLConf.get.decimalOperationsAllowPrecisionLoss) { exprName + "_deny_precision_loss" }
+  override def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String =
+    if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
     else { exprName }
 
   /** Transform map_entries to Substrait. */

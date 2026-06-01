@@ -3045,6 +3045,30 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
 
   }
 
+  test("row number aggregate topk handles first array result offset") {
+    withSQLConf(
+      (CHConfig.runtimeSettings("enable_window_group_limit_to_aggregate"), "true"),
+      (CHConfig.runtimeSettings("window.aggregate_topk_high_cardinality_threshold"), "2.0")
+    ) {
+      compareResultsAgainstVanillaSpark(
+        """
+          |select * from (
+          |  select a, b, row_number() over (partition by a order by b) as r
+          |  from (select * from values ('a', 2), ('a', 1) as t(a, b))
+          |) where r <= 1
+          |""".stripMargin,
+        compareResult = true,
+        df => {
+          val groupLimit = collectWithSubqueries(df.queryExecution.executedPlan) {
+            case e: CHAggregateGroupLimitExecTransformer => e
+            case wgl: CHWindowGroupLimitExecTransformer => wgl
+          }
+          assert(groupLimit.nonEmpty)
+        }
+      )
+    }
+  }
+
   test("GLUTEN-7905 get topk of window by window") {
     withSQLConf(
       (CHConfig.runtimeSettings("enable_window_group_limit_to_aggregate"), "true"),
