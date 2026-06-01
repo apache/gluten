@@ -21,12 +21,14 @@ import org.apache.spark.sql.catalyst.catalog.CatalogTable
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.delta.{DeltaLog, DeltaTableUtils, NumRecordsStats, OptimisticTransaction}
-import org.apache.spark.sql.delta.actions.Action
+import org.apache.spark.sql.delta.actions.{Action, Metadata}
 import org.apache.spark.sql.delta.commands.MergeIntoCommandBase.totalBytesAndDistinctPartitionValues
 import org.apache.spark.sql.delta.files.TahoeBatchFileIndex
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 
 object GlutenDeleteCommand {
+  private val processUnmodifiedDataMethodName = "processUnmodifiedData"
+
   def apply(delegate: DeleteCommand): GlutenDeleteCommand =
     new GlutenDeleteCommand(
       delegate.deltaLog,
@@ -50,6 +52,53 @@ object GlutenDeleteCommand {
           sparkSession)
         dataPredicates.nonEmpty && DeletionVectorUtils.deletionVectorsWritable(snapshot)
     }
+  }
+
+  private def processUnmodifiedData(
+      sparkSession: SparkSession,
+      touchedFiles: Seq[TouchedFileWithDV],
+      txn: OptimisticTransaction): (Seq[Action], Map[String, Long]) = {
+    val helper = DMLWithDeletionVectorsHelper
+    val method = helper.getClass.getMethods.find {
+      method => method.getName == processUnmodifiedDataMethodName && method.getParameterCount == 4
+    }.getOrElse {
+      helper.getClass.getMethods.find {
+        method => method.getName == processUnmodifiedDataMethodName && method.getParameterCount == 3
+      }.getOrElse {
+        throw new IllegalStateException(
+          s"Unable to find $processUnmodifiedDataMethodName on ${helper.getClass.getName}")
+      }
+    }
+
+    val result =
+      if (method.getParameterCount == 4) {
+        method.invoke(
+          helper,
+          sparkSession,
+          touchedFiles,
+          txn.snapshot,
+          Int.box(dataSkippingStringPrefixLength(sparkSession, txn.metadata)))
+      } else {
+        method.invoke(
+          helper,
+          sparkSession,
+          touchedFiles,
+          txn.snapshot)
+      }
+
+    result.asInstanceOf[(Seq[Action], Map[String, Long])]
+  }
+
+  private def dataSkippingStringPrefixLength(
+      sparkSession: SparkSession,
+      metadata: Metadata): Int = {
+    val statsCollectionUtilsClass =
+      Class.forName("org.apache.spark.sql.delta.stats.StatsCollectionUtils$")
+    val statsCollectionUtils = statsCollectionUtilsClass.getField("MODULE$").get(null)
+    statsCollectionUtilsClass
+      .getMethod("getDataSkippingStringPrefixLength", classOf[SparkSession], classOf[Metadata])
+      .invoke(statsCollectionUtils, sparkSession, metadata)
+      .asInstanceOf[Int]
   }
 }
 
@@ -142,10 +191,10 @@ class GlutenDeleteCommand(
     scanTimeMs = (System.nanoTime() - startTime) / 1000 / 1000
     val deleteActions =
       if (touchedFiles.nonEmpty) {
-        val (actions, metricMap) = DMLWithDeletionVectorsHelper.processUnmodifiedData(
+        val (actions, metricMap) = GlutenDeleteCommand.processUnmodifiedData(
           sparkSession,
           touchedFiles,
-          txn.snapshot)
+          txn)
         metrics("numDeletedRows").set(metricMap("numModifiedRows"))
         numDeletedRows = Some(metricMap("numModifiedRows"))
         numDeletionVectorsAdded = metricMap("numDeletionVectorsAdded")
