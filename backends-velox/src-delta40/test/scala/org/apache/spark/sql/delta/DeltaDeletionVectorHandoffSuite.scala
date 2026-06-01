@@ -30,6 +30,8 @@ import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.hadoop.fs.Path
 
+import java.io.File
+
 @ExtendedSQLTest
 class DeltaDeletionVectorHandoffSuite
   extends QueryTest
@@ -64,6 +66,37 @@ class DeltaDeletionVectorHandoffSuite
       case filter: FilterExecTransformerBase if containsDmlFallbackScan(filter.child) => true
       case _ => false
     }
+  }
+
+  private def captureDeletePlans(
+      path: String,
+      predicate: String,
+      useMetadataRowIndex: Boolean): Seq[SparkPlan] = {
+    var executedPlans: Seq[SparkPlan] = Seq.empty
+    withSQLConf(
+      DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key ->
+        useMetadataRowIndex.toString,
+      "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite" -> "false",
+      "spark.gluten.sql.delta.enableNativeDmlRowIndexScan" -> "false"
+    ) {
+      executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
+        spark.sql(s"DELETE FROM delta.`$path` WHERE $predicate").collect()
+      }.map(_.executedPlan)
+    }
+    executedPlans
+  }
+
+  private def assertSparkDmlFallback(executedPlans: Seq[SparkPlan]): Unit = {
+    val planText = executedPlans.map(_.treeString).mkString("\n\n")
+    assert(executedPlans.exists(containsDmlFallbackScan), planText)
+    assert(executedPlans.exists(hasSparkParentOverDmlFallbackScan), planText)
+    assert(!executedPlans.exists(hasNativeParentOverDmlFallbackScan), planText)
+  }
+
+  private def activeDvCardinality(path: String): Long = {
+    val log = DeltaLog.forTable(spark, new Path(path))
+    log.update().allFiles.collect().flatMap(
+      file => Option(file.deletionVector).map(_.cardinality)).sum
   }
 
   test("Spark 4 Delta DV scan should fall back when metadata row index is disabled") {
@@ -167,6 +200,32 @@ class DeltaDeletionVectorHandoffSuite
         assert(!planText.contains("__delta_internal_is_row_deleted"))
         assert(!planText.contains("__delta_internal_row_index"))
         checkAnswer(df, Seq((1, "a"), (2, "b")).toDF())
+    }
+  }
+
+  test("Delta DV DML row-index scan should fall back when updating an existing DV") {
+    assume(SparkVersionUtil.gteSpark35, "DML row-index scan fallback is Spark 3.5+ coverage")
+    withTempDir {
+      tempDir =>
+        val path = new File(tempDir, "delta table with spaces").getCanonicalPath
+        Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f"))
+          .toDF("id", "value")
+          .coalesce(1)
+          .write
+          .format("delta")
+          .save(path)
+
+        spark.sql(
+          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES " +
+            "('delta.enableDeletionVectors' = true)")
+
+        assertSparkDmlFallback(captureDeletePlans(path, "id IN (5, 6)", useMetadataRowIndex = true))
+        assert(activeDvCardinality(path) === 2L)
+
+        assertSparkDmlFallback(captureDeletePlans(path, "id IN (3, 4)", useMetadataRowIndex = true))
+        assert(activeDvCardinality(path) === 4L)
+
+        checkAnswer(spark.read.format("delta").load(path), Seq((1, "a"), (2, "b")).toDF())
     }
   }
 }
