@@ -20,14 +20,15 @@ import org.apache.spark.sql.delta.DeltaParquetFileFormat
 import org.apache.spark.sql.delta.files.TahoeFileIndex
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.FileSourceScanExec
-import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 
 object DeltaDeletionVectorDmlUtils {
+  // Spark 3.5+ exposes this as ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME.
+  private val parquetTemporaryRowIndexColumnName = "_tmp_metadata_row_index"
   private val deletionVectorRowIndexColumnNames =
     Set(
       "__delta_internal_row_index",
       DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME,
-      ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME)
+      parquetTemporaryRowIndexColumnName)
   private val filePathColumnNames = Set("file_path", "filePath")
 
   def isDeltaScan(scan: FileSourceScanExec): Boolean = {
