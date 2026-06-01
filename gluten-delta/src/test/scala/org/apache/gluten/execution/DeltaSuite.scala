@@ -18,6 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SparkVersionUtil
 
@@ -42,6 +43,15 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
       .set("spark.sql.sources.useV1SourceList", "avro")
       .set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
       .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+  }
+
+  private def hasNativeDeltaMorScan(plan: SparkPlan): Boolean = {
+    collect(plan) {
+      case _: DeltaScanTransformer => true
+      case scan: BatchScanExecTransformer
+          if scan.scan.getClass.getSimpleName == "ParquetScan" =>
+        true
+    }.nonEmpty
   }
 
   // IdMapping is supported in Delta 2.2 (related to Spark3.3.1)
@@ -213,16 +223,20 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         withSQLConf("spark.databricks.delta.deletionVectors.useMetadataRowIndex" -> "true") {
           spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (${values2.mkString(", ")})")
           val df = spark.read.format("delta").load(path)
+          checkAnswer(df, df1)
           val executedPlan = df.queryExecution.executedPlan
           val planText = executedPlan.toString()
           if (SparkVersionUtil.gteSpark35) {
-            assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty, planText)
+            assert(hasNativeDeltaMorScan(executedPlan), planText)
+            assert(!planText.contains("fallback Delta DV DML row-index scan"), planText)
+            assert(
+              !planText.contains("fallback Delta DV scan without metadata row index"),
+              planText)
             assert(!planText.contains("__delta_internal_is_row_deleted"))
             assert(!planText.contains("__delta_internal_row_index"))
           } else {
-            assert(executedPlan.collect { case _: DeltaScanTransformer => true }.isEmpty, planText)
+            assert(!hasNativeDeltaMorScan(executedPlan), planText)
           }
-          checkAnswer(df, df1)
         }
     }
   }
