@@ -17,12 +17,16 @@
 package org.apache.spark.sql.delta
 
 import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
+import org.apache.gluten.execution.DeltaScanTransformer
+import org.apache.gluten.extension.DeltaDeletionVectorDmlUtils
+import org.apache.gluten.extension.columnar.FallbackTags
 
 import org.apache.spark.SparkConf
 import org.apache.spark.benchmark.{Benchmark, BenchmarkBase}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.delta.catalog.DeltaCatalog
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
+import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.util.Utils
 
@@ -72,7 +76,18 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
       filesWithDvs: Long,
       dvCardinality: Long,
       dvPayloadBytes: Long,
-      finalRows: Long)
+      finalRows: Long,
+      finalIdSum: BigInt,
+      deleteMs: Long,
+      validationMs: Long,
+      planSummary: PlanSummary)
+
+  private case class PlanSummary(
+      deletePlans: Int,
+      glutenDeleteCommands: Int,
+      deltaScanTransformers: Int,
+      dmlRowIndexFallbackScans: Int,
+      fallbackReasons: Seq[String])
 
   private var sparkSession: SparkSession = _
   private var benchmarkRoot: File = _
@@ -220,6 +235,7 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
       expectedDeletedMods: Seq[Int]): Unit = {
     val paths = prepareTables(s"$name-${mode.label}", conf, existingDv)
     val expectedFinalRows = expectedRemainingRows(conf.rowCount, expectedDeletedMods)
+    val expectedFinalIdSum = expectedRemainingIdSum(conf.rowCount, expectedDeletedMods)
     val benchmark = new Benchmark(
       name = s"$name ${mode.label} (${conf.rowCount} rows, ${conf.files} files)",
       valuesPerIteration = conf.rowCount,
@@ -236,7 +252,7 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
           paths(iteration),
           measuredPredicate,
           mode.deleteConfs)
-        validateDeleteResult(result, existingDv, expectedFinalRows)
+        validateDeleteResult(result, existingDv, expectedFinalRows, expectedFinalIdSum)
         printFirstIterationResult(iteration, mode.label, result)
     }
 
@@ -264,7 +280,9 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
           validateDeleteResult(
             result,
             existingDv = false,
-            expectedFinalRows = expectedRemainingRows(conf.rowCount, Seq(9)))
+            expectedFinalRows = expectedRemainingRows(conf.rowCount, Seq(9)),
+            expectedFinalIdSum = expectedRemainingIdSum(conf.rowCount, Seq(9))
+          )
         }
         path
     }
@@ -296,33 +314,76 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
       DeltaSQLConf.DELETE_USE_PERSISTENT_DELETION_VECTORS.key -> "true",
       DeltaConfigs.ENABLE_DELETION_VECTORS_CREATION.defaultTablePropertyKey -> "true"
     ) {
-      spark.sql(s"DELETE FROM delta.`$path` WHERE $predicate").collect()
+      val deleteStartNs = System.nanoTime()
+      val executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
+        spark.sql(s"DELETE FROM delta.`$path` WHERE $predicate").collect()
+      }.map(_.executedPlan)
+      val deleteMs = elapsedMs(deleteStartNs)
+      collectDeleteResult(path, deleteMs, summarizePlans(executedPlans))
     }
-    collectDeleteResult(path)
   }
 
-  private def collectDeleteResult(path: String): DeleteResult = {
+  private def collectDeleteResult(
+      path: String,
+      deleteMs: Long,
+      planSummary: PlanSummary): DeleteResult = {
+    val validationStartNs = System.nanoTime()
     val files = DeltaLog.forTable(spark, path).update().allFiles.collect()
     val filesWithDvs = files.filter(_.deletionVector != null)
-    val finalRows = spark.read.format("delta").load(path).count()
+    val finalStats = spark.read
+      .format("delta")
+      .load(path)
+      .selectExpr(
+        "count(*) as final_rows",
+        "coalesce(sum(cast(id as decimal(38,0))), cast(0 as decimal(38,0))) as final_id_sum")
+      .head()
     DeleteResult(
       activeFiles = files.length,
       filesWithDvs = filesWithDvs.length,
       dvCardinality = filesWithDvs.map(_.deletionVector.cardinality).sum,
       dvPayloadBytes = filesWithDvs.map(_.deletionVector.sizeInBytes).sum,
-      finalRows = finalRows
+      finalRows = finalStats.getLong(0),
+      finalIdSum = BigInt(finalStats.getDecimal(1).toBigInteger),
+      deleteMs = deleteMs,
+      validationMs = elapsedMs(validationStartNs),
+      planSummary = planSummary
+    )
+  }
+
+  private def summarizePlans(executedPlans: Seq[SparkPlan]): PlanSummary = {
+    val planNodes = executedPlans.flatMap(_.collect { case node: SparkPlan => node })
+    val fileScans = planNodes.collect { case scan: FileSourceScanExec => scan }
+    val fallbackReasons =
+      planNodes.flatMap(plan => FallbackTags.getOption(plan).map(_.reason())).distinct.sorted
+    val dmlFallbackScans = fileScans.count {
+      scan =>
+        DeltaDeletionVectorDmlUtils.isDeletionVectorDmlRowIndexScan(scan) &&
+        FallbackTags
+          .getOption(scan)
+          .exists(_.reason().contains("fallback Delta DV DML row-index scan"))
+    }
+    PlanSummary(
+      deletePlans = executedPlans.length,
+      glutenDeleteCommands = planNodes.count(_.nodeName.contains("GlutenDeleteCommand")),
+      deltaScanTransformers = planNodes.count(_.isInstanceOf[DeltaScanTransformer]),
+      dmlRowIndexFallbackScans = dmlFallbackScans,
+      fallbackReasons = fallbackReasons
     )
   }
 
   private def validateDeleteResult(
       result: DeleteResult,
       existingDv: Boolean,
-      expectedFinalRows: Long): Unit = {
+      expectedFinalRows: Long,
+      expectedFinalIdSum: BigInt): Unit = {
     require(result.filesWithDvs > 0, s"Expected deletion vectors, got $result")
     require(result.dvCardinality > 0, s"Expected deleted-row cardinality, got $result")
     require(
       result.finalRows == expectedFinalRows,
       s"Expected $expectedFinalRows final rows, got $result")
+    require(
+      result.finalIdSum == expectedFinalIdSum,
+      s"Expected final id sum $expectedFinalIdSum, got $result")
     if (existingDv) {
       require(
         result.dvCardinality > result.filesWithDvs,
@@ -340,7 +401,15 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
           s"filesWithDvs=${result.filesWithDvs}, " +
           s"dvCardinality=${result.dvCardinality}, " +
           s"dvPayloadBytes=${result.dvPayloadBytes}, " +
-          s"finalRows=${result.finalRows}")
+          s"finalRows=${result.finalRows}, " +
+          s"finalIdSum=${result.finalIdSum}, " +
+          s"deleteMs=${result.deleteMs}, " +
+          s"validationMs=${result.validationMs}, " +
+          s"deletePlans=${result.planSummary.deletePlans}, " +
+          s"glutenDeleteCommands=${result.planSummary.glutenDeleteCommands}, " +
+          s"deltaScanTransformers=${result.planSummary.deltaScanTransformers}, " +
+          s"dmlRowIndexFallbackScans=${result.planSummary.dmlRowIndexFallbackScans}, " +
+          s"fallbackReasons=${result.planSummary.fallbackReasons.mkString("[", "; ", "]")}")
     }
   }
 
@@ -372,6 +441,21 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
   private def expectedRemainingRows(rowCount: Long, deletedMods: Seq[Int]): Long =
     rowCount - deletedMods.distinct.map(countRowsWithMod(rowCount, _)).sum
 
+  private def expectedRemainingIdSum(rowCount: Long, deletedMods: Seq[Int]): BigInt =
+    sumRange(rowCount) - deletedMods.distinct.map(sumRowsWithMod(rowCount, _)).sum
+
+  private def sumRange(rowCount: Long): BigInt =
+    BigInt(rowCount) * BigInt(rowCount - 1L) / 2
+
+  private def sumRowsWithMod(rowCount: Long, mod: Int): BigInt = {
+    val count = countRowsWithMod(rowCount, mod)
+    if (count == 0L) {
+      BigInt(0)
+    } else {
+      BigInt(count) * (BigInt(2L * mod) + BigInt(10L) * BigInt(count - 1L)) / 2
+    }
+  }
+
   private def countRowsWithMod(rowCount: Long, mod: Int): Long = {
     require(mod >= 0 && mod < 10, s"Expected modulo in [0, 10), got $mod")
     if (rowCount <= mod) {
@@ -390,4 +474,7 @@ object DeltaDeleteDeletionVectorBenchmark extends BenchmarkBase {
 
   private def sanitize(name: String): String =
     name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-")
+
+  private def elapsedMs(startNs: Long): Long =
+    (System.nanoTime() - startNs) / (1000L * 1000L)
 }
