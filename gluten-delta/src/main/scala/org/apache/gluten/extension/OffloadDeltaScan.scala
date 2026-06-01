@@ -20,7 +20,6 @@ import org.apache.gluten.execution.DeltaScanTransformer
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
-import org.apache.spark.sql.delta.DeltaParquetFileFormat
 import org.apache.spark.sql.delta.SnapshotDescriptor
 import org.apache.spark.sql.delta.commands.DeletionVectorUtils.deletionVectorsReadable
 import org.apache.spark.sql.delta.files.TahoeFileIndex
@@ -31,6 +30,10 @@ import org.apache.spark.util.SparkVersionUtil
 case class OffloadDeltaScan() extends OffloadSingleNode {
   private val DeletionVectorsUseMetadataRowIndexKey =
     "spark.databricks.delta.deletionVectors.useMetadataRowIndex"
+  private val enableNativeDeletionVectorDmlRowIndexScanKey =
+    "spark.gluten.sql.delta.enableNativeDmlRowIndexScan"
+  private val enableNativeDeltaWriteKey =
+    "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite"
 
   override def offload(plan: SparkPlan): SparkPlan = plan match {
     case scan: FileSourceScanExec if isDeltaLogScan(scan) =>
@@ -38,6 +41,9 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
       scan
     case scan: FileSourceScanExec if shouldFallbackSpark34DeletionVectorScan(scan) =>
       FallbackTags.add(scan, "fallback Spark 3.4 Delta DV scan")
+      scan
+    case scan: FileSourceScanExec if shouldFallbackDeletionVectorDmlScan(scan) =>
+      FallbackTags.add(scan, "fallback Delta DV DML row-index scan")
       scan
     case scan: FileSourceScanExec
         if shouldFallbackDeletionVectorScanWithoutMetadataRowIndex(scan) =>
@@ -49,18 +55,28 @@ case class OffloadDeltaScan() extends OffloadSingleNode {
   }
 
   private def isDeltaScan(scan: FileSourceScanExec): Boolean = {
-    isDeltaFileIndex(scan) || isDeltaParquetScan(scan)
+    DeltaDeletionVectorDmlUtils.isDeltaScan(scan)
   }
 
-  private def isDeltaParquetScan(scan: FileSourceScanExec): Boolean = {
-    val fileFormatClass = scan.relation.fileFormat.getClass
-    fileFormatClass == classOf[DeltaParquetFileFormat] ||
-    fileFormatClass.getSimpleName == "GlutenDeltaParquetFileFormat"
-  }
+  private def shouldFallbackDeletionVectorDmlScan(scan: FileSourceScanExec): Boolean = {
+    val enableNativeDeltaWrite =
+      scan.relation.sparkSession.sessionState.conf
+        .getConfString(enableNativeDeltaWriteKey, "false")
+        .toBoolean
+    val enableNativeDmlRowIndexScan =
+      scan.relation.sparkSession.sessionState.conf
+        .getConfString(enableNativeDeletionVectorDmlRowIndexScanKey, "false")
+        .toBoolean
+    if (enableNativeDeltaWrite && enableNativeDmlRowIndexScan) {
+      return false
+    }
 
-  private def isDeltaFileIndex(scan: FileSourceScanExec): Boolean = {
-    scan.relation.location.isInstanceOf[TahoeFileIndex] ||
-    scan.relation.location.isInstanceOf[PreparedDeltaFileIndex]
+    // DELETE/UPDATE/MERGE with persistent deletion vectors needs the target scan to expose
+    // per-file row indexes so Delta can build updated DV bitmaps. Gluten can scan the target
+    // natively, but the bitmap aggregation/update itself still runs in Spark today. Keeping this
+    // scan on Spark avoids a native scan plus row transition immediately before Spark's DV
+    // aggregation path.
+    DeltaDeletionVectorDmlUtils.isDeletionVectorDmlRowIndexScan(scan)
   }
 
   private def isDeltaLogScan(scan: FileSourceScanExec): Boolean = {
