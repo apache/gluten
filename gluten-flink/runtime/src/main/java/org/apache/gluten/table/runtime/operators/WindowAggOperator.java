@@ -132,6 +132,8 @@ public class WindowAggOperator<IN, OUT, W> extends GlutenOneInputOperator<IN, OU
                       new org.apache.flink.table.types.logical.RowType(accFields))),
               Map.of(windowStateName, new BigIntType()));
       task.initializeState(0, parameters);
+    } else {
+      task.initializeState(0, null);
     }
   }
 

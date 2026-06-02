@@ -65,6 +65,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   private final Class<OUT> outClass;
   private transient VectorInputBridge<IN> inputBridge;
   private transient VectorOutputBridge<OUT> outputBridge;
+  private final GlutenMailboxHolder mailboxHolder = new GlutenMailboxHolder();
 
   public GlutenOneInputOperator(
       StatefulPlanNode plan,
@@ -147,8 +148,21 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   }
 
   @Override
+  public GlutenMailboxHolder mailboxHolder() {
+    return mailboxHolder;
+  }
+
+  @Override
+  public void scheduleProcessElementOnMailbox() {
+    scheduleDrainOnMailbox(this::drainTaskOutput);
+  }
+
+  @Override
   public void open() throws Exception {
     super.open();
+    if (!mailboxHolder().get().isMailboxBound()) {
+      ensureMailboxInitialized(getContainingTask());
+    }
     initSession();
   }
 
@@ -174,6 +188,10 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
 
   @Override
   public void processElementInternal() {
+    drainOutput(this::drainTaskOutput);
+  }
+
+  private void drainTaskOutput() {
     while (true) {
       UpIterator.State state = task.advance();
       if (state == UpIterator.State.AVAILABLE) {
@@ -274,7 +292,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
     if (task == null) {
       initSession();
     }
-    task.initializeState(0, null);
+    // task.initializeState(0, null);
     super.initializeState(context);
   }
 

@@ -16,14 +16,10 @@
  */
 package org.apache.flink.table.planner.plan.nodes.exec.stream;
 
-import org.apache.gluten.rexnode.AggregateCallConverter;
-import org.apache.gluten.rexnode.Utils;
 import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
-import io.github.zhztheplayer.velox4j.aggregate.Aggregate;
-import io.github.zhztheplayer.velox4j.expression.FieldAccessTypedExpr;
 import io.github.zhztheplayer.velox4j.plan.GroupWindowAggregationNode;
 import io.github.zhztheplayer.velox4j.plan.GroupWindowAggsHandlerNode;
 import io.github.zhztheplayer.velox4j.plan.HashPartitionFunctionSpec;
@@ -213,14 +209,7 @@ public class StreamExecGroupWindowAggregate extends StreamExecAggregateBase {
     io.github.zhztheplayer.velox4j.type.RowType outputType =
         (io.github.zhztheplayer.velox4j.type.RowType)
             LogicalTypeConverter.toVLType(getOutputType());
-    List<FieldAccessTypedExpr> groupingKeys = Utils.generateFieldAccesses(inputType, grouping);
-    List<Aggregate> aggregates = AggregateCallConverter.toAggregates(aggCalls, inputType);
     checkArgument(outputType.getNames().size() >= grouping.length + aggCalls.length);
-    List<String> aggNames =
-        outputType.getNames().stream()
-            .skip(grouping.length)
-            .limit(aggCalls.length)
-            .collect(Collectors.toList());
     List<Integer> keyIndexes = Arrays.stream(grouping).boxed().collect(Collectors.toList());
     PartitionFunctionSpec keySelectorSpec = new HashPartitionFunctionSpec(inputType, keyIndexes);
     // TODO: support more window types.
