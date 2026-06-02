@@ -371,12 +371,14 @@ TypeAwareCompressCodec::decompressSplit128(const uint8_t* input, int64_t inputLe
       FForCodec::decompress(
           input + kSplit128BodyHeaderSize + loLen, hiLen, reinterpret_cast<uint8_t*>(hi.data()), laneBytes));
   // Defense against truncated/corrupted streams: FForCodec::decompress reports
-  // how many bytes it produced.  Both lanes must produce exactly `laneBytes`
-  // worth of decoded data; anything else means the stream was mis-framed and
-  // we would be reading from a partially-uninitialized lane vector below.
-  if (nLo != laneBytes || nHi != laneBytes) {
+  // the number of uint64 *values* it produced (not bytes).  Both lanes must
+  // produce exactly `nValues` values; anything else means the stream was
+  // mis-framed and we would be reading from a partially-uninitialized lane
+  // vector below.
+  const auto expectedValues = static_cast<int64_t>(nValues);
+  if (nLo != expectedValues || nHi != expectedValues) {
     return arrow::Status::Invalid(
-        "Split128 decompress: lane size mismatch (lo=", nLo, ", hi=", nHi, ", expected=", laneBytes, ")");
+        "Split128 decompress: lane size mismatch (lo=", nLo, ", hi=", nHi, ", expected=", expectedValues, ")");
   }
 
   uint8_t* dst = output;
@@ -435,12 +437,14 @@ arrow::Result<int64_t> TypeAwareCompressCodec::decompressWidened32(
   const int64_t widenedBytes = static_cast<int64_t>(nValues * sizeof(uint64_t));
   ARROW_ASSIGN_OR_RAISE(
       auto nDecoded, FForCodec::decompress(input, inputLen, reinterpret_cast<uint8_t*>(widened.data()), widenedBytes));
-  // Defense against truncated/corrupted streams: the widened lane must be
-  // fully populated before we truncate it back down to 4-byte values, else
-  // we would be writing uninitialized memory into the caller's output.
-  if (nDecoded != widenedBytes) {
+  // Defense against truncated/corrupted streams: FForCodec::decompress reports
+  // the number of uint64 *values* it produced (not bytes).  The widened lane
+  // must be fully populated before we truncate it back down to 4-byte values,
+  // else we would be writing uninitialized memory into the caller's output.
+  const auto expectedValues = static_cast<int64_t>(nValues);
+  if (nDecoded != expectedValues) {
     return arrow::Status::Invalid(
-        "Widened32 decompress: widened lane produced ", nDecoded, " bytes, expected ", widenedBytes);
+        "Widened32 decompress: widened lane produced ", nDecoded, " values, expected ", expectedValues);
   }
 
   // Truncate uint64 -> uint32 back into the output buffer.

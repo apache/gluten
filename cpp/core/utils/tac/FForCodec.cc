@@ -53,7 +53,8 @@ FForCodec::decompress(const uint8_t* input, int64_t inputSize, uint8_t* output, 
     return arrow::Status::Invalid("FForCodec: output size ", outputSize, " is not a multiple of 8.");
   }
 
-  auto nDecoded = ffor::decompress64(input, inputSize, reinterpret_cast<uint64_t*>(output));
+  size_t outputMaxValues = static_cast<size_t>(outputSize) / sizeof(uint64_t);
+  auto nDecoded = ffor::decompress64(input, inputSize, reinterpret_cast<uint64_t*>(output), outputMaxValues);
   return static_cast<int64_t>(nDecoded);
 }
 

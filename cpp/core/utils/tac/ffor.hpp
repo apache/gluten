@@ -176,6 +176,11 @@ void decode(const uint64_t* __restrict in, uint64_t* __restrict out, uint64_t ba
     return;
   } else {
     constexpr uint64_t kMask = bitmask<BW>();
+    // Avoid the unconditional `cur[lane] = in[...]` preload below when there
+    // are no values; otherwise we'd read past `in`.
+    if (nValues == 0) {
+      return;
+    }
     const size_t nGroups = nValues / kLanes;
 
     uint64_t cur[kLanes];
@@ -264,11 +269,23 @@ inline const auto kDecodeTable = makeDecodeTable(std::make_index_sequence<65>{})
 
 // Runtime-dispatched encode (when BW is not known at compile time).
 inline void encodeRt(const uint64_t* in, uint64_t* out, uint64_t base, size_t n, unsigned bw) {
+  // Defensive bounds check: kEncodeTable has 65 entries (BW = 0..64). Any larger
+  // value would deref OOB function pointer and trigger UB. The encoder side
+  // never produces bw > 64, but a corrupted block header during decode could
+  // route here via encodeRt's twin path; guard explicitly.
+  if (bw > 64) {
+    return;
+  }
   detail::kEncodeTable[bw](in, out, base, n);
 }
 
 // Runtime-dispatched decode.
 inline void decodeRt(const uint64_t* in, uint64_t* out, uint64_t base, size_t n, unsigned bw) {
+  // See encodeRt above: kDecodeTable is bounded at 65 entries; reject any
+  // invalid bit-width (e.g., from a corrupted stream) before dispatch.
+  if (bw > 64) {
+    return;
+  }
   detail::kDecodeTable[bw](in, out, base, n);
 }
 
@@ -419,7 +436,7 @@ inline size_t compress64(const uint64_t* input, size_t num, uint8_t* output) {
 
 // Template-based decompress with alignment dispatch.
 template <bool InAligned, bool OutAligned>
-inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t* output) {
+inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t* output, size_t outputMaxValues) {
   alignas(64) uint64_t tmpIn[kMaxValuesPerBlock];
   alignas(64) uint64_t tmpOut[kMaxValuesPerBlock];
 
@@ -436,14 +453,43 @@ inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t*
 
     if (bw == kBwTailMarker) {
       if (count > 0) {
+        const size_t tailBytes = static_cast<size_t>(count) * sizeof(uint64_t);
+        // Defensive bounds check: a corrupted block header could overstate
+        // `count`; refuse the memcpy if it would read past the input buffer.
+        if (inPtr + tailBytes > inEnd) {
+          break;
+        }
+        // Output bounds check: refuse to write past the caller-allocated buffer.
+        if (nDecoded + static_cast<size_t>(count) > outputMaxValues) {
+          break;
+        }
         // memcpy handles any alignment, no special case needed.
-        std::memcpy(reinterpret_cast<uint8_t*>(output) + nDecoded * sizeof(uint64_t), inPtr, count * sizeof(uint64_t));
+        std::memcpy(reinterpret_cast<uint8_t*>(output) + nDecoded * sizeof(uint64_t), inPtr, tailBytes);
         nDecoded += count;
       }
       break;
     }
 
+    // Non-tail block: validate `count` against the legal range before
+    // computing `blockVals`. Without this, an attacker-controlled (or
+    // corrupted) header with `count > kMaxValuesPerBlock / kLanes` could
+    // produce `blockVals > kMaxValuesPerBlock`, overflowing `tmpOut` in the
+    // `OutAligned == false` path. Encoder never emits such a header
+    // (see compress64Impl: blockVals is capped at kMaxValuesPerBlock before
+    // count is derived), so any larger value indicates corruption.
+    if (count == 0 || static_cast<size_t>(count) > (kMaxValuesPerBlock / kLanes)) {
+      break;
+    }
+
     size_t blockVals = static_cast<size_t>(count) * kLanes;
+
+    // Output bounds check: refuse to decode a block that would overflow the
+    // caller-allocated output buffer. This fires before any write, preventing
+    // heap corruption on corrupted compressed streams.
+    if (nDecoded + blockVals > outputMaxValues) {
+      break;
+    }
+
     size_t compBytes = compressedWords(blockVals, bw) * sizeof(uint64_t);
 
     if (inPtr + compBytes > inEnd) {
@@ -481,19 +527,19 @@ inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t*
 }
 
 // Runtime dispatch.
-inline size_t decompress64(const uint8_t* input, size_t inputSize, uint64_t* output) {
+inline size_t decompress64(const uint8_t* input, size_t inputSize, uint64_t* output, size_t outputMaxValues) {
   bool inOk = (reinterpret_cast<uintptr_t>(input) % alignof(uint64_t) == 0);
   bool outOk = (reinterpret_cast<uintptr_t>(output) % alignof(uint64_t) == 0);
   if (inOk && outOk) {
-    return decompress64Impl<true, true>(input, inputSize, output);
+    return decompress64Impl<true, true>(input, inputSize, output, outputMaxValues);
   }
   if (inOk && !outOk) {
-    return decompress64Impl<true, false>(input, inputSize, output);
+    return decompress64Impl<true, false>(input, inputSize, output, outputMaxValues);
   }
   if (!inOk && outOk) {
-    return decompress64Impl<false, true>(input, inputSize, output);
+    return decompress64Impl<false, true>(input, inputSize, output, outputMaxValues);
   }
-  return decompress64Impl<false, false>(input, inputSize, output);
+  return decompress64Impl<false, false>(input, inputSize, output, outputMaxValues);
 }
 
 } // namespace ffor

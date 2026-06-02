@@ -29,9 +29,6 @@
 using namespace gluten::ffor;
 using namespace gluten;
 
-// Test fixture for PR-review regression / hardening tests that use TEST_F.
-class FForCodecTest : public ::testing::Test {};
-
 namespace {
 
 // Some non-TAC type values for negative testing.
@@ -1550,7 +1547,7 @@ TEST(TypeAwareCompressCodecTest, StringDictCompressesBetterThanRaw) {
 }
 // Regression test for PR Assistant review #2 (ffor.hpp:263): encodeRt/decodeRt
 // must not deref kEncodeTable/kDecodeTable with bw > 64.
-TEST_F(FForCodecTest, RtDispatchOutOfBoundsBitWidthIsSafe) {
+TEST(FForCodecTest, RtDispatchOutOfBoundsBitWidthIsSafe) {
   uint64_t in[16] = {0};
   uint64_t out[16] = {0};
   // bw = 200 is well past the 0..64 valid range. The guards in encodeRt /
@@ -1563,7 +1560,7 @@ TEST_F(FForCodecTest, RtDispatchOutOfBoundsBitWidthIsSafe) {
 
 // Regression test for PR Assistant review #3 (ffor.hpp:177): decode<BW> with
 // nValues == 0 must not preload from `in`.
-TEST_F(FForCodecTest, DecodeZeroLengthBlockIsSafe) {
+TEST(FForCodecTest, DecodeZeroLengthBlockIsSafe) {
   // Build a compressed payload that decodes to a 0-length output:
   //   compress with input size 0 → output is just the kBwTailMarker header
   //   with count=0. Round-tripping through decompress with outputLen=0 must
@@ -1582,7 +1579,7 @@ TEST_F(FForCodecTest, DecodeZeroLengthBlockIsSafe) {
 // payload with a tail-marker `count` larger than remaining input bytes must
 // not read past the input buffer; non-tail `count > kMaxValuesPerBlock/kLanes`
 // must be rejected.
-TEST_F(FForCodecTest, ForgedTailMarkerCountIsRejected) {
+TEST(FForCodecTest, ForgedTailMarkerCountIsRejected) {
   // Build a tail-marker header that claims to memcpy 1000*8 bytes but the
   // payload buffer only has 8 bytes after the header. Defensive guard must
   // break out of the decode loop without reading OOB.
@@ -1604,7 +1601,7 @@ TEST_F(FForCodecTest, ForgedTailMarkerCountIsRejected) {
 // values constant). The FFOR encoder picks BW=0 when min == max in the input
 // block; the constexpr decode<0> specialization just writes base for each
 // output. Verify round-trip.
-TEST_F(FForCodecTest, ConstantValuesRoundTripBW0) {
+TEST(FForCodecTest, ConstantValuesRoundTripBW0) {
   std::vector<uint64_t> input(64, 0xDEADBEEFCAFEBABEULL);
   int64_t inputSize = static_cast<int64_t>(input.size() * sizeof(uint64_t));
   int64_t maxLen = FForCodec::maxCompressedLength(inputSize);
@@ -1623,7 +1620,7 @@ TEST_F(FForCodecTest, ConstantValuesRoundTripBW0) {
 // Regression test for PR Assistant review (test-coverage): BW=64 path (full
 // 64-bit range, FFOR cannot compress). The decoder takes the BW==64 fast
 // path which just adds base to each input value.
-TEST_F(FForCodecTest, FullRangeRoundTripBW64) {
+TEST(FForCodecTest, FullRangeRoundTripBW64) {
   // Make input span [0, UINT64_MAX] so FFOR must use BW=64.
   std::vector<uint64_t> input;
   input.reserve(64);
@@ -1650,7 +1647,7 @@ TEST_F(FForCodecTest, FullRangeRoundTripBW64) {
 // kLanes=4. The compressor handles the tail via the kBwTailMarker path which
 // stores leftover values uncompressed; the decompressor must round-trip them
 // exactly.
-TEST_F(FForCodecTest, TailValuesNotMultipleOfLanesRoundTrip) {
+TEST(FForCodecTest, TailValuesNotMultipleOfLanesRoundTrip) {
   // 67 values: 64 in the main block + 3-value tail (67 % 4 == 3).
   std::vector<uint64_t> input(67);
   std::iota(input.begin(), input.end(), 5000ULL);
@@ -1669,7 +1666,7 @@ TEST_F(FForCodecTest, TailValuesNotMultipleOfLanesRoundTrip) {
 // Regression test for PR Assistant review (test-coverage): N > kMaxValuesPerBlock
 // (=256). Forces the compressor / decompressor to emit / consume multiple
 // blocks. Round-trip must remain exact across block boundaries.
-TEST_F(FForCodecTest, MultiBlockRoundTrip) {
+TEST(FForCodecTest, MultiBlockRoundTrip) {
   // 1027 values forces 5 blocks (4 of 256 + 1 tail of 3).
   std::vector<uint64_t> input(1027);
   std::iota(input.begin(), input.end(), 10ULL);
