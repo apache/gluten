@@ -90,6 +90,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Exception.
     .exclude("column pruning - non-readable file")
   enableSuite[GlutenBitmapExpressionsQuerySuite]
+    // bitmap_construct_agg is not supported natively in CH backend.
+    .excludeCH("bitmap_construct_agg routes to native")
   enableSuite[GlutenBitwiseExpressionsSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
     .excludeCH("Test bloom_filter_agg and might_contain")
