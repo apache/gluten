@@ -18,7 +18,7 @@ package org.apache.spark.sql.delta.stats
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.backendsapi.velox.VeloxBatchType
-import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
+
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.expression.{ConverterUtils, TransformerState}
@@ -28,24 +28,24 @@ import org.apache.gluten.extension.columnar.rewrite.PullOutPreProject
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.extension.columnar.validator.{Validator, Validators}
 import org.apache.gluten.iterator.Iterators
-import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
+
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.plan.PlanBuilder
-import org.apache.gluten.vectorized.{ArrowWritableColumnVector, ColumnarBatchInIterator, ColumnarBatchOutIterator, NativePlanEvaluator}
+import org.apache.gluten.vectorized.{ColumnarBatchInIterator, ColumnarBatchOutIterator, NativePlanEvaluator}
 
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, AttributeReference, BindReferences, EmptyRow, Expression, RuntimeReplaceable, SortOrder, SpecificInternalRow}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BindReferences, EmptyRow, Expression, RuntimeReplaceable, SpecificInternalRow}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
 import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExecNode, ProjectExec}
-import org.apache.spark.sql.execution.aggregate.SortAggregateExec
+import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, WriteJobStatsTracker, WriteTaskStats, WriteTaskStatsTracker}
 import org.apache.spark.sql.execution.metric.SQLMetric
-import org.apache.spark.sql.types.{IntegerType, StructType}
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+
+import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.{SerializableConfiguration, SparkDirectoryUtil}
 
 import com.google.common.collect.Lists
@@ -148,25 +148,19 @@ object GlutenDeltaJobStatsTracker extends Logging {
     private val getStatsExpr: Expression =
       BindReferences.bindReference(normalizedResultExpr, aggBufferAttrs)
     private val taskContext = TaskContext.get()
-    private val dummyKeyAttr = {
-      // FIXME: We have to force the use of Velox's streaming aggregation since hash aggregation
-      //  doesn't support task barriers. But as streaming aggregation should always be keyed, we
-      //  have to do a small hack here by adding a dummy key for the global aggregation.
-      AttributeReference("__GLUTEN_DELTA_DUMMY_KEY__", IntegerType)()
-    }
     private val statsAttrs = aggregates.flatMap(_.aggregateFunction.aggBufferAttributes)
     private val statsResultAttrs = aggregates.flatMap(_.aggregateFunction.inputAggBufferAttributes)
     private val veloxAggTask: ColumnarBatchOutIterator = {
-      val inputNode = StatisticsInputNode(Seq(dummyKeyAttr), dataCols)
-      val aggOp = SortAggregateExec(
+      val inputNode = StatisticsInputNode(Seq.empty, dataCols)
+      val aggOp = HashAggregateExec(
         None,
         isStreaming = false,
         None,
-        Seq(dummyKeyAttr),
+        Seq.empty,
         aggregates,
         statsAttrs,
         0,
-        dummyKeyAttr +: statsResultAttrs,
+        statsResultAttrs,
         inputNode
       )
       val projOp = ProjectExec(statsResultAttrs, aggOp)
@@ -263,20 +257,7 @@ object GlutenDeltaJobStatsTracker extends Logging {
       row match {
         case _: PlaceholderRow =>
         case t: TerminalRow =>
-          val valueBatch = t.batch()
-          val numRows = valueBatch.numRows()
-          val dummyKeyVec = ArrowWritableColumnVector
-            .allocateColumns(numRows, new StructType().add(dummyKeyAttr.name, IntegerType))
-            .head
-          (0 until numRows).foreach(i => dummyKeyVec.putInt(i, 1))
-          val dummyKeyBatch = VeloxColumnarBatches.toVeloxBatch(
-            ColumnarBatches.offload(
-              ArrowBufferAllocators.contextInstance(),
-              new ColumnarBatch(Array[ColumnVector](dummyKeyVec), numRows)))
-          val compositeBatch = VeloxColumnarBatches.compose(dummyKeyBatch, valueBatch)
-          dummyKeyBatch.close()
-          valueBatch.close()
-          inputBatchQueue.put(Some(compositeBatch))
+          inputBatchQueue.put(Some(t.batch()))
       }
     }
 
@@ -339,8 +320,6 @@ object GlutenDeltaJobStatsTracker extends Logging {
     override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
     override protected def doExecuteColumnar(): RDD[ColumnarBatch] =
       throw new UnsupportedOperationException()
-    override def outputOrdering: Seq[SortOrder] = {
-      keySchema.map(key => SortOrder(key, Ascending))
-    }
+    override def outputOrdering = Seq.empty
   }
 }
