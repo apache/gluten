@@ -279,47 +279,46 @@ arrow::Result<std::unique_ptr<BlockPayload>> BlockPayload::fromBuffers(
       auto typeKind = (bufferTypes != nullptr && i < bufferTypes->size()) ? (*bufferTypes)[i] : tac::kUnsupported;
 
       int64_t compressedSize = 0;
-      if (TypeAwareCompressCodec::support(typeKind)) {
-        // For string-dict compression the codec needs per-row offsets into
-        // the string-data buffer.  Production string columns reach us in two
-        // shapes:
-        //
-        //   (a) Arrow standard layout: validity, offsets[numRows+1], data.
-        //       offsets[0] == 0, offsets[numRows] == data buffer size.
-        //   (b) VeloxHashShuffleWriter layout: validity, lengths[numRows],
-        //       data — i.e. a per-row length, not cumulative offsets.
-        //
-        // Use the authoritative `numRows` parameter (NOT `bufferSize/4 - 1`)
-        // so single-row batches don't underflow to `numRows == 0` and trip
-        // the codec's positive-numRows guard.  Validate that the preceding
-        // buffer matches one of the two known shapes; otherwise leave the
-        // offsets pointer null so the codec rejects rather than reading
-        // unrelated memory.
-        //
-        // NB: shape (b) currently always lands in the codec's internal LZ4
-        // fallback path (its `sliced` detector trips on `offsets[0] != 0`
-        // because the first row's length is rarely zero).  That keeps the
-        // wire format correct without changing observable behaviour for
-        // workloads exercised on the Velox hash writer.  Activating the
-        // dict path for shape (b) would require a lengths→offsets pre-pass
-        // and a separate validation cycle — out of scope for this PR.
-        const uint8_t* offsetsBuf = nullptr;
-        int32_t offsetsNumRows = 0;
-        if (typeKind == tac::kStringDict && numRows > 0 && i >= 1 && buffers[i - 1] != nullptr) {
-          const auto prevSize = buffers[i - 1]->size();
-          const auto expectedOffsetsBytes = static_cast<int64_t>(numRows + 1) * sizeof(int32_t);
-          const auto expectedLengthsBytes = static_cast<int64_t>(numRows) * sizeof(int32_t);
-          if (prevSize == expectedOffsetsBytes || prevSize == expectedLengthsBytes) {
-            offsetsBuf = buffers[i - 1]->data();
-            offsetsNumRows = static_cast<int32_t>(numRows);
-          }
+      // For string-dict compression the codec needs per-row offsets into
+      // the string-data buffer.  Production string columns reach us in two
+      // shapes:
+      //
+      //   (a) Arrow standard layout: validity, offsets[numRows+1], data.
+      //       offsets[0] == 0, offsets[numRows] == data buffer size.
+      //   (b) VeloxHashShuffleWriter layout: validity, lengths[numRows],
+      //       data — i.e. a per-row length, not cumulative offsets.
+      //
+      // The codec reads `offsets[numRows]` as the data-buffer end sentinel,
+      // which is in-bounds for shape-a but ONE PAST THE END for shape-b.
+      // To stay correct, only route shape-a inputs through compressStringDict;
+      // shape-b inputs fall through to the standard LZ4/ZSTD codec below.
+      // The codec's internal `sliced` early-exit was already producing LZ4
+      // output for the common shape-b case (where `offsets[0] != 0`), so
+      // observable compressed size is unchanged at the user-data level.
+      //
+      // Use the authoritative `numRows` parameter (NOT `bufferSize/4 - 1`)
+      // so single-row batches don't underflow to `numRows == 0`.
+      bool routeToTacStringDict = false;
+      const uint8_t* offsetsBuf = nullptr;
+      int32_t offsetsNumRows = 0;
+      if (typeKind == tac::kStringDict && numRows > 0 && i >= 1 && buffers[i - 1] != nullptr) {
+        const auto prevSize = buffers[i - 1]->size();
+        const auto expectedOffsetsBytes = static_cast<int64_t>(numRows + 1) * sizeof(int32_t);
+        if (prevSize == expectedOffsetsBytes) {
+          offsetsBuf = buffers[i - 1]->data();
+          offsetsNumRows = static_cast<int32_t>(numRows);
+          routeToTacStringDict = true;
         }
+      }
+
+      if (TypeAwareCompressCodec::support(typeKind) && (typeKind != tac::kStringDict || routeToTacStringDict)) {
         ARROW_ASSIGN_OR_RAISE(
             compressedSize,
             compressTypeAwareBuffer(
                 std::move(buffers[i]), output, availableLength, typeKind, offsetsBuf, offsetsNumRows));
       } else {
-        // Use standard codec (LZ4/ZSTD) for unsupported types.
+        // Use standard codec (LZ4/ZSTD) for unsupported types and for
+        // kStringDict on shape-b lengths buffers (or any unexpected shape).
         ARROW_ASSIGN_OR_RAISE(compressedSize, compressBuffer(std::move(buffers[i]), output, availableLength, codec));
       }
       output += compressedSize;
