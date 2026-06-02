@@ -18,7 +18,6 @@ package org.apache.spark.sql.delta.stats
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.backendsapi.velox.VeloxBatchType
-
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.expression.{ConverterUtils, TransformerState}
@@ -28,7 +27,6 @@ import org.apache.gluten.extension.columnar.rewrite.PullOutPreProject
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.extension.columnar.validator.{Validator, Validators}
 import org.apache.gluten.iterator.Iterators
-
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.plan.PlanBuilder
 import org.apache.gluten.vectorized.{ColumnarBatchInIterator, ColumnarBatchOutIterator, NativePlanEvaluator}
@@ -44,7 +42,6 @@ import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExec
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, WriteJobStatsTracker, WriteTaskStats, WriteTaskStatsTracker}
 import org.apache.spark.sql.execution.metric.SQLMetric
-
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.{SerializableConfiguration, SparkDirectoryUtil}
 
