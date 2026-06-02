@@ -315,10 +315,10 @@
               (gluten#12225).
             -->
             <id>verify-arrow-c-shading</id>
-            <phase>verify</phase>
             <goals>
               <goal>exec</goal>
             </goals>
+            <phase>verify</phase>
             <configuration>
               <executable>${project.basedir}/../dev/check-arrow-c-shading.sh</executable>
               <arguments>
