@@ -40,7 +40,7 @@ GitPython==3.1.50
 greenlet==3.0.3
 httplib2==0.20.2
 hyperlink==21.0.0
-idna==3.10
+idna==3.15
 importlib-metadata==4.6.4
 ipykernel==6.29.4
 ipython==8.24.0
@@ -116,7 +116,7 @@ Pygments>=2.15.0
 PyHamcrest==2.0.2
 PyHDFS==0.3.1
 pyjwt>=2.4.0
-pyOpenSSL==21.0.0
+pyOpenSSL==26.0.0
 pyparsing==2.4.7
 pyrsistent==0.18.1
 pyserial==3.5

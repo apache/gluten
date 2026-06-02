@@ -169,7 +169,7 @@ public:
                 LOG_DEBUG(
                     getLogger("LocalDigitsToAsciiDigitForDateFunction"),
                     "Converted local digit string {} to ascii digit string: {}",
-                    String(col_str->getDataAt(row_index).data(), col_str->getDataAt(row_index).size()),
+                    col_str->getDataAt(row_index),
                     converted);
                 res_col->insertData(converted.c_str(), converted.size());
             }

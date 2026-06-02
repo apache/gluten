@@ -488,4 +488,25 @@ class ColumnarCachedBatchE2ESuite
       }
     }
   }
+
+  test("V2 stats: IsNull on VARBINARY null-bearing partition is not pruned") {
+    withSQLConf(
+      GlutenConfig.COLUMNAR_TABLE_CACHE_PARTITION_STATS_ENABLED.key -> "true") {
+      val df = spark.range(N)
+        .select(
+          when(col("id") === lit(750L), lit(null).cast("binary"))
+            .otherwise(col("id").cast("string").cast("binary"))
+            .as("bin"))
+        .repartitionByRange(P, col("bin"))
+        .cache()
+      try {
+        df.count()
+        assert(
+          df.filter(col("bin").isNull).count() == 1L,
+          "VARBINARY null-bearing partition was silently pruned by IsNull")
+      } finally {
+        df.unpersist(blocking = true)
+      }
+    }
+  }
 }

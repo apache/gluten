@@ -23,6 +23,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.gluten.delta.DeltaStatsUtils
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.delta.files.TahoeFileIndex
+import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 
 import io.delta.tables.DeltaTable
 
@@ -542,7 +543,7 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
                  |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_ctas2
                  |USING delta
                  |PARTITIONED BY (l_returnflag)
-                 |LOCATION '$dataHome/lineitem_mergetree_ctas2'
+                 |LOCATION '$dataHome/lineitem_delta_parquet_ctas2'
                  | as select * from lineitem
                  |""".stripMargin)
     checkQuery(q1("lineitem_delta_parquet_ctas2"))
@@ -1081,6 +1082,109 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
 
     val ret = spark.sql(s"select count(*) from clickhouse.`$dataPath`").collect()
     assert(ret.apply(0).get(0) === 600572)
+  }
+
+  // TODO: after rebase-25.12, support 'reorg' command for delta dv + partition
+  ignore("Gluten-9697: Add 'reorg' command ut for the mergetree + delta dv") {
+    val tableName = "mergetree_delta_dv_reorg"
+    withTable(tableName) {
+      withTempDir {
+        dirName =>
+          val s = createTableBuilder(tableName, "delta", s"$dirName/$tableName")
+            .withProps(Map("delta.enableDeletionVectors" -> "'true'"))
+            .withTableKey("lineitem")
+            .build()
+          spark.sql(s)
+
+          spark.sql(s"""
+                       |insert into table $tableName
+                       |select /*+ REPARTITION(6) */ * from lineitem
+                       |""".stripMargin)
+
+          spark.sql(s"""
+                       |delete from $tableName
+                       |where mod(l_orderkey, 3) = 2
+                       |""".stripMargin)
+
+          var df = spark.sql(s"""
+                                | select sum(l_linenumber) from $tableName
+                                |""".stripMargin)
+          var result = df.collect()
+          assert(
+            result(0).get(0) === 1200671
+          )
+          checkFallbackOperators(df, 0)
+
+          spark.sql(s"""
+                       | REORG TABLE $tableName APPLY (PURGE)
+                       |""".stripMargin)
+          df = spark.sql(s"""
+                            | select sum(l_linenumber) from $tableName
+                            |""".stripMargin)
+          result = df.collect()
+          assert(
+            result(0).get(0) === 1200671
+          )
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          val parquetScan = scanExec.head
+          val fileIndex = parquetScan.relation.location.asInstanceOf[PreparedDeltaFileIndex]
+          val addFiles = fileIndex.preparedScan.files
+          assert(addFiles.size === 1)
+          assert(addFiles(0).deletionVector === null)
+      }
+    }
+  }
+
+  // TODO: after rebase-25.12, fix reorg purge command in delta 3.3.1
+  ignore("Gluten-9697: Add 'reorg' command ut for delta dv + partition") {
+    val tableName = "mergetree_delta_dv_reorg_partition"
+    spark.sql(s"""
+                 |DROP TABLE IF EXISTS $tableName;
+                 |""".stripMargin)
+    spark.sql(s"""
+                 |CREATE TABLE IF NOT EXISTS $tableName
+                 |(${table2columns.get("lineitem").get(true)})
+                 |USING delta
+                 |PARTITIONED BY (l_returnflag)
+                 |TBLPROPERTIES (delta.enableDeletionVectors='true')
+                 |LOCATION '$dataHome/$tableName'
+                 |""".stripMargin)
+    spark.sql(s"""
+                 |insert into table $tableName
+                 | select /*+ REPARTITION(6) */ * from lineitem
+                 |""".stripMargin)
+    spark.sql(s"""
+                 |delete from $tableName
+                 | where mod(l_orderkey, 3) = 1
+                 |""".stripMargin)
+    var df = spark.sql(s"""
+                          |select sum(l_linenumber) from $tableName
+                          |""".stripMargin)
+    var result = df.collect()
+    assert(
+      result(0).get(0) === 1201486
+    )
+    checkFallbackOperators(df, 0)
+    spark.sql(s"""
+                 |REORG TABLE $tableName APPLY (PURGE)
+                 |""".stripMargin)
+    df = spark.sql(s"""
+                      |select sum(l_linenumber) from $tableName
+                      |""".stripMargin)
+    result = df.collect()
+    assert(
+      result(0).get(0) === 1201486
+    )
+    val scanExec = collect(df.queryExecution.executedPlan) {
+      case f: FileSourceScanExecTransformer => f
+    }
+    val parquetScan = scanExec.head
+    val fileIndex = parquetScan.relation.location.asInstanceOf[PreparedDeltaFileIndex]
+    val addFiles = fileIndex.preparedScan.files
+    assert(addFiles.size === 3)
+    assert(addFiles.forall(_.deletionVector === null))
   }
 }
 // scalastyle:off line.size.limit

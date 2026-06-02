@@ -264,7 +264,10 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
   }
 
-  def getDecimalArithmeticExprName(exprName: String): String = exprName
+  // Default: ignore allowPrecisionLoss and return exprName unchanged. Non-Velox backends
+  // (e.g. ClickHouse) do not use the _deny_precision_loss naming convention; they handle
+  // decimal precision through their own mechanisms. VeloxSparkPlanExecApi overrides this.
+  def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String = exprName
 
   /** Transform map_entries to Substrait. */
   def genMapEntriesTransformer(
