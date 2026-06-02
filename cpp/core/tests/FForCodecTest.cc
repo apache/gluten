@@ -1983,7 +1983,7 @@ TEST(TypeAwareCompressCodecTest, StringDictTrailingOnlySliceRoundtrip) {
 // pay off:
 //   Guard 1: tiny buffer (inputLen < kDictMinInputBytes = 4096) — skip the
 //            dict build entirely; LZ4 dominates at that scale.
-//   Guard 2: single deterministic probe at clamp(numRows/8, 256, 4096) — if
+//   Guard 2: single deterministic probe at clamp(numRows/8, 256, 2048) — if
 //            no duplicate has been seen by then, the column is essentially
 //            all-unique; dict can never recoup its overhead.
 // v1 (75 % unique after 64 rows) regressed str_high_card8k.
@@ -2056,7 +2056,7 @@ TEST(TypeAwareCompressCodecTest, StringDictTinyBufferBailsToLz4) {
 
 TEST(TypeAwareCompressCodecTest, StringDictAllUniqueRowsBailsToLz4) {
   // 100K rows, every row distinct. Guard 2 must fire at row clamp(100000/8,
-  // 256, 4096) = 4096, breaking out of the dict-build loop early and picking
+  // 256, 2048) = 2048, breaking out of the dict-build loop early and picking
   // LZ4. Without the guard we would scan all 100K rows for no compression win.
   std::vector<std::string> strings;
   strings.reserve(100000);
@@ -2122,8 +2122,8 @@ TEST(TypeAwareCompressCodecTest, StringDictGuardKeepsDictForBoundedHighCardinali
   // v2 false-positive shape (ported from OSS best-tac):
   // bounded pool of ~8K distinct strings sampled at 64K rows. By row 256 it
   // is plausible (probability ~3 %) to have seen no duplicate purely by
-  // chance — v2's 256-row probe would have wrongly bailed. v3's 4096-row
-  // probe makes P(no duplicate from 8K pool) ≈ exp(-4096²/16000) ≈ 10⁻⁴⁵⁵
+  // chance — v2's 256-row probe would have wrongly bailed. v3's 2048-row
+  // probe makes P(no duplicate from 8K pool) ≈ exp(-2048²/16000) ≈ 10⁻¹¹⁴
   // — guard never fires on this shape, dict wins handily.
   std::mt19937_64 rng(0x12345abc);
   std::uniform_int_distribution<int> pickPool(0, 7999);
@@ -2158,7 +2158,7 @@ TEST(TypeAwareCompressCodecTest, StringDictLongCommentsRoundtrips) {
   // ~3K distinct ~80-char comments that share a long template prefix.
   // v2 (256-row probe) regressed this shape when a particular RNG seed
   // happened to yield 256 distinct draws (within birthday-paradox tolerance).
-  // v3 probes at 4096 rows; by then we have seen many duplicates and the
+  // v3 probes at 2048 rows; by then we have seen many duplicates and the
   // guard does not trigger, so dict is built and offered.  The codec is then
   // free to pick whichever strategy compresses better; on this particular
   // shape LZ4 tends to win because the shared 66-char prefix is highly
@@ -2194,5 +2194,84 @@ TEST(TypeAwareCompressCodecTest, StringDictLongCommentsRoundtrips) {
       numRows);
   ASSERT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_LT(*r * 2, inputLen) << "either strategy should at least halve input on this shape";
+  assertRoundtripByteEqual(compressed, *r, packed.data);
+}
+
+TEST(TypeAwareCompressCodecTest, StringDictConstantColumnPicksLz4) {
+  // Counterpart to StringDictConstantColumnRoundtrips: pin the deterministic
+  // strategy choice on a constant-value column.  The dict body costs
+  // kDictBodyFixedHeader + (4 + 30) for the single entry + 10 000 x 1B for
+  // the indices ~= 10 KB.  LZ4 on 300 KB of constant bytes is dominated by
+  // a single 64 KB-windowed match reference and produces only hundreds of
+  // bytes.  LZ4 wins by 50-100x, so the codec must pick kStrategyLz4 (1).
+  // This test guards against any future change that would silently make
+  // the codec prefer dict on shapes where LZ4 is much smaller (which would
+  // bloat the wire form for the most-common low-cardinality patterns).
+  std::vector<std::string> strings = repeat("the_same_string_value_repeated", 10000);
+  auto packed = packStrings(strings);
+  int32_t numRows = static_cast<int32_t>(strings.size());
+  int64_t inputLen = static_cast<int64_t>(packed.data.size());
+
+  auto maxLen = TypeAwareCompressCodec::maxCompressedLen(inputLen, tac::kStringDict);
+  std::vector<uint8_t> compressed(static_cast<size_t>(maxLen));
+  auto r = TypeAwareCompressCodec::compress(
+      packed.data.data(),
+      inputLen,
+      compressed.data(),
+      maxLen,
+      tac::kStringDict,
+      reinterpret_cast<const uint8_t*>(packed.offsets.data()),
+      numRows);
+  ASSERT_TRUE(r.ok()) << r.status().ToString();
+  EXPECT_EQ(strategyByte(compressed.data()), 1u)
+      << "constant column: LZ4 must beat dict by 50-100x and be the chosen strategy";
+  // Sanity: LZ4 on constant data should compress to well under 1% of input.
+  EXPECT_LT(*r * 100, inputLen);
+  assertRoundtripByteEqual(compressed, *r, packed.data);
+}
+
+TEST(TypeAwareCompressCodecTest, StringDictLongCommentsPicksLz4) {
+  // Counterpart to StringDictLongCommentsRoundtrips: pin the deterministic
+  // strategy choice on a mid-cardinality column whose values share a long
+  // template prefix.  The dict body costs ~3 000 x (4 + 80) bytes for the
+  // entries + 10 000 x 2 bytes for the (16-bit) indices ~= 272 KB.  LZ4
+  // captures the 66-byte shared prefix as a single repeated match plus
+  // small per-row tail differences, getting down to roughly 80-100 KB on
+  // 800 KB of input.  LZ4 therefore wins on size and the codec must emit
+  // kStrategyLz4 (1).  The test exists so a future change to dict-header
+  // accounting (or to the strategy decision) cannot silently regress to
+  // emitting a larger dict body on a shape LZ4 compresses better.
+  std::mt19937_64 rng(0xc0ffee01);
+  std::uniform_int_distribution<int> pickPool(0, 2999);
+  std::vector<std::string> strings;
+  strings.reserve(10000);
+  for (int i = 0; i < 10000; ++i) {
+    int idx = pickPool(rng);
+    std::string s = "comment_template_with_padding_to_eighty_chars_field_value_index_";
+    s += std::to_string(idx);
+    while (s.size() < 80) {
+      s.push_back('x');
+    }
+    strings.push_back(s);
+  }
+  auto packed = packStrings(strings);
+  int32_t numRows = static_cast<int32_t>(strings.size());
+  int64_t inputLen = static_cast<int64_t>(packed.data.size());
+
+  auto maxLen = TypeAwareCompressCodec::maxCompressedLen(inputLen, tac::kStringDict);
+  std::vector<uint8_t> compressed(static_cast<size_t>(maxLen));
+  auto r = TypeAwareCompressCodec::compress(
+      packed.data.data(),
+      inputLen,
+      compressed.data(),
+      maxLen,
+      tac::kStringDict,
+      reinterpret_cast<const uint8_t*>(packed.offsets.data()),
+      numRows);
+  ASSERT_TRUE(r.ok()) << r.status().ToString();
+  EXPECT_EQ(strategyByte(compressed.data()), 1u)
+      << "long-comments shape: LZ4 must beat the ~272 KB dict body and be the chosen strategy";
+  // Sanity: LZ4 on long shared-prefix data should compress at least 5x.
+  EXPECT_LT(*r * 5, inputLen);
   assertRoundtripByteEqual(compressed, *r, packed.data);
 }
