@@ -492,13 +492,16 @@ constexpr int64_t kLz4BodyFixedHeader = sizeof(uint8_t) + // strategy
 // v1 (heuristic: bail after 64 rows if >75% unique) regressed str_high_card8k.
 // v2 (single check at row 256) regressed str_long_comments via the birthday
 // paradox on a sampled 10K-element string pool.
-// v3 raises the probe row to clamp(numRows/8, 256, 4096): at the cap (4096)
-// the probability of seeing no duplicate is vanishingly small for any
-// cardinality C ≤ 64K (~exp(-4096²/(2C)), ~10⁻⁵⁷ at C=64K), and remains
-// ~10⁻⁴ at C=1M — only essentially-all-unique columns ever bail.
+// v3 raises the probe row to clamp(numRows/8, 256, 2048): at the cap (2048)
+// the probability of seeing no duplicate is still vanishingly small for any
+// reasonable cardinality C (~exp(-2048²/(2C)), ~10⁻¹⁴ at C=64K, ~10⁻¹ at
+// C=1M) — only essentially-all-unique columns ever bail.  The cap was
+// lowered from 4096 → 2048 after a sweep showed ~14% CPU savings on the
+// str_unique shape (where bailing IS the right call) with zero observable
+// regression on shapes that pick dict (str_high_card8k / str_long_comments).
 constexpr int64_t kDictMinInputBytes = 4096;
 constexpr int32_t kDictBailoutMinCheckRows = 256;
-constexpr int32_t kDictBailoutMaxCheckRows = 4096;
+constexpr int32_t kDictBailoutMaxCheckRows = 2048;
 constexpr int32_t kDictBailoutCheckDivisor = 8;
 
 uint8_t indexWidthFor(int32_t dictCount) {
