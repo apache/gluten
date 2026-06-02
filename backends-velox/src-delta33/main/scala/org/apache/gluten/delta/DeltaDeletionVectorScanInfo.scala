@@ -41,8 +41,8 @@ object DeltaDeletionVectorScanInfo {
   import RowIndexFilterType._
 
   final case class DeletionVectorInfo(
-      rowIndexFilterType: RowIndexFilterType,
       hasDeletionVector: Boolean,
+      rowIndexFilterType: RowIndexFilterType,
       cardinality: Long,
       serializedDeletionVector: Array[Byte])
 
@@ -89,13 +89,13 @@ object DeltaDeletionVectorScanInfo {
 
     (descriptorValue, filterTypeValue) match {
       case (None, None) =>
-        DeletionVectorInfo(KEEP_ALL, false, 0L, Array.emptyByteArray)
+        DeletionVectorInfo(false, KEEP_ALL, 0L, Array.emptyByteArray)
       case (Some(encodedDescriptor), Some(filterType)) =>
         val descriptor = parseDescriptor(encodedDescriptor.toString)
         val serializedPayload = serializePayload(spark, partitionColumnCount, file, descriptor)
         DeletionVectorInfo(
-          parseRowIndexFilterType(filterType.toString),
           true,
+          parseRowIndexFilterType(filterType.toString),
           descriptor.cardinality,
           serializedPayload)
       case _ =>
