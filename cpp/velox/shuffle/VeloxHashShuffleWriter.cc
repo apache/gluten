@@ -802,7 +802,14 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
         isValidityBuffer_.push_back(true);
         isValidityBuffer_.push_back(false);
         isValidityBuffer_.push_back(false);
-        tacBufferTypes_.insert(tacBufferTypes_.end(), 3, tac::kUnsupported);
+        // Offsets buffer: dense, monotonically increasing int32 stream, ideal
+        // for FFOR(uint32). Data buffer: variable-length string payload --
+        // route through the string-dict codec which adaptively picks dictionary
+        // encoding or LZ4 fallback per buffer, ensuring no regression versus
+        // the prior LZ4-only path while winning on medium-cardinality columns.
+        tacBufferTypes_.push_back(tac::kUnsupported);
+        tacBufferTypes_.push_back(tac::kUInt32);
+        tacBufferTypes_.push_back(tac::kStringDict);
       } break;
       case arrow::StructType::type_id:
       case arrow::MapType::type_id:

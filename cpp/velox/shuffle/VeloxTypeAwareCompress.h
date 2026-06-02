@@ -27,7 +27,25 @@ namespace gluten {
 inline int8_t veloxTypeToTacType(facebook::velox::TypeKind kind) {
   switch (kind) {
     case facebook::velox::TypeKind::BIGINT:
+      // BIGINT covers signed/unsigned int64, double (reinterpreted), date64 and
+      // ShortDecimal(p<=18) since Velox stores ShortDecimal as DecimalType<BIGINT>.
       return tac::kUInt64;
+    case facebook::velox::TypeKind::HUGEINT:
+      // HUGEINT (int128_t) covers LongDecimal(p>18) — Velox stores it as
+      // DecimalType<HUGEINT>. Compressed via split-lane FFOR(uint64) on the
+      // low / high 64 bits independently.
+      return tac::kUInt128;
+    case facebook::velox::TypeKind::TIMESTAMP:
+      // TIMESTAMP is a 16-byte struct { int64_t seconds_; uint64_t nanos_; }.
+      // Layout matches kUInt128: seconds lane has dense int64 values with
+      // strong locality (low FFOR bit-width); nanos lane is typically 0 or a
+      // small set of recurring values (tiny FFOR bit-width).
+      return tac::kUInt128;
+    case facebook::velox::TypeKind::INTEGER:
+      // INTEGER covers signed/unsigned int32. Velox's DateType also derives
+      // from IntegerType (TypeKind::INTEGER), so date32 columns flow through
+      // the same path. Compressed via FFOR(uint64) over a zero-extended view.
+      return tac::kUInt32;
     default:
       return tac::kUnsupported;
   }

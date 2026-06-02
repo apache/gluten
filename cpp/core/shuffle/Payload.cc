@@ -92,11 +92,17 @@ arrow::Result<int64_t> compressBuffer(
 // Same wire format as compressBuffer:
 //   kTypeAwareBuffer (int64) | uncompressedLength (int64) | compressedLength (int64) | compressed data
 // If compressed size >= uncompressed size, falls back to kUncompressedBuffer (same as standard codec).
+//
+// For TAC type kStringDict, the offsetsBuffer + numRows arguments must be
+// supplied so the codec can build the dictionary. They are ignored for other
+// TAC types.
 arrow::Result<int64_t> compressTypeAwareBuffer(
     const std::shared_ptr<arrow::Buffer>& buffer,
     uint8_t* output,
     int64_t outputLength,
-    int8_t typeKind) {
+    int8_t typeKind,
+    const uint8_t* offsetsBuffer = nullptr,
+    int32_t numRows = 0) {
   auto outputPtr = &output;
   if (!buffer) {
     write<int64_t>(outputPtr, kNullBuffer);
@@ -116,7 +122,8 @@ arrow::Result<int64_t> compressTypeAwareBuffer(
 
   ARROW_ASSIGN_OR_RAISE(
       auto compressedSize,
-      TypeAwareCompressCodec::compress(buffer->data(), buffer->size(), dataOutput, availableOutput, typeKind));
+      TypeAwareCompressCodec::compress(
+          buffer->data(), buffer->size(), dataOutput, availableOutput, typeKind, offsetsBuffer, numRows));
 
   if (compressedSize >= buffer->size()) {
     // Compression didn't help. Fall back to uncompressed, same as compressBuffer.
@@ -273,9 +280,44 @@ arrow::Result<std::unique_ptr<BlockPayload>> BlockPayload::fromBuffers(
 
       int64_t compressedSize = 0;
       if (TypeAwareCompressCodec::support(typeKind)) {
-        // Use type-aware compression for supported types.
+        // For string-dict compression the codec needs per-row offsets into
+        // the string-data buffer.  Production string columns reach us in two
+        // shapes:
+        //
+        //   (a) Arrow standard layout: validity, offsets[numRows+1], data.
+        //       offsets[0] == 0, offsets[numRows] == data buffer size.
+        //   (b) VeloxHashShuffleWriter layout: validity, lengths[numRows],
+        //       data — i.e. a per-row length, not cumulative offsets.
+        //
+        // Use the authoritative `numRows` parameter (NOT `bufferSize/4 - 1`)
+        // so single-row batches don't underflow to `numRows == 0` and trip
+        // the codec's positive-numRows guard.  Validate that the preceding
+        // buffer matches one of the two known shapes; otherwise leave the
+        // offsets pointer null so the codec rejects rather than reading
+        // unrelated memory.
+        //
+        // NB: shape (b) currently always lands in the codec's internal LZ4
+        // fallback path (its `sliced` detector trips on `offsets[0] != 0`
+        // because the first row's length is rarely zero).  That keeps the
+        // wire format correct without changing observable behaviour for
+        // workloads exercised on the Velox hash writer.  Activating the
+        // dict path for shape (b) would require a lengths→offsets pre-pass
+        // and a separate validation cycle — out of scope for this PR.
+        const uint8_t* offsetsBuf = nullptr;
+        int32_t offsetsNumRows = 0;
+        if (typeKind == tac::kStringDict && numRows > 0 && i >= 1 && buffers[i - 1] != nullptr) {
+          const auto prevSize = buffers[i - 1]->size();
+          const auto expectedOffsetsBytes = static_cast<int64_t>(numRows + 1) * sizeof(int32_t);
+          const auto expectedLengthsBytes = static_cast<int64_t>(numRows) * sizeof(int32_t);
+          if (prevSize == expectedOffsetsBytes || prevSize == expectedLengthsBytes) {
+            offsetsBuf = buffers[i - 1]->data();
+            offsetsNumRows = static_cast<int32_t>(numRows);
+          }
+        }
         ARROW_ASSIGN_OR_RAISE(
-            compressedSize, compressTypeAwareBuffer(std::move(buffers[i]), output, availableLength, typeKind));
+            compressedSize,
+            compressTypeAwareBuffer(
+                std::move(buffers[i]), output, availableLength, typeKind, offsetsBuf, offsetsNumRows));
       } else {
         // Use standard codec (LZ4/ZSTD) for unsupported types.
         ARROW_ASSIGN_OR_RAISE(compressedSize, compressBuffer(std::move(buffers[i]), output, availableLength, codec));
