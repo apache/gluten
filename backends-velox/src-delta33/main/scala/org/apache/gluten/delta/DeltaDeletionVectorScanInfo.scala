@@ -42,11 +42,9 @@ object DeltaDeletionVectorScanInfo {
 
   final case class DeletionVectorInfo(
       rowIndexFilterType: RowIndexFilterType,
-      descriptor: Option[DeletionVectorDescriptor],
-      serializedDeletionVector: Array[Byte]) {
-    def hasDeletionVector: Boolean = descriptor.isDefined
-    def cardinality: Long = descriptor.map(_.cardinality).getOrElse(0L)
-  }
+      hasDeletionVector: Boolean,
+      cardinality: Long,
+      serializedDeletionVector: Array[Byte])
 
   final case class PartitionFileScanInfo(
       normalizedOtherMetadataColumns: Map[String, Object],
@@ -91,13 +89,14 @@ object DeltaDeletionVectorScanInfo {
 
     (descriptorValue, filterTypeValue) match {
       case (None, None) =>
-        DeletionVectorInfo(KEEP_ALL, None, Array.emptyByteArray)
+        DeletionVectorInfo(KEEP_ALL, false, 0L, Array.emptyByteArray)
       case (Some(encodedDescriptor), Some(filterType)) =>
         val descriptor = parseDescriptor(encodedDescriptor.toString)
         val serializedPayload = serializePayload(spark, partitionColumnCount, file, descriptor)
         DeletionVectorInfo(
           parseRowIndexFilterType(filterType.toString),
-          Some(descriptor),
+          true,
+          descriptor.cardinality,
           serializedPayload)
       case _ =>
         throw new IllegalStateException(
