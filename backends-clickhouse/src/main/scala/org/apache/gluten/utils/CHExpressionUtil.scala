@@ -200,6 +200,7 @@ object CHExpressionUtil {
     REGR_SLOPE -> DefaultValidator(),
     REGR_INTERCEPT -> DefaultValidator(),
     REGR_SXY -> DefaultValidator(),
+    BITMAP_CONSTRUCT_AGG -> DefaultValidator(),
     TO_UTC_TIMESTAMP -> UtcTimestampValidator(),
     FROM_UTC_TIMESTAMP -> UtcTimestampValidator(),
     STACK -> DefaultValidator(),

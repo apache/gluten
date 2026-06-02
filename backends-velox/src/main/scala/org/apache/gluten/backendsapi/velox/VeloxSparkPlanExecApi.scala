@@ -1134,13 +1134,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       Sig[AssertNotNull](ExpressionNames.ASSERT_NOT_NULL),
       // For test purpose.
       Sig[VeloxDummyExpression](VeloxDummyExpression.VELOX_DUMMY_EXPRESSION)
-    ) ++ scala.util.Try(
-      // scalastyle:off classforname
-      Sig(
-        Class.forName("org.apache.spark.sql.catalyst.expressions.BitmapConstructAgg"),
-        ExpressionNames.BITMAP_CONSTRUCT_AGG)
-      // scalastyle:on classforname
-    ).toOption.toSeq
+    )
   }
 
   override def rewriteSpillPath(path: String): String = {
