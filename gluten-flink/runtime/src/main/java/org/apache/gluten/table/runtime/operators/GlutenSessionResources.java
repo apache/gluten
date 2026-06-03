@@ -27,11 +27,10 @@ import org.apache.flink.runtime.state.KeyedStateBackend;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 // Manage the session and resource for Velox.
 class GlutenSessionResource {
@@ -83,7 +82,6 @@ class GlutenSessionResource {
 }
 
 public class GlutenSessionResources {
-  private static final Logger LOG = LoggerFactory.getLogger(GlutenSessionResources.class);
   private static final GlutenSessionResources instance = new GlutenSessionResources();
   private Map<String, GlutenSessionResource> sessionResources = new HashMap<>();
   private Map<String, GlutenOperator> operators = new HashMap<>();
@@ -110,8 +108,10 @@ public class GlutenSessionResources {
     operators.put(id, operator);
   }
 
-  public GlutenOperator getOperator(String id) {
-    LOG.info("getOperator: {}, {}", id, operators.keySet());
-    return operators.get(id);
+  public Optional<GlutenOperator> getOperator(String id) {
+    if (operators.containsKey(id)) {
+      return Optional.of(operators.get(id));
+    }
+    return Optional.empty();
   }
 }

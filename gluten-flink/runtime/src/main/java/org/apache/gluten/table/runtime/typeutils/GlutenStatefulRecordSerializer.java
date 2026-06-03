@@ -72,7 +72,7 @@ public class GlutenStatefulRecordSerializer extends TypeSerializer<StatefulRecor
             .baseVectorOps()
             .deserializeOne(new String(str))
             .asRowVector();
-    StatefulRecord record = new StatefulRecord(null, 0, 0, false, -1);
+    StatefulRecord record = new StatefulRecord(operator.getId(), rowVector.id(), 0, false, -1);
     record.setRowVector(rowVector);
     return record;
   }
