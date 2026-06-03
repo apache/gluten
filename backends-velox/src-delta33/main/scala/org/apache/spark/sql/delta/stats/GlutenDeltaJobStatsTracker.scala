@@ -36,7 +36,7 @@ import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, EmptyRow, Expression, Projection, SpecificInternalRow, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, EmptyRow, Expression, Projection, SortOrder, SpecificInternalRow, UnsafeProjection}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
 import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExecNode, ProjectExec}
@@ -332,6 +332,6 @@ object GlutenDeltaJobStatsTracker extends Logging {
     override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
     override protected def doExecuteColumnar(): RDD[ColumnarBatch] =
       throw new UnsupportedOperationException()
-    override def outputOrdering = Seq.empty
+    override def outputOrdering: Seq[SortOrder] = Seq.empty
   }
 }

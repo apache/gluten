@@ -18,6 +18,7 @@ package org.apache.spark.sql.delta.stats
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.backendsapi.velox.VeloxBatchType
+import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.expression.{ConverterUtils, TransformerState}
@@ -30,11 +31,12 @@ import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.plan.PlanBuilder
 import org.apache.gluten.vectorized.{ColumnarBatchInIterator, ColumnarBatchOutIterator, NativePlanEvaluator}
+
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BindReferences, EmptyRow, Expression, RuntimeReplaceable, SpecificInternalRow}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BindReferences, EmptyRow, Expression, RuntimeReplaceable, SortOrder, SpecificInternalRow}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
 import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExecNode, ProjectExec}
@@ -43,13 +45,14 @@ import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, Wr
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.{SerializableConfiguration, SparkDirectoryUtil}
+
 import com.google.common.collect.Lists
-import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
 import java.util.UUID
 import java.util.concurrent.{Callable, Executors, Future, SynchronousQueue}
+
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
@@ -333,6 +336,6 @@ object GlutenDeltaJobStatsTracker extends Logging {
     override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
     override protected def doExecuteColumnar(): RDD[ColumnarBatch] =
       throw new UnsupportedOperationException()
-    override def outputOrdering = Seq.empty
+    override def outputOrdering: Seq[SortOrder] = Seq.empty
   }
 }
