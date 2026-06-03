@@ -69,7 +69,7 @@ function process_setup_ubuntu {
 }
 
 function process_setup_centos9 {
-  sed -i "s|-DFOLLY_HAVE_INT128_T=ON|-DFOLLY_HAVE_INT128_T=ON -DFOLLY_NO_EXCEPTION_TRACER=ON|g" scripts/setup-common.sh
+  sed -i "s|-DGFLAGS_SHARED=FALSE|-DGFLAGS_SHARED=TRUE|g" scripts/setup-common.sh
   echo "Using setup script from Velox"
 }
 
