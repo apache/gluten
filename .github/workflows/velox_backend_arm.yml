@@ -137,20 +137,21 @@ jobs:
 
   cpp-test-udf-test:
     runs-on: ubuntu-24.04-arm
-    container: apache/gluten:centos-8-jdk8
+    container: apache/gluten:centos-9-jdk8
     steps:
       - uses: actions/checkout@v4
       - name: Get Ccache
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-shared-${{runner.arch}}-${{github.sha}}
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{github.sha}}
           restore-keys: |
-            ccache-centos8-release-shared-${{runner.arch}}
+            ccache-centos9-release-shared-${{runner.arch}}
       - name: Build Gluten native libraries
         run: |
           df -a
-          bash dev/ci-velox-buildshared-centos-8.sh
+          sed -i "s|gflags_static|gflags_shared|g" /usr/local/lib/cmake/folly/folly-targets.cmake # TODO: remove after upgrading folly to 2024.09.30 or later which has fixed the gflags linkage issue
+          bash dev/ci-velox-buildshared-centos-9.sh
           ccache -s
       - name: Run CPP unit test
         run: |

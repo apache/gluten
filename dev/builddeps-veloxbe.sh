@@ -160,6 +160,9 @@ done
 
 if [[ "$(uname)" == "Darwin" ]]; then
     export INSTALL_PREFIX=${INSTALL_PREFIX:-${VELOX_HOME}/deps-install}
+    if [[ "$INSTALL_PREFIX" == "/usr/local" || "$INSTALL_PREFIX" == /usr/local/* ]]; then
+        echo "INFO: INSTALL_PREFIX=$INSTALL_PREFIX is under /usr/local; keeping /usr/local visible to CMake." >&2
+    fi
 fi
 
 function concat_velox_param {
@@ -259,6 +262,13 @@ function build_gluten_cpp {
 
   if [ $OS == 'Darwin' ]; then
     GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_PREFIX_PATH=$INSTALL_PREFIX"
+    if [[ "$INSTALL_PREFIX" != "/usr/local" && "$INSTALL_PREFIX" != /usr/local/* ]]; then
+      GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON"
+      GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_IGNORE_PREFIX_PATH=/usr/local"
+      GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake"
+      GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_SYSTEM_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake"
+    fi
+    GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_CXX_FLAGS=-Wno-inconsistent-missing-override -Wno-macro-redefined"
   fi
 
   cmake -G Ninja $GLUTEN_CMAKE_OPTIONS ..
