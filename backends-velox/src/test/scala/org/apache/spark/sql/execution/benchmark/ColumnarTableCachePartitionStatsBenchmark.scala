@@ -20,11 +20,16 @@ import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.benchmark.Benchmark
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.execution.SchemaJsonInternCache
+import org.apache.spark.sql.types._
 import org.apache.spark.storage.StorageLevel
+
+import java.nio.charset.StandardCharsets
 
 /**
  * Benchmark to measure write/read overhead and pruning benefit of partition stats in columnar table
- * cache. To run this benchmark:
+ * cache, plus microbench coverage for the schema-codec intern cache used by
+ * `ColumnarCachedBatchSerializer`. To run this benchmark:
  * {{{
  *   1. without sbt:
  *      bin/spark-submit --class <this class> --jars <spark core test jar> <sql core test jar>
@@ -56,6 +61,162 @@ object ColumnarTableCachePartitionStatsBenchmark extends SqlBasedBenchmark {
         case Some(v) => spark.conf.set(confKey, v)
         case None => spark.conf.unset(confKey)
       }
+    }
+  }
+
+  // ============================================================================
+  // Schema-codec intern microbench (SchemaJsonInternCache).
+  //
+  // ColumnarCachedBatchSerializer hot paths call StructType.json on every batch
+  // write and DataType.fromJson on every batch read. The intern cache memoizes
+  // the round-trip without changing the wire format. Sections below compare two
+  // distinct method calls in the same JVM as cache off (raw codec) vs cache on
+  // (intern memoized round-trip), with no toggle on the cache class itself.
+  // ============================================================================
+
+  private val INTERN_CAP = 256
+
+  private def schemaFixture(numCols: Int, nameLen: Int): StructType = {
+    val name = "c" + ("x" * math.max(0, nameLen - 1))
+    StructType(
+      (0 until numCols).map(i => StructField(s"$name$i", LongType, nullable = true)))
+  }
+
+  // TPC-DS store_sales-derived 23-col mixed-type fixture; realistic name shape.
+  private def realisticSchema: StructType = StructType(
+    Seq(
+      StructField("ss_sold_date_sk", IntegerType),
+      StructField("ss_sold_time_sk", IntegerType),
+      StructField("ss_item_sk", IntegerType),
+      StructField("ss_customer_sk", IntegerType),
+      StructField("ss_cdemo_sk", IntegerType),
+      StructField("ss_hdemo_sk", IntegerType),
+      StructField("ss_addr_sk", IntegerType),
+      StructField("ss_store_sk", IntegerType),
+      StructField("ss_promo_sk", IntegerType),
+      StructField("ss_ticket_number", LongType),
+      StructField("ss_quantity", IntegerType),
+      StructField("ss_wholesale_cost", DecimalType(7, 2)),
+      StructField("ss_list_price", DecimalType(7, 2)),
+      StructField("ss_sales_price", DecimalType(7, 2)),
+      StructField("ss_ext_discount_amt", DecimalType(7, 2)),
+      StructField("ss_ext_sales_price", DecimalType(7, 2)),
+      StructField("ss_ext_wholesale_cost", DecimalType(7, 2)),
+      StructField("ss_ext_list_price", DecimalType(7, 2)),
+      StructField("ss_ext_tax", DecimalType(7, 2)),
+      StructField("ss_coupon_amt", DecimalType(7, 2)),
+      StructField("ss_net_paid", DecimalType(7, 2)),
+      StructField("ss_net_paid_inc_tax", DecimalType(7, 2)),
+      StructField("ss_net_profit", DecimalType(7, 2))
+    ))
+
+  private val internSchemas: Seq[(String, StructType)] =
+    (for {
+      width <- Seq(10, 100, 1000)
+      nameLen <- Seq(1, 32)
+    } yield (s"w=$width n=$nameLen", schemaFixture(width, nameLen))) :+
+      ("tpcds-store_sales-23col" -> realisticSchema)
+
+  private def runInternEncode(label: String, schema: StructType): Unit = {
+    val N = 1L * 1000 * 1000
+    val intern = new SchemaJsonInternCache
+    val bench = new Benchmark(label, N, output = output)
+    bench.addCase("off (raw schema.json.getBytes per call)", 5) {
+      _ =>
+        var i = 0L
+        var checksum = 0L
+        while (i < N) {
+          val bytes = schema.json.getBytes(StandardCharsets.UTF_8)
+          checksum ^= bytes.length.toLong
+          i += 1
+        }
+        assert(checksum != Long.MinValue, s"checksum=$checksum")
+    }
+    bench.addCase("on  (intern.encodeBytes: cached canonical bytes)", 5) {
+      _ =>
+        var i = 0L
+        var checksum = 0L
+        while (i < N) {
+          val bytes = intern.encodeBytes(schema)
+          checksum ^= bytes.length.toLong
+          i += 1
+        }
+        assert(checksum != Long.MinValue, s"checksum=$checksum")
+    }
+    bench.run()
+  }
+
+  private def runInternDecode(label: String, schema: StructType): Unit = {
+    val N = 1L * 100 * 1000
+    val intern = new SchemaJsonInternCache
+    val jsonBytes = schema.json.getBytes(StandardCharsets.UTF_8)
+    val bench = new Benchmark(label, N, output = output)
+    bench.addCase("off (raw DataType.fromJson per call)", 5) {
+      _ =>
+        var i = 0L
+        var checksum = 0L
+        while (i < N) {
+          val s = DataType
+            .fromJson(new String(jsonBytes, StandardCharsets.UTF_8))
+            .asInstanceOf[StructType]
+          checksum ^= s.length.toLong
+          i += 1
+        }
+        assert(checksum != Long.MinValue, s"checksum=$checksum")
+    }
+    bench.addCase("on  (intern.decodeStructType: cached canonical StructType)", 5) {
+      _ =>
+        var i = 0L
+        var checksum = 0L
+        while (i < N) {
+          val s = intern.decodeStructType(jsonBytes)
+          checksum ^= s.length.toLong
+          i += 1
+        }
+        assert(checksum != Long.MinValue, s"checksum=$checksum")
+    }
+    bench.run()
+  }
+
+  // Working-set sweep across three regimes around cap = 256:
+  //   C1 == cap     -> 100% hit steady state
+  //   C2 == 2 x cap -> eviction pressure, partial hit
+  //   C3 == 4 x cap -> worst-case round-robin, ~all miss
+  // Gates (read at results-read time):
+  //   C1 on must be >= off; C2 on within 1.5x of off; C3 documented as known regression.
+  private def runInternWorkingSetSweep(): Unit = {
+    val passes = 100
+    Seq(
+      ("C1 hit (256 schemas == cap)", INTERN_CAP),
+      ("C2 partial (512 schemas == 2x cap)", INTERN_CAP * 2),
+      ("C3 churn (1024 schemas == 4x cap)", INTERN_CAP * 4)
+    ).foreach {
+      case (label, distinctCount) =>
+        val many = (0 until distinctCount).map(i => schemaFixture(10, 8 + (i % 16)))
+        val N = many.length.toLong * passes
+        val intern = new SchemaJsonInternCache
+        val bench = new Benchmark(label, N, output = output)
+        bench.addCase("off", 5) {
+          _ =>
+            var p = 0
+            var checksum = 0L
+            while (p < passes) {
+              many.foreach(s => checksum ^= s.json.getBytes(StandardCharsets.UTF_8).length.toLong)
+              p += 1
+            }
+            assert(checksum != Long.MinValue, s"checksum=$checksum")
+        }
+        bench.addCase("on", 5) {
+          _ =>
+            var p = 0
+            var checksum = 0L
+            while (p < passes) {
+              many.foreach(s => checksum ^= intern.encodeBytes(s).length.toLong)
+              p += 1
+            }
+            assert(checksum != Long.MinValue, s"checksum=$checksum")
+        }
+        bench.run()
     }
   }
 
@@ -118,5 +279,20 @@ object ColumnarTableCachePartitionStatsBenchmark extends SqlBasedBenchmark {
     readPointBench.run()
 
     spark.catalog.clearCache()
+
+    // === Benchmark 5: schema-codec intern microbench - encode (Section A) ===
+    runBenchmark("StructType JSON codec - encode (Section A)") {
+      internSchemas.foreach { case (label, sch) => runInternEncode(s"encode $label", sch) }
+    }
+
+    // === Benchmark 6: schema-codec intern microbench - decode (Section B) ===
+    runBenchmark("StructType JSON codec - decode (Section B)") {
+      internSchemas.foreach { case (label, sch) => runInternDecode(s"decode $label", sch) }
+    }
+
+    // === Benchmark 7: schema-codec intern working-set sweep (Section C) ===
+    runBenchmark("StructType JSON codec - working-set sweep (Section C)") {
+      runInternWorkingSetSweep()
+    }
   }
 }
