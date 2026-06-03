@@ -80,6 +80,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("SPARK-48012")
     .excludeByPrefix("SPARK-44647")
     .excludeByPrefix("SPARK-41471")
+    .excludeByPrefix("SPARK-54439")
     // disable due to check for SMJ node
     .excludeByPrefix("SPARK-41413: partitioned join:")
     .excludeByPrefix("SPARK-42038: partially clustered:")
