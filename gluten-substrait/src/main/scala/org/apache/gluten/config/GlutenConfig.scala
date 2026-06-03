@@ -1463,13 +1463,13 @@ object GlutenConfig extends ConfigRegistry {
       .createWithDefault(true)
 
   val COLUMNAR_CARTESIAN_PRODUCT_ENABLED =
-    buildConf("spark.gluten.sql.columnar.cartesianProduct")
+    buildConf("spark.gluten.sql.columnar.cartesianProduct.enabled")
       .doc("Enable or disable columnar cartesianProduct.")
       .booleanConf
       .createWithDefault(true)
 
   val COLUMNAR_BROADCAST_NESTED_LOOP_JOIN_ENABLED =
-    buildConf("spark.gluten.sql.columnar.broadcastNestedLoopJoin")
+    buildConf("spark.gluten.sql.columnar.broadcastNestedLoopJoin.enabled")
       .doc("Enable or disable columnar broadcastNestedLoopJoin.")
       .booleanConf
       .createWithDefault(true)
