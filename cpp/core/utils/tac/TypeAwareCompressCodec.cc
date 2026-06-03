@@ -93,6 +93,10 @@ TypeAwareCompressCodec::runLz4Fallback(const uint8_t* input, int64_t inputLen, s
 
 arrow::Result<int64_t>
 TypeAwareCompressCodec::writeLz4Body(const uint8_t* lz4Bytes, int64_t lz4Len, uint8_t* output, int64_t outputLen) {
+  if (lz4Len > std::numeric_limits<int32_t>::max()) {
+    return arrow::Status::Invalid(
+        "Int codec LZ4 body: compressed length ", lz4Len, " exceeds INT32_MAX wire-header limit");
+  }
   int64_t bodySize = kIntLz4BodyHeaderSize + lz4Len;
   if (outputLen < bodySize) {
     return arrow::Status::Invalid("Int codec LZ4 body: output too small (", outputLen, " < ", bodySize, ")");
@@ -625,6 +629,10 @@ arrow::Result<int64_t> TypeAwareCompressCodec::compressStringDict(
 
   uint8_t* out = output;
   if (useDict) {
+    if (dictBytes > std::numeric_limits<int32_t>::max()) {
+      return arrow::Status::Invalid(
+          "String dict codec: dictionary total byte size ", dictBytes, " exceeds INT32_MAX wire-header limit");
+    }
     *out++ = static_cast<uint8_t>(kStrategyDict);
     *out++ = indexWidth;
     std::memcpy(out, &numRows, sizeof(int32_t));
@@ -636,6 +644,10 @@ arrow::Result<int64_t> TypeAwareCompressCodec::compressStringDict(
     out += sizeof(int32_t);
 
     for (const auto& sv : dictEntries) {
+      if (sv.size() > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+        return arrow::Status::Invalid(
+            "String dict codec: dictionary entry length ", sv.size(), " exceeds INT32_MAX wire-header limit");
+      }
       int32_t len = static_cast<int32_t>(sv.size());
       std::memcpy(out, &len, sizeof(int32_t));
       out += sizeof(int32_t);
@@ -657,6 +669,10 @@ arrow::Result<int64_t> TypeAwareCompressCodec::compressStringDict(
       }
     }
   } else {
+    if (lz4Len > std::numeric_limits<int32_t>::max()) {
+      return arrow::Status::Invalid(
+          "String dict codec LZ4 body: compressed length ", lz4Len, " exceeds INT32_MAX wire-header limit");
+    }
     *out++ = static_cast<uint8_t>(kStrategyLz4);
     int32_t lz4Len32 = static_cast<int32_t>(lz4Len);
     std::memcpy(out, &lz4Len32, sizeof(int32_t));
