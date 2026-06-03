@@ -30,7 +30,6 @@ import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.plan.PlanBuilder
 import org.apache.gluten.vectorized.{ColumnarBatchInIterator, ColumnarBatchOutIterator, NativePlanEvaluator}
-
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
@@ -44,14 +43,13 @@ import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, Wr
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.{SerializableConfiguration, SparkDirectoryUtil}
-
 import com.google.common.collect.Lists
+import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
 import java.util.UUID
 import java.util.concurrent.{Callable, Executors, Future, SynchronousQueue}
-
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
@@ -241,9 +239,23 @@ object GlutenDeltaJobStatsTracker extends Logging {
     }
 
     override def closeFile(filePath: String): Unit = {
+      def signalEoS(): Unit = {
+        while (true) {
+          if (currentJsonFuture.isDone) {
+            currentJsonFuture.get()
+            // The future should be an error since we haven't signaled EoS yet.
+            throw new IllegalStateException("Unreachable code.")
+          }
+          val queued = inputBatchQueue.offer(None, 500, java.util.concurrent.TimeUnit.MILLISECONDS)
+          if (queued) {
+            // The future should be done after we signal EoS.
+            return
+          }
+        }
+      }
       assert(filePath == currentPath)
+      signalEoS()
       val fileName = new Path(filePath).getName
-      inputBatchQueue.put(None)
       val json = currentJsonFuture.get()
       resultJsonMap(fileName) = json
       currentPath = null
@@ -254,7 +266,11 @@ object GlutenDeltaJobStatsTracker extends Logging {
       row match {
         case _: PlaceholderRow =>
         case t: TerminalRow =>
-          inputBatchQueue.put(Some(t.batch()))
+          val batch = t.batch()
+          // Counts up the reference count for the batch since it
+          // will be consumed by Velox aggregation task asynchronously.
+          ColumnarBatches.retain(batch)
+          inputBatchQueue.put(Some(batch))
       }
     }
 
