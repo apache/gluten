@@ -18,6 +18,7 @@ package org.apache.spark.sql.delta.stats
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.backendsapi.velox.VeloxBatchType
+import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.expression.{ConverterUtils, TransformerState}
@@ -237,9 +238,23 @@ object GlutenDeltaJobStatsTracker extends Logging {
     }
 
     override def closeFile(filePath: String): Unit = {
+      def signalEoS(): Unit = {
+        while (true) {
+          if (currentJsonFuture.isDone) {
+            currentJsonFuture.get()
+            // The future should be an error since we haven't signaled EoS yet.
+            throw new IllegalStateException("Unreachable code.")
+          }
+          val queued = inputBatchQueue.offer(None, 500, java.util.concurrent.TimeUnit.MILLISECONDS)
+          if (queued) {
+            // The future should be done after we signal EoS.
+            return
+          }
+        }
+      }
       assert(filePath == currentPath)
+      signalEoS()
       val fileName = new Path(filePath).getName
-      inputBatchQueue.put(None)
       val json = currentJsonFuture.get()
       resultJsonMap(fileName) = json
       currentPath = null
@@ -250,7 +265,11 @@ object GlutenDeltaJobStatsTracker extends Logging {
       row match {
         case _: PlaceholderRow =>
         case t: TerminalRow =>
-          inputBatchQueue.put(Some(t.batch()))
+          val batch = t.batch()
+          // Counts up the reference count for the batch since it
+          // will be consumed by Velox aggregation task asynchronously.
+          ColumnarBatches.retain(batch)
+          inputBatchQueue.put(Some(batch))
       }
     }
 
