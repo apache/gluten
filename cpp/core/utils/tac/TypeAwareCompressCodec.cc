@@ -272,7 +272,17 @@ TypeAwareCompressCodec::decompress(const uint8_t* input, int64_t inputLen, uint8
   switch (codecId) {
     case CodecId::kFFor: {
       ARROW_ASSIGN_OR_RAISE(auto nDecoded, FForCodec::decompress(in, dataLen, output, outputLen));
-      (void)nDecoded;
+      // FForCodec::decompress returns the number of uint64 *values* it produced
+      // (not bytes). The output buffer is sized for `outputLen / sizeof(uint64_t)`
+      // values, so any mismatch means the input stream was truncated or corrupt.
+      // Sibling decompressSplit128 / decompressWidened32 paths perform the same
+      // check; do the same here so a bad stream fails loudly instead of returning
+      // partially-decoded data to the caller.
+      const int64_t expectedValues = outputLen / static_cast<int64_t>(sizeof(uint64_t));
+      if (nDecoded != expectedValues) {
+        return arrow::Status::Invalid(
+            "FFor decompress: produced ", nDecoded, " values, expected ", expectedValues, " (input may be truncated)");
+      }
       return inputLen;
     }
     case CodecId::kFForSplit128: {
