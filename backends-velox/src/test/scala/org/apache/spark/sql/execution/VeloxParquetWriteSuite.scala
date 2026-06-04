@@ -86,14 +86,17 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
           withSQLConf(SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key -> legacyFormat.toString) {
             withTempPath {
               f =>
-                val df = spark.sql("SELECT CAST(123.456 AS DECIMAL(8, 3)) AS value")
-                df.write.format("parquet").save(f.getCanonicalPath)
+                val path = f.getCanonicalPath
+                val expected = spark.sql("SELECT CAST(123.456 AS DECIMAL(8, 3)) AS value")
+                checkNativeWrite(
+                  s"INSERT OVERWRITE DIRECTORY '$path' USING PARQUET " +
+                    "SELECT CAST(123.456 AS DECIMAL(8, 3)) AS value")
                 val parquetFiles = f.list((_, name) => name.contains("parquet"))
                 assert(parquetFiles.nonEmpty)
                 parquetFiles.foreach {
                   file =>
-                    val path = new Path(f.getCanonicalPath, file)
-                    val in = HadoopInputFile.fromPath(path, spark.sessionState.newHadoopConf())
+                    val filePath = new Path(path, file)
+                    val in = HadoopInputFile.fromPath(filePath, spark.sessionState.newHadoopConf())
                     Utils.tryWithResource(ParquetFileReader.open(in)) {
                       reader =>
                         val physicalType = reader.getFooter.getFileMetaData.getSchema
@@ -101,7 +104,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
                         assert(physicalType == expectedType)
                     }
                 }
-                checkAnswer(spark.read.parquet(f.getCanonicalPath), df)
+                checkAnswer(spark.read.parquet(path), expected)
             }
           }
       }
