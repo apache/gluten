@@ -92,6 +92,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
   enableSuite[GlutenBitmapExpressionsQuerySuite]
     // bitmap_construct_agg is not supported natively in CH backend.
     .excludeCH("bitmap_construct_agg routes to native")
+    .excludeCH("bitmap_or_agg routes to native")
   enableSuite[GlutenBitwiseExpressionsSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
     .excludeCH("Test bloom_filter_agg and might_contain")

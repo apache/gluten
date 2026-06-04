@@ -34,6 +34,7 @@ object ExpressionNames {
   final val BLOOM_FILTER_AGG = "bloom_filter_agg"
   final val BITMAP_CONSTRUCT_AGG = "bitmap_construct_agg"
   final val BITMAP_AGGREGATOR = "bitmapaggregator"
+  final val BITMAP_OR_AGG = "bitmap_or_agg"
   final val VAR_SAMP = "var_samp"
   final val VAR_POP = "var_pop"
   final val BIT_AND_AGG = "bit_and"

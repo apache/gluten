@@ -1166,6 +1166,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("row index generation")
     .excludeByPrefix("invalid row index column type")
   enableSuite[GlutenBitmapExpressionsQuerySuite]
+    // bitmap_or_agg native Velox function not yet available (pending Velox PR).
+    .exclude("bitmap_or_agg routes to native")
   enableSuite[GlutenEmptyInSuite]
   enableSuite[GlutenRuntimeNullChecksV2Writes]
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
