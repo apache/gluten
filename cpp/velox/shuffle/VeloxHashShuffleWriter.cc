@@ -1533,9 +1533,8 @@ arrow::Result<int64_t> VeloxHashShuffleWriter::evictPartitionBuffersMinSize(int6
     }
   }
 
-  std::sort(selectedPayloads.begin(), selectedPayloads.end(), [](const auto& a, const auto& b) {
-    return a.pid < b.pid;
-  });
+  std::sort(
+      selectedPayloads.begin(), selectedPayloads.end(), [](const auto& a, const auto& b) { return a.pid < b.pid; });
   for (auto& item : selectedPayloads) {
     metrics_.totalBytesToEvict += item.payload->rawSize();
     RETURN_NOT_OK(partitionWriter_->hashEvict(item.pid, std::move(item.payload), Evict::kSpill, false, writtenBytes_));
