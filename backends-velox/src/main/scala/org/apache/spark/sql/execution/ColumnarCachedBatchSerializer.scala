@@ -53,7 +53,6 @@ import java.io.ByteArrayOutputStream
 import java.lang.{Double => JDouble, Float => JFloat}
 import java.math.{BigDecimal => JBigDecimal, BigInteger}
 import java.nio.{ByteBuffer, ByteOrder}
-import java.nio.charset.StandardCharsets.UTF_8
 import java.util.Arrays
 
 import scala.util.control.NonFatal
@@ -124,7 +123,7 @@ class CachedColumnarBatchKryoSerializer extends KryoSerializer[CachedColumnarBat
       output.writeBoolean(false)
     } else {
       output.writeBoolean(true)
-      val schemaBytes = batch.schema.json.getBytes(UTF_8)
+      val schemaBytes = CachedColumnarBatchKryoSerializer.SchemaIntern.encodeBytes(batch.schema)
       output.writeInt(schemaBytes.length)
       output.writeBytes(schemaBytes)
     }
@@ -220,12 +219,16 @@ class CachedColumnarBatchKryoSerializer extends KryoSerializer[CachedColumnarBat
       )
       val schemaBytes = new Array[Byte](schemaLen)
       input.readBytes(schemaBytes)
-      DataType.fromJson(new String(schemaBytes, UTF_8)).asInstanceOf[StructType]
+      CachedColumnarBatchKryoSerializer.SchemaIntern.decodeStructType(schemaBytes)
     }
   }
 }
 
 object CachedColumnarBatchKryoSerializer {
+  // Process-wide schema-codec memoizer. Singleton so the cache survives across Kryo's per-stream
+  // serializer instances within the same JVM.
+  private[execution] val SchemaIntern: SchemaJsonInternCache = new SchemaJsonInternCache
+
   // Defensive upper bound on any single length-prefixed field in the Kryo wire (payload bytes,
   // statsBlob, schema JSON). Tied to spark.kryoserializer.buffer.max because Kryo write itself
   // refuses to emit any single object larger than that ceiling, so any stream claiming a larger
