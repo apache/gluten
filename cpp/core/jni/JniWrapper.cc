@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 
 #include "compute/Runtime.h"
 #include "config/GlutenConfig.h"
@@ -1316,6 +1317,14 @@ Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_serializeWit
   auto serializer = ctx->createColumnarBatchSerializer(nullptr);
   std::vector<uint8_t> framed = serializer->framedSerializeWithStats(batch);
 
+  // Outer-layer size defense (inner layer = bytesLen <= UINT32_MAX in
+  // framedSerializeWithStats). jsize is signed int32; > INT32_MAX wraps
+  // negative -> NewByteArray would throw NegativeArraySizeException.
+  // Fail fast here so JNI_METHOD_END surfaces it as GlutenException.
+  GLUTEN_CHECK(
+      framed.size() <= static_cast<size_t>(std::numeric_limits<jsize>::max()),
+      "serializeWithStats: framed payload (" + std::to_string(framed.size()) + " bytes) exceeds Java byte[] limit (" +
+          std::to_string(std::numeric_limits<jsize>::max()) + ")");
   jbyteArray out = env->NewByteArray(static_cast<jsize>(framed.size()));
   if (!framed.empty()) {
     env->SetByteArrayRegion(out, 0, static_cast<jsize>(framed.size()), reinterpret_cast<jbyte*>(framed.data()));

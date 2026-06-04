@@ -1165,7 +1165,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       windowParams.emplace_back(exprConverter_->toVeloxExpr(arg.value(), inputType));
     }
     auto windowVeloxType = SubstraitParser::parseType(windowFunction.output_type());
-    auto windowCall = std::make_shared<const core::CallTypedExpr>(windowVeloxType, std::move(windowParams), funcName);
+    auto windowCall = std::make_shared<const core::CallTypedExpr>(
+        windowVeloxType, std::move(windowParams), exec::sanitizeName(funcName));
     auto upperBound = windowFunction.upper_bound();
     auto lowerBound = windowFunction.lower_bound();
     auto type = windowFunction.window_type();

@@ -1269,7 +1269,7 @@
       <properties>
         <sparkbundle.version>4.0</sparkbundle.version>
         <sparkshim.artifactId>spark-sql-columnar-shims-spark40</sparkshim.artifactId>
-        <spark.version>4.0.1</spark.version>
+        <spark.version>4.0.2</spark.version>
         <iceberg.version>1.10.0</iceberg.version>
         <delta.package.name>delta-spark</delta.package.name>
         <delta.version>4.0.1</delta.version>

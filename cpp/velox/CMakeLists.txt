@@ -462,6 +462,10 @@ if(ENABLE_GPU)
     facebook::velox::velox_cudf_hive_connector
     ${VELOX_BUILD_PATH}/velox/experimental/cudf/connectors/hive/libvelox_cudf_hive_connector.a
   )
+  import_library(
+    facebook::velox::velox_cudf_iceberg_connector
+    ${VELOX_BUILD_PATH}/velox/experimental/cudf/connectors/hive/iceberg/libvelox_cudf_iceberg_connector.a
+  )
 
   target_compile_definitions(
     velox PRIVATE LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE)
@@ -473,9 +477,13 @@ if(ENABLE_GPU)
 
   target_link_libraries(
     velox
-    PUBLIC facebook::velox::velox_cudf_exec facebook::velox::velox_cudf_vector
+    PUBLIC facebook::velox::velox_cudf_exec
+           facebook::velox::velox_cudf_vector
+           facebook::velox::velox_cudf_iceberg_connector
            facebook::velox::velox_cudf_hive_connector
-           facebook::velox::velox_cudf_expression cudf::cudf velox_curl)
+           facebook::velox::velox_cudf_expression
+           cudf::cudf
+           velox_curl)
 endif()
 
 add_custom_command(

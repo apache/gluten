@@ -85,6 +85,10 @@ class VeloxTestSettings extends BackendTestSettings {
       "INCONSISTENT_BEHAVIOR_CROSS_VERSION: compatibility with Spark 2.4/3.2 in reading/writing dates")
     // Doesn't support unhex with failOnError=true.
     .exclude("CONVERSION_INVALID_INPUT: to_binary conversion function hex")
+    // bitmap_construct_agg offloaded to Velox throws GlutenException instead of
+    // SparkArrayIndexOutOfBoundsException.
+    .exclude("INVALID_BITMAP_POSITION: position out of bounds")
+    .exclude("INVALID_BITMAP_POSITION: negative position")
   enableSuite[GlutenQueryParsingErrorsSuite]
   enableSuite[GlutenArithmeticExpressionSuite]
     .exclude("SPARK-45786: Decimal multiply, divide, remainder, quot")
