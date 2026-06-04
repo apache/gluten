@@ -208,8 +208,8 @@ TEST_F(VeloxHashShuffleWriterSpillTest, spillPartitionBuffersInPidOrder) {
   auto shuffleWriter =
       createHashShuffleWriter(8, shuffleWriterOptions, nullptr, arrow::Compression::type::UNCOMPRESSED);
 
-  // pid 4 gets a larger partition buffer than pid 1. Size-based eviction chooses pid 4 first, so the local
-  // partition writer must split spills before writing pid 1.
+  // pid 4 gets a larger partition buffer than pid 1. Size-based eviction chooses pid 4 first, but the selected
+  // payloads must still be written to local spill files in pid order.
   auto input = makeRowVector({
       makeFlatVector<int32_t>({4, 4, 4, 4, 4, 4, 4, 4, 1}),
       makeFlatVector<int32_t>({0, 1, 2, 3, 4, 5, 6, 7, 8}),
