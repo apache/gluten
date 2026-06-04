@@ -753,19 +753,17 @@ std::shared_ptr<connector::hive::HiveInsertTableHandle> makeHiveInsertTableHandl
     }
     if (std::find(partitionedBy.cbegin(), partitionedBy.cend(), tableColumnNames.at(i)) != partitionedBy.cend()) {
       ++numPartitionColumns;
-      columnHandles.emplace_back(
-          std::make_shared<connector::hive::HiveColumnHandle>(
-              tableColumnNames.at(i),
-              connector::hive::HiveColumnHandle::ColumnType::kPartitionKey,
-              tableColumnTypes.at(i),
-              tableColumnTypes.at(i)));
+      columnHandles.emplace_back(std::make_shared<connector::hive::HiveColumnHandle>(
+          tableColumnNames.at(i),
+          connector::hive::HiveColumnHandle::ColumnType::kPartitionKey,
+          tableColumnTypes.at(i),
+          tableColumnTypes.at(i)));
     } else {
-      columnHandles.emplace_back(
-          std::make_shared<connector::hive::HiveColumnHandle>(
-              tableColumnNames.at(i),
-              connector::hive::HiveColumnHandle::ColumnType::kRegular,
-              tableColumnTypes.at(i),
-              tableColumnTypes.at(i)));
+      columnHandles.emplace_back(std::make_shared<connector::hive::HiveColumnHandle>(
+          tableColumnNames.at(i),
+          connector::hive::HiveColumnHandle::ColumnType::kRegular,
+          tableColumnTypes.at(i),
+          tableColumnTypes.at(i)));
     }
   }
   VELOX_CHECK_EQ(numPartitionColumns, partitionedBy.size());
@@ -793,11 +791,10 @@ std::shared_ptr<CudfHiveInsertTableHandle> makeCudfHiveInsertTableHandle(
   columnHandles.reserve(tableColumnNames.size());
 
   for (int i = 0; i < tableColumnNames.size(); ++i) {
-    columnHandles.push_back(
-        std::make_shared<CudfHiveColumnHandle>(
-            tableColumnNames.at(i),
-            tableColumnTypes.at(i),
-            cudf::data_type{cudf_velox::veloxToCudfTypeId(tableColumnTypes.at(i))}));
+    columnHandles.push_back(std::make_shared<CudfHiveColumnHandle>(
+        tableColumnNames.at(i),
+        tableColumnTypes.at(i),
+        cudf::data_type{cudf_velox::veloxToCudfTypeId(tableColumnTypes.at(i))}));
   }
 
   return std::make_shared<CudfHiveInsertTableHandle>(
