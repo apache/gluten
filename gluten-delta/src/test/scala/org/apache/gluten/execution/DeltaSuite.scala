@@ -170,7 +170,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           checkLengthAndPlan(df1, 2)
           checkAnswer(df1, Row("e") :: Row("f") :: Nil)
 
-          // Data filter alone — file-level stats skipping should still resolve column names.
+          // Data filter alone -- file-level stats skipping should still resolve column names.
           val df2 = runQueryAndCompare(
             "select name from delta_cm_part_data where age = 30") { _ => }
           checkLengthAndPlan(df2, 1)

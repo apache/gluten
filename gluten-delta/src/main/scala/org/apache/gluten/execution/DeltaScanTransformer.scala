@@ -59,7 +59,7 @@ case class DeltaScanTransformer(
   // For Delta column-mapping tables, `dataFilters` are kept LOGICAL on the scan node so that
   // `PreparedDeltaFileIndex` (Delta's file index, which uses logical names for partition pruning
   // and stats-based file skipping) resolves them correctly. The native side, however, must see
-  // PHYSICAL names — `output` and `dataSchema` are physical, and `BasicScanExecTransformer`
+  // PHYSICAL names. `output` and `dataSchema` are physical, and `BasicScanExecTransformer`
   // matches `scanFilters` against `pushDownFilters` (which are derived from a Filter referencing
   // the physical-named scan output) by AttributeReference equality, which checks names. Translate
   // the logical filter attrs to their physical counterparts in `output` so the two sets line up.
