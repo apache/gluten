@@ -40,7 +40,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, BindReferences, Emp
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
 import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExecNode, ProjectExec}
-import org.apache.spark.sql.execution.aggregate.HashAggregateExec
+import org.apache.spark.sql.execution.aggregate.SortAggregateExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, WriteJobStatsTracker, WriteTaskStats, WriteTaskStatsTracker}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -149,8 +149,8 @@ object GlutenDeltaJobStatsTracker extends Logging {
     private val statsAttrs = aggregates.flatMap(_.aggregateFunction.aggBufferAttributes)
     private val statsResultAttrs = aggregates.flatMap(_.aggregateFunction.inputAggBufferAttributes)
     private val veloxAggTask: ColumnarBatchOutIterator = {
-      val inputNode = StatisticsInputNode(Seq.empty, dataCols)
-      val aggOp = HashAggregateExec(
+      val inputNode = StatisticsInputNode(dataCols)
+      val aggOp = SortAggregateExec(
         None,
         isStreaming = false,
         None,
@@ -327,10 +327,10 @@ object GlutenDeltaJobStatsTracker extends Logging {
     }
   }
 
-  private case class StatisticsInputNode(keySchema: Seq[Attribute], dataSchema: Seq[Attribute])
+  private case class StatisticsInputNode(dataSchema: Seq[Attribute])
     extends GlutenPlan
     with LeafExecNode {
-    override def output: Seq[Attribute] = keySchema ++ dataSchema
+    override def output: Seq[Attribute] = dataSchema
     override def batchType(): Convention.BatchType = VeloxBatchType
     override def rowType(): Convention.RowType = Convention.RowType.None
     override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
