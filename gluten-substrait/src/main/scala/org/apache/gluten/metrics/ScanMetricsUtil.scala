@@ -23,8 +23,9 @@ import org.apache.spark.sql.execution.metric.SQLMetric
 /**
  * Velox-only utilities to reduce scan operator SQL metrics under driver memory pressure.
  *
- * By default only essential metrics are registered. Enable full collection via
- * `spark.gluten.sql.scan.detailedMetrics.enabled` or `spark.gluten.sql.debug`.
+ * By default all detailed metrics are registered. Disable full collection via
+ * `spark.gluten.sql.scan.detailedMetrics.enabled=false` to keep only essential metrics. Also
+ * enabled automatically when `spark.gluten.sql.debug` is true.
  */
 object ScanMetricsUtil {
 

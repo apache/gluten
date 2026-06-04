@@ -1297,12 +1297,12 @@ object GlutenConfig extends ConfigRegistry {
   val SCAN_DETAILED_METRICS_ENABLED =
     buildConf("spark.gluten.sql.scan.detailedMetrics.enabled")
       .doc(
-        "When true, Velox backend scan operators register all detailed SQL metrics. When false " +
-          "(default), only essential scan metrics are registered to reduce driver memory usage. " +
-          "Also enabled automatically when spark.gluten.sql.debug is true. " +
+        "When true (default), Velox backend scan operators register all detailed SQL metrics. " +
+          "When false, only essential scan metrics are registered to reduce driver memory " +
+          "usage. Also enabled automatically when spark.gluten.sql.debug is true. " +
           "Does not affect the ClickHouse backend.")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
 
   val DEBUG_KEEP_JNI_WORKSPACE =
     buildStaticConf("spark.gluten.sql.debug.keepJniWorkspace")

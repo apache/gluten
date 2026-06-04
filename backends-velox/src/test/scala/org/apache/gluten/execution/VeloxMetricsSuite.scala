@@ -199,7 +199,7 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         assert(scan.isDefined)
         val metrics = scan.get.metrics
         assert(metrics("rawInputRows").value == 100)
-        assert(metrics.contains("numOutputRows"))
+        assert(metrics("outputVectors").value == 1)
     }
   }
 
@@ -286,33 +286,27 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
   }
 
   test("Velox cache metrics") {
-    // ramReadBytes is not in the default minimal scan metric set.
-    withSQLConf(GlutenConfig.SCAN_DETAILED_METRICS_ENABLED.key -> "true") {
-      val df = spark.sql(s"SELECT * FROM metrics_t1")
-      val scans = collect(df.queryExecution.executedPlan) {
-        case scan: FileSourceScanExecTransformer => scan
-      }
-      df.collect()
-      assert(scans.length === 1)
-      val metrics = scans.head.metrics
-      assert(metrics("storageReadBytes").value > 0)
-      assert(metrics("ramReadBytes").value == 0)
+    val df = spark.sql(s"SELECT * FROM metrics_t1")
+    val scans = collect(df.queryExecution.executedPlan) {
+      case scan: FileSourceScanExecTransformer => scan
     }
+    df.collect()
+    assert(scans.length === 1)
+    val metrics = scans.head.metrics
+    assert(metrics("storageReadBytes").value > 0)
+    assert(metrics("ramReadBytes").value == 0)
   }
 
   test("Velox datasource metrics") {
-    // dataSource* metrics are not in the default minimal scan metric set.
-    withSQLConf(GlutenConfig.SCAN_DETAILED_METRICS_ENABLED.key -> "true") {
-      val df = spark.sql(s"SELECT * FROM metrics_t1")
-      val scans = collect(df.queryExecution.executedPlan) {
-        case scan: FileSourceScanExecTransformer => scan
-      }
-      df.collect()
-      assert(scans.length === 1)
-      val metrics = scans.head.metrics
-      assert(metrics("dataSourceReadTime").value > 0)
-      assert(metrics("dataSourceAddSplitTime").value > 0)
+    val df = spark.sql(s"SELECT * FROM metrics_t1")
+    val scans = collect(df.queryExecution.executedPlan) {
+      case scan: FileSourceScanExecTransformer => scan
     }
+    df.collect()
+    assert(scans.length === 1)
+    val metrics = scans.head.metrics
+    assert(metrics("dataSourceReadTime").value > 0)
+    assert(metrics("dataSourceAddSplitTime").value > 0)
   }
 
   test("test nested loop join metrics") {

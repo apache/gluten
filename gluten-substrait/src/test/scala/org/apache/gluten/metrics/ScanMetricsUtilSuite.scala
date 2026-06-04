@@ -25,7 +25,7 @@ import org.apache.spark.sql.test.SharedSparkSession
 
 class ScanMetricsUtilSuite extends SparkFunSuite with SharedSparkSession with SQLHelper {
 
-  test("filterScanMetrics keeps minimal Velox batch scan keys by default") {
+  test("filterScanMetrics keeps minimal Velox batch scan keys when disabled") {
     withSQLConf(
       GlutenConfig.SCAN_DETAILED_METRICS_ENABLED.key -> "false",
       GlutenConfig.DEBUG_ENABLED.key -> "false") {
@@ -44,8 +44,10 @@ class ScanMetricsUtilSuite extends SparkFunSuite with SharedSparkSession with SQ
     }
   }
 
-  test("filterScanMetrics returns all keys when detailed metrics enabled") {
-    withSQLConf(GlutenConfig.SCAN_DETAILED_METRICS_ENABLED.key -> "true") {
+  test("filterScanMetrics returns all keys by default") {
+    withSQLConf(
+      GlutenConfig.SCAN_DETAILED_METRICS_ENABLED.key -> "true",
+      GlutenConfig.DEBUG_ENABLED.key -> "false") {
       val full = Map(
         "numInputRows" -> SQLMetrics.createMetric(sparkContext, "in"),
         "rawInputRows" -> SQLMetrics.createMetric(sparkContext, "raw in rows"))
