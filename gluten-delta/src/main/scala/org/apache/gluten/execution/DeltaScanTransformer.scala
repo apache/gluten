@@ -20,9 +20,10 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
+import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NoMapping}
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.types.StructType
@@ -54,6 +55,22 @@ case class DeltaScanTransformer(
   ) {
 
   override lazy val fileFormat: ReadFileFormat = ReadFileFormat.ParquetReadFormat
+
+  // For Delta column-mapping tables, `dataFilters` are kept LOGICAL on the scan node so that
+  // `PreparedDeltaFileIndex` (Delta's file index, which uses logical names for partition pruning
+  // and stats-based file skipping) resolves them correctly. The native side, however, must see
+  // PHYSICAL names — `output` and `dataSchema` are physical, and `BasicScanExecTransformer`
+  // matches `scanFilters` against `pushDownFilters` (which are derived from a Filter referencing
+  // the physical-named scan output) by AttributeReference equality, which checks names. Translate
+  // the logical filter attrs to their physical counterparts in `output` so the two sets line up.
+  override def scanFilters: Seq[Expression] = relation.fileFormat match {
+    case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
+      val physicalByExprId = output.collect { case ar: AttributeReference => ar.exprId -> ar }.toMap
+      dataFilters.map(_.transformDown {
+        case ar: AttributeReference => physicalByExprId.getOrElse(ar.exprId, ar)
+      })
+    case _ => dataFilters
+  }
 
   override protected def doValidateInternal(): ValidationResult = {
     if (

@@ -166,18 +166,26 @@ object DeltaPostTransformRules {
   /**
    * This method is only used for Delta ColumnMapping FileFormat(e.g. nameMapping and idMapping)
    * transform the metadata of Delta into Parquet's, each plan should only be transformed once.
+   *
+   * Partition and data filters on the scan node stay LOGICAL so that Delta's
+   * `PreparedDeltaFileIndex` can do partition pruning and file-level data skipping (its
+   * partition schema and column-stats schema both use logical names). Reader-facing pieces
+   * (`output`, `dataSchema`, and the data fields of `requiredSchema`) become physical so the
+   * parquet reader and Velox find the right columns in the file. Filter binding to the native
+   * side is by exprId, not by name, so logical-named filter attributes still resolve correctly
+   * against the physical-named `output`.
    */
   private def transformColumnMappingPlan(plan: SparkPlan): SparkPlan = plan match {
     case plan: DeltaScanTransformer =>
       val fmt = plan.relation.fileFormat.asInstanceOf[DeltaParquetFileFormat]
 
-      // transform HadoopFsRelation
       val relation = plan.relation
+      val partitionColNames = relation.partitionSchema.fields.iterator.map(_.name).toSet
+      def isPartitionCol(name: String): Boolean = partitionColNames.contains(name)
+
+      // transform HadoopFsRelation: only `dataSchema` needs physical names (those are the
+      // columns actually stored in parquet). `partitionSchema` stays logical.
       val newFsRelation = relation.copy(
-        partitionSchema = DeltaColumnMapping.createPhysicalSchema(
-          relation.partitionSchema,
-          fmt.referenceSchema,
-          fmt.columnMappingMode),
         dataSchema = DeltaColumnMapping.createPhysicalSchema(
           relation.dataSchema,
           fmt.referenceSchema,
@@ -193,6 +201,8 @@ object DeltaPostTransformRules {
           attr
         } else if (isInputFileRelatedAttribute(attr)) {
           attr
+        } else if (isPartitionCol(attr.name)) {
+          attr
         } else {
           DeltaColumnMapping
             .createPhysicalAttributes(Seq(attr), fmt.referenceSchema, fmt.columnMappingMode)
@@ -204,31 +214,28 @@ object DeltaPostTransformRules {
         newAttr
       }
       val newOutput = plan.output.map(o => mapAttribute(o))
-      // transform dataFilters
-      val newDataFilters = plan.dataFilters.map {
-        e =>
-          e.transformDown {
-            case attr: AttributeReference =>
-              mapAttribute(attr)
-          }
-      }
-      // transform partitionFilters
-      val newPartitionFilters = plan.partitionFilters.map {
-        e =>
-          e.transformDown {
-            case attr: AttributeReference =>
-              mapAttribute(attr)
-          }
-      }
-      // replace tableName in schema with physicalName
+      // dataFilters / partitionFilters: kept LOGICAL on the scan node so Delta's file index
+      // (partition pruning + stats-based file skipping) resolves columns correctly. The native
+      // (Velox) side gets physical-translated copies via `DeltaScanTransformer.scanFilters`.
+      val newDataFilters = plan.dataFilters
+      val newPartitionFilters = plan.partitionFilters
+
+      // requiredSchema: rewrite data fields to physical, keep partition fields logical.
+      val physicalRequiredSchema = DeltaColumnMapping.createPhysicalSchema(
+        plan.requiredSchema,
+        fmt.referenceSchema,
+        fmt.columnMappingMode)
+      val newRequiredSchema = StructType(
+        physicalRequiredSchema.fields.zip(plan.requiredSchema.fields).map {
+          case (_, logical) if isPartitionCol(logical.name) => logical
+          case (physical, _) => physical
+        })
+
       val scanExecTransformer = new DeltaScanTransformer(
         newFsRelation,
         plan.stream,
         newOutput,
-        DeltaColumnMapping.createPhysicalSchema(
-          plan.requiredSchema,
-          fmt.referenceSchema,
-          fmt.columnMappingMode),
+        newRequiredSchema,
         newPartitionFilters,
         plan.optionalBucketSet,
         plan.optionalNumCoalescedBuckets,
