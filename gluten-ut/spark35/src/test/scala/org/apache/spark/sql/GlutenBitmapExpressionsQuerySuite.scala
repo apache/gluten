@@ -40,8 +40,10 @@ class GlutenBitmapExpressionsQuerySuite
 
   test("bitmap_or_agg routes to native") {
     val df = spark.sql(
-      "SELECT bitmap_or_agg(bitmap_construct_agg(bitmap_bit_position(col))) " +
-        "FROM values (1L), (2L), (3L) AS t(col)")
+      "SELECT bitmap_or_agg(bm) FROM (" +
+        "SELECT bitmap_construct_agg(bitmap_bit_position(col)) AS bm " +
+        "FROM values (1L), (2L), (3L) AS t(col)" +
+        ") sub")
     df.collect()
     assert(
       collectWithSubqueries(df.queryExecution.executedPlan) {
