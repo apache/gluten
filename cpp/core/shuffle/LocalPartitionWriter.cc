@@ -716,6 +716,11 @@ arrow::Status LocalPartitionWriter::hashEvict(
   rawPartitionLengths_[partitionId] += inMemoryPayload->rawSize();
 
   if (evictType == Evict::kSpill) {
+    // Spill merge scans payloads by partition id, so split the file when hash eviction wraps around.
+    if (lastEvictPid_ != -1 && partitionId < lastEvictPid_) {
+      lastEvictPid_ = -1;
+      RETURN_NOT_OK(finishSpill());
+    }
     RETURN_NOT_OK(requestSpill(false));
 
     auto shouldCompress = codec_ != nullptr && inMemoryPayload->numRows() >= options_->compressionThreshold;
@@ -725,6 +730,7 @@ arrow::Status LocalPartitionWriter::hashEvict(
             shouldCompress ? Payload::kToBeCompressed : Payload::kUncompressed, payloadPool_.get(), codec_.get()));
 
     RETURN_NOT_OK(spiller_->spill(partitionId, std::move(payload)));
+    lastEvictPid_ = partitionId;
     return arrow::Status::OK();
   }
 
