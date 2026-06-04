@@ -88,13 +88,17 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
   private def deltaInputFileCount(df: org.apache.spark.sql.DataFrame): Int =
     df.inputFiles.length
 
-  // Counts splits the native scan will execute. Reflects the post-Gluten-rewrite state, so it
-  // catches regressions where Gluten silently dropped pruning (the pre-fix behavior).
-  private def scanPartitionCount(df: org.apache.spark.sql.DataFrame): Int = {
+  // Counts the partition directories selected by the executed scan after Gluten's rewrite.
+  // Backed by `selectedPartitions` -> `relation.location.listFiles(partitionFilters, dataFilters)`,
+  // which is the exact call site of issue #10511: pre-fix, physical-named partition filters
+  // could not match Delta's logical partition schema, so this returned all directories. We use
+  // `getPartitionArray` rather than `getPartitions` because the latter reflects post-coalesce
+  // splits (Velox may merge small files into one split, hiding the per-partition count).
+  private def selectedPartitionCount(df: org.apache.spark.sql.DataFrame): Int = {
     val scan = df.queryExecution.executedPlan.collect {
       case f: DeltaScanTransformer => f
     }.head
-    scan.getPartitions.size
+    scan.getPartitionArray.length
   }
 
   // Regression for issue #10511: with column mapping, a partition column filter must prune
@@ -121,14 +125,14 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           checkLengthAndPlan(df1, 1)
           checkAnswer(df1, Row("v2") :: Nil)
           assert(deltaInputFileCount(df1) == 1, "Delta should prune to 1 file")
-          assert(scanPartitionCount(df1) == 1, "native scan should see 1 split")
+          assert(selectedPartitionCount(df1) == 1, "native scan should see 1 split")
 
           // Range on partition column (the exact case from the bug report).
           val df2 = runQueryAndCompare("select name from delta_cm_part where id > 2") { _ => }
           checkLengthAndPlan(df2, 1)
           checkAnswer(df2, Row("v3") :: Nil)
           assert(deltaInputFileCount(df2) == 1)
-          assert(scanPartitionCount(df2) == 1)
+          assert(selectedPartitionCount(df2) == 1)
 
           // IN list on partition column. 2 of 3 partitions match.
           val df3 =
@@ -136,12 +140,12 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           checkLengthAndPlan(df3, 2)
           checkAnswer(df3, Row("v1") :: Row("v3") :: Nil)
           assert(deltaInputFileCount(df3) == 2)
-          assert(scanPartitionCount(df3) == 2)
+          assert(selectedPartitionCount(df3) == 2)
 
           // No filter -- baseline: all 3 partitions read.
           val dfAll = runQueryAndCompare("select name from delta_cm_part") { _ => }
           assert(deltaInputFileCount(dfAll) == 3)
-          assert(scanPartitionCount(dfAll) == 3)
+          assert(selectedPartitionCount(dfAll) == 3)
         }
       }
 
@@ -165,7 +169,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           checkLengthAndPlan(df, 1)
           checkAnswer(df, Row("v2") :: Nil)
           assert(deltaInputFileCount(df) == 1, "Delta should prune to 1 file with both filters")
-          assert(scanPartitionCount(df) == 1)
+          assert(selectedPartitionCount(df) == 1)
 
           // Filter on only one of two partition columns.
           val df2 = runQueryAndCompare(
@@ -173,7 +177,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           checkLengthAndPlan(df2, 2)
           checkAnswer(df2, Row("v3") :: Row("v4") :: Nil)
           assert(deltaInputFileCount(df2) == 2)
-          assert(scanPartitionCount(df2) == 2)
+          assert(selectedPartitionCount(df2) == 2)
         }
       }
 
@@ -229,13 +233,13 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
             "select name from delta_cm_part_null where id is null") { _ => }
           checkAnswer(df1, Row("vn") :: Nil)
           assert(deltaInputFileCount(df1) == 1)
-          assert(scanPartitionCount(df1) == 1)
+          assert(selectedPartitionCount(df1) == 1)
 
           val df2 = runQueryAndCompare(
             "select name from delta_cm_part_null where id is not null") { _ => }
           checkAnswer(df2, Row("v1") :: Row("v2") :: Nil)
           assert(deltaInputFileCount(df2) == 2)
-          assert(scanPartitionCount(df2) == 2)
+          assert(selectedPartitionCount(df2) == 2)
         }
       }
 
@@ -260,7 +264,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           checkLengthAndPlan(df, 2)
           checkAnswer(df, Row("v2") :: Row("v3") :: Nil)
           assert(deltaInputFileCount(df) == 2)
-          assert(scanPartitionCount(df) == 2)
+          assert(selectedPartitionCount(df) == 2)
         }
       }
 
