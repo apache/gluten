@@ -21,11 +21,13 @@ import org.apache.gluten.execution.VeloxWholeStageTransformerSuite
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.Utils
 
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
+import org.apache.parquet.schema.PrimitiveType
 
 import java.io.File
 
@@ -72,6 +74,37 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
           s"INSERT OVERWRITE DIRECTORY '$path' USING PARQUET SELECT array(struct(1), null) as var1",
           expectNative = !isSparkVersionGE("3.4"))
     }
+  }
+
+  test("test write parquet decimal with writeLegacyFormat") {
+    // writeLegacyFormat details see `VeloxWriterUtils.cc`
+    Seq(
+      false -> PrimitiveType.PrimitiveTypeName.INT32,
+      true -> PrimitiveType.PrimitiveTypeName.FIXED_LEN_BYTE_ARRAY)
+      .foreach {
+        case (legacyFormat, expectedType) =>
+          withSQLConf(SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key -> legacyFormat.toString) {
+            withTempPath {
+              f =>
+                val df = spark.sql("SELECT CAST(123.456 AS DECIMAL(8, 3)) AS value")
+                df.write.format("parquet").save(f.getCanonicalPath)
+                val parquetFiles = f.list((_, name) => name.contains("parquet"))
+                assert(parquetFiles.nonEmpty)
+                parquetFiles.foreach {
+                  file =>
+                    val path = new Path(f.getCanonicalPath, file)
+                    val in = HadoopInputFile.fromPath(path, spark.sessionState.newHadoopConf())
+                    Utils.tryWithResource(ParquetFileReader.open(in)) {
+                      reader =>
+                        val physicalType = reader.getFooter.getFileMetaData.getSchema
+                          .getFields.get(0).asPrimitiveType.getPrimitiveTypeName
+                        assert(physicalType == expectedType)
+                    }
+                }
+                checkAnswer(spark.read.parquet(f.getCanonicalPath), df)
+            }
+          }
+      }
   }
 
   test("test write parquet with compression codec") {
