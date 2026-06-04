@@ -168,12 +168,12 @@ object DeltaPostTransformRules {
    * transform the metadata of Delta into Parquet's, each plan should only be transformed once.
    *
    * Partition and data filters on the scan node stay LOGICAL so that Delta's
-   * `PreparedDeltaFileIndex` can do partition pruning and file-level data skipping (its
-   * partition schema and column-stats schema both use logical names). Reader-facing pieces
-   * (`output`, `dataSchema`, and the data fields of `requiredSchema`) become physical so the
-   * parquet reader and Velox find the right columns in the file. Filter binding to the native
-   * side is by exprId, not by name, so logical-named filter attributes still resolve correctly
-   * against the physical-named `output`.
+   * `PreparedDeltaFileIndex` can do partition pruning and file-level data skipping (its partition
+   * schema and column-stats schema both use logical names). Reader-facing pieces (`output`,
+   * `dataSchema`, and the data fields of `requiredSchema`) become physical so the parquet reader
+   * and Velox find the right columns in the file. Filter binding to the native side is by exprId,
+   * not by name, so logical-named filter attributes still resolve correctly against the
+   * physical-named `output`.
    */
   private def transformColumnMappingPlan(plan: SparkPlan): SparkPlan = plan match {
     case plan: DeltaScanTransformer =>
