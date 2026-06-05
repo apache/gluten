@@ -58,8 +58,11 @@ arrow::Status RssPartitionWriter::hashEvict(
   return doEvict(partitionId, std::move(inMemoryPayload), evictBytes);
 }
 
-arrow::Status
-RssPartitionWriter::sortEvict(uint32_t partitionId, std::unique_ptr<InMemoryPayload> inMemoryPayload, bool isFinal, int64_t& evictBytes) {
+arrow::Status RssPartitionWriter::sortEvict(
+    uint32_t partitionId,
+    std::unique_ptr<InMemoryPayload> inMemoryPayload,
+    bool isFinal,
+    int64_t& evictBytes) {
   ScopedTimer timer(&spillTime_);
   rawPartitionLengths_[partitionId] += inMemoryPayload->rawSize();
   if (shouldInitializeOs_) {
@@ -95,7 +98,8 @@ RssPartitionWriter::sortEvict(uint32_t partitionId, std::unique_ptr<InMemoryPayl
   return arrow::Status::OK();
 }
 
-arrow::Status RssPartitionWriter::evict(uint32_t partitionId, std::unique_ptr<BlockPayload> blockPayload, bool, int64_t& evictBytes) {
+arrow::Status
+RssPartitionWriter::evict(uint32_t partitionId, std::unique_ptr<BlockPayload> blockPayload, bool, int64_t& evictBytes) {
   rawPartitionLengths_[partitionId] += blockPayload->rawSize();
   ScopedTimer timer(&spillTime_);
   ARROW_ASSIGN_OR_RAISE(auto buffer, blockPayload->readBufferAt(0));
@@ -105,7 +109,10 @@ arrow::Status RssPartitionWriter::evict(uint32_t partitionId, std::unique_ptr<Bl
   return arrow::Status::OK();
 }
 
-arrow::Status RssPartitionWriter::doEvict(uint32_t partitionId, std::unique_ptr<InMemoryPayload> inMemoryPayload, int64_t& evictBytes) {
+arrow::Status RssPartitionWriter::doEvict(
+    uint32_t partitionId,
+    std::unique_ptr<InMemoryPayload> inMemoryPayload,
+    int64_t& evictBytes) {
   rawPartitionLengths_[partitionId] += inMemoryPayload->rawSize();
   auto payloadType = codec_ ? Payload::Type::kCompressed : Payload::Type::kUncompressed;
   ARROW_ASSIGN_OR_RAISE(

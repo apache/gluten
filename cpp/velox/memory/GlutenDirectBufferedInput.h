@@ -48,6 +48,14 @@ class GlutenDirectBufferedInput : public facebook::velox::dwio::common::DirectBu
 
   ~GlutenDirectBufferedInput() override {
     requests_.clear();
+    // Cancel all the planned loads as soon as possible to avoid unnecessary IO.
+    for (auto& load : coalescedLoads_) {
+      if (load->state() == facebook::velox::cache::CoalescedLoad::State::kPlanned) {
+        load->cancel();
+      }
+    }
+    // Ensure all the loadings can finish in the TableScan destructor to avoid the issue that the load is still running
+    // when the VeloxMemoryManager used by the whole task is trying to destruct.
     for (auto& load : coalescedLoads_) {
       if (load->state() == facebook::velox::cache::CoalescedLoad::State::kLoading) {
         folly::SemiFuture<bool> waitFuture(false);
@@ -56,10 +64,35 @@ class GlutenDirectBufferedInput : public facebook::velox::dwio::common::DirectBu
           std::move(waitFuture).via(&exec).wait();
         }
       }
-      load->cancel();
     }
     coalescedLoads_.clear();
   }
+
+  std::unique_ptr<facebook::velox::dwio::common::BufferedInput> clone() const override {
+    return std::unique_ptr<facebook::velox::dwio::common::BufferedInput>(new GlutenDirectBufferedInput(
+        input_, fileNum_, tracker_, groupId_, ioStatistics_, ioStats_, executor_, options_));
+  }
+
+ private:
+  // Constructor used by clone().
+  GlutenDirectBufferedInput(
+      std::shared_ptr<facebook::velox::dwio::common::ReadFileInputStream> input,
+      facebook::velox::StringIdLease fileNum,
+      std::shared_ptr<facebook::velox::cache::ScanTracker> tracker,
+      facebook::velox::StringIdLease groupId,
+      std::shared_ptr<facebook::velox::io::IoStatistics> ioStatistics,
+      std::shared_ptr<facebook::velox::IoStats> ioStats,
+      folly::Executor* executor,
+      const facebook::velox::io::ReaderOptions& readerOptions)
+      : DirectBufferedInput(
+            std::move(input),
+            std::move(fileNum),
+            std::move(tracker),
+            std::move(groupId),
+            std::move(ioStatistics),
+            std::move(ioStats),
+            executor,
+            readerOptions) {}
 };
 
 } // namespace gluten

@@ -16,6 +16,12 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsTrait
+import org.apache.spark.sql.GlutenExpressionOffloadTracker
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenStringExpressionsSuite extends StringExpressionsSuite with GlutenTestsTrait {}
+class GlutenStringExpressionsSuite
+  extends StringExpressionsSuite
+  with GlutenExpressionOffloadTracker
+  with GlutenTestsTrait {
+  override protected def offloadCategory: String = "string"
+}

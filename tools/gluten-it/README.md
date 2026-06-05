@@ -6,13 +6,13 @@ The project makes it easy to test Gluten build locally.
 
 Gluten is a native Spark SQL implementation as a standard Spark plug-in.
 
-https://github.com/apache/incubator-gluten
+https://github.com/apache/gluten
 
 ## Getting Started
 
 ### 1. Build Gluten
 
-See official Gluten build guidance https://github.com/apache/incubator-gluten#build-from-source.
+See official Gluten build guidance https://github.com/apache/gluten#build-from-source.
 
 ### 2. Build and run gluten-it
 

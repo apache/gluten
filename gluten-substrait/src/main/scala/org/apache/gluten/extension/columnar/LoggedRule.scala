@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.util.sideBySide
 import org.apache.spark.sql.execution.SparkPlan
 
-/** Since https://github.com/apache/incubator-gluten/pull/7606. */
+/** Since https://github.com/apache/gluten/pull/7606. */
 class LoggedRule(delegate: Rule[SparkPlan]) extends Rule[SparkPlan] with Logging with LogLevelUtil {
 
   override val ruleName: String = delegate.ruleName

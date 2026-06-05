@@ -344,7 +344,8 @@ DB::QueryPlanPtr MergeTreeRelParser::parseReadRel(
     }
 
     auto read_step = storage->reader.readFromParts(
-        RangesInDataParts({selected_parts}),
+        std::make_shared<const RangesInDataParts>(selected_parts),
+        // RangesInDataParts({selected_parts}),
         storage->getMutationsSnapshot({}),
         names_and_types_list.getNames(),
         storage_snapshot,
@@ -596,7 +597,8 @@ String MergeTreeRelParser::filterRangesOnDriver(const substrait::ReadRel & read_
     if (selected_parts.empty())
         throw Exception(ErrorCodes::NO_SUCH_DATA_PART, "no data part found.");
     auto read_step = storage->reader.readFromParts(
-        RangesInDataParts({selected_parts}),
+        std::make_shared<const RangesInDataParts>(selected_parts),
+        // RangesInDataParts({selected_parts}),
         /* alter_conversions = */
         storage->getMutationsSnapshot({}),
         names_and_types_list.getNames(),

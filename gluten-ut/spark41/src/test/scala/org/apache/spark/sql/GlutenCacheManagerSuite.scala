@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenCacheManagerSuite extends CacheManagerSuite with GlutenTestsCommonTrait {}
+class GlutenCacheManagerSuite extends CacheManagerSuite with GlutenSQLTestsBaseTrait {}

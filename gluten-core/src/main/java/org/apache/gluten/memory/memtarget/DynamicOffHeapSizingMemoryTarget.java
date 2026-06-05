@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The memory target used by dynamic off-heap sizing. Since
- * https://github.com/apache/incubator-gluten/issues/5439.
+ * https://github.com/apache/gluten/issues/5439.
  */
 @Experimental
 public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownNameAndStats {
@@ -143,7 +143,7 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
     }
 
     // Only JVM shrinking can reclaim space from the total JVM memory.
-    // See https://github.com/apache/incubator-gluten/issues/9276.
+    // See https://github.com/apache/gluten/issues/9276.
     long totalHeapMemory = Runtime.getRuntime().totalMemory();
     long freeHeapMemory = Runtime.getRuntime().freeMemory();
     long usedOffHeapMemory = USED_OFF_HEAP_BYTES.get();

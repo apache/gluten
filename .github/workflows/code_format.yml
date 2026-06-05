@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Code Format Check
+name: Cpp Code Format Check
 on:
   pull_request:
     paths:

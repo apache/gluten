@@ -127,7 +127,8 @@ abstract class UpdateSuiteBase
               checkUpdate(
                 condition = Some("key >= 1 and value != 4"),
                 setClauses = "value = key + value, key = key + 5",
-                expectedResults = Row(0, 3) :: Row(7, 4) :: Row(1, 4) :: Row(6, 2) :: Nil)
+                expectedResults = Row(0, 3) :: Row(7, 4) :: Row(1, 4) :: Row(6, 2) :: Nil
+              )
             }
           }
       }

@@ -26,34 +26,29 @@ import org.scalatest.exceptions.TestFailedException
 
 import scala.collection.mutable
 
-// spotless:off
-/**
- * A trait for selective enabling certain tests to run for column mapping modes
- */
-trait DeltaColumnMappingSelectedTestMixin extends SparkFunSuite
-  with DeltaSQLTestUtils with DeltaColumnMappingTestUtils {
+/** A trait for selective enabling certain tests to run for column mapping modes */
+trait DeltaColumnMappingSelectedTestMixin
+  extends SparkFunSuite
+  with DeltaSQLTestUtils
+  with DeltaColumnMappingTestUtils {
 
   protected def runOnlyTests: Seq[String] = Seq()
 
-  /**
-   * If true, will run all tests.
-   * Requires that `runOnlyTests` is empty.
-   */
+  /** If true, will run all tests. Requires that `runOnlyTests` is empty. */
   protected def runAllTests: Boolean = false
 
   private val testsRun: mutable.Set[String] = mutable.Set.empty
 
-  override protected def test(
-      testName: String,
-      testTags: Tag*)(testFun: => Any)(implicit pos: Position): Unit = {
-    require(!runAllTests || runOnlyTests.isEmpty,
+  override protected def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
+      pos: Position): Unit = {
+    require(
+      !runAllTests || runOnlyTests.isEmpty,
       "If `runAllTests` is true then `runOnlyTests` must be empty")
 
     if (runAllTests || runOnlyTests.contains(testName)) {
       super.test(s"$testName - column mapping $columnMappingMode mode", testTags: _*) {
         testsRun.add(testName)
-        withSQLConf(
-          DeltaConfigs.COLUMN_MAPPING_MODE.defaultTablePropertyKey -> columnMappingMode) {
+        withSQLConf(DeltaConfigs.COLUMN_MAPPING_MODE.defaultTablePropertyKey -> columnMappingMode) {
           testFun
         }
       }
@@ -64,13 +59,15 @@ trait DeltaColumnMappingSelectedTestMixin extends SparkFunSuite
 
   override def afterAll(): Unit = {
     super.afterAll()
-    val missingTests = runOnlyTests.toSet diff testsRun
+    val missingTests = runOnlyTests.toSet.diff(testsRun)
     if (missingTests.nonEmpty) {
       throw new TestFailedException(
-        Some("Not all selected column mapping tests were run. Missing: " +
-          missingTests.mkString(", ")), None, 0)
+        Some(
+          "Not all selected column mapping tests were run. Missing: " +
+            missingTests.mkString(", ")),
+        None,
+        0)
     }
   }
 
 }
-// spotless:on

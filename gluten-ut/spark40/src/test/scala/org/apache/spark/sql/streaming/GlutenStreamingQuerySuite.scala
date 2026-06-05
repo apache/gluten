@@ -16,12 +16,11 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenSQLTestsTrait
-import org.apache.spark.sql.execution.ColumnarShuffleExchangeExec
-import org.apache.spark.sql.execution.exchange.REQUIRED_BY_STATEFUL_OPERATOR
+import org.apache.spark.sql.GlutenStreamingSQLTestsTrait
+import org.apache.spark.sql.execution.exchange.{REQUIRED_BY_STATEFUL_OPERATOR, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.streaming.MemoryStream
 
-class GlutenStreamingQuerySuite extends StreamingQuerySuite with GlutenSQLTestsTrait {
+class GlutenStreamingQuerySuite extends StreamingQuerySuite with GlutenStreamingSQLTestsTrait {
 
   import testImplicits._
 
@@ -38,11 +37,13 @@ class GlutenStreamingQuerySuite extends StreamingQuerySuite with GlutenSQLTestsT
       Execute {
         qe =>
           val shuffleOpt = qe.lastExecution.executedPlan.collect {
-            case s: ColumnarShuffleExchangeExec => s
+            case s: ShuffleExchangeLike if s.shuffleOrigin == REQUIRED_BY_STATEFUL_OPERATOR => s
           }
 
-          assert(shuffleOpt.nonEmpty, "No shuffle exchange found in the query plan")
-          assert(shuffleOpt.head.shuffleOrigin === REQUIRED_BY_STATEFUL_OPERATOR)
+          assert(
+            shuffleOpt.nonEmpty,
+            s"No stateful shuffle exchange found in the query plan: " +
+              qe.lastExecution.executedPlan)
       }
     )
   }

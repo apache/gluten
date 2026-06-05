@@ -47,7 +47,7 @@ jobs:
             ccache-centos7-release-default
       - name: Build Gluten velox third party
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7 bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
@@ -171,7 +171,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/ && \
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
-          ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
+          ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
         uses: actions/upload-artifact@v4
         with:
@@ -183,7 +183,7 @@ jobs:
   build-native-lib-centos-8-arm64:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-24.04-arm
-    container: apache/gluten:vcpkg-centos-8
+    container: apache/gluten:vcpkg-centos-8-gcc13
     steps:
       - uses: actions/checkout@v4
       - name: Get Ccache
@@ -287,8 +287,7 @@ jobs:
           ./build/mvn clean install -Pspark-3.4 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-3.5 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
-          # iceberg support for spark-4.1 with java-17 is not avaiable, skip it first
-          ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
+          ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
         uses: actions/upload-artifact@v4
         with:
@@ -323,8 +322,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/ && \
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
-          # iceberg support for spark-4.1 with java-21 is not avaiable, skip it first
-          ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
+          ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
         uses: actions/upload-artifact@v4
         with:
@@ -352,7 +350,7 @@ jobs:
           name: nightly-gluten-velox-bundle-package-jdk8-x86-${{ steps.date.outputs.date }}
           path: package/
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@0dc935cdecc5f5e571865e60d2a6cdc673704823
+        uses: burnett01/rsync-deployments@66257cad6bfeb2171d3b6bfa6c9a22279dd9c3a1 # 8.0.5
         with:
           switches: -avzr --delete
           path: package/gluten-velox-bundle-*.jar
@@ -381,7 +379,7 @@ jobs:
           name: nightly-gluten-velox-bundle-package-jdk17-x86-${{ steps.date.outputs.date }}
           path: package/
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@0dc935cdecc5f5e571865e60d2a6cdc673704823
+        uses: burnett01/rsync-deployments@66257cad6bfeb2171d3b6bfa6c9a22279dd9c3a1 # 8.0.5
         with:
           switches: -avzr --delete
           path: package/gluten-velox-bundle-*.jar
@@ -410,7 +408,7 @@ jobs:
           name: nightly-gluten-velox-bundle-package-jdk21-x86-${{ steps.date.outputs.date }}
           path: package/
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@0dc935cdecc5f5e571865e60d2a6cdc673704823
+        uses: burnett01/rsync-deployments@66257cad6bfeb2171d3b6bfa6c9a22279dd9c3a1 # 8.0.5
         with:
           switches: -avzr --delete
           path: package/gluten-velox-bundle-*.jar
@@ -423,6 +421,7 @@ jobs:
 
   # Build velox with enhanced features
   build-native-lib-enhanced:
+    if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -435,7 +434,7 @@ jobs:
             ccache-enhanced-centos7-release-default
       - name: Build Gluten velox third party
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7 bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
@@ -457,6 +456,7 @@ jobs:
           name: velox-arrow-jar-centos-7-enhanced-${{github.sha}}
 
   build-bundle-enhanced-package-centos8-jdk17:
+    if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-enhanced
     runs-on: ubuntu-22.04
     container: centos:8
@@ -486,8 +486,8 @@ jobs:
           ./build/mvn clean install -Pspark-3.4 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-3.5 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
-          # iceberg support for spark-4.1 with java-17 is not avaiable, skip it first
-          ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
+          # iceberg/hudi support for spark-4.1 with java-17 is not avaiable, skip it first
+          ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Pdelta -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
         uses: actions/upload-artifact@v4
         with:
@@ -495,7 +495,7 @@ jobs:
           path: package/target/gluten-velox-bundle-*.jar
           retention-days: 7
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@0dc935cdecc5f5e571865e60d2a6cdc673704823
+        uses: burnett01/rsync-deployments@66257cad6bfeb2171d3b6bfa6c9a22279dd9c3a1 # 8.0.5
         with:
           switches: -avzr
           path: package/target/gluten-velox-bundle-*.jar

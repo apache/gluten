@@ -56,6 +56,11 @@ struct SparkTaskInfo {
   }
 };
 
+struct SplitPayloadBufferView {
+  const uint8_t* data;
+  int32_t size;
+};
+
 class Runtime : public std::enable_shared_from_this<Runtime> {
  public:
   using Factory = std::function<Runtime*(

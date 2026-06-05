@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -55,6 +55,8 @@ function get_cxx_flags {
             CPU_ARCH="sse"
       elif [ "$MACHINE" = "aarch64" ]; then
             CPU_ARCH="aarch64"
+      elif [ "$MACHINE" = "ppc64le" ]; then
+            CPU_ARCH="ppc64le"
       fi
     fi
   fi
@@ -120,6 +122,10 @@ function get_cxx_flags {
         # Fallback to generic ARMv8-A for compatibility when CPU detection is not available
         echo -n "-march=armv8-a+crc+crypto -std=c++20 $ADDITIONAL_FLAGS"
       fi
+    ;;
+
+    "ppc64le")
+      echo -n "-mcpu=power10 -std=c++20 $ADDITIONAL_FLAGS"
     ;;
   *)
     echo -n "Architecture not supported!"

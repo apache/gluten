@@ -36,8 +36,8 @@ generate example input files:
 cd /path/to/gluten/
 ./dev/buildbundle-veloxbe.sh --build_tests=ON --build_benchmarks=ON
 
-# Run test to generate input data files. If you are using spark 3.3, replace -Pspark-3.2 with -Pspark-3.3.
-mvn test -Pspark-3.2 -Pbackends-velox -pl backends-velox -am \
+# Run test to generate input data files. If you are using spark 3.3, replace -Pspark-3.5 with -Pspark-3.3.
+mvn test -Pspark-3.5 -Pbackends-velox -pl backends-velox -am \
 -DtagsToInclude="org.apache.gluten.tags.GenerateExample" -Dtest=none -DfailIfNoTests=false -Dexec.skip
 ```
 

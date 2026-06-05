@@ -35,7 +35,7 @@ RUN set -ex; \
        -e 's/mirror\.centos\.org/vault.centos.org/' \
        /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo; \
     yum install -y git patch sudo java-1.8.0-openjdk-devel ccache; \
-    git clone --depth=1 https://github.com/apache/incubator-gluten /opt/gluten; \
+    git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh; \
     mkdir -p ${VCPKG_PATH}; \

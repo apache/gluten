@@ -96,7 +96,7 @@ std::string join(const ActionsDAG::NodeRawConstPtrs & v, char c)
     return res;
 }
 
-void SerializedPlanParser::adjustOutput(const DB::QueryPlanPtr & query_plan, const substrait::Plan & plan)
+void SerializedPlanParser::adjustOutput(const DB::QueryPlanPtr & query_plan, const substrait::Plan & plan, const ContextPtr context)
 {
     const substrait::PlanRel & root_rel = plan.relations().at(0);
     if (root_rel.root().names_size())
@@ -180,7 +180,7 @@ void SerializedPlanParser::adjustOutput(const DB::QueryPlanPtr & query_plan, con
         if (need_final_project)
         {
             ActionsDAG final_project
-                = ActionsDAG::makeConvertingActions(origin_columns, final_columns, ActionsDAG::MatchColumnsMode::Position, true);
+                = ActionsDAG::makeConvertingActions(origin_columns, final_columns, ActionsDAG::MatchColumnsMode::Position, context, true);
             QueryPlanStepPtr final_project_step
                 = std::make_unique<ExpressionStep>(query_plan->getCurrentHeader(), std::move(final_project));
             final_project_step->setStepDescription("Project for output schema");
@@ -206,7 +206,7 @@ QueryPlanPtr SerializedPlanParser::parse(const substrait::Plan & plan)
     std::list<const substrait::Rel *> rel_stack;
     auto query_plan = parseOp(first_read_rel, rel_stack);
     if (!writePipeline)
-        adjustOutput(query_plan, plan);
+        adjustOutput(query_plan, plan, context);
 
 #ifndef NDEBUG
     PlanUtil::checkOuputType(*query_plan);
@@ -313,7 +313,8 @@ DB::QueryPipelineBuilderPtr SerializedPlanParser::buildQueryPipeline(DB::QueryPl
         CurrentThread::getGroup(),
         IAST::QueryKind::Select,
         settings,
-        0);
+        0,
+        false);
     QueryPlanOptimizationSettings optimization_settings{context};
 
     // TODO: set optimize_plan to true when metrics could be collected while ch query plan optimization is enabled.

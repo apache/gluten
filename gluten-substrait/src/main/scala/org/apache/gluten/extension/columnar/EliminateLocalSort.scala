@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.extension.columnar
 
-import org.apache.gluten.execution.{HashAggregateExecBaseTransformer, ProjectExecTransformer, ShuffledHashJoinExecTransformerBase, SortExecTransformer, WindowGroupLimitExecTransformer}
+import org.apache.gluten.execution.{ProjectExecTransformer, ShuffledHashJoinExecTransformerBase, SortAggregateExecTransformer, SortExecTransformer, WindowGroupLimitExecTransformer}
 
 import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -33,7 +33,7 @@ import org.apache.spark.sql.execution.{ProjectExec, SortExec, SparkPlan, UnaryEx
  */
 object EliminateLocalSort extends Rule[SparkPlan] {
   private def canEliminateLocalSort(p: SparkPlan): Boolean = p match {
-    case _: HashAggregateExecBaseTransformer => true
+    case _: SortAggregateExecTransformer => true
     case _: ShuffledHashJoinExecTransformerBase => true
     case _: WindowGroupLimitExecTransformer => true
     case s: SortExec if s.global == false => true

@@ -23,6 +23,8 @@ import org.apache.gluten.execution._
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.test.SharedSparkSession
 
+import org.scalatest.DoNotDiscover
+
 trait TPCHObjectStore extends TPCHDatabase {
   // parquet data source
   override protected def parquetSourceDB: String = "parquet_source"
@@ -90,6 +92,7 @@ abstract class GlutenClickHouseMergeTreeTPCHSuite
   setupTestCase()
 }
 
+@DoNotDiscover
 class MinioTCPHTestSuite extends GlutenClickHouseMergeTreeTPCHSuite {
   override val policy: String = minioHelper.STORE_POLICY_NOCACHE
   override val remotePath: String = s"s3a://$BUCKET_NAME"
@@ -104,6 +107,7 @@ class MinioTCPHTestSuite extends GlutenClickHouseMergeTreeTPCHSuite {
   }
 }
 
+@DoNotDiscover
 class HDFSTCPHTestSuite extends GlutenClickHouseMergeTreeTPCHSuite {
 
   override val policy: String = hdfsHelper.STORE_POLICY_ROCKSDB

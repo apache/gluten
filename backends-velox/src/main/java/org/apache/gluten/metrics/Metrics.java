@@ -40,7 +40,9 @@ public class Metrics implements IMetrics {
   public long[] numDynamicFiltersProduced;
   public long[] numDynamicFiltersAccepted;
   public long[] numReplacedWithDynamicFilterRows;
+  public long[] numDynamicFilterInputRows;
   public long[] flushRowCount;
+  public long[] abandonedPartialAggregationRows;
   public long[] loadedToValueHook;
   public long[] bloomFilterBlocksByteSize;
   public long[] skippedSplits;
@@ -50,6 +52,7 @@ public class Metrics implements IMetrics {
   public long[] remainingFilterTime;
   public long[] ioWaitTime;
   public long[] storageReadBytes;
+  public long[] storageReads;
   public long[] localReadBytes;
   public long[] ramReadBytes;
   public long[] preloadSplits;
@@ -90,7 +93,9 @@ public class Metrics implements IMetrics {
       long[] numDynamicFiltersProduced,
       long[] numDynamicFiltersAccepted,
       long[] numReplacedWithDynamicFilterRows,
+      long[] numDynamicFilterInputRows,
       long[] flushRowCount,
+      long[] abandonedPartialAggregationRows,
       long[] loadedToValueHook,
       long[] bloomFilterBlocksByteSize,
       long[] scanTime,
@@ -101,6 +106,7 @@ public class Metrics implements IMetrics {
       long[] remainingFilterTime,
       long[] ioWaitTime,
       long[] storageReadBytes,
+      long[] storageReads,
       long[] localReadBytes,
       long[] ramReadBytes,
       long[] preloadSplits,
@@ -134,7 +140,9 @@ public class Metrics implements IMetrics {
     this.numDynamicFiltersProduced = numDynamicFiltersProduced;
     this.numDynamicFiltersAccepted = numDynamicFiltersAccepted;
     this.numReplacedWithDynamicFilterRows = numReplacedWithDynamicFilterRows;
+    this.numDynamicFilterInputRows = numDynamicFilterInputRows;
     this.flushRowCount = flushRowCount;
+    this.abandonedPartialAggregationRows = abandonedPartialAggregationRows;
     this.loadedToValueHook = loadedToValueHook;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
     this.skippedSplits = skippedSplits;
@@ -144,6 +152,7 @@ public class Metrics implements IMetrics {
     this.remainingFilterTime = remainingFilterTime;
     this.ioWaitTime = ioWaitTime;
     this.storageReadBytes = storageReadBytes;
+    this.storageReads = storageReads;
     this.localReadBytes = localReadBytes;
     this.ramReadBytes = ramReadBytes;
     this.preloadSplits = preloadSplits;
@@ -184,7 +193,9 @@ public class Metrics implements IMetrics {
         numDynamicFiltersProduced[index],
         numDynamicFiltersAccepted[index],
         numReplacedWithDynamicFilterRows[index],
+        numDynamicFilterInputRows[index],
         flushRowCount[index],
+        abandonedPartialAggregationRows[index],
         loadedToValueHook[index],
         bloomFilterBlocksByteSize[index],
         scanTime[index],
@@ -195,6 +206,7 @@ public class Metrics implements IMetrics {
         remainingFilterTime[index],
         ioWaitTime[index],
         storageReadBytes[index],
+        storageReads[index],
         localReadBytes[index],
         ramReadBytes[index],
         preloadSplits[index],

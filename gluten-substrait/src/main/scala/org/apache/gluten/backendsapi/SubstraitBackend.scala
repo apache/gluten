@@ -28,6 +28,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.api.plugin.PluginContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.softaffinity.SoftAffinityListener
+import org.apache.spark.sql.execution.GlutenQueryExecutionListener
 import org.apache.spark.sql.execution.adaptive.GlutenCostEvaluator
 import org.apache.spark.sql.execution.ui.{GlutenSQLAppStatusListener, GlutenUIUtils}
 import org.apache.spark.sql.internal.SparkConfigUtil._
@@ -45,11 +46,13 @@ trait SubstraitBackend extends Backend with Logging {
 
     // Register Gluten listeners
     GlutenSQLAppStatusListener.register(sc)
+    GlutenQueryExecutionListener.register(sc)
     if (conf.get(GLUTEN_SOFT_AFFINITY_ENABLED)) {
       SoftAffinityListener.register(sc)
     }
 
-    postBuildInfoEvent(sc)
+    postBuildInfoEvent(sc, info())
+    setBuildInfoConfig(conf)
 
     setPredefinedConfigs(conf)
 
@@ -67,7 +70,6 @@ trait SubstraitBackend extends Backend with Logging {
   }
   final override def injectRules(injector: Injector): Unit = {
     injector.gluten.legacy.injectRuleWrapper(r => new LoggedRule(r))
-    injector.gluten.ras.injectRuleWrapper(r => new LoggedRule(r))
     ruleApi().injectRules(injector)
   }
 
@@ -93,8 +95,8 @@ trait SubstraitBackend extends Backend with Logging {
 
 object SubstraitBackend extends Logging {
 
-  /** Since https://github.com/apache/incubator-gluten/pull/2247. */
-  private def postBuildInfoEvent(sc: SparkContext): Unit = {
+  /** Since https://github.com/apache/gluten/pull/2247. */
+  private def postBuildInfoEvent(sc: SparkContext, infos: Map[String, String]): Unit = {
     // export gluten version to property to spark
     System.setProperty("gluten.version", GlutenBuildInfo.VERSION)
 
@@ -111,6 +113,7 @@ object SubstraitBackend extends Logging {
     glutenBuildInfo.put("Gluten Revision Time", GlutenBuildInfo.REVISION_TIME)
     glutenBuildInfo.put("Gluten Build Time", GlutenBuildInfo.BUILD_DATE)
     glutenBuildInfo.put("Gluten Repo URL", GlutenBuildInfo.REPO_URL)
+    infos.foreach { case (key, value) => glutenBuildInfo.put(key, value) }
 
     val loggingInfo = glutenBuildInfo
       .map { case (name, value) => s"$name: $value" }
@@ -126,6 +129,13 @@ object SubstraitBackend extends Logging {
     }
   }
 
+  private def setBuildInfoConfig(conf: SparkConf): Unit = {
+    conf.set("spark.gluten.branch", GlutenBuildInfo.BRANCH)
+    conf.set("spark.gluten.revision", GlutenBuildInfo.REVISION)
+    conf.set("spark.gluten.revisionTime", GlutenBuildInfo.REVISION_TIME)
+    conf.set("spark.gluten.buildTime", GlutenBuildInfo.BUILD_DATE)
+  }
+
   private def setPredefinedConfigs(conf: SparkConf): Unit = {
     // adaptive custom cost evaluator class
     val enableGlutenCostEvaluator = conf.get(GlutenConfig.COST_EVALUATOR_ENABLED)
@@ -135,7 +145,7 @@ object SubstraitBackend extends Logging {
 
     // Disable vanilla columnar readers, to prevent columnar-to-columnar conversions.
     // FIXME: Do we still need this trick since
-    //  https://github.com/apache/incubator-gluten/pull/1931 was merged?
+    //  https://github.com/apache/gluten/pull/1931 was merged?
     if (!conf.get(GlutenConfig.VANILLA_VECTORIZED_READERS_ENABLED)) {
       // FIXME Hongze 22/12/06
       //  BatchScan.scala in shim was not always loaded by class loader.

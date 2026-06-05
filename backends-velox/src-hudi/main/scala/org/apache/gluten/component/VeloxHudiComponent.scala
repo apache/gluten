@@ -19,12 +19,10 @@ package org.apache.gluten.component
 import org.apache.gluten.backendsapi.velox.VeloxBackend
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.OffloadHudiScan
-import org.apache.gluten.extension.columnar.enumerated.RasOffload
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
 
-import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.util.SparkReflectionUtil
 
 class VeloxHudiComponent extends Component {
@@ -38,20 +36,12 @@ class VeloxHudiComponent extends Component {
 
   override def injectRules(injector: Injector): Unit = {
     val legacy = injector.gluten.legacy
-    val ras = injector.gluten.ras
     legacy.injectTransform {
       c =>
         val offload = Seq(OffloadHudiScan()).map(_.toStrcitRule())
         HeuristicTransform.Simple(
           Validators.newValidator(new GlutenConfig(c.sqlConf), offload),
           offload)
-    }
-    ras.injectRasRule {
-      c =>
-        RasOffload.Rule(
-          RasOffload.from[FileSourceScanExec](OffloadHudiScan()),
-          Validators.newValidator(new GlutenConfig(c.sqlConf)),
-          Nil)
     }
   }
 }

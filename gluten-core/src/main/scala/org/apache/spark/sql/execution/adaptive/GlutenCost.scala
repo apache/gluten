@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution.adaptive
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.SparkPlan
 
-/** Since https://github.com/apache/incubator-gluten/pull/6143. */
+/** Since https://github.com/apache/gluten/pull/6143. */
 class GlutenCost(val eval: CostEvaluator, val plan: SparkPlan) extends Cost {
   override def compare(that: Cost): Int = that match {
     case that: GlutenCost if plan eq that.plan =>

@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.sources
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenDataSourceAnalysisSuite extends DataSourceAnalysisSuite with GlutenTestsCommonTrait {}
+class GlutenDataSourceAnalysisSuite extends DataSourceAnalysisSuite with GlutenTestsTrait {}

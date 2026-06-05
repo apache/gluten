@@ -106,11 +106,14 @@ std::string ArrowCStructColumnarBatch::getType() const {
 }
 
 int64_t ArrowCStructColumnarBatch::numBytes() {
-  int64_t bytes = cArray_->n_buffers;
-  for (int64_t i = 0; i < cArray_->n_children; ++i) {
-    bytes += cArray_->children[i]->n_buffers;
+  if (!numBytes_.has_value()) {
+    int64_t bytes = cArray_->n_buffers;
+    for (int64_t i = 0; i < cArray_->n_children; ++i) {
+      bytes += cArray_->children[i]->n_buffers;
+    }
+    numBytes_ = bytes;
   }
-  return bytes;
+  return numBytes_.value();
 }
 
 std::shared_ptr<ArrowSchema> ArrowCStructColumnarBatch::exportArrowSchema() {

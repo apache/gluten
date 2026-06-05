@@ -1,0 +1,602 @@
+== Physical Plan ==
+VeloxColumnarToRow (111)
++- ^ VeloxBroadcastNestedLoopJoinExecTransformer Inner BuildRight (109)
+   :- ^ VeloxBroadcastNestedLoopJoinExecTransformer Inner BuildRight (90)
+   :  :- ^ VeloxBroadcastNestedLoopJoinExecTransformer Inner BuildRight (71)
+   :  :  :- ^ VeloxBroadcastNestedLoopJoinExecTransformer Inner BuildRight (52)
+   :  :  :  :- ^ VeloxBroadcastNestedLoopJoinExecTransformer Inner BuildRight (33)
+   :  :  :  :  :- ^ ProjectExecTransformer (14)
+   :  :  :  :  :  +- ^ RegularHashAggregateExecTransformer (13)
+   :  :  :  :  :     +- ^ RegularHashAggregateExecTransformer (12)
+   :  :  :  :  :        +- ^ RegularHashAggregateExecTransformer (11)
+   :  :  :  :  :           +- ^ InputIteratorTransformer (10)
+   :  :  :  :  :              +- ColumnarExchange (8)
+   :  :  :  :  :                 +- VeloxResizeBatches (7)
+   :  :  :  :  :                    +- ^ ProjectExecTransformer (5)
+   :  :  :  :  :                       +- ^ FlushableHashAggregateExecTransformer (4)
+   :  :  :  :  :                          +- ^ ProjectExecTransformer (3)
+   :  :  :  :  :                             +- ^ FilterExecTransformer (2)
+   :  :  :  :  :                                +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (1)
+   :  :  :  :  +- ^ InputIteratorTransformer (32)
+   :  :  :  :     +- ColumnarBroadcastExchange (30)
+   :  :  :  :        +- ^ ProjectExecTransformer (28)
+   :  :  :  :           +- ^ RegularHashAggregateExecTransformer (27)
+   :  :  :  :              +- ^ RegularHashAggregateExecTransformer (26)
+   :  :  :  :                 +- ^ RegularHashAggregateExecTransformer (25)
+   :  :  :  :                    +- ^ InputIteratorTransformer (24)
+   :  :  :  :                       +- ColumnarExchange (22)
+   :  :  :  :                          +- VeloxResizeBatches (21)
+   :  :  :  :                             +- ^ ProjectExecTransformer (19)
+   :  :  :  :                                +- ^ FlushableHashAggregateExecTransformer (18)
+   :  :  :  :                                   +- ^ ProjectExecTransformer (17)
+   :  :  :  :                                      +- ^ FilterExecTransformer (16)
+   :  :  :  :                                         +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (15)
+   :  :  :  +- ^ InputIteratorTransformer (51)
+   :  :  :     +- ColumnarBroadcastExchange (49)
+   :  :  :        +- ^ ProjectExecTransformer (47)
+   :  :  :           +- ^ RegularHashAggregateExecTransformer (46)
+   :  :  :              +- ^ RegularHashAggregateExecTransformer (45)
+   :  :  :                 +- ^ RegularHashAggregateExecTransformer (44)
+   :  :  :                    +- ^ InputIteratorTransformer (43)
+   :  :  :                       +- ColumnarExchange (41)
+   :  :  :                          +- VeloxResizeBatches (40)
+   :  :  :                             +- ^ ProjectExecTransformer (38)
+   :  :  :                                +- ^ FlushableHashAggregateExecTransformer (37)
+   :  :  :                                   +- ^ ProjectExecTransformer (36)
+   :  :  :                                      +- ^ FilterExecTransformer (35)
+   :  :  :                                         +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (34)
+   :  :  +- ^ InputIteratorTransformer (70)
+   :  :     +- ColumnarBroadcastExchange (68)
+   :  :        +- ^ ProjectExecTransformer (66)
+   :  :           +- ^ RegularHashAggregateExecTransformer (65)
+   :  :              +- ^ RegularHashAggregateExecTransformer (64)
+   :  :                 +- ^ RegularHashAggregateExecTransformer (63)
+   :  :                    +- ^ InputIteratorTransformer (62)
+   :  :                       +- ColumnarExchange (60)
+   :  :                          +- VeloxResizeBatches (59)
+   :  :                             +- ^ ProjectExecTransformer (57)
+   :  :                                +- ^ FlushableHashAggregateExecTransformer (56)
+   :  :                                   +- ^ ProjectExecTransformer (55)
+   :  :                                      +- ^ FilterExecTransformer (54)
+   :  :                                         +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (53)
+   :  +- ^ InputIteratorTransformer (89)
+   :     +- ColumnarBroadcastExchange (87)
+   :        +- ^ ProjectExecTransformer (85)
+   :           +- ^ RegularHashAggregateExecTransformer (84)
+   :              +- ^ RegularHashAggregateExecTransformer (83)
+   :                 +- ^ RegularHashAggregateExecTransformer (82)
+   :                    +- ^ InputIteratorTransformer (81)
+   :                       +- ColumnarExchange (79)
+   :                          +- VeloxResizeBatches (78)
+   :                             +- ^ ProjectExecTransformer (76)
+   :                                +- ^ FlushableHashAggregateExecTransformer (75)
+   :                                   +- ^ ProjectExecTransformer (74)
+   :                                      +- ^ FilterExecTransformer (73)
+   :                                         +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (72)
+   +- ^ InputIteratorTransformer (108)
+      +- ColumnarBroadcastExchange (106)
+         +- ^ ProjectExecTransformer (104)
+            +- ^ RegularHashAggregateExecTransformer (103)
+               +- ^ RegularHashAggregateExecTransformer (102)
+                  +- ^ RegularHashAggregateExecTransformer (101)
+                     +- ^ InputIteratorTransformer (100)
+                        +- ColumnarExchange (98)
+                           +- VeloxResizeBatches (97)
+                              +- ^ ProjectExecTransformer (95)
+                                 +- ^ FlushableHashAggregateExecTransformer (94)
+                                    +- ^ ProjectExecTransformer (93)
+                                       +- ^ FilterExecTransformer (92)
+                                          +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (91)
+
+
+(1) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [5]: [ss_quantity#1, ss_wholesale_cost#2, ss_list_price#3, ss_coupon_amt#4, ss_sold_date_sk#5]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,0), LessThanOrEqual(ss_quantity,5), Or(Or(And(GreaterThanOrEqual(ss_list_price,8.00),LessThanOrEqual(ss_list_price,18.00)),And(GreaterThanOrEqual(ss_coupon_amt,459.00),LessThanOrEqual(ss_coupon_amt,1459.00))),And(GreaterThanOrEqual(ss_wholesale_cost,57.00),LessThanOrEqual(ss_wholesale_cost,77.00)))]
+ReadSchema: struct<ss_quantity:int,ss_wholesale_cost:decimal(7,2),ss_list_price:decimal(7,2),ss_coupon_amt:decimal(7,2)>
+
+(2) FilterExecTransformer
+Input [5]: [ss_quantity#1, ss_wholesale_cost#2, ss_list_price#3, ss_coupon_amt#4, ss_sold_date_sk#5]
+Arguments: (((isnotnull(ss_quantity#1) AND (ss_quantity#1 >= 0)) AND (ss_quantity#1 <= 5)) AND ((((ss_list_price#3 >= 8.00) AND (ss_list_price#3 <= 18.00)) OR ((ss_coupon_amt#4 >= 459.00) AND (ss_coupon_amt#4 <= 1459.00))) OR ((ss_wholesale_cost#2 >= 57.00) AND (ss_wholesale_cost#2 <= 77.00))))
+
+(3) ProjectExecTransformer
+Output [2]: [ss_list_price#3, UnscaledValue(ss_list_price#3) AS _pre_1#6]
+Input [5]: [ss_quantity#1, ss_wholesale_cost#2, ss_list_price#3, ss_coupon_amt#4, ss_sold_date_sk#5]
+
+(4) FlushableHashAggregateExecTransformer
+Input [2]: [ss_list_price#3, _pre_1#6]
+Keys [1]: [ss_list_price#3]
+Functions [2]: [partial_avg(_pre_1#6), partial_count(ss_list_price#3)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#3))#7, count(ss_list_price#3)#8]
+Results [4]: [ss_list_price#3, sum#9, count#10, count#11]
+
+(5) ProjectExecTransformer
+Output [5]: [hash(ss_list_price#3, 42) AS hash_partition_key#12, ss_list_price#3, sum#9, count#10, count#11]
+Input [4]: [ss_list_price#3, sum#9, count#10, count#11]
+
+(6) WholeStageCodegenTransformer (1)
+Input [5]: [hash_partition_key#12, ss_list_price#3, sum#9, count#10, count#11]
+Arguments: false
+
+(7) VeloxResizeBatches
+Input [5]: [hash_partition_key#12, ss_list_price#3, sum#9, count#10, count#11]
+Arguments: 1024, 2147483647, 10485760
+
+(8) ColumnarExchange
+Input [5]: [hash_partition_key#12, ss_list_price#3, sum#9, count#10, count#11]
+Arguments: hashpartitioning(ss_list_price#3, 1), ENSURE_REQUIREMENTS, [ss_list_price#3, sum#9, count#10, count#11], [plan_id=1], [shuffle_writer_type=hash]
+
+(9) InputAdapter
+Input [4]: [ss_list_price#3, sum#9, count#10, count#11]
+
+(10) InputIteratorTransformer
+Input [4]: [ss_list_price#3, sum#9, count#10, count#11]
+
+(11) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#3, sum#9, count#10, count#11]
+Keys [1]: [ss_list_price#3]
+Functions [2]: [merge_avg(UnscaledValue(ss_list_price#3)), merge_count(ss_list_price#3)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#3))#7, count(ss_list_price#3)#8]
+Results [4]: [ss_list_price#3, sum#9, count#10, count#11]
+
+(12) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#3, sum#9, count#10, count#11]
+Keys: []
+Functions [3]: [merge_avg(UnscaledValue(ss_list_price#3)), merge_count(ss_list_price#3), partial_count(distinct ss_list_price#3)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#3))#7, count(ss_list_price#3)#8, count(ss_list_price#3)#13]
+Results [4]: [sum#9, count#10, count#11, count#14]
+
+(13) RegularHashAggregateExecTransformer
+Input [4]: [sum#9, count#10, count#11, count#14]
+Keys: []
+Functions [3]: [avg(UnscaledValue(ss_list_price#3)), count(ss_list_price#3), count(distinct ss_list_price#3)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#3))#7, count(ss_list_price#3)#8, count(ss_list_price#3)#13]
+Results [3]: [avg(UnscaledValue(ss_list_price#3))#7, count(ss_list_price#3)#8, count(ss_list_price#3)#13]
+
+(14) ProjectExecTransformer
+Output [3]: [cast((avg(UnscaledValue(ss_list_price#3))#7 / 100.0) as decimal(11,6)) AS B1_LP#15, count(ss_list_price#3)#8 AS B1_CNT#16, count(ss_list_price#3)#13 AS B1_CNTD#17]
+Input [3]: [avg(UnscaledValue(ss_list_price#3))#7, count(ss_list_price#3)#8, count(ss_list_price#3)#13]
+
+(15) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [5]: [ss_quantity#18, ss_wholesale_cost#19, ss_list_price#20, ss_coupon_amt#21, ss_sold_date_sk#22]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,6), LessThanOrEqual(ss_quantity,10), Or(Or(And(GreaterThanOrEqual(ss_list_price,90.00),LessThanOrEqual(ss_list_price,100.00)),And(GreaterThanOrEqual(ss_coupon_amt,2323.00),LessThanOrEqual(ss_coupon_amt,3323.00))),And(GreaterThanOrEqual(ss_wholesale_cost,31.00),LessThanOrEqual(ss_wholesale_cost,51.00)))]
+ReadSchema: struct<ss_quantity:int,ss_wholesale_cost:decimal(7,2),ss_list_price:decimal(7,2),ss_coupon_amt:decimal(7,2)>
+
+(16) FilterExecTransformer
+Input [5]: [ss_quantity#18, ss_wholesale_cost#19, ss_list_price#20, ss_coupon_amt#21, ss_sold_date_sk#22]
+Arguments: (((isnotnull(ss_quantity#18) AND (ss_quantity#18 >= 6)) AND (ss_quantity#18 <= 10)) AND ((((ss_list_price#20 >= 90.00) AND (ss_list_price#20 <= 100.00)) OR ((ss_coupon_amt#21 >= 2323.00) AND (ss_coupon_amt#21 <= 3323.00))) OR ((ss_wholesale_cost#19 >= 31.00) AND (ss_wholesale_cost#19 <= 51.00))))
+
+(17) ProjectExecTransformer
+Output [2]: [ss_list_price#20, UnscaledValue(ss_list_price#20) AS _pre_2#23]
+Input [5]: [ss_quantity#18, ss_wholesale_cost#19, ss_list_price#20, ss_coupon_amt#21, ss_sold_date_sk#22]
+
+(18) FlushableHashAggregateExecTransformer
+Input [2]: [ss_list_price#20, _pre_2#23]
+Keys [1]: [ss_list_price#20]
+Functions [2]: [partial_avg(_pre_2#23), partial_count(ss_list_price#20)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#20))#24, count(ss_list_price#20)#25]
+Results [4]: [ss_list_price#20, sum#26, count#27, count#28]
+
+(19) ProjectExecTransformer
+Output [5]: [hash(ss_list_price#20, 42) AS hash_partition_key#29, ss_list_price#20, sum#26, count#27, count#28]
+Input [4]: [ss_list_price#20, sum#26, count#27, count#28]
+
+(20) WholeStageCodegenTransformer (2)
+Input [5]: [hash_partition_key#29, ss_list_price#20, sum#26, count#27, count#28]
+Arguments: false
+
+(21) VeloxResizeBatches
+Input [5]: [hash_partition_key#29, ss_list_price#20, sum#26, count#27, count#28]
+Arguments: 1024, 2147483647, 10485760
+
+(22) ColumnarExchange
+Input [5]: [hash_partition_key#29, ss_list_price#20, sum#26, count#27, count#28]
+Arguments: hashpartitioning(ss_list_price#20, 1), ENSURE_REQUIREMENTS, [ss_list_price#20, sum#26, count#27, count#28], [plan_id=2], [shuffle_writer_type=hash]
+
+(23) InputAdapter
+Input [4]: [ss_list_price#20, sum#26, count#27, count#28]
+
+(24) InputIteratorTransformer
+Input [4]: [ss_list_price#20, sum#26, count#27, count#28]
+
+(25) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#20, sum#26, count#27, count#28]
+Keys [1]: [ss_list_price#20]
+Functions [2]: [merge_avg(UnscaledValue(ss_list_price#20)), merge_count(ss_list_price#20)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#20))#24, count(ss_list_price#20)#25]
+Results [4]: [ss_list_price#20, sum#26, count#27, count#28]
+
+(26) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#20, sum#26, count#27, count#28]
+Keys: []
+Functions [3]: [merge_avg(UnscaledValue(ss_list_price#20)), merge_count(ss_list_price#20), partial_count(distinct ss_list_price#20)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#20))#24, count(ss_list_price#20)#25, count(ss_list_price#20)#30]
+Results [4]: [sum#26, count#27, count#28, count#31]
+
+(27) RegularHashAggregateExecTransformer
+Input [4]: [sum#26, count#27, count#28, count#31]
+Keys: []
+Functions [3]: [avg(UnscaledValue(ss_list_price#20)), count(ss_list_price#20), count(distinct ss_list_price#20)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#20))#24, count(ss_list_price#20)#25, count(ss_list_price#20)#30]
+Results [3]: [avg(UnscaledValue(ss_list_price#20))#24, count(ss_list_price#20)#25, count(ss_list_price#20)#30]
+
+(28) ProjectExecTransformer
+Output [3]: [cast((avg(UnscaledValue(ss_list_price#20))#24 / 100.0) as decimal(11,6)) AS B2_LP#32, count(ss_list_price#20)#25 AS B2_CNT#33, count(ss_list_price#20)#30 AS B2_CNTD#34]
+Input [3]: [avg(UnscaledValue(ss_list_price#20))#24, count(ss_list_price#20)#25, count(ss_list_price#20)#30]
+
+(29) WholeStageCodegenTransformer (3)
+Input [3]: [B2_LP#32, B2_CNT#33, B2_CNTD#34]
+Arguments: false
+
+(30) ColumnarBroadcastExchange
+Input [3]: [B2_LP#32, B2_CNT#33, B2_CNTD#34]
+Arguments: IdentityBroadcastMode, [plan_id=3]
+
+(31) InputAdapter
+Input [3]: [B2_LP#32, B2_CNT#33, B2_CNTD#34]
+
+(32) InputIteratorTransformer
+Input [3]: [B2_LP#32, B2_CNT#33, B2_CNTD#34]
+
+(33) VeloxBroadcastNestedLoopJoinExecTransformer
+Join type: Inner
+Join condition: None
+
+(34) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [5]: [ss_quantity#35, ss_wholesale_cost#36, ss_list_price#37, ss_coupon_amt#38, ss_sold_date_sk#39]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,11), LessThanOrEqual(ss_quantity,15), Or(Or(And(GreaterThanOrEqual(ss_list_price,142.00),LessThanOrEqual(ss_list_price,152.00)),And(GreaterThanOrEqual(ss_coupon_amt,12214.00),LessThanOrEqual(ss_coupon_amt,13214.00))),And(GreaterThanOrEqual(ss_wholesale_cost,79.00),LessThanOrEqual(ss_wholesale_cost,99.00)))]
+ReadSchema: struct<ss_quantity:int,ss_wholesale_cost:decimal(7,2),ss_list_price:decimal(7,2),ss_coupon_amt:decimal(7,2)>
+
+(35) FilterExecTransformer
+Input [5]: [ss_quantity#35, ss_wholesale_cost#36, ss_list_price#37, ss_coupon_amt#38, ss_sold_date_sk#39]
+Arguments: (((isnotnull(ss_quantity#35) AND (ss_quantity#35 >= 11)) AND (ss_quantity#35 <= 15)) AND ((((ss_list_price#37 >= 142.00) AND (ss_list_price#37 <= 152.00)) OR ((ss_coupon_amt#38 >= 12214.00) AND (ss_coupon_amt#38 <= 13214.00))) OR ((ss_wholesale_cost#36 >= 79.00) AND (ss_wholesale_cost#36 <= 99.00))))
+
+(36) ProjectExecTransformer
+Output [2]: [ss_list_price#37, UnscaledValue(ss_list_price#37) AS _pre_3#40]
+Input [5]: [ss_quantity#35, ss_wholesale_cost#36, ss_list_price#37, ss_coupon_amt#38, ss_sold_date_sk#39]
+
+(37) FlushableHashAggregateExecTransformer
+Input [2]: [ss_list_price#37, _pre_3#40]
+Keys [1]: [ss_list_price#37]
+Functions [2]: [partial_avg(_pre_3#40), partial_count(ss_list_price#37)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#37))#41, count(ss_list_price#37)#42]
+Results [4]: [ss_list_price#37, sum#43, count#44, count#45]
+
+(38) ProjectExecTransformer
+Output [5]: [hash(ss_list_price#37, 42) AS hash_partition_key#46, ss_list_price#37, sum#43, count#44, count#45]
+Input [4]: [ss_list_price#37, sum#43, count#44, count#45]
+
+(39) WholeStageCodegenTransformer (4)
+Input [5]: [hash_partition_key#46, ss_list_price#37, sum#43, count#44, count#45]
+Arguments: false
+
+(40) VeloxResizeBatches
+Input [5]: [hash_partition_key#46, ss_list_price#37, sum#43, count#44, count#45]
+Arguments: 1024, 2147483647, 10485760
+
+(41) ColumnarExchange
+Input [5]: [hash_partition_key#46, ss_list_price#37, sum#43, count#44, count#45]
+Arguments: hashpartitioning(ss_list_price#37, 1), ENSURE_REQUIREMENTS, [ss_list_price#37, sum#43, count#44, count#45], [plan_id=4], [shuffle_writer_type=hash]
+
+(42) InputAdapter
+Input [4]: [ss_list_price#37, sum#43, count#44, count#45]
+
+(43) InputIteratorTransformer
+Input [4]: [ss_list_price#37, sum#43, count#44, count#45]
+
+(44) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#37, sum#43, count#44, count#45]
+Keys [1]: [ss_list_price#37]
+Functions [2]: [merge_avg(UnscaledValue(ss_list_price#37)), merge_count(ss_list_price#37)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#37))#41, count(ss_list_price#37)#42]
+Results [4]: [ss_list_price#37, sum#43, count#44, count#45]
+
+(45) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#37, sum#43, count#44, count#45]
+Keys: []
+Functions [3]: [merge_avg(UnscaledValue(ss_list_price#37)), merge_count(ss_list_price#37), partial_count(distinct ss_list_price#37)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#37))#41, count(ss_list_price#37)#42, count(ss_list_price#37)#47]
+Results [4]: [sum#43, count#44, count#45, count#48]
+
+(46) RegularHashAggregateExecTransformer
+Input [4]: [sum#43, count#44, count#45, count#48]
+Keys: []
+Functions [3]: [avg(UnscaledValue(ss_list_price#37)), count(ss_list_price#37), count(distinct ss_list_price#37)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#37))#41, count(ss_list_price#37)#42, count(ss_list_price#37)#47]
+Results [3]: [avg(UnscaledValue(ss_list_price#37))#41, count(ss_list_price#37)#42, count(ss_list_price#37)#47]
+
+(47) ProjectExecTransformer
+Output [3]: [cast((avg(UnscaledValue(ss_list_price#37))#41 / 100.0) as decimal(11,6)) AS B3_LP#49, count(ss_list_price#37)#42 AS B3_CNT#50, count(ss_list_price#37)#47 AS B3_CNTD#51]
+Input [3]: [avg(UnscaledValue(ss_list_price#37))#41, count(ss_list_price#37)#42, count(ss_list_price#37)#47]
+
+(48) WholeStageCodegenTransformer (5)
+Input [3]: [B3_LP#49, B3_CNT#50, B3_CNTD#51]
+Arguments: false
+
+(49) ColumnarBroadcastExchange
+Input [3]: [B3_LP#49, B3_CNT#50, B3_CNTD#51]
+Arguments: IdentityBroadcastMode, [plan_id=5]
+
+(50) InputAdapter
+Input [3]: [B3_LP#49, B3_CNT#50, B3_CNTD#51]
+
+(51) InputIteratorTransformer
+Input [3]: [B3_LP#49, B3_CNT#50, B3_CNTD#51]
+
+(52) VeloxBroadcastNestedLoopJoinExecTransformer
+Join type: Inner
+Join condition: None
+
+(53) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [5]: [ss_quantity#52, ss_wholesale_cost#53, ss_list_price#54, ss_coupon_amt#55, ss_sold_date_sk#56]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,16), LessThanOrEqual(ss_quantity,20), Or(Or(And(GreaterThanOrEqual(ss_list_price,135.00),LessThanOrEqual(ss_list_price,145.00)),And(GreaterThanOrEqual(ss_coupon_amt,6071.00),LessThanOrEqual(ss_coupon_amt,7071.00))),And(GreaterThanOrEqual(ss_wholesale_cost,38.00),LessThanOrEqual(ss_wholesale_cost,58.00)))]
+ReadSchema: struct<ss_quantity:int,ss_wholesale_cost:decimal(7,2),ss_list_price:decimal(7,2),ss_coupon_amt:decimal(7,2)>
+
+(54) FilterExecTransformer
+Input [5]: [ss_quantity#52, ss_wholesale_cost#53, ss_list_price#54, ss_coupon_amt#55, ss_sold_date_sk#56]
+Arguments: (((isnotnull(ss_quantity#52) AND (ss_quantity#52 >= 16)) AND (ss_quantity#52 <= 20)) AND ((((ss_list_price#54 >= 135.00) AND (ss_list_price#54 <= 145.00)) OR ((ss_coupon_amt#55 >= 6071.00) AND (ss_coupon_amt#55 <= 7071.00))) OR ((ss_wholesale_cost#53 >= 38.00) AND (ss_wholesale_cost#53 <= 58.00))))
+
+(55) ProjectExecTransformer
+Output [2]: [ss_list_price#54, UnscaledValue(ss_list_price#54) AS _pre_4#57]
+Input [5]: [ss_quantity#52, ss_wholesale_cost#53, ss_list_price#54, ss_coupon_amt#55, ss_sold_date_sk#56]
+
+(56) FlushableHashAggregateExecTransformer
+Input [2]: [ss_list_price#54, _pre_4#57]
+Keys [1]: [ss_list_price#54]
+Functions [2]: [partial_avg(_pre_4#57), partial_count(ss_list_price#54)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#54))#58, count(ss_list_price#54)#59]
+Results [4]: [ss_list_price#54, sum#60, count#61, count#62]
+
+(57) ProjectExecTransformer
+Output [5]: [hash(ss_list_price#54, 42) AS hash_partition_key#63, ss_list_price#54, sum#60, count#61, count#62]
+Input [4]: [ss_list_price#54, sum#60, count#61, count#62]
+
+(58) WholeStageCodegenTransformer (6)
+Input [5]: [hash_partition_key#63, ss_list_price#54, sum#60, count#61, count#62]
+Arguments: false
+
+(59) VeloxResizeBatches
+Input [5]: [hash_partition_key#63, ss_list_price#54, sum#60, count#61, count#62]
+Arguments: 1024, 2147483647, 10485760
+
+(60) ColumnarExchange
+Input [5]: [hash_partition_key#63, ss_list_price#54, sum#60, count#61, count#62]
+Arguments: hashpartitioning(ss_list_price#54, 1), ENSURE_REQUIREMENTS, [ss_list_price#54, sum#60, count#61, count#62], [plan_id=6], [shuffle_writer_type=hash]
+
+(61) InputAdapter
+Input [4]: [ss_list_price#54, sum#60, count#61, count#62]
+
+(62) InputIteratorTransformer
+Input [4]: [ss_list_price#54, sum#60, count#61, count#62]
+
+(63) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#54, sum#60, count#61, count#62]
+Keys [1]: [ss_list_price#54]
+Functions [2]: [merge_avg(UnscaledValue(ss_list_price#54)), merge_count(ss_list_price#54)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#54))#58, count(ss_list_price#54)#59]
+Results [4]: [ss_list_price#54, sum#60, count#61, count#62]
+
+(64) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#54, sum#60, count#61, count#62]
+Keys: []
+Functions [3]: [merge_avg(UnscaledValue(ss_list_price#54)), merge_count(ss_list_price#54), partial_count(distinct ss_list_price#54)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#54))#58, count(ss_list_price#54)#59, count(ss_list_price#54)#64]
+Results [4]: [sum#60, count#61, count#62, count#65]
+
+(65) RegularHashAggregateExecTransformer
+Input [4]: [sum#60, count#61, count#62, count#65]
+Keys: []
+Functions [3]: [avg(UnscaledValue(ss_list_price#54)), count(ss_list_price#54), count(distinct ss_list_price#54)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#54))#58, count(ss_list_price#54)#59, count(ss_list_price#54)#64]
+Results [3]: [avg(UnscaledValue(ss_list_price#54))#58, count(ss_list_price#54)#59, count(ss_list_price#54)#64]
+
+(66) ProjectExecTransformer
+Output [3]: [cast((avg(UnscaledValue(ss_list_price#54))#58 / 100.0) as decimal(11,6)) AS B4_LP#66, count(ss_list_price#54)#59 AS B4_CNT#67, count(ss_list_price#54)#64 AS B4_CNTD#68]
+Input [3]: [avg(UnscaledValue(ss_list_price#54))#58, count(ss_list_price#54)#59, count(ss_list_price#54)#64]
+
+(67) WholeStageCodegenTransformer (7)
+Input [3]: [B4_LP#66, B4_CNT#67, B4_CNTD#68]
+Arguments: false
+
+(68) ColumnarBroadcastExchange
+Input [3]: [B4_LP#66, B4_CNT#67, B4_CNTD#68]
+Arguments: IdentityBroadcastMode, [plan_id=7]
+
+(69) InputAdapter
+Input [3]: [B4_LP#66, B4_CNT#67, B4_CNTD#68]
+
+(70) InputIteratorTransformer
+Input [3]: [B4_LP#66, B4_CNT#67, B4_CNTD#68]
+
+(71) VeloxBroadcastNestedLoopJoinExecTransformer
+Join type: Inner
+Join condition: None
+
+(72) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [5]: [ss_quantity#69, ss_wholesale_cost#70, ss_list_price#71, ss_coupon_amt#72, ss_sold_date_sk#73]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,21), LessThanOrEqual(ss_quantity,25), Or(Or(And(GreaterThanOrEqual(ss_list_price,122.00),LessThanOrEqual(ss_list_price,132.00)),And(GreaterThanOrEqual(ss_coupon_amt,836.00),LessThanOrEqual(ss_coupon_amt,1836.00))),And(GreaterThanOrEqual(ss_wholesale_cost,17.00),LessThanOrEqual(ss_wholesale_cost,37.00)))]
+ReadSchema: struct<ss_quantity:int,ss_wholesale_cost:decimal(7,2),ss_list_price:decimal(7,2),ss_coupon_amt:decimal(7,2)>
+
+(73) FilterExecTransformer
+Input [5]: [ss_quantity#69, ss_wholesale_cost#70, ss_list_price#71, ss_coupon_amt#72, ss_sold_date_sk#73]
+Arguments: (((isnotnull(ss_quantity#69) AND (ss_quantity#69 >= 21)) AND (ss_quantity#69 <= 25)) AND ((((ss_list_price#71 >= 122.00) AND (ss_list_price#71 <= 132.00)) OR ((ss_coupon_amt#72 >= 836.00) AND (ss_coupon_amt#72 <= 1836.00))) OR ((ss_wholesale_cost#70 >= 17.00) AND (ss_wholesale_cost#70 <= 37.00))))
+
+(74) ProjectExecTransformer
+Output [2]: [ss_list_price#71, UnscaledValue(ss_list_price#71) AS _pre_5#74]
+Input [5]: [ss_quantity#69, ss_wholesale_cost#70, ss_list_price#71, ss_coupon_amt#72, ss_sold_date_sk#73]
+
+(75) FlushableHashAggregateExecTransformer
+Input [2]: [ss_list_price#71, _pre_5#74]
+Keys [1]: [ss_list_price#71]
+Functions [2]: [partial_avg(_pre_5#74), partial_count(ss_list_price#71)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#71))#75, count(ss_list_price#71)#76]
+Results [4]: [ss_list_price#71, sum#77, count#78, count#79]
+
+(76) ProjectExecTransformer
+Output [5]: [hash(ss_list_price#71, 42) AS hash_partition_key#80, ss_list_price#71, sum#77, count#78, count#79]
+Input [4]: [ss_list_price#71, sum#77, count#78, count#79]
+
+(77) WholeStageCodegenTransformer (8)
+Input [5]: [hash_partition_key#80, ss_list_price#71, sum#77, count#78, count#79]
+Arguments: false
+
+(78) VeloxResizeBatches
+Input [5]: [hash_partition_key#80, ss_list_price#71, sum#77, count#78, count#79]
+Arguments: 1024, 2147483647, 10485760
+
+(79) ColumnarExchange
+Input [5]: [hash_partition_key#80, ss_list_price#71, sum#77, count#78, count#79]
+Arguments: hashpartitioning(ss_list_price#71, 1), ENSURE_REQUIREMENTS, [ss_list_price#71, sum#77, count#78, count#79], [plan_id=8], [shuffle_writer_type=hash]
+
+(80) InputAdapter
+Input [4]: [ss_list_price#71, sum#77, count#78, count#79]
+
+(81) InputIteratorTransformer
+Input [4]: [ss_list_price#71, sum#77, count#78, count#79]
+
+(82) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#71, sum#77, count#78, count#79]
+Keys [1]: [ss_list_price#71]
+Functions [2]: [merge_avg(UnscaledValue(ss_list_price#71)), merge_count(ss_list_price#71)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#71))#75, count(ss_list_price#71)#76]
+Results [4]: [ss_list_price#71, sum#77, count#78, count#79]
+
+(83) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#71, sum#77, count#78, count#79]
+Keys: []
+Functions [3]: [merge_avg(UnscaledValue(ss_list_price#71)), merge_count(ss_list_price#71), partial_count(distinct ss_list_price#71)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#71))#75, count(ss_list_price#71)#76, count(ss_list_price#71)#81]
+Results [4]: [sum#77, count#78, count#79, count#82]
+
+(84) RegularHashAggregateExecTransformer
+Input [4]: [sum#77, count#78, count#79, count#82]
+Keys: []
+Functions [3]: [avg(UnscaledValue(ss_list_price#71)), count(ss_list_price#71), count(distinct ss_list_price#71)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#71))#75, count(ss_list_price#71)#76, count(ss_list_price#71)#81]
+Results [3]: [avg(UnscaledValue(ss_list_price#71))#75, count(ss_list_price#71)#76, count(ss_list_price#71)#81]
+
+(85) ProjectExecTransformer
+Output [3]: [cast((avg(UnscaledValue(ss_list_price#71))#75 / 100.0) as decimal(11,6)) AS B5_LP#83, count(ss_list_price#71)#76 AS B5_CNT#84, count(ss_list_price#71)#81 AS B5_CNTD#85]
+Input [3]: [avg(UnscaledValue(ss_list_price#71))#75, count(ss_list_price#71)#76, count(ss_list_price#71)#81]
+
+(86) WholeStageCodegenTransformer (9)
+Input [3]: [B5_LP#83, B5_CNT#84, B5_CNTD#85]
+Arguments: false
+
+(87) ColumnarBroadcastExchange
+Input [3]: [B5_LP#83, B5_CNT#84, B5_CNTD#85]
+Arguments: IdentityBroadcastMode, [plan_id=9]
+
+(88) InputAdapter
+Input [3]: [B5_LP#83, B5_CNT#84, B5_CNTD#85]
+
+(89) InputIteratorTransformer
+Input [3]: [B5_LP#83, B5_CNT#84, B5_CNTD#85]
+
+(90) VeloxBroadcastNestedLoopJoinExecTransformer
+Join type: Inner
+Join condition: None
+
+(91) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [5]: [ss_quantity#86, ss_wholesale_cost#87, ss_list_price#88, ss_coupon_amt#89, ss_sold_date_sk#90]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,26), LessThanOrEqual(ss_quantity,30), Or(Or(And(GreaterThanOrEqual(ss_list_price,154.00),LessThanOrEqual(ss_list_price,164.00)),And(GreaterThanOrEqual(ss_coupon_amt,7326.00),LessThanOrEqual(ss_coupon_amt,8326.00))),And(GreaterThanOrEqual(ss_wholesale_cost,7.00),LessThanOrEqual(ss_wholesale_cost,27.00)))]
+ReadSchema: struct<ss_quantity:int,ss_wholesale_cost:decimal(7,2),ss_list_price:decimal(7,2),ss_coupon_amt:decimal(7,2)>
+
+(92) FilterExecTransformer
+Input [5]: [ss_quantity#86, ss_wholesale_cost#87, ss_list_price#88, ss_coupon_amt#89, ss_sold_date_sk#90]
+Arguments: (((isnotnull(ss_quantity#86) AND (ss_quantity#86 >= 26)) AND (ss_quantity#86 <= 30)) AND ((((ss_list_price#88 >= 154.00) AND (ss_list_price#88 <= 164.00)) OR ((ss_coupon_amt#89 >= 7326.00) AND (ss_coupon_amt#89 <= 8326.00))) OR ((ss_wholesale_cost#87 >= 7.00) AND (ss_wholesale_cost#87 <= 27.00))))
+
+(93) ProjectExecTransformer
+Output [2]: [ss_list_price#88, UnscaledValue(ss_list_price#88) AS _pre_6#91]
+Input [5]: [ss_quantity#86, ss_wholesale_cost#87, ss_list_price#88, ss_coupon_amt#89, ss_sold_date_sk#90]
+
+(94) FlushableHashAggregateExecTransformer
+Input [2]: [ss_list_price#88, _pre_6#91]
+Keys [1]: [ss_list_price#88]
+Functions [2]: [partial_avg(_pre_6#91), partial_count(ss_list_price#88)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#88))#92, count(ss_list_price#88)#93]
+Results [4]: [ss_list_price#88, sum#94, count#95, count#96]
+
+(95) ProjectExecTransformer
+Output [5]: [hash(ss_list_price#88, 42) AS hash_partition_key#97, ss_list_price#88, sum#94, count#95, count#96]
+Input [4]: [ss_list_price#88, sum#94, count#95, count#96]
+
+(96) WholeStageCodegenTransformer (10)
+Input [5]: [hash_partition_key#97, ss_list_price#88, sum#94, count#95, count#96]
+Arguments: false
+
+(97) VeloxResizeBatches
+Input [5]: [hash_partition_key#97, ss_list_price#88, sum#94, count#95, count#96]
+Arguments: 1024, 2147483647, 10485760
+
+(98) ColumnarExchange
+Input [5]: [hash_partition_key#97, ss_list_price#88, sum#94, count#95, count#96]
+Arguments: hashpartitioning(ss_list_price#88, 1), ENSURE_REQUIREMENTS, [ss_list_price#88, sum#94, count#95, count#96], [plan_id=10], [shuffle_writer_type=hash]
+
+(99) InputAdapter
+Input [4]: [ss_list_price#88, sum#94, count#95, count#96]
+
+(100) InputIteratorTransformer
+Input [4]: [ss_list_price#88, sum#94, count#95, count#96]
+
+(101) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#88, sum#94, count#95, count#96]
+Keys [1]: [ss_list_price#88]
+Functions [2]: [merge_avg(UnscaledValue(ss_list_price#88)), merge_count(ss_list_price#88)]
+Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#88))#92, count(ss_list_price#88)#93]
+Results [4]: [ss_list_price#88, sum#94, count#95, count#96]
+
+(102) RegularHashAggregateExecTransformer
+Input [4]: [ss_list_price#88, sum#94, count#95, count#96]
+Keys: []
+Functions [3]: [merge_avg(UnscaledValue(ss_list_price#88)), merge_count(ss_list_price#88), partial_count(distinct ss_list_price#88)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#88))#92, count(ss_list_price#88)#93, count(ss_list_price#88)#98]
+Results [4]: [sum#94, count#95, count#96, count#99]
+
+(103) RegularHashAggregateExecTransformer
+Input [4]: [sum#94, count#95, count#96, count#99]
+Keys: []
+Functions [3]: [avg(UnscaledValue(ss_list_price#88)), count(ss_list_price#88), count(distinct ss_list_price#88)]
+Aggregate Attributes [3]: [avg(UnscaledValue(ss_list_price#88))#92, count(ss_list_price#88)#93, count(ss_list_price#88)#98]
+Results [3]: [avg(UnscaledValue(ss_list_price#88))#92, count(ss_list_price#88)#93, count(ss_list_price#88)#98]
+
+(104) ProjectExecTransformer
+Output [3]: [cast((avg(UnscaledValue(ss_list_price#88))#92 / 100.0) as decimal(11,6)) AS B6_LP#100, count(ss_list_price#88)#93 AS B6_CNT#101, count(ss_list_price#88)#98 AS B6_CNTD#102]
+Input [3]: [avg(UnscaledValue(ss_list_price#88))#92, count(ss_list_price#88)#93, count(ss_list_price#88)#98]
+
+(105) WholeStageCodegenTransformer (11)
+Input [3]: [B6_LP#100, B6_CNT#101, B6_CNTD#102]
+Arguments: false
+
+(106) ColumnarBroadcastExchange
+Input [3]: [B6_LP#100, B6_CNT#101, B6_CNTD#102]
+Arguments: IdentityBroadcastMode, [plan_id=11]
+
+(107) InputAdapter
+Input [3]: [B6_LP#100, B6_CNT#101, B6_CNTD#102]
+
+(108) InputIteratorTransformer
+Input [3]: [B6_LP#100, B6_CNT#101, B6_CNTD#102]
+
+(109) VeloxBroadcastNestedLoopJoinExecTransformer
+Join type: Inner
+Join condition: None
+
+(110) WholeStageCodegenTransformer (12)
+Input [18]: [B1_LP#15, B1_CNT#16, B1_CNTD#17, B2_LP#32, B2_CNT#33, B2_CNTD#34, B3_LP#49, B3_CNT#50, B3_CNTD#51, B4_LP#66, B4_CNT#67, B4_CNTD#68, B5_LP#83, B5_CNT#84, B5_CNTD#85, B6_LP#100, B6_CNT#101, B6_CNTD#102]
+Arguments: false
+
+(111) VeloxColumnarToRow
+Input [18]: [B1_LP#15, B1_CNT#16, B1_CNTD#17, B2_LP#32, B2_CNT#33, B2_CNTD#34, B3_LP#49, B3_CNT#50, B3_CNTD#51, B4_LP#66, B4_CNT#67, B4_CNTD#68, B5_LP#83, B5_CNT#84, B5_CNTD#85, B6_LP#100, B6_CNT#101, B6_CNTD#102]
+

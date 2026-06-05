@@ -34,7 +34,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, DateTimeUtils}
 import org.apache.spark.sql.connector.write.WriterCommitMessage
-import org.apache.spark.sql.delta.{DeltaOptions, GlutenParquetFileFormat}
+import org.apache.spark.sql.delta.DeltaOptions
 import org.apache.spark.sql.delta.logging.DeltaLogKeys
 import org.apache.spark.sql.delta.stats.GlutenDeltaJobStatsTracker
 import org.apache.spark.sql.errors.QueryExecutionErrors
@@ -55,53 +55,48 @@ import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 
 import java.util.{Date, UUID}
 
-// spotless:off
 /**
- *  A helper object for writing FileFormat data out to a location.
- *  Logic is copied from FileFormatWriter from Spark 3.5 with added functionality to write partition
- *  values to data files. Specifically L123-126, L132, and L140 where it adds option
- *  WRITE_PARTITION_COLUMNS
+ * A helper object for writing FileFormat data out to a location. Logic is copied from
+ * FileFormatWriter from Spark 3.5 with added functionality to write partition values to data files.
+ * Specifically L123-126, L132, and L140 where it adds option WRITE_PARTITION_COLUMNS
  */
 object GlutenDeltaFileFormatWriter extends LoggingShims {
 
   /**
-   * A variable used in tests to check whether the output ordering of the query matches the
-   * required ordering of the write command.
+   * A variable used in tests to check whether the output ordering of the query matches the required
+   * ordering of the write command.
    */
   private var outputOrderingMatched: Boolean = false
 
-  /**
-   * A variable used in tests to check the final executed plan.
-   */
+  /** A variable used in tests to check the final executed plan. */
   private var executedPlan: Option[SparkPlan] = None
 
   // scalastyle:off argcount
   /**
    * Basic work flow of this command is:
-   * 1. Driver side setup, including output committer initialization and data source specific
-   *    preparation work for the write job to be issued.
-   * 2. Issues a write job consists of one or more executor side tasks, each of which writes all
-   *    rows within an RDD partition.
-   * 3. If no exception is thrown in a task, commits that task, otherwise aborts that task;  If any
-   *    exception is thrown during task commitment, also aborts that task.
-   * 4. If all tasks are committed, commit the job, otherwise aborts the job;  If any exception is
-   *    thrown during job commitment, also aborts the job.
-   * 5. If the job is successfully committed, perform post-commit operations such as
-   *    processing statistics.
-   * @return The set of all partition paths that were updated during this write job.
+   *   1. Driver side setup, including output committer initialization and data source specific
+   *      preparation work for the write job to be issued. 2. Issues a write job consists of one or
+   *      more executor side tasks, each of which writes all rows within an RDD partition. 3. If no
+   *      exception is thrown in a task, commits that task, otherwise aborts that task; If any
+   *      exception is thrown during task commitment, also aborts that task. 4. If all tasks are
+   *      committed, commit the job, otherwise aborts the job; If any exception is thrown during job
+   *      commitment, also aborts the job. 5. If the job is successfully committed, perform
+   *      post-commit operations such as processing statistics.
+   * @return
+   *   The set of all partition paths that were updated during this write job.
    */
   def write(
-             sparkSession: SparkSession,
-             plan: SparkPlan,
-             fileFormat: FileFormat,
-             committer: FileCommitProtocol,
-             outputSpec: OutputSpec,
-             hadoopConf: Configuration,
-             partitionColumns: Seq[Attribute],
-             bucketSpec: Option[BucketSpec],
-             statsTrackers: Seq[WriteJobStatsTracker],
-             options: Map[String, String],
-             numStaticPartitionCols: Int = 0): Set[String] = {
+      sparkSession: SparkSession,
+      plan: SparkPlan,
+      fileFormat: FileFormat,
+      committer: FileCommitProtocol,
+      outputSpec: OutputSpec,
+      hadoopConf: Configuration,
+      partitionColumns: Seq[Attribute],
+      bucketSpec: Option[BucketSpec],
+      statsTrackers: Seq[WriteJobStatsTracker],
+      options: Map[String, String],
+      numStaticPartitionCols: Int = 0): Set[String] = {
     require(partitionColumns.size >= numStaticPartitionCols)
 
     val job = Job.getInstance(hadoopConf)
@@ -126,7 +121,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     val dataSchema = dataColumns.toStructType
     DataSourceUtils.verifySchema(fileFormat, dataSchema)
     DataSourceUtils.checkFieldNames(fileFormat, dataSchema)
-    val isNativeWritable = GlutenParquetFileFormat.isNativeWritable(dataSchema)
+    val isNativeWritable = true
 
     val outputDataColumns =
       if (caseInsensitiveOptions.get(DeltaOptions.WRITE_PARTITION_COLUMNS).contains("true")) {
@@ -237,19 +232,20 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
   // scalastyle:on argcount
 
   private def executeWrite(
-                            sparkSession: SparkSession,
-                            plan: SparkPlan,
-                            job: Job,
-                            description: WriteJobDescription,
-                            committer: FileCommitProtocol,
-                            outputSpec: OutputSpec,
-                            requiredOrdering: Seq[Expression],
-                            partitionColumns: Seq[Attribute],
-                            sortColumns: Seq[Attribute],
-                            orderingMatched: Boolean,
-                            writeOffloadable: Boolean): Set[String] = {
+      sparkSession: SparkSession,
+      plan: SparkPlan,
+      job: Job,
+      description: WriteJobDescription,
+      committer: FileCommitProtocol,
+      outputSpec: OutputSpec,
+      requiredOrdering: Seq[Expression],
+      partitionColumns: Seq[Attribute],
+      sortColumns: Seq[Attribute],
+      orderingMatched: Boolean,
+      writeOffloadable: Boolean): Set[String] = {
     val projectList = V1WritesUtils.convertEmptyToNull(plan.output, partitionColumns)
-    val empty2NullPlan = if (projectList.nonEmpty) ProjectExecTransformer(projectList, plan) else plan
+    val empty2NullPlan =
+      if (projectList.nonEmpty) ProjectExecTransformer(projectList, plan) else plan
 
     writeAndCommit(job, description, committer) {
       val (planToExecute, concurrentOutputWriterSpec) = if (orderingMatched) {
@@ -262,9 +258,11 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
           (empty2NullPlan, concurrentOutputWriterSpec)
         } else {
           def addNativeSort(input: SparkPlan): SparkPlan = {
-            val nativeSortPlan = SortExecTransformer(sortPlan.sortOrder, sortPlan.global, child = input)
+            val nativeSortPlan =
+              SortExecTransformer(sortPlan.sortOrder, sortPlan.global, child = input)
             val validationResult = nativeSortPlan.doValidate()
-            assert(validationResult.ok(),
+            assert(
+              validationResult.ok(),
               s"Sort operation for Delta write is not offload-able: ${validationResult.reason()}")
             nativeSortPlan
           }
@@ -274,7 +272,8 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
             case other if Convention.get(other).batchType == VeloxBatchType =>
               val nativeSortPlan = addNativeSort(other)
               val nativeSortPlanWithWst =
-                GenerateTransformStageId()(ColumnarCollapseTransformStages(new GlutenConfig(sparkSession.sessionState.conf))(nativeSortPlan))
+                GenerateTransformStageId()(ColumnarCollapseTransformStages(
+                  new GlutenConfig(sparkSession.sessionState.conf))(nativeSortPlan))
               nativeSortPlanWithWst
             case other =>
               Transitions.toBatchPlan(sortPlan, VeloxBatchType)
@@ -305,7 +304,8 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       val jobTrackerID = SparkHadoopWriterUtils.createJobTrackerID(new Date())
       val ret = new Array[WriteTaskResult](rddWithNonEmptyPartitions.partitions.length)
       val partitionColumnToDataType = description.partitionColumns
-        .map(attr => (attr.name, attr.dataType)).toMap
+        .map(attr => (attr.name, attr.dataType))
+        .toMap
       sparkSession.sparkContext.runJob(
         rddWithNonEmptyPartitions,
         (taskContext: TaskContext, iter: Iterator[InternalRow]) => {
@@ -332,9 +332,9 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
   }
 
   private def writeAndCommit(
-                              job: Job,
-                              description: WriteJobDescription,
-                              committer: FileCommitProtocol)(f: => Array[WriteTaskResult]): Set[String] = {
+      job: Job,
+      description: WriteJobDescription,
+      committer: FileCommitProtocol)(f: => Array[WriteTaskResult]): Set[String] = {
     // This call shouldn't be put into the `try` block below because it only initializes and
     // prepares the job, any exception thrown from here shouldn't cause abortJob() to be called.
     committer.setupJob(job)
@@ -343,13 +343,15 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       val commitMsgs = ret.map(_.commitMsg)
 
       logInfo(log"Start to commit write Job ${MDC(DeltaLogKeys.JOB_ID, description.uuid)}.")
-      val (_, duration) = Utils.timeTakenMs { committer.commitJob(job, commitMsgs) }
-      logInfo(log"Write Job ${MDC(DeltaLogKeys.JOB_ID, description.uuid)} committed. " +
-        log"Elapsed time: ${MDC(DeltaLogKeys.DURATION, duration)} ms.")
+      val (_, duration) = Utils.timeTakenMs(committer.commitJob(job, commitMsgs))
+      logInfo(
+        log"Write Job ${MDC(DeltaLogKeys.JOB_ID, description.uuid)} committed. " +
+          log"Elapsed time: ${MDC(DeltaLogKeys.DURATION, duration)} ms.")
 
       processStats(description.statsTrackers, ret.map(_.summary.stats), duration)
-      logInfo(log"Finished processing stats for write job " +
-        log"${MDC(DeltaLogKeys.JOB_ID, description.uuid)}.")
+      logInfo(
+        log"Finished processing stats for write job " +
+          log"${MDC(DeltaLogKeys.JOB_ID, description.uuid)}.")
 
       // return a set of all the partition paths that were updated during this job
       ret.map(_.summary.updatedPartitions).reduceOption(_ ++ _).getOrElse(Set.empty)
@@ -361,14 +363,12 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     }
   }
 
-  /**
-   * Write files using [[SparkPlan.executeWrite]]
-   */
+  /** Write files using [[SparkPlan.executeWrite]] */
   private def executeWrite(
-                            session: SparkSession,
-                            planForWrites: SparkPlan,
-                            writeFilesSpec: WriteFilesSpec,
-                            job: Job): Set[String] = {
+      session: SparkSession,
+      planForWrites: SparkPlan,
+      writeFilesSpec: WriteFilesSpec,
+      job: Job): Set[String] = {
     val committer = writeFilesSpec.committer
     val description = writeFilesSpec.description
 
@@ -399,9 +399,9 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
   }
 
   private def createSortPlan(
-                              plan: SparkPlan,
-                              requiredOrdering: Seq[Expression],
-                              outputSpec: OutputSpec): SortExec = {
+      plan: SparkPlan,
+      requiredOrdering: Seq[Expression],
+      outputSpec: OutputSpec): SortExec = {
     // SPARK-21165: the `requiredOrdering` is based on the attributes from analyzed plan, and
     // the physical plan may have different attribute ids due to optimizer removing some
     // aliases. Here we bind the expression ahead to avoid potential attribute ids mismatch.
@@ -411,9 +411,9 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
   }
 
   private def createConcurrentOutputWriterSpec(
-                                                sparkSession: SparkSession,
-                                                sortPlan: SortExec,
-                                                sortColumns: Seq[Attribute]): Option[ConcurrentOutputWriterSpec] = {
+      sparkSession: SparkSession,
+      sortPlan: SortExec,
+      sortColumns: Seq[Attribute]): Option[ConcurrentOutputWriterSpec] = {
     val maxWriters = sparkSession.sessionState.conf.maxConcurrentOutputFileWriters
     val concurrentWritersEnabled = maxWriters > 0 && sortColumns.isEmpty
     if (concurrentWritersEnabled) {
@@ -425,15 +425,15 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
 
   /** Writes data out in a single Spark task. */
   private def executeTask(
-                           description: WriteJobDescription,
-                           jobTrackerID: String,
-                           sparkStageId: Int,
-                           sparkPartitionId: Int,
-                           sparkAttemptNumber: Int,
-                           committer: FileCommitProtocol,
-                           iterator: Iterator[InternalRow],
-                           concurrentOutputWriterSpec: Option[ConcurrentOutputWriterSpec],
-                           partitionColumnToDataType: Map[String, DataType]): WriteTaskResult = {
+      description: WriteJobDescription,
+      jobTrackerID: String,
+      sparkStageId: Int,
+      sparkPartitionId: Int,
+      sparkAttemptNumber: Int,
+      committer: FileCommitProtocol,
+      iterator: Iterator[InternalRow],
+      concurrentOutputWriterSpec: Option[ConcurrentOutputWriterSpec],
+      partitionColumnToDataType: Map[String, DataType]): WriteTaskResult = {
 
     val jobId = SparkHadoopWriterUtils.createJobID(jobTrackerID, sparkStageId)
     val taskId = new TaskID(jobId, TaskType.MAP, sparkPartitionId)
@@ -452,7 +452,10 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       if (partitionColumnToDataType.isEmpty) {
         new TaskAttemptContextImpl(hadoopConf, taskAttemptId)
       } else {
-        new DeltaFileFormatWriter.PartitionedTaskAttemptContextImpl(hadoopConf, taskAttemptId, partitionColumnToDataType)
+        new DeltaFileFormatWriter.PartitionedTaskAttemptContextImpl(
+          hadoopConf,
+          taskAttemptId,
+          partitionColumnToDataType)
       }
     }
 
@@ -486,13 +489,16 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
         // Execute the task to write rows out and commit the task.
         dataWriter.writeWithIterator(iterator)
         dataWriter.commit()
-      })(catchBlock = {
-        // If there is an error, abort the task
-        dataWriter.abort()
-        logError(log"Job ${MDC(DeltaLogKeys.JOB_ID, jobId)} aborted.")
-      }, finallyBlock = {
-        dataWriter.close()
-      })
+      })(
+        catchBlock = {
+          // If there is an error, abort the task
+          dataWriter.abort()
+          logError(log"Job ${MDC(DeltaLogKeys.JOB_ID, jobId)} aborted.")
+        },
+        finallyBlock = {
+          dataWriter.close()
+        }
+      )
     } catch {
       case e: FetchFailedException =>
         throw e
@@ -506,13 +512,13 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
   }
 
   /**
-   * For every registered [[WriteJobStatsTracker]], call `processStats()` on it, passing it
-   * the corresponding [[WriteTaskStats]] from all executors.
+   * For every registered [[WriteJobStatsTracker]], call `processStats()` on it, passing it the
+   * corresponding [[WriteTaskStats]] from all executors.
    */
   private def processStats(
-                            statsTrackers: Seq[WriteJobStatsTracker],
-                            statsPerTask: Seq[Seq[WriteTaskStats]],
-                            jobCommitDuration: Long): Unit = {
+      statsTrackers: Seq[WriteJobStatsTracker],
+      statsPerTask: Seq[Seq[WriteTaskStats]],
+      jobCommitDuration: Long): Unit = {
 
     val numStatsTrackers = statsTrackers.length
     assert(
@@ -535,10 +541,10 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
   }
 
   private class GlutenDynamicPartitionDataSingleWriter(
-                                                          description: WriteJobDescription,
-                                                          taskAttemptContext: TaskAttemptContext,
-                                                          committer: FileCommitProtocol,
-                                                          customMetrics: Map[String, SQLMetric] = Map.empty)
+      description: WriteJobDescription,
+      taskAttemptContext: TaskAttemptContext,
+      committer: FileCommitProtocol,
+      customMetrics: Map[String, SQLMetric] = Map.empty)
     extends BaseDynamicPartitionDataWriter(
       description,
       taskAttemptContext,
@@ -572,8 +578,10 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
 
         fileCounter = 0
         renewCurrentWriter(currentPartitionValues, currentBucketId, closeCurrentWriter = true)
-      } else if (description.maxRecordsPerFile > 0 &&
-        recordsInFile >= description.maxRecordsPerFile) {
+      } else if (
+        description.maxRecordsPerFile > 0 &&
+        recordsInFile >= description.maxRecordsPerFile
+      ) {
         renewCurrentWriterIfTooManyRecords(currentPartitionValues, currentBucketId)
       }
     }
@@ -588,7 +596,9 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
               val numRows = terminalRow.batch().numRows()
               if (numRows > 0) {
                 val blockStripes = GlutenFormatFactory.rowSplitter
-                  .splitBlockByPartitionAndBucket(terminalRow.batch(), partitionColIndice,
+                  .splitBlockByPartitionAndBucket(
+                    terminalRow.batch(),
+                    partitionColIndice,
                     isBucketed)
                 val iter = blockStripes.iterator()
                 while (iter.hasNext) {
@@ -620,4 +630,3 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     }
   }
 }
-// spotless:on

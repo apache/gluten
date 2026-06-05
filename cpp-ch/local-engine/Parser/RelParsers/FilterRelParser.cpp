@@ -66,7 +66,7 @@ FilterRelParser::parse(DB::QueryPlanPtr query_plan, const substrait::Rel & rel, 
     // header maybe changed, need to rollback it
     if (!blocksHaveEqualStructure(input_header, *query_plan->getCurrentHeader()))
     {
-        steps.emplace_back(PlanUtil::adjustQueryPlanHeader(*query_plan, input_header, "Rollback filter header"));
+        steps.emplace_back(PlanUtil::adjustQueryPlanHeader(*query_plan, input_header, "Rollback filter header", parser_context->queryContext()));
     }
 
     // remove nullable

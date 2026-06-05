@@ -35,7 +35,7 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.plans.physical.{KeyGroupedPartitioning, KeyGroupedShuffleSpec, Partitioning}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
-import org.apache.spark.sql.catalyst.util.{InternalRowComparableWrapper, MapData, TimestampFormatter}
+import org.apache.spark.sql.catalyst.util.{CollationFactory, InternalRowComparableWrapper, MapData, TimestampFormatter}
 import org.apache.spark.sql.catalyst.util.RebaseDateTime.RebaseSpec
 import org.apache.spark.sql.classic.ClassicConversions._
 import org.apache.spark.sql.connector.catalog.Table
@@ -67,16 +67,8 @@ class Spark40Shims extends SparkShims {
 
   override def scalarExpressionMappings: Seq[Sig] = {
     Seq(
-      Sig[SplitPart](ExpressionNames.SPLIT_PART),
-      Sig[Sec](ExpressionNames.SEC),
-      Sig[Csc](ExpressionNames.CSC),
-      Sig[KnownNullable](ExpressionNames.KNOWN_NULLABLE),
       Sig[Empty2Null](ExpressionNames.EMPTY2NULL),
       Sig[Mask](ExpressionNames.MASK),
-      Sig[TimestampAdd](ExpressionNames.TIMESTAMP_ADD),
-      Sig[TimestampDiff](ExpressionNames.TIMESTAMP_DIFF),
-      Sig[RoundFloor](ExpressionNames.FLOOR),
-      Sig[RoundCeil](ExpressionNames.CEIL),
       Sig[ArrayInsert](ExpressionNames.ARRAY_INSERT),
       Sig[CheckOverflowInTableInsert](ExpressionNames.CHECK_OVERFLOW_IN_TABLE_INSERT),
       Sig[ArrayAppend](ExpressionNames.ARRAY_APPEND),
@@ -90,7 +82,6 @@ class Spark40Shims extends SparkShims {
 
   override def aggregateExpressionMappings: Seq[Sig] = {
     Seq(
-      Sig[RegrR2](ExpressionNames.REGR_R2),
       Sig[RegrSlope](ExpressionNames.REGR_SLOPE),
       Sig[RegrIntercept](ExpressionNames.REGR_INTERCEPT),
       Sig[RegrSXY](ExpressionNames.REGR_SXY),
@@ -102,14 +93,13 @@ class Spark40Shims extends SparkShims {
     Seq(
       Sig[ArrayCompact](ExpressionNames.ARRAY_COMPACT),
       Sig[ArrayPrepend](ExpressionNames.ARRAY_PREPEND),
-      Sig[ArraySize](ExpressionNames.ARRAY_SIZE),
       Sig[EqualNull](ExpressionNames.EQUAL_NULL),
-      Sig[ILike](ExpressionNames.ILIKE),
-      Sig[MapContainsKey](ExpressionNames.MAP_CONTAINS_KEY),
       Sig[Get](ExpressionNames.GET),
       Sig[Luhncheck](ExpressionNames.LUHN_CHECK)
     )
   }
+
+  override def isNullIntolerant(expr: Expression): Boolean = expr.nullIntolerant
 
   override def generateFileScanRDD(
       sparkSession: SparkSession,
@@ -657,4 +647,7 @@ class Spark40Shims extends SparkShims {
   override def isLeftSingleJoinType(joinType: JoinType): Boolean = {
     joinType == LeftSingle
   }
+
+  override def isBinaryCollationString(dt: StringType): Boolean =
+    dt.collationId == CollationFactory.UTF8_BINARY_COLLATION_ID
 }

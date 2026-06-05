@@ -19,6 +19,7 @@
 
 #include "SubstraitToVeloxExpr.h"
 #include "TypeUtils.h"
+#include "compute/VeloxConnectorIds.h"
 #include "velox/connectors/hive/FileProperties.h"
 #include "velox/connectors/hive/TableHandle.h"
 #include "velox/core/PlanNode.h"
@@ -80,12 +81,14 @@ class SubstraitToVeloxPlanConverter {
       memory::MemoryPool* pool,
       const facebook::velox::config::ConfigBase* veloxCfg,
       const std::vector<std::shared_ptr<ResultIterator>>& inputIters,
+      VeloxConnectorIds connectorIds,
       const std::optional<std::string> writeFilesTempPath = std::nullopt,
       const std::optional<std::string> writeFileName = std::nullopt,
       bool validationMode = false)
       : pool_(pool),
         veloxCfg_(veloxCfg),
         inputIters_(inputIters),
+        connectorIds_(std::move(connectorIds)),
         writeFilesTempPath_(writeFilesTempPath),
         writeFileName_(writeFileName),
         validationMode_(validationMode) {
@@ -307,6 +310,8 @@ class SubstraitToVeloxPlanConverter {
 
   /// Input row-vectors for query trace mode (ValuesNode / cuDF ValueStream support)
   std::vector<std::shared_ptr<ResultIterator>> inputIters_;
+
+  VeloxConnectorIds connectorIds_;
 
   /// The temporary path used to write files.
   std::optional<std::string> writeFilesTempPath_;

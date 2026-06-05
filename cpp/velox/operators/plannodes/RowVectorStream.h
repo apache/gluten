@@ -23,7 +23,10 @@
 #include "velox/connectors/Connector.h"
 #include "velox/exec/Driver.h"
 #include "velox/exec/Operator.h"
+#include "velox/exec/OperatorUtils.h"
 #include "velox/exec/Task.h"
+#include "velox/type/Filter.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace gluten {
 
@@ -68,10 +71,17 @@ class ValueStreamDataSource : public facebook::velox::connector::DataSource {
 
   std::optional<facebook::velox::RowVectorPtr> next(uint64_t size, facebook::velox::ContinueFuture& future) override;
 
+  const facebook::velox::common::SubfieldFilters* getFilters() const override {
+    return &emptyFilters_;
+  }
+
   void addDynamicFilter(
       facebook::velox::column_index_t outputChannel,
       const std::shared_ptr<facebook::velox::common::Filter>& filter) override {
-    // Iterator-based sources don't support dynamic filtering
+    if (dynamicFilterEnabled_) {
+      dynamicFilters_[outputChannel] = filter;
+      numDynamicFiltersAccepted_++;
+    }
   }
 
   uint64_t getCompletedBytes() override {
@@ -83,10 +93,26 @@ class ValueStreamDataSource : public facebook::velox::connector::DataSource {
   }
 
   std::unordered_map<std::string, facebook::velox::RuntimeMetric> getRuntimeStats() override {
-    return {};
+    std::unordered_map<std::string, facebook::velox::RuntimeMetric> stats;
+    stats["dynamicFiltersAccepted"] = facebook::velox::RuntimeMetric(numDynamicFiltersAccepted_);
+    if (dynamicFilterInputRows_ > 0) {
+      stats["dynamicFilterInputRows"] = facebook::velox::RuntimeMetric(dynamicFilterInputRows_);
+    }
+    return stats;
   }
 
  private:
+  // Applies dynamic filters to a batch, returning a dictionary-wrapped subset
+  // containing only the rows that pass all filters.
+  facebook::velox::RowVectorPtr applyDynamicFilters(const facebook::velox::RowVectorPtr& input);
+
+  // Evaluates a Filter against a single column vector, deselecting rows that
+  // don't pass.
+  static void applyFilterOnColumn(
+      const std::shared_ptr<facebook::velox::common::Filter>& filter,
+      const facebook::velox::VectorPtr& vector,
+      facebook::velox::SelectivityVector& rows);
+
   const facebook::velox::RowTypePtr outputType_;
   facebook::velox::memory::MemoryPool* pool_;
 
@@ -94,21 +120,35 @@ class ValueStreamDataSource : public facebook::velox::connector::DataSource {
   std::shared_ptr<RowVectorStream> currentIterator_{nullptr};
   uint64_t completedBytes_{0};
   uint64_t completedRows_{0};
+
+  folly::F14FastMap<facebook::velox::column_index_t, std::shared_ptr<facebook::velox::common::Filter>> dynamicFilters_;
+  const facebook::velox::common::SubfieldFilters emptyFilters_;
+  bool dynamicFilterEnabled_{true};
+  uint64_t numDynamicFiltersAccepted_{0};
+  uint64_t dynamicFilterInputRows_{0};
 };
 
 /// Table handle for iterator-based scans
 class ValueStreamTableHandle : public facebook::velox::connector::ConnectorTableHandle {
  public:
-  explicit ValueStreamTableHandle(std::string connectorId) : ConnectorTableHandle(connectorId) {}
+  explicit ValueStreamTableHandle(std::string connectorId, bool dynamicFilterEnabled = true)
+      : ConnectorTableHandle(connectorId), dynamicFilterEnabled_(dynamicFilterEnabled) {}
 
   const std::string& name() const override {
     static const std::string kName = "ValueStreamTableHandle";
     return kName;
   }
 
+  bool dynamicFilterEnabled() const {
+    return dynamicFilterEnabled_;
+  }
+
   folly::dynamic serialize() const override {
     VELOX_NYI();
   }
+
+ private:
+  bool dynamicFilterEnabled_;
 };
 
 /// Column handle for iterator-based scans
@@ -133,10 +173,15 @@ class ValueStreamColumnHandle : public facebook::velox::connector::ColumnHandle 
 /// Connector implementation for iterator-based data sources
 class ValueStreamConnector : public facebook::velox::connector::Connector {
  public:
-  explicit ValueStreamConnector(
+  ValueStreamConnector(
       const std::string& id,
-      std::shared_ptr<const facebook::velox::config::ConfigBase> config)
-      : Connector(id, config) {}
+      std::shared_ptr<const facebook::velox::config::ConfigBase> config,
+      bool dynamicFilterEnabled = false)
+      : Connector(id, config), dynamicFilterEnabled_(dynamicFilterEnabled) {}
+
+  bool canAddDynamicFilter() const override {
+    return dynamicFilterEnabled_;
+  }
 
   std::unique_ptr<facebook::velox::connector::DataSource> createDataSource(
       const facebook::velox::RowTypePtr& outputType,
@@ -153,6 +198,9 @@ class ValueStreamConnector : public facebook::velox::connector::Connector {
       facebook::velox::connector::CommitStrategy commitStrategy) override {
     VELOX_UNSUPPORTED("ValueStreamConnector does not support data sinks");
   }
+
+ private:
+  bool dynamicFilterEnabled_;
 };
 
 /// Factory for creating ValueStreamConnector instances

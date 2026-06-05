@@ -20,12 +20,8 @@ import org.apache.gluten.config.GlutenCoreConfig
 import org.apache.gluten.extension.GlutenColumnarRule
 import org.apache.gluten.extension.columnar.ColumnarRuleApplier
 import org.apache.gluten.extension.columnar.ColumnarRuleApplier.ColumnarRuleCall
-import org.apache.gluten.extension.columnar.cost.GlutenCostModel
-import org.apache.gluten.extension.columnar.enumerated.{EnumeratedApplier, EnumeratedTransform}
 import org.apache.gluten.extension.columnar.heuristic.{HeuristicApplier, HeuristicTransform}
-import org.apache.gluten.ras.rule.RasRule
 
-import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
@@ -36,7 +32,6 @@ import scala.collection.mutable
 class GlutenInjector private[injector] (control: InjectorControl) {
   import GlutenInjector._
   val legacy: LegacyInjector = new LegacyInjector()
-  val ras: RasInjector = new RasInjector()
 
   private[injector] def inject(extensions: SparkSessionExtensions): Unit = {
     extensions.injectColumnar(
@@ -45,9 +40,6 @@ class GlutenInjector private[injector] (control: InjectorControl) {
 
   private def applier(session: SparkSession): ColumnarRuleApplier = {
     val conf = new GlutenCoreConfig(session.sessionState.conf)
-    if (conf.enableRas) {
-      return ras.createApplier(session)
-    }
     legacy.createApplier(session)
   }
 }
@@ -106,45 +98,6 @@ object GlutenInjector {
     def createHeuristicTransform(call: ColumnarRuleCall): HeuristicTransform = {
       val all = transformBuilders.map(_(call))
       HeuristicTransform.withRules(all.toSeq)
-    }
-  }
-
-  class RasInjector extends Logging {
-    private val preTransformBuilders = mutable.Buffer.empty[ColumnarRuleCall => Rule[SparkPlan]]
-    private val rasRuleBuilders = mutable.Buffer.empty[ColumnarRuleCall => RasRule[SparkPlan]]
-    private val postTransformBuilders = mutable.Buffer.empty[ColumnarRuleCall => Rule[SparkPlan]]
-    private val ruleWrappers = mutable.Buffer.empty[Rule[SparkPlan] => Rule[SparkPlan]]
-
-    def injectPreTransform(builder: ColumnarRuleCall => Rule[SparkPlan]): Unit = {
-      preTransformBuilders += builder
-    }
-
-    def injectRasRule(builder: ColumnarRuleCall => RasRule[SparkPlan]): Unit = {
-      rasRuleBuilders += builder
-    }
-
-    def injectPostTransform(builder: ColumnarRuleCall => Rule[SparkPlan]): Unit = {
-      postTransformBuilders += builder
-    }
-
-    def injectRuleWrapper(wrapper: Rule[SparkPlan] => Rule[SparkPlan]): Unit = {
-      ruleWrappers += wrapper
-    }
-
-    private[injector] def createApplier(session: SparkSession): ColumnarRuleApplier = {
-      new EnumeratedApplier(
-        session,
-        (preTransformBuilders ++ Seq(
-          c => createEnumeratedTransform(c)) ++ postTransformBuilders).toSeq,
-        ruleWrappers.toSeq)
-    }
-
-    def createEnumeratedTransform(call: ColumnarRuleCall): EnumeratedTransform = {
-      // Build RAS rules.
-      val rules = rasRuleBuilders.map(_(call))
-      val costModel = GlutenCostModel.find(new GlutenCoreConfig(call.sqlConf).rasCostModel)
-      // Create transform.
-      EnumeratedTransform(costModel, rules.toSeq)
     }
   }
 }

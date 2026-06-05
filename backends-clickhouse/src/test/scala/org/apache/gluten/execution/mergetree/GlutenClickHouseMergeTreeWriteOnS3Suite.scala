@@ -27,10 +27,13 @@ import org.apache.spark.sql.delta.files.TahoeFileIndex
 import org.apache.spark.sql.execution.datasources.mergetree.StorageMeta
 import org.apache.spark.sql.execution.datasources.v2.clickhouse.metadata.AddMergeTreeParts
 
+import org.scalatest.DoNotDiscover
+
 import java.io.File
 
 import scala.concurrent.duration.DurationInt
 
+@DoNotDiscover
 class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
 
   override protected def sparkConf: SparkConf = {

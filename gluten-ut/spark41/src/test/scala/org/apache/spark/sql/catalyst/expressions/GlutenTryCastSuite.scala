@@ -16,17 +16,53 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsTrait
+import org.apache.spark.SparkThrowable
+import org.apache.spark.sql.GlutenExpressionOffloadTracker
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.util.DateTimeTestUtils.{withDefaultTimeZone, ALL_TIMEZONES, UTC, UTC_OPT}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils.{fromJavaTimestamp, millisToMicros, TimeZoneUTC}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.shim.GlutenTestsTrait
 import org.apache.spark.sql.types._
 import org.apache.spark.util.DebuggableThreadUtils
 
 import java.sql.{Date, Timestamp}
 import java.util.{Calendar, TimeZone}
 
-class GlutenTryCastSuite extends TryCastSuite with GlutenTestsTrait {
+import scala.reflect.ClassTag
+
+class GlutenTryCastSuite
+  extends TryCastSuite
+  with GlutenExpressionOffloadTracker
+  with GlutenTestsTrait {
+  override protected def panoramaMeta(expression: Expression): Map[String, String] =
+    expression match {
+      case c: Cast =>
+        Map("fromType" -> c.child.dataType.simpleString, "toType" -> c.dataType.simpleString)
+      case _ => Map.empty
+    }
+  override protected def offloadCategory: String = "cast"
+
+  // TryCastSuite overrides checkExceptionInExpression to checkEvaluation(expr, null)
+  // because TRY mode should return null instead of throwing. GlutenTestsTrait also
+  // overrides it (to glutenCheckExceptionInExpression which expects an exception).
+  // Scala mixin linearization makes GlutenTestsTrait's version win, breaking TRY
+  // semantics. Restore TryCastSuite's original behavior here.
+  override def checkExceptionInExpression[T <: Throwable: ClassTag](
+      expression: => Expression,
+      inputRow: InternalRow,
+      expectedErrMsg: String): Unit = {
+    checkEvaluation(expression, null, inputRow)
+  }
+
+  override def checkErrorInExpression[T <: SparkThrowable: ClassTag](
+      expression: => Expression,
+      inputRow: InternalRow,
+      condition: String,
+      parameters: Map[String, String]): Unit = {
+    checkEvaluation(expression, null, inputRow)
+  }
+
   override def beforeAll(): Unit = {
     super.beforeAll()
     // Need to explicitly set spark.sql.preserveCharVarcharTypeInfo=true for gluten's test

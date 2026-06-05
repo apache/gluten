@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenGroupStateSuite extends GroupStateSuite with GlutenTestsCommonTrait {}
+class GlutenGroupStateSuite extends GroupStateSuite with GlutenTestsTrait {}

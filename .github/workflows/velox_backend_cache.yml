@@ -43,7 +43,7 @@ jobs:
             ccache-centos7-release-default
       - name: Build Gluten native libraries
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7 bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
             export CCACHE_DIR=/work/.ccache
             export CCACHE_MAXSIZE=1G
             mkdir -p /work/.ccache
@@ -126,7 +126,7 @@ jobs:
             ccache-enhanced-centos7-release-default
       - name: Build Gluten native libraries
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7 bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
             export CCACHE_DIR=/work/.ccache
             export CCACHE_MAXSIZE=1G
             mkdir -p /work/.ccache

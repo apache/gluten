@@ -19,7 +19,7 @@
 #include "config.h"
 
 #if USE_HDFS
-#include <Disks/ObjectStorages/HDFS/HDFSObjectStorage.h>
+#include <Disks/DiskObjectStorage/ObjectStorages/HDFS/HDFSObjectStorage.h>
 #endif
 
 namespace local_engine
@@ -39,9 +39,7 @@ public:
     std::unique_ptr<DB::ReadBufferFromFileBase> readObject( /// NOLINT
       const DB::StoredObject & object,
       const DB::ReadSettings & read_settings = DB::ReadSettings{},
-      std::optional<size_t> read_hint = {},
-      std::optional<size_t> file_size = {}) const override;
-    DB::ObjectStorageKey generateObjectKeyForPath(const std::string & path, const std::optional<std::string> & key_prefix) const override;
+      std::optional<size_t> read_hint = {}) const override;
     hdfsFS getHDFSFS() const { return hdfs_fs.get(); }
 };
 #endif

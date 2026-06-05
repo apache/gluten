@@ -17,7 +17,6 @@
 package org.apache.gluten.extension.columnar.cost
 
 import org.apache.gluten.exception.GlutenException
-import org.apache.gluten.extension.columnar.enumerated.planner.plan.GroupLeafExec
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.execution.SparkPlan
@@ -29,7 +28,6 @@ abstract class LongCostModel extends GlutenCostModel {
   private val zeroLongCost = 0
 
   override def costOf(node: SparkPlan): LongCost = node match {
-    case _: GroupLeafExec => throw new IllegalStateException()
     case _ => LongCost(longCostOf(node))
   }
 

@@ -175,14 +175,14 @@ class GlutenNothingValueCheck extends GlutenClickHouseWholeStageTransformerSuite
   test("nothing array in shuffle") {
     val sql =
       """
-        |select t1.k1 as a, t1.k2 as b, t2.k1 as c, t2.k2 as d, t1.x as x from (
-        |   select k1, k2, array() as x from t1
+        |select t1.k1 as a, t1.k2 as b, t2.k1 as c, t2.k2 as d, t1.x as x, t1.o as o from (
+        |   select k1, k2, array() as x, '' as o from t1
         |   union all
-        |   select k1, k2, array(123) as x from t2
+        |   select k1, k2, array(123) as x, '123' as o from t2
         |) t1 left join (
         |   select k1, k2 from t3
         |) t2 on t1.k1 = t2.k1 and t1.k2 = t2.k2
-        |order by t1.k1, t1.k2, t2.k1, t2.k2
+        |order by t1.k1, t1.k2, t2.k1, t2.k2, t1.o
         |""".stripMargin
     compareResultsAgainstVanillaSpark(sql, true, { _ => })
   }

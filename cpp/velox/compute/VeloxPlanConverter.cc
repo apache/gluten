@@ -30,12 +30,20 @@ VeloxPlanConverter::VeloxPlanConverter(
     velox::memory::MemoryPool* veloxPool,
     const facebook::velox::config::ConfigBase* veloxCfg,
     const std::vector<std::shared_ptr<ResultIterator>>& rowVectors,
+    VeloxConnectorIds connectorIds,
     const std::optional<std::string> writeFilesTempPath,
     const std::optional<std::string> writeFileName,
     bool validationMode)
     : validationMode_(validationMode),
       veloxCfg_(veloxCfg),
-      substraitVeloxPlanConverter_(veloxPool, veloxCfg, rowVectors, writeFilesTempPath, writeFileName, validationMode) {
+      substraitVeloxPlanConverter_(
+          veloxPool,
+          veloxCfg,
+          rowVectors,
+          std::move(connectorIds),
+          writeFilesTempPath,
+          writeFileName,
+          validationMode) {
   VELOX_USER_CHECK_NOT_NULL(veloxCfg_);
 }
 

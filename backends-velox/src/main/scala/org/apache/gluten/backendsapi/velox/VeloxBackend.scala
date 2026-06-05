@@ -154,7 +154,7 @@ object VeloxBackendSettings extends BackendSettingsApi {
         case ParquetReadFormat =>
           val parquetOptions = new ParquetOptions(CaseInsensitiveMap(properties), SQLConf.get)
           if (parquetOptions.mergeSchema) {
-            // https://github.com/apache/incubator-gluten/issues/7174
+            // https://github.com/apache/gluten/issues/7174
             Some(s"not support when merge schema is true")
           } else {
             None
@@ -207,12 +207,27 @@ object VeloxBackendSettings extends BackendSettingsApi {
         // Only Parquet is needed for metadata validation so far.
         return None
       }
+      // Skip root paths that do not exist yet (e.g., during INSERT operations where
+      // the target directory may not be created yet). Do not filter out local
+      // (file://) paths here because metadata validation is independent of native
+      // file system registration and must still run for local paths in test envs.
+      val existingRootPaths = rootPaths.filter {
+        p =>
+          try {
+            val path = new Path(p)
+            path.getFileSystem(hadoopConf).exists(path)
+          } catch {
+            case _: Exception => false
+          }
+      }
+      if (existingRootPaths.isEmpty) {
+        return None
+      }
       val fileLimit = GlutenConfig.get.parquetMetadataFallbackFileLimit
       val parquetOptions = new ParquetOptions(CaseInsensitiveMap(properties), SQLConf.get)
-      val parquetMetadataValidationResult =
-        ParquetMetadataUtils.validateMetadata(rootPaths, hadoopConf, parquetOptions, fileLimit)
-      parquetMetadataValidationResult.map(
-        reason => s"Detected unsupported metadata in parquet files: $reason")
+      ParquetMetadataUtils
+        .validateMetadata(existingRootPaths, hadoopConf, parquetOptions, fileLimit)
+        .map(reason => s"Detected unsupported metadata in parquet files: $reason")
     }
 
     def validateDataSchema(): Option[String] = {
@@ -285,27 +300,25 @@ object VeloxBackendSettings extends BackendSettingsApi {
       isPartitionedTable: Boolean,
       options: Map[String, String]): ValidationResult = {
 
-    // Validate if HiveFileFormat write is supported based on output file type
-    def validateHiveFileFormat(hiveFileFormat: HiveFileFormat): Option[String] = {
-      // Reflect to get access to fileSinkConf which contains the output file format
-      val fileSinkConfField = format.getClass.getDeclaredField("fileSinkConf")
-      fileSinkConfField.setAccessible(true)
-      val fileSinkConf = fileSinkConfField.get(hiveFileFormat)
-      val tableInfoField = fileSinkConf.getClass.getDeclaredField("tableInfo")
-      tableInfoField.setAccessible(true)
-      val tableInfo = tableInfoField.get(fileSinkConf)
-      val getOutputFileFormatClassNameMethod = tableInfo.getClass
-        .getDeclaredMethod("getOutputFileFormatClassName")
-      val outputFileFormatClassName = getOutputFileFormatClassNameMethod.invoke(tableInfo)
-
-      // Match based on the output file format class name
-      outputFileFormatClassName match {
-        case "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat" =>
-          None
-        case _ =>
-          Some(
-            "HiveFileFormat is supported only with Parquet as the output file type"
-          ) // Unsupported format
+    def validateFileFormat(): Option[String] = {
+      format match {
+        case _: ParquetFileFormat => None
+        case h: HiveFileFormat if GlutenConfig.get.enableHiveFileFormatWriter =>
+          // Validate HiveFileFormat is backed by Parquet
+          val fileSinkConfField = format.getClass.getDeclaredField("fileSinkConf")
+          fileSinkConfField.setAccessible(true)
+          val fileSinkConf = fileSinkConfField.get(h)
+          val tableInfoField = fileSinkConf.getClass.getDeclaredField("tableInfo")
+          tableInfoField.setAccessible(true)
+          val tableInfo = tableInfoField.get(fileSinkConf)
+          val outputFormat = tableInfo.getClass
+            .getDeclaredMethod("getOutputFileFormatClassName")
+            .invoke(tableInfo)
+          outputFormat match {
+            case "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat" => None
+            case _ => Some("HiveFileFormat is supported only with Parquet as the output file type")
+          }
+        case _ => Some("Only ParquetFileFormat and HiveFileFormat are supported.")
       }
     }
 
@@ -316,55 +329,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
         Some(s"$compressionCodec compression codec is unsupported in Velox backend.")
       } else {
         None
-      }
-    }
-
-    // Validate if all types are supported.
-    def validateDataTypes(): Option[String] = {
-      val unsupportedTypes = format match {
-        case _: ParquetFileFormat =>
-          fields.flatMap {
-            case StructField(_, _: YearMonthIntervalType, _, _) =>
-              Some("YearMonthIntervalType")
-            case StructField(_, _: StructType, _, _) =>
-              Some("StructType")
-            case _ => None
-          }
-        case _ =>
-          fields.flatMap {
-            field =>
-              field.dataType match {
-                case _: StructType => Some("StructType")
-                case _: ArrayType => Some("ArrayType")
-                case _: MapType => Some("MapType")
-                case _: YearMonthIntervalType => Some("YearMonthIntervalType")
-                case _ => None
-              }
-          }
-      }
-      if (unsupportedTypes.nonEmpty) {
-        Some(unsupportedTypes.mkString("Found unsupported type:", ",", ""))
-      } else {
-        None
-      }
-    }
-
-    def validateFieldMetadata(): Option[String] = {
-      fields.find(_.metadata != Metadata.empty).map {
-        filed =>
-          s"StructField contain the metadata information: $filed, metadata: ${filed.metadata}"
-      }
-    }
-
-    def validateFileFormat(): Option[String] = {
-      format match {
-        case _: ParquetFileFormat => None // Parquet is directly supported
-        case h: HiveFileFormat if GlutenConfig.get.enableHiveFileFormatWriter =>
-          validateHiveFileFormat(h) // Parquet via Hive SerDe
-        case _ =>
-          Some(
-            "Only ParquetFileFormat and HiveFileFormat are supported."
-          ) // Unsupported format
       }
     }
 
@@ -395,8 +359,35 @@ object VeloxBackendSettings extends BackendSettingsApi {
       }
     }
 
-    validateCompressionCodec()
-      .orElse(validateFileFormat())
+    def validateDataTypes(): Option[String] = {
+      def hasUnsupportedType(dt: DataType): Boolean = dt match {
+        case _: YearMonthIntervalType => true
+        case st: StructType => st.fields.exists(f => hasUnsupportedType(f.dataType))
+        case at: ArrayType => hasUnsupportedType(at.elementType)
+        case mt: MapType => hasUnsupportedType(mt.keyType) || hasUnsupportedType(mt.valueType)
+        case _ => false
+      }
+
+      val unsupported = fields.filter(f => hasUnsupportedType(f.dataType))
+      if (unsupported.nonEmpty) {
+        Some(
+          unsupported
+            .map(_.dataType.simpleString)
+            .mkString("Found unsupported type:", ",", ""))
+      } else {
+        None
+      }
+    }
+
+    def validateFieldMetadata(): Option[String] = {
+      fields.find(_.metadata != Metadata.empty).map {
+        filed =>
+          s"StructField contain the metadata information: $filed, metadata: ${filed.metadata}"
+      }
+    }
+
+    validateFileFormat()
+      .orElse(validateCompressionCodec())
       .orElse(validateFieldMetadata())
       .orElse(validateDataTypes())
       .orElse(validateWriteFilesOptions())
@@ -404,14 +395,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
       case Some(reason) => ValidationResult.failed(reason)
       case _ => ValidationResult.succeeded
     }
-  }
-
-  override def supportNativeWrite(fields: Array[StructField]): Boolean = {
-    def isNotSupported(dataType: DataType): Boolean = dataType match {
-      case _: StructType | _: ArrayType | _: MapType => true
-      case _ => false
-    }
-    !fields.exists(field => isNotSupported(field.dataType))
   }
 
   override def supportExpandExec(): Boolean = true
@@ -565,10 +548,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
     GlutenConfig.get.enableNativeWriter.getOrElse(
       SparkShimLoader.getSparkShims.enableNativeWriteFilesByDefault()
     )
-  }
-
-  override def enableNativeArrowReadFiles(): Boolean = {
-    GlutenConfig.get.enableNativeArrowReader
   }
 
   override def shouldRewriteCount(): Boolean = {

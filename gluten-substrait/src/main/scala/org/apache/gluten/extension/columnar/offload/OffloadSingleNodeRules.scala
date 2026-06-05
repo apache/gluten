@@ -215,7 +215,7 @@ object OffloadOthers {
         case plan: HashAggregateExec =>
           HashAggregateExecBaseTransformer.from(plan)
         case plan: SortAggregateExec =>
-          HashAggregateExecBaseTransformer.from(plan)
+          HashAggregateExecBaseTransformer.fromSortAggregate(plan)
         case plan: ObjectHashAggregateExec =>
           HashAggregateExecBaseTransformer.from(plan)
         case plan: UnionExec =>

@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.extension.columnar.rewrite
 
+import org.apache.spark.sql.catalyst.expressions.AttributeSet
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan, UnaryExecNode}
 
 /**
@@ -30,10 +31,16 @@ object ProjectColumnPruning extends RewriteSingleNode {
     }
   }
 
+  private def getReferences(plan: SparkPlan): AttributeSet = {
+    // SPARK-55979 - aggregate.references is unreliable.
+    AttributeSet(plan.expressions) -- (plan.producedAttributes -- plan.children.flatMap(
+      _.outputSet))
+  }
+
   override def rewrite(plan: SparkPlan): SparkPlan = plan match {
     case parent: UnaryExecNode if parent.child.isInstanceOf[ProjectExec] =>
       val project = parent.child.asInstanceOf[ProjectExec]
-      val unusedAttribute = project.outputSet -- (parent.references ++ parent.outputSet)
+      val unusedAttribute = project.outputSet -- (getReferences(parent) ++ parent.outputSet)
 
       if (unusedAttribute.nonEmpty) {
         val newProject = project.copy(projectList = project.projectList.diff(unusedAttribute.toSeq))

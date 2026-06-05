@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.execution.metric
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenTestsTrait
 
-class GlutenCustomMetricsSuite extends CustomMetricsSuite with GlutenTestsCommonTrait {}
+class GlutenCustomMetricsSuite extends CustomMetricsSuite with GlutenTestsTrait {}

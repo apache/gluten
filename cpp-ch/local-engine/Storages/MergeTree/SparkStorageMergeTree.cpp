@@ -16,6 +16,7 @@
  */
 #include "SparkStorageMergeTree.h"
 
+#include <Core/Settings.h>
 #include <Disks/ObjectStorages/CompactObjectStorageDiskTransaction.h>
 #include <Disks/SingleDiskVolume.h>
 #include <Interpreters/ExpressionActions.h>
@@ -33,6 +34,10 @@ extern const Event LoadedDataPartsMicroseconds;
 
 namespace DB
 {
+namespace Setting
+{
+extern const SettingsBool optimize_on_insert;
+}
 namespace MergeTreeSetting
 {
 extern const MergeTreeSettingsBool assign_part_uuids;
@@ -290,7 +295,7 @@ MergeTreeData::LoadPartResult SparkStorageMergeTree::loadDataPart(
 
     // without it "test mergetree optimize partitioned by one low card column" will log ERROR
     resetColumnSizes();
-    calculateColumnAndSecondaryIndexSizesImpl();
+    calculateColumnAndSecondaryIndexSizesImpl(parts_lock);
 
     LOG_TRACE(log, "Finished loading {} part {} on disk {}", magic_enum::enum_name(to_state), part_name, part_disk_ptr->getName());
     return res;
@@ -299,7 +304,7 @@ MergeTreeData::LoadPartResult SparkStorageMergeTree::loadDataPart(
 void SparkStorageMergeTree::removePartFromMemory(const MergeTreeData::DataPart & part_to_detach)
 {
     auto lock = lockParts();
-    bool removed_active_part = false;
+    // bool removed_active_part = false;
     bool restored_active_part = false;
 
     auto it_part = data_parts_by_info.find(part_to_detach.info);
@@ -317,15 +322,16 @@ void SparkStorageMergeTree::removePartFromMemory(const MergeTreeData::DataPart &
     if (part->getState() == DataPartState::Active)
     {
         removePartContributionToColumnAndSecondaryIndexSizes(part);
-        removed_active_part = true;
+        // removed_active_part = true;
     }
 
-    modifyPartState(it_part, DataPartState::Deleting);
+    modifyPartState(it_part, DataPartState::Deleting, lock);
     LOG_TEST(log, "removePartFromMemory: removing {} from data_parts_indexes", part->getNameWithState());
     data_parts_indexes.erase(it_part);
 
-    if (removed_active_part || restored_active_part)
-        resetObjectColumnsFromActiveParts(lock);
+    // TODO: rebase-25.12, remove first, the function 'resetObjectColumnsFromActiveParts' has been removed.
+    // if (removed_active_part || restored_active_part)
+    //     resetObjectColumnsFromActiveParts(lock);
 }
 
 void SparkStorageMergeTree::dropPartNoWaitNoThrow(const String & /*part_name*/)
@@ -402,9 +408,15 @@ MergeTreeTemporaryPartPtr SparkMergeTreeDataWriter::writeTempPart(
     auto minmax_idx = std::make_shared<IMergeTreeDataPart::MinMaxIndex>();
     minmax_idx->update(block, MergeTreeData::getMinMaxColumnsNames(metadata_snapshot->getPartitionKey()));
 
+    const auto & global_settings = context->getSettingsRef();
+    const MergeTreeSettingsPtr & data_settings = data.getSettings();
+    bool optimize_on_insert = global_settings[Setting::optimize_on_insert]
+        && data.merging_params.mode != MergeTreeData::MergingParams::Ordinary;
+    UInt32 new_part_level = optimize_on_insert ? 1 : 0;
+
     MergeTreePartition partition(block_with_partition.partition);
 
-    MergeTreePartInfo new_part_info(partition.getID(metadata_snapshot->getPartitionKey().sample_block), 1, 1, 0);
+    MergeTreePartInfo new_part_info(partition.getID(metadata_snapshot->getPartitionKey().sample_block), 1, 1, new_part_level);
 
     temp_part->temporary_directory_lock = data.getTemporaryPartDirectoryHolder(part_dir);
 
@@ -447,16 +459,17 @@ MergeTreeTemporaryPartPtr SparkMergeTreeDataWriter::writeTempPart(
     VolumePtr volume = data.getStoragePolicy()->getVolume(0);
     VolumePtr data_part_volume = std::make_shared<SingleDiskVolume>(volume->getName(), volume->getDisk(), volume->max_data_part_size);
     auto new_data_part = data.getDataPartBuilder(part_dir, data_part_volume, part_dir, context->getReadSettings())
-                             .withPartFormat(data.choosePartFormat(expected_size, block.rows()))
+                             .withPartFormat(data.choosePartFormat(expected_size, block.rows(), new_part_level, nullptr))
                              .withPartInfo(new_part_info)
                              .build();
 
     auto data_part_storage = new_data_part->getDataPartStoragePtr();
 
-
-    const MergeTreeSettings & data_settings = *data.getSettings();
-
-    SerializationInfo::Settings settings{data_settings[MergeTreeSetting::ratio_of_defaults_for_sparse_serialization], true};
+    // TODO: rebase-25.12, the versions are right?
+    MergeTreeSerializationInfoVersion version = MergeTreeSerializationInfoVersion::BASIC;
+    MergeTreeStringSerializationVersion string_serialization_version = MergeTreeStringSerializationVersion::SINGLE_STREAM;
+    MergeTreeNullableSerializationVersion nullable_serialization_version = MergeTreeNullableSerializationVersion::BASIC;
+    SerializationInfo::Settings settings{(*data_settings)[MergeTreeSetting::ratio_of_defaults_for_sparse_serialization], true, version, string_serialization_version, nullable_serialization_version};
     SerializationInfoByName infos(columns, settings);
     infos.add(block);
 
@@ -467,7 +480,7 @@ MergeTreeTemporaryPartPtr SparkMergeTreeDataWriter::writeTempPart(
 
     data_part_storage->beginTransaction();
 
-    if (data_settings[MergeTreeSetting::assign_part_uuids])
+    if ((*data_settings)[MergeTreeSetting::assign_part_uuids])
         new_data_part->uuid = UUIDHelpers::generateV4();
 
     SyncGuardPtr sync_guard;
@@ -483,7 +496,7 @@ MergeTreeTemporaryPartPtr SparkMergeTreeDataWriter::writeTempPart(
 
     data_part_storage->createDirectories();
 
-    if ((*data.getSettings())[MergeTreeSetting::fsync_part_directory])
+    if ((*data_settings)[MergeTreeSetting::fsync_part_directory])
     {
         const auto disk = data_part_volume->getDisk();
         sync_guard = disk->getDirectorySyncGuard(full_path);
@@ -501,6 +514,7 @@ MergeTreeTemporaryPartPtr SparkMergeTreeDataWriter::writeTempPart(
         /*blocks_are_granules=*/false);
     auto out = std::make_unique<MergedBlockOutputStream>(
         new_data_part,
+        data_settings,
         metadata_snapshot,
         columns,
         indices,
@@ -514,7 +528,7 @@ MergeTreeTemporaryPartPtr SparkMergeTreeDataWriter::writeTempPart(
         context->getWriteSettings());
 
     out->writeWithPermutation(block, perm_ptr);
-    auto finalizer = out->finalizePartAsync(new_data_part, data_settings[MergeTreeSetting::fsync_after_insert], nullptr, nullptr);
+    auto finalizer = out->finalizePartAsync(new_data_part, (*data_settings)[MergeTreeSetting::fsync_after_insert], nullptr, nullptr);
 
     temp_part->part = new_data_part;
     temp_part->streams.emplace_back(MergeTreeTemporaryPart::Stream{.stream = std::move(out), .finalizer = std::move(finalizer)});

@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenRowJsonSuite extends RowJsonSuite with GlutenTestsCommonTrait {}
+class GlutenRowJsonSuite extends RowJsonSuite with GlutenTestsTrait {}

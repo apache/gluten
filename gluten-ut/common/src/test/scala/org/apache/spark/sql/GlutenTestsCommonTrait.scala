@@ -16,34 +16,10 @@
  */
 package org.apache.spark.sql
 
-import org.apache.gluten.test.TestStats
-
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions._
-
-import org.scalatest.{Args, Status}
 
 trait GlutenTestsCommonTrait
   extends SparkFunSuite
   with ExpressionEvalHelper
-  with GlutenTestsBaseTrait {
-
-  override def runTest(testName: String, args: Args): Status = {
-    TestStats.suiteTestNumber += 1
-    TestStats.offloadGluten = true
-    TestStats.startCase(testName)
-    val status = super.runTest(testName, args)
-    if (TestStats.offloadGluten) {
-      TestStats.offloadGlutenTestNumber += 1
-      print("'" + testName + "'" + " offload to gluten\n")
-    } else {
-      // you can find the keyword 'Validation failed for' in function doValidate() in log
-      // to get the fallback reason
-      print("'" + testName + "'" + " NOT use gluten\n")
-      TestStats.addFallBackCase()
-    }
-
-    TestStats.endCase(status.succeeds());
-    status
-  }
-}
+  with GlutenTestsBaseTrait {}

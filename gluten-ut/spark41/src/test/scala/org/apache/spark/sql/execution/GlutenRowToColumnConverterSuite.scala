@@ -16,8 +16,6 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenRowToColumnConverterSuite
-  extends RowToColumnConverterSuite
-  with GlutenTestsCommonTrait {}
+class GlutenRowToColumnConverterSuite extends RowToColumnConverterSuite with GlutenTestsTrait {}

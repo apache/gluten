@@ -28,7 +28,8 @@ function(add_velox_test TEST_EXEC)
   add_executable(${TEST_EXEC} ${SOURCES} ${VELOX_TEST_COMMON_SRCS})
   target_include_directories(${TEST_EXEC} PRIVATE ${CMAKE_SOURCE_DIR}/velox
                                                   ${CMAKE_SOURCE_DIR}/src)
-  target_link_libraries(${TEST_EXEC} velox GTest::gtest GTest::gtest_main)
+  target_link_libraries(${TEST_EXEC} velox ${GLUTEN_ROARING_LINK_LIBRARY}
+                        GTest::gtest GTest::gtest_main)
   if(ENABLE_GPU)
     target_link_libraries(${TEST_EXEC} velox_curl)
   endif()
@@ -82,8 +83,9 @@ if(ENABLE_GPU)
              facebook::velox::velox_cudf_exec
              facebook::velox::velox_cudf_vector
              facebook::velox::velox_cudf_hive_connector)
-    target_link_libraries(${TEST_EXEC} PRIVATE velox cudf::cudf velox_curl
-                                               GTest::gtest GTest::gtest_main)
+    target_link_libraries(
+      ${TEST_EXEC} PRIVATE velox ${GLUTEN_ROARING_LINK_LIBRARY} cudf::cudf
+                           velox_curl GTest::gtest GTest::gtest_main)
     gtest_discover_tests(
       ${TEST_EXEC} DISCOVERY_MODE PRE_TEST
       PROPERTIES LABELS "cuda_driver"
@@ -97,6 +99,9 @@ endif()
 set(VELOX_TEST_COMMON_SRCS JsonToProtoConverter.cc FilePathGenerator.cc)
 
 add_velox_test(velox_shuffle_writer_test SOURCES VeloxShuffleWriterTest.cc)
+
+add_velox_test(velox_hash_shuffle_writer_input_encoding_test SOURCES
+               VeloxHashShuffleWriterInputEncodingTest.cc)
 
 add_velox_test(velox_shuffle_writer_spill_test SOURCES
                VeloxShuffleWriterSpillTest.cc)
@@ -115,7 +120,8 @@ add_velox_test(
   VeloxRowToColumnarTest.cc
   VeloxColumnarBatchSerializerTest.cc
   VeloxColumnarBatchTest.cc
-  VeloxBatchResizerTest.cc)
+  VeloxBatchResizerTest.cc
+  ValueStreamDynamicFilterTest.cc)
 add_velox_test(
   velox_plan_conversion_test
   SOURCES
@@ -131,6 +137,7 @@ add_velox_test(spark_functions_test SOURCES SparkFunctionTest.cc
 add_velox_test(runtime_test SOURCES RuntimeTest.cc)
 add_velox_test(velox_memory_test SOURCES MemoryManagerTest.cc)
 add_velox_test(buffer_outputstream_test SOURCES BufferOutputStreamTest.cc)
+add_velox_test(scoped_timer_test SOURCES ScopedTimerTest.cc)
 if(BUILD_EXAMPLES)
   add_velox_test(my_udf_test SOURCES MyUdfTest.cc)
 endif()

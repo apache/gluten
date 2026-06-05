@@ -138,7 +138,7 @@ void CrossRelParser::renamePlanColumns(DB::QueryPlan & left, DB::QueryPlan & rig
     if (right_ori_header.size() > 0 && right_ori_header[0].name != BlockUtil::VIRTUAL_ROW_COUNT_COLUMN)
     {
         ActionsDAG right_project = ActionsDAG::makeConvertingActions(
-            right_ori_header, storage_join.getRightSampleBlock().getColumnsWithTypeAndName(), ActionsDAG::MatchColumnsMode::Position);
+            right_ori_header, storage_join.getRightSampleBlock().getColumnsWithTypeAndName(), ActionsDAG::MatchColumnsMode::Position, getContext());
         QueryPlanStepPtr project_step = std::make_unique<ExpressionStep>(right.getCurrentHeader(), std::move(right_project));
         project_step->setStepDescription("Rename Broadcast Table Name");
         steps.emplace_back(project_step.get());
@@ -157,7 +157,7 @@ void CrossRelParser::renamePlanColumns(DB::QueryPlan & left, DB::QueryPlan & rig
         else
             new_left_cols.emplace_back(col.column, col.type, col.name);
     auto left_header = left.getCurrentHeader()->getColumnsWithTypeAndName();
-    ActionsDAG left_project = ActionsDAG::makeConvertingActions(left_header, new_left_cols, ActionsDAG::MatchColumnsMode::Position);
+    ActionsDAG left_project = ActionsDAG::makeConvertingActions(left_header, new_left_cols, ActionsDAG::MatchColumnsMode::Position, getContext());
 
     QueryPlanStepPtr project_step = std::make_unique<ExpressionStep>(left.getCurrentHeader(), std::move(left_project));
     project_step->setStepDescription("Rename Left Table Name for broadcast join");
@@ -322,7 +322,7 @@ void CrossRelParser::addConvertStep(TableJoin & table_join, DB::QueryPlan & left
     std::optional<ActionsDAG> left_convert_actions;
     std::optional<ActionsDAG> right_convert_actions;
     std::tie(left_convert_actions, right_convert_actions) = table_join.createConvertingActions(
-        left.getCurrentHeader()->getColumnsWithTypeAndName(), right.getCurrentHeader()->getColumnsWithTypeAndName());
+        left.getCurrentHeader()->getColumnsWithTypeAndName(), right.getCurrentHeader()->getColumnsWithTypeAndName(), getContext());
 
     if (right_convert_actions)
     {

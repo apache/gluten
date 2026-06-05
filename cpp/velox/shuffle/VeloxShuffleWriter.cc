@@ -44,7 +44,7 @@ arrow::Result<std::shared_ptr<VeloxShuffleWriter>> VeloxShuffleWriter::create(
     case ShuffleWriterType::kGpuHashShuffle:
       return VeloxGpuHashShuffleWriter::create(numPartitions, std::move(partitionWriter), options, memoryManager);
 #endif
-      default:
+    default:
       return arrow::Status::Invalid("Unsupported shuffle writer type: ", typeToString(type));
   }
 }

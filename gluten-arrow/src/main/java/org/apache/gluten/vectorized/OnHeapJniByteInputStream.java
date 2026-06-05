@@ -24,6 +24,7 @@ import java.io.InputStream;
 public class OnHeapJniByteInputStream implements JniByteInputStream {
   private final InputStream in;
   private long bytesRead = 0L;
+  private byte[] buf = new byte[0];
 
   public OnHeapJniByteInputStream(InputStream in) {
     this.in = in;
@@ -32,15 +33,17 @@ public class OnHeapJniByteInputStream implements JniByteInputStream {
   @Override
   public long read(long destAddress, long maxSize) {
     int maxSize32 = Math.toIntExact(maxSize);
-    byte[] tmp = new byte[maxSize32];
+    if (buf.length < maxSize32) {
+      buf = new byte[maxSize32];
+    }
     try {
       // The code conducts copy as long as 'in' wraps off-heap data,
       // which is about to be moved to heap
-      int read = in.read(tmp);
+      int read = in.read(buf, 0, maxSize32);
       if (read == -1 || read == 0) {
         return 0;
       }
-      memCopyFromHeap(tmp, destAddress, read); // The code conducts copy, from heap to off-heap
+      memCopyFromHeap(buf, destAddress, read); // The code conducts copy, from heap to off-heap
       bytesRead += read;
       return read;
     } catch (IOException e) {

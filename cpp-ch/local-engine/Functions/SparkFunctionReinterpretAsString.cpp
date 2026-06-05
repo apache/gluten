@@ -84,7 +84,8 @@ namespace
             {
                 /// Transform little-endian in input to big-endian in output
                 /// NOTE: We don't need do the transform for string type
-                String data = src.getDataAt(i).toString();
+                auto str_data = src.getDataAt(i);
+                String data = String(str_data.data(), str_data.size());
                 if (!is_string_type)
                     std::reverse(data.begin(), data.end());
 

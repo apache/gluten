@@ -226,7 +226,7 @@ case class ColumnarArrowEvalPythonExec(
 
   override def batchType(): Convention.BatchType = ArrowJavaBatchType
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 
   override protected def doValidateInternal(): ValidationResult = {
     val (_, inputs) = udfs.map(ColumnarArrowEvalPythonExec.collectFunctions).unzip

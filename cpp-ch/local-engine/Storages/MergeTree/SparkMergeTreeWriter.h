@@ -56,7 +56,7 @@ public:
     create(const MergeTreeTable & merge_tree_table, const DB::ContextMutablePtr & context, const std::string & spark_job_id);
 
     SparkMergeTreeWriter(
-        const DB::Block & header_, const SinkHelper & sink_helper_, DB::QueryPipeline && pipeline_, const std::string & spark_job_id_);
+        const DB::Block & header_, const SinkHelper & sink_helper_, DB::QueryPipeline && pipeline_, const std::string & spark_job_id_, const DB::ContextPtr & context_);
 
     void write(const DB::Block & block) override;
     void close() override;
@@ -70,6 +70,7 @@ private:
     DB::QueryPipeline pipeline;
     DB::PushingPipelineExecutor executor;
     const std::string spark_job_id;
+    const DB::ContextPtr context;
 
     std::vector<PartInfo> getAllPartInfo() const;
 };

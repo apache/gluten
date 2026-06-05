@@ -54,7 +54,6 @@ class SharedLibraryLoaderDebian12 extends SharedLibraryLoader {
     loader.loadAndCreateLink("libglog.so.1", "libglog.so")
     loader.loadAndCreateLink("libevent-2.1.so.7", "libevent-2.1.so")
     loader.loadAndCreateLink("libcurl.so.4", "libcurl.so")
-    loader.loadAndCreateLink("libprotobuf.so.32", "libprotobuf.so")
   }
 
 }

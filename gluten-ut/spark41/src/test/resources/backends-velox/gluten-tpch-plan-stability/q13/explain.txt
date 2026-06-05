@@ -1,0 +1,179 @@
+== Physical Plan ==
+VeloxColumnarToRow (35)
++- ^ SortExecTransformer (33)
+   +- ^ InputIteratorTransformer (32)
+      +- ColumnarExchange (30)
+         +- VeloxResizeBatches (29)
+            +- ^ RegularHashAggregateExecTransformer (27)
+               +- ^ InputIteratorTransformer (26)
+                  +- ColumnarExchange (24)
+                     +- VeloxResizeBatches (23)
+                        +- ^ ProjectExecTransformer (21)
+                           +- ^ FlushableHashAggregateExecTransformer (20)
+                              +- ^ ProjectExecTransformer (19)
+                                 +- ^ RegularHashAggregateExecTransformer (18)
+                                    +- ^ InputIteratorTransformer (17)
+                                       +- ColumnarExchange (15)
+                                          +- VeloxResizeBatches (14)
+                                             +- ^ ProjectExecTransformer (12)
+                                                +- ^ FlushableHashAggregateExecTransformer (11)
+                                                   +- ^ ProjectExecTransformer (10)
+                                                      +- ^ BroadcastHashJoinExecTransformer LeftOuter BuildRight (9)
+                                                         :- ^ FileSourceScanExecTransformer parquet spark_catalog.default.customer (1)
+                                                         +- ^ InputIteratorTransformer (8)
+                                                            +- ColumnarBroadcastExchange (6)
+                                                               +- ^ ProjectExecTransformer (4)
+                                                                  +- ^ FilterExecTransformer (3)
+                                                                     +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.orders (2)
+
+
+(1) FileSourceScanExecTransformer parquet spark_catalog.default.customer
+Output [1]: [c_custkey#1]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/customer]
+ReadSchema: struct<c_custkey:bigint>
+
+(2) FileSourceScanExecTransformer parquet spark_catalog.default.orders
+Output [3]: [o_orderkey#2, o_custkey#3, o_comment#4]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/orders]
+PushedFilters: [IsNotNull(o_comment), IsNotNull(o_custkey)]
+ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint,o_comment:string>
+
+(3) FilterExecTransformer
+Input [3]: [o_orderkey#2, o_custkey#3, o_comment#4]
+Arguments: ((isnotnull(o_comment#4) AND NOT o_comment#4 LIKE %special%requests%) AND isnotnull(o_custkey#3))
+
+(4) ProjectExecTransformer
+Output [2]: [o_orderkey#2, o_custkey#3]
+Input [3]: [o_orderkey#2, o_custkey#3, o_comment#4]
+
+(5) WholeStageCodegenTransformer (1)
+Input [2]: [o_orderkey#2, o_custkey#3]
+Arguments: false
+
+(6) ColumnarBroadcastExchange
+Input [2]: [o_orderkey#2, o_custkey#3]
+Arguments: HashedRelationBroadcastMode(List(input[1, bigint, true]),false), [plan_id=1]
+
+(7) InputAdapter
+Input [2]: [o_orderkey#2, o_custkey#3]
+
+(8) InputIteratorTransformer
+Input [2]: [o_orderkey#2, o_custkey#3]
+
+(9) BroadcastHashJoinExecTransformer
+Left keys [1]: [c_custkey#1]
+Right keys [1]: [o_custkey#3]
+Join type: LeftOuter
+Join condition: None
+
+(10) ProjectExecTransformer
+Output [2]: [c_custkey#1, o_orderkey#2]
+Input [3]: [c_custkey#1, o_orderkey#2, o_custkey#3]
+
+(11) FlushableHashAggregateExecTransformer
+Input [2]: [c_custkey#1, o_orderkey#2]
+Keys [1]: [c_custkey#1]
+Functions [1]: [partial_count(o_orderkey#2)]
+Aggregate Attributes [1]: [count#5]
+Results [2]: [c_custkey#1, count#6]
+
+(12) ProjectExecTransformer
+Output [3]: [hash(c_custkey#1, 42) AS hash_partition_key#7, c_custkey#1, count#6]
+Input [2]: [c_custkey#1, count#6]
+
+(13) WholeStageCodegenTransformer (2)
+Input [3]: [hash_partition_key#7, c_custkey#1, count#6]
+Arguments: false
+
+(14) VeloxResizeBatches
+Input [3]: [hash_partition_key#7, c_custkey#1, count#6]
+Arguments: 1024, 2147483647, 10485760
+
+(15) ColumnarExchange
+Input [3]: [hash_partition_key#7, c_custkey#1, count#6]
+Arguments: hashpartitioning(c_custkey#1, 1), ENSURE_REQUIREMENTS, [c_custkey#1, count#6], [plan_id=2], [shuffle_writer_type=hash]
+
+(16) InputAdapter
+Input [2]: [c_custkey#1, count#6]
+
+(17) InputIteratorTransformer
+Input [2]: [c_custkey#1, count#6]
+
+(18) RegularHashAggregateExecTransformer
+Input [2]: [c_custkey#1, count#6]
+Keys [1]: [c_custkey#1]
+Functions [1]: [count(o_orderkey#2)]
+Aggregate Attributes [1]: [count(o_orderkey#2)#8]
+Results [2]: [c_custkey#1, count(o_orderkey#2)#8]
+
+(19) ProjectExecTransformer
+Output [1]: [count(o_orderkey#2)#8 AS c_count#9]
+Input [2]: [c_custkey#1, count(o_orderkey#2)#8]
+
+(20) FlushableHashAggregateExecTransformer
+Input [1]: [c_count#9]
+Keys [1]: [c_count#9]
+Functions [1]: [partial_count(1)]
+Aggregate Attributes [1]: [count#10]
+Results [2]: [c_count#9, count#11]
+
+(21) ProjectExecTransformer
+Output [3]: [hash(c_count#9, 42) AS hash_partition_key#12, c_count#9, count#11]
+Input [2]: [c_count#9, count#11]
+
+(22) WholeStageCodegenTransformer (3)
+Input [3]: [hash_partition_key#12, c_count#9, count#11]
+Arguments: false
+
+(23) VeloxResizeBatches
+Input [3]: [hash_partition_key#12, c_count#9, count#11]
+Arguments: 1024, 2147483647, 10485760
+
+(24) ColumnarExchange
+Input [3]: [hash_partition_key#12, c_count#9, count#11]
+Arguments: hashpartitioning(c_count#9, 1), ENSURE_REQUIREMENTS, [c_count#9, count#11], [plan_id=3], [shuffle_writer_type=hash]
+
+(25) InputAdapter
+Input [2]: [c_count#9, count#11]
+
+(26) InputIteratorTransformer
+Input [2]: [c_count#9, count#11]
+
+(27) RegularHashAggregateExecTransformer
+Input [2]: [c_count#9, count#11]
+Keys [1]: [c_count#9]
+Functions [1]: [count(1)]
+Aggregate Attributes [1]: [count(1)#13]
+Results [2]: [c_count#9, count(1)#13 AS custdist#14]
+
+(28) WholeStageCodegenTransformer (4)
+Input [2]: [c_count#9, custdist#14]
+Arguments: false
+
+(29) VeloxResizeBatches
+Input [2]: [c_count#9, custdist#14]
+Arguments: 1024, 2147483647, 10485760
+
+(30) ColumnarExchange
+Input [2]: [c_count#9, custdist#14]
+Arguments: rangepartitioning(custdist#14 DESC NULLS LAST, c_count#9 DESC NULLS LAST, 1), ENSURE_REQUIREMENTS, [plan_id=4], [shuffle_writer_type=hash]
+
+(31) InputAdapter
+Input [2]: [c_count#9, custdist#14]
+
+(32) InputIteratorTransformer
+Input [2]: [c_count#9, custdist#14]
+
+(33) SortExecTransformer
+Input [2]: [c_count#9, custdist#14]
+Arguments: [custdist#14 DESC NULLS LAST, c_count#9 DESC NULLS LAST], true, 0
+
+(34) WholeStageCodegenTransformer (5)
+Input [2]: [c_count#9, custdist#14]
+Arguments: false
+
+(35) VeloxColumnarToRow
+Input [2]: [c_count#9, custdist#14]
+

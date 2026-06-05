@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenTestSetWithSystemPropertyTrait
 
-class GlutenUnsafeRowSerializerSuite extends UnsafeRowSerializerSuite with GlutenTestsCommonTrait {}
+class GlutenUnsafeRowSerializerSuite
+  extends UnsafeRowSerializerSuite
+  with GlutenTestSetWithSystemPropertyTrait {}

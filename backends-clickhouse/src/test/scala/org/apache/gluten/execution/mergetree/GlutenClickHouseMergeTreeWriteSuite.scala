@@ -30,11 +30,13 @@ import org.apache.spark.sql.execution.datasources.mergetree.StorageMeta
 import org.apache.spark.sql.execution.datasources.v2.clickhouse.metadata.AddMergeTreeParts
 
 import org.apache.commons.io.filefilter.WildcardFileFilter
+import org.scalatest.DoNotDiscover
 
 import java.io.File
 
 import scala.io.Source
 
+@DoNotDiscover
 class GlutenClickHouseMergeTreeWriteSuite extends CreateMergeTreeSuite {
 
   import org.apache.gluten.backendsapi.clickhouse.CHConfig._

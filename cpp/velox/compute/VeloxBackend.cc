@@ -18,8 +18,10 @@
 
 #include "VeloxBackend.h"
 
-#include <folly/executors/IOThreadPoolExecutor.h>
+#include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/executors/task_queue/UnboundedBlockingQueue.h>
 
+#include "compute/delta/DeltaConnector.h"
 #include "operators/functions/RegistrationAllFunctions.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "utils/ConfigExtractor.h"
@@ -31,7 +33,9 @@
 #include "operators/plannodes/CudfVectorStream.h"
 #include "velox/experimental/cudf/CudfConfig.h"
 #include "velox/experimental/cudf/connectors/hive/CudfHiveConnector.h"
+#include "velox/experimental/cudf/exec/SparkAggregateFunctions.h"
 #include "velox/experimental/cudf/exec/ToCudf.h"
+#include "velox/experimental/cudf/expression/SparkFunctions.h"
 #endif
 
 #include "compute/VeloxRuntime.h"
@@ -39,6 +43,7 @@
 #include "jni/JniFileSystem.h"
 #include "memory/GlutenBufferedInputBuilder.h"
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
+#include "operators/plannodes/RowVectorStream.h"
 #include "shuffle/ArrowShuffleDictionaryWriter.h"
 #include "udf/UdfLoader.h"
 #include "utils/Exception.h"
@@ -47,7 +52,6 @@
 #include "velox/connectors/hive/BufferedInputBuilder.h"
 #include "velox/connectors/hive/HiveConnector.h"
 #include "velox/connectors/hive/HiveDataSource.h"
-#include "operators/plannodes/RowVectorStream.h"
 #include "velox/connectors/hive/storage_adapters/abfs/RegisterAbfsFileSystem.h" // @manual
 #include "velox/connectors/hive/storage_adapters/gcs/RegisterGcsFileSystem.h" // @manual
 #include "velox/connectors/hive/storage_adapters/hdfs/HdfsFileSystem.h"
@@ -64,9 +68,6 @@ DECLARE_bool(velox_memory_use_hugepages);
 DECLARE_bool(velox_ssd_odirect);
 DECLARE_bool(velox_memory_pool_capacity_transfer_across_tasks);
 DECLARE_int32(cache_prefetch_min_pct);
-
-DECLARE_int32(gluten_velox_async_timeout_on_task_stopping);
-DEFINE_int32(gluten_velox_async_timeout_on_task_stopping, 30000, "Async timout when task is being stopped");
 
 using namespace facebook;
 
@@ -101,16 +102,6 @@ void VeloxBackend::init(
   backendConf_ =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(conf));
 
-  globalMemoryManager_ = std::make_unique<VeloxMemoryManager>(kVeloxBackendKind, std::move(listener), *backendConf_);
-
-  // Register factories.
-  MemoryManager::registerFactory(kVeloxBackendKind, veloxMemoryManagerFactory, veloxMemoryManagerReleaser);
-  Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
-
-  if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
-    LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());
-  }
-
   // Init glog and log level.
   if (!backendConf_->get<bool>(kDebugModeEnabled, false)) {
     FLAGS_v = backendConf_->get<uint32_t>(kGlogVerboseLevel, kGlogVerboseLevelDefault);
@@ -124,6 +115,16 @@ void VeloxBackend::init(
   }
   FLAGS_logtostderr = true;
   google::InitGoogleLogging("gluten");
+
+  globalMemoryManager_ = std::make_unique<VeloxMemoryManager>(kVeloxBackendKind, std::move(listener), *backendConf_);
+
+  // Register factories.
+  MemoryManager::registerFactory(kVeloxBackendKind, veloxMemoryManagerFactory, veloxMemoryManagerReleaser);
+  Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
+
+  if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
+    LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());
+  }
 
   // Allow growing buffer in another task through its memory pool.
   FLAGS_velox_memory_pool_capacity_transfer_across_tasks =
@@ -143,14 +144,10 @@ void VeloxBackend::init(
   // Set velox_memory_use_hugepages.
   FLAGS_velox_memory_use_hugepages = backendConf_->get<bool>(kMemoryUseHugePages, kMemoryUseHugePagesDefault);
 
-  // Async timeout.
-  FLAGS_gluten_velox_async_timeout_on_task_stopping =
-      backendConf_->get<int32_t>(kVeloxAsyncTimeoutOnTaskStopping, kVeloxAsyncTimeoutOnTaskStoppingDefault);
-
   // Set cache_prefetch_min_pct default as 0 to force all loads are prefetched in DirectBufferInput.
   FLAGS_cache_prefetch_min_pct = backendConf_->get<int>(kCachePrefetchMinPct, 0);
 
-  auto hiveConf = createHiveConnectorConfig(backendConf_);
+  hiveConnectorConfig_ = createHiveConnectorConfig(backendConf_);
 
   // Setup and register.
   velox::filesystems::registerLocalFileSystem();
@@ -166,7 +163,7 @@ void VeloxBackend::init(
 #endif
 #ifdef ENABLE_ABFS
   velox::filesystems::registerAbfsFileSystem();
-  velox::filesystems::registerAzureClientProvider(*hiveConf);
+  velox::filesystems::registerAzureClientProvider(*hiveConnectorConfig_);
 #endif
 
 #ifdef GLUTEN_ENABLE_GPU
@@ -182,11 +179,25 @@ void VeloxBackend::init(
     cudfConfig.initialize(std::move(options));
     velox::cudf_velox::registerCudf();
     velox::exec::Operator::registerOperator(std::make_unique<CudfVectorStreamOperatorTranslator>());
+    velox::cudf_velox::registerSparkFunctions("");
+    velox::cudf_velox::registerSparkAggregateFunctions("");
   }
 #endif
 
+  const auto spillThreadNum = backendConf_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
+  if (spillThreadNum > 0) {
+    spillExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(spillThreadNum);
+  }
+  auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, kVeloxIOThreadsDefault);
+  GLUTEN_CHECK(
+      ioThreads >= 0,
+      kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
+  if (ioThreads > 0) {
+    ioExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+        ioThreads, std::make_unique<folly::UnboundedBlockingQueue<folly::CPUThreadPoolExecutor::CPUTask>>());
+  }
+
   initJolFilesystem();
-  initConnector(hiveConf);
 
   velox::dwio::common::registerFileSinks();
   velox::parquet::registerParquetReaderFactory();
@@ -307,29 +318,32 @@ void VeloxBackend::initCache() {
   }
 }
 
-void VeloxBackend::initConnector(const std::shared_ptr<velox::config::ConfigBase>& hiveConf) {
-  auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, kVeloxIOThreadsDefault);
-  GLUTEN_CHECK(
-      ioThreads >= 0,
-      kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
-  if (ioThreads > 0) {
-    ioExecutor_ = std::make_unique<folly::IOThreadPoolExecutor>(ioThreads);
-  }
-  velox::connector::registerConnector(
-      std::make_shared<velox::connector::hive::HiveConnector>(kHiveConnectorId, hiveConf, ioExecutor_.get()));
-  
-  // Register value-stream connector for runtime iterator-based inputs
-  velox::connector::registerConnector(std::make_shared<ValueStreamConnector>(kIteratorConnectorId, hiveConf));
-  
-#ifdef GLUTEN_ENABLE_GPU
-  if (backendConf_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
-      backendConf_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
-    facebook::velox::cudf_velox::connector::hive::CudfHiveConnectorFactory factory;
-    auto hiveConnector = factory.newConnector(kCudfHiveConnectorId, hiveConf, ioExecutor_.get());
-    facebook::velox::connector::registerConnector(hiveConnector);
-  }
-#endif
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createHiveConnector(
+    const std::string& connectorId,
+    folly::Executor* ioExecutor) const {
+  return std::make_shared<velox::connector::hive::HiveConnector>(connectorId, hiveConnectorConfig_, ioExecutor);
 }
+
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createDeltaConnector(
+    const std::string& connectorId,
+    folly::Executor* ioExecutor) const {
+  return std::make_shared<delta::DeltaConnector>(connectorId, hiveConnectorConfig_, ioExecutor);
+}
+
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createValueStreamConnector(
+    const std::string& connectorId,
+    bool dynamicFilterEnabled) const {
+  return std::make_shared<ValueStreamConnector>(connectorId, hiveConnectorConfig_, dynamicFilterEnabled);
+}
+
+#ifdef GLUTEN_ENABLE_GPU
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createCudfHiveConnector(
+    const std::string& connectorId,
+    folly::Executor* ioExecutor) const {
+  facebook::velox::cudf_velox::connector::hive::CudfHiveConnectorFactory factory;
+  return factory.newConnector(connectorId, hiveConnectorConfig_, ioExecutor);
+}
+#endif
 
 void VeloxBackend::initUdf() {
   auto got = backendConf_->get<std::string>(kVeloxUdfLibraryPaths, "");
@@ -362,11 +376,17 @@ void VeloxBackend::tearDown() {
     filesystem->close();
   }
 #endif
+#ifdef ENABLE_S3
+  velox::filesystems::finalizeS3FileSystem();
+#endif
 
   // Destruct IOThreadPoolExecutor will join all threads.
   // On threads exit, thread local variables can be constructed with referencing global variables.
   // So, we need to destruct IOThreadPoolExecutor and stop the threads before global variables get destructed.
+  executor_.reset();
+  spillExecutor_.reset();
   ioExecutor_.reset();
+  ssdCacheExecutor_.reset();
   globalMemoryManager_.reset();
 
   // dump cache stats on exit if enabled

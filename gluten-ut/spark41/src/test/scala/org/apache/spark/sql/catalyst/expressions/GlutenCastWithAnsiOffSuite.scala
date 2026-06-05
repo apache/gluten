@@ -16,79 +16,42 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsTrait
+import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.util.DateTimeTestUtils.{withDefaultTimeZone, ALL_TIMEZONES, UTC, UTC_OPT}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils.{fromJavaTimestamp, millisToMicros, TimeZoneUTC}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.shim.GlutenTestsTrait
 import org.apache.spark.sql.types._
 import org.apache.spark.util.DebuggableThreadUtils
 
 import java.sql.{Date, Timestamp}
 import java.util.{Calendar, TimeZone}
 
-class GlutenCastWithAnsiOffSuite extends CastWithAnsiOffSuite with GlutenTestsTrait {
-  override def beforeAll(): Unit = {
-    super.beforeAll()
-    // Need to explicitly set spark.sql.preserveCharVarcharTypeInfo=true for gluten's test
-    // framework. In Gluten, it overrides the checkEvaluation that invokes Spark's RowEncoder,
-    // which requires this configuration to be set.
-    // In Vanilla spark, the checkEvaluation method doesn't invoke RowEncoder.
-    conf.setConf(SQLConf.PRESERVE_CHAR_VARCHAR_TYPE_INFO, true)
-  }
-
-  override def cast(v: Any, targetType: DataType, timeZoneId: Option[String] = None): Cast = {
-    v match {
-      case lit: Expression =>
-        logDebug(s"Cast from: ${lit.dataType.typeName}, to: ${targetType.typeName}")
-        Cast(lit, targetType, timeZoneId)
-      case _ =>
-        val lit = Literal(v)
-        logDebug(s"Cast from: ${lit.dataType.typeName}, to: ${targetType.typeName}")
-        Cast(lit, targetType, timeZoneId)
+class GlutenCastWithAnsiOffSuite
+  extends CastWithAnsiOffSuite
+  with GlutenExpressionOffloadTracker
+  with GlutenTestsTrait {
+  override protected def panoramaMeta(expression: Expression): Map[String, String] =
+    expression match {
+      case c: Cast =>
+        Map("fromType" -> c.child.dataType.simpleString, "toType" -> c.dataType.simpleString)
+      case _ => Map.empty
     }
-  }
+  override protected def offloadCategory: String = "cast"
 
-  // Register UDT For test("SPARK-32828")
+  // Register UDT for test("SPARK-32828"). Gluten's checkEvaluation collects via RowEncoder,
+  // which needs UDT registration to serialize UserDefinedType values.
   UDTRegistration.register(classOf[IExampleBaseType].getName, classOf[ExampleBaseTypeUDT].getName)
   UDTRegistration.register(classOf[IExampleSubType].getName, classOf[ExampleSubTypeUDT].getName)
 
-  testGluten("missing cases - from boolean") {
-    (DataTypeTestUtils.numericTypeWithoutDecimal ++ Set(BooleanType)).foreach {
-      t =>
-        t match {
-          case BooleanType =>
-            checkEvaluation(cast(cast(true, BooleanType), t), true)
-            checkEvaluation(cast(cast(false, BooleanType), t), false)
-          case _ =>
-            checkEvaluation(cast(cast(true, BooleanType), t), 1)
-            checkEvaluation(cast(cast(false, BooleanType), t), 0)
-        }
-    }
+  override def beforeAll(): Unit = {
+    super.beforeAll()
+    conf.setConf(SQLConf.PRESERVE_CHAR_VARCHAR_TYPE_INFO, true)
   }
 
-  testGluten("missing cases - from byte") {
-    DataTypeTestUtils.numericTypeWithoutDecimal.foreach {
-      t =>
-        checkEvaluation(cast(cast(0, ByteType), t), 0)
-        checkEvaluation(cast(cast(-1, ByteType), t), -1)
-        checkEvaluation(cast(cast(1, ByteType), t), 1)
-    }
-  }
-
-  testGluten("missing cases - from short") {
-    DataTypeTestUtils.numericTypeWithoutDecimal.foreach {
-      t =>
-        checkEvaluation(cast(cast(0, ShortType), t), 0)
-        checkEvaluation(cast(cast(-1, ShortType), t), -1)
-        checkEvaluation(cast(cast(1, ShortType), t), 1)
-    }
-  }
-
-  testGluten("missing cases - date self check") {
-    val d = Date.valueOf("1970-01-01")
-    checkEvaluation(cast(d, DateType), d)
-  }
-
+  // Gluten uses session-level timezone for cast. The original test sets per-expression
+  // timezone via Cast(..., Option(tz)), which Gluten ignores. We sync session timezone with
+  // withSQLConf to match per-expression timezone.
   testGluten("data type casting") {
     val sd = "1970-01-01"
     val d = Date.valueOf(sd)
@@ -97,8 +60,6 @@ class GlutenCastWithAnsiOffSuite extends CastWithAnsiOffSuite with GlutenTestsTr
     val nts = sts + ".1"
     val ts = withDefaultTimeZone(UTC)(Timestamp.valueOf(nts))
 
-    // SystemV timezones are a legacy way of specifying timezones in Unix-like OS.
-    // It is not supported by Velox.
     for (
       tz <- ALL_TIMEZONES
         .filterNot(_.getId.contains("SystemV"))
@@ -169,26 +130,29 @@ class GlutenCastWithAnsiOffSuite extends CastWithAnsiOffSuite with GlutenTestsTr
     checkEvaluation(cast(Literal.create(null, IntegerType), ShortType), null)
   }
 
-  test("cast from boolean to timestamp") {
-    val tsTrue = new Timestamp(0)
-    tsTrue.setNanos(1000)
-
-    val tsFalse = new Timestamp(0)
-
-    checkEvaluation(cast(true, TimestampType), tsTrue)
-
-    checkEvaluation(cast(false, TimestampType), tsFalse)
+  // Gluten's glutenCheckExpression uses collect(), which triggers
+  // toJavaTimestamp -> rebaseGregorianToJulianMicros. Long.MinValue micros (~292000 BC) overflows
+  // during rebase. Velox computes correctly; only the collect path fails. Skip Long.MinValue.
+  testGluten("cast from timestamp II") {
+    checkEvaluation(cast(Double.NaN, TimestampType), null)
+    checkEvaluation(cast(1.0 / 0.0, TimestampType), null)
+    checkEvaluation(cast(Float.NaN, TimestampType), null)
+    checkEvaluation(cast(1.0f / 0.0f, TimestampType), null)
+    checkEvaluation(cast(Literal(Long.MaxValue), TimestampType), Long.MaxValue)
+    // Skip Long.MinValue: Velox result is correct but collect() path overflows in
+    // rebaseGregorianToJulianMicros when converting extreme timestamp to java.sql.Timestamp.
   }
 
+  // Sync session timezone with per-expression timezone and run single-threaded.
   testGluten("cast string to timestamp") {
     DebuggableThreadUtils.parmap(
       ALL_TIMEZONES
         .filterNot(_.getId.contains("SystemV"))
         .filterNot(_.getId.contains("Europe/Kyiv"))
         .filterNot(_.getId.contains("America/Ciudad_Juarez"))
+        .filterNot(_.getId.contains("America/Coyhaique"))
         .filterNot(_.getId.contains("Antarctica/Vostok"))
         .filterNot(_.getId.contains("Pacific/Kanton"))
-        .filterNot(_.getId.contains("America/Coyhaique"))
         .filterNot(_.getId.contains("Asia/Tehran"))
         .filterNot(_.getId.contains("Iran")),
       prefix = "CastSuiteBase-cast-string-to-timestamp",
@@ -290,14 +254,5 @@ class GlutenCastWithAnsiOffSuite extends CastWithAnsiOffSuite with GlutenTestsTr
           // new Timestamp(c.getTimeInMillis))
         }
     }
-  }
-
-  testGluten("cast decimal to timestamp") {
-    val tz = TimeZone.getTimeZone(TimeZone.getDefault.getID)
-    val c = Calendar.getInstance(tz)
-    c.set(2015, 0, 1, 0, 0, 0)
-    c.set(Calendar.MILLISECOND, 123)
-    val d = Decimal(c.getTimeInMillis.toDouble / 1000)
-    checkEvaluation(cast(d, TimestampType), new Timestamp(c.getTimeInMillis))
   }
 }

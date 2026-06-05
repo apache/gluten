@@ -20,13 +20,16 @@ import org.apache.gluten.execution.{DeltaScanTransformer, ProjectExecTransformer
 import org.apache.gluten.extension.columnar.transition.RemoveTransitions
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, CreateNamedStruct, Expression, GetStructField, If, InputFileBlockLength, InputFileBlockStart, InputFileName, IsNull, LambdaFunction, Literal, NamedLambdaVariable}
+import org.apache.spark.sql.catalyst.expressions.{ArrayTransform, TransformKeys, TransformValues}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.delta.{DeltaColumnMapping, DeltaParquetFileFormat, NoMapping}
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.FileFormat
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 
+import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 object DeltaPostTransformRules {
@@ -94,6 +97,73 @@ object DeltaPostTransformRules {
   }
 
   /**
+   * Checks whether two structurally compatible DataTypes have different struct field names at any
+   * nesting level.
+   */
+  private def nestedFieldNamesDiffer(logical: DataType, physical: DataType): Boolean = {
+    (logical, physical) match {
+      case (l: StructType, p: StructType) if l.length == p.length =>
+        l.zip(p).exists {
+          case (lf, pf) =>
+            lf.name != pf.name || nestedFieldNamesDiffer(lf.dataType, pf.dataType)
+        }
+      case (l: ArrayType, p: ArrayType) =>
+        nestedFieldNamesDiffer(l.elementType, p.elementType)
+      case (l: MapType, p: MapType) =>
+        nestedFieldNamesDiffer(l.keyType, p.keyType) ||
+        nestedFieldNamesDiffer(l.valueType, p.valueType)
+      case _ => false
+    }
+  }
+
+  /**
+   * Rebuilds an expression tree so that nested struct field names match the logical schema. Uses
+   * positional extraction (GetStructField) and reconstruction (CreateNamedStruct) instead of Cast,
+   * so correctness does not depend on Velox's cast_match_struct_by_name config.
+   */
+  private def reconcileFieldNames(
+      expr: Expression,
+      logical: DataType,
+      physical: DataType): Expression = {
+    (logical, physical) match {
+      case (l: StructType, p: StructType) if l.length == p.length =>
+        val rebuiltFields = l.zip(p).zipWithIndex.flatMap {
+          case ((lf, pf), i) =>
+            val extracted = GetStructField(expr, i, None)
+            val reconciled = reconcileFieldNames(extracted, lf.dataType, pf.dataType)
+            Seq(Literal(lf.name), reconciled)
+        }
+        val rebuilt = CreateNamedStruct(rebuiltFields)
+        If(IsNull(expr), Literal.create(null, l), rebuilt)
+      case (l: ArrayType, p: ArrayType) if nestedFieldNamesDiffer(l.elementType, p.elementType) =>
+        val lambdaVar = NamedLambdaVariable("element", p.elementType, p.containsNull)
+        val body = reconcileFieldNames(lambdaVar, l.elementType, p.elementType)
+        ArrayTransform(expr, LambdaFunction(body, Seq(lambdaVar)))
+      case (l: MapType, p: MapType) =>
+        val needKeys = nestedFieldNamesDiffer(l.keyType, p.keyType)
+        val needValues = nestedFieldNamesDiffer(l.valueType, p.valueType)
+        var result = expr
+        if (needValues) {
+          val keyVar = NamedLambdaVariable("key", p.keyType, false)
+          val valueVar = NamedLambdaVariable("value", p.valueType, p.valueContainsNull)
+          val body = reconcileFieldNames(valueVar, l.valueType, p.valueType)
+          result = TransformValues(result, LambdaFunction(body, Seq(keyVar, valueVar)))
+        }
+        if (needKeys) {
+          val keyVar = NamedLambdaVariable("key", p.keyType, false)
+          val valueVar = NamedLambdaVariable(
+            "value",
+            if (needValues) l.valueType else p.valueType,
+            p.valueContainsNull)
+          val body = reconcileFieldNames(keyVar, l.keyType, p.keyType)
+          result = TransformKeys(result, LambdaFunction(body, Seq(keyVar, valueVar)))
+        }
+        result
+      case _ => expr
+    }
+  }
+
+  /**
    * This method is only used for Delta ColumnMapping FileFormat(e.g. nameMapping and idMapping)
    * transform the metadata of Delta into Parquet's, each plan should only be transformed once.
    */
@@ -115,8 +185,9 @@ object DeltaPostTransformRules {
       )(SparkSession.active)
       // transform output's name into physical name so Reader can read data correctly
       // should keep the columns order the same as the origin output
-      val originColumnNames = ListBuffer.empty[String]
-      val transformedAttrs = ListBuffer.empty[Attribute]
+      case class ColumnMapping(logicalName: String, logicalType: DataType, physicalAttr: Attribute)
+      val columnMappings = ListBuffer.empty[ColumnMapping]
+      val seenNames = mutable.Set.empty[String]
       def mapAttribute(attr: Attribute) = {
         val newAttr = if (plan.isMetadataColumn(attr)) {
           attr
@@ -127,9 +198,8 @@ object DeltaPostTransformRules {
             .createPhysicalAttributes(Seq(attr), fmt.referenceSchema, fmt.columnMappingMode)
             .head
         }
-        if (!originColumnNames.contains(attr.name)) {
-          transformedAttrs += newAttr
-          originColumnNames += attr.name
+        if (seenNames.add(attr.name)) {
+          columnMappings += ColumnMapping(attr.name, attr.dataType, newAttr)
         }
         newAttr
       }
@@ -169,9 +239,20 @@ object DeltaPostTransformRules {
       scanExecTransformer.copyTagsFrom(plan)
       tagColumnMappingRule(scanExecTransformer)
 
-      // alias physicalName into tableName
-      val expr = (transformedAttrs, originColumnNames).zipped.map {
-        (attr, columnName) => Alias(attr, columnName)(exprId = attr.exprId)
+      // Alias physical names back to logical names. For struct-typed columns, Delta column
+      // mapping renames internal field names to physical UUIDs. A top-level Alias only restores
+      // the column name, not the struct's internal field names. We rebuild the struct with
+      // logical field names using positional extraction (GetStructField/CreateNamedStruct)
+      // instead of Cast, so correctness does not depend on any Velox cast config.
+      val expr = columnMappings.map {
+        cm =>
+          val projectedExpr: Expression =
+            if (nestedFieldNamesDiffer(cm.logicalType, cm.physicalAttr.dataType)) {
+              reconcileFieldNames(cm.physicalAttr, cm.logicalType, cm.physicalAttr.dataType)
+            } else {
+              cm.physicalAttr
+            }
+          Alias(projectedExpr, cm.logicalName)(exprId = cm.physicalAttr.exprId)
       }
       val projectExecTransformer = ProjectExecTransformer(expr.toSeq, scanExecTransformer)
       projectExecTransformer

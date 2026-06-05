@@ -1,0 +1,34 @@
+diff --git a/folly/system/HardwareConcurrency.cpp b/folly/system/HardwareConcurrency.cpp
+index 71213c80a..cd1852034 100644
+--- a/folly/system/HardwareConcurrency.cpp
++++ b/folly/system/HardwareConcurrency.cpp
+@@ -36,4 +36,18 @@ unsigned int hardware_concurrency() noexcept {
+   return std::thread::hardware_concurrency();
+ }
+
++unsigned int available_concurrency() noexcept {
++#if defined(__linux__) && !defined(__ANDROID__)
++  cpu_set_t cpuset;
++  if (!sched_getaffinity(0, sizeof(cpuset), &cpuset)) {
++    auto count = CPU_COUNT(&cpuset);
++    if (count != 0) {
++      return count;
++    }
++  }
++#endif
++
++  return std::thread::hardware_concurrency();
++}
++
+ } // namespace folly
+diff --git a/folly/system/HardwareConcurrency.h b/folly/system/HardwareConcurrency.h
+index 7c497634c..71dfb5db1 100644
+--- a/folly/system/HardwareConcurrency.h
++++ b/folly/system/HardwareConcurrency.h
+@@ -20,4 +20,6 @@ namespace folly {
+
+ unsigned int hardware_concurrency() noexcept;
+
++unsigned int available_concurrency() noexcept;
++
+ } // namespace folly

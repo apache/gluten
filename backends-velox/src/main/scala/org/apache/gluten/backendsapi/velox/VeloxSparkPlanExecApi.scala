@@ -40,7 +40,7 @@ import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, CollectList, CollectSet}
-import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
+import org.apache.spark.sql.catalyst.expressions.objects.{AssertNotNull, StaticInvoke}
 import org.apache.spark.sql.catalyst.optimizer.BuildSide
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.physical._
@@ -162,10 +162,9 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
   }
 
-  override def getDecimalArithmeticExprName(exprName: String): String = if (
-    !SQLConf.get.decimalOperationsAllowPrecisionLoss
-  ) { exprName + "_deny_precision_loss" }
-  else { exprName }
+  override def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String =
+    if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
+    else { exprName }
 
   /** Transform map_entries to Substrait. */
   override def genMapEntriesTransformer(
@@ -286,6 +285,14 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     GenericExpressionTransformer(substraitExprName, Seq(endDate, startDate), original)
   }
 
+  /** Transform map_from_entries to Substrait. */
+  override def genMapFromEntriesTransformer(
+      substraitExprName: String,
+      child: ExpressionTransformer,
+      expr: Expression): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, Seq(child), expr)
+  }
+
   override def genPreciseTimestampConversionTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
@@ -345,6 +352,23 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       resultExpressions: Seq[NamedExpression],
       child: SparkPlan): HashAggregateExecBaseTransformer =
     RegularHashAggregateExecTransformer(
+      requiredChildDistributionExpressions,
+      groupingExpressions,
+      aggregateExpressions,
+      aggregateAttributes,
+      initialInputBufferOffset,
+      resultExpressions,
+      child)
+
+  override def genSortAggregateExecTransformer(
+      requiredChildDistributionExpressions: Option[Seq[Expression]],
+      groupingExpressions: Seq[NamedExpression],
+      aggregateExpressions: Seq[AggregateExpression],
+      aggregateAttributes: Seq[Attribute],
+      initialInputBufferOffset: Int,
+      resultExpressions: Seq[NamedExpression],
+      child: SparkPlan): HashAggregateExecBaseTransformer =
+    SortHashAggregateExecTransformer(
       requiredChildDistributionExpressions,
       groupingExpressions,
       aggregateExpressions,
@@ -681,7 +705,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       mode: BroadcastMode,
       child: SparkPlan,
       numOutputRows: SQLMetric,
-      dataSize: SQLMetric): BuildSideRelation = {
+      dataSize: SQLMetric,
+      buildThreads: SQLMetric): BuildSideRelation = {
 
     val buildKeys = mode match {
       case mode1: HashedRelationBroadcastMode =>
@@ -826,6 +851,13 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     numOutputRows += serialized.map(_.numRows).sum
     dataSize += rawSize
 
+    val rawThreads =
+      math
+        .ceil(dataSize.value.toDouble / VeloxConfig.get.veloxBroadcastHashTableBuildTargetBytes)
+        .toInt
+    val buildThreadsValue = if (rawThreads < 1) 1 else rawThreads
+    buildThreads += buildThreadsValue
+
     if (useOffheapBroadcastBuildRelation) {
       TaskResources.runUnsafe {
         UnsafeColumnarBuildSideRelation(
@@ -833,7 +865,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
           serialized.flatMap(_.offHeapData().asScala),
           mode,
           newBuildKeys,
-          offload)
+          offload,
+          buildThreadsValue)
       }
     } else {
       ColumnarBuildSideRelation(
@@ -841,7 +874,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         serialized.flatMap(_.onHeapData().asScala).toArray,
         mode,
         newBuildKeys,
-        offload)
+        offload,
+        buildThreadsValue)
     }
   }
 
@@ -890,8 +924,11 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
       expr: Expression): ExpressionTransformer = {
+    // Calling `.toString` on both sides ensures compatibility across all Spark versions.
+    // Starting from Spark 4.1, `SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)` returns
+    // an enum instead of a String.
     if (
-      SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)
+      SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toString
         != SQLConf.MapKeyDedupPolicy.EXCEPTION.toString
     ) {
       GlutenExceptionUtil.throwsNotFullySupported(
@@ -1094,6 +1131,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       Sig[VeloxBloomFilterMightContain](ExpressionNames.MIGHT_CONTAIN),
       Sig[VeloxBloomFilterAggregate](ExpressionNames.BLOOM_FILTER_AGG),
       Sig[MapFilter](ExpressionNames.MAP_FILTER),
+      Sig[AssertNotNull](ExpressionNames.ASSERT_NOT_NULL),
       // For test purpose.
       Sig[VeloxDummyExpression](VeloxDummyExpression.VELOX_DUMMY_EXPRESSION)
     )

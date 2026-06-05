@@ -20,7 +20,6 @@
 #include <Core/Settings.h>
 #include <DataTypes/DataTypeAggregateFunction.h>
 #include <DataTypes/DataTypeTuple.h>
-#include <Functions/FunctionFactory.h>
 #include <Functions/FunctionHelpers.h>
 #include <Operator/DefaultHashAggregateResult.h>
 #include <Operator/GraceAggregatingStep.h>
@@ -253,7 +252,7 @@ void AggregateRelParser::buildAggregateDescriptions(AggregateDescriptions & desc
             {
                 if (i != 0)
                     result += ",";
-                result += toString(params[i]);
+                result += DB::fieldToString(params[i]);
             }
             result += ")";
         }

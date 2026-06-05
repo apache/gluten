@@ -18,15 +18,17 @@ package org.apache.spark.sql.execution
 
 import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.execution.{GlutenPlan, WholeStageTransformer}
+import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.PlanUtil
+
 import org.apache.spark.sql.{Column, Dataset, SparkSession}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.{CommandResult, LogicalPlan}
 import org.apache.spark.sql.catalyst.util.StringUtils.PlanStringConcat
 import org.apache.spark.sql.classic.ClassicConversions._
 import org.apache.spark.sql.execution.ColumnarWriteFilesExec.NoopLeaf
-import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, AdaptiveSparkPlanExec, QueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AQEShuffleReadExec, QueryStageExec}
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.execution.command.{DataWritingCommandExec, ExecutedCommandExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -107,7 +109,11 @@ object GlutenImplicits {
     def collect(tmp: QueryPlan[_]): Unit = {
       tmp.foreachUp {
         case _: ExecutedCommandExec =>
-        case _: CommandResultExec =>
+        case cmd: CommandResultExec => collect(cmd.commandPhysicalPlan)
+        case p: V2CommandExec
+            if FallbackTags.nonEmpty(p) ||
+              p.logicalLink.exists(FallbackTags.getOption(_).nonEmpty) =>
+          GlutenExplainUtils.handleVanillaSparkPlan(p, fallbackNodeToReason)
         case _: V2CommandExec =>
         case _: DataWritingCommandExec =>
         case _: WholeStageCodegenExec =>
@@ -128,7 +134,9 @@ object GlutenImplicits {
             withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false") {
               // re-plan manually to skip cached data
               val newSparkPlan = SparkShimLoader.getSparkShims.createSparkPlan(
-                spark, spark.sessionState.planner, p.inputPlan.logicalLink.get)
+                spark,
+                spark.sessionState.planner,
+                p.inputPlan.logicalLink.get)
               val newExecutedPlan = QueryExecution.prepareExecutedPlan(
                 spark,
                 newSparkPlan

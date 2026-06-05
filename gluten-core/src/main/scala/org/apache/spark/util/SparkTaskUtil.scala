@@ -64,23 +64,6 @@ object SparkTaskUtil {
       ctors.head
     }
 
-    if (SparkVersionUtil.lteSpark32) {
-      return ctor
-        .newInstance(
-          stageId,
-          stageAttemptNumber,
-          partitionId,
-          taskAttemptId,
-          attemptNumber,
-          taskMemoryManager,
-          localProperties,
-          metricsSystem,
-          taskMetrics,
-          resources
-        )
-        .asInstanceOf[TaskContext]
-    }
-
     if (SparkVersionUtil.eqSpark33) {
       return ctor
         .newInstance(

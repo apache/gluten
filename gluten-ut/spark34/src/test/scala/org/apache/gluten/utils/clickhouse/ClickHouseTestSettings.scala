@@ -36,11 +36,10 @@ import org.apache.spark.sql.execution.datasources.text.{GlutenTextV1Suite, Glute
 import org.apache.spark.sql.execution.datasources.v2.{GlutenDataSourceV2StrategySuite, GlutenFileTableSuite, GlutenV2PredicateSuite}
 import org.apache.spark.sql.execution.exchange.GlutenEnsureRequirementsSuite
 import org.apache.spark.sql.execution.joins.{GlutenBroadcastJoinSuite, GlutenExistenceJoinSuite, GlutenInnerJoinSuite, GlutenOuterJoinSuite}
-import org.apache.spark.sql.extension.{GlutenCustomerExtensionSuite, GlutenSessionExtensionSuite}
+import org.apache.spark.sql.extension.GlutenSessionExtensionSuite
 import org.apache.spark.sql.gluten.GlutenFallbackSuite
 import org.apache.spark.sql.hive.execution.GlutenHiveSQLQueryCHSuite
 import org.apache.spark.sql.sources._
-import org.apache.spark.sql.statistics.SparkFunctionStatistics
 
 // Some settings' line length exceeds 100
 // scalastyle:off line.size.limit
@@ -647,7 +646,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("DATE_FROM_UNIX_DATE")
     .exclude("UNIX_SECONDS")
     .exclude("TIMESTAMP_SECONDS") // refer to https://github.com/ClickHouse/ClickHouse/issues/69280
-    .exclude("TIMESTAMP_MICROS") // refer to https://github.com/apache/incubator-gluten/issues/7127
+    .exclude("TIMESTAMP_MICROS") // refer to https://github.com/apache/gluten/issues/7127
     .exclude("SPARK-33498: GetTimestamp,UnixTimestamp,ToUnixTimestamp with parseError")
     .exclude("SPARK-34739,SPARK-35889: add a year-month interval to a timestamp")
     .exclude("SPARK-34761,SPARK-35889: add a day-time interval to a timestamp")
@@ -791,7 +790,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("REPEAT")
     .exclude("ParseUrl")
     .exclude("SPARK-33468: ParseUrl in ANSI mode should fail if input string is not a valid url")
-    .exclude("FORMAT") // refer https://github.com/apache/incubator-gluten/issues/6765
+    .exclude("FORMAT") // refer https://github.com/apache/gluten/issues/6765
     .exclude(
       "soundex unit test"
     ) // CH and spark returns different results when input non-ASCII characters
@@ -1258,6 +1257,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("SPARK-35640: read binary as timestamp should throw schema incompatible error")
     .exclude("SPARK-35640: int as long should throw schema incompatible error")
     .exclude("SPARK-36726: test incorrect Parquet row group file offset")
+    .exclude("SPARK-34167: read LongDecimals with precision < 10, VectorizedReader true")
+    .exclude("SPARK-34167: read LongDecimals with precision < 10, VectorizedReader false")
   enableSuite[GlutenParquetInteroperabilitySuite].exclude("parquet timestamp conversion")
   enableSuite[GlutenParquetProtobufCompatibilitySuite].exclude("struct with unannotated array")
   enableSuite[GlutenParquetRebaseDatetimeV1Suite]
@@ -1682,7 +1683,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("full outer join with unique keys using ShuffledHashJoin (whole-stage-codegen on)")
     .exclude("full outer join with unique keys using SortMergeJoin (whole-stage-codegen off)")
     .exclude("full outer join with unique keys using SortMergeJoin (whole-stage-codegen on)")
-  enableSuite[GlutenCustomerExtensionSuite]
   enableSuite[GlutenSessionExtensionSuite]
   enableSuite[GlutenFallbackSuite]
   enableSuite[GlutenBucketedReadWithoutHiveSupportSuite]
@@ -1737,7 +1737,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude(
       "SELECT structFieldSimple.key, arrayFieldSimple[1] FROM tableWithSchema a where int_Field=1")
     .exclude("SELECT structFieldComplex.Value.`value_(2)` FROM tableWithSchema")
-  enableSuite[SparkFunctionStatistics]
   enableSuite[GlutenSparkSessionExtensionSuite]
   enableSuite[GlutenHiveSQLQueryCHSuite]
   enableSuite[GlutenPercentileSuite]

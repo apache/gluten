@@ -22,6 +22,9 @@ import org.apache.gluten.execution.CreateMergeTreeSuite
 
 import org.apache.spark.SparkConf
 
+import org.scalatest.DoNotDiscover
+
+@DoNotDiscover
 class GlutenClickHouseMergeTreeWriteTaskNotSerializableSuite extends CreateMergeTreeSuite {
 
   /** Run Gluten + ClickHouse Backend with SortShuffleManager */

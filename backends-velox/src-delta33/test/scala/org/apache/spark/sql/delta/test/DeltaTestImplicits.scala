@@ -34,10 +34,7 @@ import org.apache.hadoop.fs.Path
 
 import java.io.File
 
-// spotless:off
-/**
- * Additional method definitions for Delta classes that are intended for use only in testing.
- */
+/** Additional method definitions for Delta classes that are intended for use only in testing. */
 object DeltaTestImplicits {
   implicit class OptimisticTxnTestHelper(txn: OptimisticTransaction) {
 
@@ -103,7 +100,10 @@ object DeltaTestImplicits {
         actions: Iterator[String],
         updatedActions: UpdatedActions): CommitResponse = {
       tableCommitCoordinatorClient.commit(
-        commitVersion, actions, updatedActions, tableIdentifierOpt = None)
+        commitVersion,
+        actions,
+        updatedActions,
+        tableIdentifierOpt = None)
     }
 
     def getCommits(
@@ -112,14 +112,13 @@ object DeltaTestImplicits {
       tableCommitCoordinatorClient.getCommits(tableIdentifierOpt = None, startVersion, endVersion)
     }
 
-    def backfillToVersion(
-        version: Long,
-        lastKnownBackfilledVersion: Option[Long] = None): Unit = {
+    def backfillToVersion(version: Long, lastKnownBackfilledVersion: Option[Long] = None): Unit = {
       tableCommitCoordinatorClient.backfillToVersion(
-        tableIdentifierOpt = None, version, lastKnownBackfilledVersion)
+        tableIdentifierOpt = None,
+        version,
+        lastKnownBackfilledVersion)
     }
   }
-
 
   /** Helper class for working with [[Snapshot]] */
   implicit class SnapshotTestHelper(snapshot: Snapshot) {
@@ -128,9 +127,7 @@ object DeltaTestImplicits {
     }
   }
 
-  /**
-   * Helper class for working with the most recent snapshot in the deltaLog
-   */
+  /** Helper class for working with the most recent snapshot in the deltaLog */
   implicit class DeltaLogTestHelper(deltaLog: DeltaLog) {
     def snapshot: Snapshot = {
       deltaLog.unsafeVolatileSnapshot
@@ -162,43 +159,41 @@ object DeltaTestImplicits {
   }
 
   implicit class DeltaTableV2ObjectTestHelper(dt: DeltaTableV2.type) {
+
     /** Convenience overload that omits the cmd arg (which is not helpful in tests). */
     def apply(spark: SparkSession, id: TableIdentifier): DeltaTableV2 =
       dt.apply(spark, id, "test")
   }
 
   implicit class DeltaTableV2TestHelper(deltaTable: DeltaTableV2) {
+
     /** For backward compatibility with existing unit tests */
     def snapshot: Snapshot = deltaTable.initialSnapshot
   }
 
   implicit class AutoCompactObjectTestHelper(ac: AutoCompact.type) {
     private[delta] def compact(
-      spark: SparkSession,
-      deltaLog: DeltaLog,
-      partitionPredicates: Seq[Expression] = Nil,
-      opType: String = AutoCompact.OP_TYPE): Seq[OptimizeMetrics] = {
-      AutoCompact.compact(
-        spark, deltaLog, catalogTable = None,
-        partitionPredicates, opType)
+        spark: SparkSession,
+        deltaLog: DeltaLog,
+        partitionPredicates: Seq[Expression] = Nil,
+        opType: String = AutoCompact.OP_TYPE): Seq[OptimizeMetrics] = {
+      AutoCompact.compact(spark, deltaLog, catalogTable = None, partitionPredicates, opType)
     }
   }
 
   implicit class StatisticsCollectionObjectTestHelper(sc: StatisticsCollection.type) {
 
     /**
-     * This is an implicit helper required for backward compatibility with existing
-     * unit tests. It allows to call [[StatisticsCollection.recompute]] without a
-     * catalog table and in the actual call, sets it to [[None]].
+     * This is an implicit helper required for backward compatibility with existing unit tests. It
+     * allows to call [[StatisticsCollection.recompute]] without a catalog table and in the actual
+     * call, sets it to [[None]].
      */
     def recompute(
-      spark: SparkSession,
-      deltaLog: DeltaLog,
-      predicates: Seq[Expression] = Seq(Literal(true)),
-      fileFilter: AddFile => Boolean = af => true): Unit = {
-      StatisticsCollection.recompute(
-        spark, deltaLog, catalogTable = None, predicates, fileFilter)
+        spark: SparkSession,
+        deltaLog: DeltaLog,
+        predicates: Seq[Expression] = Seq(Literal(true)),
+        fileFilter: AddFile => Boolean = af => true): Unit = {
+      StatisticsCollection.recompute(spark, deltaLog, catalogTable = None, predicates, fileFilter)
     }
   }
 }
-// spotless:on

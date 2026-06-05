@@ -56,7 +56,7 @@ Gluten's key components:
 * **Columnar Shuffle**: Handles shuffling of Gluten's columnar data. The shuffle service of Spark core is reused, while a columnar exchange operator is implemented to support Gluten's columnar data format.
 * **Fallback Mechanism**: Provides fallback to vanilla Spark for unsupported operators. Gluten's ColumnarToRow (C2R) and RowToColumnar (R2C) convert data between Gluten's columnar format and Spark's internal row format to support fallback transitions.
 * **Metrics**: Collected from Gluten native engine to help monitor execution, identify bugs, and diagnose performance bottlenecks. The metrics are displayed in Spark UI.
-* **Shim Layer**: Ensures compatibility with multiple Spark versions. Gluten supports the latest 3–4 Spark releases during its development cycle, and currently supports Spark 3.2, 3.3, 3.4, and 3.5.
+* **Shim Layer**: Ensures compatibility with multiple Spark versions. Gluten supports the latest 3–4 Spark releases during its development cycle, and currently supports Spark 3.3, 3.4, 3.5, 4.0, and 4.1.
 
 ## 3. User Guide
 
@@ -79,7 +79,7 @@ There are two ways to acquire Gluten jar for the above configuration.
 
 ### Use Released JAR
 
-Please download the tar package [here](https://downloads.apache.org/incubator/gluten/), then extract Gluten JAR from it.
+Please download the tar package [here](https://gluten.apache.org/downloads/), then extract Gluten JAR from it.
 Additionally, Gluten provides nightly builds based on the main branch for early testing. The nightly build JARs are available at [Apache Gluten Nightlies](https://nightlies.apache.org/gluten/).
 They have been verified on Centos 7/8/9, Ubuntu 20.04/22.04.
 
@@ -113,7 +113,7 @@ Welcome to contribute to the Gluten project! See [CONTRIBUTING.md](CONTRIBUTING.
 
 ## 6. Community
 
-Gluten successfully became an Apache Incubator project in March 2024. Here are several ways to connect with the community.
+Gluten successfully became an Apache Incubator project in March 2024 and graduated as an Apache Top-Level Project in March 2026. Here are several ways to connect with the community.
 
 ### GitHub
 
@@ -126,7 +126,7 @@ to view past discussions, or [subscribe to the mailing list](mailto:dev-subscrib
 
 ### Slack Channel (English)
 
-Request an invitation to the ASF Slack workspace via [this page](https://github.com/apache/incubator-gluten/discussions/8429). Once invited, you can join the **incubator-gluten** channel.
+Request an invitation to the ASF Slack workspace via [this page](https://github.com/apache/gluten/discussions/8429). Once invited, you can join the **gluten** channel.
 
 The ASF Slack login entry: https://the-asf.slack.com/.
 
@@ -166,6 +166,6 @@ Gluten is licensed under [Apache License Version 2.0](https://www.apache.org/lic
 
 Gluten was initiated by Intel and Kyligence in 2022. Several other companies are also actively contributing to its development, including BIGO, Meituan, Alibaba Cloud, NetEase, Baidu, Microsoft, IBM, Google, etc.
 
-<a href="https://github.com/apache/incubator-gluten/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=apache/incubator-gluten&columns=25" />
+<a href="https://github.com/apache/gluten/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=apache/gluten&columns=25" />
 </a>

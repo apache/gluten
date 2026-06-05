@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.execution.datasources.v2
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenTestsTrait
 
-class GlutenFileWriterFactorySuite extends FileWriterFactorySuite with GlutenTestsCommonTrait {}
+class GlutenFileWriterFactorySuite extends FileWriterFactorySuite with GlutenTestsTrait {}

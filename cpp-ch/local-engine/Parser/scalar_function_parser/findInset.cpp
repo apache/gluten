@@ -75,7 +75,7 @@ public:
 
         auto nullable_result_type = makeNullable(INT());
         const auto * nullable_index_of_node = ActionsDAGUtil::convertNodeType(
-            actions_dag, index_of_node, nullable_result_type, index_of_node->result_name);
+            actions_dag, index_of_node, nullable_result_type, getContext(), index_of_node->result_name);
         const auto * null_const_node = addColumnToActionsDAG(actions_dag, nullable_result_type, DB::Field());
 
         const auto * str_is_null_node = toFunctionNode(actions_dag, "isNull", {str_arg});

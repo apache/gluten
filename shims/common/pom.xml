@@ -37,6 +37,17 @@
       <artifactId>spark-hive_${scala.binary.version}</artifactId>
       <scope>provided</scope>
     </dependency>
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-catalyst_${scala.binary.version}</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-hadoop</artifactId>
+      <version>1.15.2</version>
+      <scope>provided</scope>
+    </dependency>
   </dependencies>
 
   <build>

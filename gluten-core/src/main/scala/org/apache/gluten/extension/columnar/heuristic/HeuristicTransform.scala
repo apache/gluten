@@ -22,6 +22,7 @@ import org.apache.gluten.extension.caller.CallerInfo
 import org.apache.gluten.extension.columnar.ColumnarRuleApplier.ColumnarRuleCall
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
+import org.apache.gluten.extension.columnar.offload.OffloadSingleNode._
 import org.apache.gluten.extension.columnar.rewrite.RewriteSingleNode
 import org.apache.gluten.extension.columnar.validator.Validator
 import org.apache.gluten.extension.injector.Injector
@@ -81,7 +82,7 @@ object HeuristicTransform {
             node =>
               validator.validate(node) match {
                 case Validator.Passed =>
-                  rule.offload(node)
+                  rule.offloadAndPropagateTag(node)
                 case Validator.Failed(reason) =>
                   logDebug(s"Validation failed by reason: $reason on query plan: ${node.nodeName}")
                   if (FallbackTags.maybeOffloadable(node)) {

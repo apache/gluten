@@ -57,7 +57,7 @@ bool CudfVectorStreamBase::hasNext() {
     // driver to make the current task open to spilling.
     //
     // When a task is getting spilled, it should have been suspended so has zero running threads, otherwise there's
-    // possibility that this spill call hangs. See https://github.com/apache/incubator-gluten/issues/7243.
+    // possibility that this spill call hangs. See https://github.com/apache/gluten/issues/7243.
     // As of now, non-zero running threads usually happens when:
     // 1. Task A spills task B;
     // 2. Task A tries to grow buffers created by task B, during which spill is requested on task A again.

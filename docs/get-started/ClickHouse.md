@@ -52,7 +52,7 @@ You need to install the following software manually:
 
 Then, get Gluten code:
 ```shell
-git clone https://github.com/apache/incubator-gluten.git
+git clone https://github.com/apache/gluten.git
 ```
 
 #### Setup ClickHouse backend development environment
@@ -64,7 +64,7 @@ clone gluten repo
 
 
 ```shell
-git clone https://github.com/apache/incubator-gluten.git
+git clone https://github.com/apache/gluten.git
 ```
 
 clone Kyligence/ClickHouse repo
@@ -89,10 +89,10 @@ git submodule update --init --recursive
 ##### build
 
 There are several ways to build the backend library.
-1. Build it direclty
+1. Build it directly
 
 
-If you have setup all requirements, you can use following command to build it direclty.
+If you have setup all requirements, you can use following command to build it directly.
 
 ```bash
 cd $gluten_root
@@ -176,8 +176,8 @@ The prerequisites are the same as the one mentioned above. Compile Gluten with C
 - for Spark 3.3.1
 
 ```
-    git clone https://github.com/apache/incubator-gluten.git
-    cd incubator-gluten/
+    git clone https://github.com/apache/gluten.git
+    cd gluten/
     export MAVEN_OPTS="-Xmx8g -XX:ReservedCodeCacheSize=2g"
     mvn clean install -Pbackends-clickhouse -Phadoop-2.7.4 -Pspark-3.3 -Dhadoop.version=2.8.5 -DskipTests -Dcheckstyle.skip
     ls -al backends-clickhouse/target/gluten-XXXXX-spark-3.3-jar-with-dependencies.jar
@@ -340,7 +340,7 @@ You need to add these additional configs to spark:
   --config spark.hadoop.fs.s3a.access.key=YOUR_ACCESS_KEY
   --config spark.hadoop.fs.s3a.secret.key=YOUR_SECRET_KEY
 ```
-where S3_ENDPOINT must follow the format of `https://s3.region-code.amazonaws.com`, e.g. `https://s3.us-east-1.amazonaws.com` (or `http://hostname:39090 for MINIO)
+where S3_ENDPOINT must follow the format of `https://s3.region-code.amazonaws.com`, e.g. `https://s3.us-east-1.amazonaws.com` (or `http://hostname:39090` for MINIO)
 
 When you query the parquet files in S3, you need to add the prefix `s3a://` to the path, e.g. `s3a://your_bucket_name/path_to_your_parquet`.
 

@@ -21,14 +21,14 @@
 namespace local_engine
 {
 
-std::pair<DB::TokenType, StringRef> JSONPathNormalizer::prevToken(DB::IParser::Pos & iter, size_t n)
+std::pair<DB::TokenType, std::string_view> JSONPathNormalizer::prevToken(DB::IParser::Pos & iter, size_t n)
 {
     size_t i = 0;
     for (; i < n && iter->type != DB::TokenType::DollarSign; ++i)
     {
         --iter;
     }
-    std::pair<DB::TokenType, StringRef> res = {iter->type, StringRef(iter->begin, iter->end - iter->begin)};
+    std::pair<DB::TokenType, std::string_view> res = {iter->type, std::string_view(iter->begin, iter->end - iter->begin)};
     for (; i > 0; --i)
     {
         ++iter;
@@ -36,14 +36,14 @@ std::pair<DB::TokenType, StringRef> JSONPathNormalizer::prevToken(DB::IParser::P
     return res;
 }
 
-std::pair<DB::TokenType, StringRef> JSONPathNormalizer::nextToken(DB::IParser::Pos & iter, size_t n)
+std::pair<DB::TokenType, std::string_view> JSONPathNormalizer::nextToken(DB::IParser::Pos & iter, size_t n)
 {
     size_t i = 0;
     for (; i < n && iter->type != DB::TokenType::EndOfStream; ++i)
     {
         ++iter;
     }
-    std::pair<DB::TokenType, StringRef> res = {iter->type, StringRef(iter->begin, iter->end - iter->begin)};
+    std::pair<DB::TokenType, std::string_view> res = {iter->type, std::string_view(iter->begin, iter->end - iter->begin)};
     for (; i > 0; --i)
     {
         --iter;
@@ -74,16 +74,16 @@ void JSONPathNormalizer::normalizeOnNumber(DB::IParser::Pos & iter, String & res
         {
             auto [_, prev_iter_str] = prevToken(iter);
             // may contains spaces
-            if (prev_iter_str.data + prev_iter_str.size != iter->begin)
+            if (prev_iter_str.data() + prev_iter_str.size() != iter->begin)
             {
-                res += String(prev_iter_str.data + prev_iter_str.size, iter->begin);
+                res += String(prev_iter_str.data() + prev_iter_str.size(), iter->begin);
             }
             res += String(iter->begin, iter->end);
             ++iter;
             token_type = iter->type;
         }
         auto [_, prev_iter_str] = prevToken(iter);
-        res += String(prev_iter_str.data + prev_iter_str.size, iter->begin);
+        res += String(prev_iter_str.data() + prev_iter_str.size(), iter->begin);
         res += "\"";
     }
     else
@@ -110,9 +110,9 @@ void JSONPathNormalizer::normalizeOnBareWord(DB::IParser::Pos & iter, String & r
             {
                 auto [_, prev_iter_str] = prevToken(iter);
                 // may contains spaces
-                if (prev_iter_str.data + prev_iter_str.size != iter->begin)
+                if (prev_iter_str.data() + prev_iter_str.size() != iter->begin)
                 {
-                    res += String(prev_iter_str.data + prev_iter_str.size, iter->begin);
+                    res += String(prev_iter_str.data() + prev_iter_str.size(), iter->begin);
                 }
             }
             res += String(iter->begin, iter->end);
@@ -121,7 +121,7 @@ void JSONPathNormalizer::normalizeOnBareWord(DB::IParser::Pos & iter, String & r
             token_type = iter->type;
         }
         auto [_, prev_iter_str] = prevToken(iter);
-        res += String(prev_iter_str.data + prev_iter_str.size, iter->begin);
+        res += String(prev_iter_str.data() + prev_iter_str.size(), iter->begin);
         res += "\"";
     }
 }

@@ -1,0 +1,72 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (10)
+    SortExecTransformer [Returns_Loss]
+      InputIteratorTransformer
+        InputAdapter
+          ColumnarExchange [Returns_Loss] #1
+            VeloxResizeBatches
+              WholeStageCodegenTransformer (9)
+                ProjectExecTransformer [cc_call_center_id,cc_name,cc_manager,sum(UnscaledValue(cr_net_loss))]
+                  RegularHashAggregateExecTransformer [cc_call_center_id,cc_name,cc_manager,cd_marital_status,cd_education_status,sum] [sum(UnscaledValue(cr_net_loss)),sum]
+                    InputIteratorTransformer
+                      InputAdapter
+                        ColumnarExchange [cc_call_center_id,cc_name,cc_manager,cd_marital_status,cd_education_status,sum] #2
+                          VeloxResizeBatches
+                            WholeStageCodegenTransformer (8)
+                              ProjectExecTransformer [cc_call_center_id,cc_name,cc_manager,cd_marital_status,cd_education_status,sum]
+                                FlushableHashAggregateExecTransformer [cc_call_center_id,cc_name,cc_manager,cd_marital_status,cd_education_status,_pre_x] [sum,sum,sum]
+                                  ProjectExecTransformer [cc_call_center_id,cc_name,cc_manager,cd_marital_status,cd_education_status,cr_net_loss]
+                                    BroadcastHashJoinExecTransformer [c_current_hdemo_sk,hd_demo_sk]
+                                      ProjectExecTransformer [cc_call_center_id,cc_name,cc_manager,cr_net_loss,c_current_hdemo_sk,cd_marital_status,cd_education_status]
+                                        BroadcastHashJoinExecTransformer [c_current_cdemo_sk,cd_demo_sk]
+                                          ProjectExecTransformer [cc_call_center_id,cc_name,cc_manager,cr_net_loss,c_current_cdemo_sk,c_current_hdemo_sk]
+                                            BroadcastHashJoinExecTransformer [c_current_addr_sk,ca_address_sk]
+                                              ProjectExecTransformer [cc_call_center_id,cc_name,cc_manager,cr_net_loss,c_current_cdemo_sk,c_current_hdemo_sk,c_current_addr_sk]
+                                                BroadcastHashJoinExecTransformer [cr_returning_customer_sk,c_customer_sk]
+                                                  ProjectExecTransformer [cc_call_center_id,cc_name,cc_manager,cr_returning_customer_sk,cr_net_loss]
+                                                    BroadcastHashJoinExecTransformer [cr_returned_date_sk,d_date_sk]
+                                                      ProjectExecTransformer [cc_call_center_id,cc_name,cc_manager,cr_returning_customer_sk,cr_net_loss,cr_returned_date_sk]
+                                                        BroadcastHashJoinExecTransformer [cc_call_center_sk,cr_call_center_sk]
+                                                          FilterExecTransformer [cc_call_center_sk]
+                                                            FileSourceScanExecTransformer parquet spark_catalog.default.call_center [cc_call_center_sk,cc_call_center_id,cc_name,cc_manager]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ColumnarBroadcastExchange #3
+                                                                WholeStageCodegenTransformer (2)
+                                                                  FilterExecTransformer [cr_call_center_sk,cr_returning_customer_sk]
+                                                                    FileSourceScanExecTransformer parquet spark_catalog.default.catalog_returns [cr_returning_customer_sk,cr_call_center_sk,cr_net_loss,cr_returned_date_sk]
+                                                                      ColumnarSubqueryBroadcast [d_date_sk] #1
+                                                                        ColumnarBroadcastExchange #4
+                                                                          WholeStageCodegenTransformer (1)
+                                                                            ProjectExecTransformer [d_date_sk]
+                                                                              FilterExecTransformer [d_year,d_moy,d_date_sk]
+                                                                                FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year,d_moy]
+                                                      InputIteratorTransformer
+                                                        InputAdapter
+                                                          ReusedExchange [d_date_sk] #4
+                                                  InputIteratorTransformer
+                                                    InputAdapter
+                                                      ColumnarBroadcastExchange #5
+                                                        WholeStageCodegenTransformer (4)
+                                                          FilterExecTransformer [c_customer_sk,c_current_addr_sk,c_current_cdemo_sk,c_current_hdemo_sk]
+                                                            FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_customer_sk,c_current_cdemo_sk,c_current_hdemo_sk,c_current_addr_sk]
+                                              InputIteratorTransformer
+                                                InputAdapter
+                                                  ColumnarBroadcastExchange #6
+                                                    WholeStageCodegenTransformer (5)
+                                                      ProjectExecTransformer [ca_address_sk]
+                                                        FilterExecTransformer [ca_gmt_offset,ca_address_sk]
+                                                          FileSourceScanExecTransformer parquet spark_catalog.default.customer_address [ca_address_sk,ca_gmt_offset]
+                                          InputIteratorTransformer
+                                            InputAdapter
+                                              ColumnarBroadcastExchange #7
+                                                WholeStageCodegenTransformer (6)
+                                                  FilterExecTransformer [cd_marital_status,cd_education_status,cd_demo_sk]
+                                                    FileSourceScanExecTransformer parquet spark_catalog.default.customer_demographics [cd_demo_sk,cd_marital_status,cd_education_status]
+                                      InputIteratorTransformer
+                                        InputAdapter
+                                          ColumnarBroadcastExchange #8
+                                            WholeStageCodegenTransformer (7)
+                                              ProjectExecTransformer [hd_demo_sk]
+                                                FilterExecTransformer [hd_buy_potential,hd_demo_sk]
+                                                  FileSourceScanExecTransformer parquet spark_catalog.default.household_demographics [hd_demo_sk,hd_buy_potential]

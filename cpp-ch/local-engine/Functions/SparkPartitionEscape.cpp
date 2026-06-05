@@ -96,7 +96,8 @@ DB::ColumnPtr SparkPartitionEscape::executeImpl(
 
    for (size_t i = 0; i < input_rows_count; ++i)
    {
-       auto escaped_name = escapePathName(arguments[0].column->getDataAt(i).toString());
+       const auto escaped_name_data = arguments[0].column->getDataAt(i);
+       auto escaped_name = escapePathName(std::string(escaped_name_data.data(), escaped_name_data.size()));
        result->insertData(escaped_name.c_str(), escaped_name.size());
    }
    return result;

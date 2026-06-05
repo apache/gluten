@@ -1,0 +1,69 @@
+== Physical Plan ==
+VeloxColumnarToRow (14)
++- ^ RegularHashAggregateExecTransformer (12)
+   +- ^ InputIteratorTransformer (11)
+      +- ColumnarExchange (9)
+         +- VeloxResizeBatches (8)
+            +- ^ FlushableHashAggregateExecTransformer (6)
+               +- ^ ProjectExecTransformer (5)
+                  +- ^ InputIteratorTransformer (4)
+                     +- RowToVeloxColumnar (2)
+                        +- LocalTableScan (1)
+
+
+(1) LocalTableScan
+Output [2]: [l_extendedprice#1, l_discount#2]
+Arguments: <empty>, [l_extendedprice#1, l_discount#2]
+
+(2) RowToVeloxColumnar
+Input [2]: [l_extendedprice#1, l_discount#2]
+
+(3) InputAdapter
+Input [2]: [l_extendedprice#1, l_discount#2]
+
+(4) InputIteratorTransformer
+Input [2]: [l_extendedprice#1, l_discount#2]
+
+(5) ProjectExecTransformer
+Output [1]: [(l_extendedprice#1 * l_discount#2) AS _pre_1#3]
+Input [2]: [l_extendedprice#1, l_discount#2]
+
+(6) FlushableHashAggregateExecTransformer
+Input [1]: [_pre_1#3]
+Keys: []
+Functions [1]: [partial_sum(_pre_1#3)]
+Aggregate Attributes [2]: [sum#4, isEmpty#5]
+Results [2]: [sum#6, isEmpty#7]
+
+(7) WholeStageCodegenTransformer (1)
+Input [2]: [sum#6, isEmpty#7]
+Arguments: false
+
+(8) VeloxResizeBatches
+Input [2]: [sum#6, isEmpty#7]
+Arguments: 1024, 2147483647, 10485760
+
+(9) ColumnarExchange
+Input [2]: [sum#6, isEmpty#7]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=1], [shuffle_writer_type=hash]
+
+(10) InputAdapter
+Input [2]: [sum#6, isEmpty#7]
+
+(11) InputIteratorTransformer
+Input [2]: [sum#6, isEmpty#7]
+
+(12) RegularHashAggregateExecTransformer
+Input [2]: [sum#6, isEmpty#7]
+Keys: []
+Functions [1]: [sum((l_extendedprice#1 * l_discount#2))]
+Aggregate Attributes [1]: [sum((l_extendedprice#1 * l_discount#2))#8]
+Results [1]: [sum((l_extendedprice#1 * l_discount#2))#8 AS revenue#9]
+
+(13) WholeStageCodegenTransformer (2)
+Input [1]: [revenue#9]
+Arguments: false
+
+(14) VeloxColumnarToRow
+Input [1]: [revenue#9]
+

@@ -103,7 +103,8 @@ class FallbackStrategiesSuite extends GlutenSQLTestsTrait {
               _ => {
                 UnaryOp2(UnaryOp1Transformer(UnaryOp2(UnaryOp1Transformer(LeafOpTransformer()))))
               },
-            c => InsertBackendTransitions(c.outputsColumnar)))
+            c => InsertBackendTransitions(c.outputsColumnar))
+        )
         val outputPlan = rule.apply(originalPlan, false)
         // Expect to fall back the entire plan.
         assert(outputPlan == originalPlan)
@@ -124,7 +125,8 @@ class FallbackStrategiesSuite extends GlutenSQLTestsTrait {
               _ => {
                 UnaryOp2(UnaryOp1Transformer(UnaryOp2(UnaryOp1Transformer(LeafOpTransformer()))))
               },
-            c => InsertBackendTransitions(c.outputsColumnar)))
+            c => InsertBackendTransitions(c.outputsColumnar))
+        )
         val outputPlan = rule.apply(originalPlan, false)
         // Expect to get the plan with columnar rule applied.
         assert(outputPlan != originalPlan)
@@ -237,7 +239,7 @@ private object FallbackStrategiesSuite {
   // For replacing LeafOp.
   case class LeafOpTransformer() extends LeafExecNode with GlutenPlan {
     override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
-    override def rowType0(): Convention.RowType = Convention.RowType.None
+    override def rowType(): Convention.RowType = Convention.RowType.None
     override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
     override def output: Seq[Attribute] = Seq.empty
   }
@@ -247,7 +249,7 @@ private object FallbackStrategiesSuite {
     extends UnaryExecNode
     with GlutenPlan {
     override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
-    override def rowType0(): Convention.RowType = Convention.RowType.None
+    override def rowType(): Convention.RowType = Convention.RowType.None
     override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
     override def output: Seq[Attribute] = child.output
     override protected def withNewChildInternal(newChild: SparkPlan): UnaryOp1Transformer =

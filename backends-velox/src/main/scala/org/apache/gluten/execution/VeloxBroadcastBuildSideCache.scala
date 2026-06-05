@@ -57,7 +57,7 @@ object VeloxBroadcastBuildSideCache
 
   def getOrBuildBroadcastHashTable(
       broadcast: Broadcast[BuildSideRelation],
-      broadcastContext: BroadcastHashJoinContext): BroadcastHashTable = synchronized {
+      broadcastContext: BroadcastHashJoinContext): BroadcastHashTable = {
 
     buildSideRelationCache
       .get(
@@ -70,21 +70,19 @@ object VeloxBroadcastBuildSideCache
               unsafe.buildHashTable(broadcastContext)
           }
 
-          logWarning(s"Create bhj $broadcast_id = $pointer")
           BroadcastHashTable(pointer, relation)
         }
       )
   }
 
   /** This is callback from c++ backend. */
-  def get(broadcastHashtableId: String): Long =
-    synchronized {
-      Option(buildSideRelationCache.getIfPresent(broadcastHashtableId))
-        .map(_.pointer)
-        .getOrElse(0)
-    }
+  def get(broadcastHashtableId: String): Long = {
+    Option(buildSideRelationCache.getIfPresent(broadcastHashtableId))
+      .map(_.pointer)
+      .getOrElse(0)
+  }
 
-  def invalidateBroadcastHashtable(broadcastHashtableId: String): Unit = synchronized {
+  def invalidateBroadcastHashtable(broadcastHashtableId: String): Unit = {
     // Cleanup operations on the backend are idempotent.
     buildSideRelationCache.invalidate(broadcastHashtableId)
   }
@@ -96,7 +94,6 @@ object VeloxBroadcastBuildSideCache
 
   override def onRemoval(key: String, value: BroadcastHashTable, cause: RemovalCause): Unit = {
     synchronized {
-      logWarning(s"Remove bhj $key = ${value.pointer}")
       if (value.relation != null) {
         value.relation match {
           case columnar: ColumnarBuildSideRelation =>

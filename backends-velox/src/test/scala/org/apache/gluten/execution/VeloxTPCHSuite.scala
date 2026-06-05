@@ -353,6 +353,17 @@ class VeloxTPCHV1BhjOffheapSuite extends VeloxTPCHSuite {
   }
 }
 
+class VeloxTPCHV1BhjPushAggThroughJoinSuite extends VeloxTPCHSuite {
+  override def subType(): String = "v1-bhj-push-agg-through-join"
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set("spark.sql.sources.useV1SourceList", "parquet")
+      .set("spark.sql.autoBroadcastJoinThreshold", "30M")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key, "true")
+  }
+}
+
 class VeloxTPCHV2Suite extends VeloxTPCHSuite {
   override def subType(): String = "v2"
 
@@ -370,28 +381,6 @@ class VeloxTPCHV2BhjSuite extends VeloxTPCHSuite {
     super.sparkConf
       .set("spark.sql.sources.useV1SourceList", "")
       .set("spark.sql.autoBroadcastJoinThreshold", "30M")
-  }
-}
-
-class VeloxTPCHV1RasSuite extends VeloxTPCHSuite {
-  override def subType(): String = "v1-ras"
-
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set("spark.sql.sources.useV1SourceList", "parquet")
-      .set("spark.sql.autoBroadcastJoinThreshold", "-1")
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
-
-class VeloxTPCHV1BhjRasSuite extends VeloxTPCHSuite {
-  override def subType(): String = "v1-bhj-ras"
-
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set("spark.sql.sources.useV1SourceList", "parquet")
-      .set("spark.sql.autoBroadcastJoinThreshold", "30M")
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
   }
 }
 

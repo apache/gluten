@@ -17,6 +17,7 @@
 package org.apache.gluten.integration
 
 import org.apache.gluten.integration.metrics.MetricMapper
+import org.apache.gluten.integration.table.{TableAnalyzer, TableCreator}
 
 import org.apache.spark.sql.{RunResult, SparkQueryRunner, SparkSession}
 

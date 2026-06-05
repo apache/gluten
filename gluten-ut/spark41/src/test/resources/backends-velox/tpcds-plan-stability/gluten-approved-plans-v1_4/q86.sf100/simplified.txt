@@ -1,0 +1,44 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [lochierarchy,_pre_x,i_category,rank_within_parent,total_sum,i_class]
+    WholeStageCodegenTransformer (6)
+      ProjectExecTransformer [total_sum,i_category,i_class,lochierarchy,rank_within_parent]
+        WindowExecTransformer [_w0,_w1,_w2]
+          SortExecTransformer [_w1,_w2,_w0]
+            InputIteratorTransformer
+              InputAdapter
+                ColumnarExchange [_w1,_w2,total_sum,i_category,i_class,lochierarchy,_w0] #1
+                  VeloxResizeBatches
+                    WholeStageCodegenTransformer (5)
+                      ProjectExecTransformer [_w1,_w2,total_sum,i_category,i_class,lochierarchy,_w0]
+                        ProjectExecTransformer [sum(UnscaledValue(ws_net_paid)),i_category,i_class,spark_grouping_id]
+                          RegularHashAggregateExecTransformer [i_category,i_class,spark_grouping_id,sum] [sum(UnscaledValue(ws_net_paid)),sum]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarExchange [i_category,i_class,spark_grouping_id,sum] #2
+                                  VeloxResizeBatches
+                                    WholeStageCodegenTransformer (4)
+                                      ProjectExecTransformer [i_category,i_class,spark_grouping_id,sum]
+                                        FlushableHashAggregateExecTransformer [i_category,i_class,spark_grouping_id,_pre_x] [sum,sum,sum]
+                                          ProjectExecTransformer [i_category,i_class,spark_grouping_id,ws_net_paid]
+                                            ExpandExecTransformer [ws_net_paid,i_category,i_class]
+                                              ProjectExecTransformer [ws_net_paid,i_category,i_class]
+                                                BroadcastHashJoinExecTransformer [ws_item_sk,i_item_sk]
+                                                  ProjectExecTransformer [ws_item_sk,ws_net_paid]
+                                                    BroadcastHashJoinExecTransformer [ws_sold_date_sk,d_date_sk]
+                                                      FilterExecTransformer [ws_item_sk]
+                                                        FileSourceScanExecTransformer parquet spark_catalog.default.web_sales [ws_item_sk,ws_net_paid,ws_sold_date_sk]
+                                                          ColumnarSubqueryBroadcast [d_date_sk] #1
+                                                            ColumnarBroadcastExchange #3
+                                                              WholeStageCodegenTransformer (1)
+                                                                ProjectExecTransformer [d_date_sk]
+                                                                  FilterExecTransformer [d_month_seq,d_date_sk]
+                                                                    FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_month_seq]
+                                                      InputIteratorTransformer
+                                                        InputAdapter
+                                                          ReusedExchange [d_date_sk] #3
+                                                  InputIteratorTransformer
+                                                    InputAdapter
+                                                      ColumnarBroadcastExchange #4
+                                                        WholeStageCodegenTransformer (3)
+                                                          FilterExecTransformer [i_item_sk]
+                                                            FileSourceScanExecTransformer parquet spark_catalog.default.item [i_item_sk,i_class,i_category]

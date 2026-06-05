@@ -17,14 +17,15 @@
 #include "config.h"
 
 #include <Core/Settings.h>
-#include <Disks/ObjectStorages/ObjectStorageFactory.h>
+#include <Disks/DiskObjectStorage/ObjectStorages/ObjectStorageFactory.h>
 #include <Interpreters/Context.h>
 #include <Common/GlutenConfig.h>
 #include <Common/Macros.h>
+#include <Common/ObjectStorageKeyGenerator.h>
 
 #if USE_AWS_S3
-#include <Disks/ObjectStorages/S3/S3ObjectStorage.h>
-#include <Disks/ObjectStorages/S3/diskSettings.h>
+#include <Disks/DiskObjectStorage/ObjectStorages/S3/S3ObjectStorage.h>
+#include <Disks/DiskObjectStorage/ObjectStorages/S3/diskSettings.h>
 #endif
 
 #if USE_HDFS
@@ -84,7 +85,7 @@ void registerGlutenS3ObjectStorage(ObjectStorageFactory & factory)
             auto settings = std::make_unique<S3Settings>();
             settings->loadFromConfigForObjectStorage(config, config_prefix, context->getSettingsRef(), uri.uri.getScheme(), true);
             auto client = getClient(endpoint, *settings, context, /* for_disk_s3 */ true);
-            auto key_generator = createObjectStorageKeysGeneratorAsIsWithPrefix(uri.key);
+            auto key_generator = DB::createObjectStorageKeyGeneratorByPrefix(uri.key);
 
             auto object_storage
                 = std::make_shared<S3ObjectStorage>(std::move(client), std::move(settings), uri, s3_capabilities, key_generator, name);

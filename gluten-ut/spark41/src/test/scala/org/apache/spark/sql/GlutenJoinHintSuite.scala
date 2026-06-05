@@ -16,4 +16,43 @@
  */
 package org.apache.spark.sql
 
-class GlutenJoinHintSuite extends JoinHintSuite with GlutenTestsCommonTrait {}
+import org.apache.gluten.execution.CartesianProductExecTransformer
+
+import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.joins.CartesianProductExec
+import org.apache.spark.sql.internal.SQLConf
+
+class GlutenJoinHintSuite extends JoinHintSuite with GlutenSQLTestsBaseTrait {
+
+  private def assertGlutenShuffleReplicateNLJoin(df: DataFrame): Unit = {
+    val executedPlan = df.queryExecution.executedPlan
+    val cartesianProducts = collect(executedPlan) {
+      case c: CartesianProductExec => c.asInstanceOf[SparkPlan]
+      case c: CartesianProductExecTransformer => c.asInstanceOf[SparkPlan]
+    }
+    assert(cartesianProducts.size == 1)
+  }
+
+  testGluten("join strategy hint - shuffle-replicate-nl") {
+    withTempView("t1", "t2") {
+      spark.createDataFrame(Seq((1, "4"), (2, "2"))).toDF("key", "value").createTempView("t1")
+      spark
+        .createDataFrame(Seq((1, "1"), (2, "12.3"), (2, "123")))
+        .toDF("key", "value")
+        .createTempView("t2")
+
+      withSQLConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> Int.MaxValue.toString) {
+        assertGlutenShuffleReplicateNLJoin(
+          sql(equiJoinQueryWithHint("SHUFFLE_REPLICATE_NL(t1)" :: Nil)))
+        assertGlutenShuffleReplicateNLJoin(
+          sql(equiJoinQueryWithHint("SHUFFLE_REPLICATE_NL(t2)" :: Nil)))
+        assertGlutenShuffleReplicateNLJoin(
+          sql(equiJoinQueryWithHint("SHUFFLE_REPLICATE_NL(t1, t2)" :: Nil)))
+        assertGlutenShuffleReplicateNLJoin(
+          sql(nonEquiJoinQueryWithHint("MERGE(t1)" :: "SHUFFLE_REPLICATE_NL(t2)" :: Nil)))
+        assertGlutenShuffleReplicateNLJoin(
+          sql(nonEquiJoinQueryWithHint("SHUFFLE_HASH(t2)" :: "SHUFFLE_REPLICATE_NL(t1)" :: Nil)))
+      }
+    }
+  }
+}

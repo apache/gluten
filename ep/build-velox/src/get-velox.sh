@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.
@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_03_10-iceberg
-VELOX_ENHANCED_BRANCH=ibm-2026_03_10
+VELOX_BRANCH=dft-2026_05_29
+VELOX_ENHANCED_BRANCH=ibm-2026_05_29
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
@@ -141,8 +141,12 @@ function apply_provided_velox_patch {
 }
 
 function apply_compilation_fixes {
-  sudo cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
-  sudo cp ${CURRENT_DIR}/modify_arrow_dataset_scan_option.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
+  local SUDO_CMD=""
+  if [ "$OS" == "Linux" ]; then
+    SUDO_CMD="sudo"
+  fi
+  $SUDO_CMD cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
+  $SUDO_CMD cp ${CURRENT_DIR}/modify_arrow_dataset_scan_option.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
 
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow_dataset_scan_option.patch # to avoid the file from being deleted by git clean -dffx :/
@@ -197,8 +201,9 @@ function setup_linux {
   elif [[ "$LINUX_DISTRIBUTION" == "rhel" ]]; then
     case "$LINUX_VERSION_ID" in
       9.6) ;;
+      9.7) ;;
       *)
-        echo "Unsupported openEuler version: $LINUX_VERSION_ID"
+        echo "Unsupported rhel version: $LINUX_VERSION_ID"
         exit 1
       ;;
     esac

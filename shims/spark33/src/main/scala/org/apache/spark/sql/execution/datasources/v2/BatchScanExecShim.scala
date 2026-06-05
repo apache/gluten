@@ -138,12 +138,3 @@ abstract class BatchScanExecShim(
       Boolean.box(replicatePartitions))
   }
 }
-
-abstract class ArrowBatchScanExecShim(original: BatchScanExec)
-  extends BatchScanExecShim(
-    original.output,
-    original.scan,
-    original.runtimeFilters,
-    original.keyGroupedPartitioning,
-    table = null
-  )

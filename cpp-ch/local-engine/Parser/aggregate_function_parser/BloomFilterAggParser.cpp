@@ -56,7 +56,7 @@ DB::Array AggregateFunctionParserBloomFilterAgg::parseFunctionParameters(
 {
     if (func_info.phase == substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE || func_info.phase == substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT)
     {
-        auto get_parameter_field = [](const DB::ActionsDAG::Node * node, size_t /*paramter_index*/) -> DB::Field
+        auto get_parameter_field = [](const DB::ActionsDAG::Node * node, size_t /*parameter_index*/) -> DB::Field
         {
             Field ret;
             node->column->get(0, ret);

@@ -48,5 +48,6 @@ public class LocalPartitionWriterJniWrapper implements RuntimeAware {
       int shuffleFileBufferSize,
       String dataFile,
       String localDirs,
-      boolean enableDictionary);
+      boolean enableDictionary,
+      boolean enableTypeAwareCompress);
 }

@@ -54,6 +54,7 @@ class CHBackend extends SubstraitBackend {
   override def name(): String = CHConfig.BACKEND_NAME
   override def info(): Map[String, String] = {
     Map(
+      "ch_org" -> CH_ORG,
       "ch_branch" -> CH_BRANCH,
       "ch_revision" -> CH_COMMIT
     )

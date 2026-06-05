@@ -36,8 +36,9 @@ import org.apache.spark.util.Utils
 
 import org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
 import org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+import org.apache.hadoop.hive.ql.metadata.{Partition => HivePartition}
 import org.apache.hadoop.hive.ql.plan.TableDesc
-import org.apache.hadoop.mapred.TextInputFormat
+import org.apache.hadoop.mapred.{InputFormat, TextInputFormat}
 
 import java.net.URI
 
@@ -76,8 +77,36 @@ case class HiveTableScanExecTransformer(
   override def getPartitionWithReadFileFormats: Seq[(Partition, ReadFileFormat)] =
     partitionWithReadFileFormats
 
-  override def getDistinctPartitionReadFileFormats: Set[ReadFileFormat] =
-    distinctReadFileFormats
+  // Only used for file format validation on the driver side. Must not trigger subquery execution.
+  override def getDistinctPartitionReadFileFormats: Set[ReadFileFormat] = {
+    if (!relation.isPartitioned) {
+      return Set(fileFormat)
+    }
+    // Single pass: use getInputFormatClass (cheap) to classify each partition.
+    // formatCache deduplicates by (InputFormatClass, Option[serdeClass]) so that
+    // HiveClientImpl.fromHivePartition is called at most once per distinct format combination.
+    val tableInputFormatClass = tableDesc.getInputFileFormatClass
+    var hasTableFormatPartitions = false
+    val formatCache =
+      collection.mutable.Map[(Class[_ <: InputFormat[_, _]], Option[String]), ReadFileFormat]()
+    basePrunedPartitions.foreach {
+      partition =>
+        val cls = partition.getInputFormatClass
+        if (cls == tableInputFormatClass) {
+          hasTableFormatPartitions = true
+        } else {
+          getReadFileFormatFromCache(cls, partition, formatCache)
+        }
+    }
+    val otherFormats = formatCache.values.toSet
+    if (otherFormats.isEmpty) {
+      Set(fileFormat)
+    } else if (hasTableFormatPartitions) {
+      otherFormats + fileFormat
+    } else {
+      otherFormats
+    }
+  }
 
   override def getPartitionSchema: StructType = relation.tableMeta.partitionSchema
 
@@ -92,9 +121,6 @@ case class HiveTableScanExecTransformer(
   @transient private lazy val hivePartitionConverter =
     new HivePartitionConverter(session.sessionState.newHadoopConf(), session)
 
-  @transient private lazy val existsMixedInputFormat: Boolean =
-    prunedPartitions.exists(_.getInputFormatClass != tableDesc.getInputFileFormatClass)
-
   @transient private lazy val partitionWithReadFileFormats: Seq[(Partition, ReadFileFormat)] =
     if (!relation.isPartitioned) {
       val tableLocation: URI = relation.tableMeta.storage.locationUri.getOrElse {
@@ -102,29 +128,54 @@ case class HiveTableScanExecTransformer(
       }
 
       hivePartitionConverter.createFilePartition(tableLocation).map((_, fileFormat))
-    } else if (existsMixedInputFormat) {
+    } else {
+      // Optimized: use the same caching strategy as getDistinctPartitionReadFileFormats
+      // to avoid redundant HiveClientImpl.fromHivePartition calls
+      val tableInputFormatClass = tableDesc.getInputFileFormatClass
+      val formatCache =
+        collection.mutable.Map[(Class[_ <: InputFormat[_, _]], Option[String]), ReadFileFormat]()
+
       val readFileFormats = prunedPartitions.map {
-        partition => getReadFileFormat(HiveClientImpl.fromHivePartition(partition).storage)
+        partition =>
+          val cls = partition.getInputFormatClass
+          if (cls == tableInputFormatClass) {
+            fileFormat
+          } else {
+            getReadFileFormatFromCache(cls, partition, formatCache)
+          }
       }
 
       hivePartitionConverter.createFilePartition(
         prunedPartitions,
         relation.partitionCols.map(_.dataType),
         readFileFormats)
-    } else {
-      val filePartitions = hivePartitionConverter
-        .createFilePartition(prunedPartitions, relation.partitionCols.map(_.dataType))
-
-      filePartitions.map((_, fileFormat))
     }
 
   @transient private lazy val partitions: Seq[Partition] = partitionWithReadFileFormats.unzip._1
 
-  @transient private lazy val distinctReadFileFormats: Set[ReadFileFormat] =
-    partitionWithReadFileFormats.iterator.map(_._2).toSet
-
   @transient override lazy val fileFormat: ReadFileFormat =
     getReadFileFormat(relation.tableMeta.storage)
+
+  // Looks up or computes the ReadFileFormat for a partition whose InputFormat differs from the
+  // table-level format. The serde class is included in the cache key for TextInputFormat, since
+  // its ReadFileFormat depends on both the InputFormat and the serde (e.g. JsonSerDe ->
+  // JsonReadFormat). For all other formats the serde is irrelevant and the key is None.
+  private def getReadFileFormatFromCache(
+      cls: Class[_ <: InputFormat[_, _]],
+      partition: HivePartition,
+      formatCache: collection.mutable.Map[
+        (Class[_ <: InputFormat[_, _]], Option[String]),
+        ReadFileFormat]): ReadFileFormat = {
+    val serdeKey =
+      if (TEXT_INPUT_FORMAT_CLASS.isAssignableFrom(cls)) {
+        Option(partition.getTPartition.getSd.getSerdeInfo.getSerializationLib)
+      } else {
+        None
+      }
+    formatCache.getOrElseUpdate(
+      (cls, serdeKey),
+      getReadFileFormat(HiveClientImpl.fromHivePartition(partition).storage))
+  }
 
   private def getReadFileFormat(storage: CatalogStorageFormat): ReadFileFormat = {
     storage.inputFormat match {

@@ -248,7 +248,7 @@ case class ColumnarUnionExec(children: Seq[SparkPlan], partitioning: Partitionin
 
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 
   override def outputPartitioning: Partitioning = partitioning
 

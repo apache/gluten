@@ -52,6 +52,8 @@ extern const SettingsUInt64 max_block_size;
 extern const SettingsBool compile_aggregate_expressions;
 extern const SettingsUInt64 min_count_to_compile_aggregate_expression;
 extern const SettingsBool enable_software_prefetch_in_aggregation;
+extern const SettingsBool enable_producing_buckets_out_of_order_in_aggregation;
+extern const SettingsBool serialize_string_in_memory_with_zero_byte;
 }
 
 template <typename Method>
@@ -259,7 +261,9 @@ DB::Aggregator::Params AggregatorParamsHelper::buildParams(
         only_merge,
         aggregate_settings[DB::Setting::optimize_group_by_constant_keys],
         aggregate_settings[DB::Setting::min_hit_rate_to_use_consecutive_keys_optimization],
-        {}};
+        {},
+        settings[DB::Setting::enable_producing_buckets_out_of_order_in_aggregation],
+        settings[DB::Setting::serialize_string_in_memory_with_zero_byte]};
 }
 
 

@@ -49,7 +49,7 @@ class CHListenerApi extends ListenerApi with Logging {
     initialize(pc.conf, isDriver = true)
 
     val expressionExtensionTransformer = ExpressionUtil.extendedExpressionTransformer(
-      pc.conf.get(GlutenConfig.EXTENDED_EXPRESSION_TRAN_CONF)
+      pc.conf.get(CHConfig.EXTENDED_EXPRESSION_TRAN_CONF)
     )
     if (expressionExtensionTransformer != null) {
       ExpressionExtensionTrait.registerExpressionExtension(expressionExtensionTransformer)
@@ -90,8 +90,7 @@ class CHListenerApi extends ListenerApi with Logging {
     // Add configs
     import org.apache.gluten.backendsapi.clickhouse.CHConfig._
     conf.setCHConfig(
-      "timezone" -> conf.get("spark.sql.session.timeZone", TimeZone.getDefault.getID),
-      "local_engine.settings.log_processors_profiles" -> "true")
+      "timezone" -> conf.get("spark.sql.session.timeZone", TimeZone.getDefault.getID))
     conf.setCHSettings("spark_version", SPARK_VERSION)
     if (!conf.contains(RuntimeSettings.ENABLE_MEMORY_SPILL_SCHEDULER.key)) {
       // Enable adaptive memory spill scheduler for native by default

@@ -27,6 +27,7 @@
 namespace gluten {
 
 static constexpr int16_t kDefaultBatchSize = 4096;
+static constexpr int32_t kDefaultPartitionBufferEvictThreshold = -1;
 static constexpr int32_t kDefaultShuffleWriterBufferSize = 4096;
 static constexpr int64_t kDefaultSortBufferThreshold = 64 << 20;
 static constexpr int64_t kDefaultPushMemoryThreshold = 4096;
@@ -42,6 +43,7 @@ static constexpr int64_t kDefaultReadBufferSize = 1 << 20;
 static constexpr int64_t kDefaultDeserializerBufferSize = 1 << 20;
 static constexpr int64_t kDefaultShuffleFileBufferSize = 32 << 10;
 static constexpr bool kDefaultEnableDictionary = false;
+static constexpr bool kDefaultEnableTypeAwareCompress = false;
 
 enum class ShuffleWriterType { kHashShuffle, kSortShuffle, kRssSortShuffle, kGpuHashShuffle };
 
@@ -62,6 +64,10 @@ struct ShuffleReaderOptions {
 
   // Buffer size when deserializing rows into columnar batches. Only used for sort-based shuffle.
   int64_t deserializerBufferSize = kDefaultDeserializerBufferSize;
+
+  // Whether to enable the reader-side raw payload merge fast path for plain hash shuffle payloads within one input
+  // stream.
+  bool enableHashShuffleReaderStreamMerge = false;
 };
 
 struct ShuffleWriterOptions {
@@ -80,6 +86,7 @@ struct ShuffleWriterOptions {
 struct HashShuffleWriterOptions : ShuffleWriterOptions {
   int32_t splitBufferSize = kDefaultShuffleWriterBufferSize;
   double splitBufferReallocThreshold = kDefaultSplitBufferReallocThreshold;
+  int32_t partitionBufferEvictThreshold = kDefaultPartitionBufferEvictThreshold;
 
   HashShuffleWriterOptions() : ShuffleWriterOptions(ShuffleWriterType::kHashShuffle) {}
 
@@ -87,10 +94,12 @@ struct HashShuffleWriterOptions : ShuffleWriterOptions {
       Partitioning partitioning,
       int32_t startPartitionId,
       int32_t partitionBufferSize,
-      double partitionBufferReallocThreshold)
+      double partitionBufferReallocThreshold,
+      int32_t partitionBufferEvictThreshold = kDefaultPartitionBufferEvictThreshold)
       : ShuffleWriterOptions(ShuffleWriterType::kHashShuffle, partitioning, startPartitionId),
         splitBufferSize(partitionBufferSize),
-        splitBufferReallocThreshold(partitionBufferReallocThreshold) {}
+        splitBufferReallocThreshold(partitionBufferReallocThreshold),
+        partitionBufferEvictThreshold(partitionBufferEvictThreshold) {}
 
  protected:
   HashShuffleWriterOptions(ShuffleWriterType shuffleWriterType) : ShuffleWriterOptions(shuffleWriterType) {}
@@ -100,10 +109,12 @@ struct HashShuffleWriterOptions : ShuffleWriterOptions {
       Partitioning partitioning,
       int32_t startPartitionId,
       int32_t partitionBufferSize,
-      double partitionBufferReallocThreshold)
+      double partitionBufferReallocThreshold,
+      int32_t partitionBufferEvictThreshold = kDefaultPartitionBufferEvictThreshold)
       : ShuffleWriterOptions(shuffleWriterType, partitioning, startPartitionId),
         splitBufferSize(partitionBufferSize),
-        splitBufferReallocThreshold(partitionBufferReallocThreshold) {}
+        splitBufferReallocThreshold(partitionBufferReallocThreshold),
+        partitionBufferEvictThreshold(partitionBufferEvictThreshold) {}
 };
 
 struct SortShuffleWriterOptions : ShuffleWriterOptions {
@@ -175,6 +186,7 @@ struct LocalPartitionWriterOptions {
   int32_t numSubDirs = kDefaultNumSubDirs; // spark.diskStore.subDirectories
 
   bool enableDictionary = kDefaultEnableDictionary;
+  bool enableTypeAwareCompress = kDefaultEnableTypeAwareCompress;
 
   LocalPartitionWriterOptions() = default;
 
@@ -185,14 +197,16 @@ struct LocalPartitionWriterOptions {
       int32_t mergeBufferSize,
       double mergeThreshold,
       int32_t numSubDirs,
-      bool enableDictionary)
+      bool enableDictionary,
+      bool enableTypeAwareCompress = kDefaultEnableTypeAwareCompress)
       : shuffleFileBufferSize(shuffleFileBufferSize),
         compressionBufferSize(compressionBufferSize),
         compressionThreshold(compressionThreshold),
         mergeBufferSize(mergeBufferSize),
         mergeThreshold(mergeThreshold),
         numSubDirs(numSubDirs),
-        enableDictionary(enableDictionary) {}
+        enableDictionary(enableDictionary),
+        enableTypeAwareCompress(enableTypeAwareCompress) {}
 };
 
 struct RssPartitionWriterOptions {

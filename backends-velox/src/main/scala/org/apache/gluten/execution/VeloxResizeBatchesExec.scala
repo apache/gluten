@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.velox.VeloxBatchType
+import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.ClosableIterator
 import org.apache.gluten.utils.VeloxBatchResizer
@@ -41,7 +42,12 @@ case class VeloxResizeBatchesExec(
 
   override protected def mapIterator(in: Iterator[ColumnarBatch]): Iterator[ColumnarBatch] = {
     VeloxBatchResizer
-      .create(minOutputBatchSize, maxOutputBatchSize, preferredBatchBytes, in.asJava)
+      .create(
+        minOutputBatchSize,
+        maxOutputBatchSize,
+        preferredBatchBytes,
+        VeloxConfig.get.enableVeloxResizeBatchesCopyRanges,
+        in.asJava)
       .asScala
   }
 
@@ -61,5 +67,5 @@ case class VeloxResizeBatchesExec(
 
   override def batchType(): Convention.BatchType = VeloxBatchType
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 }

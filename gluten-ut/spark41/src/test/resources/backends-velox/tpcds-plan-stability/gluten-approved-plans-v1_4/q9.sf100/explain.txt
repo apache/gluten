@@ -1,0 +1,407 @@
+== Physical Plan ==
+VeloxColumnarToRow (5)
++- ^ ProjectExecTransformer (3)
+   +- ^ FilterExecTransformer (2)
+      +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.reason (1)
+
+
+(1) FileSourceScanExecTransformer parquet spark_catalog.default.reason
+Output [1]: [r_reason_sk#1]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/reason]
+PushedFilters: [IsNotNull(r_reason_sk), EqualTo(r_reason_sk,1)]
+ReadSchema: struct<r_reason_sk:int>
+
+(2) FilterExecTransformer
+Input [1]: [r_reason_sk#1]
+Arguments: (isnotnull(r_reason_sk#1) AND (r_reason_sk#1 = 1))
+
+(3) ProjectExecTransformer
+Output [5]: [CASE WHEN (Subquery scalar-subquery#2, [id=#1].count(1) > 62316685) THEN ReusedSubquery Subquery scalar-subquery#2, [id=#1].avg(ss_ext_discount_amt) ELSE ReusedSubquery Subquery scalar-subquery#2, [id=#1].avg(ss_net_paid) END AS bucket1#3, CASE WHEN (Subquery scalar-subquery#4, [id=#2].count(1) > 19045798) THEN ReusedSubquery Subquery scalar-subquery#4, [id=#2].avg(ss_ext_discount_amt) ELSE ReusedSubquery Subquery scalar-subquery#4, [id=#2].avg(ss_net_paid) END AS bucket2#5, CASE WHEN (Subquery scalar-subquery#6, [id=#3].count(1) > 365541424) THEN ReusedSubquery Subquery scalar-subquery#6, [id=#3].avg(ss_ext_discount_amt) ELSE ReusedSubquery Subquery scalar-subquery#6, [id=#3].avg(ss_net_paid) END AS bucket3#7, CASE WHEN (Subquery scalar-subquery#8, [id=#4].count(1) > 216357808) THEN ReusedSubquery Subquery scalar-subquery#8, [id=#4].avg(ss_ext_discount_amt) ELSE ReusedSubquery Subquery scalar-subquery#8, [id=#4].avg(ss_net_paid) END AS bucket4#9, CASE WHEN (Subquery scalar-subquery#10, [id=#5].count(1) > 184483884) THEN ReusedSubquery Subquery scalar-subquery#10, [id=#5].avg(ss_ext_discount_amt) ELSE ReusedSubquery Subquery scalar-subquery#10, [id=#5].avg(ss_net_paid) END AS bucket5#11]
+Input [1]: [r_reason_sk#1]
+
+(4) WholeStageCodegenTransformer (31)
+Input [5]: [bucket1#3, bucket2#5, bucket3#7, bucket4#9, bucket5#11]
+Arguments: false
+
+(5) VeloxColumnarToRow
+Input [5]: [bucket1#3, bucket2#5, bucket3#7, bucket4#9, bucket5#11]
+
+===== Subqueries =====
+
+Subquery:1 Hosting operator id = 3 Hosting Expression = Subquery scalar-subquery#2, [id=#1]
+VeloxColumnarToRow (18)
++- ^ ProjectExecTransformer (16)
+   +- ^ RegularHashAggregateExecTransformer (15)
+      +- ^ InputIteratorTransformer (14)
+         +- ColumnarExchange (12)
+            +- VeloxResizeBatches (11)
+               +- ^ FlushableHashAggregateExecTransformer (9)
+                  +- ^ ProjectExecTransformer (8)
+                     +- ^ FilterExecTransformer (7)
+                        +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (6)
+
+
+(6) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [4]: [ss_quantity#12, ss_ext_discount_amt#13, ss_net_paid#14, ss_sold_date_sk#15]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,1), LessThanOrEqual(ss_quantity,20)]
+ReadSchema: struct<ss_quantity:int,ss_ext_discount_amt:decimal(7,2),ss_net_paid:decimal(7,2)>
+
+(7) FilterExecTransformer
+Input [4]: [ss_quantity#12, ss_ext_discount_amt#13, ss_net_paid#14, ss_sold_date_sk#15]
+Arguments: ((isnotnull(ss_quantity#12) AND (ss_quantity#12 >= 1)) AND (ss_quantity#12 <= 20))
+
+(8) ProjectExecTransformer
+Output [2]: [UnscaledValue(ss_ext_discount_amt#13) AS _pre_1#16, UnscaledValue(ss_net_paid#14) AS _pre_2#17]
+Input [4]: [ss_quantity#12, ss_ext_discount_amt#13, ss_net_paid#14, ss_sold_date_sk#15]
+
+(9) FlushableHashAggregateExecTransformer
+Input [2]: [_pre_1#16, _pre_2#17]
+Keys: []
+Functions [3]: [partial_count(1), partial_avg(_pre_1#16), partial_avg(_pre_2#17)]
+Aggregate Attributes [5]: [count#18, sum#19, count#20, sum#21, count#22]
+Results [5]: [count#23, sum#24, count#25, sum#26, count#27]
+
+(10) WholeStageCodegenTransformer (1)
+Input [5]: [count#23, sum#24, count#25, sum#26, count#27]
+Arguments: false
+
+(11) VeloxResizeBatches
+Input [5]: [count#23, sum#24, count#25, sum#26, count#27]
+Arguments: 1024, 2147483647, 10485760
+
+(12) ColumnarExchange
+Input [5]: [count#23, sum#24, count#25, sum#26, count#27]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=6], [shuffle_writer_type=hash]
+
+(13) InputAdapter
+Input [5]: [count#23, sum#24, count#25, sum#26, count#27]
+
+(14) InputIteratorTransformer
+Input [5]: [count#23, sum#24, count#25, sum#26, count#27]
+
+(15) RegularHashAggregateExecTransformer
+Input [5]: [count#23, sum#24, count#25, sum#26, count#27]
+Keys: []
+Functions [3]: [count(1), avg(UnscaledValue(ss_ext_discount_amt#13)), avg(UnscaledValue(ss_net_paid#14))]
+Aggregate Attributes [3]: [count(1)#28, avg(UnscaledValue(ss_ext_discount_amt#13))#29, avg(UnscaledValue(ss_net_paid#14))#30]
+Results [3]: [count(1)#28, avg(UnscaledValue(ss_ext_discount_amt#13))#29, avg(UnscaledValue(ss_net_paid#14))#30]
+
+(16) ProjectExecTransformer
+Output [1]: [named_struct(count(1), count(1)#28, avg(ss_ext_discount_amt), cast((avg(UnscaledValue(ss_ext_discount_amt#13))#29 / 100.0) as decimal(11,6)), avg(ss_net_paid), cast((avg(UnscaledValue(ss_net_paid#14))#30 / 100.0) as decimal(11,6))) AS mergedValue#31]
+Input [3]: [count(1)#28, avg(UnscaledValue(ss_ext_discount_amt#13))#29, avg(UnscaledValue(ss_net_paid#14))#30]
+
+(17) WholeStageCodegenTransformer (2)
+Input [1]: [mergedValue#31]
+Arguments: false
+
+(18) VeloxColumnarToRow
+Input [1]: [mergedValue#31]
+
+Subquery:2 Hosting operator id = 3 Hosting Expression = ReusedSubquery Subquery scalar-subquery#2, [id=#1]
+
+Subquery:3 Hosting operator id = 3 Hosting Expression = ReusedSubquery Subquery scalar-subquery#2, [id=#1]
+
+Subquery:4 Hosting operator id = 3 Hosting Expression = Subquery scalar-subquery#4, [id=#2]
+VeloxColumnarToRow (31)
++- ^ ProjectExecTransformer (29)
+   +- ^ RegularHashAggregateExecTransformer (28)
+      +- ^ InputIteratorTransformer (27)
+         +- ColumnarExchange (25)
+            +- VeloxResizeBatches (24)
+               +- ^ FlushableHashAggregateExecTransformer (22)
+                  +- ^ ProjectExecTransformer (21)
+                     +- ^ FilterExecTransformer (20)
+                        +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (19)
+
+
+(19) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [4]: [ss_quantity#32, ss_ext_discount_amt#33, ss_net_paid#34, ss_sold_date_sk#35]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,21), LessThanOrEqual(ss_quantity,40)]
+ReadSchema: struct<ss_quantity:int,ss_ext_discount_amt:decimal(7,2),ss_net_paid:decimal(7,2)>
+
+(20) FilterExecTransformer
+Input [4]: [ss_quantity#32, ss_ext_discount_amt#33, ss_net_paid#34, ss_sold_date_sk#35]
+Arguments: ((isnotnull(ss_quantity#32) AND (ss_quantity#32 >= 21)) AND (ss_quantity#32 <= 40))
+
+(21) ProjectExecTransformer
+Output [2]: [UnscaledValue(ss_ext_discount_amt#33) AS _pre_3#36, UnscaledValue(ss_net_paid#34) AS _pre_4#37]
+Input [4]: [ss_quantity#32, ss_ext_discount_amt#33, ss_net_paid#34, ss_sold_date_sk#35]
+
+(22) FlushableHashAggregateExecTransformer
+Input [2]: [_pre_3#36, _pre_4#37]
+Keys: []
+Functions [3]: [partial_count(1), partial_avg(_pre_3#36), partial_avg(_pre_4#37)]
+Aggregate Attributes [5]: [count#38, sum#39, count#40, sum#41, count#42]
+Results [5]: [count#43, sum#44, count#45, sum#46, count#47]
+
+(23) WholeStageCodegenTransformer (7)
+Input [5]: [count#43, sum#44, count#45, sum#46, count#47]
+Arguments: false
+
+(24) VeloxResizeBatches
+Input [5]: [count#43, sum#44, count#45, sum#46, count#47]
+Arguments: 1024, 2147483647, 10485760
+
+(25) ColumnarExchange
+Input [5]: [count#43, sum#44, count#45, sum#46, count#47]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=7], [shuffle_writer_type=hash]
+
+(26) InputAdapter
+Input [5]: [count#43, sum#44, count#45, sum#46, count#47]
+
+(27) InputIteratorTransformer
+Input [5]: [count#43, sum#44, count#45, sum#46, count#47]
+
+(28) RegularHashAggregateExecTransformer
+Input [5]: [count#43, sum#44, count#45, sum#46, count#47]
+Keys: []
+Functions [3]: [count(1), avg(UnscaledValue(ss_ext_discount_amt#33)), avg(UnscaledValue(ss_net_paid#34))]
+Aggregate Attributes [3]: [count(1)#48, avg(UnscaledValue(ss_ext_discount_amt#33))#49, avg(UnscaledValue(ss_net_paid#34))#50]
+Results [3]: [count(1)#48, avg(UnscaledValue(ss_ext_discount_amt#33))#49, avg(UnscaledValue(ss_net_paid#34))#50]
+
+(29) ProjectExecTransformer
+Output [1]: [named_struct(count(1), count(1)#48, avg(ss_ext_discount_amt), cast((avg(UnscaledValue(ss_ext_discount_amt#33))#49 / 100.0) as decimal(11,6)), avg(ss_net_paid), cast((avg(UnscaledValue(ss_net_paid#34))#50 / 100.0) as decimal(11,6))) AS mergedValue#51]
+Input [3]: [count(1)#48, avg(UnscaledValue(ss_ext_discount_amt#33))#49, avg(UnscaledValue(ss_net_paid#34))#50]
+
+(30) WholeStageCodegenTransformer (8)
+Input [1]: [mergedValue#51]
+Arguments: false
+
+(31) VeloxColumnarToRow
+Input [1]: [mergedValue#51]
+
+Subquery:5 Hosting operator id = 3 Hosting Expression = ReusedSubquery Subquery scalar-subquery#4, [id=#2]
+
+Subquery:6 Hosting operator id = 3 Hosting Expression = ReusedSubquery Subquery scalar-subquery#4, [id=#2]
+
+Subquery:7 Hosting operator id = 3 Hosting Expression = Subquery scalar-subquery#6, [id=#3]
+VeloxColumnarToRow (44)
++- ^ ProjectExecTransformer (42)
+   +- ^ RegularHashAggregateExecTransformer (41)
+      +- ^ InputIteratorTransformer (40)
+         +- ColumnarExchange (38)
+            +- VeloxResizeBatches (37)
+               +- ^ FlushableHashAggregateExecTransformer (35)
+                  +- ^ ProjectExecTransformer (34)
+                     +- ^ FilterExecTransformer (33)
+                        +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (32)
+
+
+(32) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [4]: [ss_quantity#52, ss_ext_discount_amt#53, ss_net_paid#54, ss_sold_date_sk#55]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,41), LessThanOrEqual(ss_quantity,60)]
+ReadSchema: struct<ss_quantity:int,ss_ext_discount_amt:decimal(7,2),ss_net_paid:decimal(7,2)>
+
+(33) FilterExecTransformer
+Input [4]: [ss_quantity#52, ss_ext_discount_amt#53, ss_net_paid#54, ss_sold_date_sk#55]
+Arguments: ((isnotnull(ss_quantity#52) AND (ss_quantity#52 >= 41)) AND (ss_quantity#52 <= 60))
+
+(34) ProjectExecTransformer
+Output [2]: [UnscaledValue(ss_ext_discount_amt#53) AS _pre_5#56, UnscaledValue(ss_net_paid#54) AS _pre_6#57]
+Input [4]: [ss_quantity#52, ss_ext_discount_amt#53, ss_net_paid#54, ss_sold_date_sk#55]
+
+(35) FlushableHashAggregateExecTransformer
+Input [2]: [_pre_5#56, _pre_6#57]
+Keys: []
+Functions [3]: [partial_count(1), partial_avg(_pre_5#56), partial_avg(_pre_6#57)]
+Aggregate Attributes [5]: [count#58, sum#59, count#60, sum#61, count#62]
+Results [5]: [count#63, sum#64, count#65, sum#66, count#67]
+
+(36) WholeStageCodegenTransformer (13)
+Input [5]: [count#63, sum#64, count#65, sum#66, count#67]
+Arguments: false
+
+(37) VeloxResizeBatches
+Input [5]: [count#63, sum#64, count#65, sum#66, count#67]
+Arguments: 1024, 2147483647, 10485760
+
+(38) ColumnarExchange
+Input [5]: [count#63, sum#64, count#65, sum#66, count#67]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=8], [shuffle_writer_type=hash]
+
+(39) InputAdapter
+Input [5]: [count#63, sum#64, count#65, sum#66, count#67]
+
+(40) InputIteratorTransformer
+Input [5]: [count#63, sum#64, count#65, sum#66, count#67]
+
+(41) RegularHashAggregateExecTransformer
+Input [5]: [count#63, sum#64, count#65, sum#66, count#67]
+Keys: []
+Functions [3]: [count(1), avg(UnscaledValue(ss_ext_discount_amt#53)), avg(UnscaledValue(ss_net_paid#54))]
+Aggregate Attributes [3]: [count(1)#68, avg(UnscaledValue(ss_ext_discount_amt#53))#69, avg(UnscaledValue(ss_net_paid#54))#70]
+Results [3]: [count(1)#68, avg(UnscaledValue(ss_ext_discount_amt#53))#69, avg(UnscaledValue(ss_net_paid#54))#70]
+
+(42) ProjectExecTransformer
+Output [1]: [named_struct(count(1), count(1)#68, avg(ss_ext_discount_amt), cast((avg(UnscaledValue(ss_ext_discount_amt#53))#69 / 100.0) as decimal(11,6)), avg(ss_net_paid), cast((avg(UnscaledValue(ss_net_paid#54))#70 / 100.0) as decimal(11,6))) AS mergedValue#71]
+Input [3]: [count(1)#68, avg(UnscaledValue(ss_ext_discount_amt#53))#69, avg(UnscaledValue(ss_net_paid#54))#70]
+
+(43) WholeStageCodegenTransformer (14)
+Input [1]: [mergedValue#71]
+Arguments: false
+
+(44) VeloxColumnarToRow
+Input [1]: [mergedValue#71]
+
+Subquery:8 Hosting operator id = 3 Hosting Expression = ReusedSubquery Subquery scalar-subquery#6, [id=#3]
+
+Subquery:9 Hosting operator id = 3 Hosting Expression = ReusedSubquery Subquery scalar-subquery#6, [id=#3]
+
+Subquery:10 Hosting operator id = 3 Hosting Expression = Subquery scalar-subquery#8, [id=#4]
+VeloxColumnarToRow (57)
++- ^ ProjectExecTransformer (55)
+   +- ^ RegularHashAggregateExecTransformer (54)
+      +- ^ InputIteratorTransformer (53)
+         +- ColumnarExchange (51)
+            +- VeloxResizeBatches (50)
+               +- ^ FlushableHashAggregateExecTransformer (48)
+                  +- ^ ProjectExecTransformer (47)
+                     +- ^ FilterExecTransformer (46)
+                        +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (45)
+
+
+(45) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [4]: [ss_quantity#72, ss_ext_discount_amt#73, ss_net_paid#74, ss_sold_date_sk#75]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,61), LessThanOrEqual(ss_quantity,80)]
+ReadSchema: struct<ss_quantity:int,ss_ext_discount_amt:decimal(7,2),ss_net_paid:decimal(7,2)>
+
+(46) FilterExecTransformer
+Input [4]: [ss_quantity#72, ss_ext_discount_amt#73, ss_net_paid#74, ss_sold_date_sk#75]
+Arguments: ((isnotnull(ss_quantity#72) AND (ss_quantity#72 >= 61)) AND (ss_quantity#72 <= 80))
+
+(47) ProjectExecTransformer
+Output [2]: [UnscaledValue(ss_ext_discount_amt#73) AS _pre_7#76, UnscaledValue(ss_net_paid#74) AS _pre_8#77]
+Input [4]: [ss_quantity#72, ss_ext_discount_amt#73, ss_net_paid#74, ss_sold_date_sk#75]
+
+(48) FlushableHashAggregateExecTransformer
+Input [2]: [_pre_7#76, _pre_8#77]
+Keys: []
+Functions [3]: [partial_count(1), partial_avg(_pre_7#76), partial_avg(_pre_8#77)]
+Aggregate Attributes [5]: [count#78, sum#79, count#80, sum#81, count#82]
+Results [5]: [count#83, sum#84, count#85, sum#86, count#87]
+
+(49) WholeStageCodegenTransformer (19)
+Input [5]: [count#83, sum#84, count#85, sum#86, count#87]
+Arguments: false
+
+(50) VeloxResizeBatches
+Input [5]: [count#83, sum#84, count#85, sum#86, count#87]
+Arguments: 1024, 2147483647, 10485760
+
+(51) ColumnarExchange
+Input [5]: [count#83, sum#84, count#85, sum#86, count#87]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=9], [shuffle_writer_type=hash]
+
+(52) InputAdapter
+Input [5]: [count#83, sum#84, count#85, sum#86, count#87]
+
+(53) InputIteratorTransformer
+Input [5]: [count#83, sum#84, count#85, sum#86, count#87]
+
+(54) RegularHashAggregateExecTransformer
+Input [5]: [count#83, sum#84, count#85, sum#86, count#87]
+Keys: []
+Functions [3]: [count(1), avg(UnscaledValue(ss_ext_discount_amt#73)), avg(UnscaledValue(ss_net_paid#74))]
+Aggregate Attributes [3]: [count(1)#88, avg(UnscaledValue(ss_ext_discount_amt#73))#89, avg(UnscaledValue(ss_net_paid#74))#90]
+Results [3]: [count(1)#88, avg(UnscaledValue(ss_ext_discount_amt#73))#89, avg(UnscaledValue(ss_net_paid#74))#90]
+
+(55) ProjectExecTransformer
+Output [1]: [named_struct(count(1), count(1)#88, avg(ss_ext_discount_amt), cast((avg(UnscaledValue(ss_ext_discount_amt#73))#89 / 100.0) as decimal(11,6)), avg(ss_net_paid), cast((avg(UnscaledValue(ss_net_paid#74))#90 / 100.0) as decimal(11,6))) AS mergedValue#91]
+Input [3]: [count(1)#88, avg(UnscaledValue(ss_ext_discount_amt#73))#89, avg(UnscaledValue(ss_net_paid#74))#90]
+
+(56) WholeStageCodegenTransformer (20)
+Input [1]: [mergedValue#91]
+Arguments: false
+
+(57) VeloxColumnarToRow
+Input [1]: [mergedValue#91]
+
+Subquery:11 Hosting operator id = 3 Hosting Expression = ReusedSubquery Subquery scalar-subquery#8, [id=#4]
+
+Subquery:12 Hosting operator id = 3 Hosting Expression = ReusedSubquery Subquery scalar-subquery#8, [id=#4]
+
+Subquery:13 Hosting operator id = 3 Hosting Expression = Subquery scalar-subquery#10, [id=#5]
+VeloxColumnarToRow (70)
++- ^ ProjectExecTransformer (68)
+   +- ^ RegularHashAggregateExecTransformer (67)
+      +- ^ InputIteratorTransformer (66)
+         +- ColumnarExchange (64)
+            +- VeloxResizeBatches (63)
+               +- ^ FlushableHashAggregateExecTransformer (61)
+                  +- ^ ProjectExecTransformer (60)
+                     +- ^ FilterExecTransformer (59)
+                        +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (58)
+
+
+(58) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [4]: [ss_quantity#92, ss_ext_discount_amt#93, ss_net_paid#94, ss_sold_date_sk#95]
+Batched: true
+Location: CatalogFileIndex [{warehouse_dir}/store_sales]
+PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,81), LessThanOrEqual(ss_quantity,100)]
+ReadSchema: struct<ss_quantity:int,ss_ext_discount_amt:decimal(7,2),ss_net_paid:decimal(7,2)>
+
+(59) FilterExecTransformer
+Input [4]: [ss_quantity#92, ss_ext_discount_amt#93, ss_net_paid#94, ss_sold_date_sk#95]
+Arguments: ((isnotnull(ss_quantity#92) AND (ss_quantity#92 >= 81)) AND (ss_quantity#92 <= 100))
+
+(60) ProjectExecTransformer
+Output [2]: [UnscaledValue(ss_ext_discount_amt#93) AS _pre_9#96, UnscaledValue(ss_net_paid#94) AS _pre_10#97]
+Input [4]: [ss_quantity#92, ss_ext_discount_amt#93, ss_net_paid#94, ss_sold_date_sk#95]
+
+(61) FlushableHashAggregateExecTransformer
+Input [2]: [_pre_9#96, _pre_10#97]
+Keys: []
+Functions [3]: [partial_count(1), partial_avg(_pre_9#96), partial_avg(_pre_10#97)]
+Aggregate Attributes [5]: [count#98, sum#99, count#100, sum#101, count#102]
+Results [5]: [count#103, sum#104, count#105, sum#106, count#107]
+
+(62) WholeStageCodegenTransformer (25)
+Input [5]: [count#103, sum#104, count#105, sum#106, count#107]
+Arguments: false
+
+(63) VeloxResizeBatches
+Input [5]: [count#103, sum#104, count#105, sum#106, count#107]
+Arguments: 1024, 2147483647, 10485760
+
+(64) ColumnarExchange
+Input [5]: [count#103, sum#104, count#105, sum#106, count#107]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=10], [shuffle_writer_type=hash]
+
+(65) InputAdapter
+Input [5]: [count#103, sum#104, count#105, sum#106, count#107]
+
+(66) InputIteratorTransformer
+Input [5]: [count#103, sum#104, count#105, sum#106, count#107]
+
+(67) RegularHashAggregateExecTransformer
+Input [5]: [count#103, sum#104, count#105, sum#106, count#107]
+Keys: []
+Functions [3]: [count(1), avg(UnscaledValue(ss_ext_discount_amt#93)), avg(UnscaledValue(ss_net_paid#94))]
+Aggregate Attributes [3]: [count(1)#108, avg(UnscaledValue(ss_ext_discount_amt#93))#109, avg(UnscaledValue(ss_net_paid#94))#110]
+Results [3]: [count(1)#108, avg(UnscaledValue(ss_ext_discount_amt#93))#109, avg(UnscaledValue(ss_net_paid#94))#110]
+
+(68) ProjectExecTransformer
+Output [1]: [named_struct(count(1), count(1)#108, avg(ss_ext_discount_amt), cast((avg(UnscaledValue(ss_ext_discount_amt#93))#109 / 100.0) as decimal(11,6)), avg(ss_net_paid), cast((avg(UnscaledValue(ss_net_paid#94))#110 / 100.0) as decimal(11,6))) AS mergedValue#111]
+Input [3]: [count(1)#108, avg(UnscaledValue(ss_ext_discount_amt#93))#109, avg(UnscaledValue(ss_net_paid#94))#110]
+
+(69) WholeStageCodegenTransformer (26)
+Input [1]: [mergedValue#111]
+Arguments: false
+
+(70) VeloxColumnarToRow
+Input [1]: [mergedValue#111]
+
+Subquery:14 Hosting operator id = 3 Hosting Expression = ReusedSubquery Subquery scalar-subquery#10, [id=#5]
+
+Subquery:15 Hosting operator id = 3 Hosting Expression = ReusedSubquery Subquery scalar-subquery#10, [id=#5]
+
+

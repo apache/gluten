@@ -623,6 +623,39 @@ case class RegularHashAggregateExecTransformer(
   }
 }
 
+// Hash aggregation that was offloaded from a SortAggregateExec. Preserves sort-aggregate semantics
+// so that upstream sort elimination rules can safely remove the preceding sort.
+case class SortHashAggregateExecTransformer(
+    requiredChildDistributionExpressions: Option[Seq[Expression]],
+    groupingExpressions: Seq[NamedExpression],
+    aggregateExpressions: Seq[AggregateExpression],
+    aggregateAttributes: Seq[Attribute],
+    initialInputBufferOffset: Int,
+    resultExpressions: Seq[NamedExpression],
+    child: SparkPlan)
+  extends HashAggregateExecTransformer(
+    requiredChildDistributionExpressions,
+    groupingExpressions,
+    aggregateExpressions,
+    aggregateAttributes,
+    initialInputBufferOffset,
+    resultExpressions,
+    child)
+  with SortAggregateExecTransformer {
+
+  override protected def allowFlush: Boolean = false
+
+  override def simpleString(maxFields: Int): String =
+    s"SortToHash${super.simpleString(maxFields)}"
+
+  override def verboseString(maxFields: Int): String =
+    s"SortToHash${super.verboseString(maxFields)}"
+
+  override protected def withNewChildInternal(newChild: SparkPlan): HashAggregateExecTransformer = {
+    copy(child = newChild)
+  }
+}
+
 // Hash aggregation that emits pre-aggregated data which allows duplications on grouping keys
 // among its output rows.
 case class FlushableHashAggregateExecTransformer(

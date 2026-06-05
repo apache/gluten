@@ -20,7 +20,11 @@ To address this issue, Apache Gluten introduces a stage-level resource auto-adju
    ```properties  
    spark.dynamicAllocation.enabled=true  
    ```  
-3. **Resource Scheduler Compatibility**:  
+3. ** Enable Off-Heap Memory**:
+   ```properties  
+   spark.memory.offHeap.enabled=true
+   ```
+4. **Resource Scheduler Compatibility**:  
    Ensure the underlying cluster resource manager (e.g., YARN, Kubernetes) supports dynamic resource allocation.
 
 ### **Key Configurations**
@@ -72,4 +76,4 @@ And the execution plan will like following with ApplyResourceProfile node insert
 • Tested with YARN/Kubernetes; other resource managers may need validation.
 
 
-For issues or feedback, refer to [GLUTEN-8018](https://github.com/apache/incubator-gluten/issues/8018).
+For issues or feedback, refer to [GLUTEN-8018](https://github.com/apache/gluten/issues/8018).

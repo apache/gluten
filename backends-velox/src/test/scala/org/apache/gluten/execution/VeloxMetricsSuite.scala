@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
@@ -152,6 +152,27 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         assert(metrics("numOutputVectors").value > 0)
         assert(metrics("numOutputBytes").value > 0)
     }
+
+    runQueryAndCompare(
+      "SELECT c1, col FROM metrics_t1 LATERAL VIEW explode(array(c1, c2)) t AS col") {
+      df =>
+        val scan = find(df.queryExecution.executedPlan) {
+          case _: FileSourceScanExecTransformer => true
+          case _ => false
+        }
+        assert(scan.isDefined)
+        val scanMetrics = scan.get.metrics
+        assert(scanMetrics("rawInputRows").value > 0)
+
+        val generate = find(df.queryExecution.executedPlan) {
+          case _: GenerateExecTransformer => true
+          case _ => false
+        }
+        assert(generate.isDefined)
+        val genMetrics = generate.get.metrics
+        assert(genMetrics("numOutputRows").value == 2 * scanMetrics("rawInputRows").value)
+        assert(genMetrics.contains("loadLazyVectorTime"))
+    }
   }
 
   test("Metrics of window") {
@@ -168,19 +189,42 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
-  test("Metrics of noop filter's children") {
-    withSQLConf(GlutenConfig.RAS_ENABLED.key -> "true") {
-      runQueryAndCompare("SELECT c1, c2 FROM metrics_t1 where c1 < 50") {
+  test("Hash aggregate metrics include abandoned partial aggregation rows") {
+    withSQLConf(
+      GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "10",
+      VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_ROWS.key -> "0",
+      VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_PCT.key -> "0"
+    ) {
+      runQueryAndCompare("SELECT c2, sum(c1) FROM metrics_t1 GROUP BY c2") {
         df =>
-          val scan = find(df.queryExecution.executedPlan) {
-            case _: FileSourceScanExecTransformer => true
-            case _ => false
+          val aggregates = collect(df.queryExecution.executedPlan) {
+            case agg: HashAggregateExecBaseTransformer => agg
           }
-          assert(scan.isDefined)
-          val metrics = scan.get.metrics
-          assert(metrics("rawInputRows").value == 100)
-          assert(metrics("outputVectors").value == 1)
+          assert(aggregates.nonEmpty)
+          val numTotalAbandonedPartialAggregationRows = aggregates.map {
+            agg =>
+              val metrics = agg.metrics
+              assert(metrics.contains("abandonedPartialAggregationRows"))
+              val num = metrics("abandonedPartialAggregationRows").value
+              assert(num >= 0)
+              num
+          }.sum
+          assert(numTotalAbandonedPartialAggregationRows > 0)
       }
+    }
+  }
+
+  test("Metrics of noop filter's children") {
+    runQueryAndCompare("SELECT c1, c2 FROM metrics_t1 where c1 < 50") {
+      df =>
+        val scan = find(df.queryExecution.executedPlan) {
+          case _: FileSourceScanExecTransformer => true
+          case _ => false
+        }
+        assert(scan.isDefined)
+        val metrics = scan.get.metrics
+        assert(metrics("rawInputRows").value == 100)
+        assert(metrics("outputVectors").value == 1)
     }
   }
 

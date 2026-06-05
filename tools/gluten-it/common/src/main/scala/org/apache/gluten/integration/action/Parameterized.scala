@@ -69,7 +69,7 @@ class Parameterized(
   private val coordinates: mutable.LinkedHashMap[Coordinate, Seq[(String, String)]] = {
     val dimCount = configDimensions.size
     val coordinateMap = mutable.LinkedHashMap[Coordinate, Seq[(String, String)]]()
-    val nextId: AtomicInteger = new AtomicInteger(1);
+    val nextId: AtomicInteger = new AtomicInteger(1)
 
     def fillCoordinates(
         dimOffset: Int,
@@ -334,11 +334,6 @@ object Parameterized {
           coord =>
             inc
               .next()
-              .write(coord.queryResult.asSuccessOption().map(_.runResult.planningTimeMillis)))
-        coords.foreach(
-          coord =>
-            inc
-              .next()
               .write(coord.queryResult.asSuccessOption().map(_.runResult.executionTimeMillis)))
       }
     }
@@ -356,7 +351,6 @@ object Parameterized {
           Seq(Field.Branch("Succeeded", coordFields), Field.Branch("Row Count", coordFields)) ++
           metricNames.map(metricName => Field.Branch(metricName, coordFields)) ++
           Seq(
-            Field.Branch("Planning Time (Millis)", coordFields),
             Field.Branch("Query Time (Millis)", coordFields)
           )
       val render =

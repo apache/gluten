@@ -188,13 +188,13 @@ case class ColumnarCollapseTransformStages(glutenConf: GlutenConfig) extends Rul
 case class ColumnarInputAdapter(child: SparkPlan)
   extends InputAdapterGenerateTreeStringShim
   with Convention.KnownBatchType
-  with Convention.KnownRowTypeForSpark33OrLater
+  with Convention.KnownRowType
   with GlutenPlan.SupportsRowBasedCompatible
   with ConventionReq.KnownChildConvention {
   override def output: Seq[Attribute] = child.output
   final override val supportsColumnar: Boolean = true
   final override val supportsRowBased: Boolean = false
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
   override def batchType(): Convention.BatchType =
     BackendsApiManager.getSettings.primaryBatchType
   override def requiredChildConvention(): Seq[ConventionReq] = Seq(

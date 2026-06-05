@@ -52,7 +52,6 @@ import scala.collection.concurrent
 import scala.reflect.ClassTag
 import scala.util.matching.Regex
 
-// spotless:off
 trait DeltaTestUtilsBase {
   import DeltaTestUtils.TableIdentifierOrPath
 
@@ -65,23 +64,14 @@ trait DeltaTestUtilsBase {
     def plans: Seq[Plans] = capturedPlans.reverse
 
     override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
-      capturedPlans ::= Plans(
-          qe.analyzed,
-          qe.optimizedPlan,
-          qe.sparkPlan,
-          qe.executedPlan)
+      capturedPlans ::= Plans(qe.analyzed, qe.optimizedPlan, qe.sparkPlan, qe.executedPlan)
     }
 
-    override def onFailure(
-      funcName: String, qe: QueryExecution, error: Exception): Unit = {}
+    override def onFailure(funcName: String, qe: QueryExecution, error: Exception): Unit = {}
   }
 
-  /**
-   * Run a thunk with physical plans for all queries captured and passed into a provided buffer.
-   */
-  def withLogicalPlansCaptured[T](
-      spark: SparkSession,
-      optimizedPlan: Boolean)(
+  /** Run a thunk with physical plans for all queries captured and passed into a provided buffer. */
+  def withLogicalPlansCaptured[T](spark: SparkSession, optimizedPlan: Boolean)(
       thunk: => Unit): Seq[LogicalPlan] = {
     val planCapturingListener = new PlanCapturingListener
 
@@ -90,20 +80,16 @@ trait DeltaTestUtilsBase {
     try {
       thunk
       spark.sparkContext.listenerBus.waitUntilEmpty(15000)
-      planCapturingListener.plans.map { plans =>
-        if (optimizedPlan) plans.optimized else plans.analyzed
+      planCapturingListener.plans.map {
+        plans => if (optimizedPlan) plans.optimized else plans.analyzed
       }
     } finally {
       spark.listenerManager.unregister(planCapturingListener)
     }
   }
 
-  /**
-   * Run a thunk with physical plans for all queries captured and passed into a provided buffer.
-   */
-  def withPhysicalPlansCaptured[T](
-      spark: SparkSession)(
-      thunk: => Unit): Seq[SparkPlan] = {
+  /** Run a thunk with physical plans for all queries captured and passed into a provided buffer. */
+  def withPhysicalPlansCaptured[T](spark: SparkSession)(thunk: => Unit): Seq[SparkPlan] = {
     val planCapturingListener = new PlanCapturingListener
 
     spark.sparkContext.listenerBus.waitUntilEmpty(15000)
@@ -118,12 +104,10 @@ trait DeltaTestUtilsBase {
   }
 
   /**
-   * Run a thunk with logical and physical plans for all queries captured and passed
-   * into a provided buffer.
+   * Run a thunk with logical and physical plans for all queries captured and passed into a provided
+   * buffer.
    */
-  def withAllPlansCaptured[T](
-      spark: SparkSession)(
-      thunk: => Unit): Seq[Plans] = {
+  def withAllPlansCaptured[T](spark: SparkSession)(thunk: => Unit): Seq[Plans] = {
     val planCapturingListener = new PlanCapturingListener
 
     spark.sparkContext.listenerBus.waitUntilEmpty(15000)
@@ -162,22 +146,21 @@ trait DeltaTestUtilsBase {
 
   /** Filter `usageRecords` by the `opType` tag or field. */
   def filterUsageRecords(usageRecords: Seq[UsageRecord], opType: String): Seq[UsageRecord] = {
-    usageRecords.filter { r =>
-      r.tags.get("opType").contains(opType) || r.opType.map(_.typeName).contains(opType)
+    usageRecords.filter {
+      r => r.tags.get("opType").contains(opType) || r.opType.map(_.typeName).contains(opType)
     }
   }
 
   def collectUsageLogs(opType: String)(f: => Unit): collection.Seq[UsageRecord] = {
-    Log4jUsageLogger.track(f).filter { r =>
-      r.metric == "tahoeEvent" &&
+    Log4jUsageLogger.track(f).filter {
+      r =>
+        r.metric == "tahoeEvent" &&
         r.tags.get("opType").contains(opType)
     }
   }
 
-  /**
-   * Remove protocol and metadata fields from checksum file of json format
-   */
-  def removeProtocolAndMetadataFromChecksumFile(checksumFilePath : Path): Unit = {
+  /** Remove protocol and metadata fields from checksum file of json format */
+  def removeProtocolAndMetadataFromChecksumFile(checksumFilePath: Path): Unit = {
     // scalastyle:off deltahadoopconfiguration
     val fs = checksumFilePath.getFileSystem(
       SparkSession.getActiveSession.map(_.sessionState.newHadoopConf()).get
@@ -218,22 +201,24 @@ trait DeltaTestUtilsBase {
     // Note: It can be RDDScanExec instead of FileScan if the source was materialized.
     // We pick the first plan starting from FileScan and ending in HashAggregate as a
     // stable heuristic for the one we want.
-    plans.map(_.executedPlan)
+    plans
+      .map(_.executedPlan)
       .filter {
         case WholeStageCodegenExec(hash: HashAggregateExec) =>
           hash.collectLeaves().size == 2 &&
-            hash.collectLeaves()
-              .forall { s =>
+          hash
+            .collectLeaves()
+            .forall {
+              s =>
                 s.isInstanceOf[FileSourceScanExec] ||
-                  s.isInstanceOf[RDDScanExec]
-              }
+                s.isInstanceOf[RDDScanExec]
+            }
         case _ => false
-      }.head
+      }
+      .head
   }
 
-  /**
-   * Separate name- from path-based SQL table identifiers.
-   */
+  /** Separate name- from path-based SQL table identifiers. */
   def getTableIdentifierOrPath(sqlIdentifier: String): TableIdentifierOrPath = {
     // Match: delta.`path`[[ as] alias] or tahoe.`path`[[ as] alias]
     val pathMatcher: Regex = raw"(?:delta|tahoe)\.`([^`]+)`(?:(?: as)? (.+))?".r
@@ -251,9 +236,7 @@ trait DeltaTestUtilsBase {
     }
   }
 
-  /**
-   * Produce a DeltaTable instance given a `TableIdentifierOrPath` instance.
-   */
+  /** Produce a DeltaTable instance given a `TableIdentifierOrPath` instance. */
   def getDeltaTableForIdentifierOrPath(
       spark: SparkSession,
       identifierOrPath: TableIdentifierOrPath): IODeltaTable = {
@@ -273,11 +256,11 @@ trait DeltaTestUtilsBase {
   }
 
   /**
-   * Helper types to define the expected result of a test case.
-   * Either:
-   * - Success: include an expected value to check, e.g. expected schema or result as a DF or rows.
-   * - Failure: an exception is thrown and the caller passes a function to check that it matches an
-   *     expected error, typ. `checkError()` or `checkErrorMatchPVals()`.
+   * Helper types to define the expected result of a test case. Either:
+   *   - Success: include an expected value to check, e.g. expected schema or result as a DF or
+   *     rows.
+   *   - Failure: an exception is thrown and the caller passes a function to check that it matches
+   *     an expected error, typ. `checkError()` or `checkErrorMatchPVals()`.
    */
   sealed trait ExpectedResult[-T]
   object ExpectedResult {
@@ -306,32 +289,35 @@ trait DeltaTestUtilsBase {
   }
 }
 
-trait DeltaCheckpointTestUtils
-  extends DeltaTestUtilsBase { self: SparkFunSuite with SharedSparkSession =>
+trait DeltaCheckpointTestUtils extends DeltaTestUtilsBase {
+  self: SparkFunSuite with SharedSparkSession =>
 
-  def testDifferentCheckpoints(testName: String, quiet: Boolean = false)
-      (f: (CheckpointPolicy.Policy, Option[V2Checkpoint.Format]) => Unit): Unit = {
+  def testDifferentCheckpoints(testName: String, quiet: Boolean = false)(
+      f: (CheckpointPolicy.Policy, Option[V2Checkpoint.Format]) => Unit): Unit = {
     test(s"$testName [Checkpoint V1]") {
       def testFunc(): Unit = {
-        withSQLConf(DeltaConfigs.CHECKPOINT_POLICY.defaultTablePropertyKey ->
-          CheckpointPolicy.Classic.name) {
+        withSQLConf(
+          DeltaConfigs.CHECKPOINT_POLICY.defaultTablePropertyKey ->
+            CheckpointPolicy.Classic.name) {
           f(CheckpointPolicy.Classic, None)
         }
       }
-      if (quiet) quietly { testFunc() } else testFunc()
+      if (quiet) quietly(testFunc())
+      else testFunc()
     }
     for (checkpointFormat <- V2Checkpoint.Format.ALL)
-    test(s"$testName [Checkpoint V2, format: ${checkpointFormat.name}]") {
-      def testFunc(): Unit = {
-        withSQLConf(
-          DeltaConfigs.CHECKPOINT_POLICY.defaultTablePropertyKey -> CheckpointPolicy.V2.name,
-          DeltaSQLConf.CHECKPOINT_V2_TOP_LEVEL_FILE_FORMAT.key -> checkpointFormat.name
-        ) {
-          f(CheckpointPolicy.V2, Some(checkpointFormat))
+      test(s"$testName [Checkpoint V2, format: ${checkpointFormat.name}]") {
+        def testFunc(): Unit = {
+          withSQLConf(
+            DeltaConfigs.CHECKPOINT_POLICY.defaultTablePropertyKey -> CheckpointPolicy.V2.name,
+            DeltaSQLConf.CHECKPOINT_V2_TOP_LEVEL_FILE_FORMAT.key -> checkpointFormat.name
+          ) {
+            f(CheckpointPolicy.V2, Some(checkpointFormat))
+          }
         }
+        if (quiet) quietly(testFunc())
+        else testFunc()
       }
-      if (quiet) quietly { testFunc() } else testFunc()
-    }
   }
 
   /**
@@ -343,20 +329,24 @@ trait DeltaCheckpointTestUtils
       checkpointFile: Path): DataFrame = {
     val ci = CheckpointInstance.apply(checkpointFile)
     val allCheckpointFiles = log
-        .listFrom(ci.version)
-        .filter(FileNames.isCheckpointFile)
-        .filter(f => CheckpointInstance(f.getPath) == ci)
-        .toSeq
+      .listFrom(ci.version)
+      .filter(FileNames.isCheckpointFile)
+      .filter(f => CheckpointInstance(f.getPath) == ci)
+      .toSeq
     val fileActionsFileIndex = ci.format match {
       case CheckpointInstance.Format.V2 =>
         val incompleteCheckpointProvider = ci.getCheckpointProvider(log, allCheckpointFiles)
         val df = log.loadIndex(incompleteCheckpointProvider.topLevelFileIndex.get, Action.logSchema)
-        val sidecarFileStatuses = df.as[SingleAction].collect().map(_.unwrap).collect {
-          case sf: SidecarFile => sf
-        }.map(sf => sf.toFileStatus(log.logPath))
+        val sidecarFileStatuses = df
+          .as[SingleAction]
+          .collect()
+          .map(_.unwrap)
+          .collect { case sf: SidecarFile => sf }
+          .map(sf => sf.toFileStatus(log.logPath))
         DeltaLogFileIndex(DeltaLogFileIndex.CHECKPOINT_FILE_FORMAT_PARQUET, sidecarFileStatuses)
       case CheckpointInstance.Format.SINGLE | CheckpointInstance.Format.WITH_PARTS =>
-        DeltaLogFileIndex(DeltaLogFileIndex.CHECKPOINT_FILE_FORMAT_PARQUET,
+        DeltaLogFileIndex(
+          DeltaLogFileIndex.CHECKPOINT_FILE_FORMAT_PARQUET,
           allCheckpointFiles.toArray)
       case _ =>
         throw new Exception(s"Unexpected checkpoint format for file $checkpointFile")
@@ -371,8 +361,7 @@ object DeltaTestUtils extends DeltaTestUtilsBase {
 
   sealed trait TableIdentifierOrPath
   object TableIdentifierOrPath {
-    case class Identifier(id: TableIdentifier, alias: Option[String])
-      extends TableIdentifierOrPath
+    case class Identifier(id: TableIdentifier, alias: Option[String]) extends TableIdentifierOrPath
     case class Path(path: String, alias: Option[String]) extends TableIdentifierOrPath
   }
 
@@ -382,9 +371,7 @@ object DeltaTestUtils extends DeltaTestUtilsBase {
       sparkPlan: SparkPlan,
       executedPlan: SparkPlan)
 
-  /**
-   * Creates an AddFile that can be used for tests where the exact parameters do not matter.
-   */
+  /** Creates an AddFile that can be used for tests where the exact parameters do not matter. */
   def createTestAddFile(
       encodedPath: String = "foo",
       partitionValues: Map[String, String] = Map.empty,
@@ -422,22 +409,28 @@ object DeltaTestUtils extends DeltaTestUtilsBase {
   }
 
   /**
-   * Implements an ordering where `x < y` iff both reader and writer versions of
-   * `x` are strictly less than those of `y`.
+   * Implements an ordering where `x < y` iff both reader and writer versions of `x` are strictly
+   * less than those of `y`.
    *
-   * Can be used to conveniently check that this relationship holds in tests/assertions
-   * without having to write out the conjunction of the two subconditions every time.
+   * Can be used to conveniently check that this relationship holds in tests/assertions without
+   * having to write out the conjunction of the two subconditions every time.
    */
   case object StrictProtocolOrdering extends PartialOrdering[Protocol] {
     override def tryCompare(x: Protocol, y: Protocol): Option[Int] = {
-      if (x.minReaderVersion == y.minReaderVersion &&
-        x.minWriterVersion == y.minWriterVersion) {
+      if (
+        x.minReaderVersion == y.minReaderVersion &&
+        x.minWriterVersion == y.minWriterVersion
+      ) {
         Some(0)
-      } else if (x.minReaderVersion < y.minReaderVersion &&
-        x.minWriterVersion < y.minWriterVersion) {
+      } else if (
+        x.minReaderVersion < y.minReaderVersion &&
+        x.minWriterVersion < y.minWriterVersion
+      ) {
         Some(-1)
-      } else if (x.minReaderVersion > y.minReaderVersion &&
-        x.minWriterVersion > y.minWriterVersion) {
+      } else if (
+        x.minReaderVersion > y.minReaderVersion &&
+        x.minWriterVersion > y.minWriterVersion
+      ) {
         Some(1)
       } else {
         None
@@ -453,29 +446,29 @@ object DeltaTestUtils extends DeltaTestUtilsBase {
   }
 }
 
-trait DeltaTestUtilsForTempViews
-  extends SharedSparkSession
-  with DeltaTestUtilsBase {
+trait DeltaTestUtilsForTempViews extends SharedSparkSession with DeltaTestUtilsBase {
 
   def testWithTempView(testName: String)(testFun: Boolean => Any): Unit = {
-    Seq(true, false).foreach { isSQLTempView =>
-      val tempViewUsed = if (isSQLTempView) "SQL TempView" else "Dataset TempView"
-      test(s"$testName - $tempViewUsed") {
-        withTempView("v") {
-          testFun(isSQLTempView)
+    Seq(true, false).foreach {
+      isSQLTempView =>
+        val tempViewUsed = if (isSQLTempView) "SQL TempView" else "Dataset TempView"
+        test(s"$testName - $tempViewUsed") {
+          withTempView("v") {
+            testFun(isSQLTempView)
+          }
         }
-      }
     }
   }
 
   def testQuietlyWithTempView(testName: String)(testFun: Boolean => Any): Unit = {
-    Seq(true, false).foreach { isSQLTempView =>
-      val tempViewUsed = if (isSQLTempView) "SQL TempView" else "Dataset TempView"
-      testQuietly(s"$testName - $tempViewUsed") {
-        withTempView("v") {
-          testFun(isSQLTempView)
+    Seq(true, false).foreach {
+      isSQLTempView =>
+        val tempViewUsed = if (isSQLTempView) "SQL TempView" else "Dataset TempView"
+        testQuietly(s"$testName - $tempViewUsed") {
+          withTempView("v") {
+            testFun(isSQLTempView)
+          }
         }
-      }
     }
   }
 
@@ -527,10 +520,7 @@ trait DeltaTestUtilsForTempViews
  * Trait collecting helper methods for DML tests e.p. creating a test table for each test and
  * cleaning it up after each test.
  */
-trait DeltaDMLTestUtils
-  extends DeltaSQLTestUtils
-  with DeltaTestUtilsBase
-  with BeforeAndAfterEach {
+trait DeltaDMLTestUtils extends DeltaSQLTestUtils with DeltaTestUtilsBase with BeforeAndAfterEach {
   self: SharedSparkSession =>
 
   import testImplicits._
@@ -575,7 +565,8 @@ trait DeltaDMLTestUtils
 
     import testImplicits._
 
-    append(target.toDF(targetKeyValueNames._1, targetKeyValueNames._2).coalesce(2),
+    append(
+      target.toDF(targetKeyValueNames._1, targetKeyValueNames._2).coalesce(2),
       if (isKeyPartitioned) Seq(targetKeyValueNames._1) else Nil)
     withTempView("source") {
       source.toDF(sourceKeyValueNames._1, sourceKeyValueNames._2).createOrReplaceTempView("source")
@@ -584,8 +575,8 @@ trait DeltaDMLTestUtils
   }
 
   /**
-   * Parse the input JSON data into a dataframe, one row per input element.
-   * Throws an exception on malformed inputs or records that don't comply with the provided schema.
+   * Parse the input JSON data into a dataframe, one row per input element. Throws an exception on
+   * malformed inputs or records that don't comply with the provided schema.
    */
   protected def readFromJSON(data: Seq[String], schema: StructType = null): DataFrame = {
     if (schema != null) {
@@ -610,26 +601,23 @@ trait DeltaDMLTestUtils
    * Finds the latest operation of the given type that ran on the test table and returns the
    * dataframe with the changes of the corresponding table version.
    *
-   * @param operation Delta operation name, see [[DeltaOperations]].
+   * @param operation
+   *   Delta operation name, see [[DeltaOperations]].
    */
   protected def getCDCForLatestOperation(deltaLog: DeltaLog, operation: String): DataFrame = {
     val latestOperation = deltaLog.history
       .getHistory(None)
       .find(_.operation == operation)
-    assert(latestOperation.nonEmpty, s"Couldn't find a ${operation} operation to check CDF")
+    assert(latestOperation.nonEmpty, s"Couldn't find a $operation operation to check CDF")
 
     val latestOperationVersion = latestOperation.get.version
-    assert(latestOperationVersion.nonEmpty,
-      s"Latest ${operation} operation doesn't have a version associated with it")
+    assert(
+      latestOperationVersion.nonEmpty,
+      s"Latest $operation operation doesn't have a version associated with it")
 
     CDCReader
-      .changesToBatchDF(
-        deltaLog,
-        latestOperationVersion.get,
-        latestOperationVersion.get,
-        spark)
+      .changesToBatchDF(deltaLog, latestOperationVersion.get, latestOperationVersion.get, spark)
       .drop(CDCReader.CDC_COMMIT_TIMESTAMP)
       .drop(CDCReader.CDC_COMMIT_VERSION)
   }
 }
-// spotless:on

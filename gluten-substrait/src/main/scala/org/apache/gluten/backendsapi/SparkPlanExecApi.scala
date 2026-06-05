@@ -81,6 +81,29 @@ trait SparkPlanExecApi {
       resultExpressions: Seq[NamedExpression],
       child: SparkPlan): HashAggregateExecBaseTransformer
 
+  /**
+   * Generate a HashAggregateExecTransformer for a SortAggregateExec that is being offloaded to a
+   * native hash aggregate. The returned transformer preserves sort-aggregate semantics (e.g.,
+   * requiredChildOrdering) so that upstream sort elimination rules can distinguish it from a
+   * regular hash aggregate.
+   */
+  def genSortAggregateExecTransformer(
+      requiredChildDistributionExpressions: Option[Seq[Expression]],
+      groupingExpressions: Seq[NamedExpression],
+      aggregateExpressions: Seq[AggregateExpression],
+      aggregateAttributes: Seq[Attribute],
+      initialInputBufferOffset: Int,
+      resultExpressions: Seq[NamedExpression],
+      child: SparkPlan): HashAggregateExecBaseTransformer =
+    genHashAggregateExecTransformer(
+      requiredChildDistributionExpressions,
+      groupingExpressions,
+      aggregateExpressions,
+      aggregateAttributes,
+      initialInputBufferOffset,
+      resultExpressions,
+      child)
+
   /** Generate HashAggregateExecPullOutHelper */
   def genHashAggregateExecPullOutHelper(
       aggregateExpressions: Seq[AggregateExpression],
@@ -241,7 +264,10 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
   }
 
-  def getDecimalArithmeticExprName(exprName: String): String = exprName
+  // Default: ignore allowPrecisionLoss and return exprName unchanged. Non-Velox backends
+  // (e.g. ClickHouse) do not use the _deny_precision_loss naming convention; they handle
+  // decimal precision through their own mechanisms. VeloxSparkPlanExecApi overrides this.
+  def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String = exprName
 
   /** Transform map_entries to Substrait. */
   def genMapEntriesTransformer(
@@ -352,6 +378,14 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, childrenTransformers, expr)
   }
 
+  /** Transform map_from_entries to Substrait. */
+  def genMapFromEntriesTransformer(
+      substraitExprName: String,
+      child: ExpressionTransformer,
+      expr: Expression): ExpressionTransformer = {
+    throw new UnsupportedOperationException("map_from_entries is not supported")
+  }
+
   /**
    * Generate ShuffleDependency for ColumnarShuffleExchangeExec.
    *
@@ -404,7 +438,8 @@ trait SparkPlanExecApi {
       mode: BroadcastMode,
       child: SparkPlan,
       numOutputRows: SQLMetric,
-      dataSize: SQLMetric): BuildSideRelation
+      dataSize: SQLMetric,
+      buildThreads: SQLMetric = null): BuildSideRelation
 
   def doCanonicalizeForBroadcastMode(mode: BroadcastMode): BroadcastMode = {
     mode.canonicalized

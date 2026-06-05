@@ -295,7 +295,8 @@ class GlutenKeyGroupedPartitioningSuite
           case (enable, expected) =>
             withSQLConf(
               SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushDownValues.toString,
-              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable) {
+              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable
+            ) {
               val df = sql(
                 "SELECT id, name, i.price as purchase_price, p.price as sale_price " +
                   s"FROM testcat.ns.$items i JOIN testcat.ns.$purchases p " +
@@ -350,7 +351,8 @@ class GlutenKeyGroupedPartitioningSuite
           case (enable, expected) =>
             withSQLConf(
               SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushDownValues.toString,
-              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable) {
+              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable
+            ) {
               val df = sql(
                 "SELECT id, name, i.price as purchase_price, p.price as sale_price " +
                   s"FROM testcat.ns.$items i JOIN testcat.ns.$purchases p " +
@@ -415,7 +417,8 @@ class GlutenKeyGroupedPartitioningSuite
           case (enable, expected) =>
             withSQLConf(
               SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushDownValues.toString,
-              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable) {
+              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable
+            ) {
               val df = sql(
                 "SELECT id, name, i.price as purchase_price, p.price as sale_price " +
                   s"FROM testcat.ns.$items i JOIN testcat.ns.$purchases p " +
@@ -483,7 +486,8 @@ class GlutenKeyGroupedPartitioningSuite
           case (enable, expected) =>
             withSQLConf(
               SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushDownValues.toString,
-              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable) {
+              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable
+            ) {
               val df = sql(
                 "SELECT id, name, i.price as purchase_price, p.price as sale_price " +
                   s"FROM testcat.ns.$items i JOIN testcat.ns.$purchases p " +
@@ -540,7 +544,8 @@ class GlutenKeyGroupedPartitioningSuite
           case (enable, expected) =>
             withSQLConf(
               SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushDownValues.toString,
-              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable) {
+              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable
+            ) {
               val df = sql(
                 "SELECT id, name, i.price as purchase_price, p.price as sale_price " +
                   s"FROM testcat.ns.$items i JOIN testcat.ns.$purchases p " +

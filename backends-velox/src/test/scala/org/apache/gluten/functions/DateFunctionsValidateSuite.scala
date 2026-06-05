@@ -16,30 +16,14 @@
  */
 package org.apache.gluten.functions
 
-import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 
-import org.apache.spark.SparkConf
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.types.Decimal
 
 import java.sql.Timestamp
 
-class DateFunctionsValidateSuiteRasOff extends DateFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "false")
-  }
-}
-
-class DateFunctionsValidateSuiteRasOn extends DateFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
-
-abstract class DateFunctionsValidateSuite extends FunctionsValidateSuite {
+class DateFunctionsValidateSuite extends FunctionsValidateSuite {
   disableFallbackCheck
 
   import testImplicits._
@@ -278,6 +262,12 @@ abstract class DateFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("timestamp_seconds") {
+    runQueryAndCompare("select timestamp_seconds(l_orderkey) from lineitem") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
   test("timestampadd") {
     withTempPath {
       path =>
@@ -352,6 +342,45 @@ abstract class DateFunctionsValidateSuite extends FunctionsValidateSuite {
           checkGlutenPlan[ProjectExecTransformer]
         }
         runQueryAndCompare("SELECT to_utc_timestamp(a, b) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
+  test("last_day") {
+    withTempPath {
+      path =>
+        Seq(
+          java.sql.Date.valueOf("2022-02-15"),
+          java.sql.Date.valueOf("2022-03-20"),
+          java.sql.Date.valueOf("2020-02-10")
+        )
+          .toDF("dt")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("view")
+
+        runQueryAndCompare("SELECT last_day(dt) FROM view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
+  test("next_day") {
+    withTempPath {
+      path =>
+        Seq(
+          java.sql.Date.valueOf("2022-02-15"),
+          java.sql.Date.valueOf("2022-03-20")
+        )
+          .toDF("dt")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("view")
+
+        runQueryAndCompare("SELECT next_day(dt, 'Monday') FROM view") {
           checkGlutenPlan[ProjectExecTransformer]
         }
     }
@@ -489,6 +518,40 @@ abstract class DateFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("to_unix_timestamp") {
+    withTempPath {
+      path =>
+        Seq(
+          (Timestamp.valueOf("2016-04-08 13:10:15"), "yyyy-MM-dd HH:mm:ss"),
+          (Timestamp.valueOf("2017-05-19 18:25:30"), "yyyy-MM-dd HH:mm:ss")
+        ).toDF("ts", "fmt").write.parquet(path.getCanonicalPath)
+
+        spark.read
+          .parquet(path.getCanonicalPath)
+          .createOrReplaceTempView("to_unix_timestamp_test")
+
+        runQueryAndCompare("SELECT to_unix_timestamp(ts, fmt) FROM to_unix_timestamp_test") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
+  test("from_unixtime") {
+    withTempPath {
+      path =>
+        Seq(
+          (1460118615L, "yyyy-MM-dd HH:mm:ss"),
+          (1495211130L, "MM/dd/yyyy HH:mm:ss")
+        ).toDF("unix_time", "fmt").write.parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("from_unixtime_test")
+
+        runQueryAndCompare("SELECT from_unixtime(unix_time, fmt) FROM from_unixtime_test") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
   test("months_between") {
     withTempPath {
       path =>
@@ -505,4 +568,5 @@ abstract class DateFunctionsValidateSuite extends FunctionsValidateSuite {
         }
     }
   }
+
 }

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Code Format Check
+name: Scala Code Format Check
 on:
   pull_request:
     paths:
@@ -39,7 +39,7 @@ concurrency:
 
 jobs:
 
-  scala-format-check:
+  format-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -77,7 +77,7 @@ public:
             throw DB::Exception(DB::ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "The second argument of function {} must be const String.", name);
 
         UInt32 s_count = std::count(fmt.begin(), fmt.end(), 'S');
-        String time_parser_policy = getContext()->getSettingsRef().has(TIMER_PARSER_POLICY) ? toString(getContext()->getSettingsRef().get(TIMER_PARSER_POLICY)) : "";
+        String time_parser_policy = getContext()->getSettingsRef().has(TIMER_PARSER_POLICY) ? DB::fieldToString(getContext()->getSettingsRef().get(TIMER_PARSER_POLICY)) : "";
         boost::to_lower(time_parser_policy);
         if (time_parser_policy == "legacy" && checkFormat(fmt))
         {

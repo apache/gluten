@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.integration.clickbench
 
-import org.apache.gluten.integration.TableCreator
+import org.apache.gluten.integration.table.TableCreator
 
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.types.StructType

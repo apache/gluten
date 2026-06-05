@@ -262,7 +262,7 @@ bool ExpressionParser::reuseCSE() const
 ExpressionParser::NodeRawConstPtr
 ExpressionParser::addConstColumn(DB::ActionsDAG & actions_dag, const DB::DataTypePtr & type, const DB::Field & field) const
 {
-    String name = toString(field).substr(0, 10);
+    String name = DB::fieldToString(field).substr(0, 10);
     name = getUniqueName(name);
     const auto * res_node = &actions_dag.addColumn(DB::ColumnWithTypeAndName(type->createColumnConst(1, field), type, name));
     if (reuseCSE())
@@ -345,7 +345,7 @@ ExpressionParser::NodeRawConstPtr ExpressionParser::parseExpression(ActionsDAG &
             }
             else if ((isMap(denull_input_type) || isArray(denull_input_type) || isTuple(denull_input_type)) && isString(denull_output_type))
             {
-                /// https://github.com/apache/incubator-gluten/issues/9049
+                /// https://github.com/apache/gluten/issues/9049
                 result_node = toFunctionNode(actions_dag, "sparkCastComplexTypesToString", args);
             }
             else if (isString(denull_input_type) && substrait_type.has_bool_())
@@ -357,7 +357,7 @@ ExpressionParser::NodeRawConstPtr ExpressionParser::parseExpression(ActionsDAG &
             else if (isString(denull_input_type) && isInt(denull_output_type))
             {
                 /// Spark cast(x as INT) if x is String -> CH cast(trim(x) as INT)
-                /// Refer to https://github.com/apache/incubator-gluten/issues/4956 and https://github.com/apache/incubator-gluten/issues/8598
+                /// Refer to https://github.com/apache/gluten/issues/4956 and https://github.com/apache/gluten/issues/8598
                 const auto * trim_str_arg = addConstColumn(actions_dag, std::make_shared<DataTypeString>(), " \t\n\r\f");
                 args[0] = toFunctionNode(actions_dag, "trimBothSpark", {args[0], trim_str_arg});
                 args.emplace_back(addConstColumn(actions_dag, std::make_shared<DataTypeString>(), output_type->getName()));
@@ -793,7 +793,7 @@ ExpressionParser::parseArrayJoin(const substrait::Expression_ScalarFunction & fu
 
         /// pos = cast(arrayJoin(arg_not_null).1, "Int32")
         const auto * pos_node = add_tuple_element(array_join_node, 1);
-        pos_node = ActionsDAGUtil::convertNodeType(actions_dag, pos_node, INT());
+        pos_node = ActionsDAGUtil::convertNodeType(actions_dag, pos_node, INT(), context->queryContext());
 
         /// if is_map is false, output col = arrayJoin(arg_not_null).2
         /// if is_map is true,  output (key, value) = arrayJoin(arg_not_null).2

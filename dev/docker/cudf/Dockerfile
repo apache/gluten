@@ -25,7 +25,7 @@ RUN yum install -y sudo patch perl && \
     dnf autoremove -y && dnf clean all; \
     rm -rf /opt/rh/gcc-toolset-12 && ln -s /opt/rh/gcc-toolset-14 /opt/rh/gcc-toolset-12; \
     ln -sf /usr/local/bin/cmake /usr/bin && \
-    git clone --depth=1 https://github.com/apache/incubator-gluten /opt/gluten && \
+    git clone --depth=1 https://github.com/apache/gluten /opt/gluten && \
     cd /opt/gluten && \
     source /opt/rh/gcc-toolset-14/enable && \
     bash ./dev/buildbundle-veloxbe.sh --run_setup_script=OFF --build_arrow=ON --spark_version=3.4 --build_tests=ON --build_benchmarks=ON --enable_gpu=ON && \

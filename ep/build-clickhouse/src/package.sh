@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.
@@ -48,7 +48,9 @@ OS_ARCH=$(uname -m)
 PACKAGE_NAME=gluten-${BUILD_VERSION}-${OS_VERSION}-${OS_ARCH}
 PACKAGE_DIR_PATH="${GLUTEN_SOURCE}"/dist/"${PACKAGE_NAME}"
 
-spark_scala_versions=("3.2_2.12" "3.3_2.12" "3.5_2.13")
+# spark_scala_versions=("3.3_2.12" "3.5_2.13")
+# TODO: support spark 3.5 later
+spark_scala_versions=("3.3_2.12")
 
 # cleanup working directory
 [[ -d "${GLUTEN_SOURCE}"/dist/"${PACKAGE_NAME}" ]] && rm -rf "${GLUTEN_SOURCE}"/dist/"${PACKAGE_NAME}"

@@ -17,12 +17,18 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.IcebergNestedFieldVisitor
+import org.apache.gluten.config.VeloxConfig.{MAX_TARGET_FILE_SIZE_SESSION, PARQUET_PAGE_SIZE_BYTES}
 import org.apache.gluten.connector.write.{ColumnarBatchDataWriterFactory, ColumnarStreamingDataWriterFactory, IcebergDataWriteFactory}
 
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
 
 import org.apache.iceberg.spark.source.IcebergWriteUtil
 import org.apache.iceberg.types.TypeUtil
+
+import java.util
+
+import scala.collection.JavaConverters._
 
 abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
 
@@ -30,14 +36,35 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
   private def createIcebergDataWriteFactory(schema: StructType): IcebergDataWriteFactory = {
     val writeSchema = IcebergWriteUtil.getWriteSchema(write)
     val nestedField = TypeUtil.visit(writeSchema, new IcebergNestedFieldVisitor)
+    // Filter out metadata columns from the Spark output schema and reorder to match Iceberg schema
+    // Spark 4.0 may include metadata columns in the output schema during UPDATE operations,
+    // but these should not be written to the Iceberg table
+    val writeFieldNames = writeSchema.columns().asScala.map(_.name()).toSet
+    val filteredSchema = StructType(
+      schema.fields.filter(field => writeFieldNames.contains(field.name))
+    )
+
+    val icebergProperties = new util.HashMap[String, String]
+
+    Seq(
+      PARQUET_PAGE_SIZE_BYTES.key -> getParquetPageSizeBytes,
+      MAX_TARGET_FILE_SIZE_SESSION.key -> getTargetFileSizeBytes
+    ).foreach {
+      case (key, value) =>
+        if (SQLConf.get.getConfString(key, null) != null) {
+          icebergProperties.put(key, value)
+        }
+    }
+
     IcebergDataWriteFactory(
-      schema,
+      filteredSchema,
       getFileFormat(IcebergWriteUtil.getFileFormat(write)),
       IcebergWriteUtil.getDirectory(write),
       getCodec,
       getPartitionSpec,
       IcebergWriteUtil.getSortOrder(write),
       nestedField,
+      icebergProperties,
       IcebergWriteUtil.getQueryId(write)
     )
   }

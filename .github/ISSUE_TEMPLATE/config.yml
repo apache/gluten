@@ -16,5 +16,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Gluten Discussions
-    url: https://github.com/apache/incubator-gluten/discussions
+    url: https://github.com/apache/gluten/discussions
     about: Ask questions or discuss new feature ideas here.

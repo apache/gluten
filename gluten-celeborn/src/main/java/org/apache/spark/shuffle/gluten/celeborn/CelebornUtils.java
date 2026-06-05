@@ -700,4 +700,54 @@ public class CelebornUtils {
       throw new RuntimeException(e);
     }
   }
+
+  public static void prepareForMergeData(
+      ShuffleClient shuffleClient, int shuffleId, int mapId, int attemptId) {
+    try {
+      Method prepareMethod =
+          shuffleClient
+              .getClass()
+              .getDeclaredMethod("prepareForMergeData", Integer.TYPE, Integer.TYPE, Integer.TYPE);
+      prepareMethod.invoke(shuffleClient, shuffleId, mapId, attemptId);
+    } catch (NoSuchMethodException ignored) {
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  public static void mapperEnd(
+      ShuffleClient shuffleClient,
+      int shuffleId,
+      int mapId,
+      int attemptId,
+      int numMappers,
+      int numPartitions) {
+    try {
+      try {
+        // for Celeborn 0.6.3
+        Method mapperEndMethod =
+            shuffleClient
+                .getClass()
+                .getDeclaredMethod(
+                    "mapperEnd",
+                    Integer.TYPE,
+                    Integer.TYPE,
+                    Integer.TYPE,
+                    Integer.TYPE,
+                    Integer.TYPE);
+        mapperEndMethod.invoke(
+            shuffleClient, shuffleId, mapId, attemptId, numMappers, numPartitions);
+      } catch (NoSuchMethodException e) {
+        Method mapperEndMethod =
+            shuffleClient
+                .getClass()
+                .getDeclaredMethod(
+                    "mapperEnd", Integer.TYPE, Integer.TYPE, Integer.TYPE, Integer.TYPE);
+        mapperEndMethod.invoke(shuffleClient, shuffleId, mapId, attemptId, numMappers);
+      }
+    } catch (NoSuchMethodException ignored) {
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
 }

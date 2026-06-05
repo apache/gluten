@@ -20,26 +20,21 @@ import org.apache.gluten.config.GlutenCoreConfig
 
 import org.apache.spark.sql.catalyst.SQLConfHelper
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.util.{SparkVersionUtil, Utils}
+import org.apache.spark.util.Utils
 
 /**
  * This [[CostEvaluator]] is to force use the new physical plan when cost is equal.
  *
- * Since https://github.com/apache/incubator-gluten/pull/6143.
+ * Since https://github.com/apache/gluten/pull/6143.
  */
 case class GlutenCostEvaluator() extends CostEvaluator with SQLConfHelper {
 
   private val vanillaCostEvaluator: CostEvaluator = {
-    if (SparkVersionUtil.lteSpark32) {
-      val clazz = Utils.classForName("org.apache.spark.sql.execution.adaptive.SimpleCostEvaluator$")
-      clazz.getDeclaredField("MODULE$").get(null).asInstanceOf[CostEvaluator]
-    } else {
-      val forceOptimizeSkewedJoin =
-        conf.getConfString("spark.sql.adaptive.forceOptimizeSkewedJoin").toBoolean
-      val clazz = Utils.classForName("org.apache.spark.sql.execution.adaptive.SimpleCostEvaluator")
-      val ctor = clazz.getConstructor(classOf[Boolean])
-      ctor.newInstance(forceOptimizeSkewedJoin.asInstanceOf[Object]).asInstanceOf[CostEvaluator]
-    }
+    val forceOptimizeSkewedJoin =
+      conf.getConfString("spark.sql.adaptive.forceOptimizeSkewedJoin").toBoolean
+    val clazz = Utils.classForName("org.apache.spark.sql.execution.adaptive.SimpleCostEvaluator")
+    val ctor = clazz.getConstructor(classOf[Boolean])
+    ctor.newInstance(forceOptimizeSkewedJoin.asInstanceOf[Object]).asInstanceOf[CostEvaluator]
   }
 
   override def evaluateCost(plan: SparkPlan): Cost = {

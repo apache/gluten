@@ -30,7 +30,7 @@ import org.apache.spark.sql.execution.SparkPlan
  *
  * Instead, subclasses are expected to implement the following APIs:
  *   - batchType
- *   - rowType0
+ *   - rowType
  *   - requiredChildConvention (optional)
  *
  * With implementations of the APIs provided, Gluten query planner will be able to find and insert
@@ -45,7 +45,7 @@ import org.apache.spark.sql.execution.SparkPlan
 trait GlutenPlan
   extends SparkPlan
   with Convention.KnownBatchType
-  with Convention.KnownRowTypeForSpark33OrLater
+  with Convention.KnownRowType
   with GlutenPlan.SupportsRowBasedCompatible
   with ConventionReq.KnownChildConvention {
 
@@ -59,11 +59,18 @@ trait GlutenPlan
 
   override def batchType(): Convention.BatchType
 
-  override def rowType0(): Convention.RowType
+  override def rowType(): Convention.RowType
 
   override def requiredChildConvention(): Seq[ConventionReq] = {
-    // In the normal case, children's convention should follow parent node's convention.
-    val childReq = Convention.of(rowType(), batchType()).asReq()
+    val childReq =
+      if (supportsColumnar && supportsRowBased) {
+        // A dual-mode parent can keep columnar children and still satisfy a row-based output
+        // requirement itself. Align with Spark's transition insertion behavior.
+        ConventionReq.ofBatch(ConventionReq.BatchType.Is(batchType()))
+      } else {
+        // In the normal case, children's convention should follow parent node's convention.
+        Convention.of(rowType(), batchType()).asReq()
+      }
     Seq.tabulate(children.size)(
       _ => {
         childReq

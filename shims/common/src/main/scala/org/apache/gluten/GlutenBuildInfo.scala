@@ -20,7 +20,7 @@ import java.util.Properties
 
 import scala.util.Try
 
-/** Since https://github.com/apache/incubator-gluten/pull/1973. */
+/** Since https://github.com/apache/gluten/pull/1973. */
 object GlutenBuildInfo {
   private val buildFile = "gluten-build-info.properties"
   private val buildFileStream =
@@ -55,4 +55,5 @@ object GlutenBuildInfo {
   val VELOX_REVISION_TIME: String = props.getProperty("velox_revision_time", unknown)
   val CH_BRANCH: String = props.getProperty("ch_branch", unknown)
   val CH_COMMIT: String = props.getProperty("ch_commit", unknown)
+  val CH_ORG: String = props.getProperty("ch_org", unknown)
 }

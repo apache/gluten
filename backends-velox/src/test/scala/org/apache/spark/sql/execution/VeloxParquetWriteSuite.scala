@@ -27,7 +27,12 @@ import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
 
+import java.io.File
+
+import scala.collection.JavaConverters._
+
 class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteUtils {
+
   override protected val resourcePath: String = "/tpch-data-parquet"
   override protected val fileFormat: String = "parquet"
 
@@ -62,9 +67,10 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
     withTempPath {
       f =>
         val path = f.getCanonicalPath
+        // TODO: maybe remove constant complex type restriction (Spark 3.4+)
         checkNativeWrite(
           s"INSERT OVERWRITE DIRECTORY '$path' USING PARQUET SELECT array(struct(1), null) as var1",
-          expectNative = false)
+          expectNative = !isSparkVersionGE("3.4"))
     }
   }
 
@@ -117,6 +123,57 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
       spark.sql("CREATE TABLE t (id INT) USING PARQUET")
       checkNativeWrite("INSERT INTO t VALUES 1")
       checkAnswer(spark.sql("SELECT * FROM t"), Row(1))
+    }
+  }
+
+  test("test insert into with struct type") {
+    withTable("t", "src") {
+      spark.sql("CREATE TABLE src (info STRUCT<name: STRING, age: INT>) USING PARQUET")
+      checkNativeWrite("INSERT INTO src SELECT named_struct('name', 'alice', 'age', 30)")
+      spark.sql("CREATE TABLE t (info STRUCT<name: STRING, age: INT>) USING PARQUET")
+      checkNativeWrite("INSERT INTO t SELECT info FROM src")
+      checkAnswer(spark.table("t"), Row(Row("alice", 30)))
+    }
+  }
+
+  test("test insert into with array type") {
+    withTable("t", "src") {
+      spark.sql("CREATE TABLE src (ids ARRAY<INT>) USING PARQUET")
+      // TODO: maybe remove constant complex type restriction (Spark 3.4+)
+      checkNativeWrite(
+        "INSERT INTO src SELECT array(1, 2, 3)",
+        expectNative = !isSparkVersionGE("3.4"))
+      spark.sql("CREATE TABLE t (ids ARRAY<INT>) USING PARQUET")
+      checkNativeWrite("INSERT INTO t SELECT ids FROM src")
+      checkAnswer(spark.table("t"), Row(Seq(1, 2, 3)))
+    }
+  }
+
+  test("test insert into with map type") {
+    withTable("t", "src") {
+      spark.sql("CREATE TABLE src (kv MAP<STRING, INT>) USING PARQUET")
+      // TODO: maybe remove constant complex type restriction (Spark 3.4+)
+      checkNativeWrite(
+        "INSERT INTO src SELECT map('a', 1, 'b', 2)",
+        expectNative = !isSparkVersionGE("3.4"))
+      spark.sql("CREATE TABLE t (kv MAP<STRING, INT>) USING PARQUET")
+      checkNativeWrite("INSERT INTO t SELECT kv FROM src")
+      checkAnswer(spark.table("t"), Row(Map("a" -> 1, "b" -> 2)))
+    }
+  }
+
+  test("test insert into with nested struct type") {
+    withTable("t", "src") {
+      spark.sql(
+        """CREATE TABLE src (info STRUCT<name: STRING, addr: STRUCT<city: STRING, zip: INT>>)
+          |USING PARQUET""".stripMargin)
+      checkNativeWrite(
+        "INSERT INTO src SELECT named_struct('name', 'alice', " +
+          "'addr', named_struct('city', 'hangzhou', 'zip', 310000))")
+      spark.sql("""CREATE TABLE t (info STRUCT<name: STRING, addr: STRUCT<city: STRING, zip: INT>>)
+                  |USING PARQUET""".stripMargin)
+      checkNativeWrite("INSERT INTO t SELECT info FROM src")
+      checkAnswer(spark.table("t"), Row(Row("alice", Row("hangzhou", 310000))))
     }
   }
 
@@ -211,6 +268,56 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
 
         val parquetDf = spark.read.parquet(f.getCanonicalPath)
         checkAnswer(parquetDf, spark.range(100).toDF("id"))
+    }
+  }
+}
+
+class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite with WriteUtils {
+
+  override protected val resourcePath: String = ""
+  override protected val fileFormat: String = "parquet"
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.NATIVE_WRITER_ENABLED.key, "true")
+      .set(s"spark.hadoop.parquet.enable.dictionary", "false")
+  }
+
+  private val dictionaryEncodingNames = Set("PLAIN_DICTIONARY", "RLE_DICTIONARY")
+
+  private def parquetColumnEncodings(dir: File): Seq[Set[String]] = {
+    val parquetFiles = dir.list((_, name) => name.contains("parquet"))
+    assert(parquetFiles.nonEmpty)
+    parquetFiles.flatMap {
+      file =>
+        val path = new Path(dir.getAbsolutePath, file)
+        val in = HadoopInputFile.fromPath(path, spark.sessionState.newHadoopConf())
+        Utils.tryWithResource(ParquetFileReader.open(in)) {
+          reader =>
+            reader.getFooter.getBlocks.asScala.flatMap {
+              block => block.getColumns.asScala.map(_.getEncodings.asScala.map(_.name()).toSet)
+            }
+        }
+    }.toSeq
+  }
+
+  test("native writer should respect parquet dictionary config from spark.hadoop config") {
+    spark
+      .range(0, 20000, 1, 1)
+      .selectExpr("concat('gluten-parquet-dictionary-', CAST(id % 10 AS STRING)) AS payload")
+      .createOrReplaceTempView("parquet_dictionary_source")
+
+    withTempPath {
+      hadoopConfDir =>
+        checkNativeWrite(
+          s"""
+             |INSERT OVERWRITE DIRECTORY USING PARQUET
+             |OPTIONS ('path' '${hadoopConfDir.getCanonicalPath}')
+             |SELECT * FROM parquet_dictionary_source
+             |""".stripMargin)
+        val columnEncodings = parquetColumnEncodings(hadoopConfDir)
+        assert(columnEncodings.nonEmpty)
+        assert(!columnEncodings.exists(_.exists(dictionaryEncodingNames.contains)))
     }
   }
 }

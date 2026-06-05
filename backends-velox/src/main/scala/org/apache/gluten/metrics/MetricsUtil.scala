@@ -120,7 +120,9 @@ object MetricsUtil extends Logging {
     var numDynamicFiltersProduced: Long = 0
     var numDynamicFiltersAccepted: Long = 0
     var numReplacedWithDynamicFilterRows: Long = 0
+    var numDynamicFilterInputRows: Long = 0
     var flushRowCount: Long = 0
+    var abandonedPartialAggregationRows: Long = 0
     var loadedToValueHook: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
     var scanTime: Long = 0
@@ -131,6 +133,7 @@ object MetricsUtil extends Logging {
     var remainingFilterTime: Long = 0
     var ioWaitTime: Long = 0
     var storageReadBytes: Long = 0
+    var storageReads: Long = 0
     var localReadBytes: Long = 0
     var ramReadBytes: Long = 0
     var preloadSplits: Long = 0
@@ -155,7 +158,9 @@ object MetricsUtil extends Logging {
       numDynamicFiltersProduced += metrics.numDynamicFiltersProduced
       numDynamicFiltersAccepted += metrics.numDynamicFiltersAccepted
       numReplacedWithDynamicFilterRows += metrics.numReplacedWithDynamicFilterRows
+      numDynamicFilterInputRows += metrics.numDynamicFilterInputRows
       flushRowCount += metrics.flushRowCount
+      abandonedPartialAggregationRows += metrics.abandonedPartialAggregationRows
       loadedToValueHook += metrics.loadedToValueHook
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
       scanTime += metrics.scanTime
@@ -166,6 +171,7 @@ object MetricsUtil extends Logging {
       remainingFilterTime += metrics.remainingFilterTime
       ioWaitTime += metrics.ioWaitTime
       storageReadBytes += metrics.storageReadBytes
+      storageReads += metrics.storageReads
       localReadBytes += metrics.localReadBytes
       ramReadBytes += metrics.ramReadBytes
       preloadSplits += metrics.preloadSplits
@@ -197,7 +203,9 @@ object MetricsUtil extends Logging {
       numDynamicFiltersProduced,
       numDynamicFiltersAccepted,
       numReplacedWithDynamicFilterRows,
+      numDynamicFilterInputRows,
       flushRowCount,
+      abandonedPartialAggregationRows,
       loadedToValueHook,
       bloomFilterBlocksByteSize,
       scanTime,
@@ -208,6 +216,7 @@ object MetricsUtil extends Logging {
       remainingFilterTime,
       ioWaitTime,
       storageReadBytes,
+      storageReads,
       localReadBytes,
       ramReadBytes,
       preloadSplits,
@@ -250,19 +259,23 @@ object MetricsUtil extends Logging {
 
     mutNode.updater match {
       case smj: SortMergeJoinMetricsUpdater =>
-        smj.updateJoinMetrics(
-          operatorMetrics,
-          metrics.getSingleMetrics,
-          joinParamsMap.get(operatorIdx))
+        val joinParams = Option(joinParamsMap.get(operatorIdx)).getOrElse {
+          val p = JoinParams()
+          p.postProjectionNeeded = false
+          p
+        }
+        smj.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
       case ju: JoinMetricsUpdaterBase =>
         // JoinRel and CrossRel output two suites of metrics respectively for build and probe.
         // Therefore, fetch one more suite of metrics here.
         operatorMetrics.add(metrics.getOperatorMetrics(curMetricsIdx))
         curMetricsIdx -= 1
-        ju.updateJoinMetrics(
-          operatorMetrics,
-          metrics.getSingleMetrics,
-          joinParamsMap.get(operatorIdx))
+        val joinParams = Option(joinParamsMap.get(operatorIdx)).getOrElse {
+          val p = JoinParams()
+          p.postProjectionNeeded = false
+          p
+        }
+        ju.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
       case u: UnionMetricsUpdater =>
         // JoinRel outputs two suites of metrics respectively for hash build and hash probe.
         // Therefore, fetch one more suite of metrics here.
@@ -270,7 +283,8 @@ object MetricsUtil extends Logging {
         curMetricsIdx -= 1
         u.updateUnionMetrics(operatorMetrics)
       case hau: HashAggregateMetricsUpdater =>
-        hau.updateAggregationMetrics(operatorMetrics, aggParamsMap.get(operatorIdx))
+        val aggParams = Option(aggParamsMap.get(operatorIdx)).getOrElse(AggregationParams())
+        hau.updateAggregationMetrics(operatorMetrics, aggParams)
       case lu: LimitMetricsUpdater =>
         // Limit over Sort is converted to TopN node in Velox, so there is only one suite of metrics
         // for the two transformers. We do not update metrics for limit and leave it for sort.
@@ -339,30 +353,24 @@ object MetricsUtil extends Logging {
       aggParamsMap: JMap[JLong, AggregationParams],
       taskStatsAccumulator: TaskStatsAccumulator): IMetrics => Unit = {
     imetrics =>
-      try {
-        val metrics = imetrics.asInstanceOf[Metrics]
-        val numNativeMetrics = metrics.inputRows.length
-        if (numNativeMetrics == 0) {
-          ()
-        } else {
-          updateTransformerMetricsInternal(
-            mutNode,
-            relMap,
-            operatorIdx,
-            metrics,
-            numNativeMetrics - 1,
-            joinParamsMap,
-            aggParamsMap)
+      val metrics = imetrics.asInstanceOf[Metrics]
+      val numNativeMetrics = metrics.inputRows.length
+      if (numNativeMetrics == 0) {
+        ()
+      } else {
+        updateTransformerMetricsInternal(
+          mutNode,
+          relMap,
+          operatorIdx,
+          metrics,
+          numNativeMetrics - 1,
+          joinParamsMap,
+          aggParamsMap)
 
-          // Update the task stats accumulator with the metrics.
-          if (metrics.taskStats != null) {
-            taskStatsAccumulator.add(metrics.taskStats)
-          }
+        // Update the task stats accumulator with the metrics.
+        if (metrics.taskStats != null) {
+          taskStatsAccumulator.add(metrics.taskStats)
         }
-      } catch {
-        case e: Exception =>
-          logWarning(s"Updating native metrics failed due to ${e.getCause}.")
-          ()
       }
   }
 }

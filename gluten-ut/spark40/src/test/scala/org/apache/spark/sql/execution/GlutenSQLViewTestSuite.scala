@@ -16,10 +16,10 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenLocalTempViewTestSuite extends LocalTempViewTestSuite with GlutenTestsCommonTrait {}
+class GlutenLocalTempViewTestSuite extends LocalTempViewTestSuite with GlutenSQLTestsTrait {}
 
-class GlutenGlobalTempViewTestSuite extends GlobalTempViewTestSuite with GlutenTestsCommonTrait {}
+class GlutenGlobalTempViewTestSuite extends GlobalTempViewTestSuite with GlutenSQLTestsTrait {}
 
-class GlutenPersistedViewTestSuite extends PersistedViewTestSuite with GlutenTestsCommonTrait {}
+class GlutenPersistedViewTestSuite extends PersistedViewTestSuite with GlutenSQLTestsTrait {}

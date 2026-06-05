@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.connector
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenMergeIntoDataFrameSuite extends MergeIntoDataFrameSuite with GlutenTestsCommonTrait {}
+class GlutenMergeIntoDataFrameSuite extends MergeIntoDataFrameSuite with GlutenSQLTestsTrait {}

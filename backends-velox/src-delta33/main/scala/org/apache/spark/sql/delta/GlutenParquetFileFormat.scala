@@ -16,7 +16,6 @@
  */
 package org.apache.spark.sql.delta
 
-import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.execution.datasource.GlutenFormatFactory
 
 import org.apache.spark.internal.Logging
@@ -31,16 +30,11 @@ import org.apache.hadoop.mapreduce.{Job, TaskAttemptContext}
 import org.apache.parquet.hadoop.ParquetOutputFormat
 import org.apache.parquet.hadoop.codec.CodecConfig
 import org.apache.parquet.hadoop.util.ContextUtil
-import org.slf4j.LoggerFactory
-
 class GlutenParquetFileFormat
   extends ParquetFileFormat
   with DataSourceRegister
   with Logging
   with Serializable {
-  import GlutenParquetFileFormat._
-
-  private val logger = LoggerFactory.getLogger(classOf[GlutenParquetFileFormat])
 
   override def shortName(): String = "gluten-parquet"
 
@@ -62,39 +56,27 @@ class GlutenParquetFileFormat
       job: Job,
       options: Map[String, String],
       dataSchema: StructType): OutputWriterFactory = {
-    if (isNativeWritable(dataSchema)) {
-      // Pass compression to job conf so that the file extension can be aware of it.
-      val conf = ContextUtil.getConfiguration(job)
-      val parquetOptions = new ParquetOptions(options, sparkSession.sessionState.conf)
-      conf.set(ParquetOutputFormat.COMPRESSION, parquetOptions.compressionCodecClassName)
-      val nativeConf =
+    // Pass compression to job conf so that the file extension can be aware of it.
+    val conf = ContextUtil.getConfiguration(job)
+    val parquetOptions = new ParquetOptions(options, sparkSession.sessionState.conf)
+    conf.set(ParquetOutputFormat.COMPRESSION, parquetOptions.compressionCodecClassName)
+    val nativeConf =
+      GlutenFormatFactory("parquet")
+        .nativeConf(options, parquetOptions.compressionCodecClassName)
+
+    new OutputWriterFactory {
+      override def getFileExtension(context: TaskAttemptContext): String = {
+        CodecConfig.from(context).getCodec.getExtension + ".parquet"
+      }
+
+      override def newInstance(
+          path: String,
+          dataSchema: StructType,
+          context: TaskAttemptContext): OutputWriter = {
         GlutenFormatFactory("parquet")
-          .nativeConf(options, parquetOptions.compressionCodecClassName)
+          .createOutputWriter(path, dataSchema, context, nativeConf)
 
-      return new OutputWriterFactory {
-        override def getFileExtension(context: TaskAttemptContext): String = {
-          CodecConfig.from(context).getCodec.getExtension + ".parquet"
-        }
-
-        override def newInstance(
-            path: String,
-            dataSchema: StructType,
-            context: TaskAttemptContext): OutputWriter = {
-          GlutenFormatFactory("parquet")
-            .createOutputWriter(path, dataSchema, context, nativeConf)
-
-        }
       }
     }
-    logger.warn(
-      s"Data schema is unsupported by Gluten Parquet writer: $dataSchema, " +
-        s"falling back to the vanilla Spark Parquet writer")
-    super.prepareWrite(sparkSession, job, options, dataSchema)
-  }
-}
-
-object GlutenParquetFileFormat {
-  def isNativeWritable(schema: StructType): Boolean = {
-    BackendsApiManager.getSettings.supportNativeWrite(schema.fields)
   }
 }

@@ -59,8 +59,6 @@ trait BackendSettingsApi {
       isPartitionedTable: Boolean,
       options: Map[String, String]): ValidationResult = ValidationResult.succeeded
 
-  def supportNativeWrite(fields: Array[StructField]): Boolean = true
-
   def supportNativeMetadataColumns(): Boolean = true
 
   def supportNativeRowIndexColumn(): Boolean = true
@@ -140,8 +138,6 @@ trait BackendSettingsApi {
   def requireBloomFilterAggMightContainJointFallback(): Boolean = true
 
   def enableNativeWriteFiles(): Boolean
-
-  def enableNativeArrowReadFiles(): Boolean = false
 
   def shouldRewriteCount(): Boolean = false
 

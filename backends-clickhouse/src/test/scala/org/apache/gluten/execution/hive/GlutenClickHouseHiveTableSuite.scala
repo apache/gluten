@@ -216,7 +216,8 @@ class GlutenClickHouseHiveTableSuite
           case l: HiveTableScanExecTransformer => l
         }
         assert(txtFileScan.size == 1)
-      })
+      }
+    )
   }
 
   test("test hive text table using user define input format") {
@@ -241,7 +242,8 @@ class GlutenClickHouseHiveTableSuite
           case l: HiveTableScanExecTransformer => l
         }
         assert(txtFileScan.size == 1)
-      })
+      }
+    )
   }
 
   test("test hive text table with unordered columns") {
@@ -255,7 +257,8 @@ class GlutenClickHouseHiveTableSuite
           case l: HiveTableScanExecTransformer => l
         }
         assert(txtFileScan.size == 1)
-      })
+      }
+    )
   }
 
   test("test hive text table with count(1)/count(*)") {
@@ -298,7 +301,8 @@ class GlutenClickHouseHiveTableSuite
           case l: HiveTableScanExecTransformer => l
         }
         assert(txtFileScan.size == 1)
-      })
+      }
+    )
   }
 
   test("fix bug: hive text table limit with fallback") {
@@ -317,7 +321,8 @@ class GlutenClickHouseHiveTableSuite
           case l: HiveTableScanExecTransformer => l
         }
         assert(txtFileScan.size == 1)
-      })
+      }
+    )
   }
 
   test("hive text table select complex type columns with fallback") {
@@ -335,7 +340,8 @@ class GlutenClickHouseHiveTableSuite
           case l: HiveTableScanExecTransformer => l
         }
         assert(txtFileScan.size == 1)
-      })
+      }
+    )
   }
 
   test("test hive json table") {
@@ -600,7 +606,8 @@ class GlutenClickHouseHiveTableSuite
                   case l: HiveTableScanExecTransformer => l
                 }
               assert(txtFileScan.size == 1)
-            })
+            }
+          )
       }
     }
   }
@@ -624,7 +631,8 @@ class GlutenClickHouseHiveTableSuite
         val txtFileScan =
           collect(df.queryExecution.executedPlan) { case l: HiveTableScanExecTransformer => l }
         assert(txtFileScan.size == 1)
-      })
+      }
+    )
   }
 
   test("test orc/parquet table with null complex type values") {
@@ -735,7 +743,8 @@ class GlutenClickHouseHiveTableSuite
         val txtFileScan =
           collect(df.queryExecution.executedPlan) { case l: HiveTableScanExecTransformer => l }
         assert(txtFileScan.size == 1)
-      })
+      }
+    )
   }
 
   test("GLUTEN-2180: Test data field type not match") {
@@ -759,7 +768,8 @@ class GlutenClickHouseHiveTableSuite
         val txtFileScan =
           collect(df.queryExecution.executedPlan) { case l: HiveTableScanExecTransformer => l }
         assert(txtFileScan.size == 1)
-      })
+      }
+    )
   }
 
   test("test parquet push down filter skip row groups") {
@@ -1362,7 +1372,7 @@ class GlutenClickHouseHiveTableSuite
     val insert_sql = "insert into test_tbl_7502 values(1, cast('2024-10-09 20:00:00' as timestamp))"
     val select_sql = "select * from test_tbl_7502"
     spark.sql(create_table_sql)
-    spark.sql(insert_sql);
+    spark.sql(insert_sql)
     compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
     spark.sql("drop table test_tbl_7502")
   }

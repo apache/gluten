@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
 class GlutenProjectedOrderingAndPartitioningSuite
   extends ProjectedOrderingAndPartitioningSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenSQLTestsBaseTrait {}

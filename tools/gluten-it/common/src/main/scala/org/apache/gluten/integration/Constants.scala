@@ -131,6 +131,8 @@ object Constants {
   @deprecated
   val TYPE_MODIFIER_DATE_AS_DOUBLE: TypeModifier =
     new TypeModifier(TypeUtils.typeAccepts(_, DateType), DoubleType) {
+      override def name(): String = "data_as_double"
+
       override def modValue(from: Any): Any = {
         from match {
           case v: Date => v.getTime.asInstanceOf[Double] / 86400.0d / 1000.0d
@@ -141,6 +143,8 @@ object Constants {
   @deprecated
   val TYPE_MODIFIER_INTEGER_AS_DOUBLE: TypeModifier =
     new TypeModifier(TypeUtils.typeAccepts(_, IntegerType), DoubleType) {
+      override def name(): String = "integer_as_double"
+
       override def modValue(from: Any): Any = {
         from match {
           case v: Int => v.asInstanceOf[Double]
@@ -151,6 +155,8 @@ object Constants {
   @deprecated
   val TYPE_MODIFIER_LONG_AS_DOUBLE: TypeModifier =
     new TypeModifier(TypeUtils.typeAccepts(_, LongType), DoubleType) {
+      override def name(): String = "long_as_double"
+
       override def modValue(from: Any): Any = {
         from match {
           case v: Long => v.asInstanceOf[Double]
@@ -161,6 +167,8 @@ object Constants {
   @deprecated
   val TYPE_MODIFIER_DATE_AS_STRING: TypeModifier =
     new TypeModifier(TypeUtils.typeAccepts(_, DateType), StringType) {
+      override def name(): String = "date_as_string"
+
       override def modValue(from: Any): Any = {
         from match {
           case v: Date => v.toString
@@ -170,6 +178,8 @@ object Constants {
 
   val TYPE_MODIFIER_DECIMAL_AS_DOUBLE: TypeModifier =
     new TypeModifier(TypeUtils.decimalAccepts, DoubleType) {
+      override def name(): String = "decimal_as_double"
+
       override def modValue(from: Any): Any = {
         from match {
           case v: java.math.BigDecimal => v.doubleValue()

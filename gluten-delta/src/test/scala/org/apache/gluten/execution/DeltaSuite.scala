@@ -318,24 +318,21 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
 
   test("delta: filter should be offloaded with scan") {
     withSQLConf("spark.gluten.sql.columnar.scanOnly" -> "true") {
-      // TODO: When RAS is enabled, filter is not offloaded along with scan.
-      withSQLConf("spark.gluten.ras.enabled" -> "false") {
-        withTable("delta_pf") {
-          spark.sql(s"""
-                       |create table test (id int, name string) using delta
-                       |""".stripMargin)
-          spark.sql(s"""
-                       |insert into test values (1, "v1"), (2, "v2"), (3, "v1"), (4, "v2")
-                       |""".stripMargin)
-          runQueryAndCompare(
-            "select id from test where name > 'v1'",
-            compareResult = true,
-            noFallBack = false) {
-            df =>
-              val plan = df.queryExecution.executedPlan
-              assert(plan.collect { case node: BasicScanExecTransformer => node }.nonEmpty)
-              assert(plan.collect { case node: FilterExecTransformerBase => node }.nonEmpty)
-          }
+      withTable("delta_pf") {
+        spark.sql(s"""
+                     |create table test (id int, name string) using delta
+                     |""".stripMargin)
+        spark.sql(s"""
+                     |insert into test values (1, "v1"), (2, "v2"), (3, "v1"), (4, "v2")
+                     |""".stripMargin)
+        runQueryAndCompare(
+          "select id from test where name > 'v1'",
+          compareResult = true,
+          noFallBack = false) {
+          df =>
+            val plan = df.queryExecution.executedPlan
+            assert(plan.collect { case node: BasicScanExecTransformer => node }.nonEmpty)
+            assert(plan.collect { case node: FilterExecTransformerBase => node }.nonEmpty)
         }
       }
     }
@@ -400,6 +397,182 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         "select id from delta_ntz_filter where ts > '2022-06-01 00:00:00'",
         noFallBack = false) { _ => }
       checkAnswer(df, Seq(Row(2), Row(3)))
+    }
+  }
+
+  testWithMinSparkVersion(
+    "merge with column mapping handles struct field metadata correctly",
+    "3.4") {
+    withTable("merge_struct_source", "merge_struct_target") {
+      spark.sql("""
+                  |CREATE TABLE merge_struct_target(
+                  |  key INT NOT NULL,
+                  |  value INT NOT NULL,
+                  |  cstruct STRUCT<foo: INT>)
+                  |USING DELTA
+                  |TBLPROPERTIES (
+                  |  'delta.minReaderVersion' = '2',
+                  |  'delta.minWriterVersion' = '5',
+                  |  'delta.columnMapping.mode' = 'name')
+        """.stripMargin)
+      spark.sql("INSERT INTO merge_struct_target VALUES (0, 0, null)")
+      spark.sql("INSERT INTO merge_struct_target VALUES (100, 100, named_struct('foo', 42))")
+
+      spark.sql(
+        "CREATE TABLE merge_struct_source (key INT NOT NULL, value INT NOT NULL) USING DELTA")
+      spark.sql("INSERT INTO merge_struct_source VALUES (1, 1)")
+
+      // MERGE with updateNotMatched to test CaseWhen else branch
+      spark.sql("""
+                  |MERGE INTO merge_struct_target AS target
+                  |USING merge_struct_source AS source
+                  |ON source.key = target.key
+                  |WHEN MATCHED THEN
+                  |  UPDATE SET target.value = source.value
+                  |WHEN NOT MATCHED BY SOURCE AND target.key = 100 THEN
+                  |  UPDATE SET target.value = 22
+        """.stripMargin)
+
+      val df = runQueryAndCompare(
+        "SELECT key, value, cstruct FROM merge_struct_target ORDER BY key") { _ => }
+      checkAnswer(df, Row(0, 0, null) :: Row(100, 22, Row(42)) :: Nil)
+    }
+  }
+
+  testWithMinSparkVersion(
+    "merge with column mapping handles array-of-struct field metadata correctly",
+    "3.4") {
+    withTable("merge_arraystruct_source", "merge_arraystruct_target") {
+      spark.sql("""
+                  |CREATE TABLE merge_arraystruct_target(
+                  |  key INT NOT NULL,
+                  |  tags ARRAY<STRUCT<label: STRING, score: INT>>)
+                  |USING DELTA
+                  |TBLPROPERTIES (
+                  |  'delta.minReaderVersion' = '2',
+                  |  'delta.minWriterVersion' = '5',
+                  |  'delta.columnMapping.mode' = 'name')
+        """.stripMargin)
+      spark.sql("INSERT INTO merge_arraystruct_target VALUES (0, null)")
+      spark.sql(
+        "INSERT INTO merge_arraystruct_target VALUES " +
+          "(100, array(named_struct('label', 'a', 'score', 10)))")
+      spark.sql("CREATE TABLE merge_arraystruct_source (key INT NOT NULL) USING DELTA")
+      spark.sql("INSERT INTO merge_arraystruct_source VALUES (1)")
+      // MERGE that leaves the array-of-struct column unchanged via CaseWhen
+      spark.sql("""
+                  |MERGE INTO merge_arraystruct_target AS target
+                  |USING merge_arraystruct_source AS source
+                  |ON source.key = target.key
+                  |WHEN NOT MATCHED BY SOURCE AND target.key = 100 THEN
+                  |  UPDATE SET target.key = 101
+        """.stripMargin)
+      val df = runQueryAndCompare("SELECT key, tags FROM merge_arraystruct_target ORDER BY key") {
+        _ =>
+      }
+      checkAnswer(df, Row(0, null) :: Row(101, Seq(Row("a", 10))) :: Nil)
+    }
+  }
+
+  testWithMinSparkVersion(
+    "merge with column mapping handles map-of-struct field metadata correctly",
+    "3.4") {
+    withTable("merge_mapstruct_source", "merge_mapstruct_target") {
+      spark.sql("""
+                  |CREATE TABLE merge_mapstruct_target(
+                  |  key INT NOT NULL,
+                  |  props MAP<STRING, STRUCT<val: INT>>)
+                  |USING DELTA
+                  |TBLPROPERTIES (
+                  |  'delta.minReaderVersion' = '2',
+                  |  'delta.minWriterVersion' = '5',
+                  |  'delta.columnMapping.mode' = 'name')
+        """.stripMargin)
+      spark.sql("INSERT INTO merge_mapstruct_target VALUES (0, null)")
+      spark.sql(
+        "INSERT INTO merge_mapstruct_target VALUES " +
+          "(100, map('x', named_struct('val', 99)))")
+      spark.sql("CREATE TABLE merge_mapstruct_source (key INT NOT NULL) USING DELTA")
+      spark.sql("INSERT INTO merge_mapstruct_source VALUES (1)")
+      // MERGE that leaves the map-of-struct column unchanged via CaseWhen
+      spark.sql("""
+                  |MERGE INTO merge_mapstruct_target AS target
+                  |USING merge_mapstruct_source AS source
+                  |ON source.key = target.key
+                  |WHEN NOT MATCHED BY SOURCE AND target.key = 100 THEN
+                  |  UPDATE SET target.key = 101
+        """.stripMargin)
+      val df = runQueryAndCompare("SELECT key, props FROM merge_mapstruct_target ORDER BY key") {
+        _ =>
+      }
+      checkAnswer(df, Row(0, null) :: Row(101, Map("x" -> Row(99))) :: Nil)
+    }
+  }
+
+  testWithMinSparkVersion(
+    "merge with column mapping handles nested struct-within-struct field metadata correctly",
+    "3.4") {
+    withTable("merge_nestedstruct_source", "merge_nestedstruct_target") {
+      spark.sql("""
+                  |CREATE TABLE merge_nestedstruct_target(
+                  |  key INT NOT NULL,
+                  |  nested STRUCT<outer_val: STRUCT<inner_val: INT>>)
+                  |USING DELTA
+                  |TBLPROPERTIES (
+                  |  'delta.minReaderVersion' = '2',
+                  |  'delta.minWriterVersion' = '5',
+                  |  'delta.columnMapping.mode' = 'name')
+        """.stripMargin)
+      spark.sql("INSERT INTO merge_nestedstruct_target VALUES (0, null)")
+      spark.sql(
+        "INSERT INTO merge_nestedstruct_target VALUES " +
+          "(100, named_struct('outer_val', named_struct('inner_val', 42)))")
+      spark.sql("CREATE TABLE merge_nestedstruct_source (key INT NOT NULL) USING DELTA")
+      spark.sql("INSERT INTO merge_nestedstruct_source VALUES (1)")
+      spark.sql("""
+                  |MERGE INTO merge_nestedstruct_target AS target
+                  |USING merge_nestedstruct_source AS source
+                  |ON source.key = target.key
+                  |WHEN NOT MATCHED BY SOURCE AND target.key = 100 THEN
+                  |  UPDATE SET target.key = 101
+        """.stripMargin)
+      val df = runQueryAndCompare(
+        "SELECT key, nested FROM merge_nestedstruct_target ORDER BY key") { _ => }
+      checkAnswer(df, Row(0, null) :: Row(101, Row(Row(42))) :: Nil)
+    }
+  }
+
+  testWithMinSparkVersion(
+    "merge with column mapping handles array with null struct elements correctly",
+    "3.4") {
+    withTable("merge_arraynull_source", "merge_arraynull_target") {
+      spark.sql("""
+                  |CREATE TABLE merge_arraynull_target(
+                  |  key INT NOT NULL,
+                  |  items ARRAY<STRUCT<name: STRING, qty: INT>>)
+                  |USING DELTA
+                  |TBLPROPERTIES (
+                  |  'delta.minReaderVersion' = '2',
+                  |  'delta.minWriterVersion' = '5',
+                  |  'delta.columnMapping.mode' = 'name')
+        """.stripMargin)
+      spark.sql("INSERT INTO merge_arraynull_target VALUES (0, null)")
+      spark.sql(
+        "INSERT INTO merge_arraynull_target VALUES " +
+          "(100, array(named_struct('name', 'a', 'qty', 1), null))")
+      spark.sql("CREATE TABLE merge_arraynull_source (key INT NOT NULL) USING DELTA")
+      spark.sql("INSERT INTO merge_arraynull_source VALUES (1)")
+      spark.sql("""
+                  |MERGE INTO merge_arraynull_target AS target
+                  |USING merge_arraynull_source AS source
+                  |ON source.key = target.key
+                  |WHEN NOT MATCHED BY SOURCE AND target.key = 100 THEN
+                  |  UPDATE SET target.key = 101
+        """.stripMargin)
+      val df = runQueryAndCompare("SELECT key, items FROM merge_arraynull_target ORDER BY key") {
+        _ =>
+      }
+      checkAnswer(df, Row(0, null) :: Row(101, Seq(Row("a", 1), null)) :: Nil)
     }
   }
 }

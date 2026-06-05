@@ -52,9 +52,10 @@
 #include <Common/GlutenSettings.h>
 #include <Common/logger_useful.h>
 #include <Common/safe_cast.h>
+#include <Common/setThreadName.h>
 
 #if USE_AZURE_BLOB_STORAGE
-#include <Disks/ObjectStorages/AzureBlobStorage/AzureBlobStorageCommon.h>
+#include <Disks/DiskObjectStorage/ObjectStorages/AzureBlobStorage/AzureBlobStorageCommon.h>
 #endif
 
 #if USE_AWS_S3
@@ -560,8 +561,8 @@ private:
             context->getSettingsRef()[Setting::s3_slow_all_threads_after_retryable_error],
             context->getSettingsRef()[DB::Setting::enable_s3_requests_logging],
             false,
-            nullptr,
-            nullptr);
+            {},
+            {});
 
         client_configuration.connectTimeoutMs = config.getUInt(config_prefix + ".connect_timeout_ms", 10000);
         client_configuration.requestTimeoutMs = config.getUInt(config_prefix + ".request_timeout_ms", 5000);
@@ -912,7 +913,7 @@ std::unique_ptr<DB::ReadBuffer> ReadBufferBuilder::wrapWithParallelIfNeeded(
 
     return wrapInParallelReadBufferIfSupported(
         {std::move(in)},
-        DB::threadPoolCallbackRunnerUnsafe<void>(DB::getIOThreadPool().get(), "ParallelRead"),
+        DB::threadPoolCallbackRunnerUnsafe<void>(DB::getIOThreadPool().get(), ThreadName::PARALLEL_READ),
         max_download_threads,
         max_download_buffer_size,
         file_size);
