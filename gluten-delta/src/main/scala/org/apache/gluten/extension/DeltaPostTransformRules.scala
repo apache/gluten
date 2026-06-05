@@ -164,16 +164,43 @@ object DeltaPostTransformRules {
   }
 
   /**
-   * This method is only used for Delta ColumnMapping FileFormat(e.g. nameMapping and idMapping)
-   * transform the metadata of Delta into Parquet's, each plan should only be transformed once.
+   * Used for Delta ColumnMapping FileFormat (nameMapping and idMapping). Each plan is transformed
+   * at most once; the first run is tagged so re-runs are no-ops.
    *
-   * Partition and data filters on the scan node stay LOGICAL so that Delta's
-   * `PreparedDeltaFileIndex` can do partition pruning and file-level data skipping (its partition
-   * schema and column-stats schema both use logical names). Reader-facing pieces (`output`,
-   * `dataSchema`, and the data fields of `requiredSchema`) become physical so the parquet reader
-   * and Velox find the right columns in the file. Filter binding to the native side is by exprId,
-   * not by name, so logical-named filter attributes still resolve correctly against the
-   * physical-named `output`.
+   * Background: with column mapping, Delta files are written with PHYSICAL column names while
+   * Delta's metadata (partition schema, column stats) keeps LOGICAL names. Vanilla Spark + Delta
+   * resolves this asymmetry inside `DeltaParquetFileFormat.buildReaderWithPartitionValues`:
+   * everything on the scan node stays logical, and physical translation happens just-in-time when
+   * handing data and filters to the parquet reader. Gluten bypasses that hook (it goes to native
+   * via Substrait), so the translation has to live somewhere on our side.
+   *
+   * What this rule produces -- the parts that diverge from vanilla Spark are commented at each
+   * site. The split-by-consumer is asymmetric on purpose:
+   *
+   *   - `output`, `dataSchema`, and the data fields of `requiredSchema` ==> PHYSICAL. These flow
+   *     into the substrait `NamedStruct` that Velox uses to look up columns in the parquet file.
+   *     The parquet column name is the physical name, so Velox needs the physical name on the
+   *     schema side. A `ProjectExecTransformer` is added below to alias these back to logical names
+   *     for downstream Spark operators.
+   *   - `partitionSchema`, `partitionFilters`, `dataFilters`, partition fields of `requiredSchema`
+   *     ==> LOGICAL. These are consumed by Delta's `PreparedDeltaFileIndex.matchingFiles` and
+   *     `Snapshot.filesForScan`, which resolve filters and partition values against
+   *     `metadata.partitionSchema` and the column-stats schema -- both LOGICAL. Rewriting any of
+   *     these to physical names was the cause of issue #10511 (partition pruning silently no-op'd)
+   *     and would also disable file-level stats skipping.
+   *   - `DeltaScanTransformer.scanFilters` (override) ==> PHYSICAL, translated from `dataFilters`
+   *     by exprId match against `output`. Substrait binds filters by exprId rather than name, so it
+   *     would be tempting to pass logical-named filters straight through; but
+   *     `BasicScanExecTransformer.filterExprs()` does a name-and-exprId equality check
+   *     (`scanFilters.partition(pushDownFilters.contains(_))`) against the physical-named
+   *     `pushDownFilters` from the upstream `Filter`. The override ensures both sides match.
+   *
+   * Future cleanup (out of scope for this fix): the cleaner shape is to mirror vanilla Spark
+   * exactly -- keep EVERYTHING on the scan node logical, and do physical translation only at
+   * substrait emission time (e.g. inside the `NamedStruct`/`ReadRel` build in
+   * `BasicScanExecTransformer.doTransform`). That removes the alias-back project below and the
+   * `scanFilters` override, but it requires plumbing Delta-specific physical-name lookup into the
+   * substrait emitter and is a multi-module refactor.
    */
   private def transformColumnMappingPlan(plan: SparkPlan): SparkPlan = plan match {
     case plan: DeltaScanTransformer =>

@@ -56,13 +56,25 @@ case class DeltaScanTransformer(
 
   override lazy val fileFormat: ReadFileFormat = ReadFileFormat.ParquetReadFormat
 
-  // For Delta column-mapping tables, `dataFilters` are kept LOGICAL on the scan node so that
-  // `PreparedDeltaFileIndex` (Delta's file index, which uses logical names for partition pruning
-  // and stats-based file skipping) resolves them correctly. The native side, however, must see
-  // PHYSICAL names. `output` and `dataSchema` are physical, and `BasicScanExecTransformer`
-  // matches `scanFilters` against `pushDownFilters` (which are derived from a Filter referencing
-  // the physical-named scan output) by AttributeReference equality, which checks names. Translate
-  // the logical filter attrs to their physical counterparts in `output` so the two sets line up.
+  // For Delta column-mapping tables, `dataFilters` on the scan node are LOGICAL-named so Delta's
+  // file index (`PreparedDeltaFileIndex.matchingFiles`, `Snapshot.filesForScan`) can do partition
+  // pruning and stats-based file skipping -- both resolve filter attrs against logical schemas.
+  //
+  // The native (Velox) side, however, must see PHYSICAL names: `output` and `dataSchema` are
+  // physical (so the parquet reader finds the right column), and `BasicScanExecTransformer`
+  // matches `scanFilters` against `pushDownFilters` (built from a `Filter` that references the
+  // physical-named scan output) by `AttributeReference.equals`, which compares names. Without
+  // this override, the logical-named `scanFilters` and physical-named `pushDownFilters` would
+  // never match, causing duplicate filter evaluation in the substrait plan.
+  //
+  // Translate by exprId match against `output` rather than by re-running Delta's column-mapping
+  // helpers; exprIds are stable across the post-transform rewrite and don't require a second
+  // metadata lookup.
+  //
+  // See `DeltaPostTransformRules.transformColumnMappingPlan` for the full picture of which
+  // fields stay logical vs. become physical, and the longer-term cleanup direction (do all
+  // physical translation at substrait emission time so this override and the alias-back
+  // ProjectExec both go away).
   override def scanFilters: Seq[Expression] = relation.fileFormat match {
     case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
       val physicalByExprId = output.collect { case ar: AttributeReference => ar.exprId -> ar }.toMap
