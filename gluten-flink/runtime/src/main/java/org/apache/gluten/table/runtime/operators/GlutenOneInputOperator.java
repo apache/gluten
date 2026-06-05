@@ -36,6 +36,7 @@ import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
+import org.apache.flink.contrib.streaming.state.RocksDBKeyedStateBackend;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
@@ -287,7 +288,9 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
     if (task == null) {
       initSession();
     }
-    // task.initializeState(0, null);
+    if (!(getKeyedStateBackend() instanceof RocksDBKeyedStateBackend)) {
+      task.initializeState(0, null);
+    }
     super.initializeState(context);
   }
 
