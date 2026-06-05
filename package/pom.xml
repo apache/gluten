@@ -118,28 +118,15 @@
                     <include>com.google.gson.**</include>
                   </includes>
                 </relocation>
-                <relocation>
-                  <pattern>org.apache.arrow</pattern>
-                  <shadedPattern>${gluten.shade.packageName}.org.apache.arrow</shadedPattern>
-                  <!--
-                    arrow's C and dataset wrappers refer to the original class
-                    path, so they must not be relocated. Their public APIs also
-                    take and return org.apache.arrow.memory.* and
-                    org.apache.arrow.vector.* types, so those packages must also
-                    stay unshaded — otherwise the bundled (unshaded)
-                    ArrowArrayStream/ArrowSchema get compiled against the
-                    relocated BufferAllocator/VectorSchemaRoot, producing
-                    `NoSuchMethodError` for any caller passing a vanilla
-                    Apache Arrow allocator. See #12225.
-                  -->
-                  <excludes>
-                    <exclude>org.apache.arrow.c.*</exclude>
-                    <exclude>org.apache.arrow.c.jni.*</exclude>
-                    <exclude>org.apache.arrow.memory.**</exclude>
-                    <exclude>org.apache.arrow.vector.**</exclude>
-                    <exclude>org.apache.arrow.dataset.**</exclude>
-                  </excludes>
-                </relocation>
+                <!--
+                  org.apache.arrow.memory.* and org.apache.arrow.vector.* are
+                  now scope=provided in gluten-arrow/pom.xml — they come from
+                  Spark's distribution at runtime, so there is nothing to
+                  relocate. arrow-c-data and arrow-dataset are still bundled
+                  but never relocated (their JNI binds to the original class
+                  names), so no shade-relocation entry is needed for Arrow.
+                  See #12225 / #12226 for the historical context.
+                -->
                 <relocation>
                   <pattern>com.google.flatbuffers</pattern>
                   <shadedPattern>${gluten.shade.packageName}.com.google.flatbuffers</shadedPattern>

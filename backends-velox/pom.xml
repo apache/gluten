@@ -79,6 +79,24 @@
       <version>${project.version}</version>
       <scope>compile</scope>
     </dependency>
+    <!--
+      arrow-memory-core / arrow-vector are scope=provided in gluten-arrow so
+      they are not bundled. Re-declare them at provided scope here so the
+      compile classpath still resolves them. At runtime they come from
+      Spark's distribution.
+    -->
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-memory-core</artifactId>
+      <version>${arrow.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-vector</artifactId>
+      <version>${arrow.version}</version>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>com.github.ben-manes.caffeine</groupId>
       <artifactId>caffeine</artifactId>

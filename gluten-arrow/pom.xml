@@ -85,17 +85,24 @@
       <version>${spark.version}</version>
       <scope>provided</scope>
     </dependency>
+    <!--
+      Arrow memory + vector come from Spark's distribution (declared in Spark
+      4.x's pom; bundled in $SPARK_HOME/jars/ for Spark 3.x). gluten compiles
+      against the same arrow.version it expects at runtime, but the artifacts
+      are scope=provided so they are NOT bundled into gluten-velox-bundle —
+      avoiding the #12225 class-shadowing problem entirely.
+    -->
     <dependency>
       <groupId>org.apache.arrow</groupId>
       <artifactId>${arrow-memory.artifact}</artifactId>
       <version>${arrow.version}</version>
-      <scope>runtime</scope>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.arrow</groupId>
       <artifactId>arrow-memory-core</artifactId>
       <version>${arrow.version}</version>
-      <scope>compile</scope>
+      <scope>provided</scope>
       <exclusions>
         <exclusion>
           <groupId>io.netty</groupId>
@@ -111,6 +118,7 @@
       <groupId>org.apache.arrow</groupId>
       <artifactId>arrow-vector</artifactId>
       <version>${arrow.version}</version>
+      <scope>provided</scope>
       <exclusions>
         <exclusion>
           <groupId>io.netty</groupId>
