@@ -178,13 +178,13 @@ object ColumnarTableCachePartitionStatsBenchmark extends SqlBasedBenchmark {
     bench.run()
   }
 
-  // Working-set sweep across three regimes around cap = 256:
-  //   C1 == cap     -> 100% hit steady state
-  //   C2 == 2 x cap -> eviction pressure, partial hit
-  //   C3 == 4 x cap -> worst-case round-robin, ~all miss
-  // Manual interpretation guidance when reading results: expect C1 on >= off; C2 on within
-  // ~1.5x of off; C3 documented as known regression. The benchmark itself does not enforce
-  // any of these.
+  // Working-set sweep across three regimes, parameterized by distinct-schema count vs cache cap:
+  //   C1: 256  schemas == cap  -> all fit, steady state
+  //   C2: 512  schemas == 2x   -> cap pressure
+  //   C3: 1024 schemas == 4x   -> churn
+  // On/off ratios depend on W-TinyLFU's frequency-based admission and the workload's repeat
+  // pattern; see the committed `-results.txt` for the actual numbers on the bench-author's
+  // environment.
   private def runInternWorkingSetSweep(): Unit = {
     val passes = 100
     Seq(

@@ -27,8 +27,8 @@ import scala.util.Random
 
 /**
  * Invariants for [[SchemaJsonInternCache]]: (1) determinism -- equal inputs yield byte-identical /
- * canonical-instance outputs; (2) capacity -- LRU cap = 256, eviction never corrupts later results;
- * (3) concurrency -- contended get-or-compute yields correct results without exception.
+ * canonical-instance outputs; (2) capacity -- size-bounded cap = 256, eviction never corrupts later
+ * results; (3) concurrency -- contended get-or-compute yields correct results without exception.
  */
 class SchemaJsonInternCacheSuite extends SparkFunSuite {
 
