@@ -24,8 +24,9 @@ import java.nio.charset.StandardCharsets
 
 /**
  * Process-local memoizer for `StructType <-> JSON` codec on the cached-batch hot path. Best-effort
- * Caffeine LRU; eviction recomputes via the same pure codec, so misses are indistinguishable from
- * the no-cache baseline. Thread-safety via Caffeine `get(key, mappingFunction)`.
+ * size-bounded Caffeine cache (W-TinyLFU); eviction recomputes via the same pure codec, so misses
+ * are indistinguishable from the no-cache baseline. Thread-safety via Caffeine
+ * `get(key, mappingFunction)`.
  */
 final private[execution] class SchemaJsonInternCache {
   import SchemaJsonInternCache._
@@ -36,7 +37,10 @@ final private[execution] class SchemaJsonInternCache {
   private val decodeCache: Cache[String, StructType] =
     Caffeine.newBuilder.maximumSize(CAP).build[String, StructType]()
 
-  /** Returns the canonical UTF-8 JSON byte form of `schema`. */
+  /**
+   * Returns the canonical UTF-8 JSON byte form of `schema`. The returned array is shared with the
+   * cache; callers must treat it as immutable.
+   */
   def encodeBytes(schema: StructType): Array[Byte] =
     encodeCache.get(schema, k => k.json.getBytes(StandardCharsets.UTF_8))
 
@@ -48,7 +52,9 @@ final private[execution] class SchemaJsonInternCache {
 }
 
 private[execution] object SchemaJsonInternCache {
-  // 256 entries: <= ~8.5 MB retained even at 1000-field schemas (~33 KB JSON each). Verified by
-  // Section C working-set sweep of the FU-D7 bench harness; revisit if C1/C2 gates fail.
+  // 256 entries per side. Empirically large enough to cover the unique-schema fanout of a
+  // typical multi-cached-table query; small enough that retained heap stays bounded even for
+  // wide schemas. Tune via re-running the schema-codec working-set sweep section of
+  // ColumnarTableCachePartitionStatsBenchmark.
   private[execution] val CAP: Long = 256L
 }

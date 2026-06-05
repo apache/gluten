@@ -182,8 +182,9 @@ object ColumnarTableCachePartitionStatsBenchmark extends SqlBasedBenchmark {
   //   C1 == cap     -> 100% hit steady state
   //   C2 == 2 x cap -> eviction pressure, partial hit
   //   C3 == 4 x cap -> worst-case round-robin, ~all miss
-  // Gates (read at results-read time):
-  //   C1 on must be >= off; C2 on within 1.5x of off; C3 documented as known regression.
+  // Manual interpretation guidance when reading results: expect C1 on >= off; C2 on within
+  // ~1.5x of off; C3 documented as known regression. The benchmark itself does not enforce
+  // any of these.
   private def runInternWorkingSetSweep(): Unit = {
     val passes = 100
     Seq(

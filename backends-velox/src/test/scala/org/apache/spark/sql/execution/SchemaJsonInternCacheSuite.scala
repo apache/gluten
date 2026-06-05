@@ -146,9 +146,12 @@ class SchemaJsonInternCacheSuite extends SparkFunSuite {
         })
     }
     start.countDown()
-    futures.foreach(_.get(60, TimeUnit.SECONDS))
-    pool.shutdown()
-    assert(pool.awaitTermination(10, TimeUnit.SECONDS), "thread pool did not terminate")
+    try {
+      futures.foreach(_.get(60, TimeUnit.SECONDS))
+    } finally {
+      pool.shutdown()
+      assert(pool.awaitTermination(10, TimeUnit.SECONDS), "thread pool did not terminate")
+    }
     assert(
       errors.get() == 0,
       s"${errors.get()} concurrent get-or-compute errors out of ${threads * keysPerThread} ops")
