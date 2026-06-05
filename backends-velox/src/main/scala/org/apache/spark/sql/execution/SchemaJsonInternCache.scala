@@ -50,5 +50,5 @@ final private[execution] class SchemaJsonInternCache {
 private[execution] object SchemaJsonInternCache {
   // 256 entries: <= ~8.5 MB retained even at 1000-field schemas (~33 KB JSON each). Verified by
   // Section C working-set sweep of the FU-D7 bench harness; revisit if C1/C2 gates fail.
-  private val CAP = 256L
+  private[execution] val CAP: Long = 256L
 }
