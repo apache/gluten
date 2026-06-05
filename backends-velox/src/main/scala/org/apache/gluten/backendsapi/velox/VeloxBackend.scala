@@ -133,9 +133,19 @@ object VeloxBackendSettings extends BackendSettingsApi {
       }
       val returnNullStructIfAllFieldsMissingKey =
         "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing"
-      !SQLConf.get
+      val legacyReturnNullStruct = SQLConf.get
         .getConfString(returnNullStructIfAllFieldsMissingKey, "false")
         .toBoolean
+      if (legacyReturnNullStruct) {
+        return false
+      }
+      // Only fall back for the genuine SPARK-53535 incompatibility: a struct that exists in the
+      // file but whose requested fields are all missing. Regular struct reads stay on the native
+      // scan.
+      ParquetMetadataUtils.hasStructWithAllRequestedFieldsMissing(
+        rootPaths,
+        hadoopConf,
+        StructType(fields))
     }
 
     def validateScheme(): Option[String] = {

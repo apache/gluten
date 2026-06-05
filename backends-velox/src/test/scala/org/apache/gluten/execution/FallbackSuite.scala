@@ -368,7 +368,9 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
           runQueryAndCompare("select s is null as is_null from struct_tbl") {
             df =>
               val plan = df.queryExecution.executedPlan
-              assert(collect(plan) { case g: GlutenPlan => g }.isEmpty)
+              assert(
+                collect(plan) { case s: FileSourceScanExecTransformer => s }.isEmpty,
+                "Parquet scan should fall back to the vanilla Spark reader")
           }
         }
     }

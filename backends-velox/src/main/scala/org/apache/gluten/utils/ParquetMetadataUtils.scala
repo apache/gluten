@@ -21,13 +21,17 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.execution.datasources.DataSourceUtils
-import org.apache.spark.sql.execution.datasources.parquet.{ParquetFooterReaderShim, ParquetOptions}
+import org.apache.spark.sql.execution.datasources.parquet.{ParquetFooterReaderShim, ParquetOptions, ParquetToSparkSchemaConverter}
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructField, StructType}
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, LocatedFileStatus, Path}
 import org.apache.parquet.crypto.ParquetCryptoRuntimeException
 import org.apache.parquet.format.converter.ParquetMetadataConverter
 import org.apache.parquet.hadoop.metadata.ParquetMetadata
+
+import java.util.Locale
 
 object ParquetMetadataUtils extends Logging {
 
@@ -219,6 +223,123 @@ object ParquetMetadataUtils extends Logging {
     }
     if (int96RebaseSpec.originTimeZone.nonEmpty) {
       return Some("Legacy timezone found.")
+    }
+    None
+  }
+
+  private val PARQUET_FIELD_ID_METADATA_KEY = "parquet.field.id"
+
+  /**
+   * Detects the SPARK-53535 incompatibility: a struct that exists in the Parquet file but whose
+   * requested fields are all absent. Spark 4.1 reads an extra present field to determine such a
+   * struct's nullness while the Velox native scan still returns a NULL struct, so the scan must
+   * fall back to the vanilla Spark reader. Regular struct reads are unaffected.
+   */
+  def hasStructWithAllRequestedFieldsMissing(
+      rootPaths: Seq[String],
+      hadoopConf: Configuration,
+      requestedSchema: StructType): Boolean = {
+    // Field-id matching (e.g. Delta column mapping) addresses columns by id, not name.
+    if (usesParquetFieldId(requestedSchema)) {
+      return false
+    }
+    val footer = readFirstParquetFooter(rootPaths, hadoopConf)
+    if (footer.isEmpty) {
+      return false
+    }
+    val fileSchema =
+      try {
+        new ParquetToSparkSchemaConverter(SQLConf.get)
+          .convert(footer.get.getFileMetaData.getSchema)
+      } catch {
+        case e: Exception =>
+          logWarning("Failed to convert parquet file schema for struct field check", e)
+          return false
+      }
+    val caseSensitive = SQLConf.get.caseSensitiveAnalysis
+    matchedStructHasAllFieldsMissing(requestedSchema, fileSchema, caseSensitive, topLevel = true)
+  }
+
+  private def usesParquetFieldId(dataType: DataType): Boolean = dataType match {
+    case s: StructType =>
+      s.fields.exists(
+        f => f.metadata.contains(PARQUET_FIELD_ID_METADATA_KEY) || usesParquetFieldId(f.dataType))
+    case ArrayType(elementType, _) => usesParquetFieldId(elementType)
+    case MapType(keyType, valueType, _) =>
+      usesParquetFieldId(keyType) || usesParquetFieldId(valueType)
+    case _ => false
+  }
+
+  private def matchedStructHasAllFieldsMissing(
+      requested: StructType,
+      file: StructType,
+      caseSensitive: Boolean,
+      topLevel: Boolean): Boolean = {
+    val fileByName: Map[String, StructField] =
+      if (caseSensitive) {
+        file.fields.map(f => f.name -> f).toMap
+      } else {
+        file.fields.map(f => f.name.toLowerCase(Locale.ROOT) -> f).toMap
+      }
+    def lookup(name: String): Option[StructField] =
+      if (caseSensitive) fileByName.get(name) else fileByName.get(name.toLowerCase(Locale.ROOT))
+
+    val matched = requested.fields.flatMap(rf => lookup(rf.name).map(ff => (rf, ff)))
+
+    // A nested struct present in the file with none of its requested fields is the SPARK-53535 case
+    // (skipped at top level, where a fully absent column is a normal missing column).
+    if (!topLevel && requested.fields.nonEmpty && matched.isEmpty) {
+      return true
+    }
+
+    matched.exists {
+      case (rf, ff) => containsStructWithAllFieldsMissing(rf.dataType, ff.dataType, caseSensitive)
+    }
+  }
+
+  private def containsStructWithAllFieldsMissing(
+      requested: DataType,
+      file: DataType,
+      caseSensitive: Boolean): Boolean = (requested, file) match {
+    case (r: StructType, f: StructType) =>
+      matchedStructHasAllFieldsMissing(r, f, caseSensitive, topLevel = false)
+    case (r: ArrayType, f: ArrayType) =>
+      containsStructWithAllFieldsMissing(r.elementType, f.elementType, caseSensitive)
+    case (r: MapType, f: MapType) =>
+      containsStructWithAllFieldsMissing(r.keyType, f.keyType, caseSensitive) ||
+      containsStructWithAllFieldsMissing(r.valueType, f.valueType, caseSensitive)
+    case _ => false
+  }
+
+  private def readFirstParquetFooter(
+      rootPaths: Seq[String],
+      hadoopConf: Configuration): Option[ParquetMetadata] = {
+    val pathsIt = rootPaths.iterator
+    while (pathsIt.hasNext) {
+      val rootPath = pathsIt.next()
+      try {
+        val path = new Path(rootPath)
+        val fs = path.getFileSystem(hadoopConf)
+        if (fs.exists(path)) {
+          val filesIt = fs.listFiles(path, true)
+          while (filesIt.hasNext) {
+            val fileStatus = filesIt.next()
+            val name = fileStatus.getPath.getName
+            if (fileStatus.getLen > 0 && !name.startsWith(".") && !name.startsWith("_")) {
+              try {
+                return Some(
+                  ParquetFooterReaderShim
+                    .readFooter(hadoopConf, fileStatus, ParquetMetadataConverter.NO_FILTER))
+              } catch {
+                case _: RuntimeException => // Not a parquet file, keep looking.
+              }
+            }
+          }
+        }
+      } catch {
+        case e: Exception =>
+          logWarning(s"Failed to read parquet footer under $rootPath for struct field check", e)
+      }
     }
     None
   }
