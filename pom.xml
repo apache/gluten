@@ -81,7 +81,6 @@
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
     <arrow.version>15.0.0</arrow.version>
-    <arrow-gluten.version>15.0.0-gluten</arrow-gluten.version>
     <arrow-memory.artifact>arrow-memory-unsafe</arrow-memory.artifact>
     <hadoop.version>2.7.4</hadoop.version>
     <antlr4.version>4.9.3</antlr4.version>
@@ -1285,7 +1284,6 @@
         <log4j.version>2.24.3</log4j.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <arrow.version>18.1.0</arrow.version>
-        <arrow-gluten.version>18.1.0</arrow-gluten.version>
         <scala.compiler.version>4.9.2</scala.compiler.version>
       </properties>
       <dependencies>
@@ -1365,7 +1363,6 @@
         <log4j.version>2.24.3</log4j.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <arrow.version>18.1.0</arrow.version>
-        <arrow-gluten.version>18.1.0</arrow-gluten.version>
         <scala.compiler.version>4.9.5</scala.compiler.version>
       </properties>
       <dependencies>
