@@ -61,6 +61,14 @@ jobs:
           sudo dnf install -y patchelf
           sudo yum install https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/tzdata-2026a-1.el9.noarch.rpm -y
           sudo .github/workflows/util/install-flink-deps.sh
+          # Remove system fmt v11 from the CI image to avoid header conflicts with
+          # velox bundled fmt 10.x during folly/velox native compilation.
+          sudo rm -rf /usr/local/include/fmt
+          sudo rm -rf /usr/local/lib/cmake/fmt
+          sudo rm -f /usr/local/lib/libfmt* /usr/local/lib64/libfmt*
+          export VELOX_DEPENDENCY_SOURCE=BUNDLED
+          export fmt_SOURCE=BUNDLED
+          export folly_SOURCE=BUNDLED
           git clone -b support_proc_time_window_1 https://github.com/KevinyhZou/velox4j.git
           cd velox4j
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
