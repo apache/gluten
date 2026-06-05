@@ -72,6 +72,19 @@ const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
 
 } // namespace
 
+namespace {
+std::string getVeloxTaskId(const SparkTaskInfo& taskInfo) {
+  if (taskInfo.executionId != -1) {
+    return fmt::format("Gluten_Execution_{}", std::to_string(taskInfo.executionId));
+  }
+  return fmt::format(
+      "Gluten_Stage_{}_TID_{}_VTID_{}",
+      std::to_string(taskInfo.stageId),
+      std::to_string(taskInfo.taskId),
+      std::to_string(taskInfo.vId));
+}
+} // namespace
+
 WholeStageResultIterator::WholeStageResultIterator(
     VeloxMemoryManager* memoryManager,
     const std::shared_ptr<const facebook::velox::core::PlanNode>& planNode,
@@ -111,11 +124,7 @@ WholeStageResultIterator::WholeStageResultIterator(
   velox::core::PlanFragment planFragment{planNode, velox::core::ExecutionStrategy::kUngrouped, 1, emptySet};
   std::shared_ptr<velox::core::QueryCtx> queryCtx = createNewVeloxQueryCtx();
   task_ = velox::exec::Task::create(
-      fmt::format(
-          "Gluten_Stage_{}_TID_{}_VTID_{}",
-          std::to_string(taskInfo_.stageId),
-          std::to_string(taskInfo_.taskId),
-          std::to_string(taskInfo.vId)),
+      getVeloxTaskId(taskInfo_),
       std::move(planFragment),
       0,
       std::move(queryCtx),
@@ -233,11 +242,7 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
       gluten::VeloxBackend::get()->getAsyncDataCache(),
       memoryManager_->getAggregateMemoryPool(),
       spillExecutor_,
-      fmt::format(
-          "Gluten_Stage_{}_TID_{}_VTID_{}",
-          std::to_string(taskInfo_.stageId),
-          std::to_string(taskInfo_.taskId),
-          std::to_string(taskInfo_.vId)));
+      getVeloxTaskId(taskInfo_));
   return ctx;
 }
 

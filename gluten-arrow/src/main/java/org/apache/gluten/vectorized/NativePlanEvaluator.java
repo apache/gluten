@@ -34,6 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class NativePlanEvaluator {
   private static final Logger LOGGER = LoggerFactory.getLogger(NativePlanEvaluator.class);
   private static final AtomicInteger id = new AtomicInteger(0);
+  private static final long INVALID_EXECUTION_ID = -1L;
+  private static final String SPARK_EXECUTION_ID_KEY = "spark.sql.execution.id";
 
   private final Runtime runtime;
   private final PlanEvaluatorJniWrapper jniWrapper;
@@ -78,14 +80,16 @@ public class NativePlanEvaluator {
       int partitionIndex,
       String spillDirPath)
       throws RuntimeException {
+    final TaskContext taskContext = TaskContext.get();
     final long itrHandle =
         jniWrapper.nativeCreateKernelWithIterator(
             wsPlan,
             splitInfo,
             iterList,
-            TaskContext.get().stageId(),
+            taskContext.stageId(),
             partitionIndex, // TaskContext.getPartitionId(),
-            TaskContext.get().taskAttemptId(),
+            taskContext.taskAttemptId(),
+            getExecutionId(taskContext),
             DebugUtil.isDumpingEnabledForTask(),
             spillDirPath);
     final ColumnarBatchOutIterator out = createOutIterator(runtime, itrHandle);
@@ -112,5 +116,19 @@ public class NativePlanEvaluator {
 
   private ColumnarBatchOutIterator createOutIterator(Runtime runtime, long itrHandle) {
     return new ColumnarBatchOutIterator(runtime, itrHandle);
+  }
+
+  private static long getExecutionId(TaskContext taskContext) {
+    final String executionId = taskContext.getLocalProperty(SPARK_EXECUTION_ID_KEY);
+    if (executionId == null) {
+      return INVALID_EXECUTION_ID;
+    }
+    try {
+      return Long.parseLong(executionId);
+    } catch (NumberFormatException e) {
+      LOGGER.warn(
+          "Invalid Spark execution id '{}', fallback to {}", executionId, INVALID_EXECUTION_ID);
+      return INVALID_EXECUTION_ID;
+    }
   }
 }

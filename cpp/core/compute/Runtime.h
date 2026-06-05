@@ -42,12 +42,14 @@ struct SparkTaskInfo {
   int32_t partitionId{0};
   // Same as TID.
   int64_t taskId{0};
+  // Same as Spark SQL execution id. -1 means unavailable.
+  int64_t executionId{-1};
   // virtual id for each backend internal use
   int32_t vId{0};
 
   std::string toString() const {
-    return "[Stage: " + std::to_string(stageId) + " TID: " + std::to_string(taskId) + " VID: " + std::to_string(vId) +
-        "]";
+    return "[Stage: " + std::to_string(stageId) + " Execution: " + std::to_string(executionId) +
+        " TID: " + std::to_string(taskId) + " VID: " + std::to_string(vId) + "]";
   }
 
   friend std::ostream& operator<<(std::ostream& os, const SparkTaskInfo& taskInfo) {

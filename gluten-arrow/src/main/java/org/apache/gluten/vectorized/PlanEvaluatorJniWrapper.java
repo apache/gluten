@@ -76,6 +76,7 @@ public class PlanEvaluatorJniWrapper implements RuntimeAware {
       int stageId,
       int partitionId,
       long taskId,
+      long executionId,
       boolean enableDumping,
       String spillDir)
       throws RuntimeException;
