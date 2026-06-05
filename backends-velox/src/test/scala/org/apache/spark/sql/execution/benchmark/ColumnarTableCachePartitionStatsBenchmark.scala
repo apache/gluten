@@ -74,7 +74,7 @@ object ColumnarTableCachePartitionStatsBenchmark extends SqlBasedBenchmark {
   // (intern memoized round-trip), with no toggle on the cache class itself.
   // ============================================================================
 
-  private val INTERN_CAP = 256
+  private val INTERN_CAP = SchemaJsonInternCache.CAP.toInt
 
   private def schemaFixture(numCols: Int, nameLen: Int): StructType = {
     val name = "c" + ("x" * math.max(0, nameLen - 1))
