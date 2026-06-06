@@ -553,6 +553,13 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: fix in Spark-4.0
     .exclude("explode nested lists crossing a rowgroup boundary")
     .excludeByPrefix("SPARK-54220") // https://issues.apache.org/jira/browse/SPARK-54220
+    // When all requested struct fields are missing, the Velox scan falls back to the vanilla Spark
+    // row-based reader (SPARK-53535 compatibility). The upstream test asserts the native vectorized
+    // reader emits no extra columnar output via VerifyNoAdditionalScanOutputExec, which does not
+    // apply to the row-based fallback. Data correctness for this case is still covered by the
+    // sibling "struct with map field only" / "cheap map and more expensive array field" tests.
+    .exclude(
+      "SPARK-53535: vectorized reader: missing all struct fields, struct with complex fields")
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
   enableSuite[GlutenParquetProtobufCompatibilitySuite]
