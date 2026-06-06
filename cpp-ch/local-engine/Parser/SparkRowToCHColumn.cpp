@@ -130,7 +130,18 @@ ALWAYS_INLINE static void writeRowToColumns(const std::vector<MutableColumnPtr> 
         else
         {
             DB::Field field = spark_row_reader.getField(i);
-            columns[i]->insert(normalizeFieldForType(std::move(field), spark_row_reader.getFieldTypes()[i]));
+            const auto & type = spark_row_reader.getFieldTypes()[i];
+            if (field.isNull())
+            {
+                if (type->isNullable())
+                    columns[i]->insert(field);
+                else
+                    columns[i]->insertDefault();
+            }
+            else if (spark_row_reader.needNestedNullNormalization(i))
+                columns[i]->insert(normalizeFieldForType(std::move(field), type));
+            else
+                columns[i]->insert(field);
         }
     }
 }
