@@ -47,4 +47,19 @@ class GlutenRuntimeConfigSuite extends GlutenQueryTest with SharedSparkSession {
       conf.set(key, original)
     }
   }
+
+  test("Memory manager capacity ratio config validation") {
+
+    assert(GlutenConfig.MEMORY_MANAGER_CAPACITY_RATIO.defaultValue.get == 0.75)
+
+    withSQLConf(GlutenConfig.MEMORY_MANAGER_CAPACITY_RATIO.key -> "0.8") {
+      assert(GlutenConfig.get.getConf(GlutenConfig.MEMORY_MANAGER_CAPACITY_RATIO) == 0.8)
+    }
+
+    intercept[IllegalArgumentException] {
+      withSQLConf(GlutenConfig.MEMORY_MANAGER_CAPACITY_RATIO.key -> "1.5") {
+        GlutenConfig.get.getConf(GlutenConfig.MEMORY_MANAGER_CAPACITY_RATIO)
+      }
+    }
+  }
 }

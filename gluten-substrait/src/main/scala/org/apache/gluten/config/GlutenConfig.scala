@@ -1251,6 +1251,18 @@ object GlutenConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val MEMORY_MANAGER_CAPACITY_RATIO =
+    buildConf("spark.gluten.memory.manager.capacity.ratio")
+      .internal()
+      .doc(
+        "Ratio of spark.gluten.memoryOverhead.size.in.bytes to allocate for Velox global " +
+          "memory manager. The memory manager is used during spill operations.")
+      .doubleConf
+      .checkValue(
+        ratio => ratio > 0.0 && ratio <= 1.0,
+        "Memory manager capacity ratio must be between 0.0 and 1.0")
+      .createWithDefault(0.75)
+
   val TRANSFORM_PLAN_LOG_LEVEL =
     buildConf("spark.gluten.sql.transform.logLevel")
       .internal()
