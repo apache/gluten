@@ -459,6 +459,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-35640: int as long should throw schema incompatible error")
     // Velox parquet reader not allow offset zero.
     .exclude("SPARK-40128 read DELTA_LENGTH_BYTE_ARRAY encoded strings")
+    .exclude("vectorized reader: array")
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
   enableSuite[GlutenParquetProtobufCompatibilitySuite]

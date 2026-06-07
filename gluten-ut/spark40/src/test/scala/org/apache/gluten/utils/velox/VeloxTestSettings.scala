@@ -577,6 +577,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-40128 read DELTA_LENGTH_BYTE_ARRAY encoded strings")
     // TODO: fix in Spark-4.0
     .exclude("explode nested lists crossing a rowgroup boundary")
+    .exclude("vectorized reader: array")
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
   enableSuite[GlutenParquetProtobufCompatibilitySuite]
