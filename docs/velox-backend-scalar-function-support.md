@@ -212,7 +212,7 @@
 | map_contains_key  | MapContainsKey      | S        |                                                                             |
 | map_entries       | MapEntries          | S        |                                                                             |
 | map_from_arrays   | MapFromArrays       |          |                                                                             |
-| map_from_entries  | MapFromEntries      |          |                                                                             |
+| map_from_entries  | MapFromEntries      | S        | Converts array of struct(key, value) pairs to map                           |
 | map_keys          | MapKeys             | S        |                                                                             |
 | map_values        | MapValues           | S        |                                                                             |
 | str_to_map        | StringToMap         | PS       | Only spark.sql.mapKeyDedupPolicy = EXCEPTION is supported for Velox backend |
