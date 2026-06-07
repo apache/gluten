@@ -397,18 +397,15 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-38825: in and notIn filters")
   enableSuite[GlutenParquetInteroperabilitySuite]
     .exclude("parquet timestamp conversion")
-  enableSuite[GlutenParquetIOSuite]
-    // Velox doesn't write file metadata into parquet file.
-    .exclude("Write Spark version into Parquet metadata")
-    // Exception.
-    .exclude("SPARK-35640: read binary as timestamp should throw schema incompatible error")
-    // Exception msg.
-    .exclude("SPARK-35640: int as long should throw schema incompatible error")
-    // Velox parquet reader not allow offset zero.
-    .exclude("SPARK-40128 read DELTA_LENGTH_BYTE_ARRAY encoded strings")
-    .exclude("SPARK-36182: TimestampNTZ")
-    .exclude("Read TimestampNTZ and TimestampLTZ for various logical TIMESTAMP types")
-    .exclude("Write TimestampNTZ type")
+//  enableSuite[GlutenParquetIOSuite]
+//    // Velox doesn't write file metadata into parquet file.
+//    .exclude("Write Spark version into Parquet metadata")
+//    // Exception.
+//    .exclude("SPARK-35640: read binary as timestamp should throw schema incompatible error")
+//    // Exception msg.
+//    .exclude("SPARK-35640: int as long should throw schema incompatible error")
+//    // Velox parquet reader not allow offset zero.
+//    .exclude("SPARK-40128 read DELTA_LENGTH_BYTE_ARRAY encoded strings")
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
   enableSuite[GlutenParquetProtobufCompatibilitySuite]
