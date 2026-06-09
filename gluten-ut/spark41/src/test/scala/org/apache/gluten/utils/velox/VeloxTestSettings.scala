@@ -40,7 +40,7 @@ import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.execution.metric.{GlutenCustomMetricsSuite, GlutenSQLMetricsSuite}
 import org.apache.spark.sql.execution.python._
 import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenSessionExtensionSuite}
-import org.apache.spark.sql.gluten.{GlutenFallbackStrategiesSuite, GlutenFallbackSuite}
+import org.apache.spark.sql.gluten.{GlutenFallbackStrategiesSuite, GlutenFallbackSuite, GlutenRowBasedChecksumSuite}
 import org.apache.spark.sql.hive.execution._
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.streaming._
@@ -1035,8 +1035,7 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: fix on Spark-4.1 introduced by https://github.com/apache/spark/pull/47856
     .exclude("SPARK-49386: test SortMergeJoin (with spill by size threshold)")
   enableSuite[GlutenMathFunctionsSuite]
-  // TODO: fix on Spark-4.1 see https://github.com/apache/spark/pull/50230
-  //  enableSuite[GlutenMapStatusEndToEndSuite]
+  enableSuite[GlutenMapStatusEndToEndSuite]
   enableSuite[GlutenMetadataCacheSuite]
     .exclude("SPARK-16336,SPARK-27961 Suggest fixing FileNotFoundException")
   enableSuite[GlutenMiscFunctionsSuite]
@@ -1102,6 +1101,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenUnsafeRowChecksumSuite]
   enableSuite[GlutenXPathFunctionsSuite]
   enableSuite[GlutenFallbackSuite]
+  enableSuite[GlutenRowBasedChecksumSuite]
   enableSuite[GlutenHashAggregationQuerySuite]
     // TODO: fix on https://github.com/apache/gluten/issues/11919
     .exclude("udaf with all data types")

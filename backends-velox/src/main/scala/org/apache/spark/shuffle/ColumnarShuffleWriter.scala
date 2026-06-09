@@ -60,6 +60,8 @@ class ColumnarShuffleWriter[K, V](
 
   private val blockManager = SparkEnv.get.blockManager
 
+  private val rowBasedChecksumEnabled: Boolean = GlutenMapStatusUtil.isRowBasedChecksumEnabled
+
   // Are we in the process of stopping? Because map tasks can call stop() with success = true
   // and then call stop() with success = false if they get an exception, we want to make sure
   // we don't try deleting files, etc twice.
@@ -193,7 +195,8 @@ class ColumnarShuffleWriter[K, V](
               nativeBufferSize,
               reallocThreshold,
               GlutenConfig.get.columnarShufflePartitionBufferEvictThreshold,
-              partitionWriterHandle
+              partitionWriterHandle,
+              rowBasedChecksumEnabled
             )
           }
 
@@ -282,7 +285,15 @@ class ColumnarShuffleWriter[K, V](
     // almost 3 times than vanilla spark partitionLengths
     // This value is sensitive in rules such as AQE rule OptimizeSkewedJoin DynamicJoinSelection
     // May affect the final plan
-    mapStatus = MapStatus(blockManager.shuffleServerId, partitionLengths, mapId)
+    val rowChecksums = splitResult.getRowBasedChecksums
+    val aggregatedChecksum = if (rowChecksums != null && rowChecksums.nonEmpty) {
+      rowChecksums.foldLeft(0L)((acc, c) => acc * 31L + c)
+    } else 0L
+    mapStatus = GlutenMapStatusUtil.createMapStatus(
+      blockManager.shuffleServerId,
+      partitionLengths,
+      mapId,
+      aggregatedChecksum)
   }
 
   private def handleEmptyInput(): Unit = {
@@ -293,7 +304,11 @@ class ColumnarShuffleWriter[K, V](
       partitionLengths,
       Array[Long](),
       null)
-    mapStatus = MapStatus(blockManager.shuffleServerId, partitionLengths, mapId)
+    mapStatus = GlutenMapStatusUtil.createMapStatus(
+      blockManager.shuffleServerId,
+      partitionLengths,
+      mapId,
+      0L)
   }
 
   @throws[IOException]

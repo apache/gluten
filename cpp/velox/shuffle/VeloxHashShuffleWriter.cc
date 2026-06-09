@@ -25,6 +25,8 @@
 #include "utils/VeloxArrowUtils.h"
 #include "velox/buffer/Buffer.h"
 #include "velox/common/base/Nulls.h"
+#include "velox/external/xxhash/xxhash.h"
+#include "velox/row/UnsafeRowFast.h"
 #include "velox/type/HugeInt.h"
 #include "velox/type/Timestamp.h"
 #include "velox/type/Type.h"
@@ -181,6 +183,11 @@ arrow::Status VeloxHashShuffleWriter::init() {
   }
 
   partitionBufferBase_.resize(numPartitions_);
+
+  if (rowBasedChecksumEnabled_) {
+    checksumXor_.resize(numPartitions_, 0);
+    checksumSum_.resize(numPartitions_, 0);
+  }
 
   return arrow::Status::OK();
 }
@@ -362,6 +369,17 @@ arrow::Status VeloxHashShuffleWriter::stop() {
 
   stat();
 
+  // Populate row-based checksums into metrics.
+  if (rowBasedChecksumEnabled_) {
+    metrics_.rowBasedChecksums.resize(numPartitions_);
+    for (auto pid = 0; pid < numPartitions_; ++pid) {
+      int64_t xorVal = checksumXor_[pid];
+      int64_t sumVal = checksumSum_[pid];
+      int64_t rotated = (static_cast<uint64_t>(sumVal) << 27) | (static_cast<uint64_t>(sumVal) >> 37);
+      metrics_.rowBasedChecksums[pid] = xorVal ^ rotated;
+    }
+  }
+
   return arrow::Status::OK();
 }
 
@@ -423,6 +441,7 @@ void VeloxHashShuffleWriter::setSplitState(SplitState state) {
 arrow::Status VeloxHashShuffleWriter::doSplit(const facebook::velox::RowVector& rv, int64_t memLimit) {
   auto rowNum = rv.size();
   RETURN_NOT_OK(buildPartition2Row(rowNum));
+  computeRowBasedChecksums(rv);
   RETURN_NOT_OK(updateInputHasNull(rv));
 
   {
@@ -1615,6 +1634,52 @@ arrow::Status VeloxHashShuffleWriter::preAllocPartitionBuffers(uint32_t preAlloc
 
 bool VeloxHashShuffleWriter::isExtremelyLargeBatch(facebook::velox::RowVectorPtr& rv) const {
   return (rv->size() > maxBatchSize_ && maxBatchSize_ > 0);
+}
+
+void VeloxHashShuffleWriter::computeRowBasedChecksums(const facebook::velox::RowVector& rv) {
+  if (!rowBasedChecksumEnabled_) {
+    return;
+  }
+
+  auto numRows = rv.size();
+  VELOX_DCHECK(rv.nulls() == nullptr, "RowVector with top-level nulls not supported for checksum");
+  // Get the RowVector to serialize (strip pid column if present).
+  facebook::velox::RowVectorPtr dataVector;
+  if (partitioner_->hasPid()) {
+    // Strip the first column (partition id).
+    auto rowType = std::dynamic_pointer_cast<const facebook::velox::RowType>(rv.type());
+    std::vector<std::string> names(rowType->names().begin() + 1, rowType->names().end());
+    std::vector<facebook::velox::TypePtr> types(rowType->children().begin() + 1, rowType->children().end());
+    std::vector<facebook::velox::VectorPtr> children(rv.children().begin() + 1, rv.children().end());
+    auto dataType = facebook::velox::ROW(std::move(names), std::move(types));
+    dataVector =
+        std::make_shared<facebook::velox::RowVector>(rv.pool(), dataType, nullptr, numRows, std::move(children));
+  } else {
+    auto rowType = std::dynamic_pointer_cast<const facebook::velox::RowType>(rv.type());
+    dataVector = std::make_shared<facebook::velox::RowVector>(rv.pool(), rowType, nullptr, numRows, rv.children());
+  }
+
+  facebook::velox::row::UnsafeRowFast fast(dataVector);
+  auto dataType = std::dynamic_pointer_cast<const facebook::velox::RowType>(dataVector->type());
+  auto fixedSize = facebook::velox::row::UnsafeRowFast::fixedRowSize(dataType);
+  int32_t bufSize = fixedSize.value_or(1024);
+  if (checksumBuffer_.size() < static_cast<size_t>(bufSize)) {
+    checksumBuffer_.resize(bufSize);
+  }
+
+  for (uint32_t row = 0; row < numRows; ++row) {
+    auto pid = row2Partition_[row];
+    auto size = fast.rowSize(row);
+    if (size > static_cast<int32_t>(checksumBuffer_.size())) {
+      checksumBuffer_.resize(size);
+    }
+    std::memset(checksumBuffer_.data(), 0, size);
+    fast.serialize(row, checksumBuffer_.data());
+
+    auto hash = static_cast<int64_t>(XXH64(checksumBuffer_.data(), size, 0));
+    checksumXor_[pid] ^= hash;
+    checksumSum_[pid] += hash;
+  }
 }
 
 } // namespace gluten

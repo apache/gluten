@@ -74,6 +74,7 @@ struct ShuffleWriterOptions {
   ShuffleWriterType shuffleWriterType;
   Partitioning partitioning = Partitioning::kRoundRobin;
   int32_t startPartitionId = 0;
+  bool rowBasedChecksumEnabled = false;
 
   ShuffleWriterOptions(ShuffleWriterType shuffleWriterType) : shuffleWriterType(shuffleWriterType) {}
 
@@ -234,5 +235,6 @@ struct ShuffleWriterMetrics {
   int64_t dictionarySize{0};
   std::vector<int64_t> partitionLengths{};
   std::vector<int64_t> rawPartitionLengths{}; // Uncompressed size.
+  std::vector<int64_t> rowBasedChecksums{}; // Per-partition row-based checksums.
 };
 } // namespace gluten
