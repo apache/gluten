@@ -97,16 +97,34 @@ for arg in "$@"; do
   esac
 done
 
+function install_cmake_dependency {
+  local build_dir="$1"
+  if [ "$OS" == 'Darwin' ]; then
+    cmake --install "$build_dir" --prefix "${INSTALL_PREFIX}"
+  else
+    sudo cmake --install "$build_dir"
+  fi
+}
+
 function compile {
   # -Wno-unknown-warning-option is a Clang-originated flag. GCC ignores unrecognized -Wno- flags to
   # maintain compatibility, but it prints a diagnostic note about the unknown flag if a true warning
   # or error occurs.
   CXX_FLAGS='-Wno-error=stringop-overflow -Wno-error=cpp -Wno-missing-field-initializers \
     -Wno-error=uninitialized -Wno-unknown-warning-option -Wno-deprecated-declarations'
+  if [[ "$(uname)" == "Darwin" ]]; then
+    CXX_FLAGS="$CXX_FLAGS -Wno-inconsistent-missing-override -Wno-macro-redefined"
+  fi
 
   COMPILE_OPTION="-DCMAKE_CXX_FLAGS=\"$CXX_FLAGS\" -DVELOX_ENABLE_PARQUET=ON -DVELOX_BUILD_TESTING=OFF \
       -DVELOX_MONO_LIBRARY=ON -DVELOX_BUILD_RUNNER=OFF -DVELOX_SIMDJSON_SKIPUTF8VALIDATION=ON \
       -DVELOX_ENABLE_GEO=OFF"
+  if [[ "$(uname)" == "Darwin" && "$INSTALL_PREFIX" != "/usr/local" && "$INSTALL_PREFIX" != /usr/local/* ]]; then
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON"
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PREFIX_PATH=/usr/local"
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_SYSTEM_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
+  fi
   if [ $BUILD_TEST_UTILS == "ON" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_BUILD_TEST_UTILS=ON"
   fi
@@ -162,16 +180,12 @@ function compile {
     exit 1
   fi
 
-  # Install deps to system as needed
+  # Install deps as needed
   if [ -d "_build/$COMPILE_TYPE/_deps" ]; then
     cd _build/$COMPILE_TYPE/_deps
     if [ -d xsimd-build ]; then
       echo "INSTALL xsimd."
-      if [ $OS == 'Linux' ]; then
-        sudo cmake --install xsimd-build/
-      elif [ $OS == 'Darwin' ]; then
-        sudo cmake --install xsimd-build/
-      fi
+      install_cmake_dependency xsimd-build/
     fi
     if [ -d googletest-build ]; then
       echo "INSTALL gtest."
@@ -179,7 +193,7 @@ function compile {
         cd googletest-src; cmake . ; sudo make install -j
         #sudo cmake --install googletest-build/
       elif [ $OS == 'Darwin' ]; then
-        sudo cmake --install googletest-build/
+        install_cmake_dependency googletest-build/
       fi
     fi
   fi
@@ -192,6 +206,13 @@ CURRENT_DIR=$(
 
 if [ "$VELOX_HOME" == "" ]; then
   VELOX_HOME="$CURRENT_DIR/../build/velox_ep"
+fi
+
+if [ "$OS" == 'Darwin' ]; then
+  export INSTALL_PREFIX="${INSTALL_PREFIX:-${VELOX_HOME}/deps-install}"
+  if [[ "$INSTALL_PREFIX" == "/usr/local" || "$INSTALL_PREFIX" == /usr/local/* ]]; then
+    echo "INFO: INSTALL_PREFIX=$INSTALL_PREFIX is under /usr/local; keeping /usr/local visible to CMake." >&2
+  fi
 fi
 
 echo "Start building Velox..."

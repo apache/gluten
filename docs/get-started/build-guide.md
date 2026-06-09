@@ -30,6 +30,14 @@ Please set them via `--`, e.g. `--build_type=Release`.
 | build_arrow            | Build arrow java/cpp and install the libs in local. Can turn it OFF after first build.        | ON      |
 | spark_version          | Build for specified version of Spark(3.3, 3.4, 3.5, 4.0, 4.1, ALL). `ALL` means build for all versions. | ALL     |
 
+### Environment variables for build
+These environment variables can be set before running build scripts to control build behavior.
+
+| Variable               | Description                                                                                   | Default |
+|------------------------|-----------------------------------------------------------------------------------------------|---------|
+| VCPKG_DYNAMIC_OPENSSL  | Enable dynamic OpenSSL linking with FIPS support (requires `enable_vcpkg=ON`). See [Dynamic OpenSSL](VeloxDynamicOpenSSL.md) for details. | OFF     |
+
+
 ### Velox build parameters for build-velox.sh
 Please set them via `--`, e.g., `--velox_home=/YOUR/PATH`.
 
@@ -73,5 +81,5 @@ It's name pattern is `gluten-<backend_type>-bundle-spark<spark.bundle.version>_<
 | 3.3.1         | 3.3                  | 2.12                 |
 | 3.4.4         | 3.4                  | 2.12                 |
 | 3.5.5         | 3.5                  | 2.12                 |
-| 4.0.1         | 4.0                  | 2.13                 |
+| 4.0.2         | 4.0                  | 2.13                 |
 | 4.1.1         | 4.1                  | 2.13                 |

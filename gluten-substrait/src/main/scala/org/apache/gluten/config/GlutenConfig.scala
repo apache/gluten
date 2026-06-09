@@ -327,6 +327,10 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def debug: Boolean = getConf(DEBUG_ENABLED)
 
+  /** Full scan SQL metrics; also enabled when [[debug]] is true. */
+  def detailedScanMetricsEnabled: Boolean =
+    getConf(SCAN_DETAILED_METRICS_ENABLED) || debug
+
   def collectUtStats: Boolean = getConf(UT_STATISTIC)
 
   def benchmarkStageId: Int = getConf(BENCHMARK_TASK_STAGEID)
@@ -433,6 +437,8 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_S3_ENDPOINT_REGION: String = HADOOP_PREFIX + S3_ENDPOINT_REGION
   val S3_AWS_IMDS_ENABLED = "fs.s3a.aws.imds.enabled"
   val SPARK_S3_AWS_IMDS_ENABLED: String = HADOOP_PREFIX + S3_AWS_IMDS_ENABLED
+  val ORC_FORCE_POSITIONAL_EVOLUTION = "orc.force.positional.evolution"
+  val SPARK_ORC_FORCE_POSITIONAL_EVOLUTION = HADOOP_PREFIX + ORC_FORCE_POSITIONAL_EVOLUTION
 
   // ABFS config
   val ABFS_PREFIX = "fs.azure."
@@ -575,6 +581,19 @@ object GlutenConfig extends ConfigRegistry {
           k.startsWith(confPrefixSession)
       }
       .foreach { case (k, v) => nativeConfMap.put(k, v) }
+
+    // When `orc.force.positional.evolution=true`, vanilla Spark maps ORC columns by
+    // position rather than by name (see OrcUtils.requestedColumnIds). The Velox ORC reader
+    // must do the same, otherwise name-based matching against a mismatched file schema
+    // reads columns back as null/empty. Override the (Velox) orcUseColumnNames session conf
+    // so native reads ORC by position too. Harmless for backends that ignore this key.
+    // String literal is used because gluten-substrait cannot depend on backends-velox.
+    if (
+      backendName == "velox" &&
+      conf.getOrElse(SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, "false").toBoolean
+    ) {
+      nativeConfMap.put("spark.gluten.sql.columnar.backend.velox.orcUseColumnNames", "false")
+    }
 
     // Pass the latest tokens to native
     nativeConfMap.put(
@@ -1232,6 +1251,18 @@ object GlutenConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val MEMORY_MANAGER_CAPACITY_RATIO =
+    buildConf("spark.gluten.memory.manager.capacity.ratio")
+      .internal()
+      .doc(
+        "Ratio of spark.gluten.memoryOverhead.size.in.bytes to allocate for Velox global " +
+          "memory manager. The memory manager is used during spill operations.")
+      .doubleConf
+      .checkValue(
+        ratio => ratio > 0.0 && ratio <= 1.0,
+        "Memory manager capacity ratio must be between 0.0 and 1.0")
+      .createWithDefault(0.75)
+
   val TRANSFORM_PLAN_LOG_LEVEL =
     buildConf("spark.gluten.sql.transform.logLevel")
       .internal()
@@ -1287,6 +1318,16 @@ object GlutenConfig extends ConfigRegistry {
       .internal()
       .booleanConf
       .createWithDefault(false)
+
+  val SCAN_DETAILED_METRICS_ENABLED =
+    buildConf("spark.gluten.sql.scan.detailedMetrics.enabled")
+      .doc(
+        "When true (default), Velox backend scan operators register all detailed SQL metrics. " +
+          "When false, only essential scan metrics are registered to reduce driver memory " +
+          "usage. Also enabled automatically when spark.gluten.sql.debug is true. " +
+          "Does not affect the ClickHouse backend.")
+      .booleanConf
+      .createWithDefault(true)
 
   val DEBUG_KEEP_JNI_WORKSPACE =
     buildStaticConf("spark.gluten.sql.debug.keepJniWorkspace")

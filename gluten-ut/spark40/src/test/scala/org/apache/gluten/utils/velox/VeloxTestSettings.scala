@@ -80,6 +80,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("SPARK-48012")
     .excludeByPrefix("SPARK-44647")
     .excludeByPrefix("SPARK-41471")
+    .excludeByPrefix("SPARK-54439")
     // disable due to check for SMJ node
     .excludeByPrefix("SPARK-41413: partitioned join:")
     .excludeByPrefix("SPARK-42038: partially clustered:")
@@ -282,6 +283,10 @@ class VeloxTestSettings extends BackendTestSettings {
       "INCONSISTENT_BEHAVIOR_CROSS_VERSION: compatibility with Spark 2.4/3.2 in reading/writing dates")
     // Doesn't support unhex with failOnError=true.
     .exclude("CONVERSION_INVALID_INPUT: to_binary conversion function hex")
+    // bitmap_construct_agg offloaded to Velox throws GlutenException instead of
+    // SparkArrayIndexOutOfBoundsException.
+    .exclude("INVALID_BITMAP_POSITION: position out of bounds")
+    .exclude("INVALID_BITMAP_POSITION: negative position")
   enableSuite[GlutenQueryParsingErrorsSuite]
   enableSuite[GlutenQueryContextSuite]
   enableSuite[GlutenQueryExecutionAnsiErrorsSuite]

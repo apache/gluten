@@ -401,6 +401,18 @@ object CachedColumnarBatchKryoSerializer {
     require(
       numCols >= 0 && numCols <= Int.MaxValue / 5,
       s"corrupt statsBlob: numCols=$numCols out of valid range")
+    if (schema != null) {
+      // Asymmetric: numCols > schema.length would IOB on schema(col) dispatch in
+      // serializeStats/deserializeStats; that's a real corrupt-frame signal. The
+      // numCols < schema.length direction is intentionally allowed -- the public
+      // API is loose enough that callers (incl. the unit-test fixtures) pass an
+      // EXPANDED 5-field-per-source-col schema where schema.length == numCols * 5.
+      // Only the first numCols entries are ever consumed for type dispatch.
+      require(
+        numCols <= schema.length,
+        s"corrupt statsBlob: numCols=$numCols > schema.length=${schema.length}; " +
+          "likely cpp/JVM wire mismatch or truncated frame")
+    }
     val row = new GenericInternalRow(numCols * 5)
     var col = 0
     while (col < numCols) {

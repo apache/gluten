@@ -109,11 +109,15 @@ abstract class FileSourceScanExecTransformerBase(
     disableBucketedScan)
   with DatasourceScanTransformer {
 
-  // Note: "metrics" is made transient to avoid sending driver-side metrics to tasks.
-  @transient override lazy val metrics: Map[String, SQLMetric] =
+  // Executor-side metrics only (excludes driverMetricsAlias).
+  @transient private lazy val executorSideScanMetrics: Map[String, SQLMetric] =
     BackendsApiManager.getMetricsApiInstance
       .genFileSourceScanTransformerMetrics(sparkContext)
-      .filter(m => !driverMetricsAlias.contains(m._1)) ++ driverMetricsAlias
+      .filter(m => !driverMetricsAlias.contains(m._1))
+
+  // Note: "metrics" is made transient to avoid sending driver-side metrics to tasks.
+  @transient override lazy val metrics: Map[String, SQLMetric] =
+    executorSideScanMetrics ++ driverMetricsAlias
 
   override def scanFilters: Seq[Expression] = dataFilters
 
@@ -177,7 +181,8 @@ abstract class FileSourceScanExecTransformerBase(
   }
 
   override def metricsUpdater(): MetricsUpdater =
-    BackendsApiManager.getMetricsApiInstance.genFileSourceScanTransformerMetricsUpdater(metrics)
+    BackendsApiManager.getMetricsApiInstance
+      .genFileSourceScanTransformerMetricsUpdater(executorSideScanMetrics)
 
   override val nodeName: String = {
     s"${getClass.getSimpleName} $relation ${tableIdentifier.map(_.unquotedString).getOrElse("")}"

@@ -18,7 +18,7 @@ package org.apache.spark.sql.hive
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.execution.BasicScanExecTransformer
-import org.apache.gluten.metrics.MetricsUpdater
+import org.apache.gluten.metrics.{MetricsUpdater, ScanMetricsUtil}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
@@ -116,7 +116,8 @@ case class HiveTableScanExecTransformer(
   override def getRootPathsInternal: Seq[String] = Seq.empty
 
   override def metricsUpdater(): MetricsUpdater =
-    BackendsApiManager.getMetricsApiInstance.genHiveTableScanTransformerMetricsUpdater(metrics)
+    BackendsApiManager.getMetricsApiInstance.genHiveTableScanTransformerMetricsUpdater(
+      ScanMetricsUtil.filterExecutorMetrics(metrics))
 
   @transient private lazy val hivePartitionConverter =
     new HivePartitionConverter(session.sessionState.newHadoopConf(), session)

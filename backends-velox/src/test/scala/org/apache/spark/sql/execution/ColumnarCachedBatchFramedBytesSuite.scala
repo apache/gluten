@@ -409,4 +409,64 @@ class ColumnarCachedBatchFramedBytesSuite extends AnyFunSuite {
     assert(statsBlob(4) === 0.toByte, "supported byte must be 0 (no-bounds branch)")
   }
 
+  // ---------------------------------------------------------------------------
+  // deserializeStats numCols-vs-schema.length invariant (asymmetric).
+  // Only the > direction is a corrupt-frame signal; the < direction is allowed
+  // because callers may pass an EXPANDED 5-field-per-source-col schema (see
+  // ColumnarCachedBatchIntFamilyMarshalSuite for the canonical pattern).
+  // 1 RED test (numCols > schema.length) + 2 sentinels (numCols < and schema=null).
+  // ---------------------------------------------------------------------------
+
+  test("deserializeStats: numCols < schema.length is allowed (loose-schema API)") {
+    // Callers (e.g. IntFamilyMarshalSuite) routinely pass an expanded schema
+    // where schema.length = numCols * 5. The first numCols entries drive type
+    // dispatch; the rest are silently ignored. Sentinel guards against future
+    // tightening that would break the existing test fleet.
+    val schema = StructType(Seq(
+      StructField("a", LongType),
+      StructField("b", LongType),
+      StructField("c", LongType),
+      StructField("d", LongType),
+      StructField("e", LongType)))
+    val baos = new java.io.ByteArrayOutputStream()
+    writeU32LE(baos, 1) // numCols on wire = 1; schema.length = 5; legal.
+    baos.write(0.toByte)
+    for (_ <- 0 until 4) baos.write(0.toByte) // nullCount
+    for (_ <- 0 until 4) baos.write(0.toByte) // count
+    for (_ <- 0 until 8) baos.write(0.toByte) // sizeInBytes
+    val row = CachedColumnarBatchKryoSerializer.deserializeStats(baos.toByteArray, schema)
+    assert(row != null)
+    assert(row.numFields == 5, "1 col * 5 slots = 5; schema.length is NOT the row width")
+  }
+
+  test("deserializeStats: numCols > schema.length is rejected with wire-mismatch IAE") {
+    val schema = StructType(Seq(StructField("a", LongType)))
+    val baos = new java.io.ByteArrayOutputStream()
+    writeU32LE(baos, 2) // numCols on wire = 2; schema.length = 1; IOB-bound.
+    // two fake col headers (1B + 4B + 4B + 8B = 17B each); the new check
+    // fires before they are consumed, so contents are immaterial.
+    for (_ <- 0 until 17 * 2) baos.write(0.toByte)
+    val blob = baos.toByteArray
+    val ex = intercept[IllegalArgumentException] {
+      CachedColumnarBatchKryoSerializer.deserializeStats(blob, schema)
+    }
+    assert(ex.getMessage.contains("numCols=2"), s"got: ${ex.getMessage}")
+    assert(ex.getMessage.contains("schema.length=1"), s"got: ${ex.getMessage}")
+    assert(ex.getMessage.toLowerCase(Locale.ROOT).contains("wire mismatch"))
+  }
+
+  test("deserializeStats: schema=null path unaffected by the new invariant") {
+    // V1-wire backcompat: schema=null, numCols read from wire only.
+    val baos = new java.io.ByteArrayOutputStream()
+    writeU32LE(baos, 1)
+    baos.write(0.toByte) // supported=0
+    for (_ <- 0 until 4) baos.write(0.toByte) // nullCount
+    for (_ <- 0 until 4) baos.write(0.toByte) // count
+    for (_ <- 0 until 8) baos.write(0.toByte) // sizeInBytes
+    val blob = baos.toByteArray
+    val row = CachedColumnarBatchKryoSerializer.deserializeStats(blob, null)
+    assert(row != null)
+    assert(row.numFields == 5)
+  }
+
 }
