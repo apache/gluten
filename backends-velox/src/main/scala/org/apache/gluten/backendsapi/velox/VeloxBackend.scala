@@ -491,10 +491,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
     (conf.isUseGlutenShuffleManager || conf.shuffleManagerSupportsColumnarShuffle)
   }
 
-  override def enableHashTableBuildOncePerExecutor(): Boolean = {
-    VeloxConfig.get.enableBroadcastBuildOncePerExecutor
-  }
-
   override def supportHashBuildJoinTypeOnLeft: JoinType => Boolean = {
     t =>
       if (super.supportHashBuildJoinTypeOnLeft(t)) {
