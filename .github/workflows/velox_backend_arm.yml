@@ -68,8 +68,6 @@ jobs:
           df -a
           bash dev/ci-velox-buildstatic-centos-9.sh
           ccache -s
-          mkdir -p $GITHUB_WORKSPACE/.m2/repository/org/apache/arrow/
-          cp -r /root/.m2/repository/org/apache/arrow/* $GITHUB_WORKSPACE/.m2/repository/org/apache/arrow/
       - name: "Save ccache"
         uses: actions/cache/save@v4
         id: ccache
@@ -80,11 +78,6 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arrow-jars-centos-8-${{github.sha}}
-          path: .m2/repository/org/apache/arrow/
           if-no-files-found: error
 
   tpc-test-centos8:
@@ -104,11 +97,6 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-8-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Update mirror list
         run: |
           sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
