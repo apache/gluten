@@ -94,7 +94,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def cudfShuffleMaxPrefetchBytes: Long = getConf(CUDF_SHUFFLE_MAX_PREFETCH_BYTES)
 
-  def orcUseColumnNames: Boolean = getConf(ORC_USE_COLUMN_NAMES)
+  def orcUseColumnNames: Boolean = getConf(ORC_USE_COLUMN_NAMES) &&
+    !conf.getConfString(GlutenConfig.SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, "false").toBoolean
 
   def parquetUseColumnNames: Boolean = getConf(PARQUET_USE_COLUMN_NAMES)
 

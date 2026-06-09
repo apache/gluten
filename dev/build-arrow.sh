@@ -31,7 +31,6 @@ function prepare_arrow_build() {
   #wget_and_untar https://archive.apache.org/dist/arrow/arrow-${VELOX_ARROW_BUILD_VERSION}/apache-arrow-${VELOX_ARROW_BUILD_VERSION}.tar.gz arrow_ep
   cd arrow_ep
   patch -p1 < $CURRENT_DIR/../ep/build-velox/src/modify_arrow.patch
-  patch -p1 < $CURRENT_DIR/../ep/build-velox/src/modify_arrow_dataset_scan_option.patch
   patch -p1 < $CURRENT_DIR/../ep/build-velox/src/cmake-compatibility.patch
   patch -p1 < $CURRENT_DIR/../ep/build-velox/src/support_ibm_power.patch
   popd

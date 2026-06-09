@@ -150,7 +150,6 @@ jobs:
       - name: Build Gluten native libraries
         run: |
           df -a
-          sed -i "s|gflags_static|gflags_shared|g" /usr/local/lib/cmake/folly/folly-targets.cmake # TODO: remove after upgrading folly to 2024.09.30 or later which has fixed the gflags linkage issue
           bash dev/ci-velox-buildshared-centos-9.sh
           ccache -s
       - name: Run CPP unit test

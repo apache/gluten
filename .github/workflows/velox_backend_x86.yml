@@ -1181,7 +1181,6 @@ jobs:
       - name: Build Gluten native libraries
         run: |
           df -a
-          sed -i "s|gflags_static|gflags_shared|g" /usr/local/lib/cmake/folly/folly-targets.cmake # TODO remove after image update
           bash dev/ci-velox-buildshared-centos-9.sh
           ccache -s
       - name: Run CPP unit test

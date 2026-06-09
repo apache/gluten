@@ -164,20 +164,55 @@ object DeltaPostTransformRules {
   }
 
   /**
-   * This method is only used for Delta ColumnMapping FileFormat(e.g. nameMapping and idMapping)
-   * transform the metadata of Delta into Parquet's, each plan should only be transformed once.
+   * Used for Delta ColumnMapping FileFormat (nameMapping and idMapping). Each plan is transformed
+   * at most once; the first run is tagged so re-runs are no-ops.
+   *
+   * Background: with column mapping, Delta files are written with PHYSICAL column names while
+   * Delta's metadata (partition schema, column stats) keeps LOGICAL names. Vanilla Spark + Delta
+   * resolves this asymmetry inside `DeltaParquetFileFormat.buildReaderWithPartitionValues`:
+   * everything on the scan node stays logical, and physical translation happens just-in-time when
+   * handing data and filters to the parquet reader. Gluten bypasses that hook (it goes to native
+   * via Substrait), so the translation has to live somewhere on our side.
+   *
+   * What this rule produces -- the parts that diverge from vanilla Spark are commented at each
+   * site. The split-by-consumer is asymmetric on purpose:
+   *
+   *   - `output`, `dataSchema`, and the data fields of `requiredSchema` ==> PHYSICAL. These flow
+   *     into the substrait `NamedStruct` that Velox uses to look up columns in the parquet file.
+   *     The parquet column name is the physical name, so Velox needs the physical name on the
+   *     schema side. A `ProjectExecTransformer` is added below to alias these back to logical names
+   *     for downstream Spark operators.
+   *   - `partitionSchema`, `partitionFilters`, `dataFilters`, partition fields of `requiredSchema`
+   *     ==> LOGICAL. These are consumed by Delta's `PreparedDeltaFileIndex.matchingFiles` and
+   *     `Snapshot.filesForScan`, which resolve filters and partition values against
+   *     `metadata.partitionSchema` and the column-stats schema -- both LOGICAL. Rewriting any of
+   *     these to physical names was the cause of issue #10511 (partition pruning silently no-op'd)
+   *     and would also disable file-level stats skipping.
+   *   - `DeltaScanTransformer.scanFilters` (override) ==> PHYSICAL, translated from `dataFilters`
+   *     by exprId match against `output`. Substrait binds filters by exprId rather than name, so it
+   *     would be tempting to pass logical-named filters straight through; but
+   *     `BasicScanExecTransformer.filterExprs()` does a name-and-exprId equality check
+   *     (`scanFilters.partition(pushDownFilters.contains(_))`) against the physical-named
+   *     `pushDownFilters` from the upstream `Filter`. The override ensures both sides match.
+   *
+   * Future cleanup (out of scope for this fix): the cleaner shape is to mirror vanilla Spark
+   * exactly -- keep EVERYTHING on the scan node logical, and do physical translation only at
+   * substrait emission time (e.g. inside the `NamedStruct`/`ReadRel` build in
+   * `BasicScanExecTransformer.doTransform`). That removes the alias-back project below and the
+   * `scanFilters` override, but it requires plumbing Delta-specific physical-name lookup into the
+   * substrait emitter and is a multi-module refactor.
    */
   private def transformColumnMappingPlan(plan: SparkPlan): SparkPlan = plan match {
     case plan: DeltaScanTransformer =>
       val fmt = plan.relation.fileFormat.asInstanceOf[DeltaParquetFileFormat]
 
-      // transform HadoopFsRelation
       val relation = plan.relation
+      val partitionColNames = relation.partitionSchema.fields.iterator.map(_.name).toSet
+      def isPartitionCol(name: String): Boolean = partitionColNames.contains(name)
+
+      // transform HadoopFsRelation: only `dataSchema` needs physical names (those are the
+      // columns actually stored in parquet). `partitionSchema` stays logical.
       val newFsRelation = relation.copy(
-        partitionSchema = DeltaColumnMapping.createPhysicalSchema(
-          relation.partitionSchema,
-          fmt.referenceSchema,
-          fmt.columnMappingMode),
         dataSchema = DeltaColumnMapping.createPhysicalSchema(
           relation.dataSchema,
           fmt.referenceSchema,
@@ -193,6 +228,8 @@ object DeltaPostTransformRules {
           attr
         } else if (isInputFileRelatedAttribute(attr)) {
           attr
+        } else if (isPartitionCol(attr.name)) {
+          attr
         } else {
           DeltaColumnMapping
             .createPhysicalAttributes(Seq(attr), fmt.referenceSchema, fmt.columnMappingMode)
@@ -204,31 +241,28 @@ object DeltaPostTransformRules {
         newAttr
       }
       val newOutput = plan.output.map(o => mapAttribute(o))
-      // transform dataFilters
-      val newDataFilters = plan.dataFilters.map {
-        e =>
-          e.transformDown {
-            case attr: AttributeReference =>
-              mapAttribute(attr)
-          }
-      }
-      // transform partitionFilters
-      val newPartitionFilters = plan.partitionFilters.map {
-        e =>
-          e.transformDown {
-            case attr: AttributeReference =>
-              mapAttribute(attr)
-          }
-      }
-      // replace tableName in schema with physicalName
+      // dataFilters / partitionFilters: kept LOGICAL on the scan node so Delta's file index
+      // (partition pruning + stats-based file skipping) resolves columns correctly. The native
+      // (Velox) side gets physical-translated copies via `DeltaScanTransformer.scanFilters`.
+      val newDataFilters = plan.dataFilters
+      val newPartitionFilters = plan.partitionFilters
+
+      // requiredSchema: rewrite data fields to physical, keep partition fields logical.
+      val physicalRequiredSchema = DeltaColumnMapping.createPhysicalSchema(
+        plan.requiredSchema,
+        fmt.referenceSchema,
+        fmt.columnMappingMode)
+      val newRequiredSchema = StructType(
+        physicalRequiredSchema.fields.zip(plan.requiredSchema.fields).map {
+          case (_, logical) if isPartitionCol(logical.name) => logical
+          case (physical, _) => physical
+        })
+
       val scanExecTransformer = new DeltaScanTransformer(
         newFsRelation,
         plan.stream,
         newOutput,
-        DeltaColumnMapping.createPhysicalSchema(
-          plan.requiredSchema,
-          fmt.referenceSchema,
-          fmt.columnMappingMode),
+        newRequiredSchema,
         newPartitionFilters,
         plan.optionalBucketSet,
         plan.optionalNumCoalescedBuckets,

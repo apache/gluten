@@ -69,7 +69,7 @@
     <spark.major.version>3</spark.major.version>
     <sparkbundle.version>3.5</sparkbundle.version>
     <spark.plain.version>35</spark.plain.version>
-    <spark.version>3.5.5</spark.version>
+    <spark.version>4.0.2</spark.version>
     <sparkshim.artifactId>spark-sql-columnar-shims-spark35</sparkshim.artifactId>
     <iceberg.version>1.10.0</iceberg.version>
     <iceberg.binary.version>10</iceberg.binary.version>
