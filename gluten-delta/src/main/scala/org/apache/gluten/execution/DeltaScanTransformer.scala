@@ -84,18 +84,6 @@ case class DeltaScanTransformer(
     case _ => dataFilters
   }
 
-  override protected def doValidateInternal(): ValidationResult = {
-    if (
-      requiredSchema.fields.exists(
-        _.name == "__delta_internal_is_row_deleted") || requiredSchema.fields.exists(
-        _.name == "__delta_internal_row_index")
-    ) {
-      return ValidationResult.failed(s"Deletion vector is not supported in native.")
-    }
-
-    super.doValidateInternal()
-  }
-
   override def doCanonicalize(): DeltaScanTransformer = {
     DeltaScanTransformer(
       relation,
