@@ -1077,6 +1077,50 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("input_file_name() with BHJ build-side LocalRelation must return real path") {
+    withTempPath {
+      path =>
+        Seq(("event_a", 1001L, "param1"))
+          .toDF("event", "device_id", "params")
+          .write
+          .parquet(path.getCanonicalPath)
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("event_log")
+
+        withSQLConf(
+          "spark.sql.autoBroadcastJoinThreshold" -> "10MB",
+          "spark.sql.adaptive.enabled" -> "true"
+        ) {
+          val sql =
+            """
+              |SELECT  a.event,
+              |        a.params,
+              |        a.device_id,
+              |        input_file_name() AS fname
+              |FROM    event_log a
+              |JOIN
+              |        (
+              |            SELECT  'event_a' AS envent,
+              |                    1001 AS device_id
+              |        ) b
+              |ON      a.event     = b.envent
+              |AND     a.device_id = b.device_id
+              |""".stripMargin
+
+          compareResultsAgainstVanillaSpark(sql, true, { _ => })
+
+          val df = spark.sql(sql)
+          val rows = df.collect()
+          assert(rows.nonEmpty, "Join should match at least one row")
+          rows.foreach {
+            r =>
+              val fname = r.getAs[String]("fname")
+              assert(fname != null && fname.nonEmpty)
+              assert(fname.contains(path.getName))
+          }
+        }
+    }
+  }
+
   testWithMinSparkVersion("array insert", "3.4") {
     withTempPath {
       path =>
