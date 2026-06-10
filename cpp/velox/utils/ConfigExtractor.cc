@@ -307,6 +307,8 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorConfig(
   // read as UTC
   hiveConfMap[facebook::velox::connector::hive::HiveConfig::kReadTimestampPartitionValueAsLocalTime] = "false";
 
+  hiveConfMap[facebook::velox::connector::hive::HiveConfig::kParquetNullStructForMissingFields] = "true";
+
   overwriteVeloxConf(conf.get(), hiveConfMap, kStaticBackendConfPrefix);
   return std::make_shared<facebook::velox::config::ConfigBase>(std::move(hiveConfMap));
 }
