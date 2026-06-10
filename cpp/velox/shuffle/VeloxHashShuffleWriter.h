@@ -279,7 +279,8 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
       : VeloxShuffleWriter(numPartitions, partitionWriter, options, memoryManager),
         splitBufferSize_(options->splitBufferSize),
         splitBufferReallocThreshold_(options->splitBufferReallocThreshold),
-        partitionBufferEvictThreshold_(options->partitionBufferEvictThreshold) {
+        partitionBufferEvictThreshold_(options->partitionBufferEvictThreshold),
+        rowBasedChecksumEnabled_(options->rowBasedChecksumEnabled) {
     arenas_.resize(numPartitions);
   }
 
@@ -516,6 +517,14 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
 
   // See inputEncodingSkippedBatches() above.
   int64_t inputEncodingSkippedBatches_{0};
+
+  // Row-based checksum state (per-partition XOR + SUM aggregation).
+  bool rowBasedChecksumEnabled_{false};
+  std::vector<int64_t> checksumXor_;
+  std::vector<int64_t> checksumSum_;
+  std::vector<char> checksumBuffer_;
+
+  void computeRowBasedChecksums(const facebook::velox::RowVector& rv);
 }; // class VeloxHashBasedShuffleWriter
 
 } // namespace gluten

@@ -17,7 +17,6 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.substrait.{JoinParams, SubstraitContext}
 import org.apache.gluten.utils.SubstraitUtil
@@ -167,11 +166,6 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
   }
 
   override protected def doValidateInternal(): ValidationResult = {
-    if (!GlutenConfig.get.broadcastNestedLoopJoinTransformerTransformerEnabled) {
-      return ValidationResult.failed(
-        s"Config ${GlutenConfig.BROADCAST_NESTED_LOOP_JOIN_TRANSFORMER_ENABLED.key} not enabled")
-    }
-
     if (substraitJoinType == CrossRel.JoinType.UNRECOGNIZED) {
       return ValidationResult.failed(
         s"$joinType join is not supported with BroadcastNestedLoopJoin")

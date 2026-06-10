@@ -69,7 +69,7 @@
     <spark.major.version>3</spark.major.version>
     <sparkbundle.version>3.5</sparkbundle.version>
     <spark.plain.version>35</spark.plain.version>
-    <spark.version>3.5.5</spark.version>
+    <spark.version>4.0.2</spark.version>
     <sparkshim.artifactId>spark-sql-columnar-shims-spark35</sparkshim.artifactId>
     <iceberg.version>1.10.0</iceberg.version>
     <iceberg.binary.version>10</iceberg.binary.version>
@@ -81,7 +81,6 @@
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
     <arrow.version>15.0.0</arrow.version>
-    <arrow-gluten.version>15.0.0-gluten</arrow-gluten.version>
     <arrow-memory.artifact>arrow-memory-unsafe</arrow-memory.artifact>
     <hadoop.version>2.7.4</hadoop.version>
     <antlr4.version>4.9.3</antlr4.version>
@@ -99,7 +98,7 @@
     <scala.recompile.mode>all</scala.recompile.mode>
     <scala.release.version>${java.version}</scala.release.version>
     <!-- For unit tests -->
-    <fasterxml.version>2.15.0</fasterxml.version>
+    <fasterxml.version>2.18.6</fasterxml.version>
     <junit.version>4.13.1</junit.version>
     <!-- Maven version for build/mvn wrapper script -->
     <maven.version>3.9.16</maven.version>
@@ -1184,6 +1183,7 @@
         <delta.package.name>delta-core</delta.package.name>
         <delta.version>2.3.0</delta.version>
         <delta.binary.version>23</delta.binary.version>
+        <fasterxml.version>2.15.0</fasterxml.version>
         <antlr4.version>4.8</antlr4.version>
         <hadoop.version>3.3.2</hadoop.version>
         <hudi.version>0.15.0</hudi.version>
@@ -1210,6 +1210,7 @@
         <delta.package.name>delta-core</delta.package.name>
         <delta.version>2.4.0</delta.version>
         <delta.binary.version>24</delta.binary.version>
+        <fasterxml.version>2.15.0</fasterxml.version>
         <antlr4.version>4.9.3</antlr4.version>
         <hadoop.version>3.3.4</hadoop.version>
         <hudi.version>0.15.0</hudi.version>
@@ -1269,7 +1270,7 @@
       <properties>
         <sparkbundle.version>4.0</sparkbundle.version>
         <sparkshim.artifactId>spark-sql-columnar-shims-spark40</sparkshim.artifactId>
-        <spark.version>4.0.1</spark.version>
+        <spark.version>4.0.2</spark.version>
         <iceberg.version>1.10.0</iceberg.version>
         <delta.package.name>delta-spark</delta.package.name>
         <delta.version>4.0.1</delta.version>
@@ -1285,7 +1286,6 @@
         <log4j.version>2.24.3</log4j.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <arrow.version>18.1.0</arrow.version>
-        <arrow-gluten.version>18.1.0</arrow-gluten.version>
         <scala.compiler.version>4.9.2</scala.compiler.version>
       </properties>
       <dependencies>
@@ -1365,7 +1365,6 @@
         <log4j.version>2.24.3</log4j.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <arrow.version>18.1.0</arrow.version>
-        <arrow-gluten.version>18.1.0</arrow-gluten.version>
         <scala.compiler.version>4.9.5</scala.compiler.version>
       </properties>
       <dependencies>
