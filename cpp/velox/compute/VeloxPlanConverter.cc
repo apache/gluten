@@ -79,6 +79,13 @@ std::optional<std::string> unpackMetadataValue(const google::protobuf::Any& valu
     return std::to_string(doubleValue.value());
   }
 
+  // Matches the string encoding the JVM side uses for booleans, which are packed through
+  // SubstraitUtil.convertJavaObjectToAny's toString fallback rather than as BoolValue.
+  google::protobuf::BoolValue boolValue;
+  if (value.UnpackTo(&boolValue)) {
+    return boolValue.value() ? "true" : "false";
+  }
+
   return std::nullopt;
 }
 

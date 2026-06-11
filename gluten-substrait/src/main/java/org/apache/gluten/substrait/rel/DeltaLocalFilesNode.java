@@ -54,6 +54,13 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
         preferredLocations,
         properties,
         otherMetadataColumns);
+    if (deltaReadOptions == null || deltaReadOptions.size() != paths.size()) {
+      throw new IllegalArgumentException(
+          String.format(
+              "deltaReadOptions must contain one entry per file path, expected %d but got %s",
+              paths.size(),
+              deltaReadOptions == null ? "null" : String.valueOf(deltaReadOptions.size())));
+    }
     this.deltaReadOptions.addAll(deltaReadOptions);
   }
 
