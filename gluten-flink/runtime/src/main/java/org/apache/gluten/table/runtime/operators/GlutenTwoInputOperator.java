@@ -292,7 +292,6 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
     sessionResource = new GlutenSessionResource();
     GlutenSessionResources.getInstance().addSessionResource(getId(), sessionResource);
-    GlutenSessionResources.getInstance().addOperator(getId(), this);
     leftInputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
     rightInputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
 

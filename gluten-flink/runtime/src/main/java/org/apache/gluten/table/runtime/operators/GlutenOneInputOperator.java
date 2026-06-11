@@ -120,7 +120,6 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
     }
     sessionResource = new GlutenSessionResource();
     GlutenSessionResources.getInstance().addSessionResource(id, sessionResource);
-    GlutenSessionResources.getInstance().addOperator(this.getClass().getSimpleName(), this);
     inputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
     // add a mock input as velox not allow the source is empty.
     if (inputType == null) {
