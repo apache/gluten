@@ -31,6 +31,7 @@ import io.github.zhztheplayer.velox4j.plan.TableScanNode;
 import io.github.zhztheplayer.velox4j.query.Query;
 import io.github.zhztheplayer.velox4j.query.SerialTask;
 import io.github.zhztheplayer.velox4j.serde.Serde;
+import io.github.zhztheplayer.velox4j.stateful.NativeCallbackTarget;
 import io.github.zhztheplayer.velox4j.stateful.StatefulElement;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
@@ -49,7 +50,7 @@ import java.util.Map;
 
 /** Calculate operator in gluten, which will call Velox to run. */
 public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
-    implements OneInputStreamOperator<IN, OUT>, GlutenOperator {
+    implements OneInputStreamOperator<IN, OUT>, GlutenOperator, NativeCallbackTarget {
 
   private final StatefulPlanNode glutenPlan;
   private final String id;
@@ -143,6 +144,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
             VeloxQueryConfig.getConfig(getRuntimeContext()),
             VeloxConnectorConfig.getConfig(getRuntimeContext()));
     task = sessionResource.getSession().queryOps().execute(query);
+    task.bindNativeCallbackTarget(this);
     task.addSplit(
         id, new ExternalStreamConnectorSplit("connector-external-stream", inputQueue.id()));
     task.noMoreSplits(id);
@@ -184,6 +186,11 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   @Override
   public void scheduleProcessElementOnMailbox() {
     scheduleDrainOnMailbox(this::drainTaskOutput);
+  }
+
+  @Override
+  public void onProcessElement() {
+    scheduleProcessElementOnMailbox();
   }
 
   @Override

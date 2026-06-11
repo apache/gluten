@@ -28,6 +28,7 @@ import io.github.zhztheplayer.velox4j.iterator.UpIterator;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.query.Query;
 import io.github.zhztheplayer.velox4j.query.SerialTask;
+import io.github.zhztheplayer.velox4j.stateful.NativeCallbackTarget;
 import io.github.zhztheplayer.velox4j.stateful.StatefulElement;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
@@ -50,7 +51,7 @@ import java.util.Map;
  * instead of flink RowData.
  */
 public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
-    implements TwoInputStreamOperator<IN, IN, OUT>, GlutenOperator {
+    implements TwoInputStreamOperator<IN, IN, OUT>, GlutenOperator, NativeCallbackTarget {
 
   private static final Logger LOG = LoggerFactory.getLogger(GlutenTwoInputOperator.class);
 
@@ -137,6 +138,11 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   @Override
   public void scheduleProcessElementOnMailbox() {
     scheduleDrainOnMailbox(this::drainTaskOutput);
+  }
+
+  @Override
+  public void onProcessElement() {
+    scheduleProcessElementOnMailbox();
   }
 
   @Override
@@ -296,6 +302,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
             VeloxQueryConfig.getConfig(getRuntimeContext()),
             VeloxConnectorConfig.getConfig(getRuntimeContext()));
     task = sessionResource.getSession().queryOps().execute(query);
+    task.bindNativeCallbackTarget(this);
 
     ExternalStreamConnectorSplit leftSplit =
         new ExternalStreamConnectorSplit("connector-external-stream", leftInputQueue.id());
