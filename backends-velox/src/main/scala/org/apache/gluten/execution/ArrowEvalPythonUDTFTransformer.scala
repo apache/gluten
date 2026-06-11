@@ -16,19 +16,14 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.columnarbatch.ColumnarBatches
-import org.apache.gluten.extension.columnar.transition.Convention
-import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
-
 import org.apache.spark.{JobArtifactSet, TaskContext}
-import org.apache.spark.api.python.PythonEvalType
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.errors.QueryExecutionErrors
-import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.{SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.execution.metric.SQLMetrics
-import org.apache.spark.sql.execution.python.{ArrowPythonRunner, ArrowPythonUDTFRunner, BatchIterator, EvalPythonExec, PythonUDTF}
+import org.apache.spark.sql.execution.python.{ArrowPythonRunner, ArrowPythonUDTFRunner, BatchIterator, PythonUDTF}
 import org.apache.spark.sql.execution.python.EvalPythonExec.ArgumentMetadata
 import org.apache.spark.sql.types.{DataType, StructField, StructType, UserDefinedType}
 import org.apache.spark.sql.types.DataType.equalsIgnoreCompatibleCollation
@@ -38,9 +33,9 @@ import scala.collection.mutable.ArrayBuffer
 import scala.jdk.CollectionConverters._
 
 /**
- * A physical plan that evaluates a [[PythonUDTF]] using Apache Arrow in Gluten. This transformer
- * takes columnar input, converts it to Arrow format, executes the Python UDTF, and returns columnar
- * output.
+ * A physical plan that evaluates a [[PythonUDTF]] using Apache Arrow in Gluten. This implementation
+ * takes row-based input, converts it to Arrow format, executes the Python UDTF, and returns
+ * columnar output.
  *
  * @param udtf
  *   the user-defined Python function
@@ -59,17 +54,11 @@ case class ArrowEvalPythonUDTFTransformer(
     resultAttrs: Seq[Attribute],
     child: SparkPlan,
     evalType: Int)
-  extends GlutenPlan {
+  extends UnaryExecNode {
 
   override def output: Seq[Attribute] = requiredChildOutput ++ resultAttrs
 
   override def producedAttributes: AttributeSet = AttributeSet(resultAttrs)
-
-  override def children: Seq[SparkPlan] = Seq(child)
-
-  override def batchType(): Convention.BatchType = Convention.BatchType.VanillaBatch
-
-  override def rowType(): Convention.RowType = Convention.RowType.None
 
   private val batchSize = conf.arrowMaxRecordsPerBatch
   private val sessionLocalTimeZone = conf.sessionLocalTimeZone
@@ -85,8 +74,47 @@ case class ArrowEvalPythonUDTFTransformer(
 
   override lazy val metrics = Map(
     "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
+    "numOutputBatches" -> SQLMetrics.createMetric(sparkContext, "number of output batches"),
     "numInputRows" -> SQLMetrics.createMetric(sparkContext, "number of input rows")
   )
+
+  override def supportsColumnar: Boolean = true
+
+  protected def evaluate(
+      argMetas: Array[ArgumentMetadata],
+      iter: Iterator[InternalRow],
+      schema: StructType,
+      context: TaskContext): Iterator[Iterator[ColumnarBatch]] = {
+
+    val batchIter = if (batchSize > 0) new BatchIterator(iter, batchSize) else Iterator(iter)
+
+    val outputTypes = resultAttrs.map(_.dataType.transformRecursively {
+      case udt: UserDefinedType[_] => udt.sqlType
+    })
+
+    val columnarBatchIter = new ArrowPythonUDTFRunner(
+      udtf,
+      evalType,
+      argMetas,
+      schema,
+      sessionLocalTimeZone,
+      largeVarTypes,
+      pythonRunnerConf,
+      Map.empty, // Python metrics
+      jobArtifactUUID,
+      sessionUUID
+    ).compute(batchIter, context.partitionId(), context)
+
+    columnarBatchIter.map {
+      batch =>
+        val numOutputRows = metrics("numOutputRows")
+        numOutputRows += batch.numRows()
+
+        // UDTF returns a StructType column in ColumnarBatch
+        // Return the batch as-is wrapped in an iterator
+        Iterator.single(batch)
+    }
+  }
 
   override protected def doExecute(): RDD[InternalRow] = {
     throw new UnsupportedOperationException(
@@ -94,7 +122,9 @@ case class ArrowEvalPythonUDTFTransformer(
   }
 
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = {
-    val inputRDD = child.executeColumnar()
+    val inputRDD = child.execute().map(_.copy())
+    val numOutputBatches = metrics("numOutputBatches")
+    val numInputRows = metrics("numInputRows")
 
     inputRDD.mapPartitions {
       iter =>
@@ -103,111 +133,55 @@ case class ArrowEvalPythonUDTFTransformer(
         // Flatten all the arguments
         val allInputs = new ArrayBuffer[Expression]
         val dataTypes = new ArrayBuffer[DataType]
-        val argMetas = udtf.children.zip(
-          udtf.tableArguments.getOrElse(Seq.fill(udtf.children.length)(false))
-        ).map {
-          case (e: Expression, isTableArg: Boolean) =>
-            val (key, value) = e match {
-              case NamedArgumentExpression(key, value) =>
-                (Some(key), value)
-              case _ =>
-                (None, e)
-            }
-            if (allInputs.exists(_.semanticEquals(value))) {
-              ArgumentMetadata(allInputs.indexWhere(_.semanticEquals(value)), key, isTableArg)
-            } else {
-              allInputs += value
-              dataTypes += value.dataType
-              ArgumentMetadata(allInputs.length - 1, key, isTableArg)
-            }
-        }.toArray
+        val argMetas = udtf.children
+          .zip(
+            udtf.tableArguments.getOrElse(Seq.fill(udtf.children.length)(false))
+          )
+          .map {
+            case (e: Expression, isTableArg: Boolean) =>
+              val (key, value) = e match {
+                case NamedArgumentExpression(key, value) =>
+                  (Some(key), value)
+                case _ =>
+                  (None, e)
+              }
+              if (allInputs.exists(_.semanticEquals(value))) {
+                ArgumentMetadata(allInputs.indexWhere(_.semanticEquals(value)), key, isTableArg)
+              } else {
+                allInputs += value
+                dataTypes += value.dataType
+                ArgumentMetadata(allInputs.length - 1, key, isTableArg)
+              }
+          }
+          .toArray
 
+        val projection = MutableProjection.create(allInputs.toSeq, child.output)
+        projection.initialize(context.partitionId())
         val schema = StructType(dataTypes.zipWithIndex.map {
           case (dt, i) =>
             StructField(s"_$i", dt)
         }.toArray)
 
-        val outputTypes = resultAttrs.map(_.dataType.transformRecursively {
-          case udt: UserDefinedType[_] => udt.sqlType
-        })
-
-        // Convert columnar batches to Arrow batches for Python processing
-        val arrowBatchIter = iter.flatMap {
-          batch =>
-            val numInputRows = metrics("numInputRows")
-            numInputRows += batch.numRows()
-
-            // Convert ColumnarBatch to Arrow format
-            convertToArrowBatch(batch, allInputs, child.output, context)
+        // Project input rows and count them
+        val projectedRowIter = iter.map {
+          inputRow =>
+            numInputRows += 1
+            projection(inputRow)
         }
 
-        // Create batched iterator if batch size is configured
-        val batchedIter = if (batchSize > 0) {
-          new BatchIterator(arrowBatchIter, batchSize)
-        } else {
-          Iterator(arrowBatchIter)
-        }
+        // Evaluate and get columnar batch iterator
+        val outputBatchIterator = evaluate(argMetas, projectedRowIter, schema, context)
 
-        // Execute Python UDTF using ArrowPythonUDTFRunner
-        val columnarBatchIter = new ArrowPythonUDTFRunner(
-          udtf,
-          evalType,
-          argMetas,
-          schema,
-          sessionLocalTimeZone,
-          largeVarTypes,
-          pythonRunnerConf,
-          Map.empty, // Python metrics - can be enhanced later
-          jobArtifactUUID,
-          sessionUUID
-        ).compute(batchedIter, context.partitionId(), context)
-
-        // Process output batches
-        columnarBatchIter.map {
-          batch =>
-            val numOutputRows = metrics("numOutputRows")
-            numOutputRows += batch.numRows()
-
-            // UDTF returns a StructType column in ColumnarBatch. Flatten it.
-            val columnVector = batch.column(0).asInstanceOf[ArrowColumnVector]
-            val outputVectors = resultAttrs.indices.map(columnVector.getChild)
-            val flattenedBatch = new ColumnarBatch(outputVectors.toArray)
-
-            val actualDataTypes =
-              (0 until flattenedBatch.numCols()).map(i => flattenedBatch.column(i).dataType())
-            if (!equalsIgnoreCompatibleCollation(outputTypes, actualDataTypes)) {
-              throw QueryExecutionErrors.arrowDataTypeMismatchError(
-                "Python UDTF",
-                outputTypes,
-                actualDataTypes)
+        // Flatten the nested iterator and count batches
+        outputBatchIterator.flatMap {
+          batchIter =>
+            batchIter.map {
+              batch =>
+                numOutputBatches += 1
+                batch
             }
-
-            flattenedBatch.setNumRows(batch.numRows())
-            flattenedBatch
         }
     }
-  }
-
-  /**
-   * Convert a ColumnarBatch to Arrow format for Python processing. This method extracts the
-   * required columns based on the projection and converts them to InternalRow format that can be
-   * consumed by ArrowPythonRunner.
-   */
-  private def convertToArrowBatch(
-      batch: ColumnarBatch,
-      projectionExprs: Seq[Expression],
-      childOutput: Seq[Attribute],
-      context: TaskContext): Iterator[InternalRow] = {
-
-    val allocator = ArrowBufferAllocators.contextInstance()
-
-    // Create projection to extract required columns
-    val projection = UnsafeProjection.create(projectionExprs, childOutput)
-    projection.initialize(context.partitionId())
-
-    // Convert columnar batch to row iterator and apply projection
-    val rowIter = batch.rowIterator().asScala
-    rowIter.map(row => projection(row))
   }
 
   override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =

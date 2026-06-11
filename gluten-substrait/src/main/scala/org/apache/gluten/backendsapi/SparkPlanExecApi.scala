@@ -41,7 +41,7 @@ import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.metric.SQLMetric
-import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
+import org.apache.spark.sql.execution.python.{ArrowEvalPythonExec, PythonUDTF}
 import org.apache.spark.sql.execution.window._
 import org.apache.spark.sql.hive.HiveUDFTransformer
 import org.apache.spark.sql.types.{DecimalType, StructType}
@@ -456,6 +456,14 @@ trait SparkPlanExecApi {
   /** Create ColumnarArrowEvalPythonExec, for velox backend */
   def createColumnarArrowEvalPythonExec(
       udfs: Seq[PythonUDF],
+      resultAttrs: Seq[Attribute],
+      child: SparkPlan,
+      evalType: Int): SparkPlan
+
+  /** Create ArrowEvalPythonUDTFTransformer for Python UDTF execution */
+  def createArrowEvalPythonUDTFTransformer(
+      udtf: PythonUDTF,
+      requiredChildOutput: Seq[Attribute],
       resultAttrs: Seq[Attribute],
       child: SparkPlan,
       evalType: Int): SparkPlan

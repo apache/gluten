@@ -52,7 +52,7 @@ import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.{BuildSideRelation, HashedRelationBroadcastMode, SparkHashJoinUtils}
 import org.apache.spark.sql.execution.metric.SQLMetric
-import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
+import org.apache.spark.sql.execution.python.{ArrowEvalPythonExec, PythonUDTF}
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.sql.execution.utils.ExecUtil
 import org.apache.spark.sql.expression.{UDFExpression, UDFResolver, UserDefinedAggregateFunction}
@@ -670,6 +670,15 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       child: SparkPlan,
       evalType: Int): SparkPlan = {
     ColumnarArrowEvalPythonExec(udfs, resultAttrs, child, evalType)
+  }
+
+  override def createArrowEvalPythonUDTFTransformer(
+      udtf: PythonUDTF,
+      requiredChildOutput: Seq[Attribute],
+      resultAttrs: Seq[Attribute],
+      child: SparkPlan,
+      evalType: Int): SparkPlan = {
+    ArrowEvalPythonUDTFTransformer(udtf, requiredChildOutput, resultAttrs, child, evalType)
   }
 
   /**
