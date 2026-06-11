@@ -1,0 +1,388 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Runs Delta Lake's `spark` sbt module unit tests against a Gluten Velox bundle
+# that is built from the source in this repository. The pipeline:
+#
+#   1. Builds the Velox/Gluten native libraries (centos-7 + vcpkg, x86_64).
+#   2. Builds the Gluten Java/Scala jars and assembles the
+#      `gluten-velox-bundle-spark<spark>_<scala>-linux_amd64-<version>.jar`
+#      fat jar for Spark 4.1 + Scala 2.13 + Java 17 with the Delta profile.
+#   3. Clones delta-io/delta at the requested release tag (default `v4.2.0`),
+#      drops the bundle jar into `spark-unified/lib/` only (NOT `spark/lib/`
+#      -- see setup-delta.sh for the unmanagedJars scoping rationale),
+#      patches Delta's `DeltaSQLCommandTest` to register the Gluten plugin,
+#      and runs `sbt spark/test` sharded across the matrix.
+#
+# Limited to Velox + x86 to keep the matrix simple, per the pipeline's purpose
+# of validating Gluten changes against the latest Delta release.
+
+name: Delta Spark UT (Gluten)
+
+on:
+  workflow_dispatch:
+    inputs:
+      delta_ref:
+        description: 'delta-io/delta git ref (tag/branch/SHA) to test against'
+        required: true
+        default: 'v4.2.0'
+      spark_version:
+        description: 'Delta `-DsparkVersion` value (must match the Gluten -P profile below)'
+        required: true
+        default: '4.1'
+      test_parallelism:
+        description: 'Forked test JVMs per shard (TEST_PARALLELISM_COUNT)'
+        required: true
+        default: '1'
+  pull_request:
+    paths:
+      - '.github/workflows/delta_spark_ut.yml'
+      - '.github/workflows/util/delta-spark-ut/**'
+      - 'gluten-delta/**'
+      - 'backends-velox/src-delta40/**/DeltaSQLCommandTest.scala'
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  MVN_CMD: 'build/mvn -ntp'
+  CCACHE_DIR: "${{ github.workspace }}/.ccache"
+  # Gluten profile / bundle naming for the build-gluten-bundle and
+  # delta-spark-test jobs. Spark 4.1 + Scala 2.13 + JDK 17 matches Delta v4.2.0's
+  # default Spark version (4.1.0) from project/CrossSparkVersions.scala.
+  GLUTEN_SPARK_PROFILE: 'spark-4.1'
+  GLUTEN_SCALA_PROFILE: 'scala-2.13'
+  GLUTEN_JAVA_PROFILE: 'java-17'
+  GLUTEN_BUNDLE_SPARK_VERSION: '4.1'
+  GLUTEN_BUNDLE_SCALA_VERSION: '2.13'
+  # Default values used when the workflow is triggered by pull_request
+  # (where `inputs.*` is empty). Keep these in sync with the workflow_dispatch
+  # defaults above.
+  DELTA_REF_DEFAULT: 'v4.2.0'
+  DELTA_SPARK_VERSION_DEFAULT: '4.1'
+  DELTA_TEST_PARALLELISM_DEFAULT: '1'
+  DELTA_SCALA_VERSION: '2.13.16'
+  # Number of shards in the delta-spark-test matrix. Must equal the length of
+  # the `shard` matrix below.
+  DELTA_NUM_SHARDS: '8'
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  build-native-lib-centos-7:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get Ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-delta-spark-ut-centos7-release-default-${{github.sha}}
+          restore-keys: |
+            ccache-delta-spark-ut-centos7-release-default
+            ccache-centos7-release-default
+      - name: Build Gluten native libraries
+        run: |
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
+            set -e
+            yum install tzdata -y
+            df -a
+            cd /work
+            export CCACHE_DIR=/work/.ccache
+            export CCACHE_MAXSIZE=1G
+            mkdir -p /work/.ccache
+            ccache -sz
+            bash dev/ci-velox-buildstatic-centos-7.sh
+            ccache -s
+            mkdir -p /work/.m2/repository/org/apache/arrow/
+            cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
+          "
+      - name: Save Ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-delta-spark-ut-centos7-release-default-${{github.sha}}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
+          path: ./cpp/build/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-arrow-jars-centos-7-${{github.sha}}
+          path: .m2/repository/org/apache/arrow/
+          if-no-files-found: error
+
+  build-gluten-bundle:
+    needs: build-native-lib-centos-7
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-9-jdk17
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
+          path: ./cpp/build/
+      - name: Download Arrow jars
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-spark-ut-arrow-jars-centos-7-${{github.sha}}
+          path: /root/.m2/repository/org/apache/arrow/
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: /root/.m2/repository
+          key: m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-${{ hashFiles('pom.xml', '**/pom.xml') }}
+          restore-keys: |
+            m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-
+            m2-delta-spark-ut-bundle-
+      - name: Build Gluten Velox + Delta bundle
+        run: |
+          set -euo pipefail
+          yum install -y java-17-openjdk-devel
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          java -version
+          cd "$GITHUB_WORKSPACE"
+          # `install` (not `package`) so the gluten-delta artifact is in the local
+          # m2 repo before the `package/` shaded jar is built. `Dmaven.compiler.release=17`
+          # overrides any user settings.xml that may pin release=1.8 for Java 17 builds.
+          $MVN_CMD clean install \
+            -P${{ env.GLUTEN_SPARK_PROFILE }} \
+            -P${{ env.GLUTEN_SCALA_PROFILE }} \
+            -P${{ env.GLUTEN_JAVA_PROFILE }} \
+            -Pbackends-velox -Pdelta \
+            -DskipTests -Dmaven.compiler.release=17
+      - name: Stage bundle jar
+        run: |
+          set -euo pipefail
+          mkdir -p bundle-out
+          # Match the renamed fat jar produced by package/pom.xml's copy-fat-jar
+          # exec. The version part may bump (e.g. 1.7.0-SNAPSHOT -> 1.8.0-SNAPSHOT),
+          # so glob the version suffix.
+          jar=$(ls package/target/gluten-velox-bundle-spark${{ env.GLUTEN_BUNDLE_SPARK_VERSION }}_${{ env.GLUTEN_BUNDLE_SCALA_VERSION }}-linux_amd64-*.jar | head -n 1)
+          if [ -z "$jar" ] || [ ! -f "$jar" ]; then
+            echo "ERROR: Could not find Gluten bundle jar under package/target/" >&2
+            ls -la package/target/ || true
+            exit 1
+          fi
+          cp "$jar" bundle-out/
+          ls -lh bundle-out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-gluten-bundle-${{github.sha}}
+          path: bundle-out/gluten-velox-bundle-spark*_*-linux_amd64-*.jar
+          if-no-files-found: error
+
+  delta-spark-test:
+    needs: build-gluten-bundle
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-9-jdk17
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        # Length of this list MUST equal env.DELTA_NUM_SHARDS.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      # Mirror Delta's spark_test.yaml env vars used by run-tests.py /
+      # TestParallelization.scala.
+      SHARD_ID: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve workflow inputs
+        id: resolve
+        run: |
+          set -euo pipefail
+          delta_ref='${{ github.event.inputs.delta_ref }}'
+          spark_version='${{ github.event.inputs.spark_version }}'
+          test_parallelism='${{ github.event.inputs.test_parallelism }}'
+          : "${delta_ref:=${DELTA_REF_DEFAULT}}"
+          : "${spark_version:=${DELTA_SPARK_VERSION_DEFAULT}}"
+          : "${test_parallelism:=${DELTA_TEST_PARALLELISM_DEFAULT}}"
+          {
+            echo "delta_ref=${delta_ref}"
+            echo "spark_version=${spark_version}"
+            echo "test_parallelism=${test_parallelism}"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      - name: Download Gluten bundle jar
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-spark-ut-gluten-bundle-${{github.sha}}
+          path: gluten-bundle
+
+      - name: Install minimal tools
+        run: |
+          set -euo pipefail
+          # apache/gluten:centos-9-jdk17 already has java-17, git, tar, a POSIX
+          # shell, and curl-minimal (which provides the `curl` command sbt's
+          # launcher needs). Install the rest of what Delta's build/sbt and the
+          # tests may need. We deliberately do NOT install the full `curl`
+          # package -- it conflicts with the pre-installed curl-minimal.
+          yum install -y java-17-openjdk-devel which findutils gzip
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          java -version
+          git --version
+          curl --version | head -n 1
+
+      - name: Cache sbt / Ivy / Coursier
+        uses: actions/cache@v4
+        with:
+          path: |
+            /root/.sbt
+            /root/.ivy2
+            /root/.cache/coursier
+          # Intentionally NOT keyed by ${{ matrix.shard }} -- all shards share
+          # the same dependency tree, so a single shared cache (with parallel
+          # save races resolved by GH on a first-write-wins basis) gives the
+          # best storage / hit-rate tradeoff.
+          key: delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-${{ steps.resolve.outputs.spark_version }}-${{ env.DELTA_SCALA_VERSION }}
+          restore-keys: |
+            delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-${{ steps.resolve.outputs.spark_version }}-
+            delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-
+
+      - name: Clone and patch Delta
+        run: |
+          set -euo pipefail
+          GLUTEN_JAR=$(ls "$GITHUB_WORKSPACE"/gluten-bundle/gluten-velox-bundle-spark*_*-linux_amd64-*.jar | head -n 1)
+          echo "Using Gluten bundle: $GLUTEN_JAR"
+          bash "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/setup-delta.sh" \
+            "${{ steps.resolve.outputs.delta_ref }}" \
+            "$GITHUB_WORKSPACE/delta" \
+            "$GLUTEN_JAR" \
+            "$GITHUB_WORKSPACE"
+
+      - name: Run Delta spark module tests (shard ${{ matrix.shard }} / ${{ env.DELTA_NUM_SHARDS }})
+        env:
+          NUM_SHARDS: ${{ env.DELTA_NUM_SHARDS }}
+          TEST_PARALLELISM_COUNT: ${{ steps.resolve.outputs.test_parallelism }}
+          # Required by Delta to enable testing-only code paths
+          # (see delta build.sbt: "Test / envVars += DELTA_TESTING -> 1").
+          DELTA_TESTING: '1'
+          # JDK 17 + Gluten/Arrow/Netty requires extra --add-opens and the
+          # `io.netty.tryReflectionSetAccessible` system property; otherwise
+          # the forked test JVM fails with
+          #   java.lang.UnsupportedOperationException: sun.misc.Unsafe or
+          #   java.nio.DirectByteBuffer.<init>(long, int) not available
+          # as soon as Gluten's bundled Arrow allocator initializes Netty
+          # direct buffers. Delta's own `Test / javaOptions` (see
+          # project/CrossSparkVersions.scala `java17TestSettings`) sets the
+          # base add-opens but NOT the Netty property -- Delta's own tests
+          # don't load Arrow/Netty buffers in a way that triggers it.
+          #
+          # Use JAVA_TOOL_OPTIONS so the flags propagate to BOTH the sbt
+          # launcher JVM and the forked test JVM (sbt forks tests and the
+          # child inherits the parent's env). The set below mirrors
+          # `extraJavaTestArgs` from Gluten's own root pom.xml (the
+          # canonical Gluten test JVM flag set).
+          #
+          # NOTE: we deliberately do NOT put `-Xmx` here. JAVA_TOOL_OPTIONS
+          # is processed BEFORE the JVM command line, so Delta's explicit
+          # `-Xmx1024m` (set in build.sbt `Test / javaOptions`) would still
+          # win (last `-Xmx` wins). The forked-test-JVM heap is bumped via
+          # an sbt `set spark / Test / javaOptions ++= ...` command below,
+          # which APPENDS to Delta's own seq -- so our `-Xmx` lands AFTER
+          # `-Xmx1024m` and wins.
+          JAVA_TOOL_OPTIONS: >-
+            -XX:+IgnoreUnrecognizedVMOptions
+            --add-opens=java.base/java.lang=ALL-UNNAMED
+            --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+            --add-opens=java.base/java.io=ALL-UNNAMED
+            --add-opens=java.base/java.net=ALL-UNNAMED
+            --add-opens=java.base/java.nio=ALL-UNNAMED
+            --add-opens=java.base/java.util=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+            --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+            --add-opens=java.base/sun.security.action=ALL-UNNAMED
+            --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
+            -Djdk.reflect.useDirectMethodHandle=false
+            -Dio.netty.tryReflectionSetAccessible=true
+            -Dfile.encoding=UTF-8
+        run: |
+          set -euo pipefail
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          cd "$GITHUB_WORKSPACE/delta"
+          chmod +x build/sbt
+          # Only run the unified `spark` sbt project, NOT `sparkGroup/test` --
+          # `sparkGroup` aggregates many other projects (sparkV2, contribs,
+          # sharing, connect*, ...) that are out of scope for this pipeline.
+          #
+          # JVM heap layout:
+          # * sbt launcher JVM: -J-Xmx4G (was 6G; trimmed to leave more
+          #   headroom for the forked test JVM on the 16 GB GH runner).
+          #   sbt only compiles tests + orchestrates fork; 4G is comfortable.
+          # * Forked test JVM:  -Xmx6G via the `set ... Test / javaOptions`
+          #   command below. Delta v4.2.0 caps its test fork at `-Xmx1024m`
+          #   in build.sbt -- way too tight once Gluten Velox / Arrow / JNI
+          #   are loaded on top. Without this, a DV+CDC merge suite OOMs
+          #   inside RoaringBitmapArray.extendBitmaps. The `++=` appends to
+          #   Delta's own Test/javaOptions seq so our `-Xmx6G` comes AFTER
+          #   `-Xmx1024m` and wins (last `-Xmx` wins). We also turn on heap
+          #   dump on OOM so if it happens again we can analyze the dump.
+          ./build/sbt \
+            -DsparkVersion=${{ steps.resolve.outputs.spark_version }} \
+            -v \
+            -J-XX:+UseG1GC -J-Xmx4G \
+            "++ ${DELTA_SCALA_VERSION}" \
+            'set spark / Test / javaOptions ++= Seq("-Xmx6G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
+            "spark/test"
+
+      - name: Compress heap dumps (if any)
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          if compgen -G "/tmp/*.hprof" > /dev/null; then
+            echo "Found heap dump(s); compressing..."
+            ls -lh /tmp/*.hprof
+            # gzip is single-threaded and slow on multi-GB heaps but is
+            # always present in the centos image. Heap dumps compress ~10x.
+            gzip -1 /tmp/*.hprof
+            ls -lh /tmp/*.hprof.gz
+          else
+            echo "No heap dumps found in /tmp/."
+          fi
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-reports-shard-${{ matrix.shard }}
+          path: |
+            delta/**/target/test-reports/**/*.xml
+            delta/**/target/surefire-reports/**/*.xml
+          if-no-files-found: warn
+
+      - name: Upload JVM crash logs and other failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-failure-logs-shard-${{ matrix.shard }}
+          path: |
+            delta/**/target/*.log
+            delta/**/hs_err_pid*.log
+            delta/**/core.*
+            /tmp/*.hprof
+            /tmp/*.hprof.gz
+          if-no-files-found: ignore
