@@ -77,9 +77,23 @@ object DeltaPostTransformRules {
     }
 
   /**
-   * Spark Delta injects synthetic deletion-vector predicates and columns into the plan. Those are
-   * needed for the JVM reader path, but for the native Delta scan path they must be stripped or
-   * they will be applied twice with incompatible semantics.
+   * Spark Delta injects synthetic deletion-vector predicates and columns into the plan (via
+   * `PreprocessTableWithDVsStrategy`). Those drive the JVM reader path; for the native Delta scan
+   * path they must be stripped, since Velox applies the DV as a per-file mask from the split info
+   * and would otherwise double-apply it with incompatible semantics.
+   *
+   * {{{
+   * Input (scan offloaded, shape injected by Delta during planning):
+   *   ProjectExecTransformer [key, value]
+   *   +- FilterExecTransformer (__delta_internal_is_row_deleted = 0)
+   *      +- DeltaScanTransformer [key, value, __delta_internal_is_row_deleted]
+   *
+   * Output:
+   *   DeltaScanTransformer [key, value]
+   * }}}
+   *
+   * `__delta_internal_row_index` is preserved when an upstream operator still references it.
+   * Non-offloaded scans are untouched and keep vanilla JVM filtering.
    */
   val nativeDeletionVectorRule: Rule[SparkPlan] = (plan: SparkPlan) => {
     tagRowIndexRequiredSubtrees(plan)
