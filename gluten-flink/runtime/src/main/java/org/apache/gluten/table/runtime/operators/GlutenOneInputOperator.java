@@ -189,7 +189,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   }
 
   @Override
-  public void onProcessElement() {
+  public void onProcessingTime(long timestamp) {
     scheduleProcessElementOnMailbox();
   }
 

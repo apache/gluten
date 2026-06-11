@@ -141,7 +141,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   }
 
   @Override
-  public void onProcessElement() {
+  public void onProcessingTime(long timestamp) {
     scheduleProcessElementOnMailbox();
   }
 
