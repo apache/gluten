@@ -1434,6 +1434,7 @@ object GlutenConfig extends ConfigRegistry {
 
   val FALLBACK_FAIL_ON_FALLBACK =
     buildConf("spark.gluten.sql.columnar.failOnFallback")
+      .internal()
       .doc(
         "When true, throw an exception if any operator falls back to Spark" +
           " instead of running on the native engine.")
