@@ -33,14 +33,21 @@ import org.apache.spark.sql.types.StructType
 /**
  * Rewrites Delta scans over DV-enabled tables to request the backend-specific skip-row metadata
  * column only when the snapshot actually contains DVs.
+ *
+ * This is a Gluten-local adaptation of Delta's `PreprocessTableWithDVs` that additionally handles
+ * `GlutenDeltaParquetFileFormat` relations. It lives in this package for access to Delta's
+ * package-private APIs, but deliberately uses Gluten-prefixed names: the vanilla
+ * `PreprocessTableWithDVs`/`ScanWithDeletionVectors` classfiles ship inside the delta-spark jar and
+ * are linked into Delta's own `PreprocessTableWithDVsStrategy`, so reusing those names would shadow
+ * them with classpath-order-dependent behavior.
  */
-trait PreprocessTableWithDVs extends SubqueryTransformerHelper {
+trait GlutenPreprocessTableWithDVs extends SubqueryTransformerHelper {
   def preprocessTablesWithDVs(plan: LogicalPlan): LogicalPlan = {
-    plan.transformDown { case ScanWithDeletionVectors(dvScan) => dvScan }
+    plan.transformDown { case GlutenScanWithDeletionVectors(dvScan) => dvScan }
   }
 }
 
-object ScanWithDeletionVectors {
+object GlutenScanWithDeletionVectors {
   def unapply(a: LogicalRelation): Option[LogicalPlan] = a match {
     case scan @ LogicalRelation(
           relation @ HadoopFsRelation(

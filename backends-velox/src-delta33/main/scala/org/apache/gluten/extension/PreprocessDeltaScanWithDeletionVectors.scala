@@ -19,7 +19,7 @@ package org.apache.gluten.extension
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.delta.PreprocessTableWithDVs
+import org.apache.spark.sql.delta.GlutenPreprocessTableWithDVs
 
 /**
  * Delta 3.3 compatibility rule for DV scan metadata.
@@ -30,7 +30,7 @@ import org.apache.spark.sql.delta.PreprocessTableWithDVs
  */
 class PreprocessDeltaScanWithDeletionVectors(protected val spark: SparkSession)
   extends Rule[LogicalPlan]
-  with PreprocessTableWithDVs {
+  with GlutenPreprocessTableWithDVs {
 
   override def apply(plan: LogicalPlan): LogicalPlan = preprocessTablesWithDVs(plan)
 }
