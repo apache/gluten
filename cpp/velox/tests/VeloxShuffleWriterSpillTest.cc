@@ -201,6 +201,30 @@ TEST_F(VeloxHashShuffleWriterSpillTest, kInit) {
   ASSERT_NOT_OK(shuffleWriter->stop());
 }
 
+TEST_F(VeloxHashShuffleWriterSpillTest, spillPartitionBuffersInPidOrder) {
+  auto shuffleWriterOptions = std::make_shared<HashShuffleWriterOptions>();
+  shuffleWriterOptions->partitioning = Partitioning::kRange;
+  shuffleWriterOptions->splitBufferSize = 4;
+  auto shuffleWriter =
+      createHashShuffleWriter(8, shuffleWriterOptions, nullptr, arrow::Compression::type::UNCOMPRESSED);
+
+  // pid 4 gets a larger partition buffer than pid 1. Size-based eviction chooses pid 4 first, but the selected
+  // payloads must still be written to local spill files in pid order.
+  auto input = makeRowVector({
+      makeFlatVector<int32_t>({4, 4, 4, 4, 4, 4, 4, 4, 1}),
+      makeFlatVector<int32_t>({0, 1, 2, 3, 4, 5, 6, 7, 8}),
+  });
+
+  ASSERT_NOT_OK(splitRowVector(*shuffleWriter, input));
+
+  int64_t evicted;
+  ASSERT_NOT_OK(shuffleWriter->reclaimFixedSize(shuffleWriter->partitionBufferSize(), &evicted));
+  ASSERT_GT(evicted, 0);
+  ASSERT_EQ(shuffleWriter->partitionBufferSize(), 0);
+
+  ASSERT_NOT_OK(shuffleWriter->stop());
+}
+
 TEST_F(VeloxHashShuffleWriterSpillTest, kInitSingle) {
   auto shuffleWriterOptions = std::make_shared<HashShuffleWriterOptions>();
   shuffleWriterOptions->partitioning = Partitioning::kSingle;

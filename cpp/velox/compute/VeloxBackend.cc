@@ -40,6 +40,9 @@
 
 #include "compute/VeloxRuntime.h"
 #include "config/VeloxConfig.h"
+#ifdef ENABLE_S3
+#include "filesystem/GlutenS3FileSystem.h"
+#endif
 #include "jni/JniFileSystem.h"
 #include "memory/GlutenBufferedInputBuilder.h"
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
@@ -56,7 +59,6 @@
 #include "velox/connectors/hive/storage_adapters/gcs/RegisterGcsFileSystem.h" // @manual
 #include "velox/connectors/hive/storage_adapters/hdfs/HdfsFileSystem.h"
 #include "velox/connectors/hive/storage_adapters/hdfs/RegisterHdfsFileSystem.h" // @manual
-#include "velox/connectors/hive/storage_adapters/s3fs/RegisterS3FileSystem.h" // @manual
 #include "velox/dwio/orc/reader/OrcReader.h"
 #include "velox/dwio/parquet/RegisterParquetReader.h"
 #include "velox/dwio/parquet/RegisterParquetWriter.h"
@@ -156,7 +158,7 @@ void VeloxBackend::init(
   velox::filesystems::registerHdfsFileSystem();
 #endif
 #ifdef ENABLE_S3
-  velox::filesystems::registerS3FileSystem();
+  registerGlutenS3FileSystem();
 #endif
 #ifdef ENABLE_GCS
   velox::filesystems::registerGcsFileSystem();
@@ -226,9 +228,19 @@ void VeloxBackend::init(
   auto sparkOverhead = backendConf_->get<int64_t>(kSparkOverheadMemory);
   int64_t memoryManagerCapacity;
   if (sparkOverhead.has_value()) {
-    // 0.75 * total overhead memory is used for Velox global memory manager.
-    // FIXME: Make this configurable.
-    memoryManagerCapacity = sparkOverhead.value() * 0.75;
+    // Get configurable ratio for Velox global memory manager capacity
+    auto capacityRatio = backendConf_->get<double>(kMemoryManagerCapacityRatio);
+    double ratio = capacityRatio.has_value() ? capacityRatio.value() : kMemoryManagerCapacityRatioDefault;
+
+    if (ratio <= 0.0 || ratio > 1.0) {
+      LOG(WARNING) << "Invalid memory manager capacity ratio: " << ratio
+                   << ". Using default: " << kMemoryManagerCapacityRatioDefault;
+      ratio = kMemoryManagerCapacityRatioDefault;
+    }
+
+    memoryManagerCapacity = static_cast<int64_t>(sparkOverhead.value() * ratio);
+    LOG(INFO) << "Using memory manager capacity ratio: " << ratio << " (overhead: " << sparkOverhead.value()
+              << ", capacity: " << memoryManagerCapacity << ")";
   } else {
     memoryManagerCapacity = facebook::velox::memory::kMaxMemory;
   }
@@ -377,7 +389,7 @@ void VeloxBackend::tearDown() {
   }
 #endif
 #ifdef ENABLE_S3
-  velox::filesystems::finalizeS3FileSystem();
+  finalizeGlutenS3FileSystem();
 #endif
 
   // Destruct IOThreadPoolExecutor will join all threads.

@@ -19,7 +19,6 @@ package org.apache.flink.table.planner.plan.nodes.exec.stream;
 import org.apache.gluten.rexnode.AggregateCallConverter;
 import org.apache.gluten.rexnode.Utils;
 import org.apache.gluten.rexnode.WindowUtils;
-import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
@@ -37,14 +36,13 @@ import io.github.zhztheplayer.velox4j.plan.StreamWindowPartitionFunctionSpec;
 
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.dag.Transformation;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple5;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
 import org.apache.flink.streaming.api.transformations.OneInputTransformation;
 import org.apache.flink.table.data.RowData;
-import org.apache.flink.table.planner.codegen.CodeGeneratorContext;
-import org.apache.flink.table.planner.codegen.agg.AggsHandlerCodeGenerator;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.logical.WindowingStrategy;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
@@ -55,24 +53,21 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
 import org.apache.flink.table.planner.plan.utils.AggregateInfoList;
+import org.apache.flink.table.planner.plan.utils.AggregateUtil;
 import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
 import org.apache.flink.table.planner.utils.JavaScalaConversionUtil;
 import org.apache.flink.table.planner.utils.TableConfigUtils;
-import org.apache.flink.table.runtime.generated.GeneratedNamespaceAggsHandleFunction;
 import org.apache.flink.table.runtime.groupwindow.NamedWindowProperty;
-import org.apache.flink.table.runtime.groupwindow.WindowProperty;
 import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
-import org.apache.flink.table.runtime.operators.window.tvf.slicing.SliceAssigner;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.runtime.util.TimeWindowUtil;
-import org.apache.flink.table.types.DataType;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.apache.calcite.rel.core.AggregateCall;
-import org.apache.calcite.tools.RelBuilder;
 import org.apache.commons.math3.util.ArithmeticUtils;
 
 import javax.annotation.Nullable;
@@ -184,6 +179,14 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
     final ZoneId shiftTimeZone =
         TimeWindowUtil.getShiftTimeZone(
             windowing.getTimeAttributeType(), TableConfigUtils.getLocalTimeZone(config));
+    final AggregateInfoList globalAggInfoList =
+        AggregateUtil.deriveStreamWindowAggregateInfoList(
+            planner.getTypeFactory(),
+            localAggInputRowType, // should use original input here
+            JavaScalaConversionUtil.toScala(Arrays.asList(aggCalls)),
+            needRetraction,
+            windowing.getWindow(),
+            true);
 
     // --- Begin Gluten-specific code changes ---
     // TODO: velox window not equal to flink window.
@@ -205,11 +208,15 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
     // TODO: support more window types.
     Tuple5<Long, Long, Long, Integer, Integer> windowSpecParams =
         WindowUtils.extractWindowParameters(windowing);
+    Tuple2<Integer, Integer> windowStartAndEndIndexes =
+        WindowUtils.getWindowStartAndEndIndexes(namedWindowProperties, (RowType) getOutputType());
     long size = windowSpecParams.f0;
     long slide = windowSpecParams.f1;
     long offset = windowSpecParams.f2;
     int rowtimeIndex = windowSpecParams.f3;
     int windowType = windowSpecParams.f4;
+    int windowStartIndex = windowStartAndEndIndexes.f0;
+    int windowEndIndex = windowStartAndEndIndexes.f1;
     PartitionFunctionSpec sliceAssignerSpec =
         new StreamWindowPartitionFunctionSpec(
             inputType, rowtimeIndex, size, slide, offset, windowType);
@@ -252,23 +259,29 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
             offset,
             windowType,
             outputType,
-            rowtimeIndex);
-    final OneInputStreamOperator windowOperator =
-        new GlutenOneInputOperator(
+            true,
+            rowtimeIndex,
+            windowStartIndex,
+            windowEndIndex);
+    final LogicalType[] accTypes = convertToLogicalTypes(globalAggInfoList.getAccTypes());
+    final RowDataKeySelector selector =
+        KeySelectorUtil.getRowDataSelector(
+            planner.getFlinkContext().getClassLoader(),
+            grouping,
+            InternalTypeInfo.of(inputRowType));
+    final OneInputStreamOperator<RowData, RowData> windowOperator =
+        new org.apache.gluten.table.runtime.operators.WindowAggOperator<RowData, RowData, Long>(
             new StatefulPlanNode(windowAgg.getId(), windowAgg),
             PlanNodeIdGenerator.newId(),
             inputType,
             Map.of(windowAgg.getId(), outputType),
             RowData.class,
             RowData.class,
-            "StreamExecGlobalWindowAggregate");
+            "StreamExecWindowAggregate",
+            selector.getProducedType(),
+            globalAggInfoList.getAggNames(),
+            accTypes);
     // --- End Gluten-specific code changes ---
-
-    final RowDataKeySelector selector =
-        KeySelectorUtil.getRowDataSelector(
-            planner.getFlinkContext().getClassLoader(),
-            grouping,
-            InternalTypeInfo.of(inputRowType));
 
     final OneInputTransformation<RowData, RowData> transform =
         ExecNodeUtil.createOneInputTransformation(
@@ -284,41 +297,5 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
     transform.setStateKeySelector(selector);
     transform.setStateKeyType(selector.getProducedType());
     return transform;
-  }
-
-  private GeneratedNamespaceAggsHandleFunction<Long> createAggsHandler(
-      String name,
-      SliceAssigner sliceAssigner,
-      AggregateInfoList aggInfoList,
-      int mergedAccOffset,
-      boolean mergedAccIsOnHeap,
-      DataType[] mergedAccExternalTypes,
-      ExecNodeConfig config,
-      ClassLoader classLoader,
-      RelBuilder relBuilder,
-      ZoneId shifTimeZone) {
-    final AggsHandlerCodeGenerator generator =
-        new AggsHandlerCodeGenerator(
-                new CodeGeneratorContext(config, classLoader),
-                relBuilder,
-                JavaScalaConversionUtil.toScala(localAggInputRowType.getChildren()),
-                true) // copyInputField
-            .needAccumulate()
-            .needMerge(mergedAccOffset, mergedAccIsOnHeap, mergedAccExternalTypes);
-
-    final List<WindowProperty> windowProperties =
-        Arrays.asList(
-            Arrays.stream(namedWindowProperties)
-                .map(NamedWindowProperty::getProperty)
-                .toArray(WindowProperty[]::new));
-
-    return generator.generateNamespaceAggsHandler(
-        name,
-        aggInfoList,
-        JavaScalaConversionUtil.toScala(windowProperties),
-        sliceAssigner,
-        // we use window end timestamp to indicate a slicing window, see SliceAssigner
-        Long.class,
-        shifTimeZone);
   }
 }

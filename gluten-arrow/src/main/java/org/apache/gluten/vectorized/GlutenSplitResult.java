@@ -25,6 +25,7 @@ public class GlutenSplitResult {
   private final long totalBytesEvicted;
   private final long[] partitionLengths;
   private final long[] rawPartitionLengths;
+  private final long[] rowBasedChecksums;
   private final long bytesToEvict;
   private final long peakBytes;
   private final long sortTime;
@@ -46,7 +47,8 @@ public class GlutenSplitResult {
       double avgDictionaryFields,
       long dictionarySize,
       long[] partitionLengths,
-      long[] rawPartitionLengths) {
+      long[] rawPartitionLengths,
+      long[] rowBasedChecksums) {
     this.totalComputePidTime = totalComputePidTime;
     this.totalWriteTime = totalWriteTime;
     this.totalEvictTime = totalEvictTime;
@@ -55,6 +57,7 @@ public class GlutenSplitResult {
     this.totalBytesEvicted = totalBytesEvicted;
     this.partitionLengths = partitionLengths;
     this.rawPartitionLengths = rawPartitionLengths;
+    this.rowBasedChecksums = rowBasedChecksums;
     this.bytesToEvict = totalBytesToEvict;
     this.peakBytes = peakBytes;
     this.sortTime = totalSortTime;
@@ -97,6 +100,10 @@ public class GlutenSplitResult {
 
   public long[] getRawPartitionLengths() {
     return rawPartitionLengths;
+  }
+
+  public long[] getRowBasedChecksums() {
+    return rowBasedChecksums;
   }
 
   public long getBytesToEvict() {

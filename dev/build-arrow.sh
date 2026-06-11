@@ -31,7 +31,6 @@ function prepare_arrow_build() {
   #wget_and_untar https://archive.apache.org/dist/arrow/arrow-${VELOX_ARROW_BUILD_VERSION}/apache-arrow-${VELOX_ARROW_BUILD_VERSION}.tar.gz arrow_ep
   cd arrow_ep
   patch -p1 < $CURRENT_DIR/../ep/build-velox/src/modify_arrow.patch
-  patch -p1 < $CURRENT_DIR/../ep/build-velox/src/modify_arrow_dataset_scan_option.patch
   patch -p1 < $CURRENT_DIR/../ep/build-velox/src/cmake-compatibility.patch
   patch -p1 < $CURRENT_DIR/../ep/build-velox/src/support_ibm_power.patch
   popd
@@ -76,6 +75,21 @@ function build_arrow_cpp() {
 }
 
 function build_arrow_java() {
+    # Maven Central's arrow-c-data / arrow-dataset jars at ${VELOX_ARROW_BUILD_VERSION}
+    # already ship libarrow_cdata_jni / libarrow_dataset_jni for x86_64 (Linux/macOS/Windows)
+    # and aarch_64 (Linux/macOS), so contributors on those archs do not need a locally-built
+    # jar — gluten-arrow resolves the same artifact transitively.
+    #
+    # ppc64le has no native in the Central jar; support_ibm_power.patch (applied above) adds
+    # the ppc64le -> ppcle_64 arch case to JniLoader.java and the local mvn install step bakes
+    # a locally-built libarrow_cdata_jni.so for ppc64le into the resulting arrow-c-data jar in
+    # ~/.m2, overriding Central. Skip the Java build on every other arch.
+    local ARCH=$(uname -m)
+    if [[ "${ARCH}" != "ppc64le" ]]; then
+        echo "Skipping local Arrow Java build on ${ARCH} — gluten resolves arrow-c-data:${VELOX_ARROW_BUILD_VERSION} from Maven Central. Local build is only required on ppc64le for the patched JniLoader."
+        return 0
+    fi
+
     ARROW_INSTALL_DIR="${ARROW_PREFIX}/install"
 
     # Use Gluten's Maven wrapper
@@ -97,8 +111,6 @@ function build_arrow_java() {
     export CMAKE_BUILD_PARALLEL_LEVEL=$NPROC
 
     pushd $ARROW_PREFIX/java
-    # Because arrow-bom module need the -DprocessAllModules
-    ${MVN_CMD} versions:set -DnewVersion=15.0.0-gluten -DprocessAllModules
 
     ${MVN_CMD} clean install -pl bom,maven/module-info-compiler-maven-plugin,vector -am \
           -DskipTests -Drat.skip -Dmaven.gitcommitid.skip -Dcheckstyle.skip -Dassembly.skipAssembly

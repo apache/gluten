@@ -151,7 +151,7 @@ case class FallbackBroadcastHashJoin(session: SparkSession) extends Rule[SparkPl
       GlutenConfig.get.enableColumnarBroadcastExchange
 
   private val enableColumnarBroadcastNestedLoopJoin: Boolean =
-    GlutenConfig.get.broadcastNestedLoopJoinTransformerTransformerEnabled &&
+    GlutenConfig.get.enableColumnarBroadcastNestedLoopJoin &&
       GlutenConfig.get.enableColumnarBroadcastExchange
 
   override def apply(plan: SparkPlan): SparkPlan = {

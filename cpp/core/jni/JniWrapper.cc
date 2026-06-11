@@ -270,7 +270,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   jniByteInputStreamClose = getMethodIdOrError(env, jniByteInputStreamClass, "close", "()V");
 
   splitResultClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/GlutenSplitResult;");
-  splitResultConstructor = getMethodIdOrError(env, splitResultClass, "<init>", "(JJJJJJJJJJDJ[J[J)V");
+  splitResultConstructor = getMethodIdOrError(env, splitResultClass, "<init>", "(JJJJJJJJJJDJ[J[J[J)V");
 
   metricsBuilderClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/Metrics;");
 
@@ -993,7 +993,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
     jint splitBufferSize,
     jdouble splitBufferReallocThreshold,
     jint partitionBufferEvictThreshold,
-    jlong partitionWriterHandle) {
+    jlong partitionWriterHandle,
+    jboolean rowBasedChecksumEnabled) {
   JNI_METHOD_START
   const auto ctx = getRuntime(env, wrapper);
 
@@ -1009,6 +1010,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
       splitBufferSize,
       splitBufferReallocThreshold,
       partitionBufferEvictThreshold);
+  shuffleWriterOptions->rowBasedChecksumEnabled = rowBasedChecksumEnabled;
 
   return ctx->saveObject(ctx->createShuffleWriter(numPartitions, partitionWriter, shuffleWriterOptions));
   JNI_METHOD_END(kInvalidObjectHandle)
@@ -1163,6 +1165,13 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrap
   auto rawSrc = reinterpret_cast<const jlong*>(rawPartitionLengths.data());
   env->SetLongArrayRegion(rawPartitionLengthArr, 0, rawPartitionLengths.size(), rawSrc);
 
+  const auto& rowBasedChecksums = shuffleWriter->rowBasedChecksums();
+  auto rowBasedChecksumArr = env->NewLongArray(rowBasedChecksums.size());
+  if (!rowBasedChecksums.empty()) {
+    auto checksumSrc = reinterpret_cast<const jlong*>(rowBasedChecksums.data());
+    env->SetLongArrayRegion(rowBasedChecksumArr, 0, rowBasedChecksums.size(), checksumSrc);
+  }
+
   jobject splitResult = env->NewObject(
       splitResultClass,
       splitResultConstructor,
@@ -1179,7 +1188,8 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrap
       shuffleWriter->avgDictionaryFields(),
       shuffleWriter->dictionarySize(),
       partitionLengthArr,
-      rawPartitionLengthArr);
+      rawPartitionLengthArr,
+      rowBasedChecksumArr);
 
   return splitResult;
   JNI_METHOD_END(nullptr)

@@ -24,7 +24,7 @@ namespace gluten {
 
 class UdfRegisterer {
  public:
-  ~UdfRegisterer() = default;
+  virtual ~UdfRegisterer() = default;
 
   // Returns the number of UDFs in populateUdfEntries.
   virtual int getNumUdf() = 0;
@@ -38,7 +38,7 @@ class UdfRegisterer {
 
 class UdafRegisterer {
  public:
-  ~UdafRegisterer() = default;
+  virtual ~UdafRegisterer() = default;
 
   // Returns the number of UDFs in populateUdafEntries.
   virtual int getNumUdaf() = 0;

@@ -16,6 +16,25 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.execution.HashAggregateExecBaseTransformer
+
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+
 class GlutenBitmapExpressionsQuerySuite
   extends BitmapExpressionsQuerySuite
-  with GlutenSQLTestsTrait {}
+  with GlutenSQLTestsTrait
+  with AdaptiveSparkPlanHelper {
+
+  test("bitmap_construct_agg routes to native") {
+    val df = spark.sql(
+      "SELECT bitmap_construct_agg(bitmap_bit_position(col)) " +
+        "FROM values (1L), (2L), (3L) AS t(col)")
+    df.collect()
+    assert(
+      collectWithSubqueries(df.queryExecution.executedPlan) {
+        case h: HashAggregateExecBaseTransformer => h
+      }.nonEmpty,
+      "Expected native HashAggregateExecBaseTransformer in plan"
+    )
+  }
+}

@@ -20,9 +20,10 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
+import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NoMapping}
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.types.StructType
@@ -54,6 +55,34 @@ case class DeltaScanTransformer(
   ) {
 
   override lazy val fileFormat: ReadFileFormat = ReadFileFormat.ParquetReadFormat
+
+  // For Delta column-mapping tables, `dataFilters` on the scan node are LOGICAL-named so Delta's
+  // file index (`PreparedDeltaFileIndex.matchingFiles`, `Snapshot.filesForScan`) can do partition
+  // pruning and stats-based file skipping -- both resolve filter attrs against logical schemas.
+  //
+  // The native (Velox) side, however, must see PHYSICAL names: `output` and `dataSchema` are
+  // physical (so the parquet reader finds the right column), and `BasicScanExecTransformer`
+  // matches `scanFilters` against `pushDownFilters` (built from a `Filter` that references the
+  // physical-named scan output) by `AttributeReference.equals`, which compares names. Without
+  // this override, the logical-named `scanFilters` and physical-named `pushDownFilters` would
+  // never match, causing duplicate filter evaluation in the substrait plan.
+  //
+  // Translate by exprId match against `output` rather than by re-running Delta's column-mapping
+  // helpers; exprIds are stable across the post-transform rewrite and don't require a second
+  // metadata lookup.
+  //
+  // See `DeltaPostTransformRules.transformColumnMappingPlan` for the full picture of which
+  // fields stay logical vs. become physical, and the longer-term cleanup direction (do all
+  // physical translation at substrait emission time so this override and the alias-back
+  // ProjectExec both go away).
+  override def scanFilters: Seq[Expression] = relation.fileFormat match {
+    case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
+      val physicalByExprId = output.collect { case ar: AttributeReference => ar.exprId -> ar }.toMap
+      dataFilters.map(_.transformDown {
+        case ar: AttributeReference => physicalByExprId.getOrElse(ar.exprId, ar)
+      })
+    case _ => dataFilters
+  }
 
   override protected def doValidateInternal(): ValidationResult = {
     if (

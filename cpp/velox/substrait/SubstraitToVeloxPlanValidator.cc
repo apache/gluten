@@ -1323,7 +1323,8 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::AggregateRel& ag
       "regr_slope",
       "regr_intercept",
       "regr_sxy",
-      "regr_replacement"};
+      "regr_replacement",
+      "bitmap_construct_agg"};
 
   auto udafFuncs = UdfLoader::getInstance()->getRegisteredUdafNames();
 
