@@ -74,21 +74,6 @@ const std::string kWriteIOTime = "writeIOWallNanos";
 // others
 const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
 const std::string kDeltaTableFormat = "delta";
-const std::string kTableFormatKey = "table_format";
-
-bool isDeltaMetadata(const std::unordered_map<std::string, std::string>& metadata) {
-  auto tableFormatIt = metadata.find(kTableFormatKey);
-  return tableFormatIt != metadata.end() && tableFormatIt->second == kDeltaTableFormat;
-}
-
-bool isDeltaScanInfo(const std::shared_ptr<SplitInfo>& splitInfo) {
-  for (const auto& metadata : splitInfo->metadataColumns) {
-    if (isDeltaMetadata(metadata)) {
-      return true;
-    }
-  }
-  return false;
-}
 
 const velox::core::TableScanNode* findTableScanNodeById(
     const std::shared_ptr<const velox::core::PlanNode>& planNode,
@@ -196,8 +181,7 @@ WholeStageResultIterator::WholeStageResultIterator(
     const auto& metadataColumns = scanInfo->metadataColumns;
     const auto scanNodeConnectorId = connectorIdForScanNode(veloxPlan_, scanNodeIds_[scanInfoIdx]);
     const auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(scanInfo);
-    const bool isDeltaScan =
-        scanNodeConnectorId == connectorIds_.delta || deltaSplitInfo != nullptr || isDeltaScanInfo(scanInfo);
+    const bool isDeltaScan = scanNodeConnectorId == connectorIds_.delta || deltaSplitInfo != nullptr;
 #ifdef GLUTEN_ENABLE_GPU
     // Under the pre-condition that all the split infos has same partition column and format.
     const auto canUseCudfConnector = scanInfo->canUseCudfConnector();

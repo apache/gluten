@@ -28,37 +28,15 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
   private final List<DeltaFileReadOptions> deltaReadOptions = new ArrayList<>();
 
   DeltaLocalFilesNode(
-      Integer index,
-      List<String> paths,
-      List<Long> starts,
-      List<Long> lengths,
-      List<Long> fileSizes,
-      List<Long> modificationTimes,
-      List<Map<String, String>> partitionColumns,
-      List<Map<String, String>> metadataColumns,
-      ReadFileFormat fileFormat,
-      List<String> preferredLocations,
-      Map<String, String> properties,
+      LocalFilesNode base,
       List<Map<String, Object>> otherMetadataColumns,
       List<DeltaFileReadOptions> deltaReadOptions) {
-    super(
-        index,
-        paths,
-        starts,
-        lengths,
-        fileSizes,
-        modificationTimes,
-        partitionColumns,
-        metadataColumns,
-        fileFormat,
-        preferredLocations,
-        properties,
-        otherMetadataColumns);
-    if (deltaReadOptions == null || deltaReadOptions.size() != paths.size()) {
+    super(base, otherMetadataColumns);
+    if (deltaReadOptions == null || deltaReadOptions.size() != getPaths().size()) {
       throw new IllegalArgumentException(
           String.format(
               "deltaReadOptions must contain one entry per file path, expected %d but got %s",
-              paths.size(),
+              getPaths().size(),
               deltaReadOptions == null ? "null" : String.valueOf(deltaReadOptions.size())));
     }
     this.deltaReadOptions.addAll(deltaReadOptions);

@@ -48,9 +48,6 @@ using namespace cudf_velox::connector::hive;
 namespace gluten {
 namespace {
 
-const std::string kDeltaTableFormat = "delta";
-const std::string kTableFormatKey = "table_format";
-
 bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfos) {
 #ifdef GLUTEN_ENABLE_GPU
   if (splitInfos.empty()) {
@@ -62,21 +59,10 @@ bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfo
 #endif
 }
 
-bool isDeltaMetadata(const std::unordered_map<std::string, std::string>& metadata) {
-  auto tableFormatIt = metadata.find(kTableFormatKey);
-  return tableFormatIt != metadata.end() && tableFormatIt->second == kDeltaTableFormat;
-}
-
+// Delta scans are recognized structurally: parsing the substrait delta file format case yields a
+// typed DeltaSplitInfo.
 bool isDeltaSplitInfo(const std::shared_ptr<SplitInfo>& splitInfo) {
-  if (std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo) != nullptr) {
-    return true;
-  }
-  for (const auto& metadata : splitInfo->metadataColumns) {
-    if (isDeltaMetadata(metadata)) {
-      return true;
-    }
-  }
-  return false;
+  return std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo) != nullptr;
 }
 
 core::SortOrder toSortOrder(const ::substrait::SortField& sortField) {

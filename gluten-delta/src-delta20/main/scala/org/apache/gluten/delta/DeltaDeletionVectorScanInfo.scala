@@ -14,24 +14,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.substrait.rel;
+package org.apache.gluten.delta
 
-import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions;
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
 
-import java.util.List;
-import java.util.Map;
+import org.apache.spark.sql.execution.datasources.PartitionedFile
 
-public class DeltaLocalFilesBuilder {
-  private DeltaLocalFilesBuilder() {}
+import java.util.{Map => JMap}
 
-  /**
-   * Decorates a generically built {@link LocalFilesNode} with per-file Delta read options,
-   * replacing its extra metadata with the Delta-normalized variant.
-   */
-  public static DeltaLocalFilesNode makeDeltaLocalFiles(
-      LocalFilesNode base,
-      List<Map<String, Object>> otherMetadataColumns,
-      List<DeltaFileReadOptions> deltaReadOptions) {
-    return new DeltaLocalFilesNode(base, otherMetadataColumns, deltaReadOptions);
-  }
+/** Reading deletion vectors natively requires Delta 3.3+, so there is nothing to materialize. */
+object DeltaDeletionVectorScanInfo {
+  def normalize(partitionColumnCount: Int, partitionFiles: Seq[PartitionedFile])
+      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = None
 }

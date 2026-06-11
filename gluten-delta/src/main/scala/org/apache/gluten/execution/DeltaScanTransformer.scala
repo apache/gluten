@@ -16,18 +16,23 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.delta.DeltaDeletionVectorScanInfo
 import org.apache.gluten.sql.shims.SparkShimLoader
+import org.apache.gluten.substrait.rel.{DeltaLocalFilesBuilder, LocalFilesNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
+import org.apache.spark.Partition
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NoMapping}
 import org.apache.spark.sql.execution.FileSourceScanExec
-import org.apache.spark.sql.execution.datasources.HadoopFsRelation
+import org.apache.spark.sql.execution.datasources.{FilePartition, HadoopFsRelation}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.collection.BitSet
+
+import scala.collection.JavaConverters._
 
 case class DeltaScanTransformer(
     @transient override val relation: HadoopFsRelation,
@@ -82,6 +87,32 @@ case class DeltaScanTransformer(
         case ar: AttributeReference => physicalByExprId.getOrElse(ar.exprId, ar)
       })
     case _ => dataFilters
+  }
+
+  /**
+   * Decorates the generically built split infos with per-file deletion-vector read options so the
+   * native Delta scan can apply DV filtering. Delta-specific extraction happens here -- where Delta
+   * classes are directly linkable -- rather than in the backend iterator API, mirroring
+   * `IcebergScanTransformer`. Splits without any DV keep the generic representation.
+   */
+  override def getSplitInfosFromPartitions(
+      partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
+    val splitInfos = super.getSplitInfosFromPartitions(partitions)
+    val partitionColumnCount = getPartitionSchema.fields.length
+    splitInfos.zip(partitions).map {
+      case (localFiles: LocalFilesNode, (filePartition: FilePartition, _)) =>
+        DeltaDeletionVectorScanInfo
+          .normalize(partitionColumnCount, filePartition.files.toSeq)
+          .map {
+            case (otherMetadataColumns, deltaReadOptions) =>
+              DeltaLocalFilesBuilder.makeDeltaLocalFiles(
+                localFiles,
+                otherMetadataColumns.asJava,
+                deltaReadOptions.asJava): SplitInfo
+          }
+          .getOrElse(localFiles)
+      case (splitInfo, _) => splitInfo
+    }
   }
 
   override def doCanonicalize(): DeltaScanTransformer = {

@@ -24,8 +24,7 @@ import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.metrics.{IMetrics, IteratorMetricsJniWrapper}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.plan.PlanNode
-import org.apache.gluten.substrait.rel.{DeltaLocalFilesBuilder, LocalFilesBuilder, LocalFilesNode, SplitInfo}
-import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
+import org.apache.gluten.substrait.rel.{LocalFilesBuilder, LocalFilesNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 import org.apache.gluten.vectorized._
 
@@ -50,6 +49,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 class VeloxIteratorApi extends IteratorApi with Logging {
+
   private def setFileSchemaForLocalFiles(
       localFilesNode: LocalFilesNode,
       fileSchema: StructType,
@@ -94,33 +94,10 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     val metadataColumns = partitionFiles
       .map(
         f => SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
-    val (otherMetadataColumns, deltaReadOptions) =
-      DeltaSplitMetadataExtractor.normalize(partitionSchema.fields.length, partitionFiles)
-        .getOrElse {
-          (
-            partitionFiles.map {
-              f => SparkShimLoader.getSparkShims.getOtherConstantMetadataColumnValues(f)
-            },
-            Seq.empty[DeltaFileReadOptions])
-        }
+    val otherMetadataColumns = partitionFiles
+      .map(f => SparkShimLoader.getSparkShims.getOtherConstantMetadataColumnValues(f))
 
-    val localFilesNode = if (deltaReadOptions.nonEmpty) {
-      DeltaLocalFilesBuilder.makeDeltaLocalFiles(
-        partitionIndex,
-        paths.asJava,
-        starts.asJava,
-        lengths.asJava,
-        fileSizes.asJava,
-        modificationTimes.asJava,
-        partitionColumns.map(_.asJava).asJava,
-        metadataColumns.asJava,
-        fileFormat,
-        locations.toList.asJava,
-        mapAsJavaMap(properties),
-        otherMetadataColumns.asJava,
-        deltaReadOptions.asJava
-      )
-    } else {
+    setFileSchemaForLocalFiles(
       LocalFilesBuilder.makeLocalFiles(
         partitionIndex,
         paths.asJava,
@@ -134,16 +111,10 @@ class VeloxIteratorApi extends IteratorApi with Logging {
         locations.toList.asJava,
         mapAsJavaMap(properties),
         otherMetadataColumns.asJava
-      )
-    }
-
-    val localFiles = setFileSchemaForLocalFiles(
-      localFilesNode,
+      ),
       dataSchema,
       fileFormat
     )
-
-    localFiles
   }
 
   /** Generate native row partition. */
