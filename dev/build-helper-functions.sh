@@ -207,9 +207,9 @@ function cmake_install {
 function setup_macos {
   sed -i '' '/run_and_time install_arrow/d' scripts/setup-macos.sh
   if [ $ARCH == 'x86_64' ]; then
-    source ./scripts/setup-macos.sh
+    ./scripts/setup-macos.sh
   elif [ $ARCH == 'arm64' ]; then
-    CPU_TARGET="arm64" source ./scripts/setup-macos.sh
+    CPU_TARGET="arm64" ./scripts/setup-macos.sh
   else
     echo "Unknown arch: $ARCH"
   fi
@@ -224,13 +224,13 @@ function setup_linux {
   export SIMDJSON_SKIPUTF8VALIDATION=ON
 
   if [[ "$LINUX_DISTRIBUTION" == "ubuntu" || "$LINUX_DISTRIBUTION" == "debian" || "$LINUX_DISTRIBUTION" == "pop" ]]; then
-    source scripts/setup-ubuntu.sh
+    scripts/setup-ubuntu.sh
   elif [[ "$LINUX_DISTRIBUTION" == "centos" ]]; then
     case "$LINUX_VERSION_ID" in
-    9) source scripts/setup-centos9.sh ;;
-    8) source $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
+    9) scripts/setup-centos9.sh ;;
+    8) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
     7)
-      source $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
+      $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
       set +u
       export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
       source /opt/rh/devtoolset-11/enable
@@ -244,7 +244,7 @@ function setup_linux {
   elif [[ "$LINUX_DISTRIBUTION" == "openEuler" ]]; then
     case "$LINUX_VERSION_ID" in
       24.03)
-        source $GLUTEN_VELOX_SCRIPT_HOME/setup-openeuler24.sh ;;
+        $GLUTEN_VELOX_SCRIPT_HOME/setup-openeuler24.sh ;;
       *)
         echo "Unsupported openEuler version: $LINUX_VERSION_ID"
         exit 1
@@ -253,13 +253,13 @@ function setup_linux {
   elif [[ "$LINUX_DISTRIBUTION" == "alinux" ]]; then
     case "${LINUX_VERSION_ID:0:1}" in
     2)
-      source $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
+      $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
       set +u
       export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
       source /opt/rh/devtoolset-11/enable
       set -u
       ;;
-    3) source $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
+    3) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
     *)
       echo "Unsupported alinux version: $LINUX_VERSION_ID"
       exit 1
@@ -268,13 +268,13 @@ function setup_linux {
   elif [[ "$LINUX_DISTRIBUTION" == "tencentos" ]]; then
     case "$LINUX_VERSION_ID" in
     2.4)
-        source $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
+        $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
         set +u
         export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
         source /opt/rh/devtoolset-11/enable
         set -u
         ;;
-    3.2) source $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
+    3.2) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
     *)
       echo "Unsupported tencentos version: $LINUX_VERSION_ID"
       exit 1
@@ -284,7 +284,7 @@ function setup_linux {
     "$LINUX_DISTRIBUTION" == "almalinux" ]]; then
     case "${LINUX_VERSION_ID%%.*}" in
     9)
-      source $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh ;;
+      $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh ;;
     *)
       echo "Unsupported ${LINUX_DISTRIBUTION} version: $LINUX_VERSION_ID"
       exit 1
