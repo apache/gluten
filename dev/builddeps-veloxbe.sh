@@ -289,7 +289,7 @@ function get_velox {
 }
 
 function setup_dependencies {
-  DEPENDENCY_DIR=${DEPENDENCY_DIR:-$CURRENT_DIR/../ep/_ep}
+  export DEPENDENCY_DIR=${DEPENDENCY_DIR:-$CURRENT_DIR/../ep/_ep}
   mkdir -p ${DEPENDENCY_DIR}
 
   source $GLUTEN_DIR/dev/build-helper-functions.sh
