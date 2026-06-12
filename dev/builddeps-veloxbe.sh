@@ -297,6 +297,9 @@ function setup_dependencies {
 
   echo "Start to install dependencies"
   pushd $VELOX_HOME
+
+  # set GIT_CEILING_DIRECTORIES to make `git apply` work as expected.
+  export GIT_CEILING_DIRECTORIES=${DEPENDENCY_DIR}
   if [ $OS == 'Linux' ]; then
     setup_linux
   elif [ $OS == 'Darwin' ]; then
@@ -315,6 +318,8 @@ function setup_dependencies {
     export AZURE_SDK_DISABLE_AUTO_VCPKG=ON
     install_azure_storage_sdk_cpp
   fi
+  unset GIT_CEILING_DIRECTORIES
+
   popd
 }
 
