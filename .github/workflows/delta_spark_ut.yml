@@ -97,7 +97,7 @@ env:
   # high-duration suites across shards by estimated duration, so doubling the
   # shard count roughly halves per-shard wall time and lets every shard finish
   # (and thus report its results) within the timeout. We keep
-  # TEST_PARALLELISM_COUNT=1 because each forked test JVM uses ~8G (6G heap +
+  # TEST_PARALLELISM_COUNT=1 because each forked test JVM uses ~10G (8G heap +
   # 2G off-heap) and >1 would OOM the runner.
   DELTA_NUM_SHARDS: '16'
 
@@ -360,18 +360,25 @@ jobs:
           # `sparkGroup` aggregates many other projects (sparkV2, contribs,
           # sharing, connect*, ...) that are out of scope for this pipeline.
           #
-          # JVM heap layout:
-          # * sbt launcher JVM: -J-Xmx4G (was 6G; trimmed to leave more
-          #   headroom for the forked test JVM on the 16 GB GH runner).
-          #   sbt only compiles tests + orchestrates fork; 4G is comfortable.
-          # * Forked test JVM:  -Xmx6G via the `set ... Test / javaOptions`
+          # JVM heap layout (16 GB ubuntu-22.04 runner, TEST_PARALLELISM=1):
+          # * sbt launcher JVM: -J-Xmx4G. sbt only compiles tests + orchestrates
+          #   the fork; 4G is comfortable and its RSS is well under 4G during the
+          #   (long) test phase, when the fork is the memory peak.
+          # * Forked test JVM:  -Xmx8G via the `set ... Test / javaOptions`
           #   command below. Delta v4.2.0 caps its test fork at `-Xmx1024m`
           #   in build.sbt -- way too tight once Gluten Velox / Arrow / JNI
-          #   are loaded on top. Without this, a DV+CDC merge suite OOMs
-          #   inside RoaringBitmapArray.extendBitmaps. The `++=` appends to
-          #   Delta's own Test/javaOptions seq so our `-Xmx6G` comes AFTER
-          #   `-Xmx1024m` and wins (last `-Xmx` wins). We also turn on heap
-          #   dump on OOM so if it happens again we can analyze the dump.
+          #   are loaded on top. A DV+CDC merge suite allocates a large
+          #   RoaringBitmapArray.extendBitmaps backing array; at -Xmx6G it still
+          #   OOMed (`java.lang.OutOfMemoryError: Java heap space`), and that OOM
+          #   corrupts Velox memory-manager state -> `terminate` (SIGABRT) ->
+          #   the whole forked JVM dies mid-shard, so every remaining suite in
+          #   the shard is reported aborted (a false "regression" cascade in the
+          #   gate). 8G is the safe ceiling here: 8G heap + ~2G Velox off-heap +
+          #   ~1G JVM overhead ~= 11G fork RSS, leaving headroom under 16G. The
+          #   `++=` appends to Delta's own Test/javaOptions seq so our `-Xmx8G`
+          #   comes AFTER `-Xmx1024m` and wins (last `-Xmx` wins). We also keep
+          #   heap-dump-on-OOM so a recurrence (which would mean an allocation
+          #   >8G, i.e. a pathological test to identify+exclude) can be analyzed.
           # `-u target/test-reports` enables ScalaTest's JUnit XML reporter so
           # every suite writes per-test results. Delta itself only configures
           # the console reporter (-oDF), so without this we'd have no machine-
@@ -390,7 +397,7 @@ jobs:
             -v \
             -J-XX:+UseG1GC -J-Xmx4G \
             "++ ${DELTA_SCALA_VERSION}" \
-            'set spark / Test / javaOptions ++= Seq("-Xmx6G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
+            'set spark / Test / javaOptions ++= Seq("-Xmx8G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
             'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
             "spark/test"
           SBT_EXIT=$?
