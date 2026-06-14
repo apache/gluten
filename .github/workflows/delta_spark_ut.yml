@@ -89,7 +89,17 @@ env:
   DELTA_SCALA_VERSION: '2.13.16'
   # Number of shards in the delta-spark-test matrix. Must equal the length of
   # the `shard` matrix below.
-  DELTA_NUM_SHARDS: '8'
+  #
+  # Set to 16 (not 8): at 8-way, ~5 of the 8 shards consistently exceed the
+  # 300-min job timeout because Delta's generated merge/CDC/DV suites are very
+  # slow under Gluten (observed in run 16: shards 0,1,2,3,6 all hit the 300-min
+  # cap while 4,5,7 finished in <130 min). Delta's GreedyHashStrategy balances
+  # high-duration suites across shards by estimated duration, so doubling the
+  # shard count roughly halves per-shard wall time and lets every shard finish
+  # (and thus report its results) within the timeout. We keep
+  # TEST_PARALLELISM_COUNT=1 because each forked test JVM uses ~8G (6G heap +
+  # 2G off-heap) and >1 would OOM the runner.
+  DELTA_NUM_SHARDS: '16'
 
 concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
@@ -207,12 +217,12 @@ jobs:
     needs: build-gluten-bundle
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk17
-    timeout-minutes: 300
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
         # Length of this list MUST equal env.DELTA_NUM_SHARDS.
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     env:
       # Mirror Delta's spark_test.yaml env vars used by run-tests.py /
       # TestParallelization.scala.
