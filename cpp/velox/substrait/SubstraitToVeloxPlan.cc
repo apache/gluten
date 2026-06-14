@@ -19,6 +19,8 @@
 
 #include "TypeUtils.h"
 #include "VariantToVectorConverter.h"
+#include "compute/delta/DeltaConnector.h"
+#include "compute/delta/DeltaSplitInfo.h"
 #include "jni/JniHashTable.h"
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
@@ -28,6 +30,7 @@
 
 #include "utils/ConfigExtractor.h"
 #include "utils/ObjectStore.h"
+#include "utils/VeloxArrowUtils.h"
 #include "utils/VeloxWriterUtils.h"
 
 #include "config.pb.h"
@@ -55,6 +58,12 @@ bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfo
 #else
   return false;
 #endif
+}
+
+// Delta scans are recognized structurally: parsing the substrait delta file format case yields a
+// typed DeltaSplitInfo.
+bool isDeltaSplitInfo(const std::shared_ptr<SplitInfo>& splitInfo) {
+  return std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo) != nullptr;
 }
 
 core::SortOrder toSortOrder(const ::substrait::SortField& sortField) {
@@ -1574,8 +1583,9 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
   connector::ConnectorTableHandlePtr tableHandle;
   auto remainingFilter = readRel.has_filter() ? exprConverter_->toVeloxExpr(readRel.filter(), baseSchema) : nullptr;
-  auto connectorId = connectorIds_.hive;
-  if (useCudfTableHandle(splitInfos_) && veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
+  auto connectorId = isDeltaSplitInfo(splitInfo) ? connectorIds_.delta : connectorIds_.hive;
+  if (connectorId == connectorIds_.hive && useCudfTableHandle(splitInfos_) &&
+      veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
 #ifdef GLUTEN_ENABLE_GPU
     connectorId = connectorIds_.cudfHive;

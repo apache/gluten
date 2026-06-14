@@ -15,9 +15,13 @@
  * limitations under the License.
  */
 #include "WholeStageResultIterator.h"
+#include <optional>
 #include "VeloxBackend.h"
 #include "VeloxPlanConverter.h"
 #include "VeloxRuntime.h"
+#include "compute/delta/DeltaConnector.h"
+#include "compute/delta/DeltaSplit.h"
+#include "compute/delta/DeltaSplitInfo.h"
 #include "config/VeloxConfig.h"
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
@@ -69,6 +73,36 @@ const std::string kWriteIOTime = "writeIOWallNanos";
 
 // others
 const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
+const std::string kDeltaTableFormat = "delta";
+
+const velox::core::TableScanNode* findTableScanNodeById(
+    const std::shared_ptr<const velox::core::PlanNode>& planNode,
+    const velox::core::PlanNodeId& nodeId) {
+  if (planNode == nullptr) {
+    return nullptr;
+  }
+
+  if (planNode->id() == nodeId) {
+    return dynamic_cast<const velox::core::TableScanNode*>(planNode.get());
+  }
+
+  for (const auto& source : planNode->sources()) {
+    if (const auto* found = findTableScanNodeById(source, nodeId)) {
+      return found;
+    }
+  }
+  return nullptr;
+}
+
+std::string connectorIdForScanNode(
+    const std::shared_ptr<const velox::core::PlanNode>& planNode,
+    const velox::core::PlanNodeId& nodeId) {
+  const auto* tableScanNode = findTableScanNodeById(planNode, nodeId);
+  if (tableScanNode == nullptr) {
+    return "";
+  }
+  return tableScanNode->tableHandle()->connectorId();
+}
 
 } // namespace
 
@@ -134,7 +168,8 @@ WholeStageResultIterator::WholeStageResultIterator(
     throw std::runtime_error("Invalid scan information.");
   }
 
-  for (const auto& scanInfo : scanInfos) {
+  for (size_t scanInfoIdx = 0; scanInfoIdx < scanInfos.size(); ++scanInfoIdx) {
+    const auto& scanInfo = scanInfos[scanInfoIdx];
     // Get the information for TableScan.
     // Partition index in scan info is not used.
     const auto& paths = scanInfo->paths;
@@ -144,6 +179,9 @@ WholeStageResultIterator::WholeStageResultIterator(
     const auto& format = scanInfo->format;
     const auto& partitionColumns = scanInfo->partitionColumns;
     const auto& metadataColumns = scanInfo->metadataColumns;
+    const auto scanNodeConnectorId = connectorIdForScanNode(veloxPlan_, scanNodeIds_[scanInfoIdx]);
+    const auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(scanInfo);
+    const bool isDeltaScan = scanNodeConnectorId == connectorIds_.delta || deltaSplitInfo != nullptr;
 #ifdef GLUTEN_ENABLE_GPU
     // Under the pre-condition that all the split infos has same partition column and format.
     const auto canUseCudfConnector = scanInfo->canUseCudfConnector();
@@ -177,10 +215,37 @@ WholeStageResultIterator::WholeStageResultIterator(
             deleteFiles,
             metadataColumn,
             properties[idx]);
+      } else if (isDeltaScan) {
+        std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", kDeltaTableFormat}};
+        std::optional<gluten::delta::DeltaDeletionVectorDescriptor> deletionVector = std::nullopt;
+        auto rowIndexFilterType = gluten::delta::DeltaRowIndexFilterType::kKeepAll;
+        if (deltaSplitInfo != nullptr) {
+          VELOX_USER_CHECK_LT(idx, deltaSplitInfo->deletionVectors.size());
+          VELOX_USER_CHECK_LT(idx, deltaSplitInfo->rowIndexFilterTypes.size());
+          deletionVector = deltaSplitInfo->deletionVectors[idx];
+          rowIndexFilterType = deltaSplitInfo->rowIndexFilterTypes[idx];
+        }
+        split = std::make_shared<gluten::delta::HiveDeltaSplit>(
+            connectorIds_.delta,
+            paths[idx],
+            format,
+            starts[idx],
+            lengths[idx],
+            partitionKeys,
+            std::nullopt,
+            customSplitInfo,
+            nullptr,
+            std::unordered_map<std::string, std::string>(),
+            true,
+            deletionVector,
+            std::nullopt,
+            rowIndexFilterType,
+            metadataColumn,
+            properties[idx]);
       } else {
         auto connectorId = connectorIds_.hive;
 #ifdef GLUTEN_ENABLE_GPU
-        if (canUseCudfConnector && enableCudf_ &&
+        if (connectorId == connectorIds_.hive && canUseCudfConnector && enableCudf_ &&
             veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault)) {
           connectorId = connectorIds_.cudfHive;
         }

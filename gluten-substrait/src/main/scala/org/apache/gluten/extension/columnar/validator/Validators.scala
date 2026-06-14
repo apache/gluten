@@ -246,14 +246,11 @@ object Validators {
       }
       .getOrElse(true)
 
-    override def validate(plan: SparkPlan): Validator.OutCome = {
-      if (!enableValidation) {
-        // Validation is disabled, allow TimestampNTZ
-        return pass()
-      }
+    private val backendSupportsTimestampNtz = BackendsApiManager.getSettings.supportTimestampNtz
 
+    override def validate(plan: SparkPlan): Validator.OutCome = {
       def containsNTZ(dataType: DataType): Boolean = dataType match {
-        case dt if dt.catalogString == "timestamp_ntz" => true
+        case dt if dt.typeName == "timestamp_ntz" => true
         case st: StructType => st.exists(f => containsNTZ(f.dataType))
         case at: ArrayType => containsNTZ(at.elementType)
         case mt: MapType => containsNTZ(mt.keyType) || containsNTZ(mt.valueType)
@@ -261,11 +258,23 @@ object Validators {
       }
       val hasNTZ = plan.output.exists(a => containsNTZ(a.dataType)) ||
         plan.children.exists(_.output.exists(a => containsNTZ(a.dataType)))
-      if (hasNTZ) {
-        fail(s"${plan.nodeName} has TimestampNTZType in input/output schema")
-      } else {
-        pass()
+      if (!hasNTZ) {
+        return pass()
       }
+
+      if (!enableValidation && backendSupportsTimestampNtz) {
+        // Validation is disabled, allow supported operators.
+        val isScan = plan match {
+          case _: BatchScanExec => true
+          case _: FileSourceScanExec => true
+          case p if HiveTableScanExecTransformer.isHiveTableScan(p) => true
+          case _ => false
+        }
+        if (isScan) {
+          return pass()
+        }
+      }
+      fail(s"${plan.nodeName} has TimestampNTZType in input/output schema")
     }
   }
 

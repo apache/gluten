@@ -78,6 +78,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // NEW SUITE: disable as it expects exception which doesn't happen when offloaded to gluten
     .exclude(
       "INCONSISTENT_BEHAVIOR_CROSS_VERSION: compatibility with Spark 2.4/3.2 in reading/writing dates")
+    // Different exceptions when reading Timestamp from ORC.
+    .exclude("UNSUPPORTED_OPERATION - SPARK-36346: can't read Timestamp as TimestampNTZ")
   enableSuite[GlutenQueryParsingErrorsSuite]
   enableSuite[GlutenAnsiCastSuiteWithAnsiModeOff]
     .exclude(
@@ -469,6 +471,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite because the filter after datasource is not needed.
     .exclude(
       "SPARK-26677: negated null-safe equality comparison should not filter matched row groups")
+    // Velox currently does not distinguish `isAdjustedToUTC` in Parquet.
+    .exclude("SPARK-36182: can't read TimestampLTZ as TimestampNTZ")
   enableSuite[GlutenParquetV2QuerySuite]
     // Unsupport spark.sql.files.ignoreCorruptFiles.
     .exclude("Enabling/disabling ignoreCorruptFiles")
@@ -477,6 +481,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite because the filter after datasource is not needed.
     .exclude(
       "SPARK-26677: negated null-safe equality comparison should not filter matched row groups")
+    // Velox currently does not distinguish `isAdjustedToUTC` in Parquet.
+    .exclude("SPARK-36182: can't read TimestampLTZ as TimestampNTZ")
   enableSuite[GlutenParquetV1SchemaPruningSuite]
   enableSuite[GlutenParquetV2SchemaPruningSuite]
   enableSuite[GlutenParquetRebaseDatetimeV1Suite]
@@ -623,6 +629,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("InMemoryRelation statistics")
     // Extra ColumnarToRow is needed to transform vanilla columnar data to gluten columnar data.
     .exclude("SPARK-37369: Avoid redundant ColumnarToRow transition on InMemoryTableScan")
+    // Rewrite for different cache size.
+    .exclude("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenFileSourceCharVarcharTestSuite]
     // Following test is excluded as it is overridden in Gluten test suite..
     // The overridden tests assert against Velox-specific error messages for char/varchar

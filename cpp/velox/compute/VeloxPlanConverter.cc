@@ -17,8 +17,13 @@
 
 #include "VeloxPlanConverter.h"
 #include <filesystem>
+#include <limits>
+#include <optional>
 
+#include <google/protobuf/any.pb.h>
+#include <google/protobuf/wrappers.pb.h>
 #include "config/GlutenConfig.h"
+#include "delta/DeltaSplitInfo.h"
 #include "iceberg/IcebergPlanConverter.h"
 #include "operators/plannodes/IteratorSplit.h"
 
@@ -48,6 +53,87 @@ VeloxPlanConverter::VeloxPlanConverter(
 }
 
 namespace {
+std::optional<std::string> unpackMetadataValue(const google::protobuf::Any& value) {
+  google::protobuf::BytesValue bytesValue;
+  if (value.UnpackTo(&bytesValue)) {
+    return bytesValue.value();
+  }
+
+  google::protobuf::StringValue stringValue;
+  if (value.UnpackTo(&stringValue)) {
+    return stringValue.value();
+  }
+
+  google::protobuf::Int32Value int32Value;
+  if (value.UnpackTo(&int32Value)) {
+    return std::to_string(int32Value.value());
+  }
+
+  google::protobuf::Int64Value int64Value;
+  if (value.UnpackTo(&int64Value)) {
+    return std::to_string(int64Value.value());
+  }
+
+  google::protobuf::DoubleValue doubleValue;
+  if (value.UnpackTo(&doubleValue)) {
+    return std::to_string(doubleValue.value());
+  }
+
+  // Matches the string encoding the JVM side uses for booleans, which are packed through
+  // SubstraitUtil.convertJavaObjectToAny's toString fallback rather than as BoolValue.
+  google::protobuf::BoolValue boolValue;
+  if (value.UnpackTo(&boolValue)) {
+    return boolValue.value() ? "true" : "false";
+  }
+
+  return std::nullopt;
+}
+
+delta::DeltaRowIndexFilterType parseDeltaRowIndexFilterType(int filterType) {
+  switch (filterType) {
+    case 1:
+      return delta::DeltaRowIndexFilterType::kIfContained;
+    case 2:
+      return delta::DeltaRowIndexFilterType::kIfNotContained;
+    case 0:
+    default:
+      return delta::DeltaRowIndexFilterType::kKeepAll;
+  }
+}
+
+std::shared_ptr<DeltaSplitInfo> parseDeltaSplitInfo(
+    const substrait::ReadRel_LocalFiles_FileOrFiles& file,
+    std::shared_ptr<SplitInfo> splitInfo) {
+  auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo)
+      ? std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo)
+      : std::make_shared<DeltaSplitInfo>(*splitInfo);
+
+  deltaSplitInfo->format = dwio::common::FileFormat::PARQUET;
+  const auto& deltaReadOptions = file.delta();
+  deltaSplitInfo->rowIndexFilterTypes.emplace_back(
+      parseDeltaRowIndexFilterType(deltaReadOptions.row_index_filter_type()));
+
+  if (!deltaReadOptions.has_deletion_vector()) {
+    deltaSplitInfo->deletionVectors.emplace_back(std::nullopt);
+    return deltaSplitInfo;
+  }
+
+  auto serializedPayload = deltaReadOptions.serialized_deletion_vector();
+  VELOX_USER_CHECK(!serializedPayload.empty(), "Delta split has a deletion vector without a serialized payload");
+  VELOX_USER_CHECK_LE(
+      serializedPayload.size(),
+      static_cast<size_t>(std::numeric_limits<int32_t>::max()),
+      "Delta deletion vector serialized payload is too large");
+  const auto cardinality = static_cast<uint64_t>(deltaReadOptions.deletion_vector_cardinality());
+  auto payload = std::make_shared<std::string>(std::move(serializedPayload));
+  const SplitPayloadBufferView payloadView{
+      reinterpret_cast<const uint8_t*>(payload->data()), static_cast<int32_t>(payload->size())};
+  deltaSplitInfo->deletionVectors.emplace_back(
+      delta::DeltaDeletionVectorDescriptor::serialized(cardinality, payloadView));
+  deltaSplitInfo->deletionVectorPayloads.emplace_back(std::move(payload));
+  return deltaSplitInfo;
+}
+
 std::shared_ptr<SplitInfo> parseScanSplitInfo(
     const facebook::velox::config::ConfigBase* veloxCfg,
     const google::protobuf::RepeatedPtrField<substrait::ReadRel_LocalFiles_FileOrFiles>& fileList) {
@@ -74,6 +160,11 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
     std::unordered_map<std::string, std::string> metadataColumnMap;
     for (const auto& metadataColumn : file.metadata_columns()) {
       metadataColumnMap[metadataColumn.key()] = metadataColumn.value();
+    }
+    for (const auto& otherMetadataColumn : file.other_const_metadata_columns()) {
+      if (auto unpackedValue = unpackMetadataValue(otherMetadataColumn.value())) {
+        metadataColumnMap[otherMetadataColumn.key()] = std::move(*unpackedValue);
+      }
     }
     splitInfo->metadataColumns.emplace_back(metadataColumnMap);
 
@@ -102,6 +193,9 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
         break;
       case SubstraitFileFormatCase::kIceberg:
         splitInfo = IcebergPlanConverter::parseIcebergSplitInfo(file, std::move(splitInfo));
+        break;
+      case SubstraitFileFormatCase::kDelta:
+        splitInfo = parseDeltaSplitInfo(file, std::move(splitInfo));
         break;
       default:
         splitInfo->format = dwio::common::FileFormat::UNKNOWN;
