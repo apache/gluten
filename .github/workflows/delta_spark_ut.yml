@@ -46,6 +46,16 @@ on:
         description: 'Forked test JVMs per shard (TEST_PARALLELISM_COUNT)'
         required: true
         default: '1'
+      update_baseline:
+        description: 'Seed/refresh the known-failures baseline instead of enforcing it'
+        type: boolean
+        required: false
+        default: false
+      fail_on_fixed:
+        description: 'Fail when a baseline test now passes (keeps the baseline honest)'
+        type: boolean
+        required: false
+        default: true
   pull_request:
     paths:
       - '.github/workflows/delta_spark_ut.yml'
@@ -71,6 +81,11 @@ env:
   DELTA_REF_DEFAULT: 'v4.2.0'
   DELTA_SPARK_VERSION_DEFAULT: '4.1'
   DELTA_TEST_PARALLELISM_DEFAULT: '1'
+  # Default mode for pull_request runs (where inputs.* is empty): enforce the
+  # committed baseline and fail when a baseline test starts passing. Override
+  # via the workflow_dispatch inputs above.
+  DELTA_UPDATE_BASELINE_DEFAULT: 'false'
+  DELTA_FAIL_ON_FIXED_DEFAULT: 'true'
   DELTA_SCALA_VERSION: '2.13.16'
   # Number of shards in the delta-spark-test matrix. Must equal the length of
   # the `shard` matrix below.
@@ -212,13 +227,19 @@ jobs:
           delta_ref='${{ github.event.inputs.delta_ref }}'
           spark_version='${{ github.event.inputs.spark_version }}'
           test_parallelism='${{ github.event.inputs.test_parallelism }}'
+          update_baseline='${{ github.event.inputs.update_baseline }}'
+          fail_on_fixed='${{ github.event.inputs.fail_on_fixed }}'
           : "${delta_ref:=${DELTA_REF_DEFAULT}}"
           : "${spark_version:=${DELTA_SPARK_VERSION_DEFAULT}}"
           : "${test_parallelism:=${DELTA_TEST_PARALLELISM_DEFAULT}}"
+          : "${update_baseline:=${DELTA_UPDATE_BASELINE_DEFAULT}}"
+          : "${fail_on_fixed:=${DELTA_FAIL_ON_FIXED_DEFAULT}}"
           {
             echo "delta_ref=${delta_ref}"
             echo "spark_version=${spark_version}"
             echo "test_parallelism=${test_parallelism}"
+            echo "update_baseline=${update_baseline}"
+            echo "fail_on_fixed=${fail_on_fixed}"
           } | tee -a "$GITHUB_OUTPUT"
 
       - name: Download Gluten bundle jar
@@ -235,7 +256,7 @@ jobs:
           # launcher needs). Install the rest of what Delta's build/sbt and the
           # tests may need. We deliberately do NOT install the full `curl`
           # package -- it conflicts with the pre-installed curl-minimal.
-          yum install -y java-17-openjdk-devel which findutils gzip
+          yum install -y java-17-openjdk-devel which findutils gzip python3
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -341,13 +362,54 @@ jobs:
           #   Delta's own Test/javaOptions seq so our `-Xmx6G` comes AFTER
           #   `-Xmx1024m` and wins (last `-Xmx` wins). We also turn on heap
           #   dump on OOM so if it happens again we can analyze the dump.
+          # `-u target/test-reports` enables ScalaTest's JUnit XML reporter so
+          # every suite writes per-test results. Delta itself only configures
+          # the console reporter (-oDF), so without this we'd have no machine-
+          # readable results to gate on. The path is relative to the forked
+          # test JVM's working dir (Test / baseDirectory = spark/), i.e.
+          # delta/spark/target/test-reports/TEST-*.xml.
+          #
+          # We deliberately do NOT let an sbt non-zero exit (which fires on the
+          # MANY expected Delta-on-Gluten failures) fail this step directly.
+          # Instead the known-failures gate below decides pass/fail: the build
+          # is green when the only failures are ones already recorded in the
+          # baseline, and red on a genuine regression.
+          set +e
           ./build/sbt \
             -DsparkVersion=${{ steps.resolve.outputs.spark_version }} \
             -v \
             -J-XX:+UseG1GC -J-Xmx4G \
             "++ ${DELTA_SCALA_VERSION}" \
             'set spark / Test / javaOptions ++= Seq("-Xmx6G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
+            'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
             "spark/test"
+          SBT_EXIT=$?
+          set -e
+          echo "sbt spark/test exited with ${SBT_EXIT}"
+
+          # A compile/launch failure leaves no reports at all. In that case the
+          # gate would see zero failures and pass spuriously, so fail loudly.
+          REPORT_COUNT=$(find . -path '*/target/test-reports/*.xml' 2>/dev/null | wc -l || true)
+          echo "Found ${REPORT_COUNT} JUnit XML report file(s)."
+          if [ "${REPORT_COUNT}" -eq 0 ]; then
+            echo "::error::sbt produced no test reports (exit ${SBT_EXIT}) -- likely a compile or launch failure, not test failures."
+            exit 1
+          fi
+
+          # update_baseline=true -> SEED mode (record failures, never fail) so the
+          # baseline can be (re)generated. Otherwise ENFORCE against the baseline.
+          GATE_MODE=enforce
+          if [ "${{ steps.resolve.outputs.update_baseline }}" = "true" ]; then
+            GATE_MODE=seed
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/gate-out"
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/compare-test-results.py" \
+            --mode "${GATE_MODE}" \
+            --reports-dir "$GITHUB_WORKSPACE/delta" \
+            --known-failures "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/known-failures.txt" \
+            --failures-out "$GITHUB_WORKSPACE/gate-out/failures-shard-${{ matrix.shard }}.txt" \
+            --ran-out "$GITHUB_WORKSPACE/gate-out/ran-shard-${{ matrix.shard }}.txt" \
+            --fail-on-fixed "${{ steps.resolve.outputs.fail_on_fixed }}"
 
       - name: Compress heap dumps (if any)
         if: ${{ failure() }}
@@ -363,6 +425,14 @@ jobs:
           else
             echo "No heap dumps found in /tmp/."
           fi
+
+      - name: Upload per-shard gate lists
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-gate-lists-shard-${{ matrix.shard }}
+          path: gate-out/*.txt
+          if-no-files-found: warn
 
       - name: Upload test reports
         if: always()
@@ -386,3 +456,37 @@ jobs:
             /tmp/*.hprof
             /tmp/*.hprof.gz
           if-no-files-found: ignore
+
+  # Merges every shard's failure/ran lists into a single, sorted, ready-to-commit
+  # known-failures.txt and reports global regressions / now-passing / stale
+  # entries. Runs even when some shards went red (if: always()) so the refreshed
+  # baseline artifact is always available -- this is what you download and commit
+  # to bootstrap or refresh the baseline (see util/delta-spark-ut/README.md).
+  delta-spark-aggregate:
+    needs: delta-spark-test
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download per-shard gate lists
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: delta-spark-ut-gate-lists-shard-*
+          path: gate-lists
+          merge-multiple: true
+      - name: Aggregate known failures
+        run: |
+          set -euo pipefail
+          python3 .github/workflows/util/delta-spark-ut/compare-test-results.py \
+            --mode aggregate \
+            --inputs-dir gate-lists \
+            --known-failures .github/workflows/util/delta-spark-ut/known-failures.txt \
+            --baseline-out aggregated/known-failures.txt
+      - name: Upload refreshed baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-known-failures
+          path: aggregated/known-failures.txt
+          if-no-files-found: warn

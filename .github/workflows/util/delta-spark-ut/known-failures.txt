@@ -1,0 +1,29 @@
+# Known Delta-on-Gluten unit test failures.
+#
+# This is the baseline of delta-io/delta `spark` ScalaTest tests that are
+# currently EXPECTED to fail when run against the Gluten Velox bundle. The
+# Delta Spark UT (Gluten) workflow compares each run against this list:
+#
+#   * a failing test that is NOT listed here  -> REGRESSION (fails CI),
+#   * a failing test that IS listed here       -> expected (ignored),
+#   * a listed test that now PASSES            -> remove it from this file.
+#
+# Format (one test per line):
+#
+#   <fully.qualified.SuiteName>#<test display name>
+#
+# The suite is a JVM class name, so the FIRST '#' separates the suite from the
+# (possibly '#'-containing) test name. Lines starting with '#' are comments.
+#
+# This file is empty until the baseline is bootstrapped. While it is empty the
+# workflow runs in SEED mode (it never fails, it only records failures). To
+# populate it, run the "Delta Spark UT (Gluten)" workflow with
+# `update_baseline=true`, download the `delta-spark-ut-known-failures` artifact,
+# and commit its contents over this file. After that, every run enforces the
+# baseline.
+#
+# See README.md in this directory for the full workflow.
+#
+# ---------------------------------------------------------------------------
+# BEGIN known failures (sorted, one per line)
+# ---------------------------------------------------------------------------
