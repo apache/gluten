@@ -214,4 +214,13 @@ class GlutenTryCastSuite extends TryCastSuite with GlutenTestsTrait {
         }
     }
   }
+
+  testGluten("SPARK-39749: cast Decimal to string") {
+    withSQLConf(
+      "spark.sql.ansi.enabled" -> "true",
+      "spark.gluten.sql.ansiFallback.enabled" -> "false") {
+      val input = Literal.create(Decimal(0.000000123), DecimalType(9, 9))
+      checkEvaluation(cast(input, StringType), "0.000000123")
+    }
+  }
 }
