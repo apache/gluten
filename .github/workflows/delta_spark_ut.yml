@@ -392,6 +392,59 @@ jobs:
           # is green when the only failures are ones already recorded in the
           # baseline, and red on a genuine regression.
           set +e
+          # --- hang watchdog ---------------------------------------------------
+          # Shard 2 (and occasionally others) hangs indefinitely after a suite's
+          # last test with no further output. ScalaTest's failAfter only wraps
+          # individual test BODIES, so a wedge in suite teardown/afterAll -- or in
+          # a non-interruptible native Velox/JNI call that ignores
+          # Thread.interrupt() -- has no timeout and stalls until the 350-min job
+          # limit with zero diagnostics. This watchdog dumps the forked test JVM's
+          # threads (to the job log, and to a file for the artifact) once the test
+          # output has been silent for too long, so the deadlock is diagnosable.
+          SBT_LOG="/tmp/sbt-spark-test-shard-${{ matrix.shard }}.log"
+          : > "$SBT_LOG"
+          rm -f /tmp/sbt-done
+          (
+            JSTACK="${JAVA_HOME}/bin/jstack"
+            silent_limit=900   # 15 min with no new test output => treat as hung
+            dumps=0
+            find_fork() {
+              # The sbt test fork is a `java` process whose main class is
+              # sbt.ForkMain. Recent sbt passes args via an @argfile, so ForkMain
+              # is not on the cmdline -- read the argfile too. Require comm=java so
+              # this never matches the watchdog's own shell/grep (whose cmdline
+              # also contains the literal "sbt.ForkMain").
+              local p cl arg
+              for p in /proc/[0-9]*; do
+                [ "$(cat "$p/comm" 2>/dev/null)" = "java" ] || continue
+                cl="$(tr '\0' '\n' < "$p/cmdline" 2>/dev/null)"
+                printf '%s\n' "$cl" | grep -qa 'sbt\.ForkMain' && { basename "$p"; return 0; }
+                arg="$(printf '%s\n' "$cl" | sed -n 's/^@//p' | head -1)"
+                [ -n "$arg" ] && [ -f "$arg" ] && grep -qa 'sbt\.ForkMain' "$arg" 2>/dev/null \
+                  && { basename "$p"; return 0; }
+              done
+              return 1
+            }
+            while [ ! -f /tmp/sbt-done ]; do
+              sleep 120
+              [ -f "$SBT_LOG" ] || continue
+              now=$(date +%s)
+              mtime=$(stat -c %Y "$SBT_LOG" 2>/dev/null || echo "$now")
+              silent=$(( now - mtime ))
+              if [ "$silent" -ge "$silent_limit" ] && [ "$dumps" -lt 3 ]; then
+                pid="$(find_fork || true)"
+                if [ -n "$pid" ]; then
+                  dumps=$(( dumps + 1 ))
+                  dump="/tmp/threaddump-shard-${{ matrix.shard }}-${dumps}.txt"
+                  echo "::group::HANG WATCHDOG: forked test JVM ${pid} silent ${silent}s -- thread dump #${dumps}"
+                  "$JSTACK" -l "$pid" 2>&1 | tee "$dump"
+                  echo "::endgroup::"
+                fi
+              fi
+            done
+          ) &
+          WATCHDOG_PID=$!
+
           ./build/sbt \
             -DsparkVersion=${{ steps.resolve.outputs.spark_version }} \
             -v \
@@ -399,8 +452,10 @@ jobs:
             "++ ${DELTA_SCALA_VERSION}" \
             'set spark / Test / javaOptions ++= Seq("-Xmx8G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
             'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
-            "spark/test"
-          SBT_EXIT=$?
+            "spark/test" 2>&1 | tee "$SBT_LOG"
+          SBT_EXIT=${PIPESTATUS[0]}
+          touch /tmp/sbt-done
+          kill "$WATCHDOG_PID" 2>/dev/null || true
           set -e
           echo "sbt spark/test exited with ${SBT_EXIT}"
 
@@ -460,6 +515,14 @@ jobs:
             delta/**/target/test-reports/**/*.xml
             delta/**/target/surefire-reports/**/*.xml
           if-no-files-found: warn
+
+      - name: Upload hang watchdog thread dumps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-threaddumps-shard-${{ matrix.shard }}
+          path: /tmp/threaddump-shard-${{ matrix.shard }}-*.txt
+          if-no-files-found: ignore
 
       - name: Upload JVM crash logs and other failure artifacts
         if: ${{ failure() }}
