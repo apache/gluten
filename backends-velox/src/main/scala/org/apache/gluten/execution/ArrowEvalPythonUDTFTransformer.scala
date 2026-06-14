@@ -54,11 +54,23 @@ case class ArrowEvalPythonUDTFTransformer(
     resultAttrs: Seq[Attribute],
     child: SparkPlan,
     evalType: Int)
-  extends UnaryExecNode {
+  extends UnaryExecNode with ValidatablePlan {
+
+  override def batchType(): Convention.BatchType = ArrowJavaBatchType
+
+  override def rowType(): Convention.RowType = Convention.RowType.None
 
   override def output: Seq[Attribute] = requiredChildOutput ++ resultAttrs
 
   override def producedAttributes: AttributeSet = AttributeSet(resultAttrs)
+
+  override protected def doValidateInternal(): ValidationResult = {
+    super.doValidateInternal()
+  }
+  
+  override def requiredChildConvention(): Seq[ConventionReq] = {
+    Seq(ConventionReq.vanillaRow)
+  }
 
   private val batchSize = conf.arrowMaxRecordsPerBatch
   private val sessionLocalTimeZone = conf.sessionLocalTimeZone
