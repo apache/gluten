@@ -364,22 +364,24 @@ jobs:
           # * sbt launcher JVM: -J-Xmx4G. sbt only compiles tests + orchestrates
           #   the fork; 4G is comfortable and its RSS is well under 4G during the
           #   (long) test phase, when the fork is the memory peak.
-          # * Forked test JVM:  -Xmx4G via the `set ... Test / javaOptions` command
-          #   below. Delta v4.2.0 caps its test fork at `-Xmx1024m` in build.sbt --
-          #   too tight once Gluten Velox / Arrow / JNI are loaded on top.
-          #   HISTORY: this was briefly bumped to 8G to absorb a DV+CDC merge
-          #   suite's giant RoaringBitmapArray.extendBitmaps heap allocation, but
-          #   that allocation was a Gluten bug (garbage native _metadata.row_index)
-          #   FIXED UPSTREAM by #12269's Velox row-index changes -- so the 8G is no
-          #   longer needed. Worse, 8G fork heap + 4G sbt launcher + a GROWING Velox
-          #   off-heap pool was tipping the ~16G runner over and the kernel
-          #   OOM-killed the forked JVM mid-shard (sudden death, no hs_err / no heap
-          #   dump), which wedged sbt's main process forever in ScalaTestRunner.done
-          #   -> Thread.join (the chronic "shard 2 hang"). 4G heap leaves ~4G more
-          #   for Velox's off-heap allocations. The `++=` appends to Delta's own
-          #   Test/javaOptions seq so our `-Xmx4G` comes AFTER `-Xmx1024m` and wins
-          #   (last `-Xmx` wins). Keep heap-dump-on-OOM so a genuine >4G heap OOM
-          #   (distinct from the off-heap OOM-kill) is still analyzable.
+          # * Forked test JVM:  -Xmx2G via the `set ... Test / javaOptions` command
+          #   below. Delta v4.2.0 caps its test fork at `-Xmx1024m` in build.sbt;
+          #   Gluten OFFLOADS data to Velox off-heap (capped at 2g via
+          #   spark.memory.offHeap.size in the patched DeltaSQLCommandTest), so the
+          #   fork's JVM HEAP need is modest -- 2G is generous.
+          #   HISTORY: briefly bumped to 8G then 4G to absorb a DV+CDC merge suite's
+          #   giant RoaringBitmapArray heap allocation, but that was a Gluten bug
+          #   (garbage native _metadata.row_index) FIXED UPSTREAM by #12269 -- so the
+          #   large heap is no longer needed. Worse, on the ~16G runner the cgroup
+          #   memory.peak hit 15.97G with a 4G fork heap and the kernel OOM-killed
+          #   the fork mid-shard (sudden death, no hs_err / no heap dump), which
+          #   wedged sbt's main process forever in ScalaTestRunner.done -> Thread
+          #   .join (the chronic "shard 2 hang"). The JVM heaps -- not off-heap --
+          #   drive that peak, so 2G fork heap (+ the unchanged 4G sbt launcher,
+          #   which needs its heap to COMPILE the tests) brings the peak to ~13G,
+          #   leaving real headroom. The `++=` appends to Delta's own Test/javaOptions
+          #   seq so our `-Xmx2G` comes AFTER `-Xmx1024m` and wins (last `-Xmx`
+          #   wins). Keep heap-dump-on-OOM so a genuine >2G heap OOM is analyzable.
           # `-u target/test-reports` enables ScalaTest's JUnit XML reporter so
           # every suite writes per-test results. Delta itself only configures
           # the console reporter (-oDF), so without this we'd have no machine-
@@ -490,7 +492,7 @@ jobs:
             -v \
             -J-XX:+UseG1GC -J-Xmx4G \
             "++ ${DELTA_SCALA_VERSION}" \
-            'set spark / Test / javaOptions ++= Seq("-Xmx4G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
+            'set spark / Test / javaOptions ++= Seq("-Xmx2G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
             'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
             "spark/test" 2>&1 | tee "$SBT_LOG"
           SBT_EXIT=${PIPESTATUS[0]}
