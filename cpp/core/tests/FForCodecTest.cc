@@ -643,3 +643,171 @@ TEST(TypeAwareCompressCodecTest, UnsupportedType) {
   auto result = TypeAwareCompressCodec::compress(dummy, 8, dummy, 100, kSomeUnsupportedType);
   ASSERT_FALSE(result.ok());
 }
+
+TEST(TypeAwareCompressCodecTest, Int128Supported) {
+  ASSERT_TRUE(TypeAwareCompressCodec::support(tac::kUInt128));
+}
+
+TEST(TypeAwareCompressCodecTest, Int128NarrowRoundtrip) {
+  // 1024 INT128 values where the high 64 bits are 0 (typical DECIMAL fitting
+  // in int64) and the low 64 bits range narrowly.  Both hi and lo sub-streams
+  // should compress extremely well.
+  constexpr int64_t kNumValues = 1024;
+  std::vector<uint8_t> data(kNumValues * sizeof(__int128_t), 0);
+  for (int64_t i = 0; i < kNumValues; ++i) {
+    uint64_t lo = 1000000ULL + static_cast<uint64_t>(i);
+    std::memcpy(data.data() + i * sizeof(__int128_t), &lo, sizeof(uint64_t));
+  }
+
+  const int64_t inputSize = data.size();
+  auto maxLen = TypeAwareCompressCodec::maxCompressedLen(inputSize, tac::kUInt128);
+  ASSERT_GT(maxLen, 0);
+
+  std::vector<uint8_t> compressed(maxLen);
+  auto compResult =
+      TypeAwareCompressCodec::compress(data.data(), inputSize, compressed.data(), compressed.size(), tac::kUInt128);
+  ASSERT_TRUE(compResult.ok()) << compResult.status().ToString();
+  const int64_t compressedSize = *compResult;
+
+  ASSERT_LT(compressedSize, inputSize / 2);
+
+  std::vector<uint8_t> decoded(inputSize, 0xff);
+  auto decResult = TypeAwareCompressCodec::decompress(compressed.data(), compressedSize, decoded.data(), inputSize);
+  ASSERT_TRUE(decResult.ok()) << decResult.status().ToString();
+  ASSERT_EQ(*decResult, compressedSize);
+  ASSERT_EQ(0, std::memcmp(decoded.data(), data.data(), inputSize));
+}
+
+TEST(TypeAwareCompressCodecTest, Int128HighEntropyRoundtrip) {
+  // High-entropy 128-bit values: both halves are random.  Verifies round-trip
+  // correctness on a workload FFor cannot compress effectively.
+  constexpr int64_t kNumValues = 1024;
+  std::vector<uint8_t> data(kNumValues * sizeof(__int128_t));
+  std::mt19937_64 rng(42);
+  for (int64_t i = 0; i < kNumValues; ++i) {
+    uint64_t lo = rng();
+    uint64_t hi = rng();
+    std::memcpy(data.data() + i * sizeof(__int128_t), &lo, sizeof(uint64_t));
+    std::memcpy(data.data() + i * sizeof(__int128_t) + 8, &hi, sizeof(uint64_t));
+  }
+
+  const int64_t inputSize = data.size();
+  auto maxLen = TypeAwareCompressCodec::maxCompressedLen(inputSize, tac::kUInt128);
+  std::vector<uint8_t> compressed(maxLen);
+  auto compResult =
+      TypeAwareCompressCodec::compress(data.data(), inputSize, compressed.data(), compressed.size(), tac::kUInt128);
+  ASSERT_TRUE(compResult.ok()) << compResult.status().ToString();
+
+  std::vector<uint8_t> decoded(inputSize);
+  auto decResult = TypeAwareCompressCodec::decompress(compressed.data(), *compResult, decoded.data(), inputSize);
+  ASSERT_TRUE(decResult.ok()) << decResult.status().ToString();
+  ASSERT_EQ(*decResult, *compResult);
+  ASSERT_EQ(0, std::memcmp(decoded.data(), data.data(), inputSize));
+}
+
+namespace {
+
+// Helper: build kNumValues 128-bit values whose lo halves form a narrow
+// arithmetic sequence and hi halves are zero (typical "DECIMAL fits in int64"
+// pattern).  Returns the raw byte buffer.
+std::vector<uint8_t> makeNarrowInt128(int64_t kNumValues) {
+  std::vector<uint8_t> data(kNumValues * sizeof(__int128_t), 0);
+  for (int64_t i = 0; i < kNumValues; ++i) {
+    uint64_t lo = 1000000ULL + static_cast<uint64_t>(i);
+    std::memcpy(data.data() + i * sizeof(__int128_t), &lo, sizeof(uint64_t));
+  }
+  return data;
+}
+
+} // namespace
+
+TEST(TypeAwareCompressCodecTest, Int128TailRoundtrip) {
+  // Element count that is NOT a multiple of kLanes (=4): 1027 = 256*4 + 3.
+  // Forces compress128 to emit 1 full block plus a 3-element tail block,
+  // exercising the kBwTailMarker path in both compress and decompress.
+  constexpr int64_t kNumValues = 1027;
+  auto data = makeNarrowInt128(kNumValues);
+
+  const int64_t inputSize = data.size();
+  auto maxLen = TypeAwareCompressCodec::maxCompressedLen(inputSize, tac::kUInt128);
+  std::vector<uint8_t> compressed(maxLen);
+  auto compResult =
+      TypeAwareCompressCodec::compress(data.data(), inputSize, compressed.data(), compressed.size(), tac::kUInt128);
+  ASSERT_TRUE(compResult.ok()) << compResult.status().ToString();
+  const int64_t compressedSize = *compResult;
+
+  std::vector<uint8_t> decoded(inputSize, 0xff);
+  auto decResult = TypeAwareCompressCodec::decompress(compressed.data(), compressedSize, decoded.data(), inputSize);
+  ASSERT_TRUE(decResult.ok()) << decResult.status().ToString();
+  ASSERT_EQ(0, std::memcmp(decoded.data(), data.data(), inputSize));
+}
+
+TEST(TypeAwareCompressCodecTest, Int128MisalignedRoundtrip) {
+  // Drive compress128/decompress128 with input AND output pointers offset by
+  // 1 byte so neither is uint64-aligned.  Exercises the <false, false>
+  // template instantiation, which is otherwise dead code under the natural
+  // alignment of std::vector<uint8_t>::data().
+  constexpr int64_t kNumValues = 1024;
+  auto src = makeNarrowInt128(kNumValues);
+  const int64_t inputSize = src.size();
+
+  // Stage src into a buffer whose payload starts at a 1-byte-offset address.
+  std::vector<uint8_t> inBuf(inputSize + 1, 0);
+  std::memcpy(inBuf.data() + 1, src.data(), inputSize);
+
+  auto maxLen = TypeAwareCompressCodec::maxCompressedLen(inputSize, tac::kUInt128);
+  std::vector<uint8_t> compBuf(maxLen + 1, 0);
+  // Skip the first byte to misalign the compressed-data start as well.
+  auto compResult =
+      TypeAwareCompressCodec::compress(inBuf.data() + 1, inputSize, compBuf.data() + 1, maxLen, tac::kUInt128);
+  ASSERT_TRUE(compResult.ok()) << compResult.status().ToString();
+  const int64_t compressedSize = *compResult;
+
+  std::vector<uint8_t> outBuf(inputSize + 1, 0xff);
+  auto decResult = TypeAwareCompressCodec::decompress(compBuf.data() + 1, compressedSize, outBuf.data() + 1, inputSize);
+  ASSERT_TRUE(decResult.ok()) << decResult.status().ToString();
+  ASSERT_EQ(0, std::memcmp(outBuf.data() + 1, src.data(), inputSize));
+}
+
+TEST(TypeAwareCompressCodecTest, Int128TruncatedInputRejected) {
+  // Compress a normal stream, then hand decompress() a prefix that drops the
+  // terminator tail header plus the final block's hi sub-header, leaving the
+  // truncation point inside the final block's lo payload.  decompress128Impl
+  // must detect the short read via decodeBlock's bounds check and return a
+  // value count below the expected number of 128-bit values, which
+  // TypeAwareCompressCodec turns into an Invalid status.
+  constexpr int64_t kNumValues = 1024;
+  auto data = makeNarrowInt128(kNumValues);
+  const int64_t inputSize = data.size();
+  auto maxLen = TypeAwareCompressCodec::maxCompressedLen(inputSize, tac::kUInt128);
+  std::vector<uint8_t> compressed(maxLen);
+  auto compResult =
+      TypeAwareCompressCodec::compress(data.data(), inputSize, compressed.data(), compressed.size(), tac::kUInt128);
+  ASSERT_TRUE(compResult.ok()) << compResult.status().ToString();
+  const int64_t compressedSize = *compResult;
+  // 64 bytes = 16B tail header + 16B hi sub-header + 32B into the final lo
+  // payload.  Smaller drops can land on a clean tail boundary and silently
+  // succeed.
+  ASSERT_GT(compressedSize, 64);
+
+  std::vector<uint8_t> decoded(inputSize, 0);
+  auto decResult =
+      TypeAwareCompressCodec::decompress(compressed.data(), compressedSize - 64, decoded.data(), inputSize);
+  ASSERT_FALSE(decResult.ok());
+}
+
+TEST(TypeAwareCompressCodecTest, Int128OutputBufferTooSmallRejected) {
+  // compress128 must reject an output buffer smaller than maxCompressedLen,
+  // since the codec writes worst-case-sized headers up-front and only knows
+  // the final length after the analyze step.
+  constexpr int64_t kNumValues = 64;
+  auto data = makeNarrowInt128(kNumValues);
+  const int64_t inputSize = data.size();
+  auto maxLen = TypeAwareCompressCodec::maxCompressedLen(inputSize, tac::kUInt128);
+  ASSERT_GT(maxLen, 0);
+
+  std::vector<uint8_t> tooSmall(maxLen - 1);
+  auto result =
+      TypeAwareCompressCodec::compress(data.data(), inputSize, tooSmall.data(), tooSmall.size(), tac::kUInt128);
+  ASSERT_FALSE(result.ok());
+}
