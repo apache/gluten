@@ -15,6 +15,9 @@
  * limitations under the License.
  */
 #include "WholeStageResultIterator.h"
+#include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/executors/thread_factory/NamedThreadFactory.h>
+#include <folly/system/ThreadName.h>
 #include <optional>
 #include "VeloxBackend.h"
 #include "VeloxPlanConverter.h"
@@ -137,27 +140,24 @@ WholeStageResultIterator::WholeStageResultIterator(
   auto fileSystem = velox::filesystems::getFileSystem(spillDir, nullptr);
   GLUTEN_CHECK(fileSystem != nullptr, "File System for spilling is null!");
   fileSystem->mkdir(spillDir);
-  velox::common::SpillDiskOptions spillOpts{
-      .spillDirPath = spillDir, .spillDirCreated = true, .spillDirCreateCb = nullptr};
 
-  // Create task instance.
   std::unordered_set<velox::core::PlanNodeId> emptySet;
-  velox::core::PlanFragment planFragment{planNode, velox::core::ExecutionStrategy::kUngrouped, 1, emptySet};
-  std::shared_ptr<velox::core::QueryCtx> queryCtx = createNewVeloxQueryCtx();
-  task_ = velox::exec::Task::create(
-      fmt::format(
-          "Gluten_Stage_{}_TID_{}_VTID_{}",
-          std::to_string(taskInfo_.stageId),
-          std::to_string(taskInfo_.taskId),
-          std::to_string(taskInfo.vId)),
-      std::move(planFragment),
-      0,
-      std::move(queryCtx),
-      velox::exec::Task::ExecutionMode::kSerial,
-      /*consumer=*/velox::exec::Consumer{},
-      /*memoryArbitrationPriority=*/0,
-      /*spillDiskOpts=*/spillOpts,
-      /*onError=*/nullptr);
+  const bool serialExecution = true;
+
+  facebook::velox::exec::CursorParameters params;
+  params.planNode = planNode;
+  params.destination = 0;
+  params.maxDrivers = 1;
+  params.queryCtx = createNewVeloxQueryCtx();
+  params.executionStrategy = velox::core::ExecutionStrategy::kUngrouped;
+  params.groupedExecutionLeafNodeIds = std::move(emptySet);
+  params.numSplitGroups = 1;
+  params.spillDirectory = spillDir;
+  params.serialExecution = serialExecution;
+  params.copyResult = false;
+  params.outputPool = memoryManager_->getLeafMemoryPool();
+  cursor_ = velox::exec::TaskCursor::create(params);
+  task_ = cursor_->task().get();
   if (!task_->supportSerialExecutionMode()) {
     throw std::runtime_error("Task doesn't support single threaded execution: " + planNode->toString());
   }
@@ -307,41 +307,24 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
 }
 
 std::shared_ptr<ColumnarBatch> WholeStageResultIterator::next() {
-  if (task_->isFinished()) {
-    return nullptr;
-  }
-  velox::RowVectorPtr vector;
   while (true) {
-    auto future = velox::ContinueFuture::makeEmpty();
-    auto out = task_->next(&future);
-    if (!future.valid()) {
-      // Not need to wait. Break.
-      vector = std::move(out);
-      break;
+    if (!cursor_->moveNext()) {
+      return nullptr;
     }
-    // Velox suggested to wait. This might be because another thread (e.g., background io thread) is spilling the task.
-    GLUTEN_CHECK(out == nullptr, "Expected to wait but still got non-null output from Velox task");
-    VLOG(2) << "Velox task " << task_->taskId()
-            << " is busy when ::next() is called. Will wait and try again. Task state: "
-            << taskStateString(task_->state());
-    future.wait();
-  }
-  if (vector == nullptr) {
-    return nullptr;
-  }
-  uint64_t numRows = vector->size();
-  if (numRows == 0) {
-    return nullptr;
-  }
-
-  {
-    ScopedTimer timer(&loadLazyVectorTime_);
-    for (auto& child : vector->children()) {
-      child->loadedVector();
+    RowVectorPtr vector = cursor_->current();
+    GLUTEN_CHECK(vector != nullptr, "Cursor returned null vector.");
+    uint64_t numRows = vector->size();
+    if (numRows == 0) {
+      continue;
     }
+    {
+      ScopedTimer timer(&loadLazyVectorTime_);
+      for (auto& child : vector->children()) {
+        child->loadedVector();
+      }
+    }
+    return std::make_shared<VeloxColumnarBatch>(vector);
   }
-
-  return std::make_shared<VeloxColumnarBatch>(vector);
 }
 
 int64_t WholeStageResultIterator::spillFixedSize(int64_t size) {
@@ -373,9 +356,6 @@ void WholeStageResultIterator::getOrderedNodeIds(
     std::vector<velox::core::PlanNodeId>& nodeIds) {
   bool isProjectNode = (std::dynamic_pointer_cast<const velox::core::ProjectNode>(planNode) != nullptr);
   bool isLocalExchangeNode = (std::dynamic_pointer_cast<const velox::core::LocalPartitionNode>(planNode) != nullptr);
-  bool isUnionNode = isLocalExchangeNode &&
-      std::dynamic_pointer_cast<const velox::core::LocalPartitionNode>(planNode)->type() ==
-          velox::core::LocalPartitionNode::Type::kGather;
   const auto& sourceNodes = planNode->sources();
   if (isProjectNode) {
     GLUTEN_CHECK(sourceNodes.size() == 1, "Illegal state");
@@ -391,22 +371,24 @@ void WholeStageResultIterator::getOrderedNodeIds(
     return;
   }
 
-  if (isUnionNode) {
-    // FIXME: The whole metrics system in gluten-substrait is magic. Passing metrics trees through JNI with a trivial
-    //  array is possible but requires for a solid design. Apparently we haven't had it. All the code requires complete
-    //  rework.
-    // Union was interpreted as LocalPartition + LocalExchange + 2 fake projects as children in Velox. So we only fetch
-    // metrics from the root node.
-    std::vector<std::shared_ptr<const velox::core::PlanNode>> unionChildren{};
+  if (isLocalExchangeNode) {
+    // LocalPartition was interpreted as LocalPartition + LocalExchange + 2 fake projects (optional) as children
+    // in SubstraitToVeloxPlan. So we only fetch metrics from the root node.
     for (const auto& source : planNode->sources()) {
       const auto projectedChild = std::dynamic_pointer_cast<const velox::core::ProjectNode>(source);
-      GLUTEN_CHECK(projectedChild != nullptr, "Illegal state");
-      const auto projectSources = projectedChild->sources();
-      GLUTEN_CHECK(projectSources.size() == 1, "Illegal state");
-      const auto projectSource = projectSources.at(0);
-      getOrderedNodeIds(projectSource, nodeIds);
+      if (projectedChild != nullptr) {
+        const auto projectSources = projectedChild->sources();
+        GLUTEN_CHECK(projectSources.size() == 1, "Illegal state");
+        const auto projectSource = projectSources.at(0);
+        getOrderedNodeIds(projectSource, nodeIds);
+      } else {
+        getOrderedNodeIds(source, nodeIds);
+      }
     }
-    nodeIds.emplace_back(planNode->id());
+    if (planNode->sources().size() == 2) {
+      // The LocalPartition maps to a concrete Spark native union transformer operator.
+      nodeIds.emplace_back(planNode->id());
+    }
     return;
   }
 
@@ -468,6 +450,7 @@ void WholeStageResultIterator::noMoreSplits() {
   for (const auto& streamId : streamIds_) {
     task_->noMoreSplits(streamId);
   }
+  cursor_->setNoMoreSplits();
   allSplitsAdded_ = true;
 }
 

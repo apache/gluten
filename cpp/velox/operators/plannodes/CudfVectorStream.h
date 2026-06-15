@@ -134,6 +134,11 @@ class CudfValueStreamNode final : public facebook::velox::core::PlanNode {
       std::shared_ptr<ResultIterator> iterator)
       : facebook::velox::core::PlanNode(id), outputType_(outputType), iterator_(std::move(iterator)) {}
 
+  // Only supports single thread because iterator_ is not guranteed thread-safe.
+  bool requiresSingleThread() const override {
+    return true;
+  }
+
   const facebook::velox::RowTypePtr& outputType() const override {
     return outputType_;
   }

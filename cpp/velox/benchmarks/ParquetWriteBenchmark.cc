@@ -23,6 +23,7 @@
 #include "memory/VeloxMemoryManager.h"
 #include "operators/reader/ParquetReaderIterator.h"
 #include "operators/writer/VeloxParquetDataSource.h"
+#include "threads/ThreadInitializer.h"
 #include "utils/VeloxArrowUtils.h"
 
 namespace gluten {
@@ -52,7 +53,8 @@ class GoogleBenchmarkVeloxParquetWriteCacheScanBenchmark {
     // reuse the ParquetWriteConverter for batches caused system % increase a lot
 
     auto memoryManager = getDefaultMemoryManager();
-    auto runtime = Runtime::create(kVeloxBackendKind, memoryManager);
+    auto* threadManager = ThreadManager::create(kVeloxBackendKind, ThreadInitializer::noop());
+    auto runtime = Runtime::create(kVeloxBackendKind, memoryManager, threadManager);
     auto veloxPool = memoryManager->getAggregateMemoryPool();
 
     for (auto _ : state) {
@@ -98,6 +100,7 @@ class GoogleBenchmarkVeloxParquetWriteCacheScanBenchmark {
     state.counters["write_time"] =
         benchmark::Counter(writeTime, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
     Runtime::release(runtime);
+    ThreadManager::release(threadManager);
   }
 
  private:

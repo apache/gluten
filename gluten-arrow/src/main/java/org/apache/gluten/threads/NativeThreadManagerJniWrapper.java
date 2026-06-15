@@ -14,14 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.runtime;
+package org.apache.gluten.threads;
 
-public class RuntimeJniWrapper {
+public class NativeThreadManagerJniWrapper {
+  private NativeThreadManagerJniWrapper() {}
 
-  private RuntimeJniWrapper() {}
+  public static native long create(String backendType, NativeThreadInitializer initializer);
 
-  public static native long createRuntime(
-      String backendType, long nmm, long ntm, byte[] sessionConf);
-
-  public static native void releaseRuntime(long handle);
+  public static native void release(long handle);
 }

@@ -182,8 +182,9 @@ class InternalRuntime : public Runtime {
   InternalRuntime(
       const std::string& kind,
       MemoryManager* memoryManager,
+      ThreadManager* threadManager,
       const std::unordered_map<std::string, std::string>& confMap)
-      : Runtime(kind, memoryManager, confMap) {}
+      : Runtime(kind, memoryManager, threadManager, confMap) {}
 };
 
 MemoryManager* internalMemoryManagerFactory(const std::string& kind, std::unique_ptr<AllocationListener> listener) {
@@ -194,11 +195,33 @@ void internalMemoryManagerReleaser(MemoryManager* memoryManager) {
   delete memoryManager;
 }
 
+class InternalThreadManager : public ThreadManager {
+ public:
+  InternalThreadManager(const std::string& kind, std::unique_ptr<ThreadInitializer> initializer)
+      : ThreadManager(kind), initializer_(std::shared_ptr<ThreadInitializer>(std::move(initializer))) {}
+
+  ThreadInitializer* getThreadInitializer() override {
+    return initializer_.get();
+  }
+
+ private:
+  std::shared_ptr<ThreadInitializer> initializer_;
+};
+
+ThreadManager* internalThreadManagerFactory(const std::string& kind, std::unique_ptr<ThreadInitializer> initializer) {
+  return new InternalThreadManager(kind, std::move(initializer));
+}
+
+void internalThreadManagerReleaser(ThreadManager* threadManager) {
+  delete threadManager;
+}
+
 Runtime* internalRuntimeFactory(
     const std::string& kind,
     MemoryManager* memoryManager,
+    ThreadManager* threadManager,
     const std::unordered_map<std::string, std::string>& sessionConf) {
-  return new InternalRuntime(kind, memoryManager, sessionConf);
+  return new InternalRuntime(kind, memoryManager, threadManager, sessionConf);
 }
 
 void internalRuntimeReleaser(Runtime* runtime) {
@@ -253,6 +276,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   getJniErrorState()->ensureInitialized(env);
 
   MemoryManager::registerFactory(kInternalBackendKind, internalMemoryManagerFactory, internalMemoryManagerReleaser);
+  ThreadManager::registerFactory(kInternalBackendKind, internalThreadManagerFactory, internalThreadManagerReleaser);
   Runtime::registerFactory(kInternalBackendKind, internalRuntimeFactory, internalRuntimeReleaser);
 
   byteArrayClass = createGlobalClassReferenceOrError(env, "[B");
@@ -320,14 +344,16 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_runtime_RuntimeJniWrapper_createR
     jclass,
     jstring jBackendType,
     jlong nmmHandle,
+    jlong ntmHandle,
     jbyteArray sessionConf) {
   JNI_METHOD_START
   MemoryManager* memoryManager = jniCastOrThrow<MemoryManager>(nmmHandle);
+  ThreadManager* threadManager = jniCastOrThrow<ThreadManager>(ntmHandle);
   auto safeArray = getByteArrayElementsSafe(env, sessionConf);
   auto sparkConf = parseConfMap(env, safeArray.elems(), safeArray.length());
   auto backendType = jStringToCString(env, jBackendType);
 
-  auto runtime = Runtime::create(backendType, memoryManager, sparkConf);
+  auto runtime = Runtime::create(backendType, memoryManager, threadManager, sparkConf);
   return reinterpret_cast<jlong>(runtime);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -369,6 +395,33 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_memory_NativeMemoryManagerJniWrap
   MemoryManager* mm = MemoryManager::create(backendType, std::move(listener));
   return reinterpret_cast<jlong>(mm);
   JNI_METHOD_END(-1L)
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_threads_NativeThreadManagerJniWrapper_create( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jstring jBackendType,
+    jobject jInitializer) {
+  JNI_METHOD_START
+  JavaVM* vm;
+  if (env->GetJavaVM(&vm) != JNI_OK) {
+    throw GlutenException("Unable to get JavaVM instance");
+  }
+  auto backendType = jStringToCString(env, jBackendType);
+  std::unique_ptr<ThreadInitializer> initializer = std::make_unique<SparkThreadInitializer>(vm, jInitializer);
+  ThreadManager* tm = ThreadManager::create(backendType, std::move(initializer));
+  return reinterpret_cast<jlong>(tm);
+  JNI_METHOD_END(-1L)
+}
+
+JNIEXPORT void JNICALL Java_org_apache_gluten_threads_NativeThreadManagerJniWrapper_release( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong ntmHandle) {
+  JNI_METHOD_START
+  auto* threadManager = jniCastOrThrow<ThreadManager>(ntmHandle);
+  ThreadManager::release(threadManager);
+  JNI_METHOD_END()
 }
 
 JNIEXPORT jbyteArray JNICALL Java_org_apache_gluten_memory_NativeMemoryManagerJniWrapper_collectUsage( // NOLINT

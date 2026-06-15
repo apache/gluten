@@ -14,14 +14,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.runtime;
 
-public class RuntimeJniWrapper {
+#include "ThreadInitializer.h"
 
-  private RuntimeJniWrapper() {}
+namespace gluten {
+namespace {
 
-  public static native long createRuntime(
-      String backendType, long nmm, long ntm, byte[] sessionConf);
+class NoopThreadInitializer final : public ThreadInitializer {
+ public:
+  void initialize(const std::string& threadName) override {}
+  void destroy(const std::string& threadName) override{};
+};
 
-  public static native void releaseRuntime(long handle);
+} // namespace
+
+std::unique_ptr<ThreadInitializer> ThreadInitializer::noop() {
+  return std::make_unique<NoopThreadInitializer>();
 }
+
+} // namespace gluten
