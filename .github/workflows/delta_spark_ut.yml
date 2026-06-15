@@ -449,6 +449,17 @@ jobs:
               now=$(date +%s)
               mtime=$(stat -c %Y "$SBT_LOG" 2>/dev/null || echo "$now")
               silent=$(( now - mtime ))
+              # Per-minute memory profile: heap tuning proved the ~16G OOM peak is
+              # NATIVE-driven, so log which JVM (sbt launcher vs fork) actually grows
+              # toward it -- the last lines before a hang reveal the real hog to cut.
+              # Read /proc directly (no `ps` dependency in the minimal container).
+              memnow=$(awk '{printf "%.2fG",$1/1073741824}' /sys/fs/cgroup/memory.current 2>/dev/null)
+              jvmrss=""
+              for mp in $(all_java_pids 2>/dev/null | sort -un); do
+                r=$(awk '/^VmRSS:/{print $2}' "/proc/$mp/status" 2>/dev/null)
+                [ -n "$r" ] && jvmrss="$jvmrss $(( r / 1024 ))M(p$mp)"
+              done
+              echo "MEM cgroup=${memnow} JVMs=[${jvmrss# }]"
               hb=$(( hb + 1 ))
               # Heartbeat every ~5 min so we can SEE the watchdog is alive (and how
               # long the test has been silent) without waiting for a hang.
