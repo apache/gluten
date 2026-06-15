@@ -58,6 +58,7 @@ import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
 import org.apache.flink.table.planner.utils.JavaScalaConversionUtil;
 import org.apache.flink.table.planner.utils.TableConfigUtils;
 import org.apache.flink.table.runtime.groupwindow.NamedWindowProperty;
+import org.apache.flink.table.runtime.groupwindow.WindowProperty;
 import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.runtime.util.TimeWindowUtil;
@@ -312,5 +313,14 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
     transform.setStateKeySelector(selector);
     transform.setStateKeyType(selector.getProducedType());
     return transform;
+  }
+
+  private int getWindowPropertyIndex(Class<? extends WindowProperty> propertyClass) {
+    for (int i = 0; i < namedWindowProperties.length; i++) {
+      if (propertyClass.isInstance(namedWindowProperties[i].getProperty())) {
+        return grouping.length + aggCalls.length + i;
+      }
+    }
+    return -1;
   }
 }

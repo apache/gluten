@@ -97,12 +97,6 @@
       <version>${flink.version}</version>
     </dependency>
     <dependency>
-      <groupId>com.github.nexmark</groupId>
-      <artifactId>nexmark-flink</artifactId>
-      <version>0.3-SNAPSHOT</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
       <groupId>io.github.zhztheplayer</groupId>
       <artifactId>velox4j</artifactId>
       <version>${velox4j.version}</version>
@@ -225,4 +219,24 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <profile>
+      <id>nexmark-tests</id>
+      <activation>
+        <property>
+          <name>maven.test.skip</name>
+          <value>!true</value>
+        </property>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>com.github.nexmark</groupId>
+          <artifactId>nexmark-flink</artifactId>
+          <version>0.3-SNAPSHOT</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
 </project>

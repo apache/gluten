@@ -48,6 +48,7 @@ public class WindowUtils {
     int windowType = -1;
     WindowSpec windowSpec = windowing.getWindow();
     if (windowSpec instanceof HoppingWindowSpec) {
+      windowType = 0;
       size = ((HoppingWindowSpec) windowSpec).getSize().toMillis();
       slide = ((HoppingWindowSpec) windowSpec).getSlide().toMillis();
       if (size % slide != 0) {
@@ -63,6 +64,7 @@ public class WindowUtils {
       }
       windowType = 0;
     } else if (windowSpec instanceof TumblingWindowSpec) {
+      windowType = 1;
       size = ((TumblingWindowSpec) windowSpec).getSize().toMillis();
       Duration windowOffset = ((TumblingWindowSpec) windowSpec).getOffset();
       if (windowOffset != null) {
