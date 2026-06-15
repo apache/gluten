@@ -55,7 +55,6 @@ import java.util.concurrent.{Callable, Executors, Future, SynchronousQueue}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
-import scala.util.control.NonFatal
 
 /** Gluten's stats tracker with vectorized aggregation inside to produce statistics efficiently. */
 private[stats] class GlutenDeltaJobStatsTracker(val delegate: DeltaJobStatisticsTracker)
@@ -90,66 +89,14 @@ object GlutenDeltaJobStatsTracker extends Logging {
   def apply(tracker: WriteJobStatsTracker): WriteJobStatsTracker = tracker match {
     case tracker: BasicWriteJobStatsTracker =>
       new GlutenDeltaJobStatsRowCountingTracker(tracker)
-    case tracker: DeltaJobStatisticsTracker
-        if canOffloadStats(tracker.dataCols, tracker.statsColExpr) =>
-      new GlutenDeltaJobStatsTracker(tracker)
     case tracker: DeltaJobStatisticsTracker =>
-      // The per-file statistics aggregation could not be offloaded to Velox (for example min/max
-      // over TIMESTAMP_NTZ). The native stats tracker assumes the aggregation collapses into a
-      // WholeStageTransformer and would otherwise crash with a ClassCastException, so use the
-      // row-based fallback tracker (columnar-to-row + the original Delta tracker) instead.
-      logWarning(
-        "Gluten Delta: per-file statistics aggregation cannot be offloaded to Velox; " +
-          "falling back to row-based stats collection.")
-      new GlutenDeltaJobStatsFallbackTracker(tracker)
+      new GlutenDeltaJobStatsTracker(tracker)
     case tracker =>
       logWarning(
         "Gluten Delta: Creating fallback job stats tracker," +
           " this involves frequent columnar-to-row conversions which may cause performance" +
           " issues.")
       new GlutenDeltaJobStatsFallbackTracker(tracker)
-  }
-
-  /**
-   * Returns whether the Delta per-file statistics aggregation can be offloaded to a Velox
-   * whole-stage transformer. This mirrors the plan that [[GlutenDeltaTaskStatsTracker]] builds on
-   * the executors: if the aggregation/projection is not supported by Velox it stays a vanilla
-   * [[ProjectExec]] (i.e. does not collapse into a [[WholeStageTransformer]]), in which case the
-   * native stats tracker must not be used. Evaluated once on the driver so the executors never
-   * allocate native resources for a plan that cannot run.
-   */
-  private def canOffloadStats(dataCols: Seq[Attribute], statsColExpr: Expression): Boolean = {
-    try {
-      val aggregates = statsColExpr.collect {
-        case ae: AggregateExpression if ae.aggregateFunction.isInstanceOf[DeclarativeAggregate] =>
-          ae
-      }
-      val statsAttrs = aggregates.flatMap(_.aggregateFunction.aggBufferAttributes)
-      val statsResultAttrs = aggregates.flatMap(_.aggregateFunction.inputAggBufferAttributes)
-      val aggOp = SortAggregateExec(
-        None,
-        isStreaming = false,
-        None,
-        Seq.empty,
-        aggregates,
-        statsAttrs,
-        0,
-        statsResultAttrs,
-        StatisticsInputNode(dataCols))
-      val projOp = ProjectExec(statsResultAttrs, aggOp)
-      val offloads = Seq(OffloadOthers()).map(_.toStrcitRule())
-      val config = GlutenConfig.get
-      val transformRule = HeuristicTransform.WithRewrites(
-        Validators.newValidator(config, offloads),
-        Seq(PullOutPreProject),
-        offloads)
-      ColumnarCollapseTransformStages(config)(
-        transformRule(projOp)).isInstanceOf[WholeStageTransformer]
-    } catch {
-      case NonFatal(e) =>
-        logWarning("Gluten Delta: failed to plan native stats aggregation; using fallback.", e)
-        false
-    }
   }
 
   /** A columnar-based statistics collection for Gluten + Delta Lake. */
