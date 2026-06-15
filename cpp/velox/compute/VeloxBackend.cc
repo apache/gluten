@@ -221,6 +221,19 @@ void VeloxBackend::init(
       kNumTaskSlotsPerExecutor + " was set to negative number " + std::to_string(numTaskSlotsPerExecutor) +
           ", this should not happen.");
 
+  const bool parallelExecutionEnabled =
+      backendConf_->get<bool>(kParallelExecutionEnabled, kParallelExecutionEnabledDefault);
+  if (parallelExecutionEnabled) {
+    // Default: 2 * task slots.
+    const int32_t threadPoolSize =
+        backendConf_->get<int32_t>(kParallelExecutionThreadPoolSize, 2 * numTaskSlotsPerExecutor);
+    if (threadPoolSize > 0) {
+      executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(threadPoolSize);
+      LOG(INFO) << "Initialized CPUThreadPoolExecutor for parallel execution with thread num: " << threadPoolSize
+                << " (numTaskSlotsPerExecutor: " << numTaskSlotsPerExecutor << ")";
+    }
+  }
+
   const auto spillThreadNum = backendConf_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
   if (spillThreadNum > 0) {
     spillExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(spillThreadNum);

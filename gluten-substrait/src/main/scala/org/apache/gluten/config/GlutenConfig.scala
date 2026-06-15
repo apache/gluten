@@ -528,7 +528,9 @@ object GlutenConfig extends ConfigRegistry {
     "spark.gluten.sql.columnar.backend.velox.cachePrefetchMinPct",
     "spark.gluten.sql.columnar.backend.velox.memoryPoolCapacityTransferAcrossTasks",
     "spark.gluten.sql.columnar.backend.velox.preferredBatchBytes",
-    "spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan"
+    "spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan",
+    "spark.gluten.sql.columnar.backend.velox.parallelExecution.enabled",
+    "spark.gluten.sql.columnar.backend.velox.parallelExecution.threadPoolSize"
   )
 
   /** Get dynamic configs. */

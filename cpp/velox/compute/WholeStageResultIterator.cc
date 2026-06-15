@@ -142,7 +142,9 @@ WholeStageResultIterator::WholeStageResultIterator(
   fileSystem->mkdir(spillDir);
 
   std::unordered_set<velox::core::PlanNodeId> emptySet;
-  const bool serialExecution = true;
+  const bool parallelExecutionEnabled =
+      veloxCfg_->get<bool>(kParallelExecutionEnabled, kParallelExecutionEnabledDefault);
+  const bool serialExecution = !parallelExecutionEnabled;
 
   facebook::velox::exec::CursorParameters params;
   params.planNode = planNode;
@@ -158,7 +160,7 @@ WholeStageResultIterator::WholeStageResultIterator(
   params.outputPool = memoryManager_->getLeafMemoryPool();
   cursor_ = velox::exec::TaskCursor::create(params);
   task_ = cursor_->task().get();
-  if (!task_->supportSerialExecutionMode()) {
+  if (serialExecution && !task_->supportSerialExecutionMode()) {
     throw std::runtime_error("Task doesn't support single threaded execution: " + planNode->toString());
   }
 
