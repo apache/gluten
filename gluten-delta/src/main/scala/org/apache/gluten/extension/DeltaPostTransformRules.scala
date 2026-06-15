@@ -17,7 +17,8 @@
 package org.apache.gluten.extension
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.execution.{DeltaScanTransformer, FilterExecTransformerBase, ProjectExecTransformer}
+import org.apache.gluten.execution.{DeltaScanTransformer, FilterExecTransformerBase, ProjectExecTransformer, ProjectExecTransformerBase}
+import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.transition.RemoveTransitions
 
 import org.apache.spark.sql.SparkSession
@@ -26,7 +27,7 @@ import org.apache.spark.sql.catalyst.expressions.{ArrayTransform, TransformKeys,
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.delta.{DeltaColumnMapping, DeltaParquetFileFormat, NoMapping}
-import org.apache.spark.sql.execution.{FilterExec, ProjectExec, SparkPlan}
+import org.apache.spark.sql.execution.{FileSourceScanExec, FilterExec, ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 
@@ -36,6 +37,7 @@ import scala.collection.mutable.ListBuffer
 object DeltaPostTransformRules {
   def rules: Seq[Rule[SparkPlan]] =
     RemoveTransitions ::
+      keepDmlRowIndexFallbackSubtreeOnSpark ::
       deltaSpecificRules ::
       Nil
 
@@ -56,6 +58,13 @@ object DeltaPostTransformRules {
 
   private val deletionVectorDeletedRowColumnName = "__delta_internal_is_row_deleted"
   private val deletionVectorRowIndexColumnName = "__delta_internal_row_index"
+  // Spark 3.5+ exposes this as ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME.
+  private val parquetTemporaryRowIndexColumnName = "_tmp_metadata_row_index"
+  private val deletionVectorRowIndexColumnNames =
+    Set(
+      deletionVectorRowIndexColumnName,
+      DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME,
+      parquetTemporaryRowIndexColumnName)
   private val deletionVectorInternalColumnNames =
     Set(deletionVectorDeletedRowColumnName, deletionVectorRowIndexColumnName)
 
@@ -88,6 +97,25 @@ object DeltaPostTransformRules {
       case p @ ProjectExec(projectList, child: DeltaScanTransformer)
           if projectList.exists(containsInputFileRelatedExpr) =>
         child.copy(output = p.output)
+    }
+
+  /**
+   * Native DELETE/UPDATE/MERGE DV support can deliberately keep the target row-index scan in Spark.
+   * Keep only the contiguous scan-adjacent filter/project chain in Spark, avoiding an isolated
+   * native island without propagating fallback through joins, exchanges, or aggregations. The
+   * BitmapAggregator and the rest of the DML plan remain eligible for native execution.
+   */
+  val keepDmlRowIndexFallbackSubtreeOnSpark: Rule[SparkPlan] = (plan: SparkPlan) =>
+    plan.transformUp {
+      case project: ProjectExecTransformerBase
+          if isDmlRowIndexFallbackSubtree(project.child) =>
+        val sparkProject = ProjectExec(project.list, project.child)
+        sparkProject.copyTagsFrom(project)
+        sparkProject
+      case filter: FilterExecTransformerBase if isDmlRowIndexFallbackSubtree(filter.child) =>
+        val sparkFilter = FilterExec(filter.cond, filter.child)
+        sparkFilter.copyTagsFrom(filter)
+        sparkFilter
     }
 
   /**
@@ -194,6 +222,23 @@ object DeltaPostTransformRules {
     }
   }
 
+  private def isDmlRowIndexFallbackSubtree(plan: SparkPlan): Boolean = {
+    plan match {
+      case scan: FileSourceScanExec =>
+        DeltaDeletionVectorDmlUtils.isDeletionVectorDmlRowIndexScan(scan) &&
+        FallbackTags.nonEmpty(scan)
+      case project: ProjectExecTransformerBase =>
+        isDmlRowIndexFallbackSubtree(project.child)
+      case ProjectExec(_, child) =>
+        isDmlRowIndexFallbackSubtree(child)
+      case filter: FilterExecTransformerBase =>
+        isDmlRowIndexFallbackSubtree(filter.child)
+      case FilterExec(_, child) =>
+        isDmlRowIndexFallbackSubtree(child)
+      case _ => false
+    }
+  }
+
   private def isDeltaColumnMappingFileFormat(fileFormat: FileFormat): Boolean = fileFormat match {
     case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
       true
@@ -213,7 +258,7 @@ object DeltaPostTransformRules {
   }
 
   private def referencesDeletionVectorRowIndex(expr: Expression): Boolean = {
-    expr.references.exists(_.name == deletionVectorRowIndexColumnName)
+    expr.references.exists(attr => deletionVectorRowIndexColumnNames.contains(attr.name))
   }
 
   private def tagRowIndexRequiredSubtrees(plan: SparkPlan): Unit = {
@@ -235,9 +280,14 @@ object DeltaPostTransformRules {
   }
 
   private def shouldPreserveDeletionVectorRowIndex(plan: SparkPlan): Boolean = {
+    isDeletionVectorDmlRowIndexScan(plan) ||
     plan.getTagValue(PRESERVE_DELETION_VECTOR_ROW_INDEX_TAG).contains(true) ||
     plan.expressions.exists(containsIncrementMetricExpr) ||
     plan.expressions.exists(referencesDeletionVectorRowIndex)
+  }
+
+  private def isDeletionVectorDmlRowIndexScan(plan: SparkPlan): Boolean = {
+    DeltaDeletionVectorDmlUtils.isDeletionVectorDmlRowIndexScan(plan)
   }
 
   private def shouldStripDeletionVectorInternalColumn(

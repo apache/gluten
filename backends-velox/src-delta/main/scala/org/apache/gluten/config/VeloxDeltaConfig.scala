@@ -22,6 +22,8 @@ class VeloxDeltaConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   import VeloxDeltaConfig._
 
   def enableNativeWrite: Boolean = getConf(ENABLE_NATIVE_WRITE)
+
+  def enableNativeDmlRowIndexScan: Boolean = getConf(ENABLE_NATIVE_DML_ROW_INDEX_SCAN)
 }
 
 object VeloxDeltaConfig extends ConfigRegistry {
@@ -38,6 +40,16 @@ object VeloxDeltaConfig extends ConfigRegistry {
     buildConf("spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite")
       .experimental()
       .doc("Enable native Delta Lake write for Velox backend.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val ENABLE_NATIVE_DML_ROW_INDEX_SCAN: ConfigEntry[Boolean] =
+    buildConf(
+      "spark.gluten.sql.columnar.backend.velox.delta.enableNativeDmlRowIndexScan")
+      .experimental()
+      .doc(
+        "Enable the experimental native Delta DELETE/UPDATE/MERGE target row-index scan for " +
+          "Velox. This also requires native Delta write to be enabled.")
       .booleanConf
       .createWithDefault(false)
 }
