@@ -469,6 +469,16 @@ jobs:
                     || echo "HANG WATCHDOG: jstack failed/timed out for pid ${pid}"
                 done
                 echo "::endgroup::"
+                # The dump is now captured (job log via SIGQUIT + artifact via
+                # jstack file). A hung JVM otherwise stalls the whole shard until
+                # the 350-min job timeout AND keeps the job log frozen so the dump
+                # never becomes reachable. So KILL the wedged JVM(s): the suite
+                # fails fast (acceptable -- errors are expected; only an
+                # unrecoverable hang blocks CI), the job proceeds/ends, and the log
+                # + artifacts flush. Give SIGQUIT a moment to print first.
+                sleep 20
+                echo "HANG WATCHDOG: killing wedged JVM(s) to unblock the shard: $(printf '%s ' $pids)"
+                for pid in $pids; do kill -KILL "$pid" 2>/dev/null; done
               fi
             done
           ) &
