@@ -361,9 +361,26 @@ jobs:
           # sharing, connect*, ...) that are out of scope for this pipeline.
           #
           # JVM heap layout (16 GB ubuntu-22.04 runner, TEST_PARALLELISM=1):
-          # * sbt launcher JVM: -J-Xmx4G. sbt only compiles tests + orchestrates
-          #   the fork; 4G is comfortable and its RSS is well under 4G during the
-          #   (long) test phase, when the fork is the memory peak.
+          # * sbt launcher JVM: -J-Xmx4G, BUT made to RETURN idle memory (see the
+          #   G1 periodic-GC flags below). The per-minute MEM profiler in the
+          #   watchdog (run #18) DISPROVED the old "launcher RSS is well under 4G"
+          #   assumption: the launcher grew to a ROCK-STEADY 5.3G (RSS) during the
+          #   test-compile and then HELD it for the entire run -- ~3.8G of pure
+          #   idle waste during the (long) test phase, where it only relays the
+          #   fork's test events. That fixed 5.3G + the fork's native spike in a
+          #   heavy suite is what pushed the cgroup to the ~16G OOM-kill. G1 does
+          #   NOT uncommit on its own here because the idle launcher never GCs.
+          #   FIX (behaviour-neutral -- touches NO Gluten/Spark runtime config, so
+          #   it cannot pollute the measured pass/fail signal): keep -Xmx4G for the
+          #   compile headroom but force a periodic GC every 10s when idle
+          #   (G1PeriodicGCInterval) with the system-load gate disabled
+          #   (G1PeriodicGCSystemLoadThreshold=0, since the busy fork would
+          #   otherwise suppress it) as a full STW collection
+          #   (-G1PeriodicGCInvokesConcurrent) that uncommits down to a tight free
+          #   ratio (Min/MaxHeapFreeRatio 5/15, JEP 346) above a low -Xms512m
+          #   floor. The idle launcher then drops from ~5.3G back to ~1-2G during
+          #   the test phase, cutting the cgroup peak by ~3.8G (~15.9G -> ~12G) --
+          #   real headroom under the OOM threshold -- with zero compile-OOM risk.
           # * Forked test JVM:  -Xmx2G via the `set ... Test / javaOptions` command
           #   below. Delta v4.2.0 caps its test fork at `-Xmx1024m` in build.sbt;
           #   Gluten OFFLOADS data to Velox off-heap (capped at 2g via
@@ -501,7 +518,11 @@ jobs:
           ./build/sbt \
             -DsparkVersion=${{ steps.resolve.outputs.spark_version }} \
             -v \
-            -J-XX:+UseG1GC -J-Xmx4G \
+            -J-XX:+UseG1GC -J-Xms512m -J-Xmx4G \
+            -J-XX:G1PeriodicGCInterval=10000 \
+            -J-XX:G1PeriodicGCSystemLoadThreshold=0 \
+            -J-XX:-G1PeriodicGCInvokesConcurrent \
+            -J-XX:MinHeapFreeRatio=5 -J-XX:MaxHeapFreeRatio=15 \
             "++ ${DELTA_SCALA_VERSION}" \
             'set spark / Test / javaOptions ++= Seq("-Xmx2G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
             'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
