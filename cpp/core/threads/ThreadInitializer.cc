@@ -20,6 +20,8 @@
 namespace gluten {
 namespace {
 
+/// A ThreadInitializer whose initialize() and destroy() are no-ops.
+/// Used when no JVM or Spark task context is available (e.g., benchmarks).
 class NoopThreadInitializer final : public ThreadInitializer {
  public:
   void initialize(const std::string& threadName) override {}

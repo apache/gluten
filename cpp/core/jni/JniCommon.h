@@ -551,8 +551,21 @@ class JavaRssClient : public RssClient {
   jbyteArray array_;
 };
 
+/// Bridges gluten::ThreadInitializer callbacks to a Java-side
+/// NativeThreadInitializer instance via JNI.
+///
+/// On initialize(), attaches the current native thread to the JVM and calls
+/// into the Java initializer so it can install Spark TaskContext or other
+/// thread-local state. On destroy(), calls the Java destroy() method but
+/// does NOT detach the thread — the underlying JVM thread may be reused by
+/// the pool, and detaching prematurely could allow the Java Thread object
+/// to be garbage-collected.
 class SparkThreadInitializer final : public gluten::ThreadInitializer {
  public:
+  /// @param vm The JavaVM pointer from JNI_OnLoad.
+  /// @param jInitializerLocalRef A local reference to a Java object
+  ///        implementing org.apache.gluten.threads.NativeThreadInitializer.
+  ///        A global reference is created internally.
   SparkThreadInitializer(JavaVM* vm, jobject jInitializerLocalRef) : vm_(vm) {
     JNIEnv* env;
     attachCurrentThreadAsDaemonOrThrow(vm_, &env);

@@ -22,7 +22,16 @@ import org.apache.spark.task.{TaskResource, TaskResources}
 
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * Scala wrapper around a native ThreadManager handle.
+ *
+ * Created once per Spark task and registered as a [[TaskResource]] so it is
+ * automatically released when the task completes. The ThreadManager wraps a
+ * [[NativeThreadInitializer]] that propagates task context to native worker
+ * threads spawned by folly executors.
+ */
 trait NativeThreadManager {
+  /** @return opaque native handle passed to RuntimeJniWrapper#createRuntime. */
   def getHandle(): Long
 }
 
@@ -45,11 +54,21 @@ object NativeThreadManager {
       NativeThreadManagerJniWrapper.release(handle)
     }
 
+    // Release after MemoryManager (10) but before most other resources.
     override def priority(): Int = 20
 
     override def resourceName(): String = "ntm"
   }
 
+  /**
+   * Create a new NativeThreadManager and register it with the current
+   * Spark task's [[TaskResources]] so it is automatically released when
+   * the task finishes.
+   *
+   * @param backendName the backend kind string (e.g., "velox").
+   * @param initializer callback invoked when native worker threads are
+   *                    created / destroyed.
+   */
   def apply(backendName: String, initializer: NativeThreadInitializer): NativeThreadManager = {
     TaskResources.addAnonymousResource(new Impl(backendName, initializer))
   }

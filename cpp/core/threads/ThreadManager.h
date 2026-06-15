@@ -25,24 +25,44 @@
 
 namespace gluten {
 
+/// Per-backend registry of ThreadInitializer instances.
+///
+/// ThreadManager follows the same Factory / Releaser registry pattern as
+/// MemoryManager and Runtime: each backend registers its own implementation
+/// at init time, and the factory is keyed by backend kind (e.g., "velox").
+///
+/// The ThreadManager owns a ThreadInitializer that is used to propagate
+/// per-thread context (JNI env, Spark TaskContext) to native worker threads
+/// created by folly executors. It is created once per Spark task and released
+/// when the task finishes.
 class ThreadManager {
  public:
   using Factory =
       std::function<ThreadManager*(const std::string& kind, std::unique_ptr<ThreadInitializer> initializer)>;
   using Releaser = std::function<void(ThreadManager*)>;
 
+  /// Register a backend-specific factory and releaser for the given kind.
   static void registerFactory(const std::string& kind, Factory factory, Releaser releaser);
+
+  /// Create a ThreadManager for the given backend kind with the supplied
+  /// thread initializer. The returned pointer is owned by the caller.
   static ThreadManager* create(const std::string& kind, std::unique_ptr<ThreadInitializer> initializer);
+
+  /// Release a ThreadManager previously created with create().
   static void release(ThreadManager* threadManager);
 
   explicit ThreadManager(const std::string& kind) : kind_(kind) {}
 
   virtual ~ThreadManager() = default;
 
+  /// Return the backend kind this manager was created for.
   virtual std::string kind() {
     return kind_;
   }
 
+  /// Return the ThreadInitializer that should be called on each worker
+  /// thread before and after task execution. The returned pointer is
+  /// owned by ThreadManager; callers must not delete it.
   virtual ThreadInitializer* getThreadInitializer() = 0;
 
  private:

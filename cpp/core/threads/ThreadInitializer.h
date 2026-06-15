@@ -21,14 +21,30 @@
 
 namespace gluten {
 
+/// Lifecycle hook invoked on each worker thread managed by a ThreadManager.
+///
+/// When a thread pool (e.g., folly::CPUThreadPoolExecutor) spawns or reaps a
+/// thread, the ThreadInitializer gives the application a chance to attach
+/// per-thread context — such as JNI thread attachment or Spark TaskContext
+/// propagation — before the thread runs native work and to clean up after.
+///
+/// Implementations must be thread-safe; initialize() and destroy() can be
+/// called concurrently from different threads.
 class ThreadInitializer {
  public:
+  /// Returns an initializer that does nothing (noop). Useful in benchmarks
+  /// and tests where no JVM/Spark context is available.
   static std::unique_ptr<ThreadInitializer> noop();
 
   virtual ~ThreadInitializer() = default;
 
+  /// Called when a worker thread is about to start executing tasks.
+  /// @param threadName A human-readable name identifying the thread.
   virtual void initialize(const std::string& threadName) = 0;
 
+  /// Called when a worker thread is about to be returned to the pool or
+  /// destroyed. Must not detach the JNI thread — the thread may be reused.
+  /// @param threadName The same name passed to initialize().
   virtual void destroy(const std::string& threadName) = 0;
 
  protected:

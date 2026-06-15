@@ -16,10 +16,31 @@
  */
 package org.apache.gluten.threads;
 
+/**
+ * JNI bridge for native ThreadManager creation and release.
+ *
+ * <p>Each Spark task creates one native ThreadManager (via
+ * {@link #create}) that wraps a {@link NativeThreadInitializer}.
+ * The returned handle is passed to the native Runtime factory so it
+ * can install thread lifecycle callbacks on its worker executors.
+ */
 public class NativeThreadManagerJniWrapper {
   private NativeThreadManagerJniWrapper() {}
 
+  /**
+   * Create a native ThreadManager for the given backend type.
+   *
+   * @param backendType the backend kind string (e.g., "velox").
+   * @param initializer the Java-side callback invoked on worker thread
+   *                    create/destroy.
+   * @return opaque native handle.
+   */
   public static native long create(String backendType, NativeThreadInitializer initializer);
 
+  /**
+   * Release a native ThreadManager previously created with {@link #create}.
+   *
+   * @param handle the native handle returned by {@link #create}.
+   */
   public static native void release(long handle);
 }
