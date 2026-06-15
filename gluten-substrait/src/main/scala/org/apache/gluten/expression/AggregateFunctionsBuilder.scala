@@ -24,6 +24,8 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.types.DataType
 
+import scala.util.Try
+
 object AggregateFunctionsBuilder {
   def create(context: SubstraitContext, aggregateFunc: AggregateFunction): Long = {
     // First handle the custom aggregate functions
@@ -50,6 +52,8 @@ object AggregateFunctionsBuilder {
         ExpressionNames.FIRST_IGNORE_NULL
       case Last(_, ignoreNulls) if ignoreNulls =>
         ExpressionNames.LAST_IGNORE_NULL
+      case _ if isPortableDeltaBitmapAggregator(aggregateFunc) =>
+        ExpressionNames.BITMAP_AGGREGATOR
       case _ =>
         val nameOpt = ExpressionMappings.expressionsMap.get(aggregateFunc.getClass)
         if (nameOpt.isEmpty) {
@@ -61,5 +65,15 @@ object AggregateFunctionsBuilder {
           case name => name
         }
     }
+  }
+
+  private def isPortableDeltaBitmapAggregator(aggregateFunc: AggregateFunction): Boolean = {
+    aggregateFunc.prettyName == ExpressionNames.BITMAP_AGGREGATOR &&
+    Try {
+      aggregateFunc.getClass
+        .getMethod("serializationFormatString")
+        .invoke(aggregateFunc)
+        .asInstanceOf[String]
+    }.toOption.contains("Portable")
   }
 }
