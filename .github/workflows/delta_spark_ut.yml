@@ -406,40 +406,56 @@ jobs:
           rm -f /tmp/sbt-done
           (
             JSTACK="${JAVA_HOME}/bin/jstack"
+            JPS="${JAVA_HOME}/bin/jps"
             silent_limit=900   # 15 min with no new test output => treat as hung
             dumps=0
-            find_fork() {
-              # The sbt test fork is a `java` process whose main class is
-              # sbt.ForkMain. Recent sbt passes args via an @argfile, so ForkMain
-              # is not on the cmdline -- read the argfile too. Require comm=java so
-              # this never matches the watchdog's own shell/grep (whose cmdline
-              # also contains the literal "sbt.ForkMain").
-              local p cl arg
+            fork_pids() {
+              # Identify the sbt test fork JVM(s) (main class sbt.ForkMain). Prefer
+              # jps: it reads the main class from hsperfdata, so it is robust to
+              # recent sbt passing args via an @argfile (which keeps ForkMain off the
+              # process cmdline -- the old /proc-only probe matched nothing and the
+              # watchdog silently captured zero dumps). Fall back to scanning /proc.
+              local out p cl arg
+              out="$("$JPS" -l 2>/dev/null | awk '/sbt\.ForkMain/ {print $1}')"
+              if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
               for p in /proc/[0-9]*; do
                 [ "$(cat "$p/comm" 2>/dev/null)" = "java" ] || continue
-                cl="$(tr '\0' '\n' < "$p/cmdline" 2>/dev/null)"
-                printf '%s\n' "$cl" | grep -qa 'sbt\.ForkMain' && { basename "$p"; return 0; }
-                arg="$(printf '%s\n' "$cl" | sed -n 's/^@//p' | head -1)"
+                cl="$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)"
+                case "$cl" in *sbt.ForkMain*) echo "${p##*/}"; continue ;; esac
+                arg="$(printf '%s' "$cl" | tr ' ' '\n' | sed -n 's/^@//p' | head -1)"
                 [ -n "$arg" ] && [ -f "$arg" ] && grep -qa 'sbt\.ForkMain' "$arg" 2>/dev/null \
-                  && { basename "$p"; return 0; }
+                  && echo "${p##*/}"
               done
-              return 1
+            }
+            all_java_pids() {
+              local out p
+              out="$("$JPS" -q 2>/dev/null)"
+              if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
+              for p in /proc/[0-9]*; do
+                [ "$(cat "$p/comm" 2>/dev/null)" = "java" ] && echo "${p##*/}"
+              done
             }
             while [ ! -f /tmp/sbt-done ]; do
-              sleep 120
+              sleep 60
               [ -f "$SBT_LOG" ] || continue
               now=$(date +%s)
               mtime=$(stat -c %Y "$SBT_LOG" 2>/dev/null || echo "$now")
               silent=$(( now - mtime ))
               if [ "$silent" -ge "$silent_limit" ] && [ "$dumps" -lt 3 ]; then
-                pid="$(find_fork || true)"
-                if [ -n "$pid" ]; then
-                  dumps=$(( dumps + 1 ))
-                  dump="/tmp/threaddump-shard-${{ matrix.shard }}-${dumps}.txt"
-                  echo "::group::HANG WATCHDOG: forked test JVM ${pid} silent ${silent}s -- thread dump #${dumps}"
-                  "$JSTACK" -l "$pid" 2>&1 | tee "$dump"
-                  echo "::endgroup::"
-                fi
+                dumps=$(( dumps + 1 ))
+                pids="$(fork_pids)"
+                # Safety net: if the fork JVM cannot be pinpointed, dump EVERY JVM so
+                # the hang is never left undiagnosed.
+                [ -n "$pids" ] || pids="$(all_java_pids)"
+                echo "::group::HANG WATCHDOG: test output silent ${silent}s -- thread dump #${dumps} (pids:$(printf ' %s' $pids))"
+                [ -n "$pids" ] || echo "HANG WATCHDOG: no java process found to dump"
+                for pid in $pids; do
+                  dump="/tmp/threaddump-shard-${{ matrix.shard }}-${dumps}-${pid}.txt"
+                  echo "----- jstack -l ${pid} -----"
+                  timeout 120 "$JSTACK" -l "$pid" 2>&1 | tee "$dump" \
+                    || echo "HANG WATCHDOG: jstack failed/timed out for pid ${pid}"
+                done
+                echo "::endgroup::"
               fi
             done
           ) &
