@@ -364,21 +364,22 @@ jobs:
           # * sbt launcher JVM: -J-Xmx4G. sbt only compiles tests + orchestrates
           #   the fork; 4G is comfortable and its RSS is well under 4G during the
           #   (long) test phase, when the fork is the memory peak.
-          # * Forked test JVM:  -Xmx8G via the `set ... Test / javaOptions`
-          #   command below. Delta v4.2.0 caps its test fork at `-Xmx1024m`
-          #   in build.sbt -- way too tight once Gluten Velox / Arrow / JNI
-          #   are loaded on top. A DV+CDC merge suite allocates a large
-          #   RoaringBitmapArray.extendBitmaps backing array; at -Xmx6G it still
-          #   OOMed (`java.lang.OutOfMemoryError: Java heap space`), and that OOM
-          #   corrupts Velox memory-manager state -> `terminate` (SIGABRT) ->
-          #   the whole forked JVM dies mid-shard, so every remaining suite in
-          #   the shard is reported aborted (a false "regression" cascade in the
-          #   gate). 8G is the safe ceiling here: 8G heap + ~2G Velox off-heap +
-          #   ~1G JVM overhead ~= 11G fork RSS, leaving headroom under 16G. The
-          #   `++=` appends to Delta's own Test/javaOptions seq so our `-Xmx8G`
-          #   comes AFTER `-Xmx1024m` and wins (last `-Xmx` wins). We also keep
-          #   heap-dump-on-OOM so a recurrence (which would mean an allocation
-          #   >8G, i.e. a pathological test to identify+exclude) can be analyzed.
+          # * Forked test JVM:  -Xmx4G via the `set ... Test / javaOptions` command
+          #   below. Delta v4.2.0 caps its test fork at `-Xmx1024m` in build.sbt --
+          #   too tight once Gluten Velox / Arrow / JNI are loaded on top.
+          #   HISTORY: this was briefly bumped to 8G to absorb a DV+CDC merge
+          #   suite's giant RoaringBitmapArray.extendBitmaps heap allocation, but
+          #   that allocation was a Gluten bug (garbage native _metadata.row_index)
+          #   FIXED UPSTREAM by #12269's Velox row-index changes -- so the 8G is no
+          #   longer needed. Worse, 8G fork heap + 4G sbt launcher + a GROWING Velox
+          #   off-heap pool was tipping the ~16G runner over and the kernel
+          #   OOM-killed the forked JVM mid-shard (sudden death, no hs_err / no heap
+          #   dump), which wedged sbt's main process forever in ScalaTestRunner.done
+          #   -> Thread.join (the chronic "shard 2 hang"). 4G heap leaves ~4G more
+          #   for Velox's off-heap allocations. The `++=` appends to Delta's own
+          #   Test/javaOptions seq so our `-Xmx4G` comes AFTER `-Xmx1024m` and wins
+          #   (last `-Xmx` wins). Keep heap-dump-on-OOM so a genuine >4G heap OOM
+          #   (distinct from the off-heap OOM-kill) is still analyzable.
           # `-u target/test-reports` enables ScalaTest's JUnit XML reporter so
           # every suite writes per-test results. Delta itself only configures
           # the console reporter (-oDF), so without this we'd have no machine-
@@ -489,7 +490,7 @@ jobs:
             -v \
             -J-XX:+UseG1GC -J-Xmx4G \
             "++ ${DELTA_SCALA_VERSION}" \
-            'set spark / Test / javaOptions ++= Seq("-Xmx8G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
+            'set spark / Test / javaOptions ++= Seq("-Xmx4G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
             'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
             "spark/test" 2>&1 | tee "$SBT_LOG"
           SBT_EXIT=${PIPESTATUS[0]}
@@ -497,6 +498,16 @@ jobs:
           kill "$WATCHDOG_PID" 2>/dev/null || true
           set -e
           echo "sbt spark/test exited with ${SBT_EXIT}"
+
+          # Memory forensics: a sudden forked-JVM death with no hs_err and no heap
+          # dump is almost always a kernel/cgroup OOM-kill (Velox off-heap + JVM
+          # heap exceeding the ~16G runner). Surface the cgroup peak + oom_kill
+          # count so we can confirm/measure it (cgroup v2 paths; best-effort).
+          ( echo "=== cgroup memory forensics (exit ${SBT_EXIT}) ==="
+            for f in /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.max \
+                     /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.events; do
+              [ -r "$f" ] && { echo "--- $f ---"; cat "$f"; }
+            done ) || true
 
           # A compile/launch failure leaves no reports at all. In that case the
           # gate would see zero failures and pass spuriously, so fail loudly.
