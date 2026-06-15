@@ -380,7 +380,10 @@ if(veloxthrift_FOUND AND TARGET veloxthrift::veloxthrift)
   add_library(external::veloxthrift ALIAS veloxthrift::veloxthrift)
 else()
   message(STATUS "import Velox bundled veloxthrift")
-  import_library(external::veloxthrift ${VELOX_BUILD_PATH}/velox/dwio/parquet/thrift/libvelox_dwio_parquet_thrift_raw.a)
+  import_library(
+    external::veloxthrift
+    ${VELOX_BUILD_PATH}/velox/dwio/parquet/thrift/libvelox_dwio_parquet_thrift_raw.a
+  )
 endif()
 target_link_libraries(velox PUBLIC external::veloxthrift)
 
@@ -391,32 +394,42 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(arm64)")
   set(VCPKG_TRIPLET_DIR "arm64-linux-neon")
 else()
-  message(WARNING "Unknown processor type for vcpkg: ${CMAKE_SYSTEM_PROCESSOR}, defaulting to x64-linux-avx")
+  message(
+    WARNING
+      "Unknown processor type for vcpkg: ${CMAKE_SYSTEM_PROCESSOR}, defaulting to x64-linux-avx"
+  )
   set(VCPKG_TRIPLET_DIR "x64-linux-avx")
 endif()
 
-if(DEFINED VCPKG_INSTALLED_DIR AND EXISTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a")
-  message(STATUS "Using vcpkg thrift libraries from ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}")
+if(DEFINED VCPKG_INSTALLED_DIR
+   AND EXISTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a")
+  message(
+    STATUS
+      "Using vcpkg thrift libraries from ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}"
+  )
   target_link_libraries(
     velox
-    PRIVATE
-      ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
-      ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a
-  )
+    PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
+            ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
 else()
   message(STATUS "Using system thrift libraries from /usr/local/lib")
-  find_library(THRIFTCPP2_LIB NAMES thriftcpp2 PATHS /usr/local/lib NO_DEFAULT_PATH)
-  find_library(THRIFTPROTOCOL_LIB NAMES thriftprotocol PATHS /usr/local/lib NO_DEFAULT_PATH)
-  
+  find_library(
+    THRIFTCPP2_LIB
+    NAMES thriftcpp2
+    PATHS /usr/local/lib
+    NO_DEFAULT_PATH)
+  find_library(
+    THRIFTPROTOCOL_LIB
+    NAMES thriftprotocol
+    PATHS /usr/local/lib
+    NO_DEFAULT_PATH)
+
   if(THRIFTCPP2_LIB AND THRIFTPROTOCOL_LIB)
-    target_link_libraries(
-      velox
-      PRIVATE
-        ${THRIFTCPP2_LIB}
-        ${THRIFTPROTOCOL_LIB}
-    )
+    target_link_libraries(velox PRIVATE ${THRIFTCPP2_LIB} ${THRIFTPROTOCOL_LIB})
   else()
-    message(FATAL_ERROR "Could not find thrift libraries. Please install them or use vcpkg.")
+    message(
+      FATAL_ERROR
+        "Could not find thrift libraries. Please install them or use vcpkg.")
   endif()
 endif()
 
