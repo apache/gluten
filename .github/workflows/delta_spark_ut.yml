@@ -405,19 +405,23 @@ jobs:
           : > "$SBT_LOG"
           rm -f /tmp/sbt-done
           (
+            # CRITICAL: the step shell runs with `bash -eo pipefail`, which the
+            # subshell inherits. Without `set +e` here, ANY non-zero command --
+            # e.g. fork detection finding no match, or `kill`/`jps` returning
+            # non-zero -- silently kills this watchdog. That errexit kill (plus a
+            # /proc detection miss) is why the watchdog captured ZERO dumps in
+            # runs #12 and #13. A diagnostic must never abort on a failed probe.
+            set +e +o pipefail
             JSTACK="${JAVA_HOME}/bin/jstack"
             JPS="${JAVA_HOME}/bin/jps"
             silent_limit=900   # 15 min with no new test output => treat as hung
             dumps=0
             fork_pids() {
-              # Identify the sbt test fork JVM(s) (main class sbt.ForkMain). Prefer
-              # jps: it reads the main class from hsperfdata, so it is robust to
-              # recent sbt passing args via an @argfile (which keeps ForkMain off the
-              # process cmdline -- the old /proc-only probe matched nothing and the
-              # watchdog silently captured zero dumps). Fall back to scanning /proc.
-              local out p cl arg
-              out="$("$JPS" -l 2>/dev/null | awk '/sbt\.ForkMain/ {print $1}')"
-              if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
+              # The sbt test fork's main class is sbt.ForkMain. Prefer jps (reads
+              # the main class from hsperfdata, robust to sbt's @argfile launch);
+              # fall back to scanning /proc cmdline + @argfile.
+              "$JPS" -l 2>/dev/null | awk '/sbt\.ForkMain/ {print $1}'
+              local p cl arg
               for p in /proc/[0-9]*; do
                 [ "$(cat "$p/comm" 2>/dev/null)" = "java" ] || continue
                 cl="$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)"
@@ -428,31 +432,40 @@ jobs:
               done
             }
             all_java_pids() {
-              local out p
-              out="$("$JPS" -q 2>/dev/null)"
-              if [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi
+              "$JPS" -q 2>/dev/null
+              local p
               for p in /proc/[0-9]*; do
                 [ "$(cat "$p/comm" 2>/dev/null)" = "java" ] && echo "${p##*/}"
               done
             }
+            echo "HANG WATCHDOG armed: dumps the test JVM after ${silent_limit}s of output silence"
+            hb=0
             while [ ! -f /tmp/sbt-done ]; do
               sleep 60
               [ -f "$SBT_LOG" ] || continue
               now=$(date +%s)
               mtime=$(stat -c %Y "$SBT_LOG" 2>/dev/null || echo "$now")
               silent=$(( now - mtime ))
+              hb=$(( hb + 1 ))
+              # Heartbeat every ~5 min so we can SEE the watchdog is alive (and how
+              # long the test has been silent) without waiting for a hang.
+              [ $(( hb % 5 )) -eq 0 ] && echo "HANG WATCHDOG: alive; last test output ${silent}s ago"
               if [ "$silent" -ge "$silent_limit" ] && [ "$dumps" -lt 3 ]; then
                 dumps=$(( dumps + 1 ))
-                pids="$(fork_pids)"
-                # Safety net: if the fork JVM cannot be pinpointed, dump EVERY JVM so
-                # the hang is never left undiagnosed.
-                [ -n "$pids" ] || pids="$(all_java_pids)"
+                pids="$(fork_pids | sort -un)"
+                # Safety net: if the fork JVM cannot be pinpointed, dump EVERY JVM.
+                [ -n "$pids" ] || pids="$(all_java_pids | sort -un)"
                 echo "::group::HANG WATCHDOG: test output silent ${silent}s -- thread dump #${dumps} (pids:$(printf ' %s' $pids))"
                 [ -n "$pids" ] || echo "HANG WATCHDOG: no java process found to dump"
                 for pid in $pids; do
-                  dump="/tmp/threaddump-shard-${{ matrix.shard }}-${dumps}-${pid}.txt"
-                  echo "----- jstack -l ${pid} -----"
-                  timeout 120 "$JSTACK" -l "$pid" 2>&1 | tee "$dump" \
+                  # SIGQUIT makes the JVM print a full thread dump to its OWN stderr,
+                  # which sbt relays into the test log via the SAME stream as test
+                  # output -- so it lands in the job log even when a separately
+                  # spawned jstack child's output would be buffered/lost. Also write
+                  # jstack to a file for the per-shard artifact.
+                  echo "----- SIGQUIT + jstack pid ${pid} -----"
+                  kill -QUIT "$pid" 2>/dev/null || echo "HANG WATCHDOG: kill -QUIT failed for pid ${pid}"
+                  timeout 120 "$JSTACK" -l "$pid" > "/tmp/threaddump-shard-${{ matrix.shard }}-${dumps}-${pid}.txt" 2>&1 \
                     || echo "HANG WATCHDOG: jstack failed/timed out for pid ${pid}"
                 done
                 echo "::endgroup::"
