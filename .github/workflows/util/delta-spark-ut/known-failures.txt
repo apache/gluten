@@ -7,11 +7,10 @@
 # Lines starting with '#' are comments. See README.md in this directory.
 #
 # ---------------------------------------------------------------------------
-# PARTIAL BASELINE -- seeded from 15 of 16 shards of run 27490052632
-# (894 known failures across 18003 tests run). Shard 2 hung and is NOT yet
-# included, so its tests will surface as regressions until shard 2 is collected
-# and merged (see MANIFEST/README). Re-run shard 2, then aggregate all 16 and
-# replace this file.
+# Full 16-shard baseline. Originally seeded from 15 of 16 shards (run
+# 27490052632); shard 2 then hung/OOM-crashed and was excluded. Shard 2's
+# 60 failures have now been merged in on top of that seed, so every shard
+# enforces clean. 954 known failures total.
 # ---------------------------------------------------------------------------
 io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using SQL conf
 io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using withExtensions
@@ -45,6 +44,11 @@ org.apache.spark.sql.delta.AutoCompactExecutionSuite#auto-compact-enabled-proper
 org.apache.spark.sql.delta.AutoCompactExecutionSuite#auto-compact-enabled-property: auto compact should not kick in when session config is off
 org.apache.spark.sql.delta.AutoCompactExecutionSuite#variant auto compact kicks in when enabled - session config
 org.apache.spark.sql.delta.AutoCompactExecutionSuite#variant auto compact kicks in when enabled - table config
+org.apache.spark.sql.delta.CheckpointsSuite#DML with DVs corrupts variant stats when collectVariantDataSkippingStats is disabled
+org.apache.spark.sql.delta.CheckpointsSuite#DML with DVs preserves nested variant stats when collectVariantDataSkippingStats is enabled
+org.apache.spark.sql.delta.CheckpointsSuite#DML with DVs preserves variant and struct stats when collectVariantDataSkippingStats is enabled
+org.apache.spark.sql.delta.CheckpointsSuite#DML with DVs preserves variant stats when collectVariantDataSkippingStats is enabled
+org.apache.spark.sql.delta.CheckpointsSuite#SC-86940: writing a GCS checkpoint should happen in a new thread
 org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch100Suite#DML with DVs corrupts variant stats when collectVariantDataSkippingStats is disabled
 org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch100Suite#DML with DVs preserves nested variant stats when collectVariantDataSkippingStats is enabled
 org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch100Suite#DML with DVs preserves variant and struct stats when collectVariantDataSkippingStats is enabled
@@ -61,11 +65,13 @@ org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch2Suite#DML with DVs p
 org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch2Suite#DML with DVs preserves variant stats when collectVariantDataSkippingStats is enabled
 org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch2Suite#SC-86940: writing a GCS checkpoint should happen in a new thread
 org.apache.spark.sql.delta.CloneTableSQLSuite#shallow clone across file systems
+org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch100Suite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch1Suite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch2Suite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#Cloning table with persistent DVs and absolute parquet paths
 org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#Shallow clone round-trip with DVs
 org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#shallow clone across file systems
+org.apache.spark.sql.delta.CloneTableScalaSuite#shallow clone across file systems
 org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#external tables use correct path scheme
 org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#external tables use correct path scheme
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = false
@@ -171,6 +177,27 @@ org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#convert to delta with partiti
 org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#partitioned convert to delta with schema change
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - update/merge
+org.apache.spark.sql.delta.DeltaVariantShreddingSuite#Infer schema for Delta table
+org.apache.spark.sql.delta.DeltaVariantSuite#DISABLE_VARIANT_TABLE_FEATURE_FOR_SPARK_40 - config disabled does not block
+org.apache.spark.sql.delta.DeltaVariantSuite#DISABLE_VARIANT_TABLE_FEATURE_FOR_SPARK_40 - no-op on Spark 4.1+
+org.apache.spark.sql.delta.DeltaVariantSuite#Existing table with variant type can enable CDF
+org.apache.spark.sql.delta.DeltaVariantSuite#Table with variant type can use CDF
+org.apache.spark.sql.delta.DeltaVariantSuite#Variant can be used as a source for generated columns
+org.apache.spark.sql.delta.DeltaVariantSuite#Variant can have default value set
+org.apache.spark.sql.delta.DeltaVariantSuite#Variant cannot be created as a generated column
+org.apache.spark.sql.delta.DeltaVariantSuite#Variant respects Delta table CHECK constraints
+org.apache.spark.sql.delta.DeltaVariantSuite#Variant respects Delta table IS NOT NULL constraints
+org.apache.spark.sql.delta.DeltaVariantSuite#Zorder is not supported for Variant
+org.apache.spark.sql.delta.DeltaVariantSuite#column mapping works - id - false
+org.apache.spark.sql.delta.DeltaVariantSuite#column mapping works - id - true
+org.apache.spark.sql.delta.DeltaVariantSuite#column mapping works - name - false
+org.apache.spark.sql.delta.DeltaVariantSuite#column mapping works - name - true
+org.apache.spark.sql.delta.DeltaVariantSuite#optimize variant
+org.apache.spark.sql.delta.DeltaVariantSuite#shallow cloning table with variant
+org.apache.spark.sql.delta.DeltaVariantSuite#streaming variant delta table
+org.apache.spark.sql.delta.DeltaVariantSuite#time travel with variant column works
+org.apache.spark.sql.delta.DeltaVariantSuite#variant works with schema evolution for INSERT
+org.apache.spark.sql.delta.DeltaVariantSuite#variant works with schema evolution for MERGE
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skip deleted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#deleted files cause failure by default
@@ -548,6 +575,9 @@ org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnes
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target leaves, UPDATE t.col = s.col
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target nested struct, UPDATE *
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target nested struct, UPDATE t.col = s.col
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLNameBasedSuite#schema evolution - extra nested column in source - update, isPartitioned=false
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLNameBasedSuite#schema evolution - extra nested column in source - update, isPartitioned=true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLNameBasedSuite#schema evolution - extra nested column in source - update, partition on unused column
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update, isPartitioned=false
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update, isPartitioned=true
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update, partition on unused column
@@ -579,8 +609,12 @@ org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSc
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionScalaSuite#schema evolution - source nested map struct key contains less columns than target
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLNameBasedSuite#not matched by source - all 3 clauses - no changes - isPartitioned: false - cdcEnabled: true
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLNameBasedSuite#not matched by source - all 3 clauses - no changes - isPartitioned: true - cdcEnabled: true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLPathBasedCDCOnSuite#not matched by source - all 3 clauses - no changes - isPartitioned: false - cdcEnabled: true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLPathBasedCDCOnSuite#not matched by source - all 3 clauses - no changes - isPartitioned: true - cdcEnabled: true
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLPathBasedSuite#not matched by source - all 3 clauses - no changes - isPartitioned: false - cdcEnabled: true
 org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLPathBasedSuite#not matched by source - all 3 clauses - no changes - isPartitioned: true - cdcEnabled: true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2ScalaSuite#not matched by source - all 3 clauses - no changes - isPartitioned: false - cdcEnabled: true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2ScalaSuite#not matched by source - all 3 clauses - no changes - isPartitioned: true - cdcEnabled: true
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSQLSQLNameBasedSuite#CTE as a source in MERGE
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSQLSQLPathBasedCDCOnDVsPredPushOffSuite#CTE as a source in MERGE
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSQLSQLPathBasedCDCOnDVsPredPushOnSuite#CTE as a source in MERGE
@@ -649,6 +683,7 @@ org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedCDCOnDVSuit
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedCDCOnRowTrackingOffSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedCDCOnRowTrackingOnSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedCDCOnSuite#Variant type
+org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedDVPredPushOffSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedDVPredPushOnSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedRowTrackingOffSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedRowTrackingOnSuite#Variant type
@@ -672,6 +707,7 @@ org.apache.spark.sql.delta.generatedsuites.UpdateBaseTempViewSQLPathBasedSuite#t
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseTempViewSQLPathBasedSuite#test update on temp view - nontrivial projection - SQL TempView
 org.apache.spark.sql.delta.optimize.OptimizeCompactionSQLSuite#optimize - multiple jobs start executing at once
 org.apache.spark.sql.delta.optimize.OptimizeCompactionScalaSuite#optimize - multiple jobs start executing at once
+org.apache.spark.sql.delta.optimize.OptimizeConflictSuite#conflict handling between Optimize and Business Txn
 org.apache.spark.sql.delta.optimize.OptimizeMetricsSuite#optimize ZOrderBy operation metrics in Delta table history
 org.apache.spark.sql.delta.optimize.OptimizeMetricsSuite#optimize metrics on idempotent operations
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DateFormatPartitionExpr(day,yyyy-MM-dd) from timestamp
@@ -825,6 +861,26 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#loa
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#loading data from Delta to parquet should skip data - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#support case insensitivity for partitioning filters
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#support case insensitivity for partitioning filters - old behavior with DataFrame schema
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#Data skipping handles aliasing for _metadata fields
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#Test file pruning metrics with data skipping
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#Test file pruning metrics with data skipping - old behavior with DataFrame schema
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping flags
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping flags - old behavior with DataFrame schema
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ - old behavior with DataFrame schema
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ near Long.MaxValue
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - old behavior with DataFrame schema
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping shouldn't use expressions involving a subquery
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping shouldn't use expressions involving a subquery  - old behavior with DataFrame schema
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping stats before and after optimize
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping stats before and after optimize - old behavior with DataFrame schema
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#loading data from Delta to parquet should skip data
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#loading data from Delta to parquet should skip data - old behavior with DataFrame schema
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#support case insensitivity for partitioning filters
+org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#support case insensitivity for partitioning filters - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Data skipping handles aliasing for _metadata fields
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Test file pruning metrics with data skipping
@@ -892,6 +948,9 @@ org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widenin
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening with user-defined type in table
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#unsupported type changes DOUBLE -> FLOAT, partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#unsupported type changes TIMESTAMP_NTZ -> DATE, partitioned=false
+org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - always automatic type widening DATE -> TIMESTAMP_NTZ
+org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - automatic type widening DATE -> TIMESTAMP_NTZ
+org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - unsupported automatic type widening TIMESTAMP_NTZ -> DATE
 org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - unsupported automatic type widening TIMESTAMP_NTZ -> DATE
 org.apache.spark.sql.delta.typewidening.TypeWideningTableFeatureAdvancedSuite#drop feature after type change DATE -> TIMESTAMP_NTZ
