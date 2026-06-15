@@ -68,7 +68,7 @@ class SubtractRexCallConverter extends BaseRexCallConverter {
         && params.get(1).getReturnType() instanceof BigIntType) {
 
       Type bigIntType = new BigIntType();
-      TypedExpr castExpr = new CallTypedExpr(bigIntType, List.of(params.get(0)), "cast");
+      TypedExpr castExpr = new CallTypedExpr(bigIntType, List.of(params.get(0)), "unix_millis");
 
       List<TypedExpr> newParams = List.of(castExpr, params.get(1));
       return new CallTypedExpr(bigIntType, newParams, functionName);
