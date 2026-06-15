@@ -69,6 +69,7 @@ function process_setup_ubuntu {
 }
 
 function process_setup_centos9 {
+  sed -i "s|run_and_time install_arrow||g" scripts/setup-centos9.sh
   echo "Using setup script from Velox"
 }
 
