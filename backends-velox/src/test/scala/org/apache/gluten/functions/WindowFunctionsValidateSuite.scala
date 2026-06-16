@@ -36,13 +36,13 @@ class WindowFunctionsValidateSuite extends FunctionsValidateSuite {
 
   test("lag/lead, nth_value window function with constant input") {
     runQueryAndCompare(
-      "select lag(10, -2) over" +
+      "select lag(10, 2) over" +
         " (partition by l_suppkey order by l_orderkey) from lineitem") {
       checkGlutenPlan[WindowExecTransformer]
     }
 
     runQueryAndCompare(
-      "select lead(10, -2) over" +
+      "select lead(10, 2) over" +
         " (partition by l_suppkey order by l_orderkey) from lineitem") {
       checkGlutenPlan[WindowExecTransformer]
     }
