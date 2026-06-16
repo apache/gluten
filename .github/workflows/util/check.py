@@ -66,6 +66,7 @@ def get_files(commit, path):
     return [
         file
         for file in filelist
+        if "ep/build-velox" not in file
     ]
 
 

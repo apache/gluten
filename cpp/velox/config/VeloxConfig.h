@@ -174,7 +174,7 @@ const std::string kAllowInt32Narrowing = "spark.gluten.sql.columnar.backend.velo
 
 // write files
 const std::string kMaxPartitions = "spark.gluten.sql.columnar.backend.velox.maxPartitionsPerWritersSession";
-const std::string kMaxTargetFileSize = "spark.gluten.sql.columnar.backend.velox.maxTargetFileSize";
+const std::string kParquetMaxTargetFileSize = "spark.gluten.sql.columnar.backend.velox.parquetMaxTargetFileSize";
 
 const std::string kGlogVerboseLevel = "spark.gluten.sql.columnar.backend.velox.glogVerboseLevel";
 const uint32_t kGlogVerboseLevelDefault = 0;

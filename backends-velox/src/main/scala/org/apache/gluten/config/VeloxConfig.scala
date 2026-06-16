@@ -302,7 +302,7 @@ object VeloxConfig extends ConfigRegistry {
       .createWithDefault(10000)
 
   val MAX_TARGET_FILE_SIZE_SESSION =
-    buildConf("spark.gluten.sql.columnar.backend.velox.maxTargetFileSize")
+    buildConf("spark.gluten.sql.columnar.backend.velox.parquetMaxTargetFileSize")
       .doc(
         "The target file size for each output file when writing data. " +
           "0 means no limit on target file size, and the actual file size will be determined by " +
