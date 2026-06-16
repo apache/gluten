@@ -78,7 +78,7 @@ object VeloxBroadcastBuildSideCache
       )
   }
 
-  /** This is callback from c++ backend. */
+  /** This is called from c++ side. */
   def get(broadcastHashtableId: String): Long = {
     Option(buildSideRelationCache.getIfPresent(broadcastHashtableId))
       .map(_.pointer)
@@ -95,7 +95,10 @@ object VeloxBroadcastBuildSideCache
 
   def cleanAll(): Unit = buildSideRelationCache.invalidateAll()
 
-  override def onRemoval(key: String, value: BroadcastHashTable, cause: RemovalCause): Unit = {
+  override def onRemoval(
+      key: String,
+      value: BroadcastHashTable,
+      cause: RemovalCause): Unit = {
     synchronized {
       if (value.relation != null) {
         value.relation match {

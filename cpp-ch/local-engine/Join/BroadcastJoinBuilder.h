@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #pragma once
+#include <cstdint>
 #include <memory>
 #include <jni.h>
 #include <substrait/algebra.pb.h>
@@ -27,25 +28,26 @@ class ReadBuffer;
 namespace local_engine
 {
 class StorageJoinFromReadBuffer;
-namespace BroadCastJoinBuilder
+namespace BroadcastJoinBuilder
 {
-
 std::shared_ptr<StorageJoinFromReadBuffer> buildJoin(
     const std::string & key,
     DB::ReadBuffer & input,
     jlong row_count,
     const std::string & join_keys,
     jint join_type,
+    bool is_bhj,
     bool has_mixed_join_condition,
     bool is_existence_join,
     const std::string & named_struct,
     bool is_null_aware_anti_join,
     bool has_null_key_values);
 void cleanBuildHashTable(const std::string & hash_table_id, jlong instance);
+
 std::shared_ptr<StorageJoinFromReadBuffer> getJoin(const std::string & hash_table_id);
 
-
 void init(JNIEnv *);
+
 void destroy(JNIEnv *);
 }
 }
