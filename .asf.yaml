@@ -48,6 +48,11 @@ github:
     discussions: true
     wiki: false
     projects: true
+  copilot_code_review:
+    enabled: true
+    review_drafts: false
+    review_on_push: true
+
 notifications:
   commits: commits@gluten.apache.org
   issues: commits@gluten.apache.org

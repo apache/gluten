@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_05_29
-VELOX_ENHANCED_BRANCH=ibm-2026_05_29
+VELOX_BRANCH=dft-2026_06_06
+VELOX_ENHANCED_BRANCH=ibm-2026_06_06
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
@@ -69,7 +69,6 @@ function process_setup_ubuntu {
 }
 
 function process_setup_centos9 {
-  sed -i "s|-DFOLLY_HAVE_INT128_T=ON|-DFOLLY_HAVE_INT128_T=ON -DFOLLY_NO_EXCEPTION_TRACER=ON|g" scripts/setup-common.sh
   echo "Using setup script from Velox"
 }
 
@@ -146,10 +145,8 @@ function apply_compilation_fixes {
     SUDO_CMD="sudo"
   fi
   $SUDO_CMD cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
-  $SUDO_CMD cp ${CURRENT_DIR}/modify_arrow_dataset_scan_option.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
 
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
-  git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow_dataset_scan_option.patch # to avoid the file from being deleted by git clean -dffx :/
 }
 
 function setup_linux {
@@ -198,12 +195,12 @@ function setup_linux {
         exit 1
       ;;
     esac
-  elif [[ "$LINUX_DISTRIBUTION" == "rhel" ]]; then
-    case "$LINUX_VERSION_ID" in
-      9.6) ;;
-      9.7) ;;
+  elif [[ "$LINUX_DISTRIBUTION" == "rhel" || "$LINUX_DISTRIBUTION" == "rocky" || \
+    "$LINUX_DISTRIBUTION" == "almalinux" ]]; then
+    case "${LINUX_VERSION_ID%%.*}" in
+      9) ;;
       *)
-        echo "Unsupported rhel version: $LINUX_VERSION_ID"
+        echo "Unsupported ${LINUX_DISTRIBUTION} version: $LINUX_VERSION_ID"
         exit 1
       ;;
     esac

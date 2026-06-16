@@ -51,7 +51,7 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
       MAX_TARGET_FILE_SIZE_SESSION.key -> getTargetFileSizeBytes
     ).foreach {
       case (key, value) =>
-        if (SQLConf.get.getConfString(key, null) != null) {
+        if (SQLConf.get.getConfString(key, null) == null) {
           icebergProperties.put(key, value)
         }
     }

@@ -109,10 +109,8 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
           processAvailableElement(sourceContext);
           break;
         case BLOCKED:
-          LOG.debug("Get empty row");
           break;
         default:
-          LOG.info("Velox task finished");
           return;
       }
       taskMetrics.updateMetrics(task, id);
@@ -233,6 +231,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
       return;
     }
     sessionResource = new GlutenSessionResource();
+    GlutenSessionResources.getInstance().addSessionResource(id, sessionResource);
     Session session = sessionResource.getSession();
     query =
         new Query(

@@ -220,7 +220,10 @@ public class StreamExecLocalWindowAggregate extends StreamExecWindowAggregateBas
             offset,
             windowType,
             outputType,
-            rowtimeIndex);
+            false,
+            rowtimeIndex,
+            -1,
+            -1);
     final OneInputStreamOperator localAggOperator =
         new GlutenOneInputOperator(
             new StatefulPlanNode(windowAgg.getId(), windowAgg),

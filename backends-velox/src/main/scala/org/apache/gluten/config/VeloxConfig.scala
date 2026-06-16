@@ -94,7 +94,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def cudfShuffleMaxPrefetchBytes: Long = getConf(CUDF_SHUFFLE_MAX_PREFETCH_BYTES)
 
-  def orcUseColumnNames: Boolean = getConf(ORC_USE_COLUMN_NAMES)
+  def orcUseColumnNames: Boolean = getConf(ORC_USE_COLUMN_NAMES) &&
+    !conf.getConfString(GlutenConfig.SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, "false").toBoolean
 
   def parquetUseColumnNames: Boolean = getConf(PARQUET_USE_COLUMN_NAMES)
 
@@ -372,7 +373,7 @@ object VeloxConfig extends ConfigRegistry {
       .createOptional
 
   val COLUMNAR_VELOX_RESIZE_BATCHES_SHUFFLE_INPUT_OUTPUT_MIN_SIZE =
-    buildConf("spark.gluten.sql.columnar.backend.velox.resizeBatches.shuffleInputOuptut.minSize")
+    buildConf("spark.gluten.sql.columnar.backend.velox.resizeBatches.shuffleInputOutput.minSize")
       .doc(
         s"The minimum batch size for shuffle input and output. " +
           s"If size of an input batch is " +
@@ -823,9 +824,9 @@ object VeloxConfig extends ConfigRegistry {
   val ENABLE_TIMESTAMP_NTZ_VALIDATION =
     buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")
       .doc(
-        "Enable validation fallback for TimestampNTZ type. When true (default), any plan " +
-          "containing TimestampNTZ will fall back to Spark execution. Set to false during " +
-          "development/testing of TimestampNTZ support to allow native execution.")
+        "Enable validation fallback for TimestampNTZ type. When true, any plan " +
+          "containing TimestampNTZ will fall back to Spark execution. When false, " +
+          "allows native execution for TimestampNTZ scan.")
       .booleanConf
-      .createWithDefault(true)
+      .createWithDefault(false)
 }
