@@ -63,11 +63,7 @@ def get_files(commit, path):
             for name in files:
                 filelist.append(os.path.join(root, name))
 
-    return [
-        file
-        for file in filelist
-        if "ep/build-velox" not in file
-    ]
+    return [file for file in filelist if "ep/build-velox" not in file]
 
 
 def help(args):
