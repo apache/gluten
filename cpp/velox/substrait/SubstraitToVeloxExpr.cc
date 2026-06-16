@@ -17,10 +17,10 @@
 
 #include "SubstraitToVeloxExpr.h"
 #include "TypeUtils.h"
+#include "velox/functions/sparksql/specialforms/SparkCastExpr.h"
+#include "velox/type/Timestamp.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/VariantToVector.h"
-
-#include "velox/type/Timestamp.h"
 
 using namespace facebook::velox;
 
@@ -579,9 +579,15 @@ core::TypedExprPtr SubstraitVeloxExprConverter::toVeloxExpr(
     case SparkCastMode::kLegacy:
       return std::make_shared<const core::CallTypedExpr>(
           type, std::move(inputs), kSparkLegacyCast);
-    case SparkCastMode::kAnsi:
+    case SparkCastMode::kAnsi: {
+      const auto castName =
+          functions::sparksql::SparkCastCallToSpecialForm::isAnsiSupported(
+              inputs[0]->type(), type)
+          ? kSparkAnsiCast
+          : kSparkLegacyCast;
       return std::make_shared<const core::CallTypedExpr>(
-          type, std::move(inputs), kSparkAnsiCast);
+          type, std::move(inputs), castName);
+    }
     case SparkCastMode::kTry:
       return std::make_shared<core::CastTypedExpr>(type, std::move(inputs), true);
     default:
