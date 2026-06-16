@@ -61,6 +61,7 @@ import org.apache.calcite.rex.RexNode;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Stream {@link ExecNode} to read data from an external source defined by a {@link
@@ -132,8 +133,8 @@ public class StreamExecTableSourceScan extends CommonExecTableSourceScan
         List.of(watermarkExprs));
   }
 
-  private io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec getWatermarkPushDownSpec(
-      Transformation<RowData> transformation, ExecNodeConfig config) {
+  private Optional<io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec>
+      getWatermarkPushDownSpec(Transformation<RowData> transformation, ExecNodeConfig config) {
     io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec watermarkPushDownSpecNode = null;
     if (transformation instanceof SourceTransformation) {
       List<SourceAbilitySpec> sourceAbilities = getTableSourceSpec().getSourceAbilities();
@@ -158,7 +159,9 @@ public class StreamExecTableSourceScan extends CommonExecTableSourceScan
         }
       }
     }
-    return watermarkPushDownSpecNode;
+    return watermarkPushDownSpecNode != null
+        ? Optional.of(watermarkPushDownSpecNode)
+        : Optional.empty();
   }
 
   @Override
@@ -170,7 +173,7 @@ public class StreamExecTableSourceScan extends CommonExecTableSourceScan
             .getScanTableSource(
                 planner.getFlinkContext(), ShortcutUtils.unwrapTypeFactory(planner));
     Transformation<RowData> transformation = super.translateToPlanInternal(planner, config);
-    io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec watermarkPushDownSpec =
+    Optional<io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec> watermarkPushDownSpec =
         getWatermarkPushDownSpec(transformation, config);
     return VeloxSourceSinkFactory.buildSource(
         transformation,

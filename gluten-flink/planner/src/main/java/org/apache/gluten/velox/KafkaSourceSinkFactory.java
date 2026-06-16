@@ -44,6 +44,7 @@ import org.apache.flink.util.FlinkRuntimeException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
 
@@ -71,8 +72,8 @@ public class KafkaSourceSinkFactory implements VeloxSourceSinkFactory {
       ScanTableSource tableSource =
           (ScanTableSource) parameters.get(ScanTableSource.class.getName());
       boolean checkpointEnabled = (Boolean) parameters.get("checkpoint.enabled");
-      WatermarkPushDownSpec watermarkPushDownSpec =
-          (WatermarkPushDownSpec) parameters.get("watermarkPushDownSpec");
+      Optional<WatermarkPushDownSpec> watermarkPushDownSpec =
+          (Optional<WatermarkPushDownSpec>) parameters.get("watermarkPushDownSpec");
       Class<?> tableSourceClazz =
           Class.forName("org.apache.flink.streaming.connectors.kafka.table.KafkaDynamicSource");
       Properties properties =
@@ -119,9 +120,9 @@ public class KafkaSourceSinkFactory implements VeloxSourceSinkFactory {
               List.of());
 
       PlanNode kafkaScan =
-          watermarkPushDownSpec != null
+          watermarkPushDownSpec.isPresent()
               ? new TableScanWithWatermarkNode(
-                  planId, outputType, kafkaTableHandle, List.of(), watermarkPushDownSpec)
+                  planId, outputType, kafkaTableHandle, List.of(), watermarkPushDownSpec.get())
               : new TableScanNode(planId, outputType, kafkaTableHandle, List.of());
       GlutenStreamSource sourceOp =
           new GlutenStreamSource(
