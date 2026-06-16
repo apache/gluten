@@ -556,7 +556,7 @@ class JavaRssClient : public RssClient {
 ///
 /// On initialize(), attaches the current native thread to the JVM and calls
 /// into the Java initializer so it can install Spark TaskContext or other
-/// thread-local state. On destroy(), calls the Java destroy() method but
+/// task-local state. On destroy(), calls the Java destroy() method but
 /// does NOT detach the thread — the underlying JVM thread may be reused by
 /// the pool, and detaching prematurely could allow the Java Thread object
 /// to be garbage-collected.

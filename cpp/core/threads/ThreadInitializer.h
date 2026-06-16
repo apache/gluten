@@ -21,12 +21,13 @@
 
 namespace gluten {
 
-/// Lifecycle hook invoked on each worker thread managed by a ThreadManager.
+/// Per-task hook invoked around each submitted task on executors wrapped
+/// by a ThreadManager.
 ///
-/// When a thread pool (e.g., folly::CPUThreadPoolExecutor) spawns or reaps a
-/// thread, the ThreadInitializer gives the application a chance to attach
-/// per-thread context — such as JNI thread attachment or Spark TaskContext
-/// propagation — before the thread runs native work and to clean up after.
+/// When a task is submitted to an executor (e.g., via HookedExecutor::wrap),
+/// the ThreadInitializer gives the application a chance to attach per-task
+/// context — such as JNI thread attachment or Spark TaskContext propagation —
+/// before the task runs native work and to clean up after.
 ///
 /// Implementations must be thread-safe; initialize() and destroy() can be
 /// called concurrently from different threads.
@@ -38,14 +39,15 @@ class ThreadInitializer {
 
   virtual ~ThreadInitializer() = default;
 
-  /// Called when a worker thread is about to start executing tasks.
-  /// @param threadName A human-readable name identifying the thread.
-  virtual void initialize(const std::string& threadName) = 0;
+  /// Called before each submitted task executes. Attach per-task context
+  /// such as a JNI env or Spark TaskContext.
+  /// @param taskName A human-readable name identifying the task (not the thread).
+  virtual void initialize(const std::string& taskName) = 0;
 
-  /// Called when a worker thread is about to be returned to the pool or
-  /// destroyed. Must not detach the JNI thread — the thread may be reused.
-  /// @param threadName The same name passed to initialize().
-  virtual void destroy(const std::string& threadName) = 0;
+  /// Called after each submitted task completes. Must not detach the JNI
+  /// thread — the thread may be reused for subsequent tasks.
+  /// @param taskName The same name passed to initialize().
+  virtual void destroy(const std::string& taskName) = 0;
 
  protected:
   ThreadInitializer() = default;

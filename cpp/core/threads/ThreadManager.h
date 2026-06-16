@@ -32,8 +32,8 @@ namespace gluten {
 /// at init time, and the factory is keyed by backend kind (e.g., "velox").
 ///
 /// The ThreadManager owns a ThreadInitializer that is used to propagate
-/// per-thread context (JNI env, Spark TaskContext) to native worker threads
-/// created by folly executors. It is created once per Spark task and released
+/// per-task context (JNI env, Spark TaskContext) to executor tasks
+/// submitted via HookedExecutor. It is created once per Spark task and released
 /// when the task finishes.
 class ThreadManager {
  public:
@@ -60,9 +60,10 @@ class ThreadManager {
     return kind_;
   }
 
-  /// Return the ThreadInitializer that should be called on each worker
-  /// thread before and after task execution. The returned pointer is
-  /// owned by ThreadManager; callers must not delete it.
+  /// Return the ThreadInitializer that should be called around each
+  /// submitted task (before and after execution) to attach per-task
+  /// context. The returned pointer is owned by ThreadManager; callers
+  /// must not delete it.
   virtual ThreadInitializer* getThreadInitializer() = 0;
 
  private:
