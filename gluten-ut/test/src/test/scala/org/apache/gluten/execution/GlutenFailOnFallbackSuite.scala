@@ -18,6 +18,9 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.exception.GlutenException
+import org.apache.gluten.utils.BackendTestUtils
+
+import org.apache.spark.SparkConf
 
 import java.util.Locale
 
@@ -25,6 +28,14 @@ class GlutenFailOnFallbackSuite extends WholeStageTransformerSuite {
 
   protected val resourcePath: String = null
   protected val fileFormat: String = null
+
+  override protected def sparkConf: SparkConf = {
+    val conf = super.sparkConf
+    if (BackendTestUtils.isCHBackendLoaded()) {
+      conf.set(GlutenConfig.NATIVE_VALIDATION_ENABLED.key, "false")
+    }
+    conf
+  }
 
   test("failOnFallback throws only when a fallback is present") {
     withTable("t") {
