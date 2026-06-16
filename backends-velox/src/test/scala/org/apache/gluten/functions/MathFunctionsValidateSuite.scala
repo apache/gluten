@@ -66,7 +66,7 @@ class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
   }
 }
 
-abstract class MathFunctionsValidateSuite extends FunctionsValidateSuite {
+class MathFunctionsValidateSuite extends FunctionsValidateSuite {
 
   disableFallbackCheck
   import testImplicits._
@@ -96,7 +96,7 @@ abstract class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  ignore("atan2") {
+  test("atan2") {
     runQueryAndCompare("SELECT atan2(double_field1, 0) from datatab limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
     }
@@ -414,7 +414,9 @@ abstract class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  test("decimal arithmetic respects allowPrecisionLoss captured at view analysis time") {
+  testWithMinSparkVersion(
+    "decimal arithmetic respects allowPrecisionLoss captured at view analysis time",
+    "4.1") {
     // Regression test for GLUTEN-11917: in Spark 4.1, arithmetic expressions embed
     // allowPrecisionLoss in their evalContext at analysis time. Gluten must read from
     // the expression rather than SQLConf.get, which can differ when querying a view

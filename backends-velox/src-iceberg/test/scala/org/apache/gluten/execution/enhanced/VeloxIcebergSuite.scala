@@ -465,4 +465,75 @@ class VeloxIcebergSuite extends IcebergSuite {
       )
     }
   }
+  ignore("disabled test") {
+    test("iceberg native write respects target file size bytes") {
+      withTable("iceberg_small_target_tbl") {
+        spark.sql(
+          """
+            |CREATE TABLE iceberg_small_target_tbl (
+            |  id INT,
+            |  payload STRING
+            |) USING iceberg
+            |TBLPROPERTIES (
+            |  'write.format.default' = 'parquet',
+            |  'write.parquet.compression-codec' = 'uncompressed',
+            |  'write.parquet.row-group-size-bytes' = '4096',
+            |  'write.parquet.page-size-bytes' = '1024B',
+            |  'write.target-file-size-bytes' = '8192'
+            |)
+            |""".stripMargin)
+
+        checkAnswer(
+          spark.sql(
+            """
+              |SHOW TBLPROPERTIES iceberg_small_target_tbl
+              |('write.target-file-size-bytes')
+              |""".stripMargin),
+          Seq(Row("write.target-file-size-bytes", "8192"))
+        )
+
+        val df = spark.sql(
+          """
+            |INSERT INTO iceberg_small_target_tbl
+            |SELECT /*+ COALESCE(1) */
+            |  CAST(id AS INT),
+            |  concat(
+            |    CAST(id AS STRING),
+            |    '-',
+            |    sha2(CAST(id AS STRING), 256),
+            |    '-',
+            |    sha2(CAST(id + 1000 AS STRING), 256)
+            |  )
+            |FROM range(1000)
+            |""".stripMargin)
+
+        val commandPlan =
+          df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
+
+        assert(commandPlan.isInstanceOf[VeloxIcebergAppendDataExec])
+
+        checkAnswer(
+          spark.sql("SELECT COUNT(*) FROM iceberg_small_target_tbl"),
+          Seq(Row(1000L)))
+
+        val files = spark.sql(
+          """
+            |SELECT file_size_in_bytes
+            |FROM default.iceberg_small_target_tbl.files
+            |""".stripMargin).collect().map(_.getLong(0))
+
+        assert(files.nonEmpty)
+
+        assert(
+          files.length > 1,
+          s"Expected write.target-file-size-bytes=8192 to create multiple files, " +
+            s"but got files=${files.mkString("[", ", ", "]")}")
+
+        assert(
+          files.max < 64L * 1024L,
+          s"Expected small target file size to keep max file size reasonably small, " +
+            s"but got files=${files.mkString("[", ", ", "]")}")
+      }
+    }
+  }
 }

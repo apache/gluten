@@ -111,7 +111,9 @@ object VeloxValidatorApi {
           StringType | BinaryType | _: DecimalType | DateType | TimestampType |
           YearMonthIntervalType.DEFAULT | NullType =>
         true
-      case dt if !enableTimestampNtzValidation && dt.catalogString == "timestamp_ntz" => true
+      case dt if !enableTimestampNtzValidation && dt.catalogString == "timestamp_ntz" =>
+        // Allow TimestampNTZ when validation is disabled (for development/testing)
+        true
       case _ => false
     }
   }

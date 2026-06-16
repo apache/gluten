@@ -51,6 +51,7 @@ RUN set -ex; \
     fi; \
     cd /opt/gluten; \
     source /opt/rh/gcc-toolset-11/enable; \
+    export VELOX_BUILD_SHARED=ON; \
     ./dev/builddeps-veloxbe.sh --run_setup_script=ON build_arrow; \
     ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
     dnf clean all; \

@@ -31,6 +31,8 @@ public class VeloxQueryConfig {
   private static final String keyVeloxAdjustTimestampToSessionTimeZone =
       "adjust_timestamp_to_session_timezone";
   private static final String keyVeloxSessionTimezone = "session_timezone";
+  private static final String kStreamingAggregationMinOutputBatchRows =
+      "streaming_aggregation_min_output_batch_rows";
 
   public static Config getConfig(RuntimeContext context) {
     if (!(context instanceof StreamingRuntimeContext)) {
@@ -47,6 +49,7 @@ public class VeloxQueryConfig {
     } else {
       configMap.put(keyVeloxSessionTimezone, localTimeZone);
     }
+    configMap.put(kStreamingAggregationMinOutputBatchRows, String.valueOf(1));
     return Config.create(configMap);
   }
 }

@@ -24,6 +24,8 @@ import org.apache.spark.sql.execution.columnar.InMemoryRelation
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
 import org.apache.spark.sql.internal.SQLConf
 
+import java.time.LocalDateTime
+
 class GlutenCachedTableSuite
   extends CachedTableSuite
   with GlutenSQLTestsTrait
@@ -162,6 +164,19 @@ class GlutenCachedTableSuite
         df1.join(df2, $"key" === $"a" && $"value" === $"b").select($"key", $"value", $"a", $"b"))
       uncacheTable("t1")
       uncacheTable("t2")
+    }
+  }
+
+  testGluten("SPARK-36120: Support cache/uncache table with TimestampNTZ type") {
+    val tableName = "ntzCache"
+    withTable(tableName) {
+      sql(s"CACHE TABLE $tableName AS SELECT TIMESTAMP_NTZ'2021-01-01 00:00:00'")
+      checkAnswer(spark.table(tableName), Row(LocalDateTime.parse("2021-01-01T00:00:00")))
+      spark.table(tableName).queryExecution.withCachedData.collect {
+        case cached: InMemoryRelation =>
+          assert(cached.stats.sizeInBytes === 60)
+      }
+      sql(s"UNCACHE TABLE $tableName")
     }
   }
 }

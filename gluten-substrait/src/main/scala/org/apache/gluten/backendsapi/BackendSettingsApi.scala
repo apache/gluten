@@ -63,8 +63,6 @@ trait BackendSettingsApi {
 
   def supportNativeRowIndexColumn(): Boolean = true
 
-  def supportExpandExec(): Boolean = false
-
   def supportSortExec(): Boolean = false
 
   def supportSortMergeJoinExec(): Boolean = true
@@ -100,6 +98,9 @@ trait BackendSettingsApi {
   def supportStructType(): Boolean = false
 
   def structFieldToLowerCase(): Boolean = true
+
+  /** Whether the backend may execute TimestampNTZ when validation is disabled. */
+  def supportTimestampNtz: Boolean = false
 
   // Whether to fallback aggregate at the same time if its empty-output child is fallen back.
   def fallbackAggregateWithEmptyOutputChild(): Boolean = false

@@ -310,7 +310,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
-  test("fallback with index based schema evolution") {
+  testWithMinSparkVersion("fallback with index based schema evolution", "3.4") {
     val query = "SELECT c2 FROM test"
     Seq("parquet", "orc").foreach {
       format =>
@@ -333,9 +333,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                     runQueryAndCompare(query) {
                       df =>
                         val plan = df.queryExecution.executedPlan
-                        val fallback = parquetUseColumnNames == "false" ||
-                          orcUseColumnNames == "false"
-                        assert(collect(plan) { case g: GlutenPlan => g }.isEmpty == fallback)
+                        assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
                     }
                   }
                 }

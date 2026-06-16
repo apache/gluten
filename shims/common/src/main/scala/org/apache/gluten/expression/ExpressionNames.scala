@@ -32,6 +32,7 @@ object ExpressionNames {
   final val COLLECT_LIST = "collect_list"
   final val COLLECT_SET = "collect_set"
   final val BLOOM_FILTER_AGG = "bloom_filter_agg"
+  final val BITMAP_CONSTRUCT_AGG = "bitmap_construct_agg"
   final val VAR_SAMP = "var_samp"
   final val VAR_POP = "var_pop"
   final val BIT_AND_AGG = "bit_and"

@@ -14,6 +14,7 @@ Users can implement custom functions using the UDF interface provided by Velox a
 At runtime, these UDFs are registered alongside their Java implementations via `CREATE TEMPORARY FUNCTION`.
 Once registered, Gluten can parse and offload these UDFs to Velox during execution, 
 meanwhile ensuring proper fallback to Java UDFs when necessary.
+Registered UDAFs can be used both as regular aggregate functions and as aggregate window functions.
 
 ## Create and Build UDF/UDAF library
 

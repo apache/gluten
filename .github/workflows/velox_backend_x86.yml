@@ -79,8 +79,6 @@ jobs:
             ccache -sz
             bash dev/ci-velox-buildstatic-centos-7.sh
             ccache -s
-            mkdir -p /work/.m2/repository/org/apache/arrow/
-            cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
           "
 
       - name: "Save ccache"
@@ -94,11 +92,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: .m2/repository/org/apache/arrow/
           if-no-files-found: error
 
   tpc-test-ubuntu:
@@ -157,11 +150,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Setup tzdata
         run: |
           sed -i 's|http://archive|http://eu.archive|g' /etc/apt/sources.list
@@ -184,7 +172,6 @@ jobs:
             apt-get update && apt-get install -y openjdk-8-jdk wget
             apt remove openjdk-11* -y
           fi
-          ls -l /root/.m2/repository/org/apache/arrow/arrow-dataset/15.0.0-gluten/
       - name: Install Hadoop & Setup HDFS
         if: matrix.os == 'ubuntu:22.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
         shell: bash
@@ -280,11 +267,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Update mirror list
         run: |
           if [ "${{ matrix.os }}" = "centos:7" ] || [ "${{ matrix.os }}" = "centos:8" ]; then
@@ -347,11 +329,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: .m2/repository/org/apache/arrow/
       - name: Build and run TPCH/DS tests
         run: |
           docker pull centos:7
@@ -406,11 +383,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /home/runner/.m2/repository/org/apache/arrow/
       - name: Setup java
         run: |
           sudo apt-get update
@@ -521,11 +493,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /home/runner/.m2/repository/org/apache/arrow/
       - name: Setup java
         run: |
           sudo apt-get update
@@ -564,11 +531,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Install Uniffle ${{ matrix.uniffle }}
         run: |
           export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
@@ -615,11 +577,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Update mirror list
         run: |
           sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
@@ -689,11 +646,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -749,11 +701,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare Spark Resources for Spark 3.3.1 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark33
@@ -799,11 +746,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare spark.test.home for Spark 3.4.4 (other tests)
         run: |
           dnf module -y install python39 && \
@@ -860,11 +802,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare Spark Resources for Spark 3.4.4 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark34
@@ -913,11 +850,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -971,11 +903,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -1025,11 +952,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare Spark Resources for Spark 3.5.5 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark35
@@ -1076,11 +998,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -1129,11 +1046,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare Spark Resources for Spark 3.5.5 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark35
@@ -1168,20 +1080,20 @@ jobs:
 
   cpp-test-udf-test:
     runs-on: ubuntu-22.04
-    container: apache/gluten:centos-8-jdk8
+    container: apache/gluten:centos-9-jdk8
     steps:
       - uses: actions/checkout@v4
       - name: Get Ccache
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-shared-${{runner.arch}}-${{github.sha}}
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{github.sha}}
           restore-keys: |
-            ccache-centos8-release-shared-${{runner.arch}}
+            ccache-centos9-release-shared-${{runner.arch}}
       - name: Build Gluten native libraries
         run: |
           df -a
-          bash dev/ci-velox-buildshared-centos-8.sh
+          bash dev/ci-velox-buildshared-centos-9.sh
           ccache -s
       - name: Run CPP unit test
         run: |
@@ -1245,9 +1157,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos9-release-shared-${{runner.arch}}-${{github.sha}}
+          key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{github.sha}}
           restore-keys: |
-            ccache-centos9-release-shared-${{runner.arch}}
+            ccache-centos9-cudf-release-shared-${{runner.arch}}
       - name: Build Gluten native libraries
         run: |
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:centos-9-jdk8-cudf bash -c "
@@ -1295,11 +1207,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -1307,7 +1214,7 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Prepare Spark Resources for Spark 4.0.1 #TODO remove after image update
+      - name: Prepare Spark Resources for Spark 4.0.2 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark40
           bash .github/workflows/util/install-spark-resources.sh 4.0
@@ -1353,12 +1260,7 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
-      - name: Prepare Spark Resources for Spark 4.0.1 #TODO remove after image update
+      - name: Prepare Spark Resources for Spark 4.0.2 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark40
           bash .github/workflows/util/install-spark-resources.sh 4.0
@@ -1404,11 +1306,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf install -y python3.11 python3.11-pip python3.11-devel && \
@@ -1464,11 +1361,6 @@ jobs:
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare Spark Resources for Spark 4.1.1 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark41
