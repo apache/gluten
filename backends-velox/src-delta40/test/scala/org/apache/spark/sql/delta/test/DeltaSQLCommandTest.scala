@@ -48,7 +48,21 @@ trait DeltaSQLCommandTest extends SharedSparkSession {
       .set("spark.default.parallelism", "1")
       .set("spark.memory.offHeap.enabled", "true")
       .set("spark.sql.shuffle.partitions", "5")
-      .set("spark.memory.offHeap.size", "2g")
+      // Bound native memory so a runaway suite (e.g. DeletionVectorsSuite's
+      // "2B rows" read, whose Velox native grows to ~13G) hits a HARD per-task
+      // cap and throws a clean Velox OOM -- a deterministic, baselineable test
+      // failure -- instead of growing until the kernel OOM-kills the whole fork
+      // (which wedges sbt into the chronic shard hang). `memory.isolation=true`
+      // makes the off-heap pool a hard per-task cap (= offHeap / executorCores);
+      // `overAcquiredMemoryRatio=0` drops Gluten's 30% over-acquire backup. The
+      // pool is bumped 2g->4g so the per-task cap stays a reasonable ~1-2G while
+      // the total managed off-heap stays <= 4g, keeping the fork well under the
+      // ~16G runner. NOTE: this is a HARD cap, so other genuinely memory-heavy
+      // tests may also start throwing clean OOMs -- the net failure delta is to
+      // be measured from the run, not assumed.
+      .set("spark.memory.offHeap.size", "4g")
+      .set("spark.gluten.memory.isolation", "true")
+      .set("spark.gluten.memory.overAcquiredMemoryRatio", "0")
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
       .set(SQLConf.ANSI_ENABLED.key, "false")
       .set(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key, "false")
