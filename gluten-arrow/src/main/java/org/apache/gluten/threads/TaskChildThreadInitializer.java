@@ -39,9 +39,6 @@ public class TaskChildThreadInitializer implements NativeThreadInitializer {
   private final TaskContext parentTaskContext;
   private final Map<String, String> childThreads = new ConcurrentHashMap<>();
 
-  /**
-   * @param parentTaskContext the Spark task's context to propagate to child native threads.
-   */
   public TaskChildThreadInitializer(TaskContext parentTaskContext) {
     Preconditions.checkNotNull(parentTaskContext);
     this.parentTaskContext = parentTaskContext;
