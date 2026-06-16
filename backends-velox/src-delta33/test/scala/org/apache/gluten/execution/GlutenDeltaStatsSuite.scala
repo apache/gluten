@@ -39,10 +39,12 @@ class GlutenDeltaStatsSuite extends QueryTest with SharedSparkSession with Delta
     withTempDir {
       dir =>
         val path = new File(dir, "ntz-stats").getCanonicalPath
-        // The maxValue statistic for a TIMESTAMP_NTZ near Long.MaxValue triggers the per-file
-        // statistics aggregation that cannot be offloaded to Velox.
-        val nearMaxMicros = Long.MaxValue - 999L
-        val data = Seq(nearMaxMicros)
+        // Collecting min/max statistics over a TIMESTAMP_NTZ column is what cannot be offloaded to
+        // Velox (a type limitation, independent of the value), so any in-range timestamp exercises
+        // the same fallback path. Use a normal timestamp to keep the test focused on the fallback
+        // rather than on timestamp-overflow edge cases.
+        val micros = 1704067200000000L // 2024-01-01T00:00:00Z
+        val data = Seq(micros)
           .toDF("micros")
           .selectExpr("micros AS id", "CAST(TIMESTAMP_MICROS(micros) AS TIMESTAMP_NTZ) AS ts")
 

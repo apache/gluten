@@ -137,12 +137,11 @@ object GlutenDeltaJobStatsTracker extends Logging {
         statsResultAttrs,
         StatisticsInputNode(dataCols))
       val projOp = ProjectExec(statsResultAttrs, aggOp)
-      val offloads = Seq(OffloadOthers()).map(_.toStrcitRule())
       val config = GlutenConfig.get
-      val transformRule = HeuristicTransform.WithRewrites(
-        Validators.newValidator(config, offloads),
-        Seq(PullOutPreProject),
-        offloads)
+      // Emulate Gluten's offloading on the driver. HeuristicTransform.static() pulls in the full
+      // set of component offload rules (it needs an active Spark session, which exists here on the
+      // driver), so the decision reflects the real offloading behavior.
+      val transformRule = HeuristicTransform.static()
       ColumnarCollapseTransformStages(config)(
         transformRule(projOp)).isInstanceOf[WholeStageTransformer]
     } catch {
