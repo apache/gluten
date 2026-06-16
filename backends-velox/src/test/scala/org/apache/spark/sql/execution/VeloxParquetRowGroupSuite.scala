@@ -32,11 +32,11 @@ import java.io.File
  * Validates which configuration channel actually controls the Parquet row-group size of Gluten's
  * native (Velox) writer.
  *
- * Background: Delta's `DeletionVectorsWithPredicatePushdownSuite.beforeAll` writes a 1M-row
- * table with `hadoopConf().set("parquet.block.size", 2MB)` and asserts the resulting file has more
- * than one Parquet row group. Under Gluten the file has a single row group, so `beforeAll` throws
- * and the whole suite aborts. These tests pin down why: the native writer flushes a row group when
- * the accumulated uncompressed size reaches `maxRowGroupBytes` (default 128MB, from
+ * Background: Delta's `DeletionVectorsWithPredicatePushdownSuite.beforeAll` writes a 1M-row table
+ * with `hadoopConf().set("parquet.block.size", 2MB)` and asserts the resulting file has more than
+ * one Parquet row group. Under Gluten the file has a single row group, so `beforeAll` throws and
+ * the whole suite aborts. These tests pin down why: the native writer flushes a row group when the
+ * accumulated uncompressed size reaches `maxRowGroupBytes` (default 128MB, from
  * `parquet.block.size`) or the row count reaches `maxRowGroupRows` (default 100M). ~8MB of `int64`
  * data is far below the 128MB default (one row group) but far above the 1MB block size used here
  * (several row groups) -- but only when the block size actually reaches the native writer.
@@ -106,7 +106,11 @@ class VeloxParquetRowGroupSuite extends VeloxWholeStageTransformerSuite with Wri
   test("native writer should respect parquet.block.size set on the runtime Hadoop conf") {
     withTempPath {
       f =>
+        // scalastyle:off hadoopconfiguration
+        // Mirror Delta's `hadoopConf().set("parquet.block.size", ...)`: mutate the runtime Hadoop
+        // conf the write actually reads, rather than a session-creation `spark.hadoop.*` setting.
         val hadoopConf = spark.sparkContext.hadoopConfiguration
+        // scalastyle:on hadoopconfiguration
         hadoopConf.set("parquet.block.size", smallBlockSize.toString)
         try {
           writeRangeNatively(f.getCanonicalPath)
