@@ -17,15 +17,14 @@
 package org.apache.gluten.threads;
 
 /**
- * Java-side callback invoked by native code when a managed worker thread is
- * created or destroyed.
+ * Java-side callback invoked by native code when a managed worker thread is created or destroyed.
  *
- * <p>Implementations are responsible for installing per-thread context — such as
- * {@link org.apache.spark.TaskContext} — so that native worker threads behave
- * as proper child threads of the Spark task.
+ * <p>Implementations are responsible for installing per-thread context — such as {@link
+ * org.apache.spark.TaskContext} — so that native worker threads behave as proper child threads of
+ * the Spark task.
  *
- * <p>Implementations must be thread-safe; {@link #initialize} and
- * {@link #destroy} may be called concurrently from different native threads.
+ * <p>Implementations must be thread-safe; {@link #initialize} and {@link #destroy} may be called
+ * concurrently from different native threads.
  */
 public interface NativeThreadInitializer {
   /**
@@ -36,8 +35,8 @@ public interface NativeThreadInitializer {
   void initialize(String threadName);
 
   /**
-   * Called when a native worker thread is about to be returned to the pool
-   * or destroyed. Must not detach the JNI thread — the thread may be reused.
+   * Called when a native worker thread is about to be returned to the pool or destroyed. Must not
+   * detach the JNI thread — the thread may be reused.
    *
    * @param threadName the same name passed to {@link #initialize}.
    */

@@ -24,28 +24,22 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Propagates the parent Spark task's {@link TaskContext} to native worker
- * threads so they inherit the task's thread-local properties (e.g., local
- * properties, job group, task attempt ID).
+ * Propagates the parent Spark task's {@link TaskContext} to native worker threads so they inherit
+ * the task's thread-local properties (e.g., local properties, job group, task attempt ID).
  *
- * <p>Each native thread that enters {@link #initialize} gets the parent
- * {@code TaskContext} installed via {@link SparkTaskUtil#setTaskContext}.
- * When the thread finishes its work, {@link #destroy} clears the context
- * so the thread can be safely returned to the pool.
+ * <p>Each native thread that enters {@link #initialize} gets the parent {@code TaskContext}
+ * installed via {@link SparkTaskUtil#setTaskContext}. When the thread finishes its work, {@link
+ * #destroy} clears the context so the thread can be safely returned to the pool.
  *
- * <p>The internal map tracks which native thread names are currently
- * active; initializing an already-active thread or destroying an unknown
- * thread is treated as a programming error and throws
- * {@link IllegalStateException}.
+ * <p>The internal map tracks which native thread names are currently active; initializing an
+ * already-active thread or destroying an unknown thread is treated as a programming error and
+ * throws {@link IllegalStateException}.
  */
 public class TaskChildThreadInitializer implements NativeThreadInitializer {
   private final TaskContext parentTaskContext;
   private final Map<String, String> childThreads = new ConcurrentHashMap<>();
 
-  /**
-   * @param parentTaskContext the Spark task's context to propagate to child
-   *                          native threads.
-   */
+  /** @param parentTaskContext the Spark task's context to propagate to child native threads. */
   public TaskChildThreadInitializer(TaskContext parentTaskContext) {
     Preconditions.checkNotNull(parentTaskContext);
     this.parentTaskContext = parentTaskContext;
