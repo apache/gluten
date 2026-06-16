@@ -121,30 +121,21 @@ TEST_F(SparkFunctionTest, roundWithDecimal) {
 }
 
 TEST_F(SparkFunctionTest, expressionLevelAnsiCastIgnoresSessionAnsiOff) {
-  queryCtx_->testingOverrideConfigUnsafe(
-      {{core::QueryConfig::kSparkAnsiEnabled, "false"}});
+  queryCtx_->testingOverrideConfigUnsafe({{core::QueryConfig::kSparkAnsiEnabled, "false"}});
   auto input = makeRowVector({makeFlatVector<std::string>({"2147483648"})});
-  core::TypedExprPtr field =
-      std::make_shared<const core::FieldAccessTypedExpr>(VARCHAR(), "c0");
-  auto ansiCast = std::make_shared<const core::CallTypedExpr>(
-      INTEGER(),
-      std::vector<core::TypedExprPtr>{field},
-      kSparkAnsiCast);
+  core::TypedExprPtr field = std::make_shared<const core::FieldAccessTypedExpr>(VARCHAR(), "c0");
+  auto ansiCast =
+      std::make_shared<const core::CallTypedExpr>(INTEGER(), std::vector<core::TypedExprPtr>{field}, kSparkAnsiCast);
 
   VELOX_ASSERT_THROW(evaluate(ansiCast, input), "Cannot cast");
 }
 
 TEST_F(SparkFunctionTest, expressionLevelLegacyCastIgnoresSessionAnsiOn) {
-  queryCtx_->testingOverrideConfigUnsafe(
-      {{core::QueryConfig::kSparkAnsiEnabled, "true"}});
+  queryCtx_->testingOverrideConfigUnsafe({{core::QueryConfig::kSparkAnsiEnabled, "true"}});
   auto input = makeRowVector({makeFlatVector<int32_t>({1234567})});
-  core::TypedExprPtr field =
-      std::make_shared<const core::FieldAccessTypedExpr>(INTEGER(), "c0");
-  auto legacyCast = std::make_shared<const core::CallTypedExpr>(
-      TINYINT(),
-      std::vector<core::TypedExprPtr>{field},
-      kSparkLegacyCast);
+  core::TypedExprPtr field = std::make_shared<const core::FieldAccessTypedExpr>(INTEGER(), "c0");
+  auto legacyCast =
+      std::make_shared<const core::CallTypedExpr>(TINYINT(), std::vector<core::TypedExprPtr>{field}, kSparkLegacyCast);
 
-  facebook::velox::test::assertEqualVectors(
-      makeFlatVector<int8_t>({-121}), evaluate(legacyCast, input));
+  facebook::velox::test::assertEqualVectors(makeFlatVector<int8_t>({-121}), evaluate(legacyCast, input));
 }

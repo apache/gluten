@@ -155,8 +155,7 @@ enum class SparkCastMode {
   kTry,
 };
 
-SparkCastMode sparkCastMode(
-    ::substrait::Expression::Cast::FailureBehavior failureBehavior) {
+SparkCastMode sparkCastMode(::substrait::Expression::Cast::FailureBehavior failureBehavior) {
   switch (failureBehavior) {
     case ::substrait::Expression_Cast_FailureBehavior_FAILURE_BEHAVIOR_UNSPECIFIED:
       return SparkCastMode::kLegacy;
@@ -165,8 +164,7 @@ SparkCastMode sparkCastMode(
     case ::substrait::Expression_Cast_FailureBehavior_FAILURE_BEHAVIOR_RETURN_NULL:
       return SparkCastMode::kTry;
     default:
-      VELOX_NYI(
-          "The given failure behavior is NOT supported: '{}'", std::to_string(failureBehavior));
+      VELOX_NYI("The given failure behavior is NOT supported: '{}'", std::to_string(failureBehavior));
   }
 }
 
@@ -577,16 +575,12 @@ core::TypedExprPtr SubstraitVeloxExprConverter::toVeloxExpr(
   std::vector<core::TypedExprPtr> inputs{toVeloxExpr(castExpr.input(), inputType)};
   switch (sparkCastMode(castExpr.failure_behavior())) {
     case SparkCastMode::kLegacy:
-      return std::make_shared<const core::CallTypedExpr>(
-          type, std::move(inputs), kSparkLegacyCast);
+      return std::make_shared<const core::CallTypedExpr>(type, std::move(inputs), kSparkLegacyCast);
     case SparkCastMode::kAnsi: {
-      const auto castName =
-          functions::sparksql::SparkCastCallToSpecialForm::isAnsiSupported(
-              inputs[0]->type(), type)
+      const auto castName = functions::sparksql::SparkCastCallToSpecialForm::isAnsiSupported(inputs[0]->type(), type)
           ? kSparkAnsiCast
           : kSparkLegacyCast;
-      return std::make_shared<const core::CallTypedExpr>(
-          type, std::move(inputs), castName);
+      return std::make_shared<const core::CallTypedExpr>(type, std::move(inputs), castName);
     }
     case SparkCastMode::kTry:
       return std::make_shared<core::CastTypedExpr>(type, std::move(inputs), true);

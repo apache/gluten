@@ -87,8 +87,7 @@ void registerFunctionOverwrite() {
 
 void registerAllFunctions() {
   velox::functions::sparksql::registerFunctions("");
-  velox::functions::sparksql::registerSparkCastModeSpecialForms(
-      kSparkAnsiCast, kSparkLegacyCast);
+  velox::functions::sparksql::registerSparkCastModeSpecialForms(kSparkAnsiCast, kSparkLegacyCast);
   velox::aggregate::prestosql::registerAllAggregateFunctions(
       "", true /*registerCompanionFunctions*/, false /*onlyPrestoSignatures*/, true /*overwrite*/);
   velox::functions::aggregate::sparksql::registerAggregateFunctions(
