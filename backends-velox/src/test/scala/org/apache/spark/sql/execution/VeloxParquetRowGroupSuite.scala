@@ -98,7 +98,12 @@ class VeloxParquetRowGroupSuite extends VeloxWholeStageTransformerSuite with Wri
     }
   }
 
-  test("native writer ignores parquet.block.size set on the runtime Hadoop conf") {
+  // Reproduction of the Delta suite abort -- this test currently FAILS by design.
+  // `parquet.block.size` set on the Hadoop conf at runtime is honored by vanilla parquet-mr (it
+  // produces multiple row groups) but does not reach Gluten's native writer, so today the file has
+  // a single row group. The assertion states the DESIRED behavior (> 1 row group); it should turn
+  // green once the Hadoop-conf block size is plumbed through to the native writer.
+  test("native writer should respect parquet.block.size set on the runtime Hadoop conf") {
     withTempPath {
       f =>
         val hadoopConf = spark.sparkContext.hadoopConfiguration
@@ -108,10 +113,7 @@ class VeloxParquetRowGroupSuite extends VeloxWholeStageTransformerSuite with Wri
         } finally {
           hadoopConf.unset("parquet.block.size")
         }
-        // Mirrors Delta's setup: `parquet.block.size` set on the Hadoop configuration at runtime is
-        // honored by vanilla parquet-mr but doesn't reach Gluten's native writer, so the file keeps
-        // a single row group -- the root cause of the suite abort.
-        assert(rowGroupCount(f) === 1)
+        assert(rowGroupCount(f) > 1)
     }
   }
 }
