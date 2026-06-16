@@ -468,9 +468,9 @@ object VeloxBackendSettings extends BackendSettingsApi {
           }
           windowExpression.windowFunction match {
             case _: RowNumber | _: Rank | _: CumeDist | _: DenseRank | _: PercentRank | _: NTile =>
-            case nv: NthValue if !nv.input.foldable =>
-            case l: Lag if !l.input.foldable =>
-            case l: Lead if !l.input.foldable =>
+            case _: NthValue =>
+            case _: Lag =>
+            case _: Lead =>
             case aggrExpr: AggregateExpression
                 if !aggrExpr.aggregateFunction.isInstanceOf[ApproximatePercentile]
                   && !aggrExpr.aggregateFunction.isInstanceOf[Percentile]
