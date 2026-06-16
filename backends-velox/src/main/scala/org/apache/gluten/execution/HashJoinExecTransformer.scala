@@ -197,4 +197,9 @@ case class BroadcastHashJoinContext(
     buildHashTableId: String,
     isNullAwareAntiJoin: Boolean = false,
     bloomFilterPushdownSize: Long,
-    buildHashTableTimeMetric: Option[SQLMetric] = None)
+    buildHashTableTimeMetric: Option[SQLMetric] = None) {
+  def droppedDuplicates: Boolean = {
+    substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI ||
+    substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI
+  }
+}
