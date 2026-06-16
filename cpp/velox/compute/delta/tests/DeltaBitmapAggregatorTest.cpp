@@ -20,7 +20,7 @@
 #include <gtest/gtest.h>
 
 #include "compute/delta/RoaringBitmapArray.h"
-#include "operators/functions/DeltaBitmapAggregator.h"
+#include "operators/functions/delta/DeltaBitmapAggregator.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
 #include "velox/exec/tests/utils/HiveConnectorTestBase.h"

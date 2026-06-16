@@ -24,8 +24,6 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.types.DataType
 
-import scala.util.Try
-
 object AggregateFunctionsBuilder {
   def create(context: SubstraitContext, aggregateFunc: AggregateFunction): Long = {
     // First handle the custom aggregate functions
@@ -52,7 +50,7 @@ object AggregateFunctionsBuilder {
         ExpressionNames.FIRST_IGNORE_NULL
       case Last(_, ignoreNulls) if ignoreNulls =>
         ExpressionNames.LAST_IGNORE_NULL
-      case _ if isPortableDeltaBitmapAggregator(aggregateFunc) =>
+      case _ if isDeltaBitmapAggregator(aggregateFunc) =>
         ExpressionNames.BITMAP_AGGREGATOR
       case _ =>
         val nameOpt = ExpressionMappings.expressionsMap.get(aggregateFunc.getClass)
@@ -67,13 +65,17 @@ object AggregateFunctionsBuilder {
     }
   }
 
-  private def isPortableDeltaBitmapAggregator(aggregateFunc: AggregateFunction): Boolean = {
-    aggregateFunc.prettyName == ExpressionNames.BITMAP_AGGREGATOR &&
-    Try {
-      aggregateFunc.getClass
-        .getMethod("serializationFormatString")
-        .invoke(aggregateFunc)
-        .asInstanceOf[String]
-    }.toOption.contains("Portable")
-  }
+  /**
+   * Matches Delta's `BitmapAggregator` -- the aggregate that builds a deletion-vector roaring
+   * bitmap for DELETE/MoR. Matched by `prettyName` so this common module (`gluten-substrait`) stays
+   * free of a `delta-spark` dependency.
+   *
+   * No serialization-format check is needed. Delta's only construction site
+   * (`DMLWithDeletionVectorsHelper`) always uses the `Portable` format, which is exactly the layout
+   * the native aggregate reads; and a non-Portable payload could not slip through silently anyway,
+   * since the native `RoaringBitmapArray::deserialize` rejects any buffer whose magic number is not
+   * the Portable one.
+   */
+  private def isDeltaBitmapAggregator(aggregateFunc: AggregateFunction): Boolean =
+    aggregateFunc.prettyName == ExpressionNames.BITMAP_AGGREGATOR
 }

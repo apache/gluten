@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-#include "operators/functions/DeltaBitmapAggregator.h"
+#include "operators/functions/delta/DeltaBitmapAggregator.h"
 
 #include <memory>
 #include <optional>

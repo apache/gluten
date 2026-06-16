@@ -17,9 +17,9 @@
 #include "operators/functions/RegistrationAllFunctions.h"
 
 #include "operators/functions/Arithmetic.h"
-#include "operators/functions/DeltaBitmapAggregator.h"
 #include "operators/functions/RowConstructorWithNull.h"
 #include "operators/functions/RowFunctionWithNull.h"
+#include "operators/functions/delta/DeltaBitmapAggregator.h"
 #include "velox/expression/SpecialFormRegistry.h"
 #include "velox/expression/VectorFunction.h"
 #include "velox/functions/iceberg/Register.h"
