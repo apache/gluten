@@ -105,13 +105,12 @@ class VeloxParquetRowGroupSuite extends VeloxWholeStageTransformerSuite with Wri
   // native-writer problem -- it is specific to the Delta write path, reproduced separately in
   // VeloxDeltaParquetRowGroupSuite.
   test("native writer should respect parquet.block.size set on the runtime Hadoop conf") {
+    // scalastyle:off hadoopconfiguration
     withTempPath {
       f =>
-        // scalastyle:off hadoopconfiguration
         // Mirror Delta's `hadoopConf().set("parquet.block.size", ...)`: mutate the runtime Hadoop
         // conf the write actually reads, rather than a session-creation `spark.hadoop.*` setting.
         val hadoopConf = spark.sparkContext.hadoopConfiguration
-        // scalastyle:on hadoopconfiguration
         hadoopConf.set("parquet.block.size", smallBlockSize.toString)
         try {
           writeRangeNatively(f.getCanonicalPath)
@@ -120,5 +119,6 @@ class VeloxParquetRowGroupSuite extends VeloxWholeStageTransformerSuite with Wri
         }
         assert(rowGroupCount(f) > 1)
     }
+    // scalastyle:on hadoopconfiguration
   }
 }
