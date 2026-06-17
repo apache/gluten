@@ -19,7 +19,6 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.SparkConf
-import org.apache.spark.util.Utils
 
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
@@ -68,7 +67,12 @@ class VeloxDeltaParquetRowGroupSuite extends DeltaSuite {
       file =>
         val in = HadoopInputFile
           .fromPath(new Path(file.getAbsolutePath), spark.sessionState.newHadoopConf())
-        Utils.tryWithResource(ParquetFileReader.open(in))(_.getFooter.getBlocks.size())
+        val reader = ParquetFileReader.open(in)
+        try {
+          reader.getFooter.getBlocks.size().toInt
+        } finally {
+          reader.close()
+        }
     }.sum
   }
 
