@@ -267,7 +267,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   @Override
   public void snapshotState(StateSnapshotContext context) throws Exception {
     // TODO: implement it
-    task.snapshotState(0);
+    task.snapshotState(context.getCheckpointId());
     super.snapshotState(context);
   }
 
