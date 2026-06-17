@@ -99,5 +99,4 @@ public class GlutenSessionResources {
   public Session getSession(String id) {
     return sessionResources.get(id).getSession();
   }
-
 }
