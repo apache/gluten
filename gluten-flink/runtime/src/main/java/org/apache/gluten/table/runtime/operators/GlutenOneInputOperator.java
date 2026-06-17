@@ -245,7 +245,11 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   @Override
   public void close() throws Exception {
     if (task != null) {
-      task.close();
+      try {
+        task.unbindNativeCallbackTarget();
+      } finally {
+        task.close();
+      }
     }
     if (inputQueue != null) {
       inputQueue.noMoreInput();

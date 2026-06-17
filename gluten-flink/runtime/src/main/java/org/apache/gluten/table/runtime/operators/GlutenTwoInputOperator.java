@@ -226,7 +226,11 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
       rightInputQueue.close();
     }
     if (task != null) {
-      task.close();
+      try {
+        task.unbindNativeCallbackTarget();
+      } finally {
+        task.close();
+      }
     }
     if (sessionResource != null) {
       sessionResource.close();
