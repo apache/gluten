@@ -54,7 +54,7 @@ object NativeThreadManager {
       NativeThreadManagerJniWrapper.release(handle)
     }
 
-    // Release after MemoryManager (10) but before most other resources.
+    // Release before MemoryManager (10) but after most other resources.
     override def priority(): Int = 20
 
     override def resourceName(): String = "ntm"
