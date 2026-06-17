@@ -158,7 +158,7 @@ jobs:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{github.sha}}
           restore-keys: |
-            ccache-centos9-release-shared-${{runner.arch}}
+            ccache-centos9-cudf-release-shared-${{runner.arch}}
       - name: Build Gluten shared libraries
         run: |
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:centos-9-jdk8-cudf bash -c "

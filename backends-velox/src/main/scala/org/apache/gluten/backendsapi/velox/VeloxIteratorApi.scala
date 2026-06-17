@@ -166,6 +166,8 @@ class VeloxIteratorApi extends IteratorApi with Logging {
                 pv.asInstanceOf[Decimal].toJavaBigDecimal.toPlainString
               case _: TimestampType =>
                 timestampFormatter.format(pv.asInstanceOf[java.lang.Long])
+              case other if other.typeName == "timestamp_ntz" =>
+                timestampFormatter.format(pv.asInstanceOf[java.lang.Long])
               case _ => pv.toString
             }
           }

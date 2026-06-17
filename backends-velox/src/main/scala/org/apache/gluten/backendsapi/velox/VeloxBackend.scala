@@ -104,6 +104,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
 
   override def primaryBatchType: Convention.BatchType = VeloxBatchType
 
+  override def supportTimestampNtz: Boolean = true
+
   override def validateScanExec(
       format: ReadFileFormat,
       fields: Array[StructField],

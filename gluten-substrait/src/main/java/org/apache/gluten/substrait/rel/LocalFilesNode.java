@@ -93,6 +93,27 @@ public class LocalFilesNode implements SplitInfo {
     this.iterAsInput = true;
   }
 
+  /**
+   * Copies an existing node, replacing its per-file extra metadata. Lets data-lake subclasses
+   * decorate a generically built node without re-deriving the file listing.
+   */
+  protected LocalFilesNode(LocalFilesNode other, List<Map<String, Object>> otherMetadataColumns) {
+    this.index = other.index;
+    this.paths.addAll(other.paths);
+    this.starts.addAll(other.starts);
+    this.lengths.addAll(other.lengths);
+    this.fileSizes.addAll(other.fileSizes);
+    this.modificationTimes.addAll(other.modificationTimes);
+    this.partitionColumns.addAll(other.partitionColumns);
+    this.metadataColumns.addAll(other.metadataColumns);
+    this.fileFormat = other.fileFormat;
+    this.preferredLocations.addAll(other.preferredLocations);
+    this.fileReadProperties = other.fileReadProperties;
+    this.iterAsInput = other.iterAsInput;
+    this.fileSchema = other.fileSchema;
+    this.otherMetadataColumns.addAll(otherMetadataColumns);
+  }
+
   public List<String> getPaths() {
     return paths;
   }

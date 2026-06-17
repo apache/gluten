@@ -354,6 +354,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Extra ColumnarToRow is needed to transform vanilla columnar data to gluten columnar data.
     .includeCH("SPARK-37369: Avoid redundant ColumnarToRow transition on InMemoryTableScan")
     .excludeCH("Gluten - InMemoryRelation statistics")
+    // Needs to rewrite TimestampNTZType.
+    .excludeGlutenTest("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenCastSuite]
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
@@ -716,6 +718,10 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("SPARK-31896: Handle am-pm timestamp parsing when hour is missing")
     .excludeCH("UNIX_SECONDS")
     .excludeCH("TIMESTAMP_SECONDS")
+    // TimestampNTZ evaluation is not supported.
+    .excludeCH("Seconds")
+    .excludeCH("Minute")
+    .excludeGlutenTest("Hour")
   enableSuite[GlutenDateFunctionsSuite]
     // The below two are replaced by two modified versions.
     .exclude("unix_timestamp")
@@ -731,6 +737,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("SPARK-30793: truncate timestamps before the epoch to seconds and minutes")
     .excludeCH("try_to_timestamp")
     .excludeCH("Gluten - to_unix_timestamp")
+    .excludeCH("Seconds")
+    .excludeCH("Minute")
   enableSuite[GlutenDecimalExpressionSuite]
   enableSuite[GlutenDecimalPrecisionSuite]
   enableSuite[GlutenDeleteFromTableSuite]
