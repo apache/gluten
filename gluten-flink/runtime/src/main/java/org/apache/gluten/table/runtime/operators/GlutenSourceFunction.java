@@ -110,6 +110,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
           processAvailableElement(sourceContext);
           break;
         case BLOCKED:
+          task.waitFor();
           break;
         default:
           return;
