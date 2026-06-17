@@ -90,4 +90,23 @@ class VeloxDeltaNestedFieldArraySuite extends WholeStageTransformerSuite {
       assert(e.getMessage.contains("Updating nested fields is only supported for StructType"))
     }
   }
+
+  testWithMinSparkVersion(
+    "delta: update of a field nested under an array does not crash natively",
+    "3.2") {
+    withTable("update_array_tgt") {
+      spark.sql(
+        "CREATE TABLE update_array_tgt (key STRING, value ARRAY<STRUCT<a: INT>>) USING delta")
+      spark.sql("INSERT INTO update_array_tgt VALUES ('A', array(named_struct('a', 1)))")
+
+      // Same nested-array reference as the MERGE case, but via UPDATE. Delta is expected to reject
+      // it; the query must never crash the JVM. NOTE: Delta's PreprocessTableUpdate is an analyzer
+      // rule, so it raises this AnalysisException during analysis -- before Gluten's columnar
+      // planning -- which is why (unlike MERGE) this is not expected to reach the native converter.
+      val e = intercept[AnalysisException] {
+        spark.sql("UPDATE update_array_tgt SET value.a = 2 WHERE key = 'A'")
+      }
+      assert(e.getMessage.contains("Updating nested fields is only supported for StructType"))
+    }
+  }
 }
