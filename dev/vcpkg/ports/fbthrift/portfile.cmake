@@ -8,7 +8,7 @@ vcpkg_from_github(
         fix-deps.patch
         folly-has-liburing.diff
         fix-fmt-include.patch
-        compactv1-protocol-refiller.patch
+        compactv1-protocol-refiller.patch # patch from velox
 )
 
 file(REMOVE "${SOURCE_PATH}/thrift/cmake/FindGMock.cmake")

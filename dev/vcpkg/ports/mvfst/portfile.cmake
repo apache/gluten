@@ -5,7 +5,7 @@ vcpkg_from_github(
     SHA512 6669e5b3163f422b3b5b11f298ff16f4f6f196aef765fa4a3da7a4caa69b7675e4ab8a9f9eac0e2f07e5fa30e723af7ab2310d67ec5d1357723da15444333dea
     HEAD_REF main
     PATCHES
-	removexsk.patch
+	removexsk.patch # patch to workaround on centos7
 )
 
 vcpkg_cmake_configure(
