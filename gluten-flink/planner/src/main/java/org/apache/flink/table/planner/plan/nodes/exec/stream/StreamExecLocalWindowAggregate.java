@@ -61,8 +61,6 @@ import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonPro
 
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.commons.math3.util.ArithmeticUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 
@@ -88,7 +86,6 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
     minStateVersion = FlinkVersion.v1_15)
 public class StreamExecLocalWindowAggregate extends StreamExecWindowAggregateBase {
 
-  private static final Logger LOG = LoggerFactory.getLogger(StreamExecLocalWindowAggregate.class);
   public static final String LOCAL_WINDOW_AGGREGATE_TRANSFORMATION = "local-window-aggregate";
 
   private static final long WINDOW_AGG_MEMORY_RATIO = 100;

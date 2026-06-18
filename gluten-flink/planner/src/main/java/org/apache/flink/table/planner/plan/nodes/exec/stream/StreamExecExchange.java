@@ -121,8 +121,8 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
 
   private boolean isWindowAggregateExchange(OneInputTransformation inputTransform) {
     return inputTransform.getOperator() instanceof WindowAggOperator
-        || ((RowType) getOutputType()).getFieldNames().stream()
-            .anyMatch(StreamExecExchange::isWindowPropertyField);
+        || ((RowType) getOutputType())
+            .getFieldNames().stream().anyMatch(StreamExecExchange::isWindowPropertyField);
   }
 
   @SuppressWarnings("unchecked")
