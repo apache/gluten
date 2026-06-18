@@ -51,9 +51,11 @@ TEST(SubstraitVeloxExprConverterTest, nestedFieldReferenceIntoNonStructThrows) {
       "Nested field reference into a non-struct type");
 }
 
-// A field-reference index past the end of the row type must be rejected cleanly
-// instead of indexing out of bounds (the raw RowType::childAt/nameOf accessors
-// use unchecked operator[]).
+// A field-reference index past the end of the row type must be rejected cleanly.
+// Velox's RowType::childAt/nameOf have built-in VELOX_CHECK_LT bounds checks that
+// throw VeloxUserError, which Gluten catches and falls back. This test validates
+// that out-of-range field access results in a clean fallback instead of undefined
+// behavior.
 TEST(SubstraitVeloxExprConverterTest, fieldReferenceIndexOutOfRangeThrows) {
   RowTypePtr inputType = ROW({"a", "b"}, {INTEGER(), INTEGER()});
 
