@@ -18,7 +18,7 @@ package org.apache.gluten.table.runtime.operators;
 
 import org.apache.gluten.table.runtime.config.VeloxConnectorConfig;
 import org.apache.gluten.table.runtime.config.VeloxQueryConfig;
-import org.apache.gluten.table.runtime.metrics.SourceTaskMetrics;
+import org.apache.gluten.table.runtime.metrics.SourceOperatorMetrics;
 import org.apache.gluten.vectorized.FlinkRowToVLVectorConvertor;
 
 import io.github.zhztheplayer.velox4j.connector.ConnectorSplit;
@@ -67,7 +67,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
   private GlutenSessionResource sessionResource;
   private Query query;
   private SerialTask task;
-  private SourceTaskMetrics taskMetrics;
+  private SourceOperatorMetrics metrics;
   private final Class<OUT> outClass;
   private transient ListState<String> checkpointState;
   private transient String[] restoredCheckpointRecords = new String[0];
@@ -120,7 +120,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
         default:
           return;
       }
-      taskMetrics.updateMetrics(task, id);
+      metrics.updateMetrics(task, id);
     }
   }
 
@@ -271,6 +271,6 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
     task = session.queryOps().execute(query);
     task.addSplit(id, activeSplit);
     task.noMoreSplits(id);
-    taskMetrics = new SourceTaskMetrics(getRuntimeContext().getMetricGroup());
+    metrics = new SourceOperatorMetrics(getRuntimeContext().getMetricGroup());
   }
 }

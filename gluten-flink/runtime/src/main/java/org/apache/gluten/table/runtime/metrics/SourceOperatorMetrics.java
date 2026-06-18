@@ -24,7 +24,7 @@ import org.apache.flink.metrics.groups.OperatorMetricGroup;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-public class SourceTaskMetrics {
+public class SourceOperatorMetrics {
 
   private final String keyOperatorType = "operatorType";
   private final String sourceOperatorName = "TableScan";
@@ -35,7 +35,7 @@ public class SourceTaskMetrics {
   private Counter sourceNumBytesOut;
   private long lastUpdateTime = System.currentTimeMillis();
 
-  public SourceTaskMetrics(OperatorMetricGroup metricGroup) {
+  public SourceOperatorMetrics(OperatorMetricGroup metricGroup) {
     sourceNumRecordsOut = metricGroup.getIOMetricGroup().getNumRecordsOutCounter();
     sourceNumBytesOut = metricGroup.getIOMetricGroup().getNumBytesOutCounter();
   }
