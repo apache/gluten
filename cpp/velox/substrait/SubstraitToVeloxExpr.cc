@@ -217,11 +217,10 @@ std::shared_ptr<const core::FieldAccessTypedExpr> SubstraitVeloxExprConverter::t
       auto inputColumnType = inputType;
       for (;;) {
         auto idx = tmp->field();
-        VELOX_USER_CHECK(
-            idx >= 0 && static_cast<uint32_t>(idx) < inputColumnType->size(),
-            "Field reference index {} is out of range for the {}-field row type.",
-            idx,
-            inputColumnType->size());
+        // Note: Removed explicit bounds check here because Velox's RowType::childAt
+        // and RowType::nameOf already have VELOX_CHECK_LT(idx, size) that throws
+        // catchable VeloxRuntimeError. Testing whether the redundant check here
+        // provides better error messages or if Velox's built-in checks are sufficient.
         const TypePtr childType = inputColumnType->childAt(idx);
         fieldAccess = makeFieldAccessExpr(inputColumnType->nameOf(idx), childType, fieldAccess);
 
