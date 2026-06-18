@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.extension
 
+import org.apache.gluten.config.GlutenConfig
+
 import org.apache.spark.sql.catalyst.rules.{Rule, RuleExecutor}
 import org.apache.spark.sql.execution.{GenerateExec, ProjectExec, SparkPlan}
 import org.apache.spark.sql.internal.SQLConf
@@ -37,8 +39,9 @@ case class PartialFallbackRules() extends Rule[SparkPlan] {
 }
 
 object PartialFallback {
-  def supportPartialFallback(plan: SparkPlan): Boolean = {
-    plan.isInstanceOf[ProjectExec] ||
-    plan.isInstanceOf[GenerateExec]
+  def supportPartialFallback(plan: SparkPlan): Boolean = plan match {
+    case _: ProjectExec => GlutenConfig.get.enableColumnarPartialProject
+    case _: GenerateExec => GlutenConfig.get.enableColumnarPartialGenerate
+    case _ => false
   }
 }

@@ -21,6 +21,7 @@
 #include <velox/core/PlanNode.h>
 #include <velox/exec/Split.h>
 
+#include "compute/VeloxConnectorIds.h"
 #include "substrait/SubstraitToVeloxPlan.h"
 #include "substrait/plan.pb.h"
 
@@ -33,6 +34,7 @@ class VeloxPlanConverter {
       facebook::velox::memory::MemoryPool* veloxPool,
       const facebook::velox::config::ConfigBase* veloxCfg,
       const std::vector<std::shared_ptr<ResultIterator>>& rowVectors,
+      VeloxConnectorIds connectorIds,
       const std::optional<std::string> writeFilesTempPath = std::nullopt,
       const std::optional<std::string> writeFileName = std::nullopt,
       bool validationMode = false);

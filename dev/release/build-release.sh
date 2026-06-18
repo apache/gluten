@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -16,9 +16,6 @@
 # limitations under the License.
 
 set -eu
-
-source /opt/rh/devtoolset-11/enable
-source /opt/rh/rh-git227/enable
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 GLUTEN_HOME=${CURRENT_DIR}/../../
@@ -67,5 +64,5 @@ done
 
 for spark_version in 4.0
 do
-  ${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-${spark_version} -Piceberg -DskipTests
+  ${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-${spark_version} -Piceberg,paimon -DskipTests
 done

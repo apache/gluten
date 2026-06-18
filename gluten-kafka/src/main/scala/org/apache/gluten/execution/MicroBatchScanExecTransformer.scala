@@ -91,6 +91,10 @@ case class MicroBatchScanExecTransformer(
     MicroBatchScanExecTransformer.supportsBatchScan(scan)
   }
 
+  override def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase = {
+    this.copy(output = newOutput)
+  }
+
   override def getSplitInfosFromPartitions(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
     val groupedPartitions = filteredPartitions.flatten
@@ -101,7 +105,7 @@ case class MicroBatchScanExecTransformer(
 
   override protected def doTransform(context: SubstraitContext): TransformContext = {
     val ctx = super.doTransform(context)
-    ctx.root.asInstanceOf[ReadRelNode].setStreamKafka(true);
+    ctx.root.asInstanceOf[ReadRelNode].setStreamKafka(true)
     ctx
   }
 }

@@ -17,9 +17,9 @@
 
 #include "VeloxRowToColumnarConverter.h"
 #include "memory/VeloxColumnarBatch.h"
+#include "velox/row/UnsafeRowFast.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/arrow/Bridge.h"
-#include "velox/row/UnsafeRowFast.h"
 
 using namespace facebook::velox;
 namespace gluten {

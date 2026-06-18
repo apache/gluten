@@ -67,7 +67,34 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
        | l_shipmode      string,
        | l_comment       string""".stripMargin
 
-  ignore("test parquet table delete with the delta DV") {
+  test("Gluten-9334: column `_tmp_metadata_row_index` and `file_path` not found") {
+    val tableName = "delta_metadata_column"
+    withTable(tableName) {
+      withTempDir {
+        dirName =>
+          val s = createTableBuilder(tableName, "delta", s"$dirName/$tableName")
+            .withProps(Map("delta.enableDeletionVectors" -> "'true'"))
+            .withTableKey("lineitem")
+            .build()
+          spark.sql(s)
+
+          spark.sql(s"insert into table $tableName select * from lineitem ")
+
+          val df = sql(
+            s"""
+               | select
+               |   _metadata.file_path,
+               |   _metadata.row_index
+               | from $tableName
+
+               |""".stripMargin)
+
+          checkFallbackOperators(df, 0)
+      }
+    }
+  }
+
+  test("test parquet table delete with the delta DV") {
     spark.sql(s"""
                  |DROP TABLE IF EXISTS lineitem_delta_parquet_delete_dv;
                  |""".stripMargin)
@@ -117,7 +144,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
     )
   }
 
-  ignore("test parquet table delete + update with the delta DV") {
+  test("test parquet table delete + update with the delta DV") {
     spark.sql(s"""
                  |DROP TABLE IF EXISTS lineitem_delta_parquet_update_dv;
                  |""".stripMargin)
@@ -193,7 +220,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
     }
   }
 
-  ignore("test delta DV write") {
+  test("test delta DV write") {
     val table_name = "dv_write_test"
     withTable(table_name) {
       spark.sql(s"""
@@ -297,7 +324,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
   }
 
   for (targetDVFileSize <- Seq(2, 200, 2000000)) {
-    ignore(
+    test(
       s"DELETE with DVs - packing multiple DVs into one file: target max DV file " +
         s"size=$targetDVFileSize") {
       withSQLConf(
@@ -345,7 +372,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
     }
   }
 
-  ignore("test parquet partition table delete with the delta DV") {
+  test("test parquet partition table delete with the delta DV") {
     withSQLConf(("spark.sql.sources.partitionOverwriteMode", "dynamic")) {
       spark.sql(s"""
                    |DROP TABLE IF EXISTS lineitem_delta_partition_parquet_delete_dv;
@@ -385,7 +412,7 @@ class GlutenDeltaParquetDeletionVectorSuite extends ParquetSuite {
     }
   }
 
-  ignore("test parquet table upsert with the delta DV") {
+  test("test parquet table upsert with the delta DV") {
     spark.sql(s"""
                  |DROP TABLE IF EXISTS lineitem_delta_parquet_upsert_dv;
                  |""".stripMargin)

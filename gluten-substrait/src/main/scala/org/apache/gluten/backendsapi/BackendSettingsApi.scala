@@ -59,13 +59,9 @@ trait BackendSettingsApi {
       isPartitionedTable: Boolean,
       options: Map[String, String]): ValidationResult = ValidationResult.succeeded
 
-  def supportNativeWrite(fields: Array[StructField]): Boolean = true
-
   def supportNativeMetadataColumns(): Boolean = true
 
   def supportNativeRowIndexColumn(): Boolean = true
-
-  def supportExpandExec(): Boolean = false
 
   def supportSortExec(): Boolean = false
 
@@ -102,6 +98,9 @@ trait BackendSettingsApi {
   def supportStructType(): Boolean = false
 
   def structFieldToLowerCase(): Boolean = true
+
+  /** Whether the backend may execute TimestampNTZ when validation is disabled. */
+  def supportTimestampNtz: Boolean = false
 
   // Whether to fallback aggregate at the same time if its empty-output child is fallen back.
   def fallbackAggregateWithEmptyOutputChild(): Boolean = false
@@ -140,8 +139,6 @@ trait BackendSettingsApi {
   def requireBloomFilterAggMightContainJointFallback(): Boolean = true
 
   def enableNativeWriteFiles(): Boolean
-
-  def enableNativeArrowReadFiles(): Boolean = false
 
   def shouldRewriteCount(): Boolean = false
 

@@ -19,11 +19,14 @@
 #include "memory/ArrowMemory.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "shuffle/Utils.h"
+#include "shuffle/VeloxTypeAwareCompress.h"
 #include "utils/Common.h"
 #include "utils/Macros.h"
 #include "utils/VeloxArrowUtils.h"
 #include "velox/buffer/Buffer.h"
 #include "velox/common/base/Nulls.h"
+#include "velox/external/xxhash/xxhash.h"
+#include "velox/row/UnsafeRowFast.h"
 #include "velox/type/HugeInt.h"
 #include "velox/type/Timestamp.h"
 #include "velox/type/Type.h"
@@ -111,7 +114,7 @@ arrow::Status collectFlatVectorBufferStringView(
   auto* rawLength = reinterpret_cast<gluten::StringLengthType*>(lengthBuffer->mutable_data());
   uint64_t offset = 0;
   for (int32_t i = 0; i < flatVector->size(); i++) {
-    auto length = rawValues[i].size();
+    auto length = flatVector->isNullAt(i) ? 0 : rawValues[i].size();
     *rawLength++ = length;
     offset += length;
   }
@@ -120,6 +123,9 @@ arrow::Status collectFlatVectorBufferStringView(
   ARROW_ASSIGN_OR_RAISE(auto valueBuffer, arrow::AllocateResizableBuffer(offset, pool));
   auto raw = reinterpret_cast<char*>(valueBuffer->mutable_data());
   for (int32_t i = 0; i < flatVector->size(); i++) {
+    if (flatVector->isNullAt(i)) {
+      continue;
+    }
     gluten::fastCopy(raw, rawValues[i].data(), rawValues[i].size());
     raw += rawValues[i].size();
   }
@@ -178,6 +184,11 @@ arrow::Status VeloxHashShuffleWriter::init() {
 
   partitionBufferBase_.resize(numPartitions_);
 
+  if (rowBasedChecksumEnabled_) {
+    checksumXor_.resize(numPartitions_, 0);
+    checksumSum_.resize(numPartitions_, 0);
+  }
+
   return arrow::Status::OK();
 }
 
@@ -235,6 +246,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> VeloxHashShuffleWriter::generateCo
 
 arrow::Status VeloxHashShuffleWriter::write(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) {
   writtenBytes_ = 0;
+  accumulateInputEncodingCounts(*cb);
   if (partitioning_ == Partitioning::kSingle) {
     auto veloxColumnBatch = VeloxColumnarBatch::from(veloxPool_.get(), cb);
     VELOX_CHECK_NOT_NULL(veloxColumnBatch);
@@ -357,6 +369,17 @@ arrow::Status VeloxHashShuffleWriter::stop() {
 
   stat();
 
+  // Populate row-based checksums into metrics.
+  if (rowBasedChecksumEnabled_) {
+    metrics_.rowBasedChecksums.resize(numPartitions_);
+    for (auto pid = 0; pid < numPartitions_; ++pid) {
+      int64_t xorVal = checksumXor_[pid];
+      int64_t sumVal = checksumSum_[pid];
+      int64_t rotated = (static_cast<uint64_t>(sumVal) << 27) | (static_cast<uint64_t>(sumVal) >> 37);
+      metrics_.rowBasedChecksums[pid] = xorVal ^ rotated;
+    }
+  }
+
   return arrow::Status::OK();
 }
 
@@ -418,6 +441,7 @@ void VeloxHashShuffleWriter::setSplitState(SplitState state) {
 arrow::Status VeloxHashShuffleWriter::doSplit(const facebook::velox::RowVector& rv, int64_t memLimit) {
   auto rowNum = rv.size();
   RETURN_NOT_OK(buildPartition2Row(rowNum));
+  computeRowBasedChecksums(rv);
   RETURN_NOT_OK(updateInputHasNull(rv));
 
   {
@@ -435,8 +459,41 @@ arrow::Status VeloxHashShuffleWriter::doSplit(const facebook::velox::RowVector& 
 
   printPartitionBuffer();
 
+  if (partitionBufferEvictThreshold_ > 0) {
+    // After split, evict large partition buffers to free up memory for the next input RowVector.
+    const auto partitionBytes = estimatePartitionBufferBytes();
+    for (uint32_t pid = 0; pid < partitionBytes.size(); ++pid) {
+      if (partitionBufferBase_[pid] > 0 && partitionBytes[pid] >= partitionBufferEvictThreshold_) {
+        PartitionScopeGuard guard(partitionBufferInUse_, pid);
+        RETURN_NOT_OK(evictPartitionBuffers(pid, false));
+      }
+    }
+  }
   setSplitState(SplitState::kInit);
   return arrow::Status::OK();
+}
+
+std::vector<int64_t> VeloxHashShuffleWriter::estimatePartitionBufferBytes() const {
+  std::vector<int64_t> partitionBytes(numPartitions_, 0);
+
+  for (const auto& columnBuffers : partitionBuffers_) {
+    for (uint32_t pid = 0; pid < columnBuffers.size(); ++pid) {
+      for (const auto& buffer : columnBuffers[pid]) {
+        if (buffer) {
+          partitionBytes[pid] += buffer->capacity();
+        }
+      }
+    }
+  }
+
+  for (uint32_t pid = 0; pid < complexTypeFlushBuffer_.size(); ++pid) {
+    const auto& buffer = complexTypeFlushBuffer_[pid];
+    if (buffer) {
+      partitionBytes[pid] += buffer->capacity();
+    }
+  }
+
+  return partitionBytes;
 }
 
 arrow::Status VeloxHashShuffleWriter::splitRowVector(const facebook::velox::RowVector& rv) {
@@ -764,6 +821,7 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
         isValidityBuffer_.push_back(true);
         isValidityBuffer_.push_back(false);
         isValidityBuffer_.push_back(false);
+        tacBufferTypes_.insert(tacBufferTypes_.end(), 3, tac::kUnsupported);
       } break;
       case arrow::StructType::type_id:
       case arrow::MapType::type_id:
@@ -777,6 +835,7 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
         simpleColumnIndices_.push_back(i);
         isValidityBuffer_.push_back(true);
         isValidityBuffer_.push_back(boolIsBit());
+        tacBufferTypes_.insert(tacBufferTypes_.end(), 2, tac::kUnsupported);
       } break;
       case arrow::NullType::type_id:
         break;
@@ -784,12 +843,15 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
         simpleColumnIndices_.push_back(i);
         isValidityBuffer_.push_back(true);
         isValidityBuffer_.push_back(false);
+        tacBufferTypes_.push_back(tac::kUnsupported); // validity
+        tacBufferTypes_.push_back(veloxTypeToTacType(veloxColumnTypes_[i]->kind())); // data
       } break;
     }
   }
 
   if (hasComplexType_) {
     isValidityBuffer_.push_back(false);
+    tacBufferTypes_.push_back(tac::kUnsupported);
   }
 
   fixedWidthColumnCount_ = simpleColumnIndices_.size();
@@ -973,9 +1035,11 @@ arrow::Status VeloxHashShuffleWriter::evictBuffers(
     std::vector<std::shared_ptr<arrow::Buffer>> buffers,
     bool reuseBuffers) {
   if (!buffers.empty()) {
-    auto payload =
-        std::make_unique<InMemoryPayload>(numRows, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_);
-    RETURN_NOT_OK(partitionWriter_->hashEvict(partitionId, std::move(payload), Evict::kCache, reuseBuffers, writtenBytes_));
+    auto* types = partitionWriter_->enableTypeAwareCompress() ? &tacBufferTypes_ : nullptr;
+    auto payload = std::make_unique<InMemoryPayload>(
+        numRows, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_, types);
+    RETURN_NOT_OK(
+        partitionWriter_->hashEvict(partitionId, std::move(payload), Evict::kCache, reuseBuffers, writtenBytes_));
   }
   return arrow::Status::OK();
 }
@@ -1304,6 +1368,66 @@ uint64_t VeloxHashShuffleWriter::valueBufferSizeForFixedWidthArray(uint32_t fixe
   return valueBufferSize;
 }
 
+void VeloxHashShuffleWriter::accumulateInputEncodingCounts(const ColumnarBatch& cb) {
+  // Only velox-typed batches expose per-child encoding; foreign batches
+  // (e.g. arrow round-trips coming from non-velox sources) will be flattened
+  // by `VeloxColumnarBatch::from` later and we'd undercount, so just skip
+  // them here rather than reporting a misleading "all flat" mix. The skip
+  // counter is exposed via `inputEncodingSkippedBatches()` and printed in
+  // `stat()` so a reader can tell whether a low encoding-bucket total means
+  // "writer saw few children" or "writer saw many but most were not velox".
+  if (cb.getType() != "velox") {
+    ++inputEncodingSkippedBatches_;
+    return;
+  }
+  const auto* veloxBatch = dynamic_cast<const VeloxColumnarBatch*>(&cb);
+  if (veloxBatch == nullptr) {
+    ++inputEncodingSkippedBatches_;
+    return;
+  }
+  const auto& rowVector = veloxBatch->getRowVector();
+  if (rowVector == nullptr) {
+    ++inputEncodingSkippedBatches_;
+    return;
+  }
+  for (const auto& child : rowVector->children()) {
+    if (child == nullptr) {
+      ++inputEncodingCounts_[kInputEncodingOther];
+      continue;
+    }
+    switch (child->encoding()) {
+      case facebook::velox::VectorEncoding::Simple::FLAT:
+        ++inputEncodingCounts_[kInputEncodingFlat];
+        break;
+      case facebook::velox::VectorEncoding::Simple::DICTIONARY:
+        ++inputEncodingCounts_[kInputEncodingDictionary];
+        break;
+      case facebook::velox::VectorEncoding::Simple::CONSTANT:
+        ++inputEncodingCounts_[kInputEncodingConstant];
+        break;
+      case facebook::velox::VectorEncoding::Simple::LAZY:
+        ++inputEncodingCounts_[kInputEncodingLazy];
+        break;
+      case facebook::velox::VectorEncoding::Simple::ROW:
+      case facebook::velox::VectorEncoding::Simple::MAP:
+      case facebook::velox::VectorEncoding::Simple::FLAT_MAP:
+      case facebook::velox::VectorEncoding::Simple::ARRAY:
+        // Struct / map / array column types — first-class in Spark workloads
+        // and exercised by the sibling shuffle writer tests
+        // (`makeArrayVector` / `makeMapVector`). Kept distinct from `Other`
+        // so a reader interpreting the log doesn't conflate a struct column
+        // with a rare encoding.
+        ++inputEncodingCounts_[kInputEncodingComplex];
+        break;
+      default:
+        // BIASED, SEQUENCE, FUNCTION, and any future additions to
+        // `VectorEncoding::Simple`.
+        ++inputEncodingCounts_[kInputEncodingOther];
+        break;
+    }
+  }
+}
+
 void VeloxHashShuffleWriter::stat() const {
 #if VELOX_SHUFFLE_WRITER_LOG_FLAG
   for (int i = CpuWallTimingBegin; i != CpuWallTimingEnd; ++i) {
@@ -1315,6 +1439,26 @@ void VeloxHashShuffleWriter::stat() const {
       oss << " wallNanos-avg:" << timing.wallNanos / timing.count;
       oss << " cpuNanos-avg:" << timing.cpuNanos / timing.count;
     }
+    LOG(INFO) << oss.str();
+  }
+  {
+    std::ostringstream oss;
+    oss << "Velox shuffle writer stat:InputEncoding";
+    int64_t total = 0;
+    for (auto v : inputEncodingCounts_) {
+      total += v;
+    }
+    for (int b = 0; b < kInputEncodingNum; ++b) {
+      auto v = inputEncodingCounts_[b];
+      oss << " " << inputEncodingName(static_cast<InputEncodingBucket>(b)) << "=" << v;
+      if (total > 0) {
+        oss << "(" << (100.0 * static_cast<double>(v) / static_cast<double>(total)) << "%)";
+      }
+    }
+    // Non-velox `write()` calls contribute 0 to the buckets above; expose the
+    // skip count so the denominator (total = sum of buckets) is comparable to
+    // the `count` field in the `cpuWallTimingList_` lines emitted above.
+    oss << " SkippedNonVeloxBatches=" << inputEncodingSkippedBatches_;
     LOG(INFO) << oss.str();
   }
 #endif
@@ -1380,30 +1524,37 @@ arrow::Result<int64_t> VeloxHashShuffleWriter::evictPartitionBuffersMinSize(int6
   // shrinking is not enough. In this case partitionBufferSize_ == partitionBufferBase_
   VELOX_CHECK(!partitionBufferInUse_);
   int64_t beforeEvict = partitionBufferPool_->bytes_allocated();
-  int64_t evicted = 0;
-  std::vector<std::pair<uint32_t, uint32_t>> pidToSize;
+  const auto partitionBytes = estimatePartitionBufferBytes();
+  std::vector<std::pair<uint32_t, int64_t>> pidToSize;
   for (auto pid = 0; pid < numPartitions_; ++pid) {
     if (partitionBufferSize_[pid] == 0) {
       continue;
     }
-    pidToSize.emplace_back(pid, partitionBufferSize_[pid]);
+    pidToSize.emplace_back(pid, partitionBytes[pid]);
   }
   std::sort(pidToSize.begin(), pidToSize.end(), [&](const auto& a, const auto& b) { return a.second > b.second; });
-  if (!pidToSize.empty()) {
-    for (auto& item : pidToSize) {
-      auto pid = item.first;
-      ARROW_ASSIGN_OR_RAISE(auto buffers, assembleBuffers(pid, false));
-      auto payload = std::make_unique<InMemoryPayload>(
-          item.second, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_);
-      metrics_.totalBytesToEvict += payload->rawSize();
-      RETURN_NOT_OK(partitionWriter_->hashEvict(pid, std::move(payload), Evict::kSpill, false, writtenBytes_));
-      evicted = beforeEvict - partitionBufferPool_->bytes_allocated();
-      if (evicted >= size) {
-        break;
-      }
+
+  std::vector<uint32_t> selectedPids;
+  int64_t selectedBytes = 0;
+  for (auto& item : pidToSize) {
+    selectedPids.push_back(item.first);
+    selectedBytes += item.second;
+    if (selectedBytes >= size) {
+      break;
     }
   }
-  return evicted;
+
+  std::sort(selectedPids.begin(), selectedPids.end());
+  for (auto pid : selectedPids) {
+    auto numRows = partitionBufferBase_[pid];
+    ARROW_ASSIGN_OR_RAISE(auto buffers, assembleBuffers(pid, false));
+    auto* types = partitionWriter_->enableTypeAwareCompress() ? &tacBufferTypes_ : nullptr;
+    auto payload = std::make_unique<InMemoryPayload>(
+        numRows, &isValidityBuffer_, schema_, std::move(buffers), hasComplexType_, types);
+    metrics_.totalBytesToEvict += payload->rawSize();
+    RETURN_NOT_OK(partitionWriter_->hashEvict(pid, std::move(payload), Evict::kSpill, false, writtenBytes_));
+  }
+  return beforeEvict - partitionBufferPool_->bytes_allocated();
 }
 
 bool VeloxHashShuffleWriter::shrinkPartitionBuffersAfterSpill() const {
@@ -1489,6 +1640,52 @@ arrow::Status VeloxHashShuffleWriter::preAllocPartitionBuffers(uint32_t preAlloc
 
 bool VeloxHashShuffleWriter::isExtremelyLargeBatch(facebook::velox::RowVectorPtr& rv) const {
   return (rv->size() > maxBatchSize_ && maxBatchSize_ > 0);
+}
+
+void VeloxHashShuffleWriter::computeRowBasedChecksums(const facebook::velox::RowVector& rv) {
+  if (!rowBasedChecksumEnabled_) {
+    return;
+  }
+
+  auto numRows = rv.size();
+  VELOX_DCHECK(rv.nulls() == nullptr, "RowVector with top-level nulls not supported for checksum");
+  // Get the RowVector to serialize (strip pid column if present).
+  facebook::velox::RowVectorPtr dataVector;
+  if (partitioner_->hasPid()) {
+    // Strip the first column (partition id).
+    auto rowType = std::dynamic_pointer_cast<const facebook::velox::RowType>(rv.type());
+    std::vector<std::string> names(rowType->names().begin() + 1, rowType->names().end());
+    std::vector<facebook::velox::TypePtr> types(rowType->children().begin() + 1, rowType->children().end());
+    std::vector<facebook::velox::VectorPtr> children(rv.children().begin() + 1, rv.children().end());
+    auto dataType = facebook::velox::ROW(std::move(names), std::move(types));
+    dataVector =
+        std::make_shared<facebook::velox::RowVector>(rv.pool(), dataType, nullptr, numRows, std::move(children));
+  } else {
+    auto rowType = std::dynamic_pointer_cast<const facebook::velox::RowType>(rv.type());
+    dataVector = std::make_shared<facebook::velox::RowVector>(rv.pool(), rowType, nullptr, numRows, rv.children());
+  }
+
+  facebook::velox::row::UnsafeRowFast fast(dataVector);
+  auto dataType = std::dynamic_pointer_cast<const facebook::velox::RowType>(dataVector->type());
+  auto fixedSize = facebook::velox::row::UnsafeRowFast::fixedRowSize(dataType);
+  int32_t bufSize = fixedSize.value_or(1024);
+  if (checksumBuffer_.size() < static_cast<size_t>(bufSize)) {
+    checksumBuffer_.resize(bufSize);
+  }
+
+  for (uint32_t row = 0; row < numRows; ++row) {
+    auto pid = row2Partition_[row];
+    auto size = fast.rowSize(row);
+    if (size > static_cast<int32_t>(checksumBuffer_.size())) {
+      checksumBuffer_.resize(size);
+    }
+    std::memset(checksumBuffer_.data(), 0, size);
+    fast.serialize(row, checksumBuffer_.data());
+
+    auto hash = static_cast<int64_t>(XXH64(checksumBuffer_.data(), size, 0));
+    checksumXor_[pid] ^= hash;
+    checksumSum_[pid] += hash;
+  }
 }
 
 } // namespace gluten

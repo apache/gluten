@@ -28,12 +28,6 @@
   <name>Gluten Core</name>
 
   <dependencies>
-    <dependency>
-      <groupId>org.apache.gluten</groupId>
-      <artifactId>gluten-ras-common</artifactId>
-      <version>${project.version}</version>
-      <scope>compile</scope>
-    </dependency>
     <!-- Prevent our dummy JAR from being included in Spark distributions or uploaded to YARN -->
     <dependency>
       <groupId>org.apache.spark</groupId>

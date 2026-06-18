@@ -1180,6 +1180,37 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
       }
     }
   }
+
+  test("test collect_list with ordering") {
+    withTempView("t1") {
+      Seq((2, "d"), (2, "e"), (2, "f"), (1, "b"), (1, "a"), (1, "c"), (3, "i"), (3, "h"), (3, "g"))
+        .toDF("id", "value")
+        .createOrReplaceTempView("t1")
+      runQueryAndCompare(
+        """
+          | SELECT 1 - id, collect_list(value) AS values_list
+          |        FROM (
+          |        select * from
+          |        (SELECT id, value
+          |          FROM t1
+          |          DISTRIBUTE BY rand())
+          |          DISTRIBUTE BY id sort by id,value
+          |        ) t
+          |        GROUP BY 1
+          |""".stripMargin,
+        false
+      ) {
+        df =>
+          {
+            assert(
+              getExecutedPlan(df).count(
+                plan => {
+                  plan.isInstanceOf[SortHashAggregateExecTransformer]
+                }) == 2)
+          }
+      }
+    }
+  }
 }
 
 class VeloxAggregateFunctionsDefaultSuite extends VeloxAggregateFunctionsSuite {
@@ -1227,20 +1258,26 @@ class VeloxAggregateFunctionsFlushSuite extends VeloxAggregateFunctionsSuite {
     }
   }
 
-  test("flushable aggregate rule - agg input already distributed by keys") {
+  test("flushable aggregate rule - count distinct keeps partial merge regular") {
     withSQLConf(
       SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
       SQLConf.FILES_MAX_PARTITION_BYTES.key -> "1k") {
-      runQueryAndCompare(
-        "select * from (select distinct l_orderkey,l_partkey from lineitem) a" +
-          " inner join (select l_orderkey from lineitem limit 10) b" +
-          " on a.l_orderkey = b.l_orderkey limit 10") {
+      runQueryAndCompare("select count(distinct l_partkey) from lineitem group by l_orderkey") {
         df =>
           val executedPlan = getExecutedPlan(df)
+          val regularAggCount = executedPlan.count {
+            plan => plan.isInstanceOf[RegularHashAggregateExecTransformer]
+          }
+          val flushableAggCount = executedPlan.count {
+            plan => plan.isInstanceOf[FlushableHashAggregateExecTransformer]
+          }
           assert(
-            executedPlan.exists(plan => plan.isInstanceOf[RegularHashAggregateExecTransformer]))
+            regularAggCount == 2,
+            s"expected 2 regular hash aggregates in one-distinct pipeline, got $regularAggCount")
           assert(
-            executedPlan.exists(plan => plan.isInstanceOf[FlushableHashAggregateExecTransformer]))
+            flushableAggCount == 2,
+            s"expected 2 flushable hash aggregates in one-distinct pipeline, got" +
+              s" $flushableAggCount")
       }
     }
   }

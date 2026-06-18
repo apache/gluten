@@ -25,6 +25,7 @@ import org.apache.spark.sql.delta.{ClickhouseSnapshot, DeltaLog}
 import org.apache.spark.sql.execution.datasources.v2.clickhouse.ClickHouseConfig
 import org.apache.spark.sql.test.SharedSparkSession
 
+import org.scalatest.DoNotDiscover
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 
 import java.io.File
@@ -351,6 +352,7 @@ class CreateMergeTreeSuite
  * by the `MergeTreeResult` trait. It provides the structure necessary to test and validate merge
  * tree query executions against the ClickHouse backend using the TPCH schema.
  */
+@DoNotDiscover
 class MergeTreeSuite
   extends GlutenClickHouseTPCHAbstractSuite
   with TPCHMergeTreeResult
@@ -363,6 +365,7 @@ class MergeTreeSuite
  * This suite extends the `GlutenClickHouseTPCHAbstractSuite` and incorporates additional traits
  * specific to MergeTree table behavior and nullable data handling.
  */
+@DoNotDiscover
 class NullableMergeTreeSuite
   extends GlutenClickHouseTPCHAbstractSuite
   with TPCHMergeTreeResult

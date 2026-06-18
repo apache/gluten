@@ -31,7 +31,8 @@ import scala.reflect.ClassTag
 
 case class PlanMetric(
     queryPath: String,
-    plan: SparkPlan,
+    planId: Int,
+    planNodeName: String,
     key: String,
     metric: SQLMetric,
     tags: Set[MetricTag]) {
@@ -96,8 +97,8 @@ object PlanMetric {
         tr.appendRow(
           Seq(
             queryPath,
-            m.plan.id.toString,
-            m.plan.nodeName,
+            m.planId.toString,
+            m.planNodeName,
             s"[${m.metric.name.getOrElse("")}] ${toNanoTime(m.metric).toString}"))
       }
       val out = new ByteArrayOutputStream()
@@ -119,16 +120,17 @@ object PlanMetric {
       val selfTimes = metrics
         .filter(_.containsTags(MetricTag.IsSelfTime))
       val rows: Seq[TableRow] = selfTimes
-        .groupBy(m => m.plan.id)
+        .groupBy(m => m.planId)
         .toSeq
         .map {
           perPlanId =>
-            assert(perPlanId._2.map(_.plan.id).distinct.count(_ => true) == 1)
+            assert(perPlanId._2.map(_.planId).distinct.count(_ => true) == 1)
             assert(perPlanId._2.map(_.queryPath).distinct.count(_ => true) == 1)
             val head = perPlanId._2.head
             TableRow(
               head.queryPath,
-              head.plan,
+              head.planId,
+              head.planNodeName,
               perPlanId._2.map(m => toNanoTime(m.metric)).sum,
               perPlanId._2.map(m => (m.key, m.metric)))
         }
@@ -145,7 +147,7 @@ object PlanMetric {
       for (i <- 0 until (topN.min(sorted.size))) {
         val row = sorted(i)
         val f = new File(row.queryPath).toPath.getFileName.toString
-        tr.appendRow(Seq(f, row.plan.id.toString, row.plan.nodeName, s"${row.selfTimeNs}"))
+        tr.appendRow(Seq(f, row.planId.toString, row.planNodeName, s"${row.selfTimeNs}"))
       }
       val out = new ByteArrayOutputStream()
       tr.print(out)
@@ -157,7 +159,8 @@ object PlanMetric {
   private object NodeTimeReporter {
     private case class TableRow(
         queryPath: String,
-        plan: SparkPlan,
+        planId: Int,
+        planNodeName: String,
         selfTimeNs: Long,
         metrics: Seq[(String, SQLMetric)])
   }
@@ -184,12 +187,12 @@ object PlanMetric {
           Leaf("Selectivity"))
       val probeInputNumRows = metrics
         .filter(_.containsTags(MetricTag.IsJoinProbeInputNumRows))
-        .groupBy(m => m.plan.id)
+        .groupBy(m => m.planId)
         .toSeq
         .sortBy(_._1)
       val probeOutputNumRows = metrics
         .filter(_.containsTags(MetricTag.IsJoinProbeOutputNumRows))
-        .groupBy(m => m.plan.id)
+        .groupBy(m => m.planId)
         .toSeq
         .sortBy(_._1)
       assert(probeInputNumRows.size == probeOutputNumRows.size)
@@ -205,7 +208,7 @@ object PlanMetric {
             TableRow(
               queryPath,
               id1,
-              inputMetrics.head.plan.nodeName,
+              inputMetrics.head.planNodeName,
               inputNumRows,
               outputNumRows,
               selectivity)

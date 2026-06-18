@@ -72,7 +72,14 @@ class VeloxSubstraitRoundTripTest : public OperatorTestBase {
     auto veloxCfg =
         std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
     std::shared_ptr<SubstraitToVeloxPlanConverter> substraitConverter_ =
-        std::make_shared<SubstraitToVeloxPlanConverter>(pool_.get(), veloxCfg.get(), std::vector<std::shared_ptr<ResultIterator>>(), std::nullopt, std::nullopt, true);
+        std::make_shared<SubstraitToVeloxPlanConverter>(
+            pool_.get(),
+            veloxCfg.get(),
+            std::vector<std::shared_ptr<ResultIterator>>{},
+            VeloxConnectorIds{},
+            std::nullopt,
+            std::nullopt,
+            true);
 
     // Convert Substrait Plan to the same Velox Plan.
     auto samePlan = substraitConverter_->toVeloxPlan(substraitPlan);
@@ -94,7 +101,13 @@ class VeloxSubstraitRoundTripTest : public OperatorTestBase {
           std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
       std::shared_ptr<SubstraitToVeloxPlanConverter> substraitConverter_ =
           std::make_shared<SubstraitToVeloxPlanConverter>(
-              pool_.get(), veloxCfg.get(), std::vector<std::shared_ptr<ResultIterator>>(), std::nullopt, std::nullopt, true);
+              pool_.get(),
+              veloxCfg.get(),
+              std::vector<std::shared_ptr<ResultIterator>>{},
+              VeloxConnectorIds{},
+              std::nullopt,
+              std::nullopt,
+              true);
       // Convert Substrait Plan to the same Velox Plan.
       auto samePlan = substraitConverter_->toVeloxPlan(substraitPlan);
 
@@ -426,7 +439,8 @@ TEST_F(VeloxSubstraitRoundTripTest, arrayLiteral) {
       "array[], array[array[1,2,3], array[4,5]]");
 }
 
-TEST_F(VeloxSubstraitRoundTripTest, dateType) {
+// Disabled due to https://github.com/facebookincubator/velox/pull/17318.
+TEST_F(VeloxSubstraitRoundTripTest, DISABLED_dateType) {
   auto a = makeFlatVector<int32_t>({0, 1});
   auto b = makeFlatVector<double_t>({0.3, 0.4});
   auto c = makeFlatVector<int32_t>({8036, 8035}, DATE());
@@ -502,12 +516,14 @@ TEST_F(VeloxSubstraitRoundTripTest, sumMaskCompanion) {
   auto vectors = makeVectors(2, 7, 3);
   createDuckDbTable(vectors);
 
-  auto plan = PlanBuilder()
-                  .values(vectors)
-                  .project({"c0", "c1", "c2 % 2 < 10 AS m0", "c3 % 3 = 0 AS m1"})
-                  .singleAggregation({}, {"sum_partial(c0)", "sum_partial(c0)", "sum_partial(c1)"}, {"m0", "m1", "m1"})
-                  .singleAggregation({}, {"sum_merge_extract_bigint(a0)", "sum_merge_extract_bigint(a1)", "sum_merge_extract_bigint(a2)"})
-                  .planNode();
+  auto plan =
+      PlanBuilder()
+          .values(vectors)
+          .project({"c0", "c1", "c2 % 2 < 10 AS m0", "c3 % 3 = 0 AS m1"})
+          .singleAggregation({}, {"sum_partial(c0)", "sum_partial(c0)", "sum_partial(c1)"}, {"m0", "m1", "m1"})
+          .singleAggregation(
+              {}, {"sum_merge_extract_bigint(a0)", "sum_merge_extract_bigint(a1)", "sum_merge_extract_bigint(a2)"})
+          .planNode();
 
   assertPlanConversion(
       plan,

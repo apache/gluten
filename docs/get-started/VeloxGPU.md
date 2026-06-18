@@ -23,7 +23,7 @@ parent: Getting-Started
 - **NVIDIA Drivers**: Compatible with CUDA 12.8.
 - **Container Toolkit**: Install `nvidia-container-toolkit` ([guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)).
 - **System Reboot**: Required after driver installation.
-- **Environment Setup**: Use [`start-cudf.sh`](https://github.com/apache/incubator-gluten/tree/main/dev/start-cudf.sh) for host configuration .
+- **Environment Setup**: Use [`start-cudf.sh`](https://github.com/apache/gluten/tree/main/dev/start-cudf.sh) for host configuration .
 
 ---
 
@@ -86,4 +86,4 @@ Single Operator like Hash Agg shows 5x speedup.
 
 ## **9. Relevant Resources**
 1. [CUDF Docs](https://docs.rapids.ai/api/cudf/stable/libcudf_docs/) - GPU operator APIs.
-2. [Gluten GPU Issue #9098](https://github.com/apache/incubator-gluten/issues/8851) - Development tracker.
+2. [Gluten GPU Issue #9098](https://github.com/apache/gluten/issues/8851) - Development tracker.

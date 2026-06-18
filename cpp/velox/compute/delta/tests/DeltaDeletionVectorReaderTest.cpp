@@ -1,0 +1,219 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/*
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "compute/delta/DeltaDeletionVectorReader.h"
+#include "compute/delta/RoaringBitmapArray.h"
+#include "velox/common/base/tests/GTestUtils.h"
+
+#include <gtest/gtest.h>
+
+using namespace facebook::velox;
+using namespace gluten::delta;
+
+class DeltaDeletionVectorReaderTest : public ::testing::Test {
+ protected:
+  static void SetUpTestSuite() {
+    memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
+  }
+
+  void SetUp() override {
+    pool_ = memory::memoryManager()->addLeafPool();
+  }
+
+  std::string createSerializedPayload(const std::vector<int64_t>& deletedRows) {
+    RoaringBitmapArray bitmap;
+    for (auto row : deletedRows) {
+      bitmap.addSafe(row);
+    }
+
+    const auto serializedSize = bitmap.serializedSizeInBytes();
+    auto buffer = AlignedBuffer::allocate<char>(serializedSize, pool_.get());
+    bitmap.serialize(buffer->asMutable<char>());
+    return std::string(buffer->as<char>(), serializedSize);
+  }
+
+  std::shared_ptr<memory::MemoryPool> pool_;
+};
+
+TEST_F(DeltaDeletionVectorReaderTest, LoadSerializedPayload) {
+  auto payload = createSerializedPayload({2, 7, 12});
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(payload, 3);
+
+  EXPECT_TRUE(reader.isRowDeleted(2));
+  EXPECT_TRUE(reader.isRowDeleted(7));
+  EXPECT_TRUE(reader.isRowDeleted(12));
+  EXPECT_FALSE(reader.isRowDeleted(0));
+  EXPECT_FALSE(reader.isRowDeleted(3));
+  EXPECT_FALSE(reader.isRowDeleted(20));
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, LoadPortablePayload) {
+  // Captured from a Delta 3.3.2 table after `DELETE WHERE id < 10`.
+  const std::vector<uint8_t> payloadBytes = {0xd1, 0xd3, 0x39, 0x64, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                             0x00, 0x00, 0x00, 0x00, 0x00, 0x3b, 0x30, 0x00, 0x00, 0x01, 0x00,
+                                             0x00, 0x09, 0x00, 0x01, 0x00, 0x00, 0x00, 0x09, 0x00};
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(
+      std::string_view(reinterpret_cast<const char*>(payloadBytes.data()), payloadBytes.size()), 10);
+
+  for (uint64_t deleted = 0; deleted < 10; ++deleted) {
+    EXPECT_TRUE(reader.isRowDeleted(deleted));
+  }
+  EXPECT_FALSE(reader.isRowDeleted(10));
+  EXPECT_FALSE(reader.isRowDeleted(100));
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilter) {
+  auto payload = createSerializedPayload({2, 5, 8});
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(payload);
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(10), pool_.get());
+  reader.applyDeletionFilter(0, 10, deleteBitmap);
+
+  auto* rawBitmap = deleteBitmap->as<uint64_t>();
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 2));
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 5));
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 8));
+  EXPECT_FALSE(bits::isBitSet(rawBitmap, 1));
+  EXPECT_FALSE(bits::isBitSet(rawBitmap, 7));
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterWithOffset) {
+  auto payload = createSerializedPayload({10, 15, 20});
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(payload);
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(15), pool_.get());
+  reader.applyDeletionFilter(10, 15, deleteBitmap);
+
+  auto* rawBitmap = deleteBitmap->as<uint64_t>();
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 0));
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 5));
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 10));
+  EXPECT_FALSE(bits::isBitSet(rawBitmap, 1));
+  EXPECT_FALSE(bits::isBitSet(rawBitmap, 14));
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, EmptyReader) {
+  DeltaDeletionVectorReader reader;
+
+  EXPECT_TRUE(reader.empty());
+  EXPECT_FALSE(reader.isRowDeleted(0));
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(10), pool_.get());
+  reader.applyDeletionFilter(0, 10, deleteBitmap);
+
+  auto* rawBitmap = deleteBitmap->as<uint64_t>();
+  for (int i = 0; i < 10; ++i) {
+    EXPECT_FALSE(bits::isBitSet(rawBitmap, i));
+  }
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, MultipleLoadsOverwrite) {
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(createSerializedPayload({1, 2, 3}));
+  EXPECT_TRUE(reader.isRowDeleted(1));
+  EXPECT_FALSE(reader.isRowDeleted(10));
+
+  reader.loadSerializedDeletionVector(createSerializedPayload({10, 20, 30}));
+  EXPECT_FALSE(reader.isRowDeleted(1));
+  EXPECT_TRUE(reader.isRowDeleted(10));
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, EmptyPayloadThrows) {
+  DeltaDeletionVectorReader reader;
+  VELOX_ASSERT_THROW(reader.loadSerializedDeletionVector(std::string_view()), "Serialized deletion vector is empty");
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, CorruptedMagicNumberThrows) {
+  const uint32_t wrongMagic = 12345678;
+  const std::string payload(reinterpret_cast<const char*>(&wrongMagic), sizeof(wrongMagic));
+
+  DeltaDeletionVectorReader reader;
+  VELOX_ASSERT_THROW(reader.loadSerializedDeletionVector(payload), "Unexpected Delta bitmap array magic number");
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationSuccess) {
+  auto payload = createSerializedPayload({1, 2, 3, 4, 5});
+
+  DeltaDeletionVectorReader reader;
+  EXPECT_NO_THROW(reader.loadSerializedDeletionVector(payload, 5));
+  EXPECT_EQ(reader.estimatedDeletedRowCount(), 5);
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationMismatchThrows) {
+  auto payload = createSerializedPayload({1, 2, 3, 4, 5});
+
+  DeltaDeletionVectorReader reader;
+  EXPECT_THROW(reader.loadSerializedDeletionVector(payload, 3), VeloxUserError);
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, LargeCardinalityValidation) {
+  std::vector<int64_t> deletedRows;
+  for (int64_t i = 0; i < 10000; i += 10) {
+    deletedRows.push_back(i);
+  }
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(createSerializedPayload(deletedRows), 1000);
+  EXPECT_EQ(reader.estimatedDeletedRowCount(), 1000);
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, BatchFilteringPartialOverlap) {
+  std::vector<int64_t> deletedRows;
+  for (int64_t i = 45; i <= 55; ++i) {
+    deletedRows.push_back(i);
+  }
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(createSerializedPayload(deletedRows));
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(20), pool_.get());
+  reader.applyDeletionFilter(40, 20, deleteBitmap);
+
+  auto* rawBitmap = deleteBitmap->as<uint64_t>();
+  for (int i = 0; i < 5; ++i) {
+    EXPECT_FALSE(bits::isBitSet(rawBitmap, i));
+  }
+  for (int i = 5; i <= 15; ++i) {
+    EXPECT_TRUE(bits::isBitSet(rawBitmap, i));
+  }
+  for (int i = 16; i < 20; ++i) {
+    EXPECT_FALSE(bits::isBitSet(rawBitmap, i));
+  }
+}

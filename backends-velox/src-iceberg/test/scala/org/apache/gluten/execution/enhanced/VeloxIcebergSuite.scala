@@ -21,6 +21,8 @@ import org.apache.gluten.tags.EnhancedFeaturesTest
 
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.execution.CommandResultExec
+import org.apache.spark.sql.execution.GlutenImplicits._
+import org.apache.spark.sql.execution.datasources.v2.AppendDataExec
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.gluten.TestUtils
 
@@ -325,7 +327,7 @@ class VeloxIcebergSuite extends IcebergSuite {
       val lastExecId = statusStore.executionsList().last.executionId
       val executionMetrics = statusStore.executionMetrics(lastExecId)
 
-      // TODO: fix https://github.com/apache/incubator-gluten/issues/11510
+      // TODO: fix https://github.com/apache/gluten/issues/11510
       assert(executionMetrics(metrics("numWrittenFiles").id).toLong == 0)
     }
   }
@@ -380,6 +382,157 @@ class VeloxIcebergSuite extends IcebergSuite {
             }
           }
 
+      }
+    }
+  }
+
+  test("iceberg native write fallback when validation fails - sort order") {
+    withTable("iceberg_sorted_tbl") {
+      spark.sql("CREATE TABLE iceberg_sorted_tbl (a INT, b STRING) USING iceberg")
+      spark.sql("ALTER TABLE iceberg_sorted_tbl WRITE ORDERED BY a")
+
+      val df = spark.sql("INSERT INTO iceberg_sorted_tbl VALUES (1, 'hello'), (2, 'world')")
+
+      // Should fallback to vanilla Spark's AppendDataExec.
+      val commandPlan =
+        df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
+      assert(commandPlan.isInstanceOf[AppendDataExec])
+      assert(!commandPlan.isInstanceOf[VeloxIcebergAppendDataExec])
+
+      checkAnswer(
+        spark.sql("SELECT * FROM iceberg_sorted_tbl ORDER BY a"),
+        Seq(Row(1, "hello"), Row(2, "world")))
+
+      // Verify fallbackSummary reports the sort order fallback reason.
+      val summary = df.fallbackSummary()
+      assert(
+        summary.fallbackNodeToReason.exists(
+          _.values.exists(_.contains("Not support write table with sort order"))))
+    }
+  }
+
+  test("iceberg read cow table - update after schema evolution") {
+    withTable("iceberg_cow_update_evolved_tb") {
+      spark.sql("""
+                  |create table iceberg_cow_update_evolved_tb (
+                  |  id int,
+                  |  name string,
+                  |  age int
+                  |) using iceberg
+                  |tblproperties (
+                  |  'format-version' = '2',
+                  |  'write.delete.mode' = 'copy-on-write',
+                  |  'write.update.mode' = 'copy-on-write',
+                  |  'write.merge.mode' = 'copy-on-write'
+                  |)
+                  |""".stripMargin)
+
+      spark.sql("""
+                  |alter table iceberg_cow_update_evolved_tb
+                  |add columns (salary decimal(10, 2))
+                  |""".stripMargin)
+
+      spark.sql("""
+                  |insert into table iceberg_cow_update_evolved_tb values
+                  |  (1, 'Name1', 23, 3400.00),
+                  |  (2, 'Name2', 30, 5500.00),
+                  |  (3, 'Name3', 35, 6500.00)
+                  |""".stripMargin)
+
+      val df = spark.sql("""
+                           |update iceberg_cow_update_evolved_tb
+                           |set name = 'Name4'
+                           |where id = 1
+                           |""".stripMargin)
+
+      assert(
+        df.queryExecution.executedPlan
+          .asInstanceOf[CommandResultExec]
+          .commandPhysicalPlan
+          .isInstanceOf[VeloxIcebergReplaceDataExec])
+
+      checkAnswer(
+        spark.sql("""
+                    |select id, name, age, salary
+                    |from iceberg_cow_update_evolved_tb
+                    |order by id
+                    |""".stripMargin),
+        Seq(
+          Row(1, "Name4", 23, new java.math.BigDecimal("3400.00")),
+          Row(2, "Name2", 30, new java.math.BigDecimal("5500.00")),
+          Row(3, "Name1", 35, new java.math.BigDecimal("6500.00"))
+        )
+      )
+    }
+  }
+  ignore("disabled test") {
+    test("iceberg native write respects target file size bytes") {
+      withTable("iceberg_small_target_tbl") {
+        spark.sql(
+          """
+            |CREATE TABLE iceberg_small_target_tbl (
+            |  id INT,
+            |  payload STRING
+            |) USING iceberg
+            |TBLPROPERTIES (
+            |  'write.format.default' = 'parquet',
+            |  'write.parquet.compression-codec' = 'uncompressed',
+            |  'write.parquet.row-group-size-bytes' = '4096',
+            |  'write.parquet.page-size-bytes' = '1024B',
+            |  'write.target-file-size-bytes' = '8192'
+            |)
+            |""".stripMargin)
+
+        checkAnswer(
+          spark.sql(
+            """
+              |SHOW TBLPROPERTIES iceberg_small_target_tbl
+              |('write.target-file-size-bytes')
+              |""".stripMargin),
+          Seq(Row("write.target-file-size-bytes", "8192"))
+        )
+
+        val df = spark.sql(
+          """
+            |INSERT INTO iceberg_small_target_tbl
+            |SELECT /*+ COALESCE(1) */
+            |  CAST(id AS INT),
+            |  concat(
+            |    CAST(id AS STRING),
+            |    '-',
+            |    sha2(CAST(id AS STRING), 256),
+            |    '-',
+            |    sha2(CAST(id + 1000 AS STRING), 256)
+            |  )
+            |FROM range(1000)
+            |""".stripMargin)
+
+        val commandPlan =
+          df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
+
+        assert(commandPlan.isInstanceOf[VeloxIcebergAppendDataExec])
+
+        checkAnswer(
+          spark.sql("SELECT COUNT(*) FROM iceberg_small_target_tbl"),
+          Seq(Row(1000L)))
+
+        val files = spark.sql(
+          """
+            |SELECT file_size_in_bytes
+            |FROM default.iceberg_small_target_tbl.files
+            |""".stripMargin).collect().map(_.getLong(0))
+
+        assert(files.nonEmpty)
+
+        assert(
+          files.length > 1,
+          s"Expected write.target-file-size-bytes=8192 to create multiple files, " +
+            s"but got files=${files.mkString("[", ", ", "]")}")
+
+        assert(
+          files.max < 64L * 1024L,
+          s"Expected small target file size to keep max file size reasonably small, " +
+            s"but got files=${files.mkString("[", ", ", "]")}")
       }
     }
   }

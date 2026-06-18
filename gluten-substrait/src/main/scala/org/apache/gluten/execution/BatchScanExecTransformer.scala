@@ -75,6 +75,10 @@ case class BatchScanExecTransformer(
   override def withNewPushdownFilters(filters: Seq[Expression]): BatchScanExecTransformerBase = {
     this.copy(pushDownFilters = Some(filters))
   }
+
+  override def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase = {
+    this.copy(output = newOutput)
+  }
 }
 
 abstract class BatchScanExecTransformerBase(
@@ -196,6 +200,9 @@ abstract class BatchScanExecTransformerBase(
   }
 
   override def hashCode(): Int = Objects.hashCode(batch, runtimeFilters, pushDownFilters)
+
+  /** Return a copy of this scan with a new output schema. */
+  def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase
 
   override def simpleString(maxFields: Int): String = {
     val truncatedOutputString = truncatedString(output, "[", ", ", "]", maxFields)

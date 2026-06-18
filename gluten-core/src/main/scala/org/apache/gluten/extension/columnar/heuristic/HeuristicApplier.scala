@@ -106,5 +106,3 @@ class HeuristicApplier(
     finalBuilders.map(b => b.apply(call))
   }
 }
-
-object HeuristicApplier {}

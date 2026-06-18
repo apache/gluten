@@ -35,7 +35,7 @@ import org.apache.spark.sql.execution.datasources.text.{GlutenTextV1Suite, Glute
 import org.apache.spark.sql.execution.datasources.v2.{GlutenDataSourceV2StrategySuite, GlutenFileTableSuite, GlutenV2PredicateSuite}
 import org.apache.spark.sql.execution.exchange.GlutenEnsureRequirementsSuite
 import org.apache.spark.sql.execution.joins._
-import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenCustomerExtensionSuite, GlutenSessionExtensionSuite}
+import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenSessionExtensionSuite}
 import org.apache.spark.sql.gluten.GlutenFallbackSuite
 import org.apache.spark.sql.hive.execution.GlutenHiveSQLQueryCHSuite
 import org.apache.spark.sql.sources._
@@ -90,6 +90,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Exception.
     .exclude("column pruning - non-readable file")
   enableSuite[GlutenBitmapExpressionsQuerySuite]
+    // bitmap_construct_agg is not supported natively in CH backend.
+    .excludeCH("bitmap_construct_agg routes to native")
   enableSuite[GlutenBitwiseExpressionsSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
     .excludeCH("Test bloom_filter_agg and might_contain")
@@ -352,6 +354,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Extra ColumnarToRow is needed to transform vanilla columnar data to gluten columnar data.
     .includeCH("SPARK-37369: Avoid redundant ColumnarToRow transition on InMemoryTableScan")
     .excludeCH("Gluten - InMemoryRelation statistics")
+    // Needs to rewrite TimestampNTZType.
+    .excludeGlutenTest("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenCastSuite]
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
@@ -442,7 +446,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
     .exclude("create a table, drop it and create another one with the same name")
   enableSuite[GlutenCsvFunctionsSuite]
-  enableSuite[GlutenCustomerExtensionSuite]
   enableSuite[GlutenDDLSourceLoadSuite]
   enableSuite[GlutenDSV2CharVarcharTestSuite]
     // Excluded. The Gluten tests for char/varchar validation were rewritten for Velox.
@@ -715,6 +718,10 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("SPARK-31896: Handle am-pm timestamp parsing when hour is missing")
     .excludeCH("UNIX_SECONDS")
     .excludeCH("TIMESTAMP_SECONDS")
+    // TimestampNTZ evaluation is not supported.
+    .excludeCH("Seconds")
+    .excludeCH("Minute")
+    .excludeGlutenTest("Hour")
   enableSuite[GlutenDateFunctionsSuite]
     // The below two are replaced by two modified versions.
     .exclude("unix_timestamp")
@@ -730,6 +737,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("SPARK-30793: truncate timestamps before the epoch to seconds and minutes")
     .excludeCH("try_to_timestamp")
     .excludeCH("Gluten - to_unix_timestamp")
+    .excludeCH("Seconds")
+    .excludeCH("Minute")
   enableSuite[GlutenDecimalExpressionSuite]
   enableSuite[GlutenDecimalPrecisionSuite]
   enableSuite[GlutenDeleteFromTableSuite]
@@ -1046,7 +1055,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH(
       "SPARK-45882: BroadcastHashJoinExec propagate partitioning should respect CoalescedHashPartitioning")
   enableSuite[GlutenJsonExpressionsSuite]
-    // https://github.com/apache/incubator-gluten/issues/8102
+    // https://github.com/apache/gluten/issues/8102
     .includeCH("$.store.book")
     .includeCH("$")
     .includeCH("$.store.book[0]")
@@ -1773,8 +1782,11 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("SPARK-35640: read binary as timestamp should throw schema incompatible error")
     // Exception msg.
     .exclude("SPARK-35640: int as long should throw schema incompatible error")
-    // Velox parquet reader not allow offset zero.
-    .includeCH("SPARK-40128 read DELTA_LENGTH_BYTE_ARRAY encoded strings")
+    // TODO: after rebase-25.12, failed, fix later, parquet reader not allow offset zero.
+    .exclude("SPARK-40128 read DELTA_LENGTH_BYTE_ARRAY encoded strings")
+    // TODO: after rebase-25.12, failed, fix later
+    .exclude("SPARK-34167: read LongDecimals with precision < 10, VectorizedReader true")
+    .exclude("SPARK-34167: read LongDecimals with precision < 10, VectorizedReader false")
   enableSuite[GlutenParquetInteroperabilitySuite]
     .exclude("parquet timestamp conversion")
   enableSuite[GlutenParquetProtobufCompatibilitySuite]

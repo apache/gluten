@@ -96,7 +96,7 @@ object Transition {
       private val graphCache = mutable.Map[String, TransitionGraph]()
 
       private def graph(): TransitionGraph = synchronized {
-        val aliasOrClass = GlutenCoreConfig.get.rasCostModel
+        val aliasOrClass = GlutenCoreConfig.get.costModel
         graphCache.getOrElseUpdate(
           aliasOrClass, {
             val base = GlutenCostModel.find(aliasOrClass)

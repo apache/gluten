@@ -156,7 +156,7 @@ class JniCommonState {
 
   void ensureInitialized(JNIEnv* env);
 
-  void assertInitialized();
+  void assertInitialized() const;
 
   void close();
 

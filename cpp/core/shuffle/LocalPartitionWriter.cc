@@ -755,8 +755,11 @@ arrow::Status LocalPartitionWriter::hashEvict(
   return arrow::Status::OK();
 }
 
-arrow::Status
-LocalPartitionWriter::sortEvict(uint32_t partitionId, std::unique_ptr<InMemoryPayload> inMemoryPayload, bool isFinal, int64_t& evictBytes) {
+arrow::Status LocalPartitionWriter::sortEvict(
+    uint32_t partitionId,
+    std::unique_ptr<InMemoryPayload> inMemoryPayload,
+    bool isFinal,
+    int64_t& evictBytes) {
   rawPartitionLengths_[partitionId] += inMemoryPayload->rawSize();
 
   if (lastEvictPid_ != -1 && (partitionId < lastEvictPid_ || (isFinal && !dataFileOs_))) {

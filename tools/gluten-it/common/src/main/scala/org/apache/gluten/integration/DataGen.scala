@@ -27,10 +27,12 @@ trait DataGen {
 
 abstract class TypeModifier(val predicate: DataType => Boolean, val to: DataType)
   extends Serializable {
+  def name(): String
   def modValue(value: Any): Any
 }
 
 class NoopModifier(t: DataType) extends TypeModifier(_ => true, t) {
+  override def name(): String = "noop"
   override def modValue(value: Any): Any = value
 }
 

@@ -19,25 +19,12 @@ package org.apache.gluten.functions
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{BatchScanExecTransformer, FilterExecTransformer, ProjectExecTransformer}
 
-import org.apache.spark.{SparkConf, SparkException}
+import org.apache.spark.SparkException
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.optimizer.NullPropagation
 import org.apache.spark.sql.execution.ProjectExec
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-
-class ScalarFunctionsValidateSuiteRasOff extends ScalarFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "false")
-  }
-}
-
-class ScalarFunctionsValidateSuiteRasOn extends ScalarFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
 
 abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   disableFallbackCheck
@@ -240,6 +227,24 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       sql("INSERT INTO t1 VALUES(1, NOW())")
       runQueryAndCompare("SELECT c1, HOUR(c2) FROM t1 LIMIT 1")(df => checkFallbackOperators(df, 0))
     }
+
+    test("MINUTE") {
+      withTable("t1") {
+        sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
+        sql("INSERT INTO t1 VALUES(1, NOW())")
+        runQueryAndCompare("SELECT c1, MINUTE(c2) FROM t1 LIMIT 1")(
+          df => checkFallbackOperators(df, 0))
+      }
+    }
+
+    test("SECOND") {
+      withTable("t1") {
+        sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
+        sql("INSERT INTO t1 VALUES(1, NOW())")
+        runQueryAndCompare("SELECT c1, SECOND(c2) FROM t1 LIMIT 1")(
+          df => checkFallbackOperators(df, 0))
+      }
+    }
   }
 
   test("map extract - getmapvalue") {
@@ -278,6 +283,28 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
         spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("map_tbl")
 
         runQueryAndCompare("select map_entries(i) from map_tbl") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
+  test("map_from_entries") {
+    withTempPath {
+      path =>
+        Seq(
+          Seq((1, "10"), (2, "20"), (3, null)),
+          Seq((1, "10"), null, (2, "20")),
+          Seq.empty,
+          null
+        ).toDF("a")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read
+          .parquet(path.getCanonicalPath)
+          .createOrReplaceTempView("test")
+
+        runQueryAndCompare("select map_from_entries(a) from test") {
           checkGlutenPlan[ProjectExecTransformer]
         }
     }
@@ -496,7 +523,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  // FIXME: Ignored: https://github.com/apache/incubator-gluten/issues/7600.
+  // FIXME: Ignored: https://github.com/apache/gluten/issues/7600.
   ignore("monotonically_increasintestg_id") {
     runQueryAndCompare("""SELECT monotonically_increasing_id(), l_orderkey
                          | from lineitem limit 100""".stripMargin) {
@@ -1050,6 +1077,50 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("input_file_name() with BHJ build-side LocalRelation must return real path") {
+    withTempPath {
+      path =>
+        Seq(("event_a", 1001L, "param1"))
+          .toDF("event", "device_id", "params")
+          .write
+          .parquet(path.getCanonicalPath)
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("event_log")
+
+        withSQLConf(
+          "spark.sql.autoBroadcastJoinThreshold" -> "10MB",
+          "spark.sql.adaptive.enabled" -> "true"
+        ) {
+          val sql =
+            """
+              |SELECT  a.event,
+              |        a.params,
+              |        a.device_id,
+              |        input_file_name() AS fname
+              |FROM    event_log a
+              |JOIN
+              |        (
+              |            SELECT  'event_a' AS envent,
+              |                    1001 AS device_id
+              |        ) b
+              |ON      a.event     = b.envent
+              |AND     a.device_id = b.device_id
+              |""".stripMargin
+
+          compareResultsAgainstVanillaSpark(sql, true, { _ => })
+
+          val df = spark.sql(sql)
+          val rows = df.collect()
+          assert(rows.nonEmpty, "Join should match at least one row")
+          rows.foreach {
+            r =>
+              val fname = r.getAs[String]("fname")
+              assert(fname != null && fname.nonEmpty)
+              assert(fname.contains(path.getName))
+          }
+        }
+    }
+  }
+
   testWithMinSparkVersion("array insert", "3.4") {
     withTempPath {
       path =>
@@ -1518,6 +1589,91 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
                              |FROM view
         """.stripMargin) {
           checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+  test("current_timestamp") {
+    withSQLConf(
+      "spark.sql.optimizer.excludedRules" ->
+        "org.apache.spark.sql.catalyst.optimizer.ConstantFolding") {
+      runQueryAndCompare("SELECT l_orderkey, current_timestamp() from lineitem limit 1") {
+        df =>
+          val optimizedPlan = df.queryExecution.optimizedPlan.toString()
+          assert(
+            optimizedPlan.contains("CurrentTimestamp"),
+            s"Expected CurrentTimestamp in plan when ConstantFolding is disabled, " +
+              s"but got: $optimizedPlan"
+          )
+          checkGlutenPlan[ProjectExecTransformer](df)
+      }
+    }
+  }
+
+  test("now") {
+    withSQLConf(
+      "spark.sql.optimizer.excludedRules" ->
+        "org.apache.spark.sql.catalyst.optimizer.ConstantFolding") {
+      runQueryAndCompare("SELECT l_orderkey, now() from lineitem limit 1") {
+        df =>
+          val optimizedPlan = df.queryExecution.optimizedPlan.toString()
+          assert(
+            optimizedPlan.contains("Now"),
+            s"Expected Now in plan when ConstantFolding is disabled, but got: $optimizedPlan"
+          )
+          checkGlutenPlan[ProjectExecTransformer](df)
+      }
+    }
+  }
+
+  testWithMinSparkVersion("localtimestamp with validation enabled", "3.4") {
+    // With validation enabled (default), localtimestamp should fallback to Spark
+    // because it returns TimestampNTZType
+    withSQLConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "true") {
+      val df = spark.sql("SELECT l_orderkey, localtimestamp() from lineitem limit 1")
+      // Should fallback to Spark execution due to TimestampNTZ validation
+      checkFallbackOperators(df, 1)
+      df.collect()
+    }
+  }
+
+  testWithMinSparkVersion("localtimestamp with validation disabled", "3.4") {
+    // With validation disabled, localtimestamp can use native execution
+    // This allows developers to test TimestampNTZ support
+    withSQLConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "false") {
+      val df = spark.sql("SELECT l_orderkey, localtimestamp() from lineitem limit 1")
+      val optimizedPlan = df.queryExecution.optimizedPlan.toString()
+      assert(
+        !optimizedPlan.contains("LocalTimestamp"),
+        s"Expected LocalTimestamp to be folded to a literal, but got: $optimizedPlan"
+      )
+      // Should use native execution when validation is disabled
+      checkGlutenPlan[ProjectExecTransformer](df)
+      checkFallbackOperators(df, 0)
+      df.collect()
+    }
+  }
+
+  test("str_to_map with MAP_KEY_DEDUP_POLICY EXCEPTION") {
+    withTempPath {
+      path =>
+        Seq("a:1,b:2,c:3", "x:10,y:20", "single:99")
+          .toDF("s")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("str_to_map_tbl")
+        log.info("Testing str_to_map offloading with MAP_KEY_DEDUP_POLICY set to EXCEPTION")
+
+        withSQLConf(
+          SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.EXCEPTION.toString) {
+          // Explicit delimiters
+          runQueryAndCompare("SELECT s, str_to_map(s, ',', ':') FROM str_to_map_tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+          // Default delimiters (, and :)
+          runQueryAndCompare("SELECT s, str_to_map(s) FROM str_to_map_tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
         }
     }
   }

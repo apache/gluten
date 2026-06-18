@@ -16,12 +16,12 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenStreamingSQLTestsTrait
 
 class GlutenFlatMapGroupsWithStateSuite
   extends FlatMapGroupsWithStateSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenStreamingSQLTestsTrait {}
 
 class GlutenRocksDBStateStoreFlatMapGroupsWithStateSuite
   extends RocksDBStateStoreFlatMapGroupsWithStateSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenStreamingSQLTestsTrait {}

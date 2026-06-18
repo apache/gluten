@@ -196,8 +196,6 @@ object QueriesCompare {
         inc.next().write(line.testPassed())
         inc.next().write(line.expected.asSuccessOption().map(_.runResult.rows.size))
         inc.next().write(line.actual.asSuccessOption().map(_.runResult.rows.size))
-        inc.next().write(line.expected.asSuccessOption().map(_.runResult.planningTimeMillis))
-        inc.next().write(line.actual.asSuccessOption().map(_.runResult.planningTimeMillis))
         inc.next().write(line.expected.asSuccessOption().map(_.runResult.executionTimeMillis))
         inc.next().write(line.actual.asSuccessOption().map(_.runResult.executionTimeMillis))
 
@@ -222,7 +220,6 @@ object QueriesCompare {
       Leaf("Query ID"),
       Leaf("Passed"),
       Branch("Row Count", List(Leaf("Vanilla"), Leaf("Gluten"))),
-      Branch("Planning Time (Millis)", List(Leaf("Vanilla"), Leaf("Gluten"))),
       Branch("Query Time (Millis)", List(Leaf("Vanilla"), Leaf("Gluten"))),
       Leaf("Speedup")
     )

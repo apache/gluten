@@ -16,11 +16,16 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsTrait
+import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.dsl.expressions._
+import org.apache.spark.sql.shim.GlutenTestsTrait
 import org.apache.spark.sql.types._
 
-class GlutenMathExpressionsSuite extends MathExpressionsSuite with GlutenTestsTrait {
+class GlutenMathExpressionsSuite
+  extends MathExpressionsSuite
+  with GlutenExpressionOffloadTracker
+  with GlutenTestsTrait {
+  override protected def offloadCategory: String = "math"
   testGluten("round/bround/floor/ceil") {
     val scales = -6 to 6
     val doublePi: Double = math.Pi
@@ -253,7 +258,7 @@ class GlutenMathExpressionsSuite extends MathExpressionsSuite with GlutenTestsTr
     checkEvaluation(Round(1.12345678901234567, 8), 1.12345679)
     checkEvaluation(Round(-0.98765432109876543, 5), -0.98765)
     checkEvaluation(Round(12345.67890123456789, 6), 12345.678901)
-    // Enable the test after fixing https://github.com/apache/incubator-gluten/issues/6827
+    // Enable the test after fixing https://github.com/apache/gluten/issues/6827
     // checkEvaluation(Round(0.5549999999999999, 2), 0.55)
     checkEvaluation(BRound(BigDecimal("45.00"), -1), BigDecimal(40))
     checkEvaluation(checkDataTypeAndCast(RoundFloor(Literal(2.5), Literal(0))), Decimal(2))

@@ -44,6 +44,10 @@ case class IcebergColumnarBatchDataWriter(
   }
 
   override def write(batch: ColumnarBatch): Unit = {
+    // Pass the original batch to native code
+    // The native code will use the schema (writeSchema) we provided during initialization
+    // to determine which columns to write, effectively filtering out metadata columns
+    // like __row_operation, _file, _pos that Spark 4.0 adds
     val batchHandle = ColumnarBatches.getNativeHandle(BackendsApiManager.getBackendName, batch)
     jniWrapper.write(writer, batchHandle)
   }

@@ -16,8 +16,6 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenTestsTrait
 
-class GlutenDynamicPruningSubquerySuite
-  extends DynamicPruningSubquerySuite
-  with GlutenTestsCommonTrait {}
+class GlutenDynamicPruningSubquerySuite extends DynamicPruningSubquerySuite with GlutenTestsTrait {}

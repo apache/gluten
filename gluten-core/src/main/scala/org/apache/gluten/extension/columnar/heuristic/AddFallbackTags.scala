@@ -41,5 +41,3 @@ case class AddFallbackTags(validator: Validator) extends Rule[SparkPlan] {
     }
   }
 }
-
-object AddFallbackTags {}

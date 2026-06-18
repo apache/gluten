@@ -239,7 +239,8 @@ DB::QueryPlanPtr AggregateGroupLimitRelParser::parse(
     auto convert_actions_dag = DB::ActionsDAG::makeConvertingActions(
         window_plan->getCurrentHeader()->getColumnsWithTypeAndName(),
         aggregation_plan->getCurrentHeader()->getColumnsWithTypeAndName(),
-        DB::ActionsDAG::MatchColumnsMode::Position);
+        DB::ActionsDAG::MatchColumnsMode::Position,
+        getContext());
     auto convert_step = std::make_unique<DB::ExpressionStep>(window_plan->getCurrentHeader(), std::move(convert_actions_dag));
     convert_step->setStepDescription("Rename rank column name");
     window_plan->addStep(std::move(convert_step));
@@ -439,7 +440,8 @@ void AggregateGroupLimitRelParser::postProjectionForExplodingArrays(DB::QueryPla
     auto adjust_pos_actions_dag = DB::ActionsDAG::makeConvertingActions(
         flatten_tuple_output_header->getColumnsWithTypeAndName(),
         output_header.getColumnsWithTypeAndName(),
-        DB::ActionsDAG::MatchColumnsMode::Name);
+        DB::ActionsDAG::MatchColumnsMode::Name,
+        getContext());
     LOG_DEBUG(getLogger("AggregateGroupLimitRelParser"), "Actions dag for replacing columns:\n{}", adjust_pos_actions_dag.dumpDAG());
     auto adjust_pos_expression_step = std::make_unique<DB::ExpressionStep>(flatten_tuple_output_header, std::move(adjust_pos_actions_dag));
     adjust_pos_expression_step->setStepDescription("Adjust position of the output columns");
@@ -455,8 +457,7 @@ void AggregateGroupLimitRelParser::addSortStep(DB::QueryPlan & plan)
 
     DB::SortingStep::Settings settings(getContext()->getSettingsRef());
     auto config = MemoryConfig::loadFromContext(getContext());
-    double spill_mem_ratio = config.spill_mem_ratio;
-    settings.worth_external_sort = [spill_mem_ratio]() -> bool { return currentThreadGroupMemoryUsageRatio() > spill_mem_ratio; };
+    settings.worth_external_sort_mem_ratio = config.spill_mem_ratio;
     auto sorting_step = std::make_unique<DB::SortingStep>(plan.getCurrentHeader(), full_sort_descr, 0, settings);
     sorting_step->setStepDescription("Sorting step");
     plan.addStep(std::move(sorting_step));
@@ -519,7 +520,7 @@ void AggregateGroupLimitRelParser::addWindowLimitStep(DB::QueryPlan & plan)
     win_descr.window_functions.push_back(win_func_description);
 
     auto win_step = std::make_unique<WindowStep>(in_header, win_descr, win_descr.window_functions, false);
-    win_step->setStepDescription("Window (" + win_descr.window_name + ")");
+    win_step->setStepDescription("Window (" + win_descr.window_name + ")", 1000);
     plan.addStep(std::move(win_step));
 
     const auto & win_result_header = plan.getCurrentHeader();

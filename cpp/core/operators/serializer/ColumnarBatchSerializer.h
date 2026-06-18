@@ -18,6 +18,7 @@
 #pragma once
 
 #include <arrow/c/abi.h>
+#include <vector>
 
 #include "memory/ColumnarBatch.h"
 
@@ -36,6 +37,14 @@ class ColumnarBatchSerializer {
   virtual void serializeTo(uint8_t* address, int64_t size) = 0;
 
   virtual std::shared_ptr<ColumnarBatch> deserialize(uint8_t* data, int32_t size) = 0;
+
+  // Backend-overridable framed serialization carrying per-column stats.
+  // Layout: [magic | statsLen | statsBlob | bytesLen | bytesBlob]. Default returns an empty
+  // vector to indicate the stats extension is not supported; callers detect that and fall back
+  // to the legacy serialize() path. The Velox backend overrides with the full implementation.
+  virtual std::vector<uint8_t> framedSerializeWithStats(const std::shared_ptr<ColumnarBatch>& /*batch*/) {
+    return {};
+  }
 
  protected:
   arrow::MemoryPool* arrowPool_;

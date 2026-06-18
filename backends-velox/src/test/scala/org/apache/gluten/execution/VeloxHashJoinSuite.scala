@@ -279,6 +279,38 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  test("Broadcast build mergeBatches: merged vs per-batch produce equivalent results") {
+    Seq("true", "false").foreach {
+      mergeBatches =>
+        withSQLConf(
+          VeloxConfig.VELOX_BROADCAST_BUILD_MERGE_BATCHES.key -> mergeBatches,
+          "spark.sql.autoBroadcastJoinThreshold" -> "10MB",
+          "spark.sql.adaptive.enabled" -> "false",
+          // Force small batches so the build side has multiple batches to merge.
+          GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "16"
+        ) {
+          withTable("t_probe", "t_build") {
+            spark.range(200).selectExpr("id as key", "id * 2 as v").write.saveAsTable("t_probe")
+            spark.range(50).selectExpr("id as key", "id + 1 as v").write.saveAsTable("t_build")
+
+            val query =
+              """
+                |SELECT p.key, p.v, b.v AS bv
+                |FROM t_probe p JOIN t_build b ON p.key = b.key
+                |ORDER BY p.key
+                |""".stripMargin
+
+            runQueryAndCompare(query) {
+              df =>
+                val plan = df.queryExecution.executedPlan
+                val bhj = plan.collect { case j: BroadcastHashJoinExecTransformer => j }
+                assert(bhj.nonEmpty, s"Should use BHJ when mergeBatches=$mergeBatches")
+            }
+          }
+        }
+    }
+  }
+
   test("Broadcast join with multiple cast expressions in join keys") {
     withSQLConf(
       ("spark.sql.autoBroadcastJoinThreshold", "10MB"),

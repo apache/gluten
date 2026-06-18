@@ -23,8 +23,6 @@
 #include <Common/Allocator.h>
 #include <Common/Arena.h>
 
-struct StringRef;
-
 namespace local_engine
 {
 int64_t calculateBitSetWidthInBytes(int64_t num_fields);
@@ -187,7 +185,7 @@ public:
 
     /// Copy memory chunk of Fixed length typed CH Column directory to buffer for performance.
     /// It is unsafe unless you know what you are doing.
-    virtual void unsafeWrite(const StringRef & str, char * buffer);
+    virtual void unsafeWrite(const std::string_view & str, char * buffer);
 
     /// Copy memory chunk of in fixed length typed Field directory to buffer for performance.
     /// It is unsafe unless you know what you are doing.

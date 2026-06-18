@@ -343,7 +343,8 @@ class GlutenKeyGroupedPartitioningSuite
           case (enable, expected) =>
             withSQLConf(
               SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushDownValues.toString,
-              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable) {
+              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable
+            ) {
               val df = sql(
                 "SELECT id, name, i.price as purchase_price, p.price as sale_price " +
                   s"FROM testcat.ns.$items i JOIN testcat.ns.$purchases p " +
@@ -398,7 +399,8 @@ class GlutenKeyGroupedPartitioningSuite
           case (enable, expected) =>
             withSQLConf(
               SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushDownValues.toString,
-              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable) {
+              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable
+            ) {
               val df = sql(
                 "SELECT id, name, i.price as purchase_price, p.price as sale_price " +
                   s"FROM testcat.ns.$items i JOIN testcat.ns.$purchases p " +
@@ -463,7 +465,8 @@ class GlutenKeyGroupedPartitioningSuite
           case (enable, expected) =>
             withSQLConf(
               SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushDownValues.toString,
-              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable) {
+              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable
+            ) {
               val df = sql(
                 "SELECT id, name, i.price as purchase_price, p.price as sale_price " +
                   s"FROM testcat.ns.$items i JOIN testcat.ns.$purchases p " +
@@ -531,7 +534,8 @@ class GlutenKeyGroupedPartitioningSuite
           case (enable, expected) =>
             withSQLConf(
               SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushDownValues.toString,
-              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable) {
+              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable
+            ) {
               val df = sql(
                 "SELECT id, name, i.price as purchase_price, p.price as sale_price " +
                   s"FROM testcat.ns.$items i JOIN testcat.ns.$purchases p " +
@@ -588,7 +592,8 @@ class GlutenKeyGroupedPartitioningSuite
           case (enable, expected) =>
             withSQLConf(
               SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushDownValues.toString,
-              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable) {
+              SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> enable
+            ) {
               val df = sql(
                 "SELECT id, name, i.price as purchase_price, p.price as sale_price " +
                   s"FROM testcat.ns.$items i JOIN testcat.ns.$purchases p " +
@@ -1205,6 +1210,62 @@ class GlutenKeyGroupedPartitioningSuite
     }
   }
 
+  testGluten("SPARK-54439: KeyGroupedPartitioning and join key size mismatch") {
+    val items_partitions = Array(identity("id"))
+    createTable(items, itemsColumns, items_partitions)
+
+    sql(
+      s"INSERT INTO testcat.ns.$items VALUES " +
+        "(1, 'aa', 40.0, cast('2020-01-01' as timestamp)), " +
+        "(3, 'bb', 10.0, cast('2020-01-01' as timestamp)), " +
+        "(4, 'cc', 15.5, cast('2020-02-01' as timestamp))")
+
+    createTable(purchases, purchasesColumns, Array.empty)
+    sql(
+      s"INSERT INTO testcat.ns.$purchases VALUES " +
+        "(1, 42.0, cast('2020-01-01' as timestamp)), " +
+        "(3, 19.5, cast('2020-02-01' as timestamp))")
+
+    withSQLConf(SQLConf.V2_BUCKETING_SHUFFLE_ENABLED.key -> "true") {
+      // `time` and `item_id` in the required `ClusteredDistribution` for `purchases`, but `item` is
+      // storage partitioned only by `id`
+      val df = createJoinTestDF(Seq("arrive_time" -> "time", "id" -> "item_id"))
+      val shuffles = collectShuffles(df.queryExecution.executedPlan)
+      assert(shuffles.size == 1, "only shuffle one side not report partitioning")
+
+      checkAnswer(df, Seq(Row(1, "aa", 40.0, 42.0)))
+    }
+  }
+
+  testGluten("SPARK-54439: KeyGroupedPartitioning with transform and join key size mismatch") {
+    // Do not use `bucket()` in "one side partition" tests as its implementation in
+    // `InMemoryBaseTable` conflicts with `BucketFunction`
+    val items_partitions = Array(years("arrive_time"))
+    createTable(items, itemsColumns, items_partitions)
+
+    sql(
+      s"INSERT INTO testcat.ns.$items VALUES " +
+        "(1, 'aa', 40.0, cast('2020-01-01' as timestamp)), " +
+        "(1, 'bb', 10.0, cast('2021-01-01' as timestamp)), " +
+        "(4, 'cc', 15.5, cast('2021-02-01' as timestamp))")
+
+    createTable(purchases, purchasesColumns, Array.empty)
+    sql(
+      s"INSERT INTO testcat.ns.$purchases VALUES " +
+        "(1, 42.0, cast('2020-01-01' as timestamp)), " +
+        "(3, 19.5, cast('2021-02-01' as timestamp))")
+
+    withSQLConf(SQLConf.V2_BUCKETING_SHUFFLE_ENABLED.key -> "true") {
+      // `item_id` and `time` in the required `ClusteredDistribution` for `purchases`, but `item` is
+      // storage partitioned only by `year(arrive_time)`
+      val df = createJoinTestDF(Seq("id" -> "item_id", "arrive_time" -> "time"))
+      val shuffles = collectShuffles(df.queryExecution.executedPlan)
+      assert(shuffles.size == 1, "only shuffle one side not report partitioning")
+
+      checkAnswer(df, Seq(Row(1, "aa", 40.0, 42.0)))
+    }
+  }
+
   testGluten(
     "SPARK-44647: SPJ: test join key is subset of cluster key " +
       "with push values and partially-clustered") {
@@ -1657,7 +1718,8 @@ class GlutenKeyGroupedPartitioningSuite
               Row(15.5, null),
               Row(15.5, 3),
               Row(40.0, 1),
-              Row(41.0, 1)))
+              Row(41.0, 1))
+          )
 
           verifyShuffle(
             s"SELECT price, id FROM testcat.ns.$items " +
@@ -1703,7 +1765,7 @@ class GlutenKeyGroupedPartitioningSuite
               Row(15.5, null),
               Row(15.5, 3),
               Row(10.0, 2))
-          );
+          )
         }
     }
   }

@@ -40,6 +40,19 @@ object Validators {
     private val conf = GlutenConfig.get
     private val settings = BackendsApiManager.getSettings
 
+    // Get VeloxConfig if available
+    private val veloxConf: Option[Any] = {
+      try {
+        // scalastyle:off classforname
+        val veloxConfigClass = Class.forName("org.apache.gluten.config.VeloxConfig")
+        // scalastyle:on classforname
+        val getMethod = veloxConfigClass.getMethod("get")
+        Some(getMethod.invoke(null))
+      } catch {
+        case _: Exception => None
+      }
+    }
+
     /** Fails validation if a plan node was already tagged with TRANSFORM_UNSUPPORTED. */
     def fallbackByHint(): Validator.Builder = {
       builder.add(FallbackByHint)
@@ -81,7 +94,7 @@ object Validators {
 
     /** Fails validation if a plan node's input or output schema contains TimestampNTZType. */
     def fallbackByTimestampNTZ(): Validator.Builder = {
-      builder.add(new FallbackByTimestampNTZ())
+      builder.add(new FallbackByTimestampNTZ(veloxConf))
     }
 
     /**
@@ -176,7 +189,7 @@ object Validators {
         fail(p)
       case p: GenerateExec if !glutenConf.enableColumnarGenerate => fail(p)
       case p: CoalesceExec if !glutenConf.enableColumnarCoalesce => fail(p)
-      case p: CartesianProductExec if !glutenConf.cartesianProductTransformerEnabled => fail(p)
+      case p: CartesianProductExec if !glutenConf.enableColumnarCartesianProduct => fail(p)
       case p: TakeOrderedAndProjectExec
           if !(glutenConf.enableTakeOrderedAndProject && glutenConf.enableColumnarSort &&
             glutenConf.enableColumnarShuffle && glutenConf.enableColumnarProject) =>
@@ -185,7 +198,7 @@ object Validators {
         fail(p)
       case p: BroadcastNestedLoopJoinExec
           if !(glutenConf.enableColumnarBroadcastJoin &&
-            glutenConf.broadcastNestedLoopJoinTransformerTransformerEnabled) =>
+            glutenConf.enableColumnarBroadcastNestedLoopJoin) =>
         fail(p)
       case p @ (_: HashAggregateExec | _: SortAggregateExec | _: ObjectHashAggregateExec)
           if !glutenConf.enableColumnarHashAgg =>
@@ -218,10 +231,26 @@ object Validators {
     }
   }
 
-  private class FallbackByTimestampNTZ() extends Validator {
+  private class FallbackByTimestampNTZ(veloxConf: Option[Any]) extends Validator {
+    // Check if TimestampNTZ validation is enabled via VeloxConfig
+    // Default to true (enabled) if VeloxConfig is not available or method call fails
+    private val enableValidation: Boolean = veloxConf
+      .flatMap {
+        config =>
+          try {
+            val enableMethod = config.getClass.getMethod("enableTimestampNtzValidation")
+            Some(enableMethod.invoke(config).asInstanceOf[Boolean])
+          } catch {
+            case _: Exception => None
+          }
+      }
+      .getOrElse(true)
+
+    private val backendSupportsTimestampNtz = BackendsApiManager.getSettings.supportTimestampNtz
+
     override def validate(plan: SparkPlan): Validator.OutCome = {
       def containsNTZ(dataType: DataType): Boolean = dataType match {
-        case dt if dt.catalogString == "timestamp_ntz" => true
+        case dt if dt.typeName == "timestamp_ntz" => true
         case st: StructType => st.exists(f => containsNTZ(f.dataType))
         case at: ArrayType => containsNTZ(at.elementType)
         case mt: MapType => containsNTZ(mt.keyType) || containsNTZ(mt.valueType)
@@ -229,11 +258,23 @@ object Validators {
       }
       val hasNTZ = plan.output.exists(a => containsNTZ(a.dataType)) ||
         plan.children.exists(_.output.exists(a => containsNTZ(a.dataType)))
-      if (hasNTZ) {
-        fail(s"${plan.nodeName} has TimestampNTZType in input/output schema")
-      } else {
-        pass()
+      if (!hasNTZ) {
+        return pass()
       }
+
+      if (!enableValidation && backendSupportsTimestampNtz) {
+        // Validation is disabled, allow supported operators.
+        val isScan = plan match {
+          case _: BatchScanExec => true
+          case _: FileSourceScanExec => true
+          case p if HiveTableScanExecTransformer.isHiveTableScan(p) => true
+          case _ => false
+        }
+        if (isScan) {
+          return pass()
+        }
+      }
+      fail(s"${plan.nodeName} has TimestampNTZType in input/output schema")
     }
   }
 
@@ -301,10 +342,6 @@ object Validators {
 
   /**
    * A validator that doesn't involve native validation.
-   *
-   * This is typically RAS planner that does native validation inline without relying on tags. Thus,
-   * validator `#fallbackByNativeValidation` is not required. See
-   * [[org.apache.gluten.extension.columnar.enumerated.RasOffload]].
    *
    * This could also be used in legacy planner for doing trivial offload without the help of rewrite
    * rules.

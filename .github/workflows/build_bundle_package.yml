@@ -55,7 +55,7 @@ jobs:
             ccache-centos7-release-default
       - name: Build Gluten velox third party
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7 bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
@@ -109,4 +109,3 @@ jobs:
           name: gluten-velox-bundle-package
           path: package/target/gluten-velox-bundle-*.jar
           retention-days: 7
-

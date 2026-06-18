@@ -25,6 +25,7 @@
 #include "velox/exec/Aggregate.h"
 #include "velox/expression/Expr.h"
 #include "velox/expression/SignatureBinder.h"
+#include "velox/type/TypeCoercer.h"
 
 namespace gluten {
 namespace {
@@ -52,15 +53,10 @@ const char* extractFileName(const char* file) {
       __FUNCTION__,                                                    \
       reason))
 
-const std::unordered_set<std::string> kRegexFunctions = {
-    "regexp_extract",
-    "regexp_extract_all",
-    "regexp_replace",
-    "rlike",
-    "split"};
+const std::unordered_set<std::string> kRegexFunctions =
+    {"regexp_extract", "regexp_extract_all", "regexp_replace", "rlike", "split"};
 
-const std::unordered_set<std::string> kBlackList =
-    {"split_part", "sequence", "approx_percentile", "map_from_arrays"};
+const std::unordered_set<std::string> kBlackList = {"split_part", "sequence", "approx_percentile", "map_from_arrays"};
 } // namespace
 
 bool SubstraitToVeloxPlanValidator::parseVeloxType(
@@ -303,33 +299,34 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
   }
 
   if (fromType->isMap() && toType->isMap()) {
-      const auto& fromKey = fromType->asMap().keyType();
-      const auto& fromValue = fromType->asMap().valueType();
-      const auto& toKey = toType->asMap().keyType();
-      const auto& toValue = toType->asMap().valueType();
+    const auto& fromKey = fromType->asMap().keyType();
+    const auto& fromValue = fromType->asMap().valueType();
+    const auto& toKey = toType->asMap().keyType();
+    const auto& toValue = toType->asMap().valueType();
 
-      return isAllowedCast(fromKey, toKey) && isAllowedCast(fromValue, toValue);
+    return isAllowedCast(fromKey, toKey) && isAllowedCast(fromValue, toValue);
   }
 
   if (fromType->isRow() && toType->isRow()) {
-      const auto& fromChildren = fromType->asRow().children();
-      const auto& toChildren = toType->asRow().children();
+    const auto& fromChildren = fromType->asRow().children();
+    const auto& toChildren = toType->asRow().children();
 
-      if (fromChildren.size() != toChildren.size()) {
+    if (fromChildren.size() != toChildren.size()) {
+      return false;
+    }
+
+    for (size_t childIdx = 0; childIdx < fromChildren.size(); ++childIdx) {
+      if (!isAllowedCast(fromChildren[childIdx], toChildren[childIdx])) {
         return false;
       }
+    }
 
-      for (size_t childIdx = 0; childIdx < fromChildren.size(); ++childIdx) {
-        if (!isAllowedCast(fromChildren[childIdx], toChildren[childIdx])) {
-          return false;
-        }
-      }
-
-      return true;
+    return true;
   }
 
   // Casting a complex type to/from any other type is not allowed.
-  if (fromType->isArray() || fromType->isMap() || fromType->isRow() || toType->isArray() || toType->isMap() || toType->isRow()) {
+  if (fromType->isArray() || fromType->isMap() || fromType->isRow() || toType->isArray() || toType->isMap() ||
+      toType->isRow()) {
     return false;
   }
 
@@ -651,7 +648,7 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::WindowRel& windo
   }
 
   if (types.empty()) {
-    // See: https://github.com/apache/incubator-gluten/issues/7600.
+    // See: https://github.com/apache/gluten/issues/7600.
     LOG_VALIDATION_MSG("Validation failed for empty input schema in WindowRel.");
     return false;
   }
@@ -1124,6 +1121,9 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::CrossRel& crossR
   auto rowType = std::make_shared<RowType>(std::move(names), std::move(types));
 
   if (crossRel.has_expression()) {
+    if (!validateExpression(crossRel.expression(), rowType)) {
+      return false;
+    }
     auto expression = exprConverter_->toVeloxExpr(crossRel.expression(), rowType);
     exec::ExprSet exprSet({std::move(expression)}, execCtx_.get());
   }
@@ -1154,13 +1154,13 @@ bool SubstraitToVeloxPlanValidator::validateAggRelFunctionType(const ::substrait
     auto funcName = planConverter_->toAggregationFunctionName(baseFuncName, funcStep, resultType);
     auto signaturesOpt = exec::getAggregateFunctionSignatures(funcName);
     if (!signaturesOpt) {
-      LOG_VALIDATION_MSG("can not find function signature for " + funcName + " in AggregateRel.");
+      LOG_VALIDATION_MSG("No function signatures found for function name: " + funcName);
       return false;
     }
 
     bool resolved = false;
     for (const auto& signature : signaturesOpt.value()) {
-      exec::SignatureBinder binder(*signature, types);
+      exec::SignatureBinder binder(*signature, types, facebook::velox::TypeCoercer::defaults());
       if (binder.tryBind()) {
         TypePtr resolveType = nullptr;
         try {
@@ -1180,8 +1180,8 @@ bool SubstraitToVeloxPlanValidator::validateAggRelFunctionType(const ::substrait
         }
 
         if (resolveType == nullptr) {
-          LOG_VALIDATION_MSG("Validation failed for function " + funcName + " resolve type in AggregateRel.");
-          return false;
+          LOG_VALIDATION_MSG("Failed to resolve intermediate/return type for function " + funcName);
+          break;
         }
 
         resolved = true;
@@ -1189,7 +1189,23 @@ bool SubstraitToVeloxPlanValidator::validateAggRelFunctionType(const ::substrait
       }
     }
     if (!resolved) {
-      LOG_VALIDATION_MSG("Validation failed for function " + funcName + " bind signatures in AggregateRel.");
+      std::vector<std::string> inputTypeStrs;
+      for (const auto& type : types) {
+        inputTypeStrs.push_back(type->toString());
+      }
+
+      std::vector<std::string> signatureStrs;
+      for (const auto& signature : signaturesOpt.value()) {
+        signatureStrs.push_back(signature->toString());
+      }
+
+      LOG_VALIDATION_MSG(fmt::format(
+          "Validation failed for function {} when binding signatures.\n"
+          "  Input types: [{}]\n"
+          "  Registered signatures:\n    {}",
+          funcName,
+          folly::join(", ", inputTypeStrs),
+          folly::join("\n    ", signatureStrs)));
       return false;
     }
   }
@@ -1307,7 +1323,8 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::AggregateRel& ag
       "regr_slope",
       "regr_intercept",
       "regr_sxy",
-      "regr_replacement"};
+      "regr_replacement",
+      "bitmap_construct_agg"};
 
   auto udafFuncs = UdfLoader::getInstance()->getRegisteredUdafNames();
 

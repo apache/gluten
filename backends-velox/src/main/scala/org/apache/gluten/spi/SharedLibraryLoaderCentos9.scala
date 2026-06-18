@@ -41,7 +41,6 @@ class SharedLibraryLoaderCentos9 extends SharedLibraryLoader {
     loader.loadAndCreateLink("libgflags.so.2.2", "libgflags.so")
     loader.loadAndCreateLink("libglog.so.1", "libglog.so")
     loader.loadAndCreateLink("libdwarf.so.0", "libdwarf.so")
-    loader.loadAndCreateLink("libprotobuf.so.32", "libprotobuf.so")
     loader.loadAndCreateLink("libre2.so.9", "libre2.so")
     loader.loadAndCreateLink("libsodium.so.23", "libsodium.so")
     loader.loadAndCreateLink("libgeos.so.3.10.7", "libgeos.so")

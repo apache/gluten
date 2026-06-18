@@ -17,7 +17,7 @@
 package org.apache.gluten.execution.compatibility
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{ParquetSuite, ProjectExecTransformer}
+import org.apache.gluten.execution.{FileSourceScanExecTransformerBase, ParquetSuite, ProjectExecTransformer}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
@@ -72,7 +72,7 @@ class GlutenClickhouseFunctionSuite extends ParquetSuite {
     }
   }
 
-  test("https://github.com/apache/incubator-gluten/issues/6938") {
+  test("https://github.com/apache/gluten/issues/6938") {
     val testSQL =
       s"""
          |select * from (
@@ -372,7 +372,7 @@ class GlutenClickhouseFunctionSuite extends ParquetSuite {
     }
   }
 
-  test("GLUTEN-7545: https://github.com/apache/incubator-gluten/issues/7545") {
+  test("GLUTEN-7545: https://github.com/apache/gluten/issues/7545") {
     withTable("regexp_test") {
       sql("create table if not exists regexp_test (id string) using parquet")
       sql("insert into regexp_test values('1999-6-1')")
@@ -528,6 +528,42 @@ class GlutenClickhouseFunctionSuite extends ParquetSuite {
       true,
       { _ => }
     )
+  }
+
+  test("GLUTEN-12075: Add a metric to indicate whether it is Parquet Reader V3") {
+    withTable("test_12075") {
+      sql("create table test_12075(a map<string, int>) using parquet")
+      sql("insert into test_12075 values(map('a', 1, 'b', 2))")
+      compareResultsAgainstVanillaSpark(
+        """
+          |select cast(a as string) from test_12075
+          |""".stripMargin,
+        true,
+        {
+          df =>
+            getExecutedPlan(df).map {
+              case plan if plan.isInstanceOf[FileSourceScanExecTransformerBase] =>
+                // Using the old Parquet Reader
+                assert(plan.metrics("isParquetReaderV3").value == 0)
+              case _ => // do nothing
+            }
+        }
+      )
+    }
+
+    runQueryAndCompare(
+      """
+        |SELECT * FROM lineitem
+        |WHERE l_orderkey in (1, 2, l_partkey, l_suppkey, l_linenumber)
+        |""".stripMargin
+    )(
+      df =>
+        getExecutedPlan(df).map {
+          case plan if plan.isInstanceOf[FileSourceScanExecTransformerBase] =>
+            // Using the Parquet Reader V3
+            assert(plan.metrics("isParquetReaderV3").value > 0)
+          case _ => // do nothing
+        })
   }
 
 }

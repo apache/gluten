@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.catalyst.expressions.aggregate
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenTestsTrait
 
-class GlutenCountMinSketchAggSuite extends CountMinSketchAggSuite with GlutenTestsCommonTrait {}
+class GlutenCountMinSketchAggSuite extends CountMinSketchAggSuite with GlutenTestsTrait {}

@@ -197,6 +197,18 @@ message ReadRel {
         repeated DeleteFile delete_files = 3;
       }
 
+      message DeltaReadOptions {
+        enum RowIndexFilterType {
+          KEEP_ALL = 0;
+          IF_CONTAINED = 1;
+          IF_NOT_CONTAINED = 2;
+        }
+        RowIndexFilterType row_index_filter_type = 1;
+        bool has_deletion_vector = 2;
+        uint64 deletion_vector_cardinality = 3;
+        bytes serialized_deletion_vector = 4;
+      }
+
       // File reading options
       oneof file_format {
         ParquetReadOptions parquet = 9;
@@ -207,6 +219,7 @@ message ReadRel {
         TextReadOptions text = 14;
         JsonReadOptions json = 15;
         IcebergReadOptions iceberg = 16;
+        DeltaReadOptions delta = 22;
       }
 
       message partitionColumn {

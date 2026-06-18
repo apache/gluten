@@ -147,6 +147,8 @@ class VeloxIteratorApi extends IteratorApi with Logging {
   private def getPartitionColumns(
       schema: StructType,
       partitionedFiles: Seq[PartitionedFile]): Seq[Map[String, String]] = {
+    val dateFormatter = DateFormatter()
+    val timestampFormatter = TimestampFormatter.getFractionFormatter(ZoneOffset.UTC)
     partitionedFiles.map {
       partitionedFile =>
         val partitionColumn = mutable.Map[String, String]()
@@ -159,13 +161,13 @@ class VeloxIteratorApi extends IteratorApi with Logging {
               case _: BinaryType =>
                 new String(pv.asInstanceOf[Array[Byte]], StandardCharsets.UTF_8)
               case _: DateType =>
-                DateFormatter.apply().format(pv.asInstanceOf[Integer])
+                dateFormatter.format(pv.asInstanceOf[Integer])
               case _: DecimalType =>
-                pv.asInstanceOf[Decimal].toJavaBigDecimal.unscaledValue().toString
+                pv.asInstanceOf[Decimal].toJavaBigDecimal.toPlainString
               case _: TimestampType =>
-                TimestampFormatter
-                  .getFractionFormatter(ZoneOffset.UTC)
-                  .format(pv.asInstanceOf[java.lang.Long])
+                timestampFormatter.format(pv.asInstanceOf[java.lang.Long])
+              case other if other.typeName == "timestamp_ntz" =>
+                timestampFormatter.format(pv.asInstanceOf[java.lang.Long])
               case _ => pv.toString
             }
           }
@@ -247,8 +249,13 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       updateNativeMetrics: IMetrics => Unit,
       partitionIndex: Int,
       materializeInput: Boolean,
-      enableCudf: Boolean = false): Iterator[ColumnarBatch] = {
-    val extraConf = Map(GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> enableCudf.toString).asJava
+      enableCudf: Boolean = false,
+      supportsValueStreamDynamicFilter: Boolean = true): Iterator[ColumnarBatch] = {
+    val extraConfMap = mutable.Map(GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> enableCudf.toString)
+    if (!supportsValueStreamDynamicFilter) {
+      extraConfMap(VeloxConfig.VALUE_STREAM_DYNAMIC_FILTER_ENABLED.key) = "false"
+    }
+    val extraConf = extraConfMap.asJava
     val transKernel = NativePlanEvaluator.create(BackendsApiManager.getBackendName, extraConf)
     val columnarNativeIterator =
       inputIterators.map {

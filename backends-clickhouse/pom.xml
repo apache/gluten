@@ -29,7 +29,7 @@
 
   <properties>
     <surefire.skipTests>true</surefire.skipTests>
-    <iceberg.flinkConnector.version>1.16.2</iceberg.flinkConnector.version>
+    <iceberg.flinkConnector.version>1.20.4</iceberg.flinkConnector.version>
     <iceberg.flinkConnector.subversion>1.16</iceberg.flinkConnector.subversion>
   </properties>
 

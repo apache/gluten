@@ -10,7 +10,7 @@ Object stores offered by CSPs such as GCS are important for users of Gluten to s
 
 ## Installing the gcloud CLI
 
-To access GCS Objects using Gluten and Velox, first you have to [download an install the gcloud CLI] (https://cloud.google.com/sdk/docs/install).
+To access GCS Objects using Gluten and Velox, first you have to [download and install the gcloud CLI](https://cloud.google.com/sdk/docs/install).
 
 
 ## Configuring GCS using a user account
@@ -22,7 +22,7 @@ After these steps, no specific configuration is required for Gluten, since the a
 ## Configuring GCS using a credential file
 
 For workloads that need to be fully automated, manually authorizing can be problematic. For such cases it is better to use a json file with the credentials.
-This is described in the [instructions to configure a service account]https://cloud.google.com/sdk/docs/authorizing#service-account.
+This is described in the [instructions to configure a service account](https://cloud.google.com/sdk/docs/authorizing#service-account).
 
 Such json file with the credentials can be passed to Gluten:
 

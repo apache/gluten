@@ -39,7 +39,7 @@ const std::vector<std::string> FileNameGenerator::SUPPORT_PLACEHOLDERS{"{id}", "
 
 /// For Nullable(Map(K, V)) or Nullable(Array(T)), if the i-th row is null, we must make sure its nested data is empty.
 /// It is for ORC/Parquet writing compatiability. For more details, refer to
-/// https://github.com/apache/incubator-gluten/issues/8022 and https://github.com/apache/incubator-gluten/issues/8021
+/// https://github.com/apache/gluten/issues/8022 and https://github.com/apache/gluten/issues/8021
 static ColumnPtr truncateNestedDataIfNull(const ColumnPtr & column)
 {
     if (const auto * col_const = checkAndGetColumn<ColumnConst>(column.get()))
@@ -166,7 +166,7 @@ DB::Block NormalFileWriter::castBlock(const DB::Block & block) const
 
     /// In case input block didn't have the same types as the preferred schema, we cast the input block to the preferred schema.
     /// Notice that preferred_schema is the actual file schema, which is also the data schema of current inserted table.
-    /// Refer to issue: https://github.com/apache/incubator-gluten/issues/6588
+    /// Refer to issue: https://github.com/apache/gluten/issues/6588
     size_t index = 0;
     const auto & preferred_schema = file->getPreferredSchema();
     for (auto & column : res)

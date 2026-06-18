@@ -27,7 +27,7 @@ import org.apache.gluten.extension.columnar.rewrite._
 import org.apache.gluten.extension.columnar.transition.{InsertTransitions, RemoveTransitions}
 import org.apache.gluten.extension.columnar.validator.{Validator, Validators}
 import org.apache.gluten.extension.injector.{Injector, SparkInjector}
-import org.apache.gluten.extension.injector.GlutenInjector.{LegacyInjector, RasInjector}
+import org.apache.gluten.extension.injector.GlutenInjector.LegacyInjector
 import org.apache.gluten.parser.{GlutenCacheFilesSqlParser, GlutenClickhouseSqlParser}
 import org.apache.gluten.sql.shims.SparkShimLoader
 
@@ -46,7 +46,6 @@ class CHRuleApi extends RuleApi {
   override def injectRules(injector: Injector): Unit = {
     injectSpark(injector.spark)
     injectLegacy(injector.gluten.legacy)
-    injectRas(injector.gluten.ras)
   }
 }
 
@@ -54,7 +53,7 @@ object CHRuleApi {
 
   /**
    * Registers Spark rules or extensions, except for Gluten's columnar rules that are supposed to be
-   * injected through [[injectLegacy]] / [[injectRas]].
+   * injected through [[injectLegacy]].
    */
   private def injectSpark(injector: SparkInjector): Unit = {
     // Inject the regular Spark rules directly.
@@ -121,7 +120,7 @@ object CHRuleApi {
     injector.injectPostTransform(_ => PushDownFilterToScan)
     injector.injectPostTransform(_ => PushDownInputFileExpression.PostOffload)
     injector.injectPostTransform(_ => EnsureLocalSortRequirements)
-    injector.injectPostTransform(_ => EliminateLocalSort)
+    injector.injectPostTransform(_ => CHEliminateLocalSort)
     injector.injectPostTransform(_ => CollapseProjectExecTransformer)
     injector.injectPostTransform(c => RewriteSortMergeJoinToHashJoinRule(c.session))
     injector.injectPostTransform(c => PushdownAggregatePreProjectionAheadExpand(c.session))
@@ -131,7 +130,7 @@ object CHRuleApi {
       c =>
         intercept(
           SparkPlanRules.extendedColumnarRule(
-            new GlutenConfig(c.sqlConf).extendedColumnarTransformRules)(c.session)))
+            new CHConfig(c.sqlConf).extendedColumnarTransformRules)(c.session)))
     injector.injectPostTransform(_ => CollectLimitTransformerRule())
     injector.injectPostTransform(_ => CollectTailTransformerRule())
     injector.injectPostTransform(c => InsertTransitions.create(c.outputsColumnar, CHBatchType))
@@ -151,11 +150,12 @@ object CHRuleApi {
       .getExtendedColumnarPostRules()
       .foreach(each => injector.injectPost(c => intercept(each(c.session))))
     injector.injectPost(c => ColumnarCollapseTransformStages(new GlutenConfig(c.sqlConf)))
+    injector.injectPost(_ => GenerateTransformStageId())
     injector.injectPost(
       c =>
         intercept(
-          SparkPlanRules.extendedColumnarRule(
-            new GlutenConfig(c.sqlConf).extendedColumnarPostRules)(c.session)))
+          SparkPlanRules
+            .extendedColumnarRule(new CHConfig(c.sqlConf).extendedColumnarPostRules)(c.session)))
     injector.injectPost(c => GlutenNoopWriterRule.apply(c.session))
 
     // Gluten columnar: Final rules.
@@ -165,23 +165,7 @@ object CHRuleApi {
   }
 
   /**
-   * Registers Gluten's columnar rules. These rules will be executed only when RAS (relational
-   * algebra selector) is enabled by spark.gluten.ras.enabled=true.
-   *
-   * These rules are covered by CI test job spark-test-spark35-ras.
-   */
-  private def injectRas(injector: RasInjector): Unit = {
-    // CH backend doesn't work with RAS at the moment. Inject a rule that aborts any
-    // execution calls.
-    injector.injectPreTransform(
-      _ =>
-        new SparkPlanRules.AbortRule(
-          "Clickhouse backend doesn't yet have RAS support, please try disabling RAS and" +
-            " rerunning the application"))
-  }
-
-  /**
-   * Since https://github.com/apache/incubator-gluten/pull/883.
+   * Since https://github.com/apache/gluten/pull/883.
    *
    * TODO: Remove this since tricky to maintain.
    */

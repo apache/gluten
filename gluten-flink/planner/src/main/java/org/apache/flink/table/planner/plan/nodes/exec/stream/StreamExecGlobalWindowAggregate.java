@@ -301,8 +301,6 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
             planner.getFlinkContext().getClassLoader(),
             grouping,
             InternalTypeInfo.of(inputRowType));
-    // final org.apache.flink.api.common.typeutils.TypeSerializer<Long> windowSerializer =
-    //     org.apache.flink.api.common.typeutils.base.LongSerializer.INSTANCE;
     final OneInputStreamOperator<RowData, RowData> windowOperator =
         new org.apache.gluten.table.runtime.operators.WindowAggOperator<RowData, RowData, Long>(
             new StatefulPlanNode(windowAgg.getId(), windowAgg),

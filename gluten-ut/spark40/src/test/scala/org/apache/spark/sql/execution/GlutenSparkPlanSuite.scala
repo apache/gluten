@@ -16,6 +16,37 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenSQLTestsTrait
+import org.apache.gluten.execution.{ColumnarToRowExecBase => GlutenC2R}
 
-class GlutenSparkPlanSuite extends SparkPlanSuite with GlutenSQLTestsTrait {}
+import org.apache.spark.sql.GlutenSQLTestsTrait
+import org.apache.spark.sql.internal.SQLConf
+
+class GlutenSparkPlanSuite extends SparkPlanSuite with GlutenSQLTestsTrait {
+
+  testGluten(
+    "SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized") {
+    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "parquet") {
+      withTempPath {
+        path =>
+          spark.range(1).write.parquet(path.getAbsolutePath)
+          val df = spark.read.parquet(path.getAbsolutePath)
+          // Gluten replaces ColumnarToRowExec with VeloxColumnarToRowExec
+          val c2r = df.queryExecution.executedPlan
+            .collectFirst { case p: GlutenC2R => p }
+            .orElse(df.queryExecution.executedPlan
+              .collectFirst { case p: ColumnarToRowExec => p })
+            .get
+          try {
+            spark.range(1).foreach {
+              _ =>
+                c2r.canonicalized
+                ()
+            }
+          } catch {
+            case e: Throwable =>
+              fail("ColumnarToRow was not canonicalizable", e)
+          }
+      }
+    }
+  }
+}

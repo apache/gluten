@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenSimpleSQLViewSuite extends SimpleSQLViewSuite with GlutenTestsCommonTrait {}
+class GlutenSimpleSQLViewSuite extends SimpleSQLViewSuite with GlutenSQLTestsTrait {}

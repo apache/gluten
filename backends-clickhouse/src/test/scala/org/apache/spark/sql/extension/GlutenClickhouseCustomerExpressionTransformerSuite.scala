@@ -16,7 +16,7 @@
  */
 package org.apache.spark.sql.extension
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.backendsapi.clickhouse.CHConfig
 import org.apache.gluten.execution.{GlutenClickHouseWholeStageTransformerSuite, ProjectExecTransformer}
 import org.apache.gluten.expression.ExpressionConverter
 
@@ -88,7 +88,7 @@ class GlutenClickhouseCustomerExpressionTransformerSuite
     super.sparkConf
       .set("spark.sql.adaptive.enabled", "false")
       .set(
-        GlutenConfig.EXTENDED_EXPRESSION_TRAN_CONF.key,
+        CHConfig.EXTENDED_EXPRESSION_TRAN_CONF.key,
         "org.apache.spark.sql.extension.CustomerExpressionTransformer")
   }
 

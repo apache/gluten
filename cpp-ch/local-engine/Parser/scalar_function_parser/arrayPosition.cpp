@@ -86,7 +86,7 @@ public:
         DataTypePtr wrap_arr_nullable_type = wrapNullableType(true, ch_function_node->result_type);
 
         const auto * wrap_index_of_node = ActionsDAGUtil::convertNodeType(
-            actions_dag, ch_function_node, wrap_arr_nullable_type, ch_function_node->result_name);
+            actions_dag, ch_function_node, wrap_arr_nullable_type, getContext(), ch_function_node->result_name);
         const auto * null_const_node = addColumnToActionsDAG(actions_dag, wrap_arr_nullable_type, Field{});
         const auto * or_condition_node = toFunctionNode(actions_dag, "or", {arr_is_null_node, val_is_null_node});
 

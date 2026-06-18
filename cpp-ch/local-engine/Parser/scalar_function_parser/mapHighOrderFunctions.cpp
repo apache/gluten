@@ -68,7 +68,7 @@ public:
         auto array_type = checkAndGetDataType<DataTypeMap>(removeNullable(map_type).get())->getNestedType();
         if (map_type->isNullable())
             array_type = std::make_shared<DataTypeNullable>(array_type);
-        const auto * array_node = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, map_node, array_type);
+        const auto * array_node = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, map_node, array_type, getContext());
         const auto * transformed_node = toFunctionNode(actions_dag, "arrayMap", {func_node, array_node});
 
         const ActionsDAG::Node * result_node = nullptr;

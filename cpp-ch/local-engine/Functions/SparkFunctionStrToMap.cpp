@@ -109,7 +109,7 @@ public:
     RegularSplitter(const String & delimiter_) : delimiter(delimiter_)
     {
         if (!delimiter.empty())
-            re = std::make_shared<OptimizedRegularExpression>(DB::Regexps::createRegexp<false, false, false>(delimiter));
+            re = std::make_shared<DB::OptimizedRegularExpression>(DB::Regexps::createRegexp<false, false, false>(delimiter));
     }
 
     void reset(Pos str_begin_, Pos str_end_)
@@ -160,7 +160,7 @@ public:
 private:
     String delimiter;
     DB::Regexps::RegexpPtr re;
-    OptimizedRegularExpression::MatchVec matches;
+    DB::OptimizedRegularExpression::MatchVec matches;
     Pos str_begin;
     Pos str_end;
     Pos str_cursor;
@@ -240,7 +240,7 @@ public:
 
         for (size_t i = 0, n = offsets.size(); i < n; ++i)
         {
-            if (null_map && (*null_map)[n] != 0)
+            if (null_map && (*null_map)[i] != 0)
                 col_map->insertDefault();
             else
             {
@@ -372,7 +372,7 @@ private:
         String pattern = col->getValue<String>();
         if (pattern.empty())
             return false;
-        OptimizedRegularExpression re = DB::Regexps::createRegexp<false, false, false>(pattern);
+        DB::OptimizedRegularExpression re = DB::Regexps::createRegexp<false, false, false>(pattern);
 
         std::string required_substring;
         bool is_trivial;

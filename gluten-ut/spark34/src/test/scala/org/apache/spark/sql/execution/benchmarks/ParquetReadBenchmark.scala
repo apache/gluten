@@ -61,7 +61,7 @@ object ParquetReadBenchmark extends SqlBasedBenchmark {
   def beforeAll(): Unit = {}
 
   override def getSparkSession: SparkSession = {
-    beforeAll();
+    beforeAll()
     val conf = new SparkConf()
       .setAppName("ParquetReadBenchmark")
       .setIfMissing("spark.master", s"local[$thrdNum]")

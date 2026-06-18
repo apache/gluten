@@ -55,6 +55,8 @@ class Payload {
     return numRows_;
   }
 
+  // Marks buffers merged with bit-level row offsets, including null validity
+  // bitmaps and CPU boolean value bitmaps.
   const std::vector<bool>* isValidityBuffer() const {
     return isValidityBuffer_;
   }
@@ -79,7 +81,8 @@ class BlockPayload final : public Payload {
       std::vector<std::shared_ptr<arrow::Buffer>> buffers,
       const std::vector<bool>* isValidityBuffer,
       arrow::MemoryPool* pool,
-      arrow::util::Codec* codec);
+      arrow::util::Codec* codec,
+      const std::vector<int8_t>* bufferTypes = nullptr);
 
   static arrow::Result<std::vector<std::shared_ptr<arrow::Buffer>>> deserialize(
       arrow::io::InputStream* inputStream,
@@ -91,7 +94,8 @@ class BlockPayload final : public Payload {
 
   static int64_t maxCompressedLength(
       const std::vector<std::shared_ptr<arrow::Buffer>>& buffers,
-      arrow::util::Codec* codec);
+      arrow::util::Codec* codec,
+      const std::vector<int8_t>* bufferTypes = nullptr);
 
   arrow::Status serialize(arrow::io::OutputStream* outputStream) override;
 
@@ -121,11 +125,13 @@ class InMemoryPayload final : public Payload {
       const std::vector<bool>* isValidityBuffer,
       const std::shared_ptr<arrow::Schema>& schema,
       std::vector<std::shared_ptr<arrow::Buffer>> buffers,
-      bool hasComplexType = false)
+      bool hasComplexType = false,
+      const std::vector<int8_t>* bufferTypes = nullptr)
       : Payload(Type::kUncompressed, numRows, isValidityBuffer),
         schema_(schema),
         buffers_(std::move(buffers)),
-        hasComplexType_(hasComplexType) {}
+        hasComplexType_(hasComplexType),
+        bufferTypes_(bufferTypes) {}
 
   static arrow::Result<std::unique_ptr<InMemoryPayload>>
   merge(std::unique_ptr<InMemoryPayload> source, std::unique_ptr<InMemoryPayload> append, arrow::MemoryPool* pool);
@@ -155,6 +161,7 @@ class InMemoryPayload final : public Payload {
   std::shared_ptr<arrow::Schema> schema_;
   std::vector<std::shared_ptr<arrow::Buffer>> buffers_;
   bool hasComplexType_;
+  const std::vector<int8_t>* bufferTypes_;
 };
 
 class UncompressedDiskBlockPayload final : public Payload {

@@ -19,15 +19,15 @@
 #include <arrow/io/api.h>
 
 #include "config/GlutenConfig.h"
+#include "memory/GpuBufferColumnarBatch.h"
 #include "shuffle/VeloxGpuShuffleWriter.h"
 #include "shuffle/VeloxHashShuffleWriter.h"
 #include "tests/VeloxShuffleWriterTestBase.h"
 #include "tests/utils/TestAllocationListener.h"
 #include "tests/utils/TestStreamReader.h"
 #include "tests/utils/TestUtils.h"
-#include "utils/VeloxArrowUtils.h"
-#include "memory/GpuBufferColumnarBatch.h"
 #include "utils/GpuBufferBatchResizer.h"
+#include "utils/VeloxArrowUtils.h"
 
 #include "velox/experimental/cudf/CudfNoDefaults.h"
 #include "velox/experimental/cudf/exec/VeloxCudfInterop.h"
@@ -116,6 +116,7 @@ RowVectorPtr mergeBufferColumnarBatches(std::vector<std::shared_ptr<GpuBufferCol
       getDefaultMemoryManager()->defaultArrowMemoryPool(),
       getDefaultMemoryManager()->getLeafMemoryPool().get(),
       1200, // output one batch
+      102400000, // prefetch up to 100MB data
       std::make_unique<ColumnarBatchArray>(bufferBatches));
   auto cb = resizer.next();
   auto batch = std::dynamic_pointer_cast<VeloxColumnarBatch>(cb);
@@ -147,22 +148,20 @@ std::vector<GpuShuffleTestParams> getTestParams() {
     for (const auto compressionThreshold : compressionThresholds) {
       // Local.
       for (const auto mergeBufferSize : mergeBufferSizes) {
-        params.push_back(
-            GpuShuffleTestParams{
-                .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
-                .partitionWriterType = PartitionWriterType::kLocal,
-                .compressionType = compression,
-                .compressionThreshold = compressionThreshold,
-                .mergeBufferSize = mergeBufferSize});
+        params.push_back(GpuShuffleTestParams{
+            .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+            .partitionWriterType = PartitionWriterType::kLocal,
+            .compressionType = compression,
+            .compressionThreshold = compressionThreshold,
+            .mergeBufferSize = mergeBufferSize});
       }
 
       // Rss.
-      params.push_back(
-          GpuShuffleTestParams{
-              .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
-              .partitionWriterType = PartitionWriterType::kRss,
-              .compressionType = compression,
-              .compressionThreshold = compressionThreshold});
+      params.push_back(GpuShuffleTestParams{
+          .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+          .partitionWriterType = PartitionWriterType::kRss,
+          .compressionType = compression,
+          .compressionThreshold = compressionThreshold});
     }
   }
 
@@ -321,7 +320,6 @@ class GpuVeloxShuffleWriterTest : public ::testing::TestWithParam<GpuShuffleTest
       VELOX_CHECK_NOT_NULL(cb);
       bufferBatches.emplace_back(cb);
     }
-
   }
 
   void shuffleWriteReadMultiBlocks(
@@ -363,7 +361,6 @@ class GpuVeloxShuffleWriterTest : public ::testing::TestWithParam<GpuShuffleTest
         facebook::velox::test::assertEqualVectors(expectedVector, deserializedVector);
       }
     }
-
   }
 
   void testShuffleRoundTrip(
@@ -497,7 +494,12 @@ TEST_P(GpuHashPartitioningShuffleWriterTest, hashPart1Vector) {
         makeFlatVector<int32_t>({232, 34567235, 1212, 4567}),
         makeFlatVector<int32_t>(
             4, [](vector_size_t row) { return row % 2; }, nullEvery(5), DATE()),
-        makeFlatVector<Timestamp>(4, [](vector_size_t row) { return Timestamp{row % 2, 0}; }, nullEvery(5))};
+        makeFlatVector<Timestamp>(
+            4,
+            [](vector_size_t row) {
+              return Timestamp{row % 2, 0};
+            },
+            nullEvery(5))};
 
     const auto vector = makeRowVector(data);
 

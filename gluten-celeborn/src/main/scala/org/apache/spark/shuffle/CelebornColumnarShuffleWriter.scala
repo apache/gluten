@@ -23,6 +23,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config.SHUFFLE_COMPRESS
 import org.apache.spark.scheduler.MapStatus
 import org.apache.spark.shuffle.celeborn.CelebornShuffleHandle
+import org.apache.spark.shuffle.gluten.celeborn.CelebornUtils
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.storage.BlockManager
 
@@ -150,15 +151,27 @@ abstract class CelebornColumnarShuffleWriter[K, V](
 
   def pushMergedDataToCeleborn(): Unit = {
     val pushMergedDataTime = System.nanoTime
-    client.prepareForMergeData(shuffleId, mapId, context.attemptNumber())
+    CelebornUtils.prepareForMergeData(client, shuffleId, mapId, context.attemptNumber())
     client.pushMergedData(shuffleId, mapId, context.attemptNumber)
-    client.mapperEnd(shuffleId, mapId, context.attemptNumber, numMappers)
+    CelebornUtils.mapperEnd(
+      client,
+      shuffleId,
+      mapId,
+      context.attemptNumber,
+      numMappers,
+      numPartitions)
     writeMetrics.incWriteTime(System.nanoTime - pushMergedDataTime)
   }
 
   def handleEmptyIterator(): Unit = {
     partitionLengths = new Array[Long](dep.partitioner.numPartitions)
-    client.mapperEnd(shuffleId, mapId, context.attemptNumber, numMappers)
+    CelebornUtils.mapperEnd(
+      client,
+      shuffleId,
+      mapId,
+      context.attemptNumber,
+      numMappers,
+      numPartitions)
     mapStatus = MapStatus(blockManager.shuffleServerId, partitionLengths, mapId)
   }
 }

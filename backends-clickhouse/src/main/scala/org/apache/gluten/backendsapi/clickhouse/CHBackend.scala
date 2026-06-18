@@ -54,6 +54,7 @@ class CHBackend extends SubstraitBackend {
   override def name(): String = CHConfig.BACKEND_NAME
   override def info(): Map[String, String] = {
     Map(
+      "ch_org" -> CH_ORG,
       "ch_branch" -> CH_BRANCH,
       "ch_revision" -> CH_COMMIT
     )
@@ -361,8 +362,6 @@ object CHBackendSettings extends BackendSettingsApi with Logging {
   override def supportStructType(): Boolean = true
 
   override def structFieldToLowerCase(): Boolean = false
-
-  override def supportExpandExec(): Boolean = true
 
   override def excludeScanExecFromCollapsedStage(): Boolean =
     SQLConf.get

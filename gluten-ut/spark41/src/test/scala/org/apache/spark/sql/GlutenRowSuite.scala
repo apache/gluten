@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenRowSuite extends RowSuite with GlutenTestsCommonTrait {}
+class GlutenRowSuite extends RowSuite with GlutenSQLTestsBaseTrait {}

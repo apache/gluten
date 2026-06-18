@@ -22,6 +22,9 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.expressions.Alias
 import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildRight}
 
+import org.scalatest.DoNotDiscover
+
+@DoNotDiscover
 class GlutenClickHouseTPCHNullableSuite extends NullableMergeTreeSuite {
 
   /** Run Gluten + ClickHouse Backend with SortShuffleManager */

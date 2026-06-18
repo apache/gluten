@@ -1,0 +1,205 @@
+== Physical Plan ==
+VeloxColumnarToRow (25)
++- ^ SortExecTransformer (23)
+   +- ^ InputIteratorTransformer (22)
+      +- ColumnarExchange (20)
+         +- VeloxResizeBatches (19)
+            +- ^ RegularHashAggregateExecTransformer (17)
+               +- ^ InputIteratorTransformer (16)
+                  +- ColumnarExchange (14)
+                     +- VeloxResizeBatches (13)
+                        +- ^ ProjectExecTransformer (11)
+                           +- ^ FlushableHashAggregateExecTransformer (10)
+                              +- ^ ProjectExecTransformer (9)
+                                 +- ^ BroadcastHashJoinExecTransformer LeftAnti BuildRight (8)
+                                    :- ^ FilterExecTransformer (2)
+                                    :  +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.customer (1)
+                                    +- ^ InputIteratorTransformer (7)
+                                       +- ColumnarBroadcastExchange (5)
+                                          +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.orders (3)
+
+
+(1) FileSourceScanExecTransformer parquet spark_catalog.default.customer
+Output [3]: [c_custkey#1, c_phone#2, c_acctbal#3]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/customer]
+PushedFilters: [IsNotNull(c_acctbal)]
+ReadSchema: struct<c_custkey:bigint,c_phone:string,c_acctbal:decimal(10,0)>
+
+(2) FilterExecTransformer
+Input [3]: [c_custkey#1, c_phone#2, c_acctbal#3]
+Arguments: ((isnotnull(c_acctbal#3) AND substring(c_phone#2, 1, 2) IN (13,31,23,29,30,18,17)) AND (cast(c_acctbal#3 as decimal(14,4)) > ReusedSubquery Subquery scalar-subquery#4, [id=#1]))
+
+(3) FileSourceScanExecTransformer parquet spark_catalog.default.orders
+Output [1]: [o_custkey#5]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/orders]
+ReadSchema: struct<o_custkey:bigint>
+
+(4) WholeStageCodegenTransformer (5)
+Input [1]: [o_custkey#5]
+Arguments: false
+
+(5) ColumnarBroadcastExchange
+Input [1]: [o_custkey#5]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, true]),false), [plan_id=2]
+
+(6) InputAdapter
+Input [1]: [o_custkey#5]
+
+(7) InputIteratorTransformer
+Input [1]: [o_custkey#5]
+
+(8) BroadcastHashJoinExecTransformer
+Left keys [1]: [c_custkey#1]
+Right keys [1]: [o_custkey#5]
+Join type: LeftAnti
+Join condition: None
+
+(9) ProjectExecTransformer
+Output [2]: [substring(c_phone#2, 1, 2) AS cntrycode#6, c_acctbal#3]
+Input [3]: [c_custkey#1, c_phone#2, c_acctbal#3]
+
+(10) FlushableHashAggregateExecTransformer
+Input [2]: [cntrycode#6, c_acctbal#3]
+Keys [1]: [cntrycode#6]
+Functions [2]: [partial_count(1), partial_sum(c_acctbal#3)]
+Aggregate Attributes [3]: [count#7, sum#8, isEmpty#9]
+Results [4]: [cntrycode#6, count#10, sum#11, isEmpty#12]
+
+(11) ProjectExecTransformer
+Output [5]: [hash(cntrycode#6, 42) AS hash_partition_key#13, cntrycode#6, count#10, sum#11, isEmpty#12]
+Input [4]: [cntrycode#6, count#10, sum#11, isEmpty#12]
+
+(12) WholeStageCodegenTransformer (6)
+Input [5]: [hash_partition_key#13, cntrycode#6, count#10, sum#11, isEmpty#12]
+Arguments: false
+
+(13) VeloxResizeBatches
+Input [5]: [hash_partition_key#13, cntrycode#6, count#10, sum#11, isEmpty#12]
+Arguments: 1024, 2147483647, 10485760
+
+(14) ColumnarExchange
+Input [5]: [hash_partition_key#13, cntrycode#6, count#10, sum#11, isEmpty#12]
+Arguments: hashpartitioning(cntrycode#6, 1), ENSURE_REQUIREMENTS, [cntrycode#6, count#10, sum#11, isEmpty#12], [plan_id=3], [shuffle_writer_type=hash]
+
+(15) InputAdapter
+Input [4]: [cntrycode#6, count#10, sum#11, isEmpty#12]
+
+(16) InputIteratorTransformer
+Input [4]: [cntrycode#6, count#10, sum#11, isEmpty#12]
+
+(17) RegularHashAggregateExecTransformer
+Input [4]: [cntrycode#6, count#10, sum#11, isEmpty#12]
+Keys [1]: [cntrycode#6]
+Functions [2]: [count(1), sum(c_acctbal#3)]
+Aggregate Attributes [2]: [count(1)#14, sum(c_acctbal#3)#15]
+Results [3]: [cntrycode#6, count(1)#14 AS numcust#16, sum(c_acctbal#3)#15 AS totacctbal#17]
+
+(18) WholeStageCodegenTransformer (7)
+Input [3]: [cntrycode#6, numcust#16, totacctbal#17]
+Arguments: false
+
+(19) VeloxResizeBatches
+Input [3]: [cntrycode#6, numcust#16, totacctbal#17]
+Arguments: 1024, 2147483647, 10485760
+
+(20) ColumnarExchange
+Input [3]: [cntrycode#6, numcust#16, totacctbal#17]
+Arguments: rangepartitioning(cntrycode#6 ASC NULLS FIRST, 1), ENSURE_REQUIREMENTS, [plan_id=4], [shuffle_writer_type=hash]
+
+(21) InputAdapter
+Input [3]: [cntrycode#6, numcust#16, totacctbal#17]
+
+(22) InputIteratorTransformer
+Input [3]: [cntrycode#6, numcust#16, totacctbal#17]
+
+(23) SortExecTransformer
+Input [3]: [cntrycode#6, numcust#16, totacctbal#17]
+Arguments: [cntrycode#6 ASC NULLS FIRST], true, 0
+
+(24) WholeStageCodegenTransformer (8)
+Input [3]: [cntrycode#6, numcust#16, totacctbal#17]
+Arguments: false
+
+(25) VeloxColumnarToRow
+Input [3]: [cntrycode#6, numcust#16, totacctbal#17]
+
+===== Subqueries =====
+
+Subquery:1 Hosting operator id = 2 Hosting Expression = ReusedSubquery Subquery scalar-subquery#4, [id=#1]
+
+Subquery:2 Hosting operator id = 1 Hosting Expression = Subquery scalar-subquery#4, [id=#1]
+VeloxColumnarToRow (38)
++- ^ ProjectExecTransformer (36)
+   +- ^ RegularHashAggregateExecTransformer (35)
+      +- ^ InputIteratorTransformer (34)
+         +- ColumnarExchange (32)
+            +- VeloxResizeBatches (31)
+               +- ^ FlushableHashAggregateExecTransformer (29)
+                  +- ^ ProjectExecTransformer (28)
+                     +- ^ FilterExecTransformer (27)
+                        +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.customer (26)
+
+
+(26) FileSourceScanExecTransformer parquet spark_catalog.default.customer
+Output [2]: [c_phone#18, c_acctbal#19]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/customer]
+PushedFilters: [IsNotNull(c_acctbal), GreaterThan(c_acctbal,0)]
+ReadSchema: struct<c_phone:string,c_acctbal:decimal(10,0)>
+
+(27) FilterExecTransformer
+Input [2]: [c_phone#18, c_acctbal#19]
+Arguments: ((isnotnull(c_acctbal#19) AND (c_acctbal#19 > 0)) AND substring(c_phone#18, 1, 2) IN (13,31,23,29,30,18,17))
+
+(28) ProjectExecTransformer
+Output [1]: [UnscaledValue(c_acctbal#19) AS _pre_1#20]
+Input [2]: [c_phone#18, c_acctbal#19]
+
+(29) FlushableHashAggregateExecTransformer
+Input [1]: [_pre_1#20]
+Keys: []
+Functions [1]: [partial_avg(_pre_1#20)]
+Aggregate Attributes [2]: [sum#21, count#22]
+Results [2]: [sum#23, count#24]
+
+(30) WholeStageCodegenTransformer (3)
+Input [2]: [sum#23, count#24]
+Arguments: false
+
+(31) VeloxResizeBatches
+Input [2]: [sum#23, count#24]
+Arguments: 1024, 2147483647, 10485760
+
+(32) ColumnarExchange
+Input [2]: [sum#23, count#24]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=5], [shuffle_writer_type=hash]
+
+(33) InputAdapter
+Input [2]: [sum#23, count#24]
+
+(34) InputIteratorTransformer
+Input [2]: [sum#23, count#24]
+
+(35) RegularHashAggregateExecTransformer
+Input [2]: [sum#23, count#24]
+Keys: []
+Functions [1]: [avg(UnscaledValue(c_acctbal#19))]
+Aggregate Attributes [1]: [avg(UnscaledValue(c_acctbal#19))#25]
+Results [1]: [avg(UnscaledValue(c_acctbal#19))#25]
+
+(36) ProjectExecTransformer
+Output [1]: [cast((avg(UnscaledValue(c_acctbal#19))#25 / 1.0) as decimal(14,4)) AS avg(c_acctbal)#26]
+Input [1]: [avg(UnscaledValue(c_acctbal#19))#25]
+
+(37) WholeStageCodegenTransformer (4)
+Input [1]: [avg(c_acctbal)#26]
+Arguments: false
+
+(38) VeloxColumnarToRow
+Input [1]: [avg(c_acctbal)#26]
+
+Subquery:3 Hosting operator id = 1 Hosting Expression = ReusedSubquery Subquery scalar-subquery#4, [id=#1]
+
+

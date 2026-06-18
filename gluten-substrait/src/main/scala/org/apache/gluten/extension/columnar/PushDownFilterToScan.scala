@@ -36,6 +36,7 @@ object PushDownFilterToScan extends Rule[SparkPlan] with PredicateHelper {
               scan) && scan.supportPushDownFilters =>
           val newScan = scan.withNewPushdownFilters(splitConjunctivePredicates(filter.cond))
           if (newScan.doValidate().ok()) {
+            newScan.copyTagsFrom(scan)
             filter.withNewChildren(Seq(newScan))
           } else {
             filter

@@ -30,7 +30,8 @@ public class IcebergLocalFilesBuilder {
       List<Map<String, String>> partitionColumns,
       LocalFilesNode.ReadFileFormat fileFormat,
       List<String> preferredLocations,
-      List<List<DeleteFile>> deleteFilesList) {
+      List<List<DeleteFile>> deleteFilesList,
+      List<Map<String, String>> metadataColumns) {
     return new IcebergLocalFilesNode(
         index,
         paths,
@@ -39,6 +40,7 @@ public class IcebergLocalFilesBuilder {
         partitionColumns,
         fileFormat,
         preferredLocations,
-        deleteFilesList);
+        deleteFilesList,
+        metadataColumns);
   }
 }

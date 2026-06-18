@@ -16,11 +16,11 @@
  */
 
 #include "GpuLock.h"
-#include <mutex>
+#include <glog/logging.h>
 #include <condition_variable>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
-#include <glog/logging.h>
 
 namespace gluten {
 
@@ -35,45 +35,54 @@ GpuLockState& getGpuLockState() {
   static GpuLockState gGpuLockState;
   return gGpuLockState;
 }
-}
+} // namespace
 
 void lockGpu() {
-    std::thread::id tid = std::this_thread::get_id();
-    std::unique_lock<std::mutex> lock(getGpuLockState().gGpuMutex);
-    if (getGpuLockState().gGpuOwner == tid) {
-        // Reentrant call from the same thread — do nothing
-        return;
-    }
+  std::thread::id tid = std::this_thread::get_id();
+  std::unique_lock<std::mutex> lock(getGpuLockState().gGpuMutex);
+  if (getGpuLockState().gGpuOwner == tid) {
+    // Reentrant call from the same thread — do nothing
+    return;
+  }
 
+  // Wait until the GPU lock becomes available
+  getGpuLockState().gGpuCv.wait(lock, [] { return !getGpuLockState().gGpuOwner.has_value(); });
 
-    // Wait until the GPU lock becomes available
-    getGpuLockState().gGpuCv.wait(lock, [] {
-        return !getGpuLockState().gGpuOwner.has_value();
-    });
+  // Acquire ownership
+  getGpuLockState().gGpuOwner = tid;
+}
 
-    // Acquire ownership
-    getGpuLockState().gGpuOwner = tid;
+bool tryLockGpu() {
+  std::thread::id tid = std::this_thread::get_id();
+  std::unique_lock<std::mutex> lock(getGpuLockState().gGpuMutex);
+  if (getGpuLockState().gGpuOwner == tid) {
+    return true;
+  }
+  if (getGpuLockState().gGpuOwner.has_value()) {
+    return false;
+  }
+  getGpuLockState().gGpuOwner = tid;
+  return true;
 }
 
 void unlockGpu() {
-    std::thread::id tid = std::this_thread::get_id();
-    std::unique_lock<std::mutex> lock(getGpuLockState().gGpuMutex);
-    if (!getGpuLockState().gGpuOwner.has_value()) {
-        LOG(INFO) <<"unlockGpu() called by non-owner thread!"<< std::endl;
-        return;
-    }
+  std::thread::id tid = std::this_thread::get_id();
+  std::unique_lock<std::mutex> lock(getGpuLockState().gGpuMutex);
+  if (!getGpuLockState().gGpuOwner.has_value()) {
+    LOG(INFO) << "unlockGpu() called when no thread holds the lock!";
+    return;
+  }
 
-    if (!getGpuLockState().gGpuOwner.has_value() || getGpuLockState().gGpuOwner != tid) {
-        throw std::runtime_error("unlockGpu() called by other-owner thread!");
-    }
+  if (getGpuLockState().gGpuOwner != tid) {
+    throw std::runtime_error("unlockGpu() called by other thread!");
+  }
 
-    // Release ownership
-    getGpuLockState().gGpuOwner = std::nullopt;
+  // Release ownership
+  getGpuLockState().gGpuOwner = std::nullopt;
 
-    // Notify one waiting thread
-    lock.unlock();
-    getGpuLockState().gGpuCv.notify_one();
+  // Notify one waiting thread
+  lock.unlock();
+  getGpuLockState().gGpuCv.notify_one();
 }
-
 
 } // namespace gluten

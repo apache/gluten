@@ -24,7 +24,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, RaiseError, UnBase64}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryArithmetic, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, RaiseError, UnBase64}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -41,7 +41,7 @@ import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.window.WindowGroupLimitExecShim
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DecimalType, StructType}
+import org.apache.spark.sql.types.{DecimalType, StringType, StructType}
 import org.apache.spark.util.SparkShimVersionUtil
 
 import org.apache.hadoop.fs.{FileStatus, Path}
@@ -212,6 +212,8 @@ trait SparkShims {
 
   def withAnsiEvalMode(expr: Expression): Boolean = false
 
+  def isNullIntolerant(expr: Expression): Boolean
+
   def createParquetFilters(
       conf: SQLConf,
       schema: MessageType,
@@ -237,6 +239,8 @@ trait SparkShims {
 
   def isParquetFileEncrypted(footer: ParquetMetadata): Boolean
 
+  def shouldFallbackForParquetVariantAnnotation(footer: ParquetMetadata): Boolean = false
+
   def getOtherConstantMetadataColumnValues(file: PartitionedFile): JMap[String, Object] =
     Map.empty[String, Any].asJava.asInstanceOf[JMap[String, Object]]
 
@@ -245,6 +249,12 @@ trait SparkShims {
   def unBase64FunctionFailsOnError(unBase64: UnBase64): Boolean = false
 
   def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType
+
+  // Spark 4.1+ (SPARK-53968) embeds allowDecimalPrecisionLoss in each arithmetic expression's
+  // evalContext at analysis time. Spark41Shims overrides this to read from the expression.
+  // All earlier versions have no evalContext field, so reading SQLConf.get here is correct.
+  def decimalAllowPrecisionLoss(expr: BinaryArithmetic): Boolean =
+    SQLConf.get.decimalOperationsAllowPrecisionLoss
 
   def getRewriteCreateTableAsSelect(session: SparkSession): SparkStrategy = _ => Seq.empty
 
@@ -288,4 +298,19 @@ trait SparkShims {
    * similar to LeftOuter. Default implementation returns false for Spark 3.x compatibility.
    */
   def isLeftSingleJoinType(joinType: JoinType): Boolean = false
+
+  /**
+   * Returns true iff the given StringType uses the UTF8_BINARY collation (id == 0).
+   *
+   * Spark 4.0 introduced collation-aware StringType. Bound computation in gluten cached batch
+   * partition-stats uses unsigned byte order, which only matches Spark's predicate semantics for
+   * UTF8_BINARY. Non-binary collations must be gated out of the dispatch fast path;
+   * deserializeStats fills a sentinel bound so vanilla
+   * SimpleMetricsCachedBatchSerializer.buildFilter pass-throughs them.
+   *
+   * Default returns true (Spark 3.x has no collation concept; all StringType is binary). Any future
+   * Spark 4.0+ shim MUST override and consult collationId, otherwise the binary-only invariant
+   * degrades silently to "accept any collation".
+   */
+  def isBinaryCollationString(dt: StringType): Boolean = true
 }

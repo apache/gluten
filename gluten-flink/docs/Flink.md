@@ -48,7 +48,7 @@ As some features have not been committed to upstream, you have to use the follow
 ## fetch velox4j code
 git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
 cd velox4j
-git reset --hard 889bafcf2fa04e8c31a30edbdf40fe203ef58484
+git reset --hard 115edf79d265a61c30d45dfcc6ce932ad92378ca
 mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
 ```
 **Get gluten**
@@ -57,7 +57,7 @@ mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
 ## config maven, like proxy in ~/.m2/settings.xml
 
 ## fetch gluten code
-git clone https://github.com/apache/incubator-gluten.git
+git clone https://github.com/apache/gluten.git
 ```
 
 # Build Gluten Flink with Velox Backend
@@ -126,7 +126,7 @@ bin/flink run examples/table/StreamSQLExample.jar
 Then you can get the result in `log/flink-*-taskexecutor-*.out`.
 And you can see an operator named `gluten-cal` from the web frontend of your flink job.
 
-**Notice: current this example will cause npe until  [issue-10315](https://github.com/apache/incubator-gluten/issues/10315) get resolved.**
+**Notice: current this example will cause npe until  [issue-10315](https://github.com/apache/gluten/issues/10315) get resolved.**
 
 #### All operators executed by native
 Another example supports all operators executed by native. 

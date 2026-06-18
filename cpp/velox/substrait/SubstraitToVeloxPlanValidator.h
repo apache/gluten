@@ -19,10 +19,13 @@
 
 #include <unordered_map>
 #include "SubstraitToVeloxPlan.h"
+#include "config/VeloxConfig.h"
+#include "operators/plannodes/IteratorSplit.h"
 #include "velox/core/QueryCtx.h"
+#include "velox/functions/sparksql/SparkQueryConfig.h"
 
 using namespace facebook;
-
+using facebook::velox::functions::sparksql::SparkQueryConfig;
 namespace gluten {
 
 /// This class is used to validate whether the computing of
@@ -31,10 +34,17 @@ class SubstraitToVeloxPlanValidator {
  public:
   SubstraitToVeloxPlanValidator(memory::MemoryPool* pool) {
     std::unordered_map<std::string, std::string> configs{
-        {velox::core::QueryConfig::kSparkPartitionId, "0"}, {velox::core::QueryConfig::kSessionTimezone, "GMT"}};
+        {SparkQueryConfig::qualify(SparkQueryConfig::kPartitionId), "0"},
+        {velox::core::QueryConfig::kSessionTimezone, "UTC"}};
     veloxCfg_ = std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
     planConverter_ = std::make_unique<SubstraitToVeloxPlanConverter>(
-        pool, veloxCfg_.get(), std::vector<std::shared_ptr<ResultIterator>>{}, std::nullopt, std::nullopt, true);
+        pool,
+        veloxCfg_.get(),
+        std::vector<std::shared_ptr<ResultIterator>>{},
+        VeloxConnectorIds{.hive = kHiveConnectorId, .iterator = kIteratorConnectorId, .cudfHive = kCudfHiveConnectorId},
+        std::nullopt,
+        std::nullopt,
+        true);
     queryCtx_ = velox::core::QueryCtx::create(nullptr, velox::core::QueryConfig(veloxCfg_->rawConfigs()));
     // An execution context used for function validation.
     execCtx_ = std::make_unique<velox::core::ExecCtx>(pool, queryCtx_.get());

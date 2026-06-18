@@ -58,7 +58,7 @@ abstract class ColumnarCollectTailBaseExec(
       .genColumnarShuffleExchangeMetrics(sparkContext, shuffleWriterType) ++
       readMetrics ++ writeMetrics
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 
   override def output: Seq[Attribute] = child.output
 

@@ -140,6 +140,16 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   }
 
   @Override
+  public GlutenMailboxHolder mailboxHolder() {
+    return mailboxHolder;
+  }
+
+  @Override
+  public void scheduleProcessElementOnMailbox() {
+    scheduleDrainOnMailbox(this::drainTaskOutput);
+  }
+
+  @Override
   public void processElement1(StreamRecord<IN> element) {
     StatefulRecord statefulRecord =
         inputBridge.convertToStatefulRecord(

@@ -17,9 +17,10 @@
 #include "MetaDataHelper.h"
 #include <filesystem>
 #include <Core/Settings.h>
-#include <Disks/ObjectStorages/MetadataStorageFromDisk.h>
+#include <Disks/DiskObjectStorage/MetadataStorages/Local/MetadataStorageFromDisk.h>
 #include <Interpreters/Context.h>
 #include <Storages/MergeTree/MergeSparkMergeTreeTask.h>
+#include <Storages/MergeTree/Compaction/CompactionStatistics.h>
 #include <Poco/StringTokenizer.h>
 #include <Common/QueryContext.h>
 
@@ -119,7 +120,7 @@ void restoreMetaData<ROCKSDB>(
                 return;
             else
                 transaction->createDirectoryRecursive(part_path);
-            auto key = s3->generateObjectKeyForPath(metadata_file_path.generic_string(), std::nullopt);
+            auto key = transaction->generateObjectKeyForPath(metadata_file_path.generic_string());
             StoredObject metadata_object(key.serialize());
             auto read_settings = ReadSettings{};
             read_settings.enable_filesystem_cache = false;
@@ -172,6 +173,8 @@ void restoreMetaData<LOCAL>(
         if (!metadata_disk->existsDirectory(table_path))
             metadata_disk->createDirectories(table_path.generic_string());
 
+        auto transaction = data_disk->getMetadataStorage()->createTransaction();
+
         for (const auto & part : not_exists_part)
         {
             auto job = [&]()
@@ -183,7 +186,8 @@ void restoreMetaData<LOCAL>(
                     return;
                 else
                     metadata_disk->createDirectories(part_path);
-                auto key = s3->generateObjectKeyForPath(metadata_file_path.generic_string(), std::nullopt);
+                // TODO: rebase-25.12, fix later, how to call 'generateObjectKeyForPath'
+                auto key = transaction->generateObjectKeyForPath(metadata_file_path.generic_string());
                 StoredObject metadata_object(key.serialize());
                 auto read_settings = ReadSettings{};
                 read_settings.enable_filesystem_cache = false;
@@ -256,15 +260,19 @@ MergeTreeDataPartPtr mergeParts(
     auto future_part = std::make_shared<DB::FutureMergedMutatedPart>();
     future_part->uuid = UUIDHelpers::generateV4();
 
-    future_part->assign(std::move(selected_parts), /*patch_parts_=*/ {});
+    // TODO: rebase-25.12, how to assign the projection parameter
+    future_part->assign(std::move(selected_parts), /*patch_parts_=*/ {}, nullptr);
     future_part->part_info = MergeListElement::FAKE_RESULT_PART_FOR_PROJECTION;
 
-    //TODO: name
+    // TODO: name
     future_part->name = partition_dir.empty() ? "" : partition_dir + "/";
     if (!bucket_dir.empty())
         future_part->name = future_part->name + bucket_dir + "/";
     future_part->name = future_part->name + new_part_uuid + "-merged";
 
+    // TODO: rebase-25.12, how to generate CurrentlyMergingPartsTagger
+    // uint64_t needed_disk_space = CompactionStatistics::estimateNeededDiskSpace(future_part->parts, true);
+    // auto tagger = std::make_unique<CurrentlyMergingPartsTagger>(future_part, needed_disk_space, NULL, nullptr, false);
     auto entry = std::make_shared<DB::MergeMutateSelectedEntry>(
         future_part, DB::CurrentlyMergingPartsTaggerPtr{}, std::make_shared<DB::MutationCommands>());
 

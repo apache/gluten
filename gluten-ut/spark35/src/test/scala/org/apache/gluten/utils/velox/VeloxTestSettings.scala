@@ -37,9 +37,9 @@ import org.apache.spark.sql.execution.datasources.v2.{GlutenDataSourceV2Strategy
 import org.apache.spark.sql.execution.exchange.GlutenEnsureRequirementsSuite
 import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.execution.python._
-import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenSessionExtensionSuite, TestFileSourceScanExecTransformer}
+import org.apache.spark.sql.extension.{GlutenCollapseProjectExecTransformerSuite, GlutenSessionExtensionSuite}
 import org.apache.spark.sql.gluten.GlutenFallbackSuite
-import org.apache.spark.sql.hive.execution.GlutenHiveSQLQuerySuite
+import org.apache.spark.sql.hive.execution._
 import org.apache.spark.sql.sources._
 
 // Some settings' line length exceeds 100
@@ -85,6 +85,12 @@ class VeloxTestSettings extends BackendTestSettings {
       "INCONSISTENT_BEHAVIOR_CROSS_VERSION: compatibility with Spark 2.4/3.2 in reading/writing dates")
     // Doesn't support unhex with failOnError=true.
     .exclude("CONVERSION_INVALID_INPUT: to_binary conversion function hex")
+    // bitmap_construct_agg offloaded to Velox throws GlutenException instead of
+    // SparkArrayIndexOutOfBoundsException.
+    .exclude("INVALID_BITMAP_POSITION: position out of bounds")
+    .exclude("INVALID_BITMAP_POSITION: negative position")
+    // Different exceptions when reading Timestamp from ORC.
+    .exclude("UNSUPPORTED_FEATURE - SPARK-36346: can't read Timestamp as TimestampNTZ")
   enableSuite[GlutenQueryParsingErrorsSuite]
   enableSuite[GlutenArithmeticExpressionSuite]
     .exclude("SPARK-45786: Decimal multiply, divide, remainder, quot")
@@ -115,10 +121,14 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("data type casting")
     // Revised by setting timezone through config and commented unsupported cases.
     .exclude("cast string to timestamp")
+    // TODO: fix after https://github.com/facebookincubator/velox/pull/14910
+    .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenCollectionExpressionsSuite]
     // Rewrite in Gluten to replace Seq with Array
     .exclude("Shuffle")
     .excludeGlutenTest("Shuffle")
+    // Rewrite
+    .exclude("MapFromEntries")
   enableSuite[GlutenConditionalExpressionSuite]
   enableSuite[GlutenDateExpressionsSuite]
     // Has exception in fallback execution when we use resultDF.collect in evaluation.
@@ -151,10 +161,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHigherOrderFunctionsSuite]
   enableSuite[GlutenIntervalExpressionsSuite]
   enableSuite[GlutenJsonExpressionsSuite]
-    // https://github.com/apache/incubator-gluten/issues/8102
+    // https://github.com/apache/gluten/issues/8102
     .exclude("$.store.book")
-    // https://github.com/apache/incubator-gluten/issues/10948
-    .exclude("$['key with spaces']")
     .exclude("$")
     .exclude("$.store.book[0]")
     .exclude("$.store.book[*]")
@@ -300,6 +308,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Enabling/disabling ignoreCorruptFiles")
     // Schema mismatch, From Kind: BIGINT, To Kind: VARCHAR
     .exclude("SPARK-39830: Reading ORC table that requires type promotion may throw AIOOBE")
+    // Unsupported.
+    .exclude("SPARK-37463: read/write Timestamp ntz to Orc with different time zone")
   enableSuite[GlutenOrcV2QuerySuite]
 // feature not supported
     .exclude("Enabling/disabling ignoreCorruptFiles")
@@ -307,6 +317,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-39830: Reading ORC table that requires type promotion may throw AIOOBE")
     // For exception test.
     .exclude("SPARK-20728 Make ORCFileFormat configurable between sql/hive and sql/core")
+    // Unsupported.
+    .exclude("SPARK-37463: read/write Timestamp ntz to Orc with different time zone")
   enableSuite[GlutenOrcSourceSuite]
     // Rewrite to disable Spark's columnar reader.
     // date result miss match
@@ -411,6 +423,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite because the filter after datasource is not needed.
     .exclude(
       "SPARK-26677: negated null-safe equality comparison should not filter matched row groups")
+    // Velox currently does not distinguish `isAdjustedToUTC` in Parquet.
+    .exclude("SPARK-36182: can't read TimestampLTZ as TimestampNTZ")
   enableSuite[GlutenParquetV2QuerySuite]
     .exclude("row group skipping doesn't overflow when reading into larger type")
     // Unsupport spark.sql.files.ignoreCorruptFiles.
@@ -420,6 +434,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite because the filter after datasource is not needed.
     .exclude(
       "SPARK-26677: negated null-safe equality comparison should not filter matched row groups")
+    // Velox currently does not distinguish `isAdjustedToUTC` in Parquet.
+    .exclude("SPARK-36182: can't read TimestampLTZ as TimestampNTZ")
   enableSuite[GlutenParquetV1SchemaPruningSuite]
   enableSuite[GlutenParquetV2SchemaPruningSuite]
   enableSuite[GlutenParquetRebaseDatetimeV1Suite]
@@ -445,6 +461,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // file:/opt/spark331/sql/core/src/test/resources/test-data/timestamp-nanos.parquet
     // May require for newer spark.test.home
     .excludeByPrefix("SPARK-40819")
+    // Different exceptions between Spark and Velox.
+    .exclude("SPARK-45604: schema mismatch failure error on timestamp_ntz to array<timestamp_ntz>")
   enableSuite[GlutenParquetThriftCompatibilitySuite]
     // Rewrite for file locating.
     .exclude("Read Parquet file generated by parquet-thrift")
@@ -532,7 +550,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("test with low buffer spill threshold")
   enableSuite[GlutenTakeOrderedAndProjectSuite]
   enableSuite[GlutenSessionExtensionSuite]
-  enableSuite[TestFileSourceScanExecTransformer]
   enableSuite[GlutenBucketedReadWithoutHiveSupportSuite]
     // Exclude the following suite for plan changed from SMJ to SHJ.
     .exclude("avoid shuffle when join 2 bucketed tables")
@@ -602,6 +619,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("InMemoryRelation statistics")
     // Extra ColumnarToRow is needed to transform vanilla columnar data to gluten columnar data.
     .exclude("SPARK-37369: Avoid redundant ColumnarToRow transition on InMemoryTableScan")
+    // Rewrite for different cache size.
+    .exclude("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenFileSourceCharVarcharTestSuite]
     .exclude("length check for input string values: nested in array")
     .exclude("length check for input string values: nested in array")
@@ -820,7 +839,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSerializationSuite]
   enableSuite[GlutenFileSourceSQLInsertTestSuite]
   enableSuite[GlutenDSV2SQLInsertTestSuite]
-  enableSuite[GlutenSQLQuerySuite]
+  enableSuite[org.apache.spark.sql.GlutenSQLQuerySuite]
     // Decimal precision exceeds.
     .exclude("should be able to resolve a persistent view")
     // Unstable. Needs to be fixed.
@@ -860,7 +879,38 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("cases when literal is max")
   enableSuite[GlutenXPathFunctionsSuite]
   enableSuite[GlutenFallbackSuite]
+  enableSuite[GlutenHashAggregationQuerySuite]
+    // TODO: fix on https://github.com/apache/gluten/issues/11919
+    .exclude("udaf with all data types")
+  enableSuite[GlutenHashAggregationQueryWithControlledFallbackSuite]
+    // TODO: fix on https://github.com/apache/gluten/issues/11919
+    .exclude("udaf with all data types")
+  enableSuite[GlutenHiveCommandSuite]
+  enableSuite[GlutenHiveDDLSuite]
+  enableSuite[GlutenHiveExplainSuite]
+    .exclude("explain output of physical plan should contain proper codegen stage ID")
+    .exclude("EXPLAIN CODEGEN command")
+  enableSuite[GlutenHivePlanTest]
+  enableSuite[GlutenHiveQuerySuite]
+  enableSuite[GlutenHiveResolutionSuite]
   enableSuite[GlutenHiveSQLQuerySuite]
+  enableSuite[GlutenHiveSQLViewSuite]
+  enableSuite[GlutenHiveScriptTransformationSuite]
+  enableSuite[GlutenHiveSerDeReadWriteSuite]
+  enableSuite[GlutenHiveSerDeSuite]
+  enableSuite[GlutenHiveTableScanSuite]
+  enableSuite[GlutenHiveTypeCoercionSuite]
+  enableSuite[GlutenHiveUDAFSuite]
+  enableSuite[GlutenHiveUDFSuite]
+  enableSuite[GlutenObjectHashAggregateSuite]
+  enableSuite[GlutenPruneHiveTablePartitionsSuite]
+  enableSuite[GlutenPruningSuite]
+  enableSuite[GlutenSQLMetricsSuite]
+  enableSuite[org.apache.spark.sql.hive.execution.GlutenSQLQuerySuite]
+  enableSuite[GlutenHashUDAQuerySuite]
+  enableSuite[GlutenHashUDAQueryWithControlledFallbackSuite]
+  enableSuite[GlutenSQLQuerySuiteAE]
+  enableSuite[GlutenWindowQuerySuite]
   enableSuite[GlutenCollapseProjectExecTransformerSuite]
   enableSuite[GlutenSparkSessionExtensionSuite]
   enableSuite[GlutenGroupBasedDeleteFromTableSuite]
@@ -878,13 +928,17 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenBitmapExpressionsQuerySuite]
   enableSuite[GlutenEmptyInSuite]
   enableSuite[GlutenRuntimeNullChecksV2Writes]
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("NOT NULL checks for atomic top-level fields (byName)")
+    .exclude("NOT NULL checks for atomic top-level fields (byPosition)")
+    .exclude("NOT NULL checks for nested struct fields (byName)")
+    .exclude("NOT NULL checks for nested struct fields (byPosition)")
+    .exclude("NOT NULL checks for nullable array with required element (byPosition)")
+    .exclude("not null checks for fields inside nullable array (byPosition)")
   enableSuite[GlutenTableOptionsConstantFoldingSuite]
   enableSuite[GlutenDeltaBasedMergeIntoTableSuite]
   enableSuite[GlutenDeltaBasedMergeIntoTableUpdateAsDeleteAndInsertSuite]
   enableSuite[GlutenDeltaBasedUpdateAsDeleteAndInsertTableSuite]
-    // FIXME: complex type result mismatch
-    .exclude("update nested struct fields")
-    .exclude("update char/varchar columns")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
   enableSuite[GlutenGroupBasedMergeIntoTableSuite]
   enableSuite[GlutenFileSourceCustomMetadataStructSuite]

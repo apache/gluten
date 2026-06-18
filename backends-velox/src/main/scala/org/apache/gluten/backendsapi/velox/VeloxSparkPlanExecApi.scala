@@ -26,6 +26,8 @@ import org.apache.gluten.extension.JoinKeysTag
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.shuffle.NeedCustomColumnarBatchSerializer
 import org.apache.gluten.sql.shims.SparkShimLoader
+import org.apache.gluten.substrait.SubstraitContext
+import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode, WindowFunctionNode}
 import org.apache.gluten.vectorized.{ColumnarBatchSerializer, ColumnarBatchSerializeResult}
 
 import org.apache.spark.{ShuffleDependency, SparkEnv, SparkException}
@@ -40,7 +42,7 @@ import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, CollectList, CollectSet}
-import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
+import org.apache.spark.sql.catalyst.expressions.objects.{AssertNotNull, StaticInvoke}
 import org.apache.spark.sql.catalyst.optimizer.BuildSide
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.physical._
@@ -53,7 +55,8 @@ import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.sql.execution.utils.ExecUtil
-import org.apache.spark.sql.expression.{UDFExpression, UserDefinedAggregateFunction}
+import org.apache.spark.sql.expression.{UDFExpression, UDFResolver, UserDefinedAggregateFunction}
+import org.apache.spark.sql.hive.HiveUDAFInspector
 import org.apache.spark.sql.hive.VeloxHiveUDFTransformer
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
@@ -64,6 +67,7 @@ import org.apache.commons.lang3.ClassUtils
 
 import javax.ws.rs.core.UriBuilder
 
+import java.util.{ArrayList => JArrayList, List => JList}
 import java.util.Locale
 
 import scala.collection.JavaConverters._
@@ -162,10 +166,9 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
   }
 
-  override def getDecimalArithmeticExprName(exprName: String): String = if (
-    !SQLConf.get.decimalOperationsAllowPrecisionLoss
-  ) { exprName + "_deny_precision_loss" }
-  else { exprName }
+  override def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String =
+    if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
+    else { exprName }
 
   /** Transform map_entries to Substrait. */
   override def genMapEntriesTransformer(
@@ -264,10 +267,15 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: Like): ExpressionTransformer = {
-    GenericExpressionTransformer(
-      substraitExprName,
-      Seq(left, right, LiteralTransformer(original.escapeChar)),
-      original)
+    original match {
+      case Like(_, r: Literal, '\\') if !r.value.toString.contains('\\') =>
+        GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+      case _ =>
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(left, right, LiteralTransformer(original.escapeChar)),
+          original)
+    }
   }
 
   /** Transform make_timestamp to Substrait. */
@@ -284,6 +292,14 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       startDate: ExpressionTransformer,
       original: DateDiff): ExpressionTransformer = {
     GenericExpressionTransformer(substraitExprName, Seq(endDate, startDate), original)
+  }
+
+  /** Transform map_from_entries to Substrait. */
+  override def genMapFromEntriesTransformer(
+      substraitExprName: String,
+      child: ExpressionTransformer,
+      expr: Expression): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, Seq(child), expr)
   }
 
   override def genPreciseTimestampConversionTransformer(
@@ -345,6 +361,23 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       resultExpressions: Seq[NamedExpression],
       child: SparkPlan): HashAggregateExecBaseTransformer =
     RegularHashAggregateExecTransformer(
+      requiredChildDistributionExpressions,
+      groupingExpressions,
+      aggregateExpressions,
+      aggregateAttributes,
+      initialInputBufferOffset,
+      resultExpressions,
+      child)
+
+  override def genSortAggregateExecTransformer(
+      requiredChildDistributionExpressions: Option[Seq[Expression]],
+      groupingExpressions: Seq[NamedExpression],
+      aggregateExpressions: Seq[AggregateExpression],
+      aggregateAttributes: Seq[Attribute],
+      initialInputBufferOffset: Int,
+      resultExpressions: Seq[NamedExpression],
+      child: SparkPlan): HashAggregateExecBaseTransformer =
+    SortHashAggregateExecTransformer(
       requiredChildDistributionExpressions,
       groupingExpressions,
       aggregateExpressions,
@@ -681,7 +714,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       mode: BroadcastMode,
       child: SparkPlan,
       numOutputRows: SQLMetric,
-      dataSize: SQLMetric): BuildSideRelation = {
+      dataSize: SQLMetric,
+      buildThreads: SQLMetric): BuildSideRelation = {
 
     val buildKeys = mode match {
       case mode1: HashedRelationBroadcastMode =>
@@ -826,6 +860,13 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     numOutputRows += serialized.map(_.numRows).sum
     dataSize += rawSize
 
+    val rawThreads =
+      math
+        .ceil(dataSize.value.toDouble / VeloxConfig.get.veloxBroadcastHashTableBuildTargetBytes)
+        .toInt
+    val buildThreadsValue = if (rawThreads < 1) 1 else rawThreads
+    buildThreads += buildThreadsValue
+
     if (useOffheapBroadcastBuildRelation) {
       TaskResources.runUnsafe {
         UnsafeColumnarBuildSideRelation(
@@ -833,7 +874,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
           serialized.flatMap(_.offHeapData().asScala),
           mode,
           newBuildKeys,
-          offload)
+          offload,
+          buildThreadsValue)
       }
     } else {
       ColumnarBuildSideRelation(
@@ -841,7 +883,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         serialized.flatMap(_.onHeapData().asScala).toArray,
         mode,
         newBuildKeys,
-        offload)
+        offload,
+        buildThreadsValue)
     }
   }
 
@@ -890,8 +933,11 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
       expr: Expression): ExpressionTransformer = {
+    // Calling `.toString` on both sides ensures compatibility across all Spark versions.
+    // Starting from Spark 4.1, `SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)` returns
+    // an enum instead of a String.
     if (
-      SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)
+      SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toString
         != SQLConf.MapKeyDedupPolicy.EXCEPTION.toString
     ) {
       GlutenExceptionUtil.throwsNotFullySupported(
@@ -1094,6 +1140,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       Sig[VeloxBloomFilterMightContain](ExpressionNames.MIGHT_CONTAIN),
       Sig[VeloxBloomFilterAggregate](ExpressionNames.BLOOM_FILTER_AGG),
       Sig[MapFilter](ExpressionNames.MAP_FILTER),
+      Sig[AssertNotNull](ExpressionNames.ASSERT_NOT_NULL),
       // For test purpose.
       Sig[VeloxDummyExpression](VeloxDummyExpression.VELOX_DUMMY_EXPRESSION)
     )
@@ -1226,6 +1273,145 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         GlutenExceptionUtil.throwsNotFullySupported(
           ExpressionNames.RAISE_ERROR,
           RaiseErrorRestrictions.ONLY_SUPPORT_ERROR_MESSAGE)
+    }
+  }
+
+  override def genWindowFunctionsNode(
+      windowExpression: Seq[NamedExpression],
+      windowExpressionNodes: JList[WindowFunctionNode],
+      originalInputAttributes: Seq[Attribute],
+      context: SubstraitContext): Unit = {
+    windowExpression.foreach {
+      windowExpr =>
+        val aliasExpr = windowExpr.asInstanceOf[Alias]
+        val columnName = s"${aliasExpr.name}_${aliasExpr.exprId.id}"
+        val wExpression = aliasExpr.child.asInstanceOf[WindowExpression]
+        wExpression.windowFunction match {
+          case wf @ (RowNumber() | Rank(_) | DenseRank(_) | CumeDist() | PercentRank(_)) =>
+            val aggWindowFunc = wf.asInstanceOf[AggregateWindowFunction]
+            val frame = aggWindowFunc.frame.asInstanceOf[SpecifiedWindowFrame]
+            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
+              WindowFunctionsBuilder.create(context, aggWindowFunc).toInt,
+              new JArrayList[ExpressionNode](),
+              columnName,
+              ConverterUtils.getTypeNode(aggWindowFunc.dataType, aggWindowFunc.nullable),
+              frame.upper,
+              frame.lower,
+              frame.frameType.sql,
+              originalInputAttributes.asJava
+            )
+            windowExpressionNodes.add(windowFunctionNode)
+          case aggExpression: AggregateExpression =>
+            val frame = wExpression.windowSpec.frameSpecification.asInstanceOf[SpecifiedWindowFrame]
+            val originalAggFunc = aggExpression.aggregateFunction
+            val aggregateFunc =
+              try {
+                AggregateFunctionsBuilder.getSubstraitFunctionName(originalAggFunc)
+                originalAggFunc
+              } catch {
+                case e: GlutenNotSupportException =>
+                  HiveUDAFInspector.getUDAFClassName(originalAggFunc) match {
+                    case Some(udafClass) if UDFResolver.UDAFNames.contains(udafClass) =>
+                      UDFResolver.getUdafExpression(udafClass)(originalAggFunc.children)
+                    case _ => throw e
+                  }
+              }
+
+            val childrenNodeList = aggregateFunc.children
+              .map(
+                ExpressionConverter
+                  .replaceWithExpressionTransformer(_, originalInputAttributes)
+                  .doTransform(context))
+              .asJava
+
+            val functionId = VeloxAggregateFunctionsBuilder
+              .create(context, aggregateFunc, aggExpression.mode)
+              .toInt
+            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
+              functionId,
+              childrenNodeList,
+              columnName,
+              ConverterUtils.getTypeNode(aggExpression.dataType, aggExpression.nullable),
+              frame.upper,
+              frame.lower,
+              frame.frameType.sql,
+              originalInputAttributes.asJava
+            )
+            windowExpressionNodes.add(windowFunctionNode)
+          case wf @ (_: Lead | _: Lag) =>
+            val offsetWf = wf.asInstanceOf[FrameLessOffsetWindowFunction]
+            val frame = offsetWf.frame.asInstanceOf[SpecifiedWindowFrame]
+            val childrenNodeList = new JArrayList[ExpressionNode]()
+            childrenNodeList.add(
+              ExpressionConverter
+                .replaceWithExpressionTransformer(
+                  offsetWf.input,
+                  attributeSeq = originalInputAttributes)
+                .doTransform(context))
+            val offset = offsetWf.offset.eval(EmptyRow).asInstanceOf[Int]
+            val offsetNode = ExpressionBuilder.makeLiteral(Math.abs(offset.toLong), LongType, false)
+            childrenNodeList.add(offsetNode)
+            if (offsetWf.default.dataType != NullType) {
+              childrenNodeList.add(
+                ExpressionConverter
+                  .replaceWithExpressionTransformer(
+                    offsetWf.default,
+                    attributeSeq = originalInputAttributes)
+                  .doTransform(context))
+            }
+            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
+              WindowFunctionsBuilder.create(context, offsetWf).toInt,
+              childrenNodeList,
+              columnName,
+              ConverterUtils.getTypeNode(offsetWf.dataType, offsetWf.nullable),
+              frame.upper,
+              frame.lower,
+              frame.frameType.sql,
+              offsetWf.ignoreNulls,
+              originalInputAttributes.asJava
+            )
+            windowExpressionNodes.add(windowFunctionNode)
+          case wf @ NthValue(input, offset: Literal, ignoreNulls: Boolean) =>
+            val frame = wExpression.windowSpec.frameSpecification.asInstanceOf[SpecifiedWindowFrame]
+            val childrenNodeList = new JArrayList[ExpressionNode]()
+            childrenNodeList.add(
+              ExpressionConverter
+                .replaceWithExpressionTransformer(input, attributeSeq = originalInputAttributes)
+                .doTransform(context))
+            childrenNodeList.add(LiteralTransformer(offset).doTransform(context))
+            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
+              WindowFunctionsBuilder.create(context, wf).toInt,
+              childrenNodeList,
+              columnName,
+              ConverterUtils.getTypeNode(wf.dataType, wf.nullable),
+              frame.upper,
+              frame.lower,
+              frame.frameType.sql,
+              ignoreNulls,
+              originalInputAttributes.asJava
+            )
+            windowExpressionNodes.add(windowFunctionNode)
+          case wf @ NTile(buckets: Expression) =>
+            val frame = wExpression.windowSpec.frameSpecification.asInstanceOf[SpecifiedWindowFrame]
+            val childrenNodeList = new JArrayList[ExpressionNode]()
+            val literal = buckets.asInstanceOf[Literal]
+            childrenNodeList.add(LiteralTransformer(literal).doTransform(context))
+            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
+              WindowFunctionsBuilder.create(context, wf).toInt,
+              childrenNodeList,
+              columnName,
+              ConverterUtils.getTypeNode(wf.dataType, wf.nullable),
+              frame.upper,
+              frame.lower,
+              frame.frameType.sql,
+              originalInputAttributes.asJava
+            )
+            windowExpressionNodes.add(windowFunctionNode)
+          case _ =>
+            throw new GlutenNotSupportException(
+              "unsupported window function type: " +
+                wExpression.windowFunction)
+        }
     }
   }
 }

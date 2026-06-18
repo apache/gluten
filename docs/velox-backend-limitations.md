@@ -9,9 +9,9 @@ must fall back to vanilla spark, etc.
 ### Override of Spark classes (For Spark3.2 and Spark3.3)
 Gluten avoids to modify Spark's existing code and use Spark APIs if possible. However, some APIs aren't exposed in Vanilla spark and we have to copy the Spark file and do the hardcode changes. The list of override classes can be found as ignoreClasses in package/pom.xml . If you use customized Spark, you may check if the files are modified in your spark, otherwise your changes will be overrided.
 
-So you need to ensure preferentially load the Gluten jar to overwrite the jar of vanilla spark. Refer to [How to prioritize loading Gluten jars in Spark](https://github.com/apache/incubator-gluten/blob/main/docs/velox-backend-troubleshooting.md#incompatible-class-error-when-using-native-writer).
+So you need to ensure preferentially load the Gluten jar to overwrite the jar of vanilla spark. Refer to [How to prioritize loading Gluten jars in Spark](https://github.com/apache/gluten/blob/main/docs/velox-backend-troubleshooting.md#incompatible-class-error-when-using-native-writer).
 
-If not officially supported spark3.2/3.3 version is used, NoSuchMethodError can be thrown at runtime. More details see [issue-4514](https://github.com/apache/incubator-gluten/issues/4514).
+If not officially supported spark3.2/3.3 version is used, NoSuchMethodError can be thrown at runtime. More details see [issue-4514](https://github.com/apache/gluten/issues/4514).
 
 ### Fallbacks
 Except the unsupported operators, functions, file formats, data sources listed in , there are some known cases also fall back to Vanilla Spark. 
@@ -156,7 +156,7 @@ CSV read will also fall back to vanilla Spark and log warning when user specifie
 
 ### Utilizing Map Type as Hash Keys in ColumnarShuffleExchange
 Spark uses the `spark.sql.legacy.allowHashOnMapType` configuration to support hash map key functions. 
-Gluten enables this configuration during the creation of ColumnarShuffleExchange, as shown in the code [link](https://github.com/apache/incubator-gluten/blob/0dacac84d3bf3d2759a5dd7e0735147852d2845d/backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxSparkPlanExecApi.scala#L355-L363). 
+Gluten enables this configuration during the creation of ColumnarShuffleExchange, as shown in the code [link](https://github.com/apache/gluten/blob/0dacac84d3bf3d2759a5dd7e0735147852d2845d/backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxSparkPlanExecApi.scala#L355-L363). 
 This method bypasses Spark's unresolved checks and creates projects with the hash(mapType) operator before ColumnarShuffleExchange. 
 However, if `spark.sql.legacy.allowHashOnMapType` is disabled in a test environment, projects using the hash(mapType) expression may throw an `Invalid call to dataType on unresolved object` exception during validation, causing them to fallback to vanilla Spark, as referenced in the code [link](https://github.com/apache/spark/blob/de5fa426e23b84fc3c2bddeabcd2e1eda515abd5/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/hash.scala#L291-L296).
  Enabling this configuration allows the project to be offloaded to Velox.

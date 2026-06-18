@@ -247,7 +247,7 @@ case class CommonSubexpressionEliminateRule(spark: SparkSession)
     val inputCtx = RewriteContext(exprs, sort.child)
     val outputCtx = rewrite(inputCtx)
 
-    var start = 0;
+    var start = 0
     var newOrder = Seq.empty[SortOrder]
     sort.order.foreach(
       order => {

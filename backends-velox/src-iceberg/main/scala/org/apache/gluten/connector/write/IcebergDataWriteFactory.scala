@@ -33,6 +33,7 @@ import org.apache.arrow.c.ArrowSchema
 import org.apache.iceberg.{PartitionSpec, SortOrder}
 import org.apache.iceberg.transforms.IcebergTransformUtil
 
+import java.util
 import java.util.stream.Collectors
 
 case class IcebergDataWriteFactory(
@@ -43,6 +44,7 @@ case class IcebergDataWriteFactory(
     partitionSpec: PartitionSpec,
     sortOrder: SortOrder,
     field: IcebergNestedField,
+    icebergProperties: util.HashMap[String, String],
     queryId: String)
   extends ColumnarBatchDataWriterFactory
   with ColumnarStreamingDataWriterFactory {
@@ -83,7 +85,8 @@ case class IcebergDataWriteFactory(
         taskId,
         operationId,
         specProto,
-        field)
+        field,
+        icebergProperties)
     IcebergColumnarBatchDataWriter(writerHandle, jniWrapper, format, partitionSpec, sortOrder)
   }
 
@@ -96,13 +99,19 @@ case class IcebergDataWriteFactory(
       taskId: Long,
       operationId: String,
       partitionSpec: IcebergPartitionSpec,
-      field: IcebergNestedField): (Long, IcebergWriteJniWrapper) = {
+      field: IcebergNestedField,
+      icebergProperties: util.HashMap[String, String]): (Long, IcebergWriteJniWrapper) = {
     val schema = SparkArrowUtil.toArrowSchema(localSchema, SQLConf.get.sessionLocalTimeZone)
     val arrowAlloc = ArrowBufferAllocators.contextInstance()
     val cSchema = ArrowSchema.allocateNew(arrowAlloc)
     ArrowAbiUtil.exportSchema(arrowAlloc, schema, cSchema)
-    val runtime = Runtimes.contextInstance(BackendsApiManager.getBackendName, "IcebergWrite#write")
+
+    val runtime = Runtimes.contextInstance(
+      BackendsApiManager.getBackendName,
+      "IcebergWrite#write",
+      icebergProperties)
     val jniWrapper = new IcebergWriteJniWrapper(runtime)
+
     val writer =
       jniWrapper.init(
         cSchema.memoryAddress(),

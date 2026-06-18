@@ -36,6 +36,7 @@ case class GpuBufferBatchResizeForShuffleInputOutput() extends Rule[SparkPlan] {
     val range = VeloxConfig.get.veloxResizeBatchesShuffleInputOutputRange
     val preferredBatchBytes = VeloxConfig.get.veloxPreferredBatchBytes
     val batchSize = VeloxConfig.get.cudfBatchSize
+    val prefetchBatchBytes = VeloxConfig.get.cudfShuffleMaxPrefetchBytes
     plan.transformUp {
       case shuffle: ColumnarShuffleExchangeExec
           if shuffle.shuffleWriterType == HashShuffleWriterType &&
@@ -46,36 +47,38 @@ case class GpuBufferBatchResizeForShuffleInputOutput() extends Rule[SparkPlan] {
       case a @ AQEShuffleReadExec(
             ShuffleQueryStageExec(_, _: ColumnarShuffleExchangeExecBase, _),
             _) =>
-        GpuResizeBufferColumnarBatchExec(a, batchSize)
+        GpuResizeBufferColumnarBatchExec(a, batchSize, prefetchBatchBytes)
       case a @ AQEShuffleReadExec(
             ShuffleQueryStageExec(_, ReusedExchangeExec(_, _: ColumnarShuffleExchangeExecBase), _),
             _) =>
-        GpuResizeBufferColumnarBatchExec(a, batchSize)
+        GpuResizeBufferColumnarBatchExec(a, batchSize, prefetchBatchBytes)
       // Since it's transformed in a bottom to up order, so we may first encounter
       // ShuffeQueryStageExec, which is transformed to VeloxResizeBatchesExec(ShuffeQueryStageExec),
       // then we see AQEShuffleReadExec
       case a @ AQEShuffleReadExec(
             GpuResizeBufferColumnarBatchExec(
               s @ ShuffleQueryStageExec(_, _: ColumnarShuffleExchangeExecBase, _),
+              _,
               _),
             _) =>
-        GpuResizeBufferColumnarBatchExec(a.copy(child = s), batchSize)
+        GpuResizeBufferColumnarBatchExec(a.copy(child = s), batchSize, prefetchBatchBytes)
       case a @ AQEShuffleReadExec(
             GpuResizeBufferColumnarBatchExec(
               s @ ShuffleQueryStageExec(
                 _,
                 ReusedExchangeExec(_, _: ColumnarShuffleExchangeExecBase),
                 _),
+              _,
               _),
             _) =>
-        GpuResizeBufferColumnarBatchExec(a.copy(child = s), batchSize)
+        GpuResizeBufferColumnarBatchExec(a.copy(child = s), batchSize, prefetchBatchBytes)
       case s @ ShuffleQueryStageExec(_, _: ColumnarShuffleExchangeExecBase, _) =>
-        GpuResizeBufferColumnarBatchExec(s, batchSize)
+        GpuResizeBufferColumnarBatchExec(s, batchSize, prefetchBatchBytes)
       case s @ ShuffleQueryStageExec(
             _,
             ReusedExchangeExec(_, _: ColumnarShuffleExchangeExecBase),
             _) =>
-        GpuResizeBufferColumnarBatchExec(s, batchSize)
+        GpuResizeBufferColumnarBatchExec(s, batchSize, prefetchBatchBytes)
     }
   }
 }

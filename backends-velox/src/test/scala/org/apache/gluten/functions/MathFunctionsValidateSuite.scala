@@ -23,20 +23,6 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.internal.SQLConf
 
-class MathFunctionsValidateSuiteRasOff extends MathFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "false")
-  }
-}
-
-class MathFunctionsValidateSuiteRasOn extends MathFunctionsValidateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.RAS_ENABLED.key, "true")
-  }
-}
-
 class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
 
   override protected def sparkConf: SparkConf = {
@@ -80,7 +66,7 @@ class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
   }
 }
 
-abstract class MathFunctionsValidateSuite extends FunctionsValidateSuite {
+class MathFunctionsValidateSuite extends FunctionsValidateSuite {
 
   disableFallbackCheck
   import testImplicits._
@@ -110,7 +96,7 @@ abstract class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  ignore("atan2") {
+  test("atan2") {
     runQueryAndCompare("SELECT atan2(double_field1, 0) from datatab limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
     }
@@ -424,6 +410,34 @@ abstract class MathFunctionsValidateSuite extends FunctionsValidateSuite {
               checkGlutenPlan[ProjectExecTransformer]
             }
           }
+      }
+    }
+  }
+
+  testWithMinSparkVersion(
+    "decimal arithmetic respects allowPrecisionLoss captured at view analysis time",
+    "4.1") {
+    // Regression test for GLUTEN-11917: in Spark 4.1, arithmetic expressions embed
+    // allowPrecisionLoss in their evalContext at analysis time. Gluten must read from
+    // the expression rather than SQLConf.get, which can differ when querying a view
+    // analyzed under a different session config.
+    withTempView("t", "v") {
+      sql("""
+            |SELECT
+            |CAST('1234567890123456789012345.12345678901' AS DECIMAL(38,11)) AS a,
+            |CAST('1234567890123456789012345.02345678901' AS DECIMAL(38,11)) AS b""".stripMargin)
+        .createOrReplaceTempView("t")
+
+      // Analyze arithmetic with allowPrecisionLoss=false and cache it in the view's plan.
+      withSQLConf("spark.sql.decimalOperations.allowPrecisionLoss" -> "false") {
+        sql("CREATE OR REPLACE TEMP VIEW v AS SELECT a - b, a + b, a * b, a / b FROM t")
+      }
+
+      // Query under the opposite setting -- Gluten must use the captured context, not SQLConf.
+      withSQLConf("spark.sql.decimalOperations.allowPrecisionLoss" -> "true") {
+        runQueryAndCompare("SELECT * FROM v") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
       }
     }
   }

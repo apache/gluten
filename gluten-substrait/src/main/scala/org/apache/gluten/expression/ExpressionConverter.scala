@@ -284,21 +284,21 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       expr: Expression,
       attributeSeq: Seq[Attribute],
       expressionsMap: Map[Class[_], String]): Option[ExpressionTransformer] = {
-    Option {
-      expr match {
-        case pythonUDF: PythonUDF =>
-          replacePythonUDFWithExpressionTransformer(pythonUDF, attributeSeq, expressionsMap)
-        case scalaUDF: ScalaUDF =>
-          replaceScalaUDFWithExpressionTransformer(scalaUDF, attributeSeq, expressionsMap)
-        case _ if HiveUDFTransformer.isHiveUDF(expr) =>
-          BackendsApiManager.getSparkPlanExecApiInstance.genHiveUDFTransformer(expr, attributeSeq)
-        case staticInvoke: StaticInvoke =>
-          replaceStaticInvokeWithExpressionTransformer(staticInvoke, attributeSeq, expressionsMap)
-        case invoke: Invoke =>
-          replaceInvokeWithExpressionTransformer(invoke, attributeSeq, expressionsMap)
-        case _ =>
-          null
-      }
+    expr match {
+      case pythonUDF: PythonUDF =>
+        Option(replacePythonUDFWithExpressionTransformer(pythonUDF, attributeSeq, expressionsMap))
+      case scalaUDF: ScalaUDF =>
+        Option(replaceScalaUDFWithExpressionTransformer(scalaUDF, attributeSeq, expressionsMap))
+      case _ if HiveUDFTransformer.isHiveUDF(expr) =>
+        Option(
+          BackendsApiManager.getSparkPlanExecApiInstance.genHiveUDFTransformer(expr, attributeSeq))
+      case staticInvoke: StaticInvoke =>
+        Option(
+          replaceStaticInvokeWithExpressionTransformer(staticInvoke, attributeSeq, expressionsMap))
+      case invoke: Invoke =>
+        Option(replaceInvokeWithExpressionTransformer(invoke, attributeSeq, expressionsMap))
+      case _ =>
+        None
     }
   }
 
@@ -332,6 +332,11 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         )
       case m: MapEntries =>
         BackendsApiManager.getSparkPlanExecApiInstance.genMapEntriesTransformer(
+          substraitExprName,
+          replaceWithExpressionTransformer0(m.child, attributeSeq, expressionsMap),
+          m)
+      case m: MapFromEntries =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genMapFromEntriesTransformer(
           substraitExprName,
           replaceWithExpressionTransformer0(m.child, attributeSeq, expressionsMap),
           m)
@@ -462,6 +467,22 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       case s: ScalarSubquery =>
         ScalarSubqueryTransformer(substraitExprName, s)
       case c: Cast =>
+        // Gluten uses session-level timezone for cast. If the per-expression timezone
+        // differs from session timezone and the cast involves timestamp type, we must
+        // fall back to Spark native execution to ensure correctness.
+        // Note: Spark Cast applies zoneId recursively to array/map/struct elements,
+        // so we must check nested types as well.
+        c.timeZoneId.foreach {
+          tz =>
+            val sessionTz = SQLConf.get.sessionLocalTimeZone
+            if (tz != sessionTz) {
+              if (involvesTimestampType(c.child.dataType) || involvesTimestampType(c.dataType)) {
+                throw new GlutenNotSupportException(
+                  s"Cast with per-expression timezone '$tz' different from session timezone " +
+                    s"'$sessionTz' is not supported when timestamp type is involved")
+              }
+            }
+        }
         // Add trim node, as necessary.
         val newCast =
           BackendsApiManager.getSparkPlanExecApiInstance.genCastWithNewChild(c)
@@ -626,7 +647,8 @@ object ExpressionConverter extends SQLConfHelper with Logging {
             DecimalArithmeticUtil.isDecimalArithmetic(b) =>
         val arithmeticExprName =
           BackendsApiManager.getSparkPlanExecApiInstance.getDecimalArithmeticExprName(
-            getAndCheckSubstraitName(b, expressionsMap))
+            getAndCheckSubstraitName(b, expressionsMap),
+            SparkShimLoader.getSparkShims.decimalAllowPrecisionLoss(b))
         val left =
           replaceWithExpressionTransformer0(b.left, attributeSeq, expressionsMap)
         val right =
@@ -643,7 +665,8 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         )
       case b: BinaryArithmetic if DecimalArithmeticUtil.isDecimalArithmetic(b) =>
         val exprName = BackendsApiManager.getSparkPlanExecApiInstance.getDecimalArithmeticExprName(
-          substraitExprName)
+          substraitExprName,
+          SparkShimLoader.getSparkShims.decimalAllowPrecisionLoss(b))
         if (!BackendsApiManager.getSettings.transformCheckOverflow) {
           GenericExpressionTransformer(
             exprName,
@@ -908,6 +931,19 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           expr
         )
     }
+  }
+
+  /**
+   * Recursively checks whether the given data type is, or contains, a TimestampType, including
+   * nested array/map/struct/UDT element types.
+   */
+  private def involvesTimestampType(dataType: DataType): Boolean = dataType match {
+    case TimestampType => true
+    case a: ArrayType => involvesTimestampType(a.elementType)
+    case m: MapType => involvesTimestampType(m.keyType) || involvesTimestampType(m.valueType)
+    case s: StructType => s.exists(f => involvesTimestampType(f.dataType))
+    case udt: UserDefinedType[_] => involvesTimestampType(udt.sqlType)
+    case _ => false
   }
 
   private def getAndCheckSubstraitName(

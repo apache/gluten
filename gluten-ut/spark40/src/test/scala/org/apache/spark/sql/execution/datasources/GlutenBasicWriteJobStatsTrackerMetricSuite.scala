@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution.datasources
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenTestsTrait
 
 class GlutenBasicWriteJobStatsTrackerMetricSuite
   extends BasicWriteJobStatsTrackerMetricSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenTestsTrait {}

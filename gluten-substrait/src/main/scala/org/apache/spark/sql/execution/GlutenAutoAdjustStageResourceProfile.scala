@@ -58,6 +58,9 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
     if (!SQLConf.get.adaptiveExecutionEnabled) {
       return plan
     }
+    if (!sparkConf.getBoolean(GlutenCoreConfig.SPARK_OFFHEAP_ENABLED_KEY, defaultValue = false)) {
+      return plan
+    }
     // Starting here, the resource profile may differ between stages. Configure resource settings
     // using the default profile to prevent any impact from the previous stage. If a new resource
     // profile is applied, the settings will be updated accordingly.
@@ -117,13 +120,13 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
     val totalCount = planNodes.size
 
     if (1.0 * fallenNodeCnt / totalCount >= glutenConf.autoAdjustStageFallenNodeThreshold) {
-      val newMemoryAmount = memoryRequest.get.amount * glutenConf.autoAdjustStageRPHeapRatio;
+      val newMemoryAmount = memoryRequest.get.amount * glutenConf.autoAdjustStageRPHeapRatio
       val newExecutorMemory =
         new ExecutorResourceRequest(ResourceProfile.MEMORY, newMemoryAmount.toLong)
       executorResource.put(ResourceProfile.MEMORY, newExecutorMemory)
 
       val newOffHeapMemoryAmount =
-        offheapRequest.get.amount * glutenConf.autoAdjustStageRPOffHeapRatio;
+        offheapRequest.get.amount * glutenConf.autoAdjustStageRPOffHeapRatio
       val newExecutorOffheap =
         new ExecutorResourceRequest(ResourceProfile.OFFHEAP_MEM, newOffHeapMemoryAmount.toLong)
       executorResource.put(ResourceProfile.OFFHEAP_MEM, newExecutorOffheap)

@@ -197,7 +197,7 @@ extracted from https://iceberg.apache.org/docs/latest/configuration/
 | write.format.default | parquet | Default file format for the table; parquet, avro, or orc |  |
 | write.delete.format.default | data file format | Default delete file format for the table; parquet, avro, or orc |  |
 | write.parquet.row-group-size-bytes | 134217728 (128 MB) | Parquet row group size |  |
-| write.parquet.page-size-bytes | 1048576 (1 MB) | Parquet page size |  |
+| write.parquet.page-size-bytes | 1048576 (1 MB) | Parquet page size |✅|
 | write.parquet.page-row-limit | 20000 | Parquet page row limit |  |
 | write.parquet.dict-size-bytes | 2097152 (2 MB) | Parquet dictionary page size |  |
 | write.parquet.compression-codec | zstd | Parquet compression codec: zstd, brotli, lz4, gzip, snappy, uncompressed |  |
@@ -219,7 +219,7 @@ extracted from https://iceberg.apache.org/docs/latest/configuration/
 | write.metadata.metrics.max-inferred-column-defaults | 100 | Defines the maximum number of columns for which metrics are collected. Columns are included with a pre-order traversal of the schema: top level fields first; then all elements of the first nested s... |  |
 | write.metadata.metrics.default | truncate(16) | Default metrics mode for all columns in the table; none, counts, truncate(length), or full |  |
 | write.metadata.metrics.column.col1 | (not set) | Metrics mode for column 'col1' to allow per-column tuning; none, counts, truncate(length), or full |  |
-| write.target-file-size-bytes | 536870912 (512 MB) | Controls the size of files generated to target about this many bytes |  |
+| write.target-file-size-bytes | 536870912 (512 MB) | Controls the size of files generated to target about this many bytes |✅|
 | write.delete.target-file-size-bytes | 67108864 (64 MB) | Controls the size of delete files generated to target about this many bytes |  |
 | write.distribution-mode | not set, see engines for specific defaults, for example Spark Writes | Defines distribution of write data: none: don't shuffle rows; hash: hash distribute by partition key ; range: range distribute by partition key or sort key if table has an SortOrder |  |
 | write.delete.distribution-mode | (not set) | Defines distribution of write delete data |  |

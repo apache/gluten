@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenSQLTestsTrait
+import org.apache.spark.sql.GlutenStreamingSQLTestsTrait
 
 class GlutenStreamRealTimeModeAllowlistSuite
   extends StreamRealTimeModeAllowlistSuite
-  with GlutenSQLTestsTrait {}
+  with GlutenStreamingSQLTestsTrait {}

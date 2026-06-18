@@ -17,17 +17,14 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
-import org.apache.gluten.events.GlutenPlanFallbackEvent
 
 import org.apache.spark.SparkConf
-import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
 import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarShuffleExchangeExec, SortExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
-import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, SortMergeJoinExec}
+import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, BroadcastNestedLoopJoinExec, SortMergeJoinExec}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.utils.GlutenSuiteUtils
-
-import scala.collection.mutable.ArrayBuffer
 
 class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPlanHelper {
   protected val rootPath: String = getClass.getResource("/").getPath
@@ -66,12 +63,53 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
       .write
       .format("parquet")
       .saveAsTable("tmp3")
+    // ORC files are written with DECIMAL(38, 18) (Hive's native storage precision).
+    // tmp4/tmp5 declare DECIMAL(20, 0) pointing to the same ORC files,
+    // so the reader must handle a precision/scale mismatch.
+    spark
+      .range(100)
+      .selectExpr(
+        "cast(id as decimal(38, 18)) as c1",
+        "cast(id % 3 as int) as c2",
+        "cast(id % 9 as timestamp) as c3")
+      .write
+      .format("orc")
+      .saveAsTable("tmp4_wide")
+    spark
+      .range(100)
+      .selectExpr(
+        "cast(id as decimal(38, 18)) as c1",
+        "cast(id % 3 as int) as c2",
+        "cast(id % 5 as timestamp) as c3")
+      .write
+      .format("orc")
+      .saveAsTable("tmp5_wide")
+    val loc4 = spark
+      .sql("DESCRIBE FORMATTED tmp4_wide")
+      .filter("col_name = 'Location'")
+      .select("data_type")
+      .collect()(0)
+      .getString(0)
+    val loc5 = spark
+      .sql("DESCRIBE FORMATTED tmp5_wide")
+      .filter("col_name = 'Location'")
+      .select("data_type")
+      .collect()(0)
+      .getString(0)
+    spark.sql(
+      s"CREATE TABLE tmp4 (c1 DECIMAL(20, 0), c2 INT, c3 TIMESTAMP) USING ORC LOCATION '$loc4'")
+    spark.sql(
+      s"CREATE TABLE tmp5 (c1 DECIMAL(20, 0), c2 INT, c3 TIMESTAMP) USING ORC LOCATION '$loc5'")
   }
 
   override protected def afterAll(): Unit = {
     spark.sql("drop table tmp1")
     spark.sql("drop table tmp2")
     spark.sql("drop table tmp3")
+    spark.sql("drop table tmp4_wide")
+    spark.sql("drop table tmp5_wide")
+    spark.sql("drop table tmp4")
+    spark.sql("drop table tmp5")
 
     super.afterAll()
   }
@@ -104,9 +142,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   }
 
   test("fallback with collect") {
-    withSQLConf(
-      GlutenConfig.RAS_ENABLED.key -> "false",
-      GlutenConfig.COLUMNAR_WHOLESTAGE_FALLBACK_THRESHOLD.key -> "1") {
+    withSQLConf(GlutenConfig.COLUMNAR_WHOLESTAGE_FALLBACK_THRESHOLD.key -> "1") {
       runQueryAndCompare("SELECT count(*) FROM tmp1") {
         df =>
           val columnarToRow = collectColumnarToRow(df.queryExecution.executedPlan)
@@ -150,7 +186,6 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
 
   test("fallback final aggregate of collect_list") {
     withSQLConf(
-      GlutenConfig.RAS_ENABLED.key -> "false",
       GlutenConfig.COLUMNAR_WHOLESTAGE_FALLBACK_THRESHOLD.key -> "1",
       GlutenConfig.COLUMNAR_FALLBACK_IGNORE_ROW_TO_COLUMNAR.key -> "false",
       GlutenConfig.EXPRESSION_BLACK_LIST.key -> "element_at"
@@ -169,7 +204,6 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   // until we can exactly align with vanilla Spark.
   ignore("fallback final aggregate of collect_set") {
     withSQLConf(
-      GlutenConfig.RAS_ENABLED.key -> "false",
       GlutenConfig.COLUMNAR_WHOLESTAGE_FALLBACK_THRESHOLD.key -> "1",
       GlutenConfig.COLUMNAR_FALLBACK_IGNORE_ROW_TO_COLUMNAR.key -> "false",
       GlutenConfig.EXPRESSION_BLACK_LIST.key -> "element_at"
@@ -202,9 +236,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   }
 
   test("Do not fallback eagerly with ColumnarToRowExec") {
-    withSQLConf(
-      GlutenConfig.RAS_ENABLED.key -> "false",
-      GlutenConfig.COLUMNAR_WHOLESTAGE_FALLBACK_THRESHOLD.key -> "1") {
+    withSQLConf(GlutenConfig.COLUMNAR_WHOLESTAGE_FALLBACK_THRESHOLD.key -> "1") {
       runQueryAndCompare("select count(*) from tmp1") {
         df =>
           assert(
@@ -240,7 +272,6 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     Seq("true", "false").foreach {
       ignoreRowToColumnar =>
         withSQLConf(
-          GlutenConfig.RAS_ENABLED.key -> "false",
           GlutenConfig.COLUMNAR_FALLBACK_IGNORE_ROW_TO_COLUMNAR.key -> ignoreRowToColumnar,
           GlutenConfig.EXPRESSION_BLACK_LIST.key -> "collect_set",
           GlutenConfig.COLUMNAR_WHOLESTAGE_FALLBACK_THRESHOLD.key -> "1"
@@ -279,7 +310,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
-  test("fallback with index based schema evolution") {
+  testWithMinSparkVersion("fallback with index based schema evolution", "3.4") {
     val query = "SELECT c2 FROM test"
     Seq("parquet", "orc").foreach {
       format =>
@@ -302,9 +333,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                     runQueryAndCompare(query) {
                       df =>
                         val plan = df.queryExecution.executedPlan
-                        val fallback = parquetUseColumnNames == "false" ||
-                          orcUseColumnNames == "false"
-                        assert(collect(plan) { case g: GlutenPlan => g }.isEmpty == fallback)
+                        assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
                     }
                   }
                 }
@@ -322,41 +351,198 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   }
 
   test("get correct fallback reason on nodes without logicalLink") {
-    val events = new ArrayBuffer[GlutenPlanFallbackEvent]
-    val listener = new SparkListener {
-      override def onOtherEvent(event: SparkListenerEvent): Unit = {
-        event match {
-          case e: GlutenPlanFallbackEvent => events.append(e)
-          case _ =>
-        }
+    withSQLConf(GlutenConfig.COLUMNAR_SORT_ENABLED.key -> "false") {
+      GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+        events =>
+          val df = spark.sql("""
+                               |SELECT
+                               |  c1,
+                               |  c2,
+                               |  ROW_NUMBER() OVER (PARTITION BY c1 ORDER BY c2) as row_num,
+                               |  RANK() OVER (PARTITION BY c1 ORDER BY c2) as rank_num
+                               |FROM tmp1
+                               |
+                               |""".stripMargin)
+          df.collect()
+          GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+          val sort = find(df.queryExecution.executedPlan) {
+            _.isInstanceOf[SortExec]
+          }
+          assert(sort.isDefined)
+          val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
+          assert(fallbackReasons.nonEmpty)
+          assert(
+            fallbackReasons.forall(
+              _.contains("[FallbackByUserOptions] Validation failed on node Sort")))
       }
     }
-    spark.sparkContext.addSparkListener(listener)
-    withSQLConf(GlutenConfig.COLUMNAR_SORT_ENABLED.key -> "false") {
-      try {
+  }
+
+  test("fallback when nested loop join has unsupported expression") {
+    GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+      events =>
         val df = spark.sql("""
-                             |SELECT
-                             |  c1,
-                             |  c2,
-                             |  ROW_NUMBER() OVER (PARTITION BY c1 ORDER BY c2) as row_num,
-                             |  RANK() OVER (PARTITION BY c1 ORDER BY c2) as rank_num
-                             |FROM tmp1
-                             |
+                             |select tmp1.c1, tmp1.c2 from tmp1
+                             |left join tmp2 on (
+                             |  tmp1.c1 = regexp_extract(tmp2.c1, '(?<=@)[^.]+(?=\.)', 0)
+                             |  or tmp2.c1 > 10
+                             |)
                              |""".stripMargin)
         df.collect()
         GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
-        val sort = find(df.queryExecution.executedPlan) {
-          _.isInstanceOf[SortExec]
+
+        val nestedLoopJoin = find(df.queryExecution.executedPlan) {
+          _.isInstanceOf[BroadcastNestedLoopJoinExec]
         }
-        assert(sort.isDefined)
+        assert(nestedLoopJoin.isDefined)
         val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
         assert(fallbackReasons.nonEmpty)
-        assert(
-          fallbackReasons.forall(
-            _.contains("[FallbackByUserOptions] Validation failed on node Sort")))
-      } finally {
-        spark.sparkContext.removeSparkListener(listener)
+        assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
+    }
+  }
+
+  test("no fallback event emitted for vanilla Spark execution with gluten disabled") {
+    // Regression test: before the fix, GlutenQueryExecutionListener would post a
+    // GlutenPlanFallbackEvent even when spark.gluten.enabled=false (e.g. the vanilla baseline run
+    // inside runQueryAndCompare). All nodes would appear as fallback with the generic reason
+    // "Gluten does not touch it or does not support it".
+    withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+      GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+        events =>
+          // Execute a query with gluten disabled — this mimics what runQueryAndCompare does for
+          // the vanilla baseline run. No GlutenPlanFallbackEvent should be emitted at all.
+          spark.sql("SELECT c1, count(*) FROM tmp1 GROUP BY c1").collect()
+          GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+          assert(
+            events.isEmpty,
+            s"Expected no GlutenPlanFallbackEvent for vanilla Spark execution, " +
+              s"but got ${events.size} event(s). " +
+              s"First event fallback reasons: ${events.headOption.map(_.fallbackNodeToReason)}"
+          )
       }
     }
+  }
+
+  test("For decimal-key joins, if one side falls back to Spark, force fallback the other side") {
+    // ORC files are written with DECIMAL(38, 18) (Hive's native storage precision).
+    // The metastore tables tmp4/tmp5 declare DECIMAL(20, 0) and point to the
+    // same ORC files, so the reader must handle a precision/scale mismatch.
+    // Selecting only c2 (INT) -> native FileSourceScanExecTransformer.
+    // Selecting c3 (TIMESTAMP) in addition -> native validation fails ->
+    //   vanilla FileSourceScanExec.
+
+    // -- SortMergeJoin ------------------------------------------------------------------
+
+    val sql1 = "SELECT /*+ MERGE(tmp4) */ tmp4.c2 AS 4c2, tmp4.c3 AS 4c3, " +
+      "tmp5.c2 AS 5c2, tmp5.c3 AS 5c3 FROM tmp4 JOIN tmp5 ON tmp4.c1 = tmp5.c1"
+    withSQLConf(
+      GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "false",
+      GlutenConfig.COLUMNAR_SHUFFLED_HASH_JOIN_ENABLED.key -> "false") {
+      checkAnswer(
+        spark.sql(sql1),
+        spark.sql(
+          "SELECT tmp4_wide.c2 AS 4c2, tmp4_wide.c3 AS 4c3, " +
+            "tmp5_wide.c2 AS 5c2, tmp5_wide.c3 AS 5c3 " +
+            "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
+      )
+    }
+
+    val sql2 = "SELECT /*+ MERGE(tmp4) */ tmp4.c2 AS 4c2, tmp4.c3 AS 4c3, " +
+      "tmp5.c2 AS 5c2 FROM tmp4 JOIN tmp5 ON tmp4.c1 = tmp5.c1"
+    withSQLConf(
+      GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "false",
+      GlutenConfig.COLUMNAR_SHUFFLED_HASH_JOIN_ENABLED.key -> "false") {
+      checkAnswer(
+        spark.sql(sql2),
+        spark.sql(
+          "SELECT tmp4_wide.c2 AS 4c2, tmp4_wide.c3 AS 4c3, " +
+            "tmp5_wide.c2 AS 5c2 " +
+            "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
+      )
+    }
+
+    val sql3 = "SELECT /*+ MERGE(tmp4) */ tmp4.c2 AS 4c2, " +
+      "tmp5.c2 AS 5c2, tmp5.c3 AS 5c3 FROM tmp4 JOIN tmp5 ON tmp4.c1 = tmp5.c1"
+    withSQLConf(
+      GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "false",
+      GlutenConfig.COLUMNAR_SHUFFLED_HASH_JOIN_ENABLED.key -> "false") {
+      checkAnswer(
+        spark.sql(sql3),
+        spark.sql(
+          "SELECT tmp4_wide.c2 AS 4c2, " +
+            "tmp5_wide.c2 AS 5c2, tmp5_wide.c3 AS 5c3 " +
+            "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
+      )
+    }
+
+    // -- ShuffledHashJoin ---------------------------------------------------------------
+
+    val sql4 = "SELECT /*+ SHUFFLE_HASH(tmp4) */ tmp4.c2 AS 4c2, tmp4.c3 AS 4c3, " +
+      "tmp5.c2 AS 5c2, tmp5.c3 AS 5c3 FROM tmp4 JOIN tmp5 ON tmp4.c1 = tmp5.c1"
+    withSQLConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1") {
+      checkAnswer(
+        spark.sql(sql4),
+        spark.sql(
+          "SELECT tmp4_wide.c2 AS 4c2, tmp4_wide.c3 AS 4c3, " +
+            "tmp5_wide.c2 AS 5c2, tmp5_wide.c3 AS 5c3 " +
+            "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
+      )
+    }
+
+    val sql5 = "SELECT /*+ SHUFFLE_HASH(tmp4) */ tmp4.c2 AS 4c2, tmp4.c3 AS 4c3, " +
+      "tmp5.c2 AS 5c2 FROM tmp4 JOIN tmp5 ON tmp4.c1 = tmp5.c1"
+    withSQLConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1") {
+      checkAnswer(
+        spark.sql(sql5),
+        spark.sql(
+          "SELECT tmp4_wide.c2 AS 4c2, tmp4_wide.c3 AS 4c3, " +
+            "tmp5_wide.c2 AS 5c2 " +
+            "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
+      )
+    }
+
+    val sql6 = "SELECT /*+ SHUFFLE_HASH(tmp4) */ tmp4.c2 AS 4c2, " +
+      "tmp5.c2 AS 5c2, tmp5.c3 AS 5c3 FROM tmp4 JOIN tmp5 ON tmp4.c1 = tmp5.c1"
+    withSQLConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1") {
+      checkAnswer(
+        spark.sql(sql6),
+        spark.sql(
+          "SELECT tmp4_wide.c2 AS 4c2, " +
+            "tmp5_wide.c2 AS 5c2, tmp5_wide.c3 AS 5c3 " +
+            "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
+      )
+    }
+
+    // -- BroadcastHashJoin --------------------------------------------------------------
+
+    val sql7 = "SELECT tmp4.c2 AS 4c2, tmp4.c3 AS 4c3, " +
+      "tmp5.c2 AS 5c2, tmp5.c3 AS 5c3 FROM tmp4 JOIN tmp5 ON tmp4.c1 = tmp5.c1"
+    checkAnswer(
+      spark.sql(sql7),
+      spark.sql(
+        "SELECT tmp4_wide.c2 AS 4c2, tmp4_wide.c3 AS 4c3, " +
+          "tmp5_wide.c2 AS 5c2, tmp5_wide.c3 AS 5c3 " +
+          "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
+    )
+
+    val sql8 = "SELECT tmp4.c2 AS 4c2, tmp4.c3 AS 4c3, " +
+      "tmp5.c2 AS 5c2 FROM tmp4 JOIN tmp5 ON tmp4.c1 = tmp5.c1"
+    checkAnswer(
+      spark.sql(sql8),
+      spark.sql(
+        "SELECT tmp4_wide.c2 AS 4c2, tmp4_wide.c3 AS 4c3, " +
+          "tmp5_wide.c2 AS 5c2 " +
+          "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
+    )
+
+    val sql9 = "SELECT tmp4.c2 AS 4c2, " +
+      "tmp5.c2 AS 5c2, tmp5.c3 AS 5c3 FROM tmp4 JOIN tmp5 ON tmp4.c1 = tmp5.c1"
+    checkAnswer(
+      spark.sql(sql9),
+      spark.sql(
+        "SELECT tmp4_wide.c2 AS 4c2, " +
+          "tmp5_wide.c2 AS 5c2, tmp5_wide.c3 AS 5c3 " +
+          "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
+    )
   }
 }

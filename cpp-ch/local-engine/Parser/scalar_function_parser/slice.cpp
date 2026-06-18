@@ -90,7 +90,7 @@ public:
         DB::DataTypePtr wrap_arr_nullable_type = wrapNullableType(true, slice_node->result_type);
 
         const auto * wrap_slice_node = ActionsDAGUtil::convertNodeType(
-            actions_dag, slice_node, wrap_arr_nullable_type, slice_node->result_name);
+            actions_dag, slice_node, wrap_arr_nullable_type, getContext(), slice_node->result_name);
         const auto * null_const_node = addColumnToActionsDAG(actions_dag, wrap_arr_nullable_type, DB::Field{});
 
         const auto * arr_is_null_node = toFunctionNode(actions_dag, "isNull", {arr_arg});

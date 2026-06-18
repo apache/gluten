@@ -101,10 +101,7 @@ object GlutenWriterColumnarRules {
       case rc @ DataWritingCommandExec(cmd, child) =>
         // The same thread can set these properties in the last query submission.
         val format =
-          if (
-            BackendsApiManager.getSettings.supportNativeWrite(child.schema.fields) &&
-            BackendsApiManager.getSettings.enableNativeWriteFiles()
-          ) {
+          if (BackendsApiManager.getSettings.enableNativeWriteFiles()) {
             getNativeFormat(cmd)
           } else {
             None

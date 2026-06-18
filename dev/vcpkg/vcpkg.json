@@ -54,6 +54,15 @@
         "grpc"
       ]
     },
+    "dynamic-openssl": {
+      "description": "Enable dynamic OpenSSL with fips feature",
+      "dependencies": [
+        {
+          "name": "openssl",
+          "features": ["fips"]
+        }
+      ]
+    },
     "velox-s3": {
       "description": "Velox S3 Support",
       "dependencies": [

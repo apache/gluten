@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenCanonicalizeSuite extends CanonicalizeSuite with GlutenTestsCommonTrait {}
+class GlutenCanonicalizeSuite extends CanonicalizeSuite with GlutenTestsTrait {}

@@ -22,11 +22,11 @@
 #include "memory/ArrowMemory.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "velox/common/memory/Memory.h"
-#include "velox/vector/FlatVector.h"
-#include "velox/vector/arrow/Bridge.h"
 #include "velox/experimental/cudf/exec/GpuResources.h"
 #include "velox/experimental/cudf/exec/VeloxCudfInterop.h"
 #include "velox/experimental/cudf/vector/CudfVector.h"
+#include "velox/vector/FlatVector.h"
+#include "velox/vector/arrow/Bridge.h"
 
 #include <iostream>
 
@@ -38,17 +38,19 @@ VeloxGpuColumnarBatchSerializer::VeloxGpuColumnarBatchSerializer(
     arrow::MemoryPool* arrowPool,
     std::shared_ptr<memory::MemoryPool> veloxPool,
     struct ArrowSchema* cSchema)
-    : VeloxColumnarBatchSerializer(arrowPool, veloxPool, cSchema) {
-}
+    : VeloxColumnarBatchSerializer(arrowPool, veloxPool, cSchema) {}
 
 std::shared_ptr<ColumnarBatch> VeloxGpuColumnarBatchSerializer::deserialize(uint8_t* data, int32_t size) {
   auto vb = VeloxColumnarBatchSerializer::deserialize(data, size);
   auto stream = cudf_velox::cudfGlobalStreamPool().get_stream();
   auto table = cudf_velox::with_arrow::toCudfTable(
-    dynamic_pointer_cast<VeloxColumnarBatch>(vb)->getRowVector(), veloxPool_.get(), stream, cudf_velox::get_output_mr());
+      dynamic_pointer_cast<VeloxColumnarBatch>(vb)->getRowVector(),
+      veloxPool_.get(),
+      stream,
+      cudf_velox::get_output_mr());
   stream.synchronize();
-  auto vector = std::make_shared<cudf_velox::CudfVector>(
-      veloxPool_.get(), rowType_, size, std::move(table), stream);
+  auto vector =
+      std::make_shared<cudf_velox::CudfVector>(veloxPool_.get(), rowType_, vb->numRows(), std::move(table), stream);
   return std::make_shared<VeloxColumnarBatch>(vector, vb->numColumns());
 }
 

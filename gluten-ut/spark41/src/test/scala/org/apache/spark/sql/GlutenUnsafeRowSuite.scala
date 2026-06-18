@@ -16,4 +16,6 @@
  */
 package org.apache.spark.sql
 
-class GlutenUnsafeRowSuite extends UnsafeRowSuite with GlutenTestsCommonTrait {}
+import org.apache.spark.sql.shim.GlutenTestsTrait
+
+class GlutenUnsafeRowSuite extends UnsafeRowSuite with GlutenTestsTrait {}

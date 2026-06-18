@@ -56,4 +56,16 @@ DB::DataTypePtr wrapNullableType(bool nullable, DB::DataTypePtr nested_type)
     return nested_type;
 }
 
+bool onlyHasFlatType(const DB::Block & header)
+{
+    return std::ranges::all_of(
+        header,
+        [](DB::ColumnWithTypeAndName const & col)
+        {
+            const DB::DataTypePtr type_not_nullable = removeNullable(col.type);
+            const DB::WhichDataType which(type_not_nullable);
+            return !isArray(which) && !isMap(which) && !isTuple(which);
+        });
+}
+
 }

@@ -50,6 +50,7 @@ case class VeloxColumnarToRowExec(child: SparkPlan) extends ColumnarToRowExecBas
         case _: DoubleType =>
         case _: StringType =>
         case _: TimestampType =>
+        case other if other.typeName == "timestamp_ntz" =>
         case _: DateType =>
         case _: BinaryType =>
         case _: DecimalType =>
@@ -90,6 +91,15 @@ case class VeloxColumnarToRowExec(child: SparkPlan) extends ColumnarToRowExecBas
       mode,
       relation,
       VeloxColumnarToRowExec.toRowIterator(_, numOutputRows, numInputBatches, convertTime))
+  }
+
+  override def executeCollect(): Array[InternalRow] = {
+    child match {
+      case l: ColumnarCollectLimitExec =>
+        l.executeCollect()
+      case _ =>
+        super.executeCollect()
+    }
   }
 
   protected def withNewChildInternal(newChild: SparkPlan): VeloxColumnarToRowExec =

@@ -44,7 +44,7 @@ case class TakeOrderedAndProjectExecTransformer(
   override def outputPartitioning: Partitioning = SinglePartition
   override def outputOrdering: Seq[SortOrder] = sortOrder
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 
   override def output: Seq[Attribute] = {
     projectList.map(_.toAttribute)

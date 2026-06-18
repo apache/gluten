@@ -17,13 +17,11 @@
 package org.apache.gluten.component
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.columnar.enumerated.RasOffload
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
 
-import org.apache.spark.sql.execution.command.ExecutedCommandExec
-import org.apache.spark.sql.execution.datasources.v2.{LeafV2CommandExec, OffloadDeltaCommand}
+import org.apache.spark.sql.execution.datasources.v2.OffloadDeltaCommand
 
 class VeloxDelta33WriteComponent extends Component {
   override def name(): String = "velox-delta33-write"
@@ -32,7 +30,6 @@ class VeloxDelta33WriteComponent extends Component {
 
   override def injectRules(injector: Injector): Unit = {
     val legacy = injector.gluten.legacy
-    val ras = injector.gluten.ras
     legacy.injectTransform {
       c =>
         val offload = Seq(
@@ -42,13 +39,5 @@ class VeloxDelta33WriteComponent extends Component {
           Validators.newValidator(new GlutenConfig(c.sqlConf), offload),
           offload)
     }
-    val offloads: Seq[RasOffload] = Seq(
-      RasOffload.from[ExecutedCommandExec](OffloadDeltaCommand()),
-      RasOffload.from[LeafV2CommandExec](OffloadDeltaCommand())
-    )
-    offloads.foreach(
-      offload =>
-        ras.injectRasRule(
-          c => RasOffload.Rule(offload, Validators.newValidator(new GlutenConfig(c.sqlConf)), Nil)))
   }
 }

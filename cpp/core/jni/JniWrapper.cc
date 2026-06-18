@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 
 #include "compute/Runtime.h"
 #include "config/GlutenConfig.h"
@@ -103,7 +104,11 @@ class JavaInputStreamAdaptor final : public arrow::io::InputStream {
     env->CallVoidMethod(jniIn_, jniByteInputStreamClose);
     checkException(env);
     env->DeleteGlobalRef(jniIn_);
-    vm_->DetachCurrentThread();
+    // Do NOT call DetachCurrentThread() here.
+    // libhdfs.so caches JNIEnv* in thread-local storage after AttachCurrentThread.
+    // If we detach, libhdfs's TLS cache becomes stale — the next HDFS call via
+    // libhdfs returns the stale env, causing SIGSEGV in jni_NewStringUTF.
+    // Daemon-attached threads are safe to leave attached; they won't block JVM shutdown.
     closed_ = true;
     return arrow::Status::OK();
   }
@@ -265,7 +270,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   jniByteInputStreamClose = getMethodIdOrError(env, jniByteInputStreamClass, "close", "()V");
 
   splitResultClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/GlutenSplitResult;");
-  splitResultConstructor = getMethodIdOrError(env, splitResultClass, "<init>", "(JJJJJJJJJJDJ[J[J)V");
+  splitResultConstructor = getMethodIdOrError(env, splitResultClass, "<init>", "(JJJJJJJJJJDJ[J[J[J)V");
 
   metricsBuilderClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/Metrics;");
 
@@ -273,7 +278,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
       env,
       metricsBuilderClass,
       "<init>",
-      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
+      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
 
   nativeColumnarToRowInfoClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/NativeColumnarToRowInfo;");
@@ -589,7 +594,9 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
       longArray[Metrics::kNumDynamicFiltersProduced],
       longArray[Metrics::kNumDynamicFiltersAccepted],
       longArray[Metrics::kNumReplacedWithDynamicFilterRows],
+      longArray[Metrics::kNumDynamicFilterInputRows],
       longArray[Metrics::kFlushRowCount],
+      longArray[Metrics::kAbandonedPartialAggregationRows],
       longArray[Metrics::kLoadedToValueHook],
       longArray[Metrics::kBloomFilterBlocksByteSize],
       longArray[Metrics::kScanTime],
@@ -600,6 +607,7 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
       longArray[Metrics::kRemainingFilterTime],
       longArray[Metrics::kIoWaitTime],
       longArray[Metrics::kStorageReadBytes],
+      longArray[Metrics::kStorageReads],
       longArray[Metrics::kLocalReadBytes],
       longArray[Metrics::kRamReadBytes],
       longArray[Metrics::kPreloadSplits],
@@ -650,7 +658,7 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIte
   if (outIter == nullptr) {
     throw GlutenException("Invalid iterator handle for addSplits");
   }
-  
+
   // Get the underlying split-aware iterator
   auto* splitAwareIter = dynamic_cast<gluten::SplitAwareColumnarBatchIterator*>(outIter->getInputIter());
   if (splitAwareIter == nullptr) {
@@ -944,7 +952,8 @@ Java_org_apache_gluten_vectorized_LocalPartitionWriterJniWrapper_createPartition
     jint shuffleFileBufferSize,
     jstring dataFileJstr,
     jstring localDirsJstr,
-    jboolean enableDictionary) {
+    jboolean enableDictionary,
+    jboolean enableTypeAwareCompress) {
   JNI_METHOD_START
 
   const auto ctx = getRuntime(env, wrapper);
@@ -959,7 +968,8 @@ Java_org_apache_gluten_vectorized_LocalPartitionWriterJniWrapper_createPartition
       mergeBufferSize,
       mergeThreshold,
       numSubDirs,
-      enableDictionary);
+      enableDictionary,
+      enableTypeAwareCompress);
 
   auto partitionWriter = std::make_shared<LocalPartitionWriter>(
       numPartitions,
@@ -982,7 +992,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
     jint startPartitionId,
     jint splitBufferSize,
     jdouble splitBufferReallocThreshold,
-    jlong partitionWriterHandle) {
+    jint partitionBufferEvictThreshold,
+    jlong partitionWriterHandle,
+    jboolean rowBasedChecksumEnabled) {
   JNI_METHOD_START
   const auto ctx = getRuntime(env, wrapper);
 
@@ -996,7 +1008,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
       toPartitioning(jStringToCString(env, partitioningNameJstr)),
       startPartitionId,
       splitBufferSize,
-      splitBufferReallocThreshold);
+      splitBufferReallocThreshold,
+      partitionBufferEvictThreshold);
+  shuffleWriterOptions->rowBasedChecksumEnabled = rowBasedChecksumEnabled;
 
   return ctx->saveObject(ctx->createShuffleWriter(numPartitions, partitionWriter, shuffleWriterOptions));
   JNI_METHOD_END(kInvalidObjectHandle)
@@ -1012,7 +1026,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
     jdouble splitBufferReallocThreshold,
     jlong partitionWriterHandle) {
   JNI_METHOD_START
-  
+
   const auto ctx = getRuntime(env, wrapper);
 
   auto partitionWriter = ObjectStore::retrieve<PartitionWriter>(partitionWriterHandle);
@@ -1151,6 +1165,13 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrap
   auto rawSrc = reinterpret_cast<const jlong*>(rawPartitionLengths.data());
   env->SetLongArrayRegion(rawPartitionLengthArr, 0, rawPartitionLengths.size(), rawSrc);
 
+  const auto& rowBasedChecksums = shuffleWriter->rowBasedChecksums();
+  auto rowBasedChecksumArr = env->NewLongArray(rowBasedChecksums.size());
+  if (!rowBasedChecksums.empty()) {
+    auto checksumSrc = reinterpret_cast<const jlong*>(rowBasedChecksums.data());
+    env->SetLongArrayRegion(rowBasedChecksumArr, 0, rowBasedChecksums.size(), checksumSrc);
+  }
+
   jobject splitResult = env->NewObject(
       splitResultClass,
       splitResultConstructor,
@@ -1167,7 +1188,8 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrap
       shuffleWriter->avgDictionaryFields(),
       shuffleWriter->dictionarySize(),
       partitionLengthArr,
-      rawPartitionLengthArr);
+      rawPartitionLengthArr,
+      rowBasedChecksumArr);
 
   return splitResult;
   JNI_METHOD_END(nullptr)
@@ -1203,7 +1225,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrappe
     jint batchSize,
     jlong readerBufferSize,
     jlong deserializerBufferSize,
-    jstring shuffleWriterType) {
+    jstring shuffleWriterType,
+    jboolean enableHashShuffleReaderStreamMerge) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
 
@@ -1215,6 +1238,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrappe
   options.batchSize = batchSize;
   options.readerBufferSize = readerBufferSize;
   options.deserializerBufferSize = deserializerBufferSize;
+  options.enableHashShuffleReaderStreamMerge = enableHashShuffleReaderStreamMerge;
 
   options.shuffleWriterType = ShuffleWriter::stringToType(jStringToCString(env, shuffleWriterType));
   std::shared_ptr<arrow::Schema> schema =
@@ -1283,6 +1307,67 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchSeriali
   serializer->serializeTo(reinterpret_cast<uint8_t*>(byteBufferAddress), byteBufferSize);
 
   return byteBuffer;
+  JNI_METHOD_END(nullptr)
+}
+
+JNIEXPORT jobject JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_serializeAll( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlongArray handles) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  GLUTEN_CHECK(handles != nullptr, "serializeAll requires non-null handles array");
+  const jsize numBatches = env->GetArrayLength(handles);
+  GLUTEN_CHECK(numBatches > 0, "serializeAll requires at least one batch");
+
+  auto safeArray = getLongArrayElementsSafe(env, handles);
+  auto serializer = ctx->createColumnarBatchSerializer(nullptr);
+  for (int32_t i = 0; i < numBatches; i++) {
+    auto batch = ObjectStore::retrieve<ColumnarBatch>(safeArray.elems()[i]);
+    GLUTEN_DCHECK(
+        batch != nullptr, "Cannot find the ColumnarBatch with handle " + std::to_string(safeArray.elems()[i]));
+    serializer->append(batch);
+  }
+  auto serializedSize = serializer->maxSerializedSize();
+  auto byteBuffer = env->CallStaticObjectMethod(jniUnsafeByteBufferClass, jniUnsafeByteBufferAllocate, serializedSize);
+  auto byteBufferAddress = env->CallLongMethod(byteBuffer, jniUnsafeByteBufferAddress);
+  auto byteBufferSize = env->CallLongMethod(byteBuffer, jniUnsafeByteBufferSize);
+  serializer->serializeTo(reinterpret_cast<uint8_t*>(byteBufferAddress), byteBufferSize);
+
+  return byteBuffer;
+  JNI_METHOD_END(nullptr)
+}
+
+// Framed [magic | statsLen | statsBlob | bytesLen | bytesBlob] entry point. Uses the
+// ColumnarBatchSerializer::framedSerializeWithStats virtual hook; non-Velox backends inherit
+// the default empty-vector return so callers fall back to the legacy serialize() path.
+JNIEXPORT jbyteArray JNICALL
+Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_serializeWithStats( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong handle) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+
+  auto batch = ObjectStore::retrieve<ColumnarBatch>(handle);
+  GLUTEN_DCHECK(batch != nullptr, "Cannot find the ColumnarBatch with handle " + std::to_string(handle));
+
+  auto serializer = ctx->createColumnarBatchSerializer(nullptr);
+  std::vector<uint8_t> framed = serializer->framedSerializeWithStats(batch);
+
+  // Outer-layer size defense (inner layer = bytesLen <= UINT32_MAX in
+  // framedSerializeWithStats). jsize is signed int32; > INT32_MAX wraps
+  // negative -> NewByteArray would throw NegativeArraySizeException.
+  // Fail fast here so JNI_METHOD_END surfaces it as GlutenException.
+  GLUTEN_CHECK(
+      framed.size() <= static_cast<size_t>(std::numeric_limits<jsize>::max()),
+      "serializeWithStats: framed payload (" + std::to_string(framed.size()) + " bytes) exceeds Java byte[] limit (" +
+          std::to_string(std::numeric_limits<jsize>::max()) + ")");
+  jbyteArray out = env->NewByteArray(static_cast<jsize>(framed.size()));
+  if (!framed.empty()) {
+    env->SetByteArrayRegion(out, 0, static_cast<jsize>(framed.size()), reinterpret_cast<jbyte*>(framed.data()));
+  }
+  return out;
   JNI_METHOD_END(nullptr)
 }
 

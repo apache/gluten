@@ -18,7 +18,7 @@
 #pragma once
 
 
-#include <Disks/ObjectStorages/DiskObjectStorage.h>
+#include <Disks/DiskObjectStorage/DiskObjectStorage.h>
 
 
 #if USE_AWS_S3

@@ -236,7 +236,20 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             List.of());
     // processing time window can not apply to local-global aggregate optimization, so here we need
     // to set local aggregtate as null when it is not event time window.
-    PlanNode localAgg = null;
+    PlanNode localAgg =
+        isRowTime
+            ? new AggregationNode(
+                PlanNodeIdGenerator.newId(),
+                AggregateStep.SINGLE,
+                groupingKeys,
+                groupingKeys,
+                aggNames,
+                aggregates,
+                false,
+                List.of(new EmptyNode(inputType)),
+                null,
+                List.of())
+            : null;
     PlanNode windowAgg =
         new StreamWindowAggregationNode(
             PlanNodeIdGenerator.newId(),

@@ -47,6 +47,10 @@ elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL arm64)
   set(SYSTEM_LIB_MULTIARCH_PATH
       "/usr/lib"
       CACHE PATH "System Lib MultiArch dir")
+elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL ppc64le)
+  set(SYSTEM_LIB_MULTIARCH_PATH
+      "/usr/lib"
+      CACHE PATH "System Lib MultiArch dir")
 else()
   message(FATAL_ERROR "Unsupported processor type: ${CMAKE_SYSTEM_PROCESSOR}")
 endif()
@@ -70,6 +74,9 @@ if(NOT DEFINED VELOX_BUILD_PATH)
         CACHE PATH "Velox build directory.")
   endif()
 endif()
+
+find_package(Roaring REQUIRED)
+set(GLUTEN_ROARING_LINK_LIBRARY roaring)
 
 set(VELOX_PROTO_SRC_DIR
     ${GLUTEN_HOME}/backends-velox/src/main/resources/org/apache/gluten/proto)
@@ -153,6 +160,12 @@ set(VELOX_SRCS
     compute/VeloxRuntime.cc
     compute/VeloxPlanConverter.cc
     compute/WholeStageResultIterator.cc
+    compute/delta/DeltaConnector.cpp
+    compute/delta/DeltaDataSource.cpp
+    compute/delta/DeltaDeletionVectorReader.cpp
+    compute/delta/DeltaSplit.cpp
+    compute/delta/DeltaSplitReader.cpp
+    compute/delta/RoaringBitmapArray.cpp
     compute/iceberg/IcebergPlanConverter.cc
     jni/JniFileSystem.cc
     jni/JniUdf.cc
@@ -198,6 +211,7 @@ set(VELOX_SRCS
     utils/VeloxWriterUtils.cc)
 
 if(ENABLE_S3)
+  list(APPEND VELOX_SRCS filesystem/GlutenS3FileSystem.cc)
   find_package(ZLIB)
 endif()
 
@@ -230,6 +244,18 @@ if(BUILD_TEST_UTILS)
 endif()
 
 add_library(velox SHARED ${VELOX_SRCS})
+
+# Keep ABI sensitive Velox feature macros in sync
+set(GLUTEN_VELOX_CMAKE_CACHE "${VELOX_BUILD_PATH}/CMakeCache.txt")
+set(GLUTEN_VELOX_ENABLE_PARQUET ${VELOX_ENABLE_PARQUET})
+if(NOT GLUTEN_VELOX_ENABLE_PARQUET AND EXISTS "${GLUTEN_VELOX_CMAKE_CACHE}")
+  file(STRINGS "${GLUTEN_VELOX_CMAKE_CACHE}" GLUTEN_VELOX_ENABLE_PARQUET
+       REGEX "^VELOX_ENABLE_PARQUET:BOOL=(ON|TRUE|1)$")
+endif()
+if(GLUTEN_VELOX_ENABLE_PARQUET)
+  target_compile_definitions(velox PRIVATE VELOX_ENABLE_PARQUET)
+  message(STATUS "Propagating VELOX_ENABLE_PARQUET to Gluten Velox backend")
+endif()
 
 if(ENABLE_GLUTEN_VCPKG AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
   # Hide some symbols to avoid conflict.
@@ -319,6 +345,7 @@ endif()
 target_link_libraries(velox PUBLIC facebook::velox)
 
 target_link_libraries(velox PUBLIC Folly::folly)
+target_link_libraries(velox PUBLIC ${GLUTEN_ROARING_LINK_LIBRARY})
 
 find_re2()
 target_link_libraries(velox PUBLIC ${RE2_LIBRARY})
@@ -382,6 +409,7 @@ find_package(
 target_link_libraries(velox PUBLIC ICU::i18n ICU::uc ICU::data)
 
 if(BUILD_TESTS)
+  add_subdirectory(compute/delta/tests)
   add_subdirectory(tests)
 endif()
 
@@ -435,6 +463,10 @@ if(ENABLE_GPU)
     facebook::velox::velox_cudf_hive_connector
     ${VELOX_BUILD_PATH}/velox/experimental/cudf/connectors/hive/libvelox_cudf_hive_connector.a
   )
+  import_library(
+    facebook::velox::velox_cudf_iceberg_connector
+    ${VELOX_BUILD_PATH}/velox/experimental/cudf/connectors/hive/iceberg/libvelox_cudf_iceberg_connector.a
+  )
 
   target_compile_definitions(
     velox PRIVATE LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE)
@@ -446,9 +478,13 @@ if(ENABLE_GPU)
 
   target_link_libraries(
     velox
-    PUBLIC facebook::velox::velox_cudf_exec facebook::velox::velox_cudf_vector
+    PUBLIC facebook::velox::velox_cudf_exec
+           facebook::velox::velox_cudf_vector
+           facebook::velox::velox_cudf_iceberg_connector
            facebook::velox::velox_cudf_hive_connector
-           facebook::velox::velox_cudf_expression cudf::cudf velox_curl)
+           facebook::velox::velox_cudf_expression
+           cudf::cudf
+           velox_curl)
 endif()
 
 add_custom_command(

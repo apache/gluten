@@ -53,7 +53,7 @@ ${GLUTEN_HOME}/dev/builddeps-veloxbe.sh --build_tests=ON --build_benchmarks=ON -
 
 ```
 cd ${GLUTEN_HOME}
-mvn test -Pspark-3.2 -Pbackends-velox -pl backends-velox \
+mvn test -Pspark-3.5 -Pbackends-velox -pl backends-velox \
 -am -DtagsToInclude="org.apache.gluten.tags.GenerateExample" \
 -Dtest=none -DfailIfNoTests=false \
 -Dexec.skip
@@ -61,7 +61,7 @@ mvn test -Pspark-3.2 -Pbackends-velox -pl backends-velox \
 
 - After the above operations, the example files are generated under `${GLUTEN_HOME}/backends-velox`
 - You can check it by the command `tree ${GLUTEN_HOME}/backends-velox/generated-native-benchmark/`
-- You may replace `-Pspark-3.2` with `-Pspark-3.3` if your spark's version is 3.3
+- You may replace `-Pspark-3.5` with `-Pspark-3.3` or `-Pspark-3.4` for earlier Spark versions
 
 ```shell
 $ tree ${GLUTEN_HOME}/backends-velox/generated-native-benchmark/
@@ -156,14 +156,14 @@ gdb ${GLUTEN_HOME}/cpp/build/releases/libgluten.so 'core-Executor task l-2000883
 Currently, we have no dedicated memory allocator implemented by jemalloc. User can set environment variable `LD_PRELOAD` for lib jemalloc
 to let it override the corresponding C standard functions entirely. It may help alleviate OOM issues.
 
-`spark.executorEnv.LD_PREALOD=/path/to/libjemalloc.so`
+`spark.executorEnv.LD_PRELOAD=/path/to/libjemalloc.so`
 
 # How to run TPC-H on Velox backend
 
 Now, both Parquet and DWRF format files are supported, related scripts and files are under the directory of `${GLUTEN_HOME}/backends-velox/workload/tpch`.
 The file `README.md` under `${GLUTEN_HOME}/backends-velox/workload/tpch` offers some useful help, but it's still not enough and exact.
 
-One way of run TPC-H test is to run velox-be by workflow, you can refer to [velox_backend.yml](https://github.com/apache/incubator-gluten/blob/main/.github/workflows/velox_backend.yml#L280)
+One way of run TPC-H test is to run velox-be by workflow, you can refer to [velox_backend.yml](https://github.com/apache/gluten/blob/main/.github/workflows/velox_backend.yml#L280)
 
 Here we will explain how to run TPC-H on Velox backend with the Parquet file format.
 1. First, prepare the datasets, you have two choices.

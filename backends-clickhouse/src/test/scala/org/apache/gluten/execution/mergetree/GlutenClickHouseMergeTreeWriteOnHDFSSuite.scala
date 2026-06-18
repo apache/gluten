@@ -28,8 +28,11 @@ import org.apache.spark.sql.execution.datasources.mergetree.StorageMeta
 import org.apache.spark.sql.execution.datasources.v2.clickhouse.metadata.AddMergeTreeParts
 import org.apache.spark.sql.types._
 
+import org.scalatest.DoNotDiscover
+
 import scala.concurrent.duration.DurationInt
 
+@DoNotDiscover
 class GlutenClickHouseMergeTreeWriteOnHDFSSuite extends CreateMergeTreeSuite {
 
   override protected def sparkConf: SparkConf = {

@@ -182,7 +182,6 @@ case class GlutenDeltaOptimizedWriterExec(
         logWarning(log"Failed to fetch shuffle blocks for the optimized writer. Retrying", e)
         awaitShuffleMapStage()
         getStats()
-        throw e
     }
   }
 
@@ -235,7 +234,7 @@ case class GlutenDeltaOptimizedWriterExec(
 
   override def batchType(): Convention.BatchType = VeloxBatchType
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 }
 
 /**

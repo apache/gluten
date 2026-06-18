@@ -28,8 +28,8 @@ FROM apache/gluten:vcpkg-centos-7
 
 # Build Gluten Jar
 RUN source /opt/rh/devtoolset-11/enable && \
-    git clone https://github.com/apache/incubator-gluten.git && \
-    cd incubator-gluten && \
+    git clone https://github.com/apache/gluten.git && \
+    cd gluten && \
     ./dev/builddeps-veloxbe.sh --run_setup_script=OFF --enable_s3=ON --enable_gcs=ON --enable_abfs=ON --enable_vcpkg=ON --build_arrow=OFF && \
     mvn clean package -Pbackends-velox -Pceleborn -Piceberg -Pdelta -Pspark-3.4 -DskipTests
 ```
@@ -39,7 +39,7 @@ The command builds Gluten jar in 'glutenimage':
 ```
 docker build -t glutenimage -f dockerfile
 ```
-The gluten jar can be copied from glutenimage:/incubator-gluten/package/target/gluten-velox-bundle-*.jar
+The gluten jar can be copied from glutenimage:/gluten/package/target/gluten-velox-bundle-*.jar
 
 # Dynamic link
 The dynamic link approach needs to install the dependencies libraries. It then dynamically link the .so files into libvelox.so and libgluten.so. Currently, Centos-7/8/9 and
@@ -52,8 +52,8 @@ FROM apache/gluten:centos-8-jdk8
 
 # Build Gluten Jar
 RUN source /opt/rh/devtoolset-11/enable && \
-    git clone https://github.com/apache/incubator-gluten.git && \
-    cd incubator-gluten && \
+    git clone https://github.com/apache/gluten.git && \
+    cd gluten && \
     ./dev/builddeps-veloxbe.sh --run_setup_script=ON --enable_hdfs=ON --enable_vcpkg=OFF --build_arrow=OFF && \
     mvn clean package -Pbackends-velox -Pceleborn -Piceberg -Pdelta -Pspark-3.4 -DskipTests && \
     ./dev/build-thirdparty.sh
@@ -65,4 +65,4 @@ The command builds Gluten jar in 'glutenimage':
 ```
 docker build -t glutenimage -f dockerfile
 ```
-The gluten jar can be copied from glutenimage:/incubator-gluten/package/target/gluten-velox-bundle-*.jar and glutenimage:/incubator-gluten/package/target/gluten-thirdparty-lib-*.jar
+The gluten jar can be copied from glutenimage:/gluten/package/target/gluten-velox-bundle-*.jar and glutenimage:/gluten/package/target/gluten-thirdparty-lib-*.jar

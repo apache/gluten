@@ -18,6 +18,8 @@
 #include "MemoryAllocator.h"
 #include "utils/Macros.h"
 
+#include <limits>
+
 namespace gluten {
 
 bool ListenableMemoryAllocator::allocate(int64_t size, void** out) {
@@ -133,11 +135,12 @@ bool StdMemoryAllocator::allocate(int64_t size, void** out) {
 bool StdMemoryAllocator::allocateZeroFilled(int64_t nmemb, int64_t size, void** out) {
   GLUTEN_CHECK(nmemb >= 0, "nmemb is less than 0");
   GLUTEN_CHECK(size >= 0, "size is less than 0");
+  GLUTEN_CHECK(size == 0 || nmemb <= std::numeric_limits<int64_t>::max() / size, "nmemb * size overflows int64_t");
   *out = std::calloc(nmemb, size);
   if (*out == nullptr) {
     return false;
   }
-  bytes_ += size;
+  bytes_ += nmemb * size;
   return true;
 }
 

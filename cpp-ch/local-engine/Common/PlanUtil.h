@@ -38,7 +38,7 @@ using BuildNamesWithAliases = const std::function<void(const DB::Block &, DB::Na
 
 std::string explainPlan(const DB::QueryPlan & plan);
 void checkOuputType(const DB::QueryPlan & plan);
-DB::IQueryPlanStep * adjustQueryPlanHeader(DB::QueryPlan & plan, const DB::Block & to_header, const std::string & step_desc = "");
+DB::IQueryPlanStep * adjustQueryPlanHeader(DB::QueryPlan & plan, const DB::Block & to_header, const std::string & step_desc = "", const DB::ContextPtr context = nullptr);
 DB::IQueryPlanStep * addRemoveNullableStep(DB::QueryPlan & plan, const DB::ContextPtr & context, const std::set<std::string> & columns);
 DB::IQueryPlanStep *
 renamePlanHeader(DB::QueryPlan & plan, const BuildNamesWithAliases & buildAliases, const std::string & step_desc = "Rename Output");

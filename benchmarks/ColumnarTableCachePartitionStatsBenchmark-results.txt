@@ -1,0 +1,28 @@
+OpenJDK 64-Bit Server VM 17.0.18+8-Ubuntu-124.04.1 on Linux 6.6.87.2-microsoft-standard-WSL2
+AMD EPYC 7763 64-Core Processor
+table cache build:                        Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------
+partitionStats off                               126425         138565       10546          0.8        1264.3       1.0X
+partitionStats on                                131431         137094        7581          0.8        1314.3       1.0X
+
+OpenJDK 64-Bit Server VM 17.0.18+8-Ubuntu-124.04.1 on Linux 6.6.87.2-microsoft-standard-WSL2
+AMD EPYC 7763 64-Core Processor
+table cache filter+agg (high selectivity, ~0.001%):  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------------
+partitionStats off                                           4431           4492          70         22.6          44.3       1.0X
+partitionStats on                                            1744           1777          31         57.3          17.4       2.5X
+
+OpenJDK 64-Bit Server VM 17.0.18+8-Ubuntu-124.04.1 on Linux 6.6.87.2-microsoft-standard-WSL2
+AMD EPYC 7763 64-Core Processor
+table cache filter+agg (low selectivity, ~50%):  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+------------------------------------------------------------------------------------------------------------------------------
+partitionStats off                                       5332           5411          70         18.8          53.3       1.0X
+partitionStats on                                        3392           3446          90         29.5          33.9       1.6X
+
+OpenJDK 64-Bit Server VM 17.0.18+8-Ubuntu-124.04.1 on Linux 6.6.87.2-microsoft-standard-WSL2
+AMD EPYC 7763 64-Core Processor
+table cache filter+agg (point lookup, 1 row):  Best Time(ms)   Avg Time(ms)   Stdev(ms)    Rate(M/s)   Per Row(ns)   Relative
+----------------------------------------------------------------------------------------------------------------------------
+partitionStats off                                     4343           4489         129         23.0          43.4       1.0X
+partitionStats on                                      1686           1709          21         59.3          16.9       2.6X
+

@@ -36,7 +36,7 @@ abstract class ColumnarCollectLimitBaseExec(
 ) extends LimitExec
   with ValidatablePlan {
 
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
 
   override def batchType(): Convention.BatchType =
     BackendsApiManager.getSettings.primaryBatchType

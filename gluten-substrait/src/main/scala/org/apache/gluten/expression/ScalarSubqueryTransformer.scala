@@ -32,7 +32,7 @@ case class ScalarSubqueryTransformer(substraitExprName: String, query: ScalarSub
     if (TransformerState.underValidationState) {
       return ExpressionBuilder.makeLiteral(null, query.dataType, true)
     }
-    // After https://github.com/apache/incubator-gluten/pull/5862, we do not need to execute
+    // After https://github.com/apache/gluten/pull/5862, we do not need to execute
     // subquery manually so the exception behavior is same with vanilla Spark.
     // Note that, this code change is just for simplify. The subquery has already been materialized
     // before doing transform.

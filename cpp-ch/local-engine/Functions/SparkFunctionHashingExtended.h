@@ -347,10 +347,10 @@ private:
         {
             if (!null_map || !(*null_map)[0]) [[likely]]
             {
-                StringRef ref = col_from_fixed->getDataAt(0);
+                std::string_view ref = col_from_fixed->getDataAt(0);
 
                 for (size_t i = 0; i < size; ++i)
-                    vec_to[i] = applyUnsafeBytes(ref.data, ref.size, vec_to[i]);
+                    vec_to[i] = applyUnsafeBytes(ref.data(), ref.size(), vec_to[i]);
             }
         }
     }
@@ -382,10 +382,10 @@ private:
         {
             if (!null_map || !(*null_map)[0]) [[likely]]
             {
-                StringRef ref = col_from->getDataAt(0);
+                std::string_view ref = col_from->getDataAt(0);
 
                 for (size_t i = 0; i < size; ++i)
-                    vec_to[i] = applyUnsafeBytes(ref.data, ref.size, vec_to[i]);
+                    vec_to[i] = applyUnsafeBytes(ref.data(), ref.size(), vec_to[i]);
             }
         }
     }

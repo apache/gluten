@@ -1,0 +1,581 @@
+== Physical Plan ==
+VeloxColumnarToRow (81)
++- TakeOrderedAndProjectExecTransformer (80)
+   +- ^ ProjectExecTransformer (78)
+      +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (77)
+         :- ^ ProjectExecTransformer (36)
+         :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (35)
+         :     :- ^ ProjectExecTransformer (27)
+         :     :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (26)
+         :     :     :- ^ ProjectExecTransformer (19)
+         :     :     :  +- ^ RegularHashAggregateExecTransformer (18)
+         :     :     :     +- ^ InputIteratorTransformer (17)
+         :     :     :        +- ColumnarExchange (15)
+         :     :     :           +- VeloxResizeBatches (14)
+         :     :     :              +- ^ ProjectExecTransformer (12)
+         :     :     :                 +- ^ FlushableHashAggregateExecTransformer (11)
+         :     :     :                    +- ^ ProjectExecTransformer (10)
+         :     :     :                       +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (9)
+         :     :     :                          :- ^ FilterExecTransformer (2)
+         :     :     :                          :  +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (1)
+         :     :     :                          +- ^ InputIteratorTransformer (8)
+         :     :     :                             +- ColumnarBroadcastExchange (6)
+         :     :     :                                +- ^ FilterExecTransformer (4)
+         :     :     :                                   +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (3)
+         :     :     +- ^ InputIteratorTransformer (25)
+         :     :        +- ColumnarBroadcastExchange (23)
+         :     :           +- ^ FilterExecTransformer (21)
+         :     :              +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store (20)
+         :     +- ^ InputIteratorTransformer (34)
+         :        +- ColumnarBroadcastExchange (32)
+         :           +- ^ ProjectExecTransformer (30)
+         :              +- ^ FilterExecTransformer (29)
+         :                 +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (28)
+         +- ^ InputIteratorTransformer (76)
+            +- ColumnarBroadcastExchange (74)
+               +- ^ ProjectExecTransformer (72)
+                  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (71)
+                     :- ^ ProjectExecTransformer (63)
+                     :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (62)
+                     :     :- ^ ProjectExecTransformer (55)
+                     :     :  +- ^ RegularHashAggregateExecTransformer (54)
+                     :     :     +- ^ InputIteratorTransformer (53)
+                     :     :        +- ColumnarExchange (51)
+                     :     :           +- VeloxResizeBatches (50)
+                     :     :              +- ^ ProjectExecTransformer (48)
+                     :     :                 +- ^ FlushableHashAggregateExecTransformer (47)
+                     :     :                    +- ^ ProjectExecTransformer (46)
+                     :     :                       +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (45)
+                     :     :                          :- ^ FilterExecTransformer (38)
+                     :     :                          :  +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store_sales (37)
+                     :     :                          +- ^ InputIteratorTransformer (44)
+                     :     :                             +- ColumnarBroadcastExchange (42)
+                     :     :                                +- ^ FilterExecTransformer (40)
+                     :     :                                   +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (39)
+                     :     +- ^ InputIteratorTransformer (61)
+                     :        +- ColumnarBroadcastExchange (59)
+                     :           +- ^ FilterExecTransformer (57)
+                     :              +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.store (56)
+                     +- ^ InputIteratorTransformer (70)
+                        +- ColumnarBroadcastExchange (68)
+                           +- ^ ProjectExecTransformer (66)
+                              +- ^ FilterExecTransformer (65)
+                                 +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (64)
+
+
+(1) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [3]: [ss_store_sk#1, ss_sales_price#2, ss_sold_date_sk#3]
+Batched: true
+Location: InMemoryFileIndex []
+PartitionFilters: [isnotnull(ss_sold_date_sk#3)]
+PushedFilters: [IsNotNull(ss_store_sk)]
+ReadSchema: struct<ss_store_sk:int,ss_sales_price:decimal(7,2)>
+
+(2) FilterExecTransformer
+Input [3]: [ss_store_sk#1, ss_sales_price#2, ss_sold_date_sk#3]
+Arguments: isnotnull(ss_store_sk#1)
+
+(3) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
+Output [3]: [d_date_sk#4, d_week_seq#5, d_day_name#6]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
+PushedFilters: [IsNotNull(d_date_sk), IsNotNull(d_week_seq)]
+ReadSchema: struct<d_date_sk:int,d_week_seq:int,d_day_name:string>
+
+(4) FilterExecTransformer
+Input [3]: [d_date_sk#4, d_week_seq#5, d_day_name#6]
+Arguments: ((isnotnull(d_date_sk#4) AND isnotnull(d_week_seq#5)) AND velox_might_contain(Subquery scalar-subquery#7, [id=#1], xxhash64(d_week_seq#5, 42)))
+
+(5) WholeStageCodegenTransformer (3)
+Input [3]: [d_date_sk#4, d_week_seq#5, d_day_name#6]
+Arguments: false
+
+(6) ColumnarBroadcastExchange
+Input [3]: [d_date_sk#4, d_week_seq#5, d_day_name#6]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, false] as bigint)),false), [plan_id=2]
+
+(7) InputAdapter
+Input [3]: [d_date_sk#4, d_week_seq#5, d_day_name#6]
+
+(8) InputIteratorTransformer
+Input [3]: [d_date_sk#4, d_week_seq#5, d_day_name#6]
+
+(9) BroadcastHashJoinExecTransformer
+Left keys [1]: [ss_sold_date_sk#3]
+Right keys [1]: [d_date_sk#4]
+Join type: Inner
+Join condition: None
+
+(10) ProjectExecTransformer
+Output [9]: [ss_store_sk#1, d_week_seq#5, UnscaledValue(CASE WHEN (d_day_name#6 = Sunday   ) THEN ss_sales_price#2 END) AS _pre_1#8, UnscaledValue(CASE WHEN (d_day_name#6 = Monday   ) THEN ss_sales_price#2 END) AS _pre_2#9, UnscaledValue(CASE WHEN (d_day_name#6 = Tuesday  ) THEN ss_sales_price#2 END) AS _pre_3#10, UnscaledValue(CASE WHEN (d_day_name#6 = Wednesday) THEN ss_sales_price#2 END) AS _pre_4#11, UnscaledValue(CASE WHEN (d_day_name#6 = Thursday ) THEN ss_sales_price#2 END) AS _pre_5#12, UnscaledValue(CASE WHEN (d_day_name#6 = Friday   ) THEN ss_sales_price#2 END) AS _pre_6#13, UnscaledValue(CASE WHEN (d_day_name#6 = Saturday ) THEN ss_sales_price#2 END) AS _pre_7#14]
+Input [6]: [ss_store_sk#1, ss_sales_price#2, ss_sold_date_sk#3, d_date_sk#4, d_week_seq#5, d_day_name#6]
+
+(11) FlushableHashAggregateExecTransformer
+Input [9]: [ss_store_sk#1, d_week_seq#5, _pre_1#8, _pre_2#9, _pre_3#10, _pre_4#11, _pre_5#12, _pre_6#13, _pre_7#14]
+Keys [2]: [d_week_seq#5, ss_store_sk#1]
+Functions [7]: [partial_sum(_pre_1#8), partial_sum(_pre_2#9), partial_sum(_pre_3#10), partial_sum(_pre_4#11), partial_sum(_pre_5#12), partial_sum(_pre_6#13), partial_sum(_pre_7#14)]
+Aggregate Attributes [7]: [sum#15, sum#16, sum#17, sum#18, sum#19, sum#20, sum#21]
+Results [9]: [d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
+
+(12) ProjectExecTransformer
+Output [10]: [hash(d_week_seq#5, ss_store_sk#1, 42) AS hash_partition_key#29, d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
+Input [9]: [d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
+
+(13) WholeStageCodegenTransformer (4)
+Input [10]: [hash_partition_key#29, d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
+Arguments: false
+
+(14) VeloxResizeBatches
+Input [10]: [hash_partition_key#29, d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
+Arguments: 1024, 2147483647, 10485760
+
+(15) ColumnarExchange
+Input [10]: [hash_partition_key#29, d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
+Arguments: hashpartitioning(d_week_seq#5, ss_store_sk#1, 1), ENSURE_REQUIREMENTS, [d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28], [plan_id=3], [shuffle_writer_type=hash]
+
+(16) InputAdapter
+Input [9]: [d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
+
+(17) InputIteratorTransformer
+Input [9]: [d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
+
+(18) RegularHashAggregateExecTransformer
+Input [9]: [d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
+Keys [2]: [d_week_seq#5, ss_store_sk#1]
+Functions [7]: [sum(UnscaledValue(CASE WHEN (d_day_name#6 = Sunday   ) THEN ss_sales_price#2 END)), sum(UnscaledValue(CASE WHEN (d_day_name#6 = Monday   ) THEN ss_sales_price#2 END)), sum(UnscaledValue(CASE WHEN (d_day_name#6 = Tuesday  ) THEN ss_sales_price#2 END)), sum(UnscaledValue(CASE WHEN (d_day_name#6 = Wednesday) THEN ss_sales_price#2 END)), sum(UnscaledValue(CASE WHEN (d_day_name#6 = Thursday ) THEN ss_sales_price#2 END)), sum(UnscaledValue(CASE WHEN (d_day_name#6 = Friday   ) THEN ss_sales_price#2 END)), sum(UnscaledValue(CASE WHEN (d_day_name#6 = Saturday ) THEN ss_sales_price#2 END))]
+Aggregate Attributes [7]: [sum(UnscaledValue(CASE WHEN (d_day_name#6 = Sunday   ) THEN ss_sales_price#2 END))#30, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Monday   ) THEN ss_sales_price#2 END))#31, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Tuesday  ) THEN ss_sales_price#2 END))#32, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Wednesday) THEN ss_sales_price#2 END))#33, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Thursday ) THEN ss_sales_price#2 END))#34, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Friday   ) THEN ss_sales_price#2 END))#35, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Saturday ) THEN ss_sales_price#2 END))#36]
+Results [9]: [d_week_seq#5, ss_store_sk#1, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Sunday   ) THEN ss_sales_price#2 END))#30, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Monday   ) THEN ss_sales_price#2 END))#31, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Tuesday  ) THEN ss_sales_price#2 END))#32, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Wednesday) THEN ss_sales_price#2 END))#33, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Thursday ) THEN ss_sales_price#2 END))#34, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Friday   ) THEN ss_sales_price#2 END))#35, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Saturday ) THEN ss_sales_price#2 END))#36]
+
+(19) ProjectExecTransformer
+Output [9]: [d_week_seq#5, ss_store_sk#1, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#6 = Sunday   ) THEN ss_sales_price#2 END))#30,17,2) AS sun_sales#37, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#6 = Monday   ) THEN ss_sales_price#2 END))#31,17,2) AS mon_sales#38, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#6 = Tuesday  ) THEN ss_sales_price#2 END))#32,17,2) AS tue_sales#39, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#6 = Wednesday) THEN ss_sales_price#2 END))#33,17,2) AS wed_sales#40, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#6 = Thursday ) THEN ss_sales_price#2 END))#34,17,2) AS thu_sales#41, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#6 = Friday   ) THEN ss_sales_price#2 END))#35,17,2) AS fri_sales#42, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#6 = Saturday ) THEN ss_sales_price#2 END))#36,17,2) AS sat_sales#43]
+Input [9]: [d_week_seq#5, ss_store_sk#1, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Sunday   ) THEN ss_sales_price#2 END))#30, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Monday   ) THEN ss_sales_price#2 END))#31, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Tuesday  ) THEN ss_sales_price#2 END))#32, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Wednesday) THEN ss_sales_price#2 END))#33, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Thursday ) THEN ss_sales_price#2 END))#34, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Friday   ) THEN ss_sales_price#2 END))#35, sum(UnscaledValue(CASE WHEN (d_day_name#6 = Saturday ) THEN ss_sales_price#2 END))#36]
+
+(20) FileSourceScanExecTransformer parquet spark_catalog.default.store
+Output [3]: [s_store_sk#44, s_store_id#45, s_store_name#46]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/store]
+PushedFilters: [IsNotNull(s_store_sk), IsNotNull(s_store_id)]
+ReadSchema: struct<s_store_sk:int,s_store_id:string,s_store_name:string>
+
+(21) FilterExecTransformer
+Input [3]: [s_store_sk#44, s_store_id#45, s_store_name#46]
+Arguments: (isnotnull(s_store_sk#44) AND isnotnull(s_store_id#45))
+
+(22) WholeStageCodegenTransformer (5)
+Input [3]: [s_store_sk#44, s_store_id#45, s_store_name#46]
+Arguments: false
+
+(23) ColumnarBroadcastExchange
+Input [3]: [s_store_sk#44, s_store_id#45, s_store_name#46]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, false] as bigint)),false), [plan_id=4]
+
+(24) InputAdapter
+Input [3]: [s_store_sk#44, s_store_id#45, s_store_name#46]
+
+(25) InputIteratorTransformer
+Input [3]: [s_store_sk#44, s_store_id#45, s_store_name#46]
+
+(26) BroadcastHashJoinExecTransformer
+Left keys [1]: [ss_store_sk#1]
+Right keys [1]: [s_store_sk#44]
+Join type: Inner
+Join condition: None
+
+(27) ProjectExecTransformer
+Output [10]: [d_week_seq#5, sun_sales#37, mon_sales#38, tue_sales#39, wed_sales#40, thu_sales#41, fri_sales#42, sat_sales#43, s_store_id#45, s_store_name#46]
+Input [12]: [d_week_seq#5, ss_store_sk#1, sun_sales#37, mon_sales#38, tue_sales#39, wed_sales#40, thu_sales#41, fri_sales#42, sat_sales#43, s_store_sk#44, s_store_id#45, s_store_name#46]
+
+(28) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
+Output [2]: [d_month_seq#47, d_week_seq#48]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
+PushedFilters: [IsNotNull(d_month_seq), GreaterThanOrEqual(d_month_seq,1212), LessThanOrEqual(d_month_seq,1223), IsNotNull(d_week_seq)]
+ReadSchema: struct<d_month_seq:int,d_week_seq:int>
+
+(29) FilterExecTransformer
+Input [2]: [d_month_seq#47, d_week_seq#48]
+Arguments: (((isnotnull(d_month_seq#47) AND (d_month_seq#47 >= 1212)) AND (d_month_seq#47 <= 1223)) AND isnotnull(d_week_seq#48))
+
+(30) ProjectExecTransformer
+Output [1]: [d_week_seq#48]
+Input [2]: [d_month_seq#47, d_week_seq#48]
+
+(31) WholeStageCodegenTransformer (6)
+Input [1]: [d_week_seq#48]
+Arguments: false
+
+(32) ColumnarBroadcastExchange
+Input [1]: [d_week_seq#48]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=5]
+
+(33) InputAdapter
+Input [1]: [d_week_seq#48]
+
+(34) InputIteratorTransformer
+Input [1]: [d_week_seq#48]
+
+(35) BroadcastHashJoinExecTransformer
+Left keys [1]: [d_week_seq#5]
+Right keys [1]: [d_week_seq#48]
+Join type: Inner
+Join condition: None
+
+(36) ProjectExecTransformer
+Output [10]: [s_store_name#46 AS s_store_name1#49, d_week_seq#5 AS d_week_seq1#50, s_store_id#45 AS s_store_id1#51, sun_sales#37 AS sun_sales1#52, mon_sales#38 AS mon_sales1#53, tue_sales#39 AS tue_sales1#54, wed_sales#40 AS wed_sales1#55, thu_sales#41 AS thu_sales1#56, fri_sales#42 AS fri_sales1#57, sat_sales#43 AS sat_sales1#58]
+Input [11]: [d_week_seq#5, sun_sales#37, mon_sales#38, tue_sales#39, wed_sales#40, thu_sales#41, fri_sales#42, sat_sales#43, s_store_id#45, s_store_name#46, d_week_seq#48]
+
+(37) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
+Output [3]: [ss_store_sk#59, ss_sales_price#60, ss_sold_date_sk#61]
+Batched: true
+Location: InMemoryFileIndex []
+PartitionFilters: [isnotnull(ss_sold_date_sk#61)]
+PushedFilters: [IsNotNull(ss_store_sk)]
+ReadSchema: struct<ss_store_sk:int,ss_sales_price:decimal(7,2)>
+
+(38) FilterExecTransformer
+Input [3]: [ss_store_sk#59, ss_sales_price#60, ss_sold_date_sk#61]
+Arguments: isnotnull(ss_store_sk#59)
+
+(39) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
+Output [3]: [d_date_sk#62, d_week_seq#63, d_day_name#64]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
+PushedFilters: [IsNotNull(d_date_sk), IsNotNull(d_week_seq)]
+ReadSchema: struct<d_date_sk:int,d_week_seq:int,d_day_name:string>
+
+(40) FilterExecTransformer
+Input [3]: [d_date_sk#62, d_week_seq#63, d_day_name#64]
+Arguments: ((isnotnull(d_date_sk#62) AND isnotnull(d_week_seq#63)) AND velox_might_contain(Subquery scalar-subquery#65, [id=#6], xxhash64(d_week_seq#63, 42)))
+
+(41) WholeStageCodegenTransformer (9)
+Input [3]: [d_date_sk#62, d_week_seq#63, d_day_name#64]
+Arguments: false
+
+(42) ColumnarBroadcastExchange
+Input [3]: [d_date_sk#62, d_week_seq#63, d_day_name#64]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, false] as bigint)),false), [plan_id=7]
+
+(43) InputAdapter
+Input [3]: [d_date_sk#62, d_week_seq#63, d_day_name#64]
+
+(44) InputIteratorTransformer
+Input [3]: [d_date_sk#62, d_week_seq#63, d_day_name#64]
+
+(45) BroadcastHashJoinExecTransformer
+Left keys [1]: [ss_sold_date_sk#61]
+Right keys [1]: [d_date_sk#62]
+Join type: Inner
+Join condition: None
+
+(46) ProjectExecTransformer
+Output [9]: [ss_store_sk#59, d_week_seq#63, UnscaledValue(CASE WHEN (d_day_name#64 = Sunday   ) THEN ss_sales_price#60 END) AS _pre_8#66, UnscaledValue(CASE WHEN (d_day_name#64 = Monday   ) THEN ss_sales_price#60 END) AS _pre_9#67, UnscaledValue(CASE WHEN (d_day_name#64 = Tuesday  ) THEN ss_sales_price#60 END) AS _pre_10#68, UnscaledValue(CASE WHEN (d_day_name#64 = Wednesday) THEN ss_sales_price#60 END) AS _pre_11#69, UnscaledValue(CASE WHEN (d_day_name#64 = Thursday ) THEN ss_sales_price#60 END) AS _pre_12#70, UnscaledValue(CASE WHEN (d_day_name#64 = Friday   ) THEN ss_sales_price#60 END) AS _pre_13#71, UnscaledValue(CASE WHEN (d_day_name#64 = Saturday ) THEN ss_sales_price#60 END) AS _pre_14#72]
+Input [6]: [ss_store_sk#59, ss_sales_price#60, ss_sold_date_sk#61, d_date_sk#62, d_week_seq#63, d_day_name#64]
+
+(47) FlushableHashAggregateExecTransformer
+Input [9]: [ss_store_sk#59, d_week_seq#63, _pre_8#66, _pre_9#67, _pre_10#68, _pre_11#69, _pre_12#70, _pre_13#71, _pre_14#72]
+Keys [2]: [d_week_seq#63, ss_store_sk#59]
+Functions [7]: [partial_sum(_pre_8#66), partial_sum(_pre_9#67), partial_sum(_pre_10#68), partial_sum(_pre_11#69), partial_sum(_pre_12#70), partial_sum(_pre_13#71), partial_sum(_pre_14#72)]
+Aggregate Attributes [7]: [sum#73, sum#74, sum#75, sum#76, sum#77, sum#78, sum#79]
+Results [9]: [d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
+
+(48) ProjectExecTransformer
+Output [10]: [hash(d_week_seq#63, ss_store_sk#59, 42) AS hash_partition_key#87, d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
+Input [9]: [d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
+
+(49) WholeStageCodegenTransformer (10)
+Input [10]: [hash_partition_key#87, d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
+Arguments: false
+
+(50) VeloxResizeBatches
+Input [10]: [hash_partition_key#87, d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
+Arguments: 1024, 2147483647, 10485760
+
+(51) ColumnarExchange
+Input [10]: [hash_partition_key#87, d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
+Arguments: hashpartitioning(d_week_seq#63, ss_store_sk#59, 1), ENSURE_REQUIREMENTS, [d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86], [plan_id=8], [shuffle_writer_type=hash]
+
+(52) InputAdapter
+Input [9]: [d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
+
+(53) InputIteratorTransformer
+Input [9]: [d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
+
+(54) RegularHashAggregateExecTransformer
+Input [9]: [d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
+Keys [2]: [d_week_seq#63, ss_store_sk#59]
+Functions [7]: [sum(UnscaledValue(CASE WHEN (d_day_name#64 = Sunday   ) THEN ss_sales_price#60 END)), sum(UnscaledValue(CASE WHEN (d_day_name#64 = Monday   ) THEN ss_sales_price#60 END)), sum(UnscaledValue(CASE WHEN (d_day_name#64 = Tuesday  ) THEN ss_sales_price#60 END)), sum(UnscaledValue(CASE WHEN (d_day_name#64 = Wednesday) THEN ss_sales_price#60 END)), sum(UnscaledValue(CASE WHEN (d_day_name#64 = Thursday ) THEN ss_sales_price#60 END)), sum(UnscaledValue(CASE WHEN (d_day_name#64 = Friday   ) THEN ss_sales_price#60 END)), sum(UnscaledValue(CASE WHEN (d_day_name#64 = Saturday ) THEN ss_sales_price#60 END))]
+Aggregate Attributes [7]: [sum(UnscaledValue(CASE WHEN (d_day_name#64 = Sunday   ) THEN ss_sales_price#60 END))#30, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Monday   ) THEN ss_sales_price#60 END))#31, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Tuesday  ) THEN ss_sales_price#60 END))#32, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Wednesday) THEN ss_sales_price#60 END))#33, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Thursday ) THEN ss_sales_price#60 END))#34, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Friday   ) THEN ss_sales_price#60 END))#35, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Saturday ) THEN ss_sales_price#60 END))#36]
+Results [9]: [d_week_seq#63, ss_store_sk#59, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Sunday   ) THEN ss_sales_price#60 END))#30, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Monday   ) THEN ss_sales_price#60 END))#31, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Tuesday  ) THEN ss_sales_price#60 END))#32, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Wednesday) THEN ss_sales_price#60 END))#33, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Thursday ) THEN ss_sales_price#60 END))#34, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Friday   ) THEN ss_sales_price#60 END))#35, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Saturday ) THEN ss_sales_price#60 END))#36]
+
+(55) ProjectExecTransformer
+Output [9]: [d_week_seq#63, ss_store_sk#59, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#64 = Sunday   ) THEN ss_sales_price#60 END))#30,17,2) AS sun_sales#88, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#64 = Monday   ) THEN ss_sales_price#60 END))#31,17,2) AS mon_sales#89, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#64 = Tuesday  ) THEN ss_sales_price#60 END))#32,17,2) AS tue_sales#90, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#64 = Wednesday) THEN ss_sales_price#60 END))#33,17,2) AS wed_sales#91, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#64 = Thursday ) THEN ss_sales_price#60 END))#34,17,2) AS thu_sales#92, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#64 = Friday   ) THEN ss_sales_price#60 END))#35,17,2) AS fri_sales#93, MakeDecimal(sum(UnscaledValue(CASE WHEN (d_day_name#64 = Saturday ) THEN ss_sales_price#60 END))#36,17,2) AS sat_sales#94]
+Input [9]: [d_week_seq#63, ss_store_sk#59, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Sunday   ) THEN ss_sales_price#60 END))#30, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Monday   ) THEN ss_sales_price#60 END))#31, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Tuesday  ) THEN ss_sales_price#60 END))#32, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Wednesday) THEN ss_sales_price#60 END))#33, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Thursday ) THEN ss_sales_price#60 END))#34, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Friday   ) THEN ss_sales_price#60 END))#35, sum(UnscaledValue(CASE WHEN (d_day_name#64 = Saturday ) THEN ss_sales_price#60 END))#36]
+
+(56) FileSourceScanExecTransformer parquet spark_catalog.default.store
+Output [2]: [s_store_sk#95, s_store_id#96]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/store]
+PushedFilters: [IsNotNull(s_store_sk), IsNotNull(s_store_id)]
+ReadSchema: struct<s_store_sk:int,s_store_id:string>
+
+(57) FilterExecTransformer
+Input [2]: [s_store_sk#95, s_store_id#96]
+Arguments: (isnotnull(s_store_sk#95) AND isnotnull(s_store_id#96))
+
+(58) WholeStageCodegenTransformer (11)
+Input [2]: [s_store_sk#95, s_store_id#96]
+Arguments: false
+
+(59) ColumnarBroadcastExchange
+Input [2]: [s_store_sk#95, s_store_id#96]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, false] as bigint)),false), [plan_id=9]
+
+(60) InputAdapter
+Input [2]: [s_store_sk#95, s_store_id#96]
+
+(61) InputIteratorTransformer
+Input [2]: [s_store_sk#95, s_store_id#96]
+
+(62) BroadcastHashJoinExecTransformer
+Left keys [1]: [ss_store_sk#59]
+Right keys [1]: [s_store_sk#95]
+Join type: Inner
+Join condition: None
+
+(63) ProjectExecTransformer
+Output [9]: [d_week_seq#63, sun_sales#88, mon_sales#89, tue_sales#90, wed_sales#91, thu_sales#92, fri_sales#93, sat_sales#94, s_store_id#96]
+Input [11]: [d_week_seq#63, ss_store_sk#59, sun_sales#88, mon_sales#89, tue_sales#90, wed_sales#91, thu_sales#92, fri_sales#93, sat_sales#94, s_store_sk#95, s_store_id#96]
+
+(64) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
+Output [2]: [d_month_seq#97, d_week_seq#98]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
+PushedFilters: [IsNotNull(d_month_seq), GreaterThanOrEqual(d_month_seq,1224), LessThanOrEqual(d_month_seq,1235), IsNotNull(d_week_seq)]
+ReadSchema: struct<d_month_seq:int,d_week_seq:int>
+
+(65) FilterExecTransformer
+Input [2]: [d_month_seq#97, d_week_seq#98]
+Arguments: (((isnotnull(d_month_seq#97) AND (d_month_seq#97 >= 1224)) AND (d_month_seq#97 <= 1235)) AND isnotnull(d_week_seq#98))
+
+(66) ProjectExecTransformer
+Output [1]: [d_week_seq#98]
+Input [2]: [d_month_seq#97, d_week_seq#98]
+
+(67) WholeStageCodegenTransformer (12)
+Input [1]: [d_week_seq#98]
+Arguments: false
+
+(68) ColumnarBroadcastExchange
+Input [1]: [d_week_seq#98]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=10]
+
+(69) InputAdapter
+Input [1]: [d_week_seq#98]
+
+(70) InputIteratorTransformer
+Input [1]: [d_week_seq#98]
+
+(71) BroadcastHashJoinExecTransformer
+Left keys [1]: [d_week_seq#63]
+Right keys [1]: [d_week_seq#98]
+Join type: Inner
+Join condition: None
+
+(72) ProjectExecTransformer
+Output [9]: [d_week_seq#63 AS d_week_seq2#99, s_store_id#96 AS s_store_id2#100, sun_sales#88 AS sun_sales2#101, mon_sales#89 AS mon_sales2#102, tue_sales#90 AS tue_sales2#103, wed_sales#91 AS wed_sales2#104, thu_sales#92 AS thu_sales2#105, fri_sales#93 AS fri_sales2#106, sat_sales#94 AS sat_sales2#107]
+Input [10]: [d_week_seq#63, sun_sales#88, mon_sales#89, tue_sales#90, wed_sales#91, thu_sales#92, fri_sales#93, sat_sales#94, s_store_id#96, d_week_seq#98]
+
+(73) WholeStageCodegenTransformer (13)
+Input [9]: [d_week_seq2#99, s_store_id2#100, sun_sales2#101, mon_sales2#102, tue_sales2#103, wed_sales2#104, thu_sales2#105, fri_sales2#106, sat_sales2#107]
+Arguments: false
+
+(74) ColumnarBroadcastExchange
+Input [9]: [d_week_seq2#99, s_store_id2#100, sun_sales2#101, mon_sales2#102, tue_sales2#103, wed_sales2#104, thu_sales2#105, fri_sales2#106, sat_sales2#107]
+Arguments: HashedRelationBroadcastMode(List(input[1, string, true], (input[0, int, true] - 52)),false), [plan_id=11]
+
+(75) InputAdapter
+Input [9]: [d_week_seq2#99, s_store_id2#100, sun_sales2#101, mon_sales2#102, tue_sales2#103, wed_sales2#104, thu_sales2#105, fri_sales2#106, sat_sales2#107]
+
+(76) InputIteratorTransformer
+Input [9]: [d_week_seq2#99, s_store_id2#100, sun_sales2#101, mon_sales2#102, tue_sales2#103, wed_sales2#104, thu_sales2#105, fri_sales2#106, sat_sales2#107]
+
+(77) BroadcastHashJoinExecTransformer
+Left keys [2]: [s_store_id1#51, d_week_seq1#50]
+Right keys [2]: [s_store_id2#100, (d_week_seq2#99 - 52)]
+Join type: Inner
+Join condition: None
+
+(78) ProjectExecTransformer
+Output [10]: [s_store_name1#49, s_store_id1#51, d_week_seq1#50, (sun_sales1#52 / sun_sales2#101) AS (sun_sales1 / sun_sales2)#108, (mon_sales1#53 / mon_sales2#102) AS (mon_sales1 / mon_sales2)#109, (tue_sales1#54 / tue_sales2#103) AS (tue_sales1 / tue_sales2)#110, (wed_sales1#55 / wed_sales2#104) AS (wed_sales1 / wed_sales2)#111, (thu_sales1#56 / thu_sales2#105) AS (thu_sales1 / thu_sales2)#112, (fri_sales1#57 / fri_sales2#106) AS (fri_sales1 / fri_sales2)#113, (sat_sales1#58 / sat_sales2#107) AS (sat_sales1 / sat_sales2)#114]
+Input [19]: [s_store_name1#49, d_week_seq1#50, s_store_id1#51, sun_sales1#52, mon_sales1#53, tue_sales1#54, wed_sales1#55, thu_sales1#56, fri_sales1#57, sat_sales1#58, d_week_seq2#99, s_store_id2#100, sun_sales2#101, mon_sales2#102, tue_sales2#103, wed_sales2#104, thu_sales2#105, fri_sales2#106, sat_sales2#107]
+
+(79) WholeStageCodegenTransformer (14)
+Input [10]: [s_store_name1#49, s_store_id1#51, d_week_seq1#50, (sun_sales1 / sun_sales2)#108, (mon_sales1 / mon_sales2)#109, (tue_sales1 / tue_sales2)#110, (wed_sales1 / wed_sales2)#111, (thu_sales1 / thu_sales2)#112, (fri_sales1 / fri_sales2)#113, (sat_sales1 / sat_sales2)#114]
+Arguments: false
+
+(80) TakeOrderedAndProjectExecTransformer
+Input [10]: [s_store_name1#49, s_store_id1#51, d_week_seq1#50, (sun_sales1 / sun_sales2)#108, (mon_sales1 / mon_sales2)#109, (tue_sales1 / tue_sales2)#110, (wed_sales1 / wed_sales2)#111, (thu_sales1 / thu_sales2)#112, (fri_sales1 / fri_sales2)#113, (sat_sales1 / sat_sales2)#114]
+Arguments: 100, [s_store_name1#49 ASC NULLS FIRST, s_store_id1#51 ASC NULLS FIRST, d_week_seq1#50 ASC NULLS FIRST], [s_store_name1#49, s_store_id1#51, d_week_seq1#50, (sun_sales1 / sun_sales2)#108, (mon_sales1 / mon_sales2)#109, (tue_sales1 / tue_sales2)#110, (wed_sales1 / wed_sales2)#111, (thu_sales1 / thu_sales2)#112, (fri_sales1 / fri_sales2)#113, (sat_sales1 / sat_sales2)#114], 0
+
+(81) VeloxColumnarToRow
+Input [10]: [s_store_name1#49, s_store_id1#51, d_week_seq1#50, (sun_sales1 / sun_sales2)#108, (mon_sales1 / mon_sales2)#109, (tue_sales1 / tue_sales2)#110, (wed_sales1 / wed_sales2)#111, (thu_sales1 / thu_sales2)#112, (fri_sales1 / fri_sales2)#113, (sat_sales1 / sat_sales2)#114]
+
+===== Subqueries =====
+
+Subquery:1 Hosting operator id = 4 Hosting Expression = Subquery scalar-subquery#7, [id=#1]
+VeloxColumnarToRow (93)
++- ^ RegularHashAggregateExecTransformer (91)
+   +- ^ InputIteratorTransformer (90)
+      +- ColumnarExchange (88)
+         +- VeloxResizeBatches (87)
+            +- ^ FlushableHashAggregateExecTransformer (85)
+               +- ^ ProjectExecTransformer (84)
+                  +- ^ FilterExecTransformer (83)
+                     +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (82)
+
+
+(82) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
+Output [2]: [d_month_seq#47, d_week_seq#48]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
+PushedFilters: [IsNotNull(d_month_seq), GreaterThanOrEqual(d_month_seq,1212), LessThanOrEqual(d_month_seq,1223), IsNotNull(d_week_seq)]
+ReadSchema: struct<d_month_seq:int,d_week_seq:int>
+
+(83) FilterExecTransformer
+Input [2]: [d_month_seq#47, d_week_seq#48]
+Arguments: (((isnotnull(d_month_seq#47) AND (d_month_seq#47 >= 1212)) AND (d_month_seq#47 <= 1223)) AND isnotnull(d_week_seq#48))
+
+(84) ProjectExecTransformer
+Output [1]: [xxhash64(d_week_seq#48, 42) AS _pre_15#115]
+Input [2]: [d_month_seq#47, d_week_seq#48]
+
+(85) FlushableHashAggregateExecTransformer
+Input [1]: [_pre_15#115]
+Keys: []
+Functions [1]: [partial_velox_bloom_filter_agg(_pre_15#115, 335, 8990, 0, 0)]
+Aggregate Attributes [1]: [buf#116]
+Results [1]: [buf#117]
+
+(86) WholeStageCodegenTransformer (1)
+Input [1]: [buf#117]
+Arguments: false
+
+(87) VeloxResizeBatches
+Input [1]: [buf#117]
+Arguments: 1024, 2147483647, 10485760
+
+(88) ColumnarExchange
+Input [1]: [buf#117]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=12], [shuffle_writer_type=hash]
+
+(89) InputAdapter
+Input [1]: [buf#117]
+
+(90) InputIteratorTransformer
+Input [1]: [buf#117]
+
+(91) RegularHashAggregateExecTransformer
+Input [1]: [buf#117]
+Keys: []
+Functions [1]: [velox_bloom_filter_agg(xxhash64(d_week_seq#48, 42), 335, 8990, 0, 0)]
+Aggregate Attributes [1]: [bloom_filter_agg(xxhash64(d_week_seq#48, 42), 335, 8990, 0, 0)#118]
+Results [1]: [bloom_filter_agg(xxhash64(d_week_seq#48, 42), 335, 8990, 0, 0)#118 AS bloomFilter#119]
+
+(92) WholeStageCodegenTransformer (2)
+Input [1]: [bloomFilter#119]
+Arguments: false
+
+(93) VeloxColumnarToRow
+Input [1]: [bloomFilter#119]
+
+Subquery:2 Hosting operator id = 3 Hosting Expression = Subquery scalar-subquery#7, [id=#1]
+VeloxColumnarToRow (93)
++- ^ RegularHashAggregateExecTransformer (91)
+   +- ^ InputIteratorTransformer (90)
+      +- ColumnarExchange (88)
+         +- VeloxResizeBatches (87)
+            +- ^ FlushableHashAggregateExecTransformer (85)
+               +- ^ ProjectExecTransformer (84)
+                  +- ^ FilterExecTransformer (83)
+                     +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (82)
+
+
+Subquery:3 Hosting operator id = 40 Hosting Expression = Subquery scalar-subquery#65, [id=#6]
+VeloxColumnarToRow (105)
++- ^ RegularHashAggregateExecTransformer (103)
+   +- ^ InputIteratorTransformer (102)
+      +- ColumnarExchange (100)
+         +- VeloxResizeBatches (99)
+            +- ^ FlushableHashAggregateExecTransformer (97)
+               +- ^ ProjectExecTransformer (96)
+                  +- ^ FilterExecTransformer (95)
+                     +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (94)
+
+
+(94) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
+Output [2]: [d_month_seq#97, d_week_seq#98]
+Batched: true
+Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
+PushedFilters: [IsNotNull(d_month_seq), GreaterThanOrEqual(d_month_seq,1224), LessThanOrEqual(d_month_seq,1235), IsNotNull(d_week_seq)]
+ReadSchema: struct<d_month_seq:int,d_week_seq:int>
+
+(95) FilterExecTransformer
+Input [2]: [d_month_seq#97, d_week_seq#98]
+Arguments: (((isnotnull(d_month_seq#97) AND (d_month_seq#97 >= 1224)) AND (d_month_seq#97 <= 1235)) AND isnotnull(d_week_seq#98))
+
+(96) ProjectExecTransformer
+Output [1]: [xxhash64(d_week_seq#98, 42) AS _pre_16#120]
+Input [2]: [d_month_seq#97, d_week_seq#98]
+
+(97) FlushableHashAggregateExecTransformer
+Input [1]: [_pre_16#120]
+Keys: []
+Functions [1]: [partial_velox_bloom_filter_agg(_pre_16#120, 335, 8990, 0, 0)]
+Aggregate Attributes [1]: [buf#121]
+Results [1]: [buf#122]
+
+(98) WholeStageCodegenTransformer (7)
+Input [1]: [buf#122]
+Arguments: false
+
+(99) VeloxResizeBatches
+Input [1]: [buf#122]
+Arguments: 1024, 2147483647, 10485760
+
+(100) ColumnarExchange
+Input [1]: [buf#122]
+Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=13], [shuffle_writer_type=hash]
+
+(101) InputAdapter
+Input [1]: [buf#122]
+
+(102) InputIteratorTransformer
+Input [1]: [buf#122]
+
+(103) RegularHashAggregateExecTransformer
+Input [1]: [buf#122]
+Keys: []
+Functions [1]: [velox_bloom_filter_agg(xxhash64(d_week_seq#98, 42), 335, 8990, 0, 0)]
+Aggregate Attributes [1]: [bloom_filter_agg(xxhash64(d_week_seq#98, 42), 335, 8990, 0, 0)#123]
+Results [1]: [bloom_filter_agg(xxhash64(d_week_seq#98, 42), 335, 8990, 0, 0)#123 AS bloomFilter#124]
+
+(104) WholeStageCodegenTransformer (8)
+Input [1]: [bloomFilter#124]
+Arguments: false
+
+(105) VeloxColumnarToRow
+Input [1]: [bloomFilter#124]
+
+Subquery:4 Hosting operator id = 39 Hosting Expression = Subquery scalar-subquery#65, [id=#6]
+VeloxColumnarToRow (105)
++- ^ RegularHashAggregateExecTransformer (103)
+   +- ^ InputIteratorTransformer (102)
+      +- ColumnarExchange (100)
+         +- VeloxResizeBatches (99)
+            +- ^ FlushableHashAggregateExecTransformer (97)
+               +- ^ ProjectExecTransformer (96)
+                  +- ^ FilterExecTransformer (95)
+                     +- ^ FileSourceScanExecTransformer parquet spark_catalog.default.date_dim (94)
+
+
+

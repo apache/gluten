@@ -16,6 +16,6 @@
  */
 package org.apache.spark.sql.catalyst.expressions.aggregate
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-class GlutenAggregateExpressionSuite extends AggregateExpressionSuite with GlutenTestsCommonTrait {}
+class GlutenAggregateExpressionSuite extends AggregateExpressionSuite with GlutenTestsTrait {}

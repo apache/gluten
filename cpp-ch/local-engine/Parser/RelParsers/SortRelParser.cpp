@@ -45,8 +45,7 @@ SortRelParser::parse(DB::QueryPlanPtr query_plan, const substrait::Rel & rel, st
     auto sort_descr = parseSortFields(*query_plan->getCurrentHeader(), sort_rel.sorts());
     SortingStep::Settings settings(getContext()->getSettingsRef());
     auto config = MemoryConfig::loadFromContext(getContext());
-    double spill_mem_ratio = config.spill_mem_ratio;
-    settings.worth_external_sort = [spill_mem_ratio]() -> bool { return currentThreadGroupMemoryUsageRatio() > spill_mem_ratio; };
+    settings.worth_external_sort_mem_ratio = config.spill_mem_ratio;
     auto sorting_step = std::make_unique<DB::SortingStep>(query_plan->getCurrentHeader(), sort_descr, limit, settings);
     sorting_step->setStepDescription("Sorting step");
     steps.emplace_back(sorting_step.get());

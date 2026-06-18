@@ -160,6 +160,19 @@ object ConverterUtils extends Logging {
         (StringType, isNullable(substraitType.getString.getNullability))
       case Type.KindCase.BINARY =>
         (BinaryType, isNullable(substraitType.getBinary.getNullability))
+      case Type.KindCase.TIMESTAMP =>
+        try {
+          (
+            Class
+              .forName("org.apache.spark.sql.types.TimestampNTZType$")
+              .getField("MODULE$")
+              .get(null)
+              .asInstanceOf[DataType],
+            isNullable(substraitType.getTimestamp.getNullability))
+        } catch {
+          case _: ReflectiveOperationException =>
+            throw new GlutenNotSupportException(s"Type $substraitType not supported.")
+        }
       case Type.KindCase.TIMESTAMP_TZ =>
         (TimestampType, isNullable(substraitType.getTimestampTz.getNullability))
       case Type.KindCase.DATE =>
@@ -226,6 +239,8 @@ object ConverterUtils extends Logging {
         TypeBuilder.makeDecimal(nullable, precision, scale)
       case TimestampType =>
         TypeBuilder.makeTimestamp(nullable)
+      case other if other.typeName == "timestamp_ntz" =>
+        TypeBuilder.makeTimestampNTZ(nullable)
       case m: MapType =>
         TypeBuilder.makeMap(
           nullable,
@@ -286,11 +301,11 @@ object ConverterUtils extends Logging {
         val elementType = parseFromTypeNode(a.getNestedType)
         ArrayType(elementType, a.getNestedType.nullable())
       case s: StructNode =>
-        val fields = s.getFieldTypes.asScala.map({
+        val fields = s.getFieldTypes.asScala.map {
           typ =>
             val field = parseFromTypeNode(typ)
             StructField("", field, typ.nullable())
-        })
+        }
         StructType(fields.toSeq)
       case _: NothingNode =>
         NullType
@@ -399,6 +414,7 @@ object ConverterUtils extends Logging {
       case DoubleType => "fp64"
       case DateType => "date"
       case TimestampType => "ts"
+      case other if other.typeName == "timestamp_ntz" => "ts_ntz"
       case StringType => "str"
       case BinaryType => "vbin"
       case DecimalType() =>

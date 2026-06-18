@@ -27,13 +27,9 @@
 #include <arrow/util/bitmap.h>
 
 namespace gluten {
-  namespace {
-    enum class BufferType{
-      kNull,
-      kLength,
-      kValue
-    };
-  }
+namespace {
+enum class BufferType { kNull, kLength, kValue };
+}
 
 using namespace facebook;
 using namespace facebook::velox;
@@ -51,11 +47,16 @@ std::vector<char> GpuBufferColumnarBatch::toUnsafeRow(int32_t rowId) const {
 }
 
 int64_t GpuBufferColumnarBatch::numBytes() {
-  int64_t numBytes = 0;
-  for (const auto& buffer : buffers_) {
-    numBytes += buffer->size();
+  if (!numBytes_.has_value()) {
+    int64_t bytes = 0;
+    for (const auto& buffer : buffers_) {
+      if (buffer) {
+        bytes += buffer->size();
+      }
+    }
+    numBytes_ = bytes;
   }
-  return numBytes;
+  return numBytes_.value();
 }
 
 // Optimize to release the previous buffer after merge it.

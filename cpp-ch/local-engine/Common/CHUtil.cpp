@@ -92,6 +92,10 @@ extern const ServerSettingsString vector_similarity_index_cache_policy;
 extern const ServerSettingsUInt64 vector_similarity_index_cache_size;
 extern const ServerSettingsUInt64 vector_similarity_index_cache_max_entries;
 extern const ServerSettingsDouble vector_similarity_index_cache_size_ratio;
+extern const ServerSettingsString parquet_metadata_cache_policy;
+extern const ServerSettingsUInt64 parquet_metadata_cache_size;
+extern const ServerSettingsUInt64 parquet_metadata_cache_max_entries;
+extern const ServerSettingsDouble parquet_metadata_cache_size_ratio;
 }
 namespace Setting
 {
@@ -409,6 +413,7 @@ const DB::ActionsDAG::Node * ActionsDAGUtil::convertNodeType(
     DB::ActionsDAG & actions_dag,
     const DB::ActionsDAG::Node * node,
     const DB::DataTypePtr & cast_to_type,
+    DB::ContextPtr context,
     const std::string & result_name,
     DB::CastType cast_type)
 {
@@ -421,7 +426,7 @@ const DB::ActionsDAG::Node * ActionsDAGUtil::convertNodeType(
     DB::CastDiagnostic diagnostic = {node->result_name, node->result_name};
     DB::ColumnWithTypeAndName left_column{nullptr, node->result_type, {}};
     DB::ActionsDAG::NodeRawConstPtrs children = {left_arg, right_arg};
-    auto func_base_cast = createInternalCast(std::move(left_column), cast_to_type, cast_type, diagnostic);
+    auto func_base_cast = createInternalCast(std::move(left_column), cast_to_type, cast_type, diagnostic, context);
 
     return &actions_dag.addFunction(func_base_cast, std::move(children), result_name);
 }
@@ -430,13 +435,14 @@ const DB::ActionsDAG::Node * ActionsDAGUtil::convertNodeTypeIfNeeded(
     DB::ActionsDAG & actions_dag,
     const DB::ActionsDAG::Node * node,
     const DB::DataTypePtr & dst_type,
+    DB::ContextPtr context,
     const std::string & result_name,
     DB::CastType cast_type)
 {
     if (node->result_type->equals(*dst_type))
         return node;
 
-    return convertNodeType(actions_dag, node, dst_type, result_name, cast_type);
+    return convertNodeType(actions_dag, node, dst_type, context, result_name, cast_type);
 }
 
 String QueryPipelineUtil::explainPipeline(DB::QueryPipeline & pipeline)
@@ -731,6 +737,8 @@ void BackendInitializerUtil::initSettings(const SparkConfigs::ConfigMap & spark_
     settings.set("input_format_orc_skip_columns_with_unsupported_types_in_schema_inference", true);
     settings.set("input_format_parquet_allow_missing_columns", true);
     settings.set("input_format_parquet_case_insensitive_column_matching", true);
+    // TODO: will remove this parameter later, there are some errors when it's true
+    settings.set("input_format_parquet_use_native_reader_with_filter_push_down", false);
     settings.set("input_format_parquet_import_nested", true);
     settings.set("input_format_json_read_numbers_as_strings", true);
     settings.set("input_format_json_read_bools_as_numbers", false);
@@ -790,6 +798,8 @@ void BackendInitializerUtil::initContexts(DB::Context::ConfigurationPtr config)
                 tmp_path = std::string(buffer) + tmp_path;
         };
 
+        if (!fs::exists(tmp_path))
+            fs::create_directories(tmp_path);
         global_context->setTemporaryStoragePath(tmp_path, 0);
         global_context->setPath(config->getString("path", "/"));
 
@@ -850,6 +860,13 @@ void BackendInitializerUtil::initContexts(DB::Context::ConfigurationPtr config)
 
         // We must set the application type to CLIENT to avoid ServerUUID::get() throw exception
         global_context->setApplicationType(Context::ApplicationType::CLIENT);
+
+        // create parquet meta data cache
+        String parquet_metadata_cache_policy = server_settings[ServerSetting::parquet_metadata_cache_policy];
+        size_t parquet_metadata_cache_size = server_settings[ServerSetting::parquet_metadata_cache_size];
+        size_t parquet_metadata_cache_max_entries = server_settings[ServerSetting::parquet_metadata_cache_max_entries];
+        double parquet_metadata_cache_size_ratio = server_settings[ServerSetting::parquet_metadata_cache_size_ratio];
+        global_context->setParquetMetadataCache(parquet_metadata_cache_policy, parquet_metadata_cache_size, parquet_metadata_cache_max_entries, parquet_metadata_cache_size_ratio);
     }
     else
     {

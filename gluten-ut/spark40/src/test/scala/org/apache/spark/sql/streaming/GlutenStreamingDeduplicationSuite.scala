@@ -16,12 +16,12 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenStreamingSQLTestsTrait
 
 class GlutenStreamingDeduplicationSuite
   extends StreamingDeduplicationSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenStreamingSQLTestsTrait {}
 
 class GlutenRocksDBStateStoreStreamingDeduplicationSuite
   extends RocksDBStateStoreStreamingDeduplicationSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenStreamingSQLTestsTrait {}

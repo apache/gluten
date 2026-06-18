@@ -150,7 +150,9 @@ class VeloxCelebornColumnarShuffleWriter[K, V](
           GlutenShuffleUtils.getStartPartitionId(dep.nativePartitioning, context.partitionId),
           nativeBufferSize,
           GlutenConfig.get.columnarShuffleReallocThreshold,
-          partitionWriterHandle
+          GlutenConfig.get.columnarShufflePartitionBufferEvictThreshold,
+          partitionWriterHandle,
+          false
         )
       case SortShuffleWriterType =>
         shuffleWriterJniWrapper.createSortShuffleWriter(

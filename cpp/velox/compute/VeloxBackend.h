@@ -21,12 +21,13 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
-#include <folly/executors/IOThreadPoolExecutor.h>
+#include <folly/executors/ThreadPoolExecutor.h>
 #include <filesystem>
 
 #include "velox/common/caching/AsyncDataCache.h"
 #include "velox/common/config/Config.h"
 #include "velox/common/memory/MmapAllocator.h"
+#include "velox/connectors/Connector.h"
 
 #include "jni/JniHashTable.h"
 #include "memory/VeloxMemoryManager.h"
@@ -58,8 +59,34 @@ class VeloxBackend {
   }
 
   folly::Executor* executor() const {
+    return executor_.get();
+  }
+
+  folly::Executor* spillExecutor() const {
+    return spillExecutor_.get();
+  }
+
+  folly::Executor* ioExecutor() const {
     return ioExecutor_.get();
   }
+
+  std::shared_ptr<facebook::velox::connector::Connector> createHiveConnector(
+      const std::string& connectorId,
+      folly::Executor* ioExecutor) const;
+
+  std::shared_ptr<facebook::velox::connector::Connector> createDeltaConnector(
+      const std::string& connectorId,
+      folly::Executor* ioExecutor) const;
+
+  std::shared_ptr<facebook::velox::connector::Connector> createValueStreamConnector(
+      const std::string& connectorId,
+      bool dynamicFilterEnabled) const;
+
+#ifdef GLUTEN_ENABLE_GPU
+  std::shared_ptr<facebook::velox::connector::Connector> createCudfHiveConnector(
+      const std::string& connectorId,
+      folly::Executor* ioExecutor) const;
+#endif
 
   void tearDown();
 
@@ -72,7 +99,6 @@ class VeloxBackend {
 
   void init(std::unique_ptr<AllocationListener> listener, const std::unordered_map<std::string, std::string>& conf);
   void initCache();
-  void initConnector(const std::shared_ptr<facebook::velox::config::ConfigBase>& hiveConf);
   void initUdf();
   std::unique_ptr<facebook::velox::cache::SsdCache> initSsdCache(uint64_t ssdSize);
 
@@ -89,9 +115,12 @@ class VeloxBackend {
   // Instance of AsyncDataCache used for all large allocations.
   std::shared_ptr<facebook::velox::cache::AsyncDataCache> asyncDataCache_;
 
-  std::unique_ptr<folly::IOThreadPoolExecutor> ssdCacheExecutor_;
-  std::unique_ptr<folly::IOThreadPoolExecutor> ioExecutor_;
+  std::unique_ptr<folly::Executor> executor_;
+  std::unique_ptr<folly::Executor> spillExecutor_;
+  std::unique_ptr<folly::Executor> ioExecutor_;
+  std::unique_ptr<folly::Executor> ssdCacheExecutor_;
   std::shared_ptr<facebook::velox::memory::MmapAllocator> cacheAllocator_;
+  std::shared_ptr<facebook::velox::config::ConfigBase> hiveConnectorConfig_;
 
   std::string cachePathPrefix_;
   std::string cacheFilePrefix_;

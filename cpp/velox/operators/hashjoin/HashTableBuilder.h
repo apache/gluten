@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <thread>
 #include "velox/exec/HashJoinBridge.h"
 #include "velox/exec/HashTable.h"
@@ -35,8 +36,14 @@ class HashTableBuilder {
       bool withFilter,
       int64_t bloomFilterPushdownSize,
       const std::vector<facebook::velox::core::FieldAccessTypedExprPtr>& joinKeys,
+      const std::vector<column_index_t>& filterInputChannels,
+      bool filterPropagatesNulls,
       const facebook::velox::RowTypePtr& inputType,
-      facebook::velox::memory::MemoryPool* pool);
+      facebook::velox::memory::MemoryPool* pool,
+      uint32_t minTableRowsForParallelJoinBuild,
+      uint32_t joinBuildVectorHasherMaxNumDistinct,
+      uint32_t abandonHashBuildDedupMinRows,
+      uint32_t abandonHashBuildDedupMinPct);
 
   void addInput(facebook::velox::RowVectorPtr input);
 
@@ -45,6 +52,7 @@ class HashTableBuilder {
   }
 
   std::unique_ptr<facebook::velox::exec::BaseHashTable> uniqueTable() {
+    lookup_.reset();
     return std::move(uniqueTable_);
   }
 
@@ -63,9 +71,23 @@ class HashTableBuilder {
     return dropDuplicates_;
   }
 
+  bool noMoreInput() const {
+    return noMoreInput_;
+  }
+
+  uint32_t joinBuildVectorHasherMaxNumDistinct() const {
+    return joinBuildVectorHasherMaxNumDistinct_;
+  }
+
  private:
   // Invoked to set up hash table to build.
   void setupTable();
+
+  void setupFilterForAntiJoins(const std::vector<column_index_t>& filterInputChannels);
+  void removeInputRowsForAntiJoinFilter();
+
+  bool abandonHashBuildDedupEarly(int64_t numDistinct) const;
+  void abandonHashBuildDedup();
 
   const facebook::velox::core::JoinType joinType_;
 
@@ -99,6 +121,8 @@ class HashTableBuilder {
   // Set of active rows during addInput().
   facebook::velox::SelectivityVector activeRows_;
 
+  std::unique_ptr<facebook::velox::exec::HashLookup> lookup_;
+
   // True if this is a build side of an anti or left semi project join and has
   // at least one entry with null join keys.
   bool joinHasNullKeys_{false};
@@ -118,6 +142,14 @@ class HashTableBuilder {
   facebook::velox::memory::MemoryPool* pool_;
 
   bool dropDuplicates_{false};
+  bool abandonHashBuildDedup_{false};
+  bool noMoreInput_{false};
+  uint64_t numHashInputRows_{0};
+  uint32_t minTableRowsForParallelJoinBuild_{1'000};
+  uint32_t joinBuildVectorHasherMaxNumDistinct_{1'000'000};
+  uint32_t abandonHashBuildDedupMinRows_{100'000};
+  uint32_t abandonHashBuildDedupMinPct_{0};
+  bool filterPropagatesNulls_{false};
 };
 
 } // namespace gluten

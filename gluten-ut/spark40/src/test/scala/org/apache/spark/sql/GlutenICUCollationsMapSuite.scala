@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenICUCollationsMapSuite extends ICUCollationsMapSuite with GlutenTestsCommonTrait {}
+class GlutenICUCollationsMapSuite extends ICUCollationsMapSuite with GlutenTestsTrait {}

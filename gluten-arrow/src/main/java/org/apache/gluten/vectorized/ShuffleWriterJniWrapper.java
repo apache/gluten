@@ -43,7 +43,9 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
       int startPartitionId,
       int splitBufferSize,
       double splitBufferReallocThreshold,
-      long partitionWriterHandle);
+      int partitionBufferEvictThreshold,
+      long partitionWriterHandle,
+      boolean rowBasedChecksumEnabled);
 
   public native long createSortShuffleWriter(
       int numPartitions,

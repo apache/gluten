@@ -16,12 +16,12 @@
  */
 package org.apache.spark.sql.streaming
 
-import org.apache.spark.sql.GlutenTestsCommonTrait
+import org.apache.spark.sql.GlutenStreamingVanillaFallbackTestsTrait
 
 class GlutenStreamingAggregationSuite
   extends StreamingAggregationSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenStreamingVanillaFallbackTestsTrait {}
 
 class GlutenRocksDBStateStoreStreamingAggregationSuite
   extends RocksDBStateStoreStreamingAggregationSuite
-  with GlutenTestsCommonTrait {}
+  with GlutenStreamingVanillaFallbackTestsTrait {}

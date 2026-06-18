@@ -27,9 +27,6 @@ import org.apache.flink.runtime.state.KeyedStateBackend;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -84,7 +81,6 @@ class GlutenSessionResource {
 }
 
 public class GlutenSessionResources {
-  private static final Logger LOG = LoggerFactory.getLogger(GlutenSessionResources.class);
   private static final GlutenSessionResources instance = new GlutenSessionResources();
   private Map<String, GlutenSessionResource> sessionResources = new HashMap<>();
   private Map<String, GlutenOperator> operators = new HashMap<>();

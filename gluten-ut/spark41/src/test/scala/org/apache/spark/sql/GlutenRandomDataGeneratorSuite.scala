@@ -16,4 +16,6 @@
  */
 package org.apache.spark.sql
 
-class GlutenRandomDataGeneratorSuite extends RandomDataGeneratorSuite with GlutenTestsCommonTrait {}
+import org.apache.spark.sql.shim.GlutenTestsTrait
+
+class GlutenRandomDataGeneratorSuite extends RandomDataGeneratorSuite with GlutenTestsTrait {}

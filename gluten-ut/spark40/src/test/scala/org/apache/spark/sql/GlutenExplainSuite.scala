@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenExplainSuite extends ExplainSuite with GlutenTestsCommonTrait {}
+class GlutenExplainSuite extends ExplainSuite with GlutenSQLTestsTrait {}

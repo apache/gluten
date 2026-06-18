@@ -16,7 +16,6 @@
  */
 package org.apache.iceberg.spark.source
 
-import org.apache.gluten.ContentFileUtil
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.SparkDataSourceRDDPartition
@@ -33,10 +32,14 @@ import org.apache.iceberg.spark.SparkSchemaUtil
 
 import java.lang.{Class, Long => JLong}
 import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
+import java.util.Locale
 
 import scala.collection.JavaConverters._
 
 object GlutenIcebergSourceUtil {
+  private val InputFileNameCol = "input_file_name"
+  private val InputFileBlockStartCol = "input_file_block_start"
+  private val InputFileBlockLengthCol = "input_file_block_length"
 
   def getClassOfSparkBatchQueryScan(): Class[SparkBatchQueryScan] = {
     classOf[SparkBatchQueryScan]
@@ -53,12 +56,14 @@ object GlutenIcebergSourceUtil {
 
   def genSplitInfo(
       partition: SparkDataSourceRDDPartition,
-      readPartitionSchema: StructType): SplitInfo = {
+      readPartitionSchema: StructType,
+      metadataColumnNames: Seq[String]): SplitInfo = {
     val paths = new JArrayList[String]()
     val starts = new JArrayList[JLong]()
     val lengths = new JArrayList[JLong]()
     val partitionColumns = new JArrayList[JMap[String, String]]()
     val deleteFilesList = new JArrayList[JList[DeleteFile]]()
+    val metadataColumns = new JArrayList[JMap[String, String]]()
     var fileFormat = ReadFileFormat.UnknownFormat
 
     partition.inputPartitions.foreach {
@@ -66,13 +71,14 @@ object GlutenIcebergSourceUtil {
         val tasks = partition.taskGroup[ScanTask]().tasks().asScala
         asFileScanTask(tasks.toList).foreach {
           task =>
-            paths.add(
-              BackendsApiManager.getTransformerApiInstance
-                .encodeFilePathIfNeed(ContentFileUtil.getFilePath(task.file())))
+            val filePath = task.file().path().toString
+            paths.add(BackendsApiManager.getTransformerApiInstance.encodeFilePathIfNeed(filePath))
             starts.add(task.start())
             lengths.add(task.length())
             partitionColumns.add(getPartitionColumns(task, readPartitionSchema))
             deleteFilesList.add(task.deletes())
+            metadataColumns.add(
+              genMetadataColumns(metadataColumnNames, filePath, task.start(), task.length()))
             val currentFileFormat = convertFileFormat(task.file().format())
             if (fileFormat == ReadFileFormat.UnknownFormat) {
               fileFormat = currentFileFormat
@@ -96,8 +102,27 @@ object GlutenIcebergSourceUtil {
         .getFilePartitionLocations(paths.asScala.toArray, partition.preferredLocations())
         .toList
         .asJava,
-      deleteFilesList
+      deleteFilesList,
+      metadataColumns
     )
+  }
+
+  private def genMetadataColumns(
+      metadataColumnNames: Seq[String],
+      filePath: String,
+      start: Long,
+      length: Long): JHashMap[String, String] = {
+    val metadataColumns = new JHashMap[String, String]()
+    metadataColumnNames.foreach {
+      name =>
+        name.toLowerCase(Locale.ROOT) match {
+          case InputFileNameCol => metadataColumns.put(name, filePath)
+          case InputFileBlockStartCol => metadataColumns.put(name, start.toString)
+          case InputFileBlockLengthCol => metadataColumns.put(name, length.toString)
+          case _ =>
+        }
+    }
+    metadataColumns
   }
 
   def getFileFormat(sparkScan: Scan): ReadFileFormat = sparkScan match {

@@ -20,7 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.expression.ExpressionConverter
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.metrics.MetricsUpdater
-import org.apache.gluten.substrait.SubstraitContext
+import org.apache.gluten.substrait.{JoinParams, SubstraitContext}
 import org.apache.gluten.substrait.rel.RelBuilder
 import org.apache.gluten.utils.SubstraitUtil
 
@@ -46,7 +46,7 @@ import java.io.{IOException, ObjectOutputStream}
 case class ColumnarCartesianProductBridge(child: SparkPlan) extends UnaryExecNode with GlutenPlan {
   override def output: Seq[Attribute] = child.output
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
-  override def rowType0(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.None
   override protected def doExecute(): RDD[InternalRow] =
     throw new UnsupportedOperationException()
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = child.executeColumnar()
@@ -96,6 +96,11 @@ case class CartesianProductExecTransformer(
       JoinUtils.createExtensionNode(inputLeftOutput ++ inputRightOutput, validation = false)
 
     val operatorId = context.nextOperatorId(this.nodeName)
+    val joinParams = new JoinParams
+    joinParams.postProjectionNeeded = false
+    if (condition.isDefined) {
+      joinParams.isWithCondition = true
+    }
 
     val currRel = RelBuilder.makeCrossRel(
       inputLeftRelNode,
@@ -106,6 +111,9 @@ case class CartesianProductExecTransformer(
       context,
       operatorId
     )
+
+    context.registerJoinParam(operatorId, joinParams)
+
     TransformContext(output, currRel)
   }
 

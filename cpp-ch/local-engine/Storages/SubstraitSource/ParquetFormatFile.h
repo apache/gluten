@@ -44,8 +44,6 @@ public:
 
     String getFileFormat() const override { return "Parquet"; }
 
-    static bool onlyHasFlatType(const DB::Block & header);
-
     void initialize(const ColumnIndexFilterPtr &) override;
 
 private:
