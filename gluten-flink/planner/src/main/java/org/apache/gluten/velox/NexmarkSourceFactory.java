@@ -22,8 +22,8 @@ import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 import org.apache.gluten.util.ReflectUtils;
 
-import io.github.zhztheplayer.velox4j.connector.GeneratorConfig;
 import io.github.zhztheplayer.velox4j.connector.NexmarkConnectorSplit;
+import io.github.zhztheplayer.velox4j.connector.NexmarkGeneratorConfig;
 import io.github.zhztheplayer.velox4j.connector.NexmarkTableHandle;
 import io.github.zhztheplayer.velox4j.plan.PlanNode;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
@@ -83,7 +83,7 @@ public class NexmarkSourceFactory implements VeloxSourceSinkFactory {
                 new Class<?>[] {int.class},
                 new Object[] {transformation.getParallelism()});
 
-    // Convert each subtask's GeneratorConfig to velox4j
+    // Convert each subtask's NexmarkGeneratorConfig to velox4j
     List<NexmarkConnectorSplit> subtaskSplits = new ArrayList<>();
     for (Object nexmarkSourceSplit : nexmarkSourceSplits) {
       Object generatorConfig =
@@ -91,11 +91,11 @@ public class NexmarkSourceFactory implements VeloxSourceSinkFactory {
               nexmarkSourceSplit.getClass(), nexmarkSourceSplit, "generatorConfig");
       subtaskSplits.add(
           new NexmarkConnectorSplit(
-              "connector-nexmark", toVeloxGeneratorConfig(generatorConfig), null));
+              "connector-nexmark", toVeloxNexmarkGeneratorConfig(generatorConfig), null));
     }
 
     // Base split uses first subtask's config (for parallelism = 1 case)
-    GeneratorConfig baseConfig = subtaskSplits.get(0).getConfig();
+    NexmarkGeneratorConfig baseConfig = subtaskSplits.get(0).getConfig();
     PlanNode tableScan =
         new TableScanNode(id, outputType, new NexmarkTableHandle("connector-nexmark"), List.of());
     NexmarkConnectorSplit split =
@@ -123,13 +123,13 @@ public class NexmarkSourceFactory implements VeloxSourceSinkFactory {
     throw new UnsupportedOperationException("Unimplemented method 'buildSink'");
   }
 
-  /** Convert Flink nexmark GeneratorConfig to velox4j GeneratorConfig via Jackson. */
-  private static GeneratorConfig toVeloxGeneratorConfig(Object javaConfig) {
+  /** Convert Flink nexmark NexmarkGeneratorConfig to velox4j NexmarkGeneratorConfig via Jackson. */
+  private static NexmarkGeneratorConfig toVeloxNexmarkGeneratorConfig(Object javaConfig) {
     try {
       String json = MAPPER.writeValueAsString(javaConfig);
-      return MAPPER.readValue(json, GeneratorConfig.class);
+      return MAPPER.readValue(json, NexmarkGeneratorConfig.class);
     } catch (JsonProcessingException e) {
-      throw new TableException("Failed to convert nexmark GeneratorConfig to velox4j", e);
+      throw new TableException("Failed to convert nexmark NexmarkGeneratorConfig to velox4j", e);
     }
   }
 }
