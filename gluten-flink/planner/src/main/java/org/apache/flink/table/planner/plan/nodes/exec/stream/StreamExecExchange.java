@@ -20,6 +20,7 @@ import org.apache.gluten.streaming.api.operators.GlutenOperator;
 import org.apache.gluten.streaming.runtime.partitioner.GlutenKeyGroupStreamPartitioner;
 import org.apache.gluten.table.runtime.keyselector.GlutenKeySelector;
 import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
+import org.apache.gluten.table.runtime.operators.WindowAggOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
@@ -112,6 +113,18 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
     checkArgument(inputProperties.size() == 1);
   }
 
+  private static boolean isWindowPropertyField(String fieldName) {
+    return "window_start".equals(fieldName)
+        || "window_end".equals(fieldName)
+        || "window_time".equals(fieldName);
+  }
+
+  private boolean isWindowAggregateExchange(OneInputTransformation inputTransform) {
+    return inputTransform.getOperator() instanceof WindowAggOperator
+        || ((RowType) getOutputType()).getFieldNames().stream()
+            .anyMatch(StreamExecExchange::isWindowPropertyField);
+  }
+
   @SuppressWarnings("unchecked")
   @Override
   protected Transformation<RowData> translateToPlanInternal(
@@ -139,7 +152,8 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
                 planner.getFlinkContext().getClassLoader(), keys, inputType);
         // --- Begin Gluten-specific code changes ---
         OneInputTransformation oneInputTransform = (OneInputTransformation) inputTransform;
-        if (oneInputTransform.getOperator() instanceof GlutenOperator) {
+        if (oneInputTransform.getOperator() instanceof GlutenOperator
+            && !isWindowAggregateExchange(oneInputTransform)) {
           // TODO: velox's parallelism need to be set here, as some nodes need it.
           // should set it when operator init.
           parallelism = inputTransform.getParallelism();
@@ -181,7 +195,8 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
                   parallelism,
                   false);
           partitioner =
-              new GlutenKeyGroupStreamPartitioner(keySelector, DEFAULT_LOWER_BOUND_MAX_PARALLELISM);
+              new GlutenKeyGroupStreamPartitioner(
+                  keySelector, DEFAULT_LOWER_BOUND_MAX_PARALLELISM, parallelism);
         } else {
           parallelism = ExecutionConfig.PARALLELISM_DEFAULT;
           partitioner =

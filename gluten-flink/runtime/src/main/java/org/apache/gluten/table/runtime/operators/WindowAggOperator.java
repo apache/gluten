@@ -138,11 +138,6 @@ public class WindowAggOperator<IN, OUT, W> extends GlutenOneInputOperator<IN, OU
   }
 
   @Override
-  public boolean operateOnProcessTime() {
-    return !isRowTime;
-  }
-
-  @Override
   public <NIN, NOUT> WindowAggOperator<NIN, NOUT, W> cloneWithInputOutputClasses(
       StatefulPlanNode plan, Class<NIN> newInClass, Class<NOUT> newOutClass) {
     return new WindowAggOperator<>(
