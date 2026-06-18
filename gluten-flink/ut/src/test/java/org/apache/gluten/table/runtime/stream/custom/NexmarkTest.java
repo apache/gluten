@@ -105,6 +105,36 @@ public class NexmarkTest {
   }
 
   @Test
+  void testNexmarkSourceSqlDoesNotPushDownWatermark() {
+    String createNexmarkSource = readSqlFromFile(NEXMARK_RESOURCE_DIR + "/ddl_gen.sql");
+    createNexmarkSource = replaceVariables(createNexmarkSource, NEXMARK_VARIABLES);
+    try {
+      tEnv.executeSql(createNexmarkSource);
+      String explain = tEnv.explainSql("SELECT * FROM datagen");
+
+      assertThat(explain).contains("TableSourceScan");
+      assertThat(explain).doesNotContain("watermark=[");
+    } finally {
+      tEnv.executeSql("drop table if exists datagen");
+    }
+  }
+
+  @Test
+  void testKafkaSourceSqlPushesDownWatermark() {
+    String createKafkaSource = readSqlFromFile(NEXMARK_RESOURCE_DIR + "/ddl_kafka.sql");
+    createKafkaSource = replaceVariables(createKafkaSource, KAFKA_VARIABLES);
+    try {
+      tEnv.executeSql(createKafkaSource);
+      String explain = tEnv.explainSql("SELECT * FROM kafka");
+
+      assertThat(explain).contains("TableSourceScan");
+      assertThat(explain).contains("watermark=[");
+    } finally {
+      tEnv.executeSql("drop table if exists kafka");
+    }
+  }
+
+  @Test
   void testAllNexmarkSourceQueries()
       throws ExecutionException, InterruptedException, TimeoutException {
     setupNexmarkEnvironment(tEnv, "ddl_gen.sql", NEXMARK_VARIABLES);
@@ -174,6 +204,8 @@ public class NexmarkTest {
       String sql = String.format("drop function if exists %s", func);
       tEnv.executeSql(sql);
     }
+    tEnv.executeSql("drop table if exists datagen");
+    tEnv.executeSql("drop table if exists kafka");
   }
 
   private void executeQuery(StreamTableEnvironment tEnv, String queryFileName, boolean kafkaSource)
