@@ -48,7 +48,6 @@ import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
-import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
@@ -116,20 +115,6 @@ public class StreamExecWatermarkAssigner extends ExecNodeBase<RowData>
     checkArgument(inputProperties.size() == 1);
     this.watermarkExpr = checkNotNull(watermarkExpr);
     this.rowtimeFieldIndex = rowtimeFieldIndex;
-  }
-
-  static ProjectNode translateWatermarkExpr(
-      LogicalType inputType, LogicalType outputType, RexNode watermarkExpr) {
-    List<String> inNames = Utils.getNamesFromRowType(inputType);
-    RexConversionContext conversionContext = new RexConversionContext(inNames);
-    TypedExpr watermarkExprs = RexNodeConverter.toTypedExpr(watermarkExpr, conversionContext);
-    io.github.zhztheplayer.velox4j.type.RowType outputRowType =
-        (io.github.zhztheplayer.velox4j.type.RowType) LogicalTypeConverter.toVLType(outputType);
-    return new ProjectNode(
-        PlanNodeIdGenerator.newId(),
-        List.of(new EmptyNode(outputRowType)),
-        List.of("TIMESTAMP"),
-        List.of(watermarkExprs));
   }
 
   @SuppressWarnings("unchecked")

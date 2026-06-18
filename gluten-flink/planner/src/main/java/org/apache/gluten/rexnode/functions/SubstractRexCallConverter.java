@@ -63,10 +63,12 @@ class SubtractRexCallConverter extends BaseRexCallConverter {
   @Override
   public TypedExpr toTypedExpr(RexCall callNode, RexConversionContext context) {
     List<TypedExpr> params = getParams(callNode, context);
+
     if (params.get(0).getReturnType() instanceof TimestampType
         && params.get(1).getReturnType() instanceof BigIntType) {
+
       Type bigIntType = new BigIntType();
-      TypedExpr castExpr = new CallTypedExpr(bigIntType, List.of(params.get(0)), "unix_millis");
+      TypedExpr castExpr = new CallTypedExpr(bigIntType, List.of(params.get(0)), "cast");
 
       List<TypedExpr> newParams = List.of(castExpr, params.get(1));
       return new CallTypedExpr(bigIntType, newParams, functionName);
@@ -74,7 +76,6 @@ class SubtractRexCallConverter extends BaseRexCallConverter {
 
     List<TypedExpr> alignedParams =
         TypeUtils.promoteTypeForArithmeticExpressions(params.get(0), params.get(1));
-
     Type resultType = getResultType(callNode);
     return new CallTypedExpr(resultType, alignedParams, functionName);
   }

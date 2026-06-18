@@ -29,22 +29,21 @@ import java.util.Map;
 
 /** Interface for all gluten operators. */
 public interface GlutenOperator {
+  public StatefulPlanNode getPlanNode();
 
-  StatefulPlanNode getPlanNode();
+  public RowType getInputType();
 
-  RowType getInputType();
+  public Map<String, RowType> getOutputTypes();
 
-  Map<String, RowType> getOutputTypes();
+  public String getId();
 
-  String getId();
+  public default String getDescription() {
+    return "";
+  }
 
   /** Mailbox drain helper holder; must be a non-transient field on the concrete operator. */
   default GlutenMailboxHolder mailboxHolder() {
     return new GlutenMailboxHolder();
-  }
-
-  default String getDescription() {
-    return "";
   }
 
   default void processElementInternal() {}

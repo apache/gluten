@@ -24,11 +24,8 @@ import org.apache.gluten.util.ReflectUtils;
 
 import io.github.zhztheplayer.velox4j.connector.KafkaConnectorSplit;
 import io.github.zhztheplayer.velox4j.connector.KafkaTableHandle;
-import io.github.zhztheplayer.velox4j.plan.PlanNode;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.plan.TableScanNode;
-import io.github.zhztheplayer.velox4j.plan.TableScanWithWatermarkNode;
-import io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
 import org.apache.flink.api.connector.source.Source;
@@ -71,8 +68,6 @@ public class KafkaSourceSinkFactory implements VeloxSourceSinkFactory {
       ScanTableSource tableSource =
           (ScanTableSource) parameters.get(ScanTableSource.class.getName());
       boolean checkpointEnabled = (Boolean) parameters.get("checkpoint.enabled");
-      WatermarkPushDownSpec watermarkPushDownSpec =
-          (WatermarkPushDownSpec) parameters.get("watermarkPushDownSpec");
       Class<?> tableSourceClazz =
           Class.forName("org.apache.flink.streaming.connectors.kafka.table.KafkaDynamicSource");
       Properties properties =
@@ -117,12 +112,7 @@ public class KafkaSourceSinkFactory implements VeloxSourceSinkFactory {
               Boolean.valueOf(kafkaTableParameters.getOrDefault("enable.auto.commit", "false")),
               "latest",
               List.of());
-
-      PlanNode kafkaScan =
-          watermarkPushDownSpec != null
-              ? new TableScanWithWatermarkNode(
-                  planId, outputType, kafkaTableHandle, List.of(), watermarkPushDownSpec)
-              : new TableScanNode(planId, outputType, kafkaTableHandle, List.of());
+      TableScanNode kafkaScan = new TableScanNode(planId, outputType, kafkaTableHandle, List.of());
       GlutenStreamSource sourceOp =
           new GlutenStreamSource(
               new GlutenSourceFunction(

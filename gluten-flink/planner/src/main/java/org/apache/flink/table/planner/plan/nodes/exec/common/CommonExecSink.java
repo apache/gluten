@@ -70,6 +70,7 @@ import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
 import org.apache.flink.table.runtime.operators.sink.ConstraintEnforcer;
 import org.apache.flink.table.runtime.operators.sink.RowKindSetter;
 import org.apache.flink.table.runtime.operators.sink.SinkOperator;
+import org.apache.flink.table.runtime.operators.sink.StreamRecordTimestampInserter;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.BinaryType;
 import org.apache.flink.table.types.logical.CharType;
@@ -555,18 +556,17 @@ public abstract class CommonExecSink extends ExecNodeBase<Object>
     if (rowtimeFieldIndex == -1) {
       return inputTransform;
     }
-    // return ExecNodeUtil.createOneInputTransformation(
-    //     inputTransform,
-    //     createTransformationMeta(
-    //         TIMESTAMP_INSERTER_TRANSFORMATION,
-    //         String.format("StreamRecordTimestampInserter(rowtime field: %s)", rowtimeFieldIndex),
-    //         "StreamRecordTimestampInserter",
-    //         config),
-    //     new StreamRecordTimestampInserter(rowtimeFieldIndex),
-    //     inputTransform.getOutputType(),
-    //     sinkParallelism,
-    //     sinkParallelismConfigured);
-    return inputTransform;
+    return ExecNodeUtil.createOneInputTransformation(
+        inputTransform,
+        createTransformationMeta(
+            TIMESTAMP_INSERTER_TRANSFORMATION,
+            String.format("StreamRecordTimestampInserter(rowtime field: %s)", rowtimeFieldIndex),
+            "StreamRecordTimestampInserter",
+            config),
+        new StreamRecordTimestampInserter(rowtimeFieldIndex),
+        inputTransform.getOutputType(),
+        sinkParallelism,
+        sinkParallelismConfigured);
   }
 
   private InternalTypeInfo<RowData> getInputTypeInfo() {

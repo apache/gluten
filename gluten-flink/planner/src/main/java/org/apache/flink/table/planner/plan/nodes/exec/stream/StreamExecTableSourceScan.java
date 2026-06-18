@@ -18,21 +18,14 @@ package org.apache.flink.table.planner.plan.nodes.exec.stream;
 
 import org.apache.gluten.velox.VeloxSourceSinkFactory;
 
-import io.github.zhztheplayer.velox4j.plan.ProjectNode;
-
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.common.io.InputFormat;
 import org.apache.flink.api.dag.Transformation;
-import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.transformations.SourceTransformation;
-import org.apache.flink.table.api.config.ExecutionConfigOptions;
 import org.apache.flink.table.connector.source.ScanTableSource;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.delegation.PlannerBase;
-import org.apache.flink.table.planner.plan.abilities.source.SourceAbilitySpec;
-import org.apache.flink.table.planner.plan.abilities.source.WatermarkPushDownSpec;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeConfig;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeContext;
@@ -42,17 +35,11 @@ import org.apache.flink.table.planner.plan.nodes.exec.spec.DynamicTableSourceSpe
 import org.apache.flink.table.planner.utils.ShortcutUtils;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
-import org.apache.flink.table.types.logical.RowType.RowField;
-import org.apache.flink.table.types.logical.TimestampType;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -67,7 +54,6 @@ import java.util.Map;
     minStateVersion = FlinkVersion.v1_15)
 public class StreamExecTableSourceScan extends CommonExecTableSourceScan
     implements StreamExecNode<RowData> {
-  private static final Logger LOG = LoggerFactory.getLogger(StreamExecTableSourceScan.class);
 
   public StreamExecTableSourceScan(
       ReadableConfig tableConfig,
@@ -112,35 +98,6 @@ public class StreamExecTableSourceScan extends CommonExecTableSourceScan
     return env.createInput(inputFormat, outputTypeInfo).name(operatorName).getTransformation();
   }
 
-  private io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec getWatermarkPushDownSpec(
-      Transformation<RowData> transformation, ExecNodeConfig config) {
-    io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec watermarkPushDownSpecNode = null;
-    if (transformation instanceof SourceTransformation) {
-      List<SourceAbilitySpec> sourceAbilities = getTableSourceSpec().getSourceAbilities();
-      if (sourceAbilities != null) {
-        for (SourceAbilitySpec sourceAbility : sourceAbilities) {
-          if (sourceAbility instanceof WatermarkPushDownSpec) {
-            final long idleTimeout =
-                config.get(ExecutionConfigOptions.TABLE_EXEC_SOURCE_IDLE_TIMEOUT).toMillis();
-            final long watermarkInterval =
-                config.get(PipelineOptions.AUTO_WATERMARK_INTERVAL).toMillis();
-            WatermarkPushDownSpec watermarkPushDownSpec = (WatermarkPushDownSpec) sourceAbility;
-            RowField watermarkField = new RowField("watermark", new TimestampType(3));
-            ProjectNode project =
-                StreamExecWatermarkAssigner.translateWatermarkExpr(
-                    getOutputType(),
-                    new RowType(List.of(watermarkField)),
-                    watermarkPushDownSpec.getWatermarkExpr());
-            watermarkPushDownSpecNode =
-                new io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec(
-                    project, idleTimeout, watermarkInterval, -1);
-          }
-        }
-      }
-    }
-    return watermarkPushDownSpecNode;
-  }
-
   @Override
   protected Transformation<RowData> translateToPlanInternal(
       PlannerBase planner, ExecNodeConfig config) {
@@ -149,18 +106,14 @@ public class StreamExecTableSourceScan extends CommonExecTableSourceScan
         getTableSourceSpec()
             .getScanTableSource(
                 planner.getFlinkContext(), ShortcutUtils.unwrapTypeFactory(planner));
-    Transformation<RowData> transformation = super.translateToPlanInternal(planner, config);
-    io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec watermarkPushDownSpec =
-        getWatermarkPushDownSpec(transformation, config);
+    Transformation<RowData> sourceTransformation = super.translateToPlanInternal(planner, config);
     return VeloxSourceSinkFactory.buildSource(
-        transformation,
+        sourceTransformation,
         Map.of(
             ScanTableSource.class.getName(),
             tableSource,
             "checkpoint.enabled",
-            planner.getExecEnv().getCheckpointConfig().isCheckpointingEnabled(),
-            "watermarkPushDownSpec",
-            watermarkPushDownSpec));
+            planner.getExecEnv().getCheckpointConfig().isCheckpointingEnabled()));
     // --- End Gluten-specific code changes ---
   }
 }
