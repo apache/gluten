@@ -27,8 +27,6 @@ import org.apache.flink.runtime.metrics.groups.TaskIOMetricGroup;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.util.List;
-
 public class SourceTaskMetrics {
 
   private final String keyOperatorType = "operatorType";
@@ -114,8 +112,11 @@ public class SourceTaskMetrics {
       // Fall back to the unique TableScan below.
     }
 
+    Iterable<ObjectNode> allPlanStats = allPlanStats(taskStats);
+    if (allPlanStats == null) {
+      return null;
+    }
     ObjectNode sourceStats = null;
-    List<ObjectNode> allPlanStats = taskStats.planStats();
     for (ObjectNode planStats : allPlanStats) {
       if (!isSourceStats(planStats)) {
         continue;
@@ -126,6 +127,15 @@ public class SourceTaskMetrics {
       sourceStats = planStats;
     }
     return sourceStats;
+  }
+
+  @SuppressWarnings("unchecked")
+  private Iterable<ObjectNode> allPlanStats(SerialTaskStats taskStats) {
+    try {
+      return (Iterable<ObjectNode>) taskStats.getClass().getMethod("planStats").invoke(taskStats);
+    } catch (Exception ignored) {
+      return null;
+    }
   }
 
   private boolean isSourceStats(ObjectNode planStats) {

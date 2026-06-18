@@ -211,7 +211,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
   @Override
   public void snapshotState(FunctionSnapshotContext context) throws Exception {
     checkpointState.clear();
-    String[] checkpointRecords = this.task.snapshotState(context.getCheckpointId());
+    String[] checkpointRecords = snapshotNativeState(context.getCheckpointId());
     for (String checkpointRecord : checkpointRecords) {
       checkpointState.add(checkpointRecord);
     }
@@ -232,7 +232,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
       restoredCheckpointRecords = records.toArray(new String[0]);
     }
     initSession();
-    this.task.initializeState(0, null, restoredCheckpointRecords);
+    initializeNativeState(restoredCheckpointRecords);
   }
 
   public String[] notifyCheckpointComplete(long checkpointId) throws Exception {
@@ -243,6 +243,34 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
   public void notifyCheckpointAborted(long checkpointId) throws Exception {
     // TODO: notify velox
     this.task.notifyCheckpointAborted(checkpointId);
+  }
+
+  private String[] snapshotNativeState(long checkpointId) throws Exception {
+    Object checkpointRecords =
+        task.getClass().getMethod("snapshotState", long.class).invoke(task, checkpointId);
+    if (checkpointRecords instanceof String[]) {
+      return (String[]) checkpointRecords;
+    }
+    return new String[0];
+  }
+
+  private void initializeNativeState(String[] checkpointRecords) throws Exception {
+    try {
+      task.getClass()
+          .getMethod(
+              "initializeState",
+              long.class,
+              io.github.zhztheplayer.velox4j.stateful.KeyedStateBackendParameters.class,
+              String[].class)
+          .invoke(task, 0L, null, checkpointRecords);
+    } catch (NoSuchMethodException e) {
+      task.getClass()
+          .getMethod(
+              "initializeState",
+              long.class,
+              io.github.zhztheplayer.velox4j.stateful.KeyedStateBackendParameters.class)
+          .invoke(task, 0L, null);
+    }
   }
 
   private void initSession() {
