@@ -24,6 +24,7 @@ import org.apache.gluten.util.ReflectUtils;
 
 import io.github.zhztheplayer.velox4j.connector.NexmarkConnectorSplit;
 import io.github.zhztheplayer.velox4j.connector.NexmarkGeneratorConfig;
+import io.github.zhztheplayer.velox4j.connector.NexmarkParallelSplit;
 import io.github.zhztheplayer.velox4j.connector.NexmarkTableHandle;
 import io.github.zhztheplayer.velox4j.plan.PlanNode;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
@@ -91,15 +92,12 @@ public class NexmarkSourceFactory implements VeloxSourceSinkFactory {
               nexmarkSourceSplit.getClass(), nexmarkSourceSplit, "generatorConfig");
       subtaskSplits.add(
           new NexmarkConnectorSplit(
-              "connector-nexmark", toVeloxNexmarkGeneratorConfig(generatorConfig), null));
+              "connector-nexmark", toVeloxNexmarkGeneratorConfig(generatorConfig)));
     }
 
-    // Base split uses first subtask's config (for parallelism = 1 case)
-    NexmarkGeneratorConfig baseConfig = subtaskSplits.get(0).getConfig();
     PlanNode tableScan =
         new TableScanNode(id, outputType, new NexmarkTableHandle("connector-nexmark"), List.of());
-    NexmarkConnectorSplit split =
-        new NexmarkConnectorSplit("connector-nexmark", baseConfig, subtaskSplits);
+    NexmarkParallelSplit split = new NexmarkParallelSplit("connector-nexmark", subtaskSplits);
     GlutenStreamSource sourceOp =
         new GlutenStreamSource(
             new GlutenSourceFunction(

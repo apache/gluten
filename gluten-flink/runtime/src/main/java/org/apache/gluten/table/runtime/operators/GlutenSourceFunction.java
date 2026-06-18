@@ -235,7 +235,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
     ConnectorSplit activeSplit = split;
     int totalParallelism = getRuntimeContext().getNumberOfParallelSubtasks();
     int subtaskIndex = getRuntimeContext().getIndexOfThisSubtask();
-    if (split instanceof ParallelSplit && totalParallelism > 1) {
+    if (split instanceof ParallelSplit) {
       activeSplit = ((ParallelSplit) split).getSubtaskSplit(subtaskIndex, totalParallelism);
     }
 
