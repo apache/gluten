@@ -33,6 +33,8 @@ import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.metrics.groups.InternalOperatorMetricGroup;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
@@ -71,6 +73,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   private final Class<OUT> outClass;
   private VectorInputBridge<IN> inputBridge;
   private VectorOutputBridge<OUT> outputBridge;
+  private transient Counter taskNumRecordsOut;
   private String description;
   private final GlutenMailboxHolder mailboxHolder = new GlutenMailboxHolder();
 
@@ -118,6 +121,10 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   @Override
   public void open() throws Exception {
     super.open();
+    if (metrics instanceof InternalOperatorMetricGroup) {
+      taskNumRecordsOut =
+          ((InternalOperatorMetricGroup) metrics).getTaskIOMetricGroup().getNumRecordsOutCounter();
+    }
     if (!mailboxHolder().get().isMailboxBound()) {
       ensureMailboxInitialized(getContainingTask());
     }
@@ -181,8 +188,12 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
             StatefulWatermark watermark = element.asWatermark();
             output.emitWatermark(new Watermark(watermark.getTimestamp()));
           } else {
-            outputBridge.collect(
-                output, element.asRecord(), sessionResource.getAllocator(), outputType);
+            long emittedRecords =
+                outputBridge.collect(
+                    output, element.asRecord(), sessionResource.getAllocator(), outputType);
+            if (taskNumRecordsOut != null) {
+              taskNumRecordsOut.inc(emittedRecords);
+            }
           }
         } finally {
           element.close();

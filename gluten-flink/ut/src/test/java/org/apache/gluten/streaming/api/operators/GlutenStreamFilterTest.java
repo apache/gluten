@@ -65,6 +65,30 @@ public class GlutenStreamFilterTest extends GlutenStreamOperatorTestBase {
   }
 
   @Test
+  public void testTaskOutputMetricsCountEmittedRows() throws Exception {
+    RexNode filterCondition =
+        createFilterCondition(SqlTypeName.INTEGER, 2, 18, SqlStdOperatorTable.GREATER_THAN);
+    PlanNode veloxPlan = createFilterPlan(filterCondition, rowType);
+    GlutenOneInputOperator operator = createTestOperator(veloxPlan, typeInfo, typeInfo);
+
+    OneInputStreamOperatorTestHarness<RowData, RowData> harness =
+        createTestHarness(operator, typeInfo, typeInfo);
+
+    processTestData(harness, testData);
+
+    assertThat(
+            harness
+                .getEnvironment()
+                .getMetricGroup()
+                .getIOMetricGroup()
+                .getNumRecordsOutCounter()
+                .getCount())
+        .isEqualTo(4);
+
+    harness.close();
+  }
+
+  @Test
   public void testLessThanFilter() throws Exception {
     List<RowData> expectedOutput =
         Arrays.asList(

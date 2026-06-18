@@ -37,6 +37,8 @@ import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
 import org.apache.flink.contrib.streaming.state.RocksDBKeyedStateBackend;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.metrics.groups.InternalOperatorMetricGroup;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
@@ -66,6 +68,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   private final Class<OUT> outClass;
   private transient VectorInputBridge<IN> inputBridge;
   private transient VectorOutputBridge<OUT> outputBridge;
+  private transient Counter taskNumRecordsOut;
   private final GlutenMailboxHolder mailboxHolder = new GlutenMailboxHolder();
 
   public GlutenOneInputOperator(
@@ -151,6 +154,10 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   @Override
   public void open() throws Exception {
     super.open();
+    if (metrics instanceof InternalOperatorMetricGroup) {
+      taskNumRecordsOut =
+          ((InternalOperatorMetricGroup) metrics).getTaskIOMetricGroup().getNumRecordsOutCounter();
+    }
     if (!mailboxHolder().get().isMailboxBound()) {
       ensureMailboxInitialized(getContainingTask());
     }
@@ -201,8 +208,12 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
             StatefulWatermark watermark = statefulElement.asWatermark();
             output.emitWatermark(new Watermark(watermark.getTimestamp()));
           } else {
-            outputBridge.collect(
-                output, statefulElement.asRecord(), sessionResource.getAllocator(), outputType);
+            long emittedRecords =
+                outputBridge.collect(
+                    output, statefulElement.asRecord(), sessionResource.getAllocator(), outputType);
+            if (taskNumRecordsOut != null) {
+              taskNumRecordsOut.inc(emittedRecords);
+            }
           }
         } finally {
           statefulElement.close();
