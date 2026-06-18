@@ -112,8 +112,12 @@ public class NexmarkTest {
       tEnv.executeSql(createNexmarkSource);
       String explain = tEnv.explainSql("SELECT * FROM datagen");
 
-      assertThat(explain).contains("TableSourceScan");
-      assertThat(explain).doesNotContain("watermark=[");
+      assertThat(explain).contains("WatermarkAssigner");
+      assertThat(explain)
+          .lines()
+          .filteredOn(line -> line.contains("TableSourceScan"))
+          .isNotEmpty()
+          .noneMatch(line -> line.contains("watermark=["));
     } finally {
       tEnv.executeSql("drop table if exists datagen");
     }
@@ -127,8 +131,11 @@ public class NexmarkTest {
       tEnv.executeSql(createKafkaSource);
       String explain = tEnv.explainSql("SELECT * FROM kafka");
 
-      assertThat(explain).contains("TableSourceScan");
-      assertThat(explain).contains("watermark=[");
+      assertThat(explain)
+          .lines()
+          .filteredOn(line -> line.contains("TableSourceScan"))
+          .isNotEmpty()
+          .anyMatch(line -> line.contains("watermark=["));
     } finally {
       tEnv.executeSql("drop table if exists kafka");
     }
