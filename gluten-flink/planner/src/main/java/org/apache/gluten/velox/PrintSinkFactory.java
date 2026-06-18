@@ -30,9 +30,6 @@ import io.github.zhztheplayer.velox4j.type.BigIntType;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
 import org.apache.flink.api.dag.Transformation;
-import org.apache.flink.configuration.ConfigConstants;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.configuration.CoreOptions;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
 import org.apache.flink.streaming.api.transformations.LegacySinkTransformation;
@@ -41,6 +38,7 @@ import org.apache.flink.table.runtime.operators.sink.SinkOperator;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.util.FlinkRuntimeException;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 
@@ -71,33 +69,48 @@ public class PrintSinkFactory implements VeloxSourceSinkFactory {
     throw new FlinkRuntimeException("Unimplemented method 'buildSource'");
   }
 
+  // Pulls print-identifier/standard-error from RowDataPrintFunction via reflection.
+  // Flink 1.19.x field names: sinkIdentifier (print-identifier), target (standard-error, true =
+  // stderr).
+  // Package-private for direct unit testing.
+  static String[] extractPrintOptions(Transformation<RowData> transformation) {
+    SimpleOperatorFactory operatorFactory =
+        (SimpleOperatorFactory) ((LegacySinkTransformation) transformation).getOperatorFactory();
+    SinkOperator sinkOp = (SinkOperator) operatorFactory.getOperator();
+    Object rowDataPrintFn = sinkOp.getUserFunction();
+    try {
+      Field writerField = rowDataPrintFn.getClass().getDeclaredField("writer");
+      writerField.setAccessible(true);
+      Object writer = writerField.get(rowDataPrintFn);
+      Field idField = writer.getClass().getDeclaredField("sinkIdentifier");
+      idField.setAccessible(true);
+      Field stdErrField = writer.getClass().getDeclaredField("target");
+      stdErrField.setAccessible(true);
+      String printIdentifier = (String) idField.get(writer);
+      boolean isStdErr = stdErrField.getBoolean(writer);
+      return new String[] {
+        printIdentifier == null ? "" : printIdentifier, Boolean.toString(isStdErr)
+      };
+    } catch (NoSuchFieldException | IllegalAccessException e) {
+      throw new FlinkRuntimeException("Failed to extract print sink options", e);
+    }
+  }
+
   @SuppressWarnings({"rawtypes", "unchecked"})
   @Override
   public Transformation buildVeloxSink(
       Transformation<RowData> transformation, Map<String, Object> parameters) {
     Transformation inputTrans = (Transformation) transformation.getInputs().get(0);
     InternalTypeInfo inputTypeInfo = (InternalTypeInfo) inputTrans.getOutputType();
-    Configuration config = (Configuration) parameters.get(Configuration.class.getName());
-    String logDir = config.get(CoreOptions.FLINK_LOG_DIR);
-    String printPath;
-    if (logDir != null) {
-      printPath = String.format("file://%s/%s", logDir, "taskmanager.out");
-    } else {
-      String flinkHomeDir = System.getenv(ConfigConstants.ENV_FLINK_HOME_DIR);
-      if (flinkHomeDir == null) {
-        String flinkConfDir = System.getenv(ConfigConstants.ENV_FLINK_CONF_DIR);
-        if (flinkConfDir == null) {
-          throw new FlinkRuntimeException(
-              "Can not get flink home directory, please set FLINK_HOME.");
-        }
-        printPath = String.format("file://%s/../log/%s", flinkConfDir, "taskmanager.out");
-      } else {
-        printPath = String.format("file://%s/log/%s", flinkHomeDir, "taskmanager.out");
-      }
-    }
+
+    String[] printOpts = extractPrintOptions(transformation);
+    String printIdentifier = printOpts[0];
+    boolean isStdErr = Boolean.parseBoolean(printOpts[1]);
+
     RowType inputColumns = (RowType) LogicalTypeConverter.toVLType(inputTypeInfo.toLogicalType());
     RowType ignore = new RowType(List.of("num"), List.of(new BigIntType()));
-    PrintTableHandle tableHandle = new PrintTableHandle("print-table", inputColumns, printPath);
+    PrintTableHandle tableHandle =
+        new PrintTableHandle("print-table", inputColumns, printIdentifier, isStdErr);
     TableWriteNode tableWriteNode =
         new TableWriteNode(
             PlanNodeIdGenerator.newId(),
