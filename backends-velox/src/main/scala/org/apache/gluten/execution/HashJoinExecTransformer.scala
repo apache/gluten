@@ -199,7 +199,9 @@ case class BroadcastHashJoinContext(
     bloomFilterPushdownSize: Long,
     buildHashTableTimeMetric: Option[SQLMetric] = None) {
   def droppedDuplicates: Boolean = {
-    substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI ||
-    substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI
+    !hasMixedFiltCondition && (
+      substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI ||
+        substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI
+    )
   }
 }
