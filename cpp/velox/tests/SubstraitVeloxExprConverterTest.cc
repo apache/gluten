@@ -52,18 +52,18 @@ TEST(SubstraitVeloxExprConverterTest, nestedFieldReferenceIntoNonStructThrows) {
 }
 
 // A field-reference index past the end of the row type must be rejected cleanly.
-// Velox's RowType::childAt/nameOf have built-in VELOX_CHECK_LT bounds checks that
-// throw VeloxRuntimeError, which Gluten catches and falls back. This test validates
-// that out-of-range field access results in a clean fallback instead of undefined
-// behavior.
+// The out-of-range check is defense-in-depth: Spark's analyzer keeps field indices
+// in bounds, but a malformed Substrait plan might have a negative index or an index
+// exceeding the row size. Without the check, a negative index casts to a huge uint32_t
+// and causes undefined behavior; an out-of-bounds index would throw from Velox's
+// RowType::childAt but with a less clear error message.
 TEST(SubstraitVeloxExprConverterTest, fieldReferenceIndexOutOfRangeThrows) {
   RowTypePtr inputType = ROW({"a", "b"}, {INTEGER(), INTEGER()});
 
   ::substrait::Expression::FieldReference fieldReference;
   fieldReference.mutable_direct_reference()->mutable_struct_field()->set_field(5);
 
-  // Velox's VELOX_CHECK_LT throws VeloxRuntimeError when idx >= size
-  VELOX_ASSERT_RUNTIME_THROW(SubstraitVeloxExprConverter::toVeloxExpr(fieldReference, inputType), "");
+  VELOX_ASSERT_USER_THROW(SubstraitVeloxExprConverter::toVeloxExpr(fieldReference, inputType), "out of range");
 }
 
 } // namespace gluten
