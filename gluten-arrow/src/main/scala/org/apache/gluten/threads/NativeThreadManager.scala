@@ -24,8 +24,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Scala wrapper around a native ThreadManager handle.
  *
  * Created once per Spark task by [[org.apache.gluten.runtime.Runtime]]. The ThreadManager wraps a
- * [[NativeThreadInitializer]] that propagates task context to native worker threads spawned by folly
- * executors.
+ * [[NativeThreadInitializer]] that propagates task context to native worker threads spawned by
+ * folly executors.
  */
 trait NativeThreadManager {
 
