@@ -53,7 +53,7 @@ TEST(SubstraitVeloxExprConverterTest, nestedFieldReferenceIntoNonStructThrows) {
 
 // A field-reference index past the end of the row type must be rejected cleanly.
 // Velox's RowType::childAt/nameOf have built-in VELOX_CHECK_LT bounds checks that
-// throw VeloxUserError, which Gluten catches and falls back. This test validates
+// throw VeloxRuntimeError, which Gluten catches and falls back. This test validates
 // that out-of-range field access results in a clean fallback instead of undefined
 // behavior.
 TEST(SubstraitVeloxExprConverterTest, fieldReferenceIndexOutOfRangeThrows) {
@@ -63,7 +63,7 @@ TEST(SubstraitVeloxExprConverterTest, fieldReferenceIndexOutOfRangeThrows) {
   fieldReference.mutable_direct_reference()->mutable_struct_field()->set_field(5);
 
   // Velox's VELOX_CHECK_LT throws VeloxRuntimeError when idx >= size
-  VELOX_ASSERT_THROW(SubstraitVeloxExprConverter::toVeloxExpr(fieldReference, inputType), "");
+  VELOX_ASSERT_RUNTIME_THROW(SubstraitVeloxExprConverter::toVeloxExpr(fieldReference, inputType), "");
 }
 
 } // namespace gluten
