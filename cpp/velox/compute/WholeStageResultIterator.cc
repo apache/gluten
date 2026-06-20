@@ -777,6 +777,9 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
         configs[veloxKey] = valueOptional.value();
       }
     };
+    setIfExists(
+        kSparkBinaryOutputStyle,
+        SparkQueryConfig::qualify(SparkQueryConfig::kBinaryOutputStyle));
     setIfExists(kQueryTraceEnabled, velox::core::QueryConfig::kQueryTraceEnabled);
     setIfExists(kQueryTraceDir, velox::core::QueryConfig::kQueryTraceDir);
     setIfExists(kQueryTraceMaxBytes, velox::core::QueryConfig::kQueryTraceMaxBytes);

@@ -97,6 +97,8 @@ const std::string kSparkLegacyStatisticalAggregate = "spark.sql.legacy.statistic
 
 const std::string kSparkJsonIgnoreNullFields = "spark.sql.jsonGenerator.ignoreNullFields";
 
+const std::string kSparkBinaryOutputStyle = "spark.sql.binaryOutputStyle";
+
 // cudf
 const std::string kCudfEnabled = "spark.gluten.sql.columnar.cudf";
 constexpr bool kCudfEnabledDefault = false;
