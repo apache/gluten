@@ -20,23 +20,40 @@ set -exu
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 SUDO="${SUDO:-""}"
 source ${CURRENT_DIR}/build-helper-functions.sh
-VELOX_ARROW_BUILD_VERSION=15.0.0
+VELOX_ARROW_BUILD_VERSION=18.1.0
 ARROW_PREFIX=$CURRENT_DIR/../ep/_ep/arrow_ep
 BUILD_TYPE=Release
 INSTALL_PREFIX=${INSTALL_PREFIX:-"/usr/local"}
+
+
+function install_openssl() {
+  pushd ${ARROW_PREFIX}/../
+  curl -LO https://github.com/openssl/openssl/releases/download/OpenSSL_1_0_2/openssl-1.0.2.tar.gz
+  tar -xzvf openssl-1.0.2.tar.gz
+  cd openssl-1.0.2
+  ./Configure --prefix=/opt/openssl --openssldir=/usr/local/ssl linux-ppc64le
+  make
+  make install
+  echo $PATH
+  export PATH=/opt/openssl/bin:$PATH 
+  cd ..
+  rm -rf openssl-1.0.2
+  rm openssl-1.0.2.tar.gz
+  popd
+}
 
 function prepare_arrow_build() {
   mkdir -p ${ARROW_PREFIX}/../ && pushd ${ARROW_PREFIX}/../ && ${SUDO} rm -rf arrow_ep/
   wget_and_untar https://github.com/apache/arrow/archive/refs/tags/apache-arrow-${VELOX_ARROW_BUILD_VERSION}.tar.gz arrow_ep
   #wget_and_untar https://archive.apache.org/dist/arrow/arrow-${VELOX_ARROW_BUILD_VERSION}/apache-arrow-${VELOX_ARROW_BUILD_VERSION}.tar.gz arrow_ep
   cd arrow_ep
-  patch -p1 < $CURRENT_DIR/../ep/build-velox/src/modify_arrow.patch
-  patch -p1 < $CURRENT_DIR/../ep/build-velox/src/cmake-compatibility.patch
-  patch -p1 < $CURRENT_DIR/../ep/build-velox/src/support_ibm_power.patch
+  patch -p1 < $CURRENT_DIR/../ep/build-velox/src/support_ibm_power_spark40.patch
   popd
 }
 
 function build_arrow_cpp() {
+  export OPENSSL_ROOT_DIR=/usr/local/ssl
+  export ARROW_THRIFT_URL="https://www.apache.org/dyn/closer.lua/thrift/0.20.0/thrift-0.20.0.tar.gz?action=download"
   pushd $ARROW_PREFIX/cpp
   ARROW_WITH_ZLIB=ON
   # The zlib version bundled with arrow is not compatible with clang 17.
@@ -48,16 +65,18 @@ function build_arrow_cpp() {
     fi
   fi
   cmake_install \
-       -DARROW_PARQUET=OFF \
+       -DARROW_SUBSTRAIT=ON \
+       -DARROW_DATASET=ON \
+       -DARROW_PARQUET=ON \
        -DARROW_FILESYSTEM=ON \
        -DARROW_PROTOBUF_USE_SHARED=OFF \
        -DARROW_DEPENDENCY_USE_SHARED=OFF \
        -DARROW_DEPENDENCY_SOURCE=BUNDLED \
+       -DARROW_WITH_THRIFT=ON \
        -DARROW_WITH_LZ4=ON \
        -DARROW_WITH_SNAPPY=ON \
        -DARROW_WITH_ZLIB=${ARROW_WITH_ZLIB} \
        -DARROW_WITH_ZSTD=ON \
-       -DBoost_NO_BOOST_CMAKE=TRUE \
        -DARROW_JEMALLOC=OFF \
        -DARROW_SIMD_LEVEL=NONE \
        -DARROW_RUNTIME_SIMD_LEVEL=NONE \
@@ -68,24 +87,13 @@ function build_arrow_cpp() {
        -DARROW_BUILD_SHARED=OFF \
        -DARROW_BUILD_STATIC=ON
 
+ # Install thrift.
+ cd _build/thrift_ep-prefix/src/thrift_ep-build
+ ${SUDO} cmake --install ./ --prefix "${INSTALL_PREFIX}"/
+ popd
 }
 
 function build_arrow_java() {
-    # Maven Central's arrow-c-data / arrow-dataset jars at ${VELOX_ARROW_BUILD_VERSION}
-    # already ship libarrow_cdata_jni / libarrow_dataset_jni for x86_64 (Linux/macOS/Windows)
-    # and aarch_64 (Linux/macOS), so contributors on those archs do not need a locally-built
-    # jar — gluten-arrow resolves the same artifact transitively.
-    #
-    # ppc64le has no native in the Central jar; support_ibm_power.patch (applied above) adds
-    # the ppc64le -> ppcle_64 arch case to JniLoader.java and the local mvn install step bakes
-    # a locally-built libarrow_cdata_jni.so for ppc64le into the resulting arrow-c-data jar in
-    # ~/.m2, overriding Central. Skip the Java build on every other arch.
-    local ARCH=$(uname -m)
-    if [[ "${ARCH}" != "ppc64le" ]]; then
-        echo "Skipping local Arrow Java build on ${ARCH} — gluten resolves arrow-c-data:${VELOX_ARROW_BUILD_VERSION} from Maven Central. Local build is only required on ppc64le for the patched JniLoader."
-        return 0
-    fi
-
     ARROW_INSTALL_DIR="${ARROW_PREFIX}/install"
 
     # Use Gluten's Maven wrapper
@@ -108,7 +116,7 @@ function build_arrow_java() {
 
     pushd $ARROW_PREFIX/java
 
-    ${MVN_CMD} clean install -pl bom,maven/module-info-compiler-maven-plugin,vector -am \
+    ${MVN_CMD} clean install -pl bom,vector -am \
           -DskipTests -Drat.skip -Dmaven.gitcommitid.skip -Dcheckstyle.skip -Dassembly.skipAssembly
 
     # Arrow C Data Interface CPP libraries
@@ -129,11 +137,7 @@ function build_arrow_java() {
 }
 
 echo "Start to build Arrow"
-if [[ $(uname -m) == "ppc64le" && $SPARK_VERSION == "4.0" ]]; then
-    echo "Building Spark 4.0 on ppc64le";
-    source ${CURRENT_DIR}/build-arrow-18.sh;
-    exit 0;
-fi
+install_openssl
 prepare_arrow_build
 build_arrow_cpp
 echo "Finished building arrow CPP"
