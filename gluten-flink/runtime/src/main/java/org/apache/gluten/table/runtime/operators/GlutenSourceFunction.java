@@ -27,12 +27,15 @@ import io.github.zhztheplayer.velox4j.iterator.UpIterator;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.query.Query;
 import io.github.zhztheplayer.velox4j.query.SerialTask;
+import io.github.zhztheplayer.velox4j.serde.Serde;
 import io.github.zhztheplayer.velox4j.session.Session;
 import io.github.zhztheplayer.velox4j.stateful.StatefulElement;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
@@ -54,6 +57,7 @@ import java.util.Map;
 public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
     implements CheckpointedFunction {
   private static final Logger LOG = LoggerFactory.getLogger(GlutenSourceFunction.class);
+  private static final String SOURCE_SPLIT_STATE_NAME = "gluten-source-split-state";
 
   private final StatefulPlanNode planNode;
   private final Map<String, RowType> outputTypes;
@@ -66,6 +70,8 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
   private SerialTask task;
   private SourceTaskMetrics taskMetrics;
   private final Class<OUT> outClass;
+  private transient ListState<String> sourceSplitState;
+  private transient ConnectorSplit restoredSplit;
 
   public GlutenSourceFunction(
       StatefulPlanNode planNode,
@@ -207,14 +213,25 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
 
   @Override
   public void snapshotState(FunctionSnapshotContext context) throws Exception {
-    // TODO: implement it
     this.task.snapshotState(0);
+    if (sourceSplitState != null) {
+      sourceSplitState.clear();
+      for (String splitState : task.snapshotSourceState()) {
+        sourceSplitState.add(splitState);
+      }
+    }
   }
 
   @Override
   public void initializeState(FunctionInitializationContext context) throws Exception {
+    sourceSplitState =
+        context
+            .getOperatorStateStore()
+            .getListState(new ListStateDescriptor<>(SOURCE_SPLIT_STATE_NAME, String.class));
+    if (context.isRestored()) {
+      restoredSplit = readRestoredSplit();
+    }
     initSession();
-    // TODO: implement it
     this.task.initializeState(0, null);
   }
 
@@ -249,8 +266,22 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
             VeloxQueryConfig.getConfig(getRuntimeContext()),
             VeloxConnectorConfig.getConfig(getRuntimeContext()));
     task = session.queryOps().execute(query);
-    task.addSplit(id, activeSplit);
+    task.addSplit(id, restoredSplit != null ? restoredSplit : split);
     task.noMoreSplits(id);
     taskMetrics = new SourceTaskMetrics(getRuntimeContext().getMetricGroup());
+  }
+
+  private ConnectorSplit readRestoredSplit() throws Exception {
+    ConnectorSplit result = null;
+    for (String splitState : sourceSplitState.get()) {
+      if (splitState == null || splitState.isEmpty()) {
+        continue;
+      }
+      if (result != null) {
+        throw new IllegalStateException("Only one restored source split is supported.");
+      }
+      result = Serde.fromJson(splitState, ConnectorSplit.class);
+    }
+    return result;
   }
 }
