@@ -17,6 +17,7 @@
         "re2",
         "gflags",
         "glog",
+		"s2geometry",
         "snappy",
         "libdwarf",
         "fmt",
@@ -126,6 +127,7 @@
     { "name": "azure-identity-cpp", "version": "1.11.0"},
     { "name": "openssl", "version": "3.5.2"},
     { "name": "fbthrift", "version": "2026.02.23.00"},
-    { "name": "grpc", "version": "1.51.1"}
+    { "name": "grpc", "version": "1.51.1"},
+    { "name": "s2geometry", "version": "0.11.1" }
   ]
 }
