@@ -43,6 +43,7 @@ trait NativeMemoryManager {
 object NativeMemoryManager {
   private class Impl(backendName: String, name: String)
     extends NativeMemoryManager {
+    private val nmmName = s"[nmm-$name]"
     private val LOGGER = LoggerFactory.getLogger(classOf[NativeMemoryManager])
     private val spillers = Spillers.appendable()
     private val mutableStats: mutable.Map[String, MemoryUsageStatsBuilder] = mutable.Map()
@@ -85,9 +86,9 @@ object NativeMemoryManager {
 
       def dump(): String = {
         SparkMemoryUtil.prettyPrintStats(
-          s"[nmm]",
+          nmmName,
           new KnownNameAndStats() {
-            override def name: String = "nmm"
+            override def name: String = nmmName
             override def stats: MemoryUsageStats = collectUsage()
           })
       }
