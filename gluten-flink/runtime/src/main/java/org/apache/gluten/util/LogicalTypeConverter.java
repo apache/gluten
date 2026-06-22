@@ -65,10 +65,13 @@ public class LogicalTypeConverter {
               logicalType -> new io.github.zhztheplayer.velox4j.type.VarCharType()),
           Map.entry(
               CharType.class, logicalType -> new io.github.zhztheplayer.velox4j.type.VarCharType()),
-          // TODO: may need precision
           Map.entry(
               TimestampType.class,
-              logicalType -> new io.github.zhztheplayer.velox4j.type.TimestampType()),
+              logicalType -> {
+                TimestampType timestampType = (TimestampType) logicalType;
+                return new io.github.zhztheplayer.velox4j.type.TimestampType(
+                    timestampType.getPrecision(), false);
+              }),
           Map.entry(
               DecimalType.class,
               logicalType -> {
@@ -110,10 +113,13 @@ public class LogicalTypeConverter {
           // Map the flink's `TimestampLTZ` type to velox `Timestamp` type. And the timezone would
           // be specified by using flink's table config `LOCAL_TIME_ZONE`, which would be passed to
           // velox's `session_timezone` config.
-          // TODO: may need precision
           Map.entry(
               LocalZonedTimestampType.class,
-              logicalType -> new io.github.zhztheplayer.velox4j.type.TimestampType()),
+              logicalType -> {
+                LocalZonedTimestampType timestampType = (LocalZonedTimestampType) logicalType;
+                return new io.github.zhztheplayer.velox4j.type.TimestampType(
+                    timestampType.getPrecision(), true);
+              }),
           Map.entry(
               TinyIntType.class,
               logicalType -> new io.github.zhztheplayer.velox4j.type.TinyIntType()),
