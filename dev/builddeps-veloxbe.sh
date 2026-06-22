@@ -163,6 +163,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
     if [[ "$INSTALL_PREFIX" == "/usr/local" || "$INSTALL_PREFIX" == /usr/local/* ]]; then
         echo "INFO: INSTALL_PREFIX=$INSTALL_PREFIX is under /usr/local; keeping /usr/local visible to CMake." >&2
     fi
+elif [ -n "${INSTALL_PREFIX:-}" ]; then
+    export INSTALL_PREFIX
 fi
 
 function concat_velox_param {
@@ -244,34 +246,39 @@ function build_gluten_cpp {
   mkdir build
   cd build
 
-  GLUTEN_CMAKE_OPTIONS="-DBUILD_VELOX_BACKEND=ON \
-    -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-    -DVELOX_HOME=$VELOX_HOME \
-    -DBUILD_TESTS=$BUILD_TESTS \
-    -DBUILD_EXAMPLES=$BUILD_EXAMPLES \
-    -DBUILD_BENCHMARKS=$BUILD_BENCHMARKS \
-    -DENABLE_JEMALLOC_STATS=$ENABLE_JEMALLOC_STATS \
-    -DENABLE_QAT=$ENABLE_QAT \
-    -DENABLE_GCS=$ENABLE_GCS \
-    -DENABLE_S3=$ENABLE_S3 \
-    -DENABLE_HDFS=$ENABLE_HDFS \
-    -DENABLE_ABFS=$ENABLE_ABFS \
-    -DENABLE_GPU=$ENABLE_GPU \
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    -DENABLE_ENHANCED_FEATURES=$ENABLE_ENHANCED_FEATURES"
+  GLUTEN_CMAKE_OPTIONS=(
+    "-DBUILD_VELOX_BACKEND=ON"
+    "-DCMAKE_BUILD_TYPE=$BUILD_TYPE"
+    "-DVELOX_HOME=$VELOX_HOME"
+    "-DBUILD_TESTS=$BUILD_TESTS"
+    "-DBUILD_EXAMPLES=$BUILD_EXAMPLES"
+    "-DBUILD_BENCHMARKS=$BUILD_BENCHMARKS"
+    "-DENABLE_JEMALLOC_STATS=$ENABLE_JEMALLOC_STATS"
+    "-DENABLE_QAT=$ENABLE_QAT"
+    "-DENABLE_GCS=$ENABLE_GCS"
+    "-DENABLE_S3=$ENABLE_S3"
+    "-DENABLE_HDFS=$ENABLE_HDFS"
+    "-DENABLE_ABFS=$ENABLE_ABFS"
+    "-DENABLE_GPU=$ENABLE_GPU"
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    "-DENABLE_ENHANCED_FEATURES=$ENABLE_ENHANCED_FEATURES"
+  )
 
+  if [ -n "${INSTALL_PREFIX:-}" ]; then
+    GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX")
+    GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX")
+  fi
   if [ $OS == 'Darwin' ]; then
-    GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_PREFIX_PATH=$INSTALL_PREFIX"
-    if [[ "$INSTALL_PREFIX" != "/usr/local" && "$INSTALL_PREFIX" != /usr/local/* ]]; then
-      GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON"
-      GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_IGNORE_PREFIX_PATH=/usr/local"
-      GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake"
-      GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_SYSTEM_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake"
+    if [[ "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
+      GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON")
+      GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_IGNORE_PREFIX_PATH=/usr/local")
+      GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake")
+      GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_SYSTEM_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake")
     fi
-    GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_CXX_FLAGS=-Wno-inconsistent-missing-override -Wno-macro-redefined"
+    GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_CXX_FLAGS=-Wno-inconsistent-missing-override -Wno-macro-redefined")
   fi
 
-  cmake -G Ninja $GLUTEN_CMAKE_OPTIONS ..
+  cmake -G Ninja "${GLUTEN_CMAKE_OPTIONS[@]}" ..
   ninja -j $NUM_THREADS
 }
 

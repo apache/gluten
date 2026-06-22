@@ -89,6 +89,22 @@ function process_setup_tencentos32 {
   sed -i "/^[[:space:]]*#/!s/.*dnf config-manager --set-enabled powertools/#&/" ${CURRENT_DIR}/setup-centos8.sh
 }
 
+# Keep macOS dependency builds on INSTALL_PREFIX even when /usr/local is present.
+# Apple clang injects /usr/local/include as a normal include path before CMake's
+# imported system includes, which can mix /usr/local headers with INSTALL_PREFIX
+# libraries. Demote it to system include order. Folly also enables jemalloc from
+# Homebrew headers but does not link libjemalloc, so keep Folly's Linux-equivalent
+# no-jemalloc behavior here; Gluten's own jemalloc build is independent of this.
+function process_setup_macos {
+  if [[ "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]] &&
+      ! grep -Fq '/usr/local/include' scripts/setup-macos.sh; then
+    sed -i '' 's|OS_CXXFLAGS=" -isystem $(brew --prefix)/include "|OS_CXXFLAGS=" -isystem $(brew --prefix)/include -isystem /usr/local/include "|' scripts/setup-macos.sh
+  fi
+  if ! grep -Fq 'FOLLY_USE_JEMALLOC=OFF' scripts/setup-common.sh; then
+    sed -i '' 's/local FOLLY_FLAGS=(/local FOLLY_FLAGS=(-DFOLLY_USE_JEMALLOC=OFF /' scripts/setup-common.sh
+  fi
+}
+
 function prepare_velox_source_code {
   echo "Preparing Velox source code..."
 
@@ -215,7 +231,7 @@ function apply_setup_fixes() {
   if [ $OS == 'Linux' ]; then
     setup_linux
   elif [ $OS == 'Darwin' ]; then
-    :
+    process_setup_macos
   else
     echo "Unsupported kernel: $OS"
     exit 1
