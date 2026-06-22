@@ -314,6 +314,34 @@ class ScalarFunctionsTest extends GlutenStreamingTestBase {
   }
 
   @Test
+  void testTimestampMicros() {
+    List<Row> rows =
+        Arrays.asList(
+            Row.of(1, LocalDateTime.of(2024, 12, 31, 12, 12, 12, 123456000)),
+            Row.of(2, LocalDateTime.of(2025, 2, 28, 12, 12, 12, 654321000)));
+    createSimpleBoundedValuesTable("timestampMicrosTable", "a int, b Timestamp(6)", rows);
+
+    String query = "select a, cast(b as string) from timestampMicrosTable";
+    runAndCheck(
+        query,
+        Arrays.asList("+I[1, 2024-12-31 12:12:12.123456]", "+I[2, 2025-02-28 12:12:12.654321]"));
+
+    rows =
+        Arrays.asList(
+            Row.of(
+                1, LocalDateTime.of(2024, 12, 31, 12, 12, 12, 123456000).toInstant(ZoneOffset.UTC)),
+            Row.of(
+                2, LocalDateTime.of(2025, 2, 28, 12, 12, 12, 654321000).toInstant(ZoneOffset.UTC)));
+    createSimpleBoundedValuesTable("timestampLtzMicrosTable", "a int, b Timestamp_LTZ(6)", rows);
+
+    query = "select a, cast(b as string) from timestampLtzMicrosTable";
+    tEnv().getConfig().setLocalTimeZone(ZoneId.of("Asia/Shanghai"));
+    runAndCheck(
+        query,
+        Arrays.asList("+I[1, 2024-12-31 20:12:12.123456]", "+I[2, 2025-02-28 20:12:12.654321]"));
+  }
+
+  @Test
   void testNotEqual() {
     List<Row> rows =
         Arrays.asList(

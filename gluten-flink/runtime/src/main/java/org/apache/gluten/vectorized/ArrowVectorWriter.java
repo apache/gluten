@@ -161,9 +161,14 @@ class FieldVectorCreator {
           Map.entry(VarCharType.class, (dataType, timeZoneId) -> ArrowType.Utf8.INSTANCE),
           Map.entry(
               TimestampType.class,
-              (dataType, timeZoneId) ->
-                  new ArrowType.Timestamp(
-                      TimeUnit.MILLISECOND, timeZoneId == null ? "UTC" : timeZoneId)),
+              (dataType, timeZoneId) -> {
+                TimestampType timestampType = (TimestampType) dataType;
+                return new ArrowType.Timestamp(
+                    toTimeUnit(timestampType.getPrecision()),
+                    timestampType.isLocalZoned()
+                        ? (timeZoneId == null ? "UTC" : timeZoneId)
+                        : null);
+              }),
           Map.entry(DateType.class, (dataType, timeZoneId) -> new ArrowType.Date(DateUnit.DAY)),
           Map.entry(
               DecimalType.class,
@@ -179,6 +184,15 @@ class FieldVectorCreator {
       throw new UnsupportedOperationException("Unsupported type: " + dataType.getClass().getName());
     }
     return converter.convert(dataType, timeZoneId);
+  }
+
+  private static TimeUnit toTimeUnit(int precision) {
+    if (precision <= 3) {
+      return TimeUnit.MILLISECOND;
+    } else if (precision <= 6) {
+      return TimeUnit.MICROSECOND;
+    }
+    return TimeUnit.NANOSECOND;
   }
 
   private static Field toArrowField(
@@ -396,41 +410,61 @@ class VarCharVectorWriter extends BaseVectorWriter<VarCharVector, byte[]> {
 }
 
 class TimestampVectorWriter extends BaseVectorWriter<FieldVector, Long> {
-  private final int precision = 3; // Millisecond precision
+  private final int precision;
 
   public TimestampVectorWriter(Type fieldType, BufferAllocator allocator, FieldVector vector) {
     super(vector);
-    // Verify that the vector is a timestamp vector (either TimeStampMilliVector or
-    // TimeStampMilliTZVector)
-    if (!(vector instanceof TimeStampMilliVector) && !(vector instanceof TimeStampMilliTZVector)) {
+    this.precision = ((TimestampType) fieldType).getPrecision();
+    if (!(vector instanceof TimeStampMilliVector)
+        && !(vector instanceof TimeStampMilliTZVector)
+        && !(vector instanceof TimeStampMicroVector)
+        && !(vector instanceof TimeStampMicroTZVector)
+        && !(vector instanceof TimeStampNanoVector)
+        && !(vector instanceof TimeStampNanoTZVector)) {
       throw new IllegalArgumentException(
-          "Expected TimeStampMilliVector or TimeStampMilliTZVector, but got: "
-              + vector.getClass().getName());
+          "Expected timestamp vector, but got: " + vector.getClass().getName());
     }
   }
 
   @Override
   protected Long getValue(RowData rowData, int fieldIndex) {
-    return rowData.getTimestamp(fieldIndex, precision).getMillisecond();
+    return toArrowValue(rowData.getTimestamp(fieldIndex, precision));
   }
 
   @Override
   protected Long getValue(ArrayData arrayData, int index) {
-    return arrayData.getTimestamp(index, precision).getMillisecond();
+    return toArrowValue(arrayData.getTimestamp(index, precision));
   }
 
   @Override
   protected void setValue(int index, Long value) {
-
-    // Both TimeStampMilliVector and TimeStampMilliTZVector support setSafe with long value
     if (this.typedVector instanceof TimeStampMilliVector) {
       ((TimeStampMilliVector) this.typedVector).setSafe(index, value);
     } else if (this.typedVector instanceof TimeStampMilliTZVector) {
       ((TimeStampMilliTZVector) this.typedVector).setSafe(index, value);
+    } else if (this.typedVector instanceof TimeStampMicroVector) {
+      ((TimeStampMicroVector) this.typedVector).setSafe(index, value);
+    } else if (this.typedVector instanceof TimeStampMicroTZVector) {
+      ((TimeStampMicroTZVector) this.typedVector).setSafe(index, value);
+    } else if (this.typedVector instanceof TimeStampNanoVector) {
+      ((TimeStampNanoVector) this.typedVector).setSafe(index, value);
+    } else if (this.typedVector instanceof TimeStampNanoTZVector) {
+      ((TimeStampNanoTZVector) this.typedVector).setSafe(index, value);
     } else {
       throw new IllegalStateException(
           "Unexpected vector type: " + this.typedVector.getClass().getName());
     }
+  }
+
+  private Long toArrowValue(org.apache.flink.table.data.TimestampData value) {
+    long milliseconds = value.getMillisecond();
+    int nanoOfMillisecond = value.getNanoOfMillisecond();
+    if (precision <= 3) {
+      return milliseconds;
+    } else if (precision <= 6) {
+      return milliseconds * 1000 + nanoOfMillisecond / 1000;
+    }
+    return milliseconds * 1000000 + nanoOfMillisecond;
   }
 }
 

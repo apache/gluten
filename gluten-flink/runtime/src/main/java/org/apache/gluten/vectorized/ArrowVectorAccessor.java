@@ -30,7 +30,14 @@ import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.TimeStampMicroTZVector;
 import org.apache.arrow.vector.TimeStampMicroVector;
+import org.apache.arrow.vector.TimeStampMilliTZVector;
+import org.apache.arrow.vector.TimeStampMilliVector;
+import org.apache.arrow.vector.TimeStampNanoTZVector;
+import org.apache.arrow.vector.TimeStampNanoVector;
+import org.apache.arrow.vector.TimeStampSecTZVector;
+import org.apache.arrow.vector.TimeStampSecVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
@@ -63,7 +70,14 @@ public abstract class ArrowVectorAccessor {
           Map.entry(StructVector.class, vector -> new StructVectorAccessor(vector)),
           Map.entry(ListVector.class, vector -> new ListVectorAccessor(vector)),
           Map.entry(DateDayVector.class, vector -> new DateDayVectorAccessor(vector)),
-          Map.entry(TimeStampMicroVector.class, vector -> new TimeStampMicroVectorAccessor(vector)),
+          Map.entry(TimeStampSecVector.class, vector -> new TimeStampVectorAccessor(vector)),
+          Map.entry(TimeStampSecTZVector.class, vector -> new TimeStampVectorAccessor(vector)),
+          Map.entry(TimeStampMilliVector.class, vector -> new TimeStampVectorAccessor(vector)),
+          Map.entry(TimeStampMilliTZVector.class, vector -> new TimeStampVectorAccessor(vector)),
+          Map.entry(TimeStampMicroVector.class, vector -> new TimeStampVectorAccessor(vector)),
+          Map.entry(TimeStampMicroTZVector.class, vector -> new TimeStampVectorAccessor(vector)),
+          Map.entry(TimeStampNanoVector.class, vector -> new TimeStampVectorAccessor(vector)),
+          Map.entry(TimeStampNanoTZVector.class, vector -> new TimeStampVectorAccessor(vector)),
           Map.entry(MapVector.class, vector -> new MapVectorAccessor(vector)));
 
   public static ArrowVectorAccessor create(FieldVector vector) {
@@ -268,15 +282,38 @@ class MapVectorAccessor extends BaseArrowVectorAccessor<MapVector> {
   }
 }
 
-class TimeStampMicroVectorAccessor extends BaseArrowVectorAccessor<TimeStampMicroVector> {
+class TimeStampVectorAccessor extends BaseArrowVectorAccessor<FieldVector> {
 
-  public TimeStampMicroVectorAccessor(FieldVector vector) {
+  public TimeStampVectorAccessor(FieldVector vector) {
     super(vector);
   }
 
   @Override
   public Object getImpl(int rowIndex) {
-    long milliseconds = typedVector.get(rowIndex) / 1000;
-    return TimestampData.fromEpochMillis(milliseconds);
+    if (typedVector instanceof TimeStampSecVector) {
+      return TimestampData.fromEpochMillis(((TimeStampSecVector) typedVector).get(rowIndex) * 1000);
+    } else if (typedVector instanceof TimeStampSecTZVector) {
+      return TimestampData.fromEpochMillis(
+          ((TimeStampSecTZVector) typedVector).get(rowIndex) * 1000);
+    } else if (typedVector instanceof TimeStampMilliVector) {
+      return TimestampData.fromEpochMillis(((TimeStampMilliVector) typedVector).get(rowIndex));
+    } else if (typedVector instanceof TimeStampMilliTZVector) {
+      return TimestampData.fromEpochMillis(((TimeStampMilliTZVector) typedVector).get(rowIndex));
+    } else if (typedVector instanceof TimeStampMicroVector) {
+      return fromSubMillis(((TimeStampMicroVector) typedVector).get(rowIndex), 1000, 1000);
+    } else if (typedVector instanceof TimeStampMicroTZVector) {
+      return fromSubMillis(((TimeStampMicroTZVector) typedVector).get(rowIndex), 1000, 1000);
+    } else if (typedVector instanceof TimeStampNanoVector) {
+      return fromSubMillis(((TimeStampNanoVector) typedVector).get(rowIndex), 1000000, 1);
+    } else if (typedVector instanceof TimeStampNanoTZVector) {
+      return fromSubMillis(((TimeStampNanoTZVector) typedVector).get(rowIndex), 1000000, 1);
+    }
+    throw new IllegalStateException("Unexpected vector type: " + typedVector.getClass().getName());
+  }
+
+  private TimestampData fromSubMillis(long value, int unitsPerMillisecond, int nanosPerUnit) {
+    long milliseconds = Math.floorDiv(value, unitsPerMillisecond);
+    int nanoOfMillisecond = (int) Math.floorMod(value, unitsPerMillisecond) * nanosPerUnit;
+    return TimestampData.fromEpochMillis(milliseconds, nanoOfMillisecond);
   }
 }
