@@ -470,6 +470,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
             }
           }
         }
+      case _: KeyGroupedPartitioning =>
+        FallbackTags.add(
+          shuffle,
+          ValidationResult.failed(
+            "KeyGroupedPartitioning is not supported by Gluten native shuffle"))
+        shuffle.withNewChildren(child :: Nil)
       case _ =>
         ColumnarShuffleExchangeExec(shuffle, child, null)
     }
