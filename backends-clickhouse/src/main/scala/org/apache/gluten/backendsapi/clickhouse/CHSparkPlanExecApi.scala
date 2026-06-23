@@ -568,7 +568,11 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
       CHExecUtil.buildSideRDD(dataSize, newChild, isNullAware, keyColumnIndex).collect
 
     val batches = countsAndBytes.map(_._2)
-    val totalBatchesSize = batches.map(_.length).sum
+    val (totalBatchesSize, rowCount, hasNullKeyValues) =
+      countsAndBytes.foldLeft((0, 0L, false)) {
+        case ((size, rows, hasNull), (count, bytes, hasNullKey)) =>
+          (size + bytes.length, rows + count, hasNull || hasNullKey)
+      }
     val rawSize = dataSize.value
     if (rawSize >= GlutenConfig.get.maxBroadcastTableSize) {
       throw new GlutenException(
@@ -581,8 +585,6 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
         s"Invalid rawSize($rawSize) or totalBatchesSize ($totalBatchesSize). Ensure the shuffle" +
           s" written bytes is correct.")
     }
-    val rowCount = countsAndBytes.map(_._1).sum
-    val hasNullKeyValues = countsAndBytes.map(_._3).foldLeft[Boolean](false)((b, a) => { b || a })
     numOutputRows += rowCount
     ClickHouseBuildSideRelation(
       mode,
