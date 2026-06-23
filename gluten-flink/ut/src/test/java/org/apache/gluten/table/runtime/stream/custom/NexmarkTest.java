@@ -41,6 +41,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -113,11 +114,12 @@ public class NexmarkTest {
       String explain = tEnv.explainSql("SELECT * FROM datagen");
 
       assertThat(explain).contains("WatermarkAssigner");
-      assertThat(explain)
-          .lines()
-          .filteredOn(line -> line.contains("TableSourceScan"))
-          .isNotEmpty()
-          .noneMatch(line -> line.contains("watermark=["));
+      List<String> tableSourceScanLines =
+          Arrays.stream(explain.split("\\R"))
+              .filter(line -> line.contains("TableSourceScan"))
+              .collect(Collectors.toList());
+      assertThat(tableSourceScanLines).isNotEmpty();
+      assertThat(tableSourceScanLines).noneMatch(line -> line.contains("watermark=["));
     } finally {
       tEnv.executeSql("drop table if exists datagen");
     }
@@ -131,11 +133,12 @@ public class NexmarkTest {
       tEnv.executeSql(createKafkaSource);
       String explain = tEnv.explainSql("SELECT * FROM kafka");
 
-      assertThat(explain)
-          .lines()
-          .filteredOn(line -> line.contains("TableSourceScan"))
-          .isNotEmpty()
-          .anyMatch(line -> line.contains("watermark=["));
+      List<String> tableSourceScanLines =
+          Arrays.stream(explain.split("\\R"))
+              .filter(line -> line.contains("TableSourceScan"))
+              .collect(Collectors.toList());
+      assertThat(tableSourceScanLines).isNotEmpty();
+      assertThat(tableSourceScanLines).anyMatch(line -> line.contains("watermark=["));
     } finally {
       tEnv.executeSql("drop table if exists kafka");
     }
