@@ -455,27 +455,28 @@ inline size_t compress64(const uint64_t* input, size_t num, uint8_t* output) {
 // decodeBlock requires aligned uint64_t* input; when the caller's input
 // buffer is unaligned, we stage through tmpIn and memcpy in.
 template <bool InAligned, bool OutAligned>
-inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t* output) {
+inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t* output, size_t outputSize) {
   alignas(64) uint64_t tmpIn[kMaxValuesPerBlock + 2];
   alignas(64) uint64_t tmpOut[kMaxValuesPerBlock];
 
   const uint8_t* inPtr = input;
   const uint8_t* inEnd = input + inputSize;
+  const size_t outValuesMax = outputSize / sizeof(uint64_t);
   size_t nDecoded = 0;
 
   while (inPtr + kHeaderSize <= inEnd) {
     if (inPtr[0] == kBwTailMarker) {
       const uint8_t count = inPtr[1];
       inPtr += kHeaderSize;
-      const size_t tailBytes = count * sizeof(uint64_t);
-      if (count > 0 && inPtr + tailBytes <= inEnd) {
+      const size_t tailBytes = static_cast<size_t>(count) * sizeof(uint64_t);
+      if (count > 0 && inPtr + tailBytes <= inEnd && count <= outValuesMax - nDecoded) {
         std::memcpy(reinterpret_cast<uint8_t*>(output) + nDecoded * sizeof(uint64_t), inPtr, tailBytes);
         nDecoded += count;
       }
       break;
     }
     const size_t blockVals = static_cast<size_t>(inPtr[1]) * kLanes;
-    if (blockVals == 0 || blockVals > kMaxValuesPerBlock) {
+    if (blockVals == 0 || blockVals > kMaxValuesPerBlock || blockVals > outValuesMax - nDecoded) {
       break;
     }
     const size_t remaining = static_cast<size_t>(inEnd - inPtr);
@@ -505,19 +506,19 @@ inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t*
 }
 
 // Runtime dispatch.
-inline size_t decompress64(const uint8_t* input, size_t inputSize, uint64_t* output) {
+inline size_t decompress64(const uint8_t* input, size_t inputSize, uint64_t* output, size_t outputSize) {
   bool inOk = (reinterpret_cast<uintptr_t>(input) % alignof(uint64_t) == 0);
   bool outOk = (reinterpret_cast<uintptr_t>(output) % alignof(uint64_t) == 0);
   if (inOk && outOk) {
-    return decompress64Impl<true, true>(input, inputSize, output);
+    return decompress64Impl<true, true>(input, inputSize, output, outputSize);
   }
   if (inOk && !outOk) {
-    return decompress64Impl<true, false>(input, inputSize, output);
+    return decompress64Impl<true, false>(input, inputSize, output, outputSize);
   }
   if (!inOk && outOk) {
-    return decompress64Impl<false, true>(input, inputSize, output);
+    return decompress64Impl<false, true>(input, inputSize, output, outputSize);
   }
-  return decompress64Impl<false, false>(input, inputSize, output);
+  return decompress64Impl<false, false>(input, inputSize, output, outputSize);
 }
 
 // =============================================================================

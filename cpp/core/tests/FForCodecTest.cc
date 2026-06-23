@@ -85,7 +85,7 @@ void compressRoundtrip(const uint64_t* data, size_t num) {
   size_t written = compress64(data, num, buf.data());
 
   std::vector<uint64_t> decoded(num);
-  size_t nDecoded = decompress64(buf.data(), written, decoded.data());
+  size_t nDecoded = decompress64(buf.data(), written, decoded.data(), decoded.size() * sizeof(uint64_t));
 
   ASSERT_EQ(nDecoded, num);
   for (size_t i = 0; i < num; ++i) {
@@ -402,7 +402,7 @@ TEST(FForTest, Compress64MisalignedOutput) {
     size_t written = compress64(data.data(), data.size(), out);
 
     std::vector<uint64_t> decoded(256);
-    size_t n = decompress64(out, written, decoded.data());
+    size_t n = decompress64(out, written, decoded.data(), decoded.size() * sizeof(uint64_t));
     ASSERT_EQ(n, size_t(256));
     for (size_t i = 0; i < 256; ++i) {
       ASSERT_EQ(decoded[i], data[i]) << "offset=" << offset << " i=" << i;
@@ -422,7 +422,7 @@ TEST(FForTest, Compress64MisalignedInput) {
     size_t written = compress64(misalignedInput, 256, comp.data());
 
     std::vector<uint64_t> decoded(256);
-    size_t n = decompress64(comp.data(), written, decoded.data());
+    size_t n = decompress64(comp.data(), written, decoded.data(), decoded.size() * sizeof(uint64_t));
     ASSERT_EQ(n, size_t(256));
     for (size_t i = 0; i < 256; ++i) {
       ASSERT_EQ(decoded[i], raw[i]) << "offset=" << offset << " i=" << i;
@@ -438,7 +438,7 @@ TEST(FForTest, Decompress64MisalignedOutput) {
   std::vector<uint8_t> outBuf(256 * sizeof(uint64_t) + 16);
   for (size_t offset = 0; offset < 8; ++offset) {
     auto* misalignedOutput = reinterpret_cast<uint64_t*>(outBuf.data() + offset);
-    size_t n = decompress64(comp.data(), written, misalignedOutput);
+    size_t n = decompress64(comp.data(), written, misalignedOutput, 256 * sizeof(uint64_t));
     ASSERT_EQ(n, size_t(256));
     for (size_t i = 0; i < 256; ++i) {
       uint64_t val;
@@ -463,7 +463,7 @@ TEST(FForTest, Compress64AllMisaligned) {
         size_t written = compress64(inPtr, 256, compBuf.data() + compOff);
 
         auto* outPtr = reinterpret_cast<uint64_t*>(outBuf.data() + outOff);
-        size_t n = decompress64(compBuf.data() + compOff, written, outPtr);
+        size_t n = decompress64(compBuf.data() + compOff, written, outPtr, 256 * sizeof(uint64_t));
         ASSERT_EQ(n, size_t(256));
         for (size_t i = 0; i < 256; ++i) {
           uint64_t val;
