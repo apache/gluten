@@ -260,6 +260,11 @@ class SubstraitToVeloxPlanConverter {
   /// starting from zero.
   std::string nextPlanNodeId();
 
+  /// Wraps the given TableScanNode with a LocalPartitionNode (kGather) when
+  /// parallel execution is enabled, to gather all scanned data into a single
+  /// partition. Otherwise returns the node as-is.
+  core::PlanNodePtr maybeWrapWithGather(core::PlanNodePtr tableScanNode);
+
   /// Used to convert AggregateRel into Velox plan node.
   /// The output of child node will be used as the input of Aggregation.
   std::shared_ptr<const core::PlanNode> toVeloxAgg(

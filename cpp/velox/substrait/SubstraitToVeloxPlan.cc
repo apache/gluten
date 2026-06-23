@@ -1436,7 +1436,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(
   splitInfo->leafType = SplitInfo::LeafType::SPLIT_AWARE_STREAM;
   splitInfoMap_[tableScanNode->id()] = splitInfo;
 
-  return tableScanNode;
+  return maybeWrapWithGather(tableScanNode);
 }
 
 #ifdef GLUTEN_ENABLE_GPU
@@ -1615,7 +1615,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         nextPlanNodeId(), std::move(outputType), std::move(tableHandle), assignments);
     // Set split info map.
     splitInfoMap_[tableScanNode->id()] = splitInfo;
-    return tableScanNode;
+    return maybeWrapWithGather(tableScanNode);
   }
 }
 
@@ -1741,6 +1741,23 @@ std::string SubstraitToVeloxPlanConverter::nextPlanNodeId() {
   auto id = fmt::format("{}", planNodeId_);
   planNodeId_++;
   return id;
+}
+
+core::PlanNodePtr SubstraitToVeloxPlanConverter::maybeWrapWithGather(
+    core::PlanNodePtr tableScanNode) {
+  const bool parallelExecutionEnabled =
+      veloxCfg_->get<bool>(kParallelExecutionEnabled, kParallelExecutionEnabledDefault);
+  const int32_t taskDrivers =
+      veloxCfg_->get<int32_t>(kParallelExecutionTaskDrivers, kParallelExecutionTaskDriversDefault);
+  if (parallelExecutionEnabled && taskDrivers > 1) {
+    return std::make_shared<core::LocalPartitionNode>(
+        nextPlanNodeId(),
+        core::LocalPartitionNode::Type::kGather,
+        false,
+        std::make_shared<core::GatherPartitionFunctionSpec>(),
+        std::vector<core::PlanNodePtr>{std::move(tableScanNode)});
+  }
+  return tableScanNode;
 }
 
 void SubstraitToVeloxPlanConverter::constructFunctionMap(const ::substrait::Plan& substraitPlan) {
