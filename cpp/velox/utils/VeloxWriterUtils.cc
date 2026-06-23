@@ -59,6 +59,9 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
   //   DECIMAL precisions; higher precisions use FIXED_LEN_BYTE_ARRAY.
   // - false (when spark.sql.parquet.writeLegacyFormat is true): store as FIXED_LEN_BYTE_ARRAY
   //   regardless of precision (Spark legacy Parquet decimal layout).
+  // TODO: Only DECIMAL is handled here. Spark's writeLegacyFormat also changes ARRAY (bag/array
+  // vs list/element) and MAP (map vs key_value) physical layouts, which are not yet supported
+  // in Gluten native Parquet write.
   writeOption->enableStoreDecimalAsInteger = !writeLegacyParquetFormat;
   auto compressionCodec = CompressionKind::CompressionKind_SNAPPY;
   if (auto it = sparkConfs.find(kParquetCompressionCodec); it != sparkConfs.end()) {
