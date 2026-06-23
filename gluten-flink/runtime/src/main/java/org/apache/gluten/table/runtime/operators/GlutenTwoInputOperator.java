@@ -68,6 +68,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   private ExternalStreams.BlockingQueue leftInputQueue;
   private ExternalStreams.BlockingQueue rightInputQueue;
   private SerialTask task;
+  private transient volatile boolean closing;
   private final Class<IN> inClass;
   private final Class<OUT> outClass;
   private VectorInputBridge<IN> inputBridge;
@@ -118,6 +119,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void open() throws Exception {
+    closing = false;
     super.open();
     if (!mailboxHolder().get().isMailboxBound()) {
       ensureMailboxInitialized(getContainingTask());
@@ -137,11 +139,17 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void scheduleProcessElementOnMailbox() {
+    if (closing) {
+      return;
+    }
     scheduleDrainOnMailbox(this::drainTaskOutput);
   }
 
   @Override
   public void onProcessingTime(long timestamp) {
+    if (closing) {
+      return;
+    }
     scheduleProcessElementOnMailbox();
   }
 
@@ -174,11 +182,20 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void processElementInternal() {
+    if (closing) {
+      return;
+    }
     drainOutput(this::drainTaskOutput);
   }
 
   private void drainTaskOutput() {
+    if (closing) {
+      return;
+    }
     while (true) {
+      if (closing) {
+        return;
+      }
       UpIterator.State state = task.advance();
       if (state == UpIterator.State.AVAILABLE) {
         final StatefulElement element = task.statefulGet();
@@ -219,22 +236,34 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void close() throws Exception {
-    if (leftInputQueue != null) {
-      leftInputQueue.close();
-    }
-    if (rightInputQueue != null) {
-      rightInputQueue.close();
-    }
-    if (task != null) {
-      try {
-        task.unbindNativeCallbackTarget();
-      } finally {
-        task.close();
-      }
-    }
-    if (sessionResource != null) {
-      sessionResource.close();
-    }
+    closing = true;
+    GlutenCloseables.runWithCleanup(
+        () -> {
+          if (leftInputQueue != null) {
+            leftInputQueue.close();
+          }
+        },
+        () -> {
+          if (rightInputQueue != null) {
+            rightInputQueue.close();
+          }
+        },
+        () -> {
+          if (task != null) {
+            task.unbindNativeCallbackTarget();
+          }
+        },
+        () -> {
+          if (task != null) {
+            task.close();
+          }
+        },
+        () -> {
+          if (sessionResource != null) {
+            sessionResource.close();
+          }
+        },
+        super::close);
   }
 
   @Override
