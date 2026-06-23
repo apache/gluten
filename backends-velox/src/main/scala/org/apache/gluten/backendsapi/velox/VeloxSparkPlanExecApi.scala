@@ -890,8 +890,13 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
 
   override def doCanonicalizeForBroadcastMode(mode: BroadcastMode): BroadcastMode = {
     mode match {
-      case hash: HashedRelationBroadcastMode =>
-        // Node: It's different with vanilla Spark.
+      case hash: HashedRelationBroadcastMode
+          // TODO: Build keys are sensitive when `enableBroadcastBuildOncePerExecutor` is enabled.
+          // For expression join keys, the build HashRelation needs pre-projection, in which case
+          // the reuse of broadcast exchange may cause incorrect results.
+          // Remove this limitation after supporting join-key pre-projection plan rewriting.
+          if !VeloxConfig.get.enableBroadcastBuildOncePerExecutor =>
+        // Note: It's different with vanilla Spark.
         // Vanilla Spark build HashRelation at driver side, so it is build keys sensitive.
         // But we broadcast byte array and build HashRelation at executor side,
         // the build keys are actually meaningless for the broadcast value.

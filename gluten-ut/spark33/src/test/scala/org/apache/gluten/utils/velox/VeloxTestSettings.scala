@@ -106,8 +106,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-35719: cast timestamp with local time zone to timestamp without timezone")
     // Revised by setting timezone through config and commented unsupported cases.
     .exclude("cast string to timestamp")
-    // See https://github.com/facebookincubator/velox/issues/17593.
-    .exclude("Fast fail for cast string type to decimal type in ansi mode")
   enableSuite[GlutenArithmeticExpressionSuite]
   enableSuite[GlutenBitwiseExpressionsSuite]
   enableSuite[GlutenCastSuite]
@@ -123,8 +121,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Revised by setting timezone through config and commented unsupported cases.
     .exclude("cast string to timestamp")
     .exclude("SPARK-36286: invalid string cast to timestamp")
-    // See https://github.com/facebookincubator/velox/issues/17593.
-    .exclude("Fast fail for cast string type to decimal type")
   enableSuite[GlutenCollectionExpressionsSuite]
     // Rewrite in Gluten to replace Seq with Array
     .exclude("Shuffle")

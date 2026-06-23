@@ -401,6 +401,28 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
+  test("fallback when join post filter has unsupported expression") {
+    GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+      events =>
+        val df = spark.sql("""
+                             |select tmp1.c1, tmp1.c2 from tmp1
+                             |left join tmp2
+                             |on tmp1.c1 = tmp2.c1
+                             |and tmp1.c2 not rlike '^[\\u4e00-\\u9fa5]{2,10}[0-9]+$'
+                             |""".stripMargin)
+        df.collect()
+        GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+
+        val broadcastHashJoin = find(df.queryExecution.executedPlan) {
+          _.isInstanceOf[BroadcastHashJoinExec]
+        }
+        assert(broadcastHashJoin.isDefined)
+        val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
+        assert(fallbackReasons.nonEmpty)
+        assert(fallbackReasons.forall(_.contains("rlike due to Pattern")))
+    }
+  }
+
   test("no fallback event emitted for vanilla Spark execution with gluten disabled") {
     // Regression test: before the fix, GlutenQueryExecutionListener would post a
     // GlutenPlanFallbackEvent even when spark.gluten.enabled=false (e.g. the vanilla baseline run

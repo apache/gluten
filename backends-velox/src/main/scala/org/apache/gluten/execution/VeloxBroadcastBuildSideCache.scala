@@ -30,7 +30,10 @@ import com.github.benmanes.caffeine.cache.{Cache, Caffeine, RemovalCause, Remova
 
 import java.util.concurrent.TimeUnit
 
-case class BroadcastHashTable(pointer: Long, relation: BuildSideRelation)
+case class BroadcastHashTable(
+    pointer: Long,
+    relation: BuildSideRelation,
+    droppedDuplicates: Boolean)
 
 /**
  * `VeloxBroadcastBuildSideCache` is used for controlling to build bhj hash table once.
@@ -62,15 +65,15 @@ object VeloxBroadcastBuildSideCache
     buildSideRelationCache
       .get(
         broadcastContext.buildHashTableId,
-        (broadcast_id: String) => {
-          val (pointer, relation) = broadcast.value match {
+        (_: String) => {
+          val (pointer, relation, droppedDuplicates) = broadcast.value match {
             case columnar: ColumnarBuildSideRelation =>
               columnar.buildHashTable(broadcastContext)
             case unsafe: UnsafeColumnarBuildSideRelation =>
               unsafe.buildHashTable(broadcastContext)
           }
 
-          BroadcastHashTable(pointer, relation)
+          BroadcastHashTable(pointer, relation, droppedDuplicates)
         }
       )
   }
@@ -97,9 +100,9 @@ object VeloxBroadcastBuildSideCache
       if (value.relation != null) {
         value.relation match {
           case columnar: ColumnarBuildSideRelation =>
-            columnar.reset()
+            columnar.reset(value.droppedDuplicates)
           case unsafe: UnsafeColumnarBuildSideRelation =>
-            unsafe.reset()
+            unsafe.reset(value.droppedDuplicates)
         }
       }
 

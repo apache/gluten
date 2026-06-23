@@ -65,6 +65,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableBroadcastBuildRelationInOffheap: Boolean =
     getConf(VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP)
 
+  def broadcastBuildMergeBatches: Boolean =
+    getConf(VELOX_BROADCAST_BUILD_MERGE_BATCHES)
+
   def enableBroadcastBuildOncePerExecutor: Boolean =
     getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
 
@@ -302,7 +305,7 @@ object VeloxConfig extends ConfigRegistry {
       .createWithDefault(10000)
 
   val MAX_TARGET_FILE_SIZE_SESSION =
-    buildConf("spark.gluten.sql.columnar.backend.velox.maxTargetFileSize")
+    buildConf("spark.gluten.sql.columnar.backend.velox.parquetMaxTargetFileSize")
       .doc(
         "The target file size for each output file when writing data. " +
           "0 means no limit on target file size, and the actual file size will be determined by " +
@@ -614,6 +617,17 @@ object VeloxConfig extends ConfigRegistry {
       .experimental()
       .doc("Experimental: If enabled, broadcast build relation will use offheap memory. " +
         "Otherwise, broadcast build relation will use onheap memory.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val VELOX_BROADCAST_BUILD_MERGE_BATCHES =
+    buildConf("spark.gluten.velox.broadcastBuild.mergeBatches")
+      .doc(
+        "If enabled, all columnar batches in a broadcast build relation will be " +
+          "serialized into a single buffer to reduce the number of addInput calls in " +
+          "HashBuild operator. This can significantly improve BHJ performance when " +
+          "the broadcast table has many small batches, but may increase driver-side " +
+          "peak memory and is not suitable for very large broadcasts.")
       .booleanConf
       .createWithDefault(false)
 

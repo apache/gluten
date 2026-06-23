@@ -1071,6 +1071,9 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::JoinRel& joinRel
   }
 
   if (joinRel.has_post_join_filter()) {
+    if (!validateExpression(joinRel.post_join_filter(), rowType)) {
+      return false;
+    }
     auto expression = exprConverter_->toVeloxExpr(joinRel.post_join_filter(), rowType);
     exec::ExprSet exprSet({std::move(expression)}, execCtx_.get());
   }
@@ -1324,7 +1327,8 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::AggregateRel& ag
       "regr_intercept",
       "regr_sxy",
       "regr_replacement",
-      "bitmap_construct_agg"};
+      "bitmap_construct_agg",
+      "bitmapaggregator"};
 
   auto udafFuncs = UdfLoader::getInstance()->getRegisteredUdafNames();
 
