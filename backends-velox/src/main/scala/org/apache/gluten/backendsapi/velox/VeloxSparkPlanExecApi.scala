@@ -850,14 +850,17 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       .mapPartitions(itr => Iterator(BroadcastUtils.serializeStream(itr)))
       .filter(_.numRows != 0)
       .collect
-    val rawSize = serialized.map(_.sizeInBytes()).sum
+    val (rawSize, totalNumRows) = serialized.foldLeft((0L, 0L)) {
+      case ((accSize, accRows), result) =>
+        (accSize + result.sizeInBytes(), accRows + result.numRows)
+    }
     if (rawSize >= GlutenConfig.get.maxBroadcastTableSize) {
       throw new SparkException(
         "Cannot broadcast the table that is larger than " +
           s"${SparkMemoryUtil.bytesToString(GlutenConfig.get.maxBroadcastTableSize)}: " +
           s"${SparkMemoryUtil.bytesToString(rawSize)}")
     }
-    numOutputRows += serialized.map(_.numRows).sum
+    numOutputRows += totalNumRows
     dataSize += rawSize
 
     val rawThreads =
