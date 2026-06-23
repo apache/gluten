@@ -437,8 +437,7 @@ inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t*
     if (bw == kBwTailMarker) {
       if (count > 0) {
         // memcpy handles any alignment, no special case needed.
-        std::memcpy(
-            reinterpret_cast<uint8_t*>(output) + nDecoded * sizeof(uint64_t), inPtr, count * sizeof(uint64_t));
+        std::memcpy(reinterpret_cast<uint8_t*>(output) + nDecoded * sizeof(uint64_t), inPtr, count * sizeof(uint64_t));
         nDecoded += count;
       }
       break;

@@ -80,6 +80,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("SPARK-48012")
     .excludeByPrefix("SPARK-44647")
     .excludeByPrefix("SPARK-41471")
+    .excludeByPrefix("SPARK-54439")
     // disable due to check for SMJ node
     .excludeByPrefix("SPARK-41413: partitioned join:")
     .excludeByPrefix("SPARK-42038: partially clustered:")
@@ -115,8 +116,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("cast from timestamp II")
     .exclude("SPARK-36286: invalid string cast to timestamp")
     .exclude("SPARK-39749: cast Decimal to string")
-    // See https://github.com/facebookincubator/velox/issues/17593.
-    .exclude("Fast fail for cast string type to decimal type")
   enableSuite[GlutenTryCastSuite]
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
@@ -134,8 +133,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("cast string to timestamp")
     // TODO: fix after https://github.com/facebookincubator/velox/pull/14910
     .exclude("SPARK-39749: cast Decimal to string")
-    // See https://github.com/facebookincubator/velox/issues/17593.
-    .exclude("Fast fail for cast string type to decimal type in ansi mode")
   enableSuite[GlutenCollectionExpressionsSuite]
     // Rewrite in Gluten to replace Seq with Array
     .exclude("Shuffle")
@@ -282,6 +279,12 @@ class VeloxTestSettings extends BackendTestSettings {
       "INCONSISTENT_BEHAVIOR_CROSS_VERSION: compatibility with Spark 2.4/3.2 in reading/writing dates")
     // Doesn't support unhex with failOnError=true.
     .exclude("CONVERSION_INVALID_INPUT: to_binary conversion function hex")
+    // bitmap_construct_agg offloaded to Velox throws GlutenException instead of
+    // SparkArrayIndexOutOfBoundsException.
+    .exclude("INVALID_BITMAP_POSITION: position out of bounds")
+    .exclude("INVALID_BITMAP_POSITION: negative position")
+    // Different exceptions when reading Timestamp from ORC.
+    .exclude("UNSUPPORTED_FEATURE - SPARK-36346: can't read Timestamp as TimestampNTZ")
   enableSuite[GlutenQueryParsingErrorsSuite]
   enableSuite[GlutenQueryContextSuite]
   enableSuite[GlutenQueryExecutionAnsiErrorsSuite]
@@ -380,6 +383,12 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("unsupported parquet conversion ShortType -> DecimalType(5,0)")
     .exclude("unsupported parquet conversion ShortType -> DecimalType(5,1)")
     .exclude("unsupported parquet conversion ShortType -> DecimalType(6,1)")
+    // Schema evolution for TimestampNTZType is not supported.
+    .exclude("parquet widening conversion ByteType -> TimestampNTZType")
+    .exclude("parquet widening conversion IntegerType -> TimestampNTZType")
+    .exclude("parquet widening conversion ShortType -> TimestampNTZType")
+    .exclude("parquet widening conversion LongType -> TimestampNTZType")
+    .exclude("parquet widening conversion DateType -> TimestampNTZType")
   enableSuite[GlutenParquetVariantShreddingSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.text
   enableSuite[GlutenWholeTextFileV1Suite]
@@ -480,6 +489,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Enabling/disabling ignoreCorruptFiles")
     // Schema mismatch, From Kind: BIGINT, To Kind: VARCHAR
     .exclude("SPARK-39830: Reading ORC table that requires type promotion may throw AIOOBE")
+    // Unsupported.
+    .exclude("SPARK-37463: read/write Timestamp ntz to Orc with different time zone")
   enableSuite[GlutenOrcV2QuerySuite]
     // feature not supported
     .exclude("Enabling/disabling ignoreCorruptFiles")
@@ -487,6 +498,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-39830: Reading ORC table that requires type promotion may throw AIOOBE")
     // For exception test.
     .exclude("SPARK-20728 Make ORCFileFormat configurable between sql/hive and sql/core")
+    // Unsupported.
+    .exclude("SPARK-37463: read/write Timestamp ntz to Orc with different time zone")
   enableSuite[GlutenOrcSourceSuite]
     // Rewrite to disable Spark's columnar reader.
     // date result miss match
@@ -587,6 +600,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite because the filter after datasource is not needed.
     .exclude(
       "SPARK-26677: negated null-safe equality comparison should not filter matched row groups")
+    // Velox currently does not distinguish `isAdjustedToUTC` in Parquet.
+    .exclude("SPARK-36182: can't read TimestampLTZ as TimestampNTZ")
   enableSuite[GlutenParquetV2QuerySuite]
     .exclude("row group skipping doesn't overflow when reading into larger type")
     // Unsupport spark.sql.files.ignoreCorruptFiles.
@@ -596,6 +611,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite because the filter after datasource is not needed.
     .exclude(
       "SPARK-26677: negated null-safe equality comparison should not filter matched row groups")
+    // Velox currently does not distinguish `isAdjustedToUTC` in Parquet.
+    .exclude("SPARK-36182: can't read TimestampLTZ as TimestampNTZ")
   enableSuite[GlutenParquetV1SchemaPruningSuite]
   enableSuite[GlutenParquetV2SchemaPruningSuite]
   enableSuite[GlutenParquetRebaseDatetimeV1Suite]
@@ -621,6 +638,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("SPARK-40819")
     .excludeByPrefix("SPARK-46056") // TODO: fix in Spark-4.0
     .exclude("CANNOT_MERGE_SCHEMAS: Failed merging schemas")
+    // Different exceptions between Spark and Velox.
+    .exclude("SPARK-45604: schema mismatch failure error on timestamp_ntz to array<timestamp_ntz>")
   enableSuite[GlutenParquetThriftCompatibilitySuite]
     // Rewrite for file locating.
     .exclude("Read Parquet file generated by parquet-thrift")
@@ -876,6 +895,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-37369: Avoid redundant ColumnarToRow transition on InMemoryTableScan")
     // Rewritten because native raise_error throws Spark exception
     .exclude("SPARK-52684: Atomicity of cache table on error")
+    // Rewrite for different cache size.
+    .exclude("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenFileSourceCharVarcharTestSuite]
   enableSuite[GlutenDSV2CharVarcharTestSuite]
   enableSuite[GlutenColumnExpressionSuite]

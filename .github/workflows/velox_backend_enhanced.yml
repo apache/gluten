@@ -75,8 +75,6 @@ jobs:
             mkdir -p /work/.ccache
             bash dev/ci-velox-buildstatic-centos-7-enhanced-features.sh
             ccache -s
-            mkdir -p /work/.m2/repository/org/apache/arrow/
-            cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
           "
 
       - name: "Save ccache"
@@ -90,11 +88,6 @@ jobs:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases/
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arrow-jars-enhanced-centos-7-${{github.sha}}
-          path: .m2/repository/org/apache/arrow/
-          if-no-files-found: error
 
   spark-test-spark34:
     needs: build-native-lib-centos-7
@@ -107,11 +100,6 @@ jobs:
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-enhanced-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare spark.test.home for Spark 3.4.4 (other tests)
         run: |
           dnf module -y install python39 && \
@@ -165,11 +153,6 @@ jobs:
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-enhanced-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare spark.test.home for Spark 3.5.5 (other tests)
         run: |
           dnf module -y install python39 && \
@@ -226,11 +209,6 @@ jobs:
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-enhanced-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare Spark Resources for Spark 3.5.5 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark35
@@ -277,11 +255,6 @@ jobs:
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-enhanced-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf module -y install python39 && \

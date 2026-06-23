@@ -131,9 +131,11 @@ function install_elfutils-libelf {
 
 function install_xxHash {
   wget_and_untar https://github.com/Cyan4973/xxHash/archive/refs/tags/v${XXHASH_VERSION}.tar.gz xxHash
-  cd ${DEPENDENCY_DIR}/xxHash
-  make "-j${NPROC}"
-  make install PREFIX=${INSTALL_PREFIX}
+  (
+    cd ${DEPENDENCY_DIR}/xxHash
+    make "-j${NPROC}"
+    make install PREFIX=${INSTALL_PREFIX}
+  )
 }
 
 function install_googletest {
@@ -252,7 +254,6 @@ function install_velox_deps {
   run_and_time install_fbthrift
   run_and_time install_duckdb
   run_and_time install_stemmer
-  run_and_time install_thrift
   run_and_time install_simdjson
   run_and_time install_geos
 }

@@ -29,10 +29,8 @@ import org.apache.flink.streaming.runtime.tasks.OutputWithChainingCheck;
 import org.apache.flink.streaming.runtime.tasks.WatermarkGaugeExposingOutput;
 import org.apache.flink.streaming.runtime.watermarkstatus.WatermarkStatus;
 import org.apache.flink.util.OutputTag;
-import org.apache.flink.util.XORShiftRandom;
 
 import java.util.Map;
-import java.util.Random;
 
 /**
  * Collector for gluten, it may contain several outputs, dispatch the record according to node id.
@@ -40,7 +38,6 @@ import java.util.Random;
 public class GlutenOutputCollector<T> implements WatermarkGaugeExposingOutput<StreamRecord<T>> {
 
   protected final Map<String, OutputWithChainingCheck<StreamRecord<T>>> outputs;
-  private final Random random = new XORShiftRandom();
   private final WatermarkGauge watermarkGauge = new WatermarkGauge();
   protected final Counter numRecordsOutForTask;
 

@@ -285,11 +285,11 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def fallbackPreferColumnar: Boolean = getConf(COLUMNAR_FALLBACK_PREFER_COLUMNAR)
 
-  def cartesianProductTransformerEnabled: Boolean =
-    getConf(CARTESIAN_PRODUCT_TRANSFORMER_ENABLED)
+  def enableColumnarCartesianProduct: Boolean =
+    getConf(COLUMNAR_CARTESIAN_PRODUCT_ENABLED)
 
-  def broadcastNestedLoopJoinTransformerTransformerEnabled: Boolean =
-    getConf(BROADCAST_NESTED_LOOP_JOIN_TRANSFORMER_ENABLED)
+  def enableColumnarBroadcastNestedLoopJoin: Boolean =
+    getConf(COLUMNAR_BROADCAST_NESTED_LOOP_JOIN_ENABLED)
 
   def transformPlanLogLevel: String = getConf(TRANSFORM_PLAN_LOG_LEVEL)
 
@@ -325,7 +325,13 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableFallbackReport: Boolean = getConf(FALLBACK_REPORTER_ENABLED)
 
+  def failOnFallback: Boolean = getConf(FALLBACK_FAIL_ON_FALLBACK)
+
   def debug: Boolean = getConf(DEBUG_ENABLED)
+
+  /** Full scan SQL metrics; also enabled when [[debug]] is true. */
+  def detailedScanMetricsEnabled: Boolean =
+    getConf(SCAN_DETAILED_METRICS_ENABLED) || debug
 
   def collectUtStats: Boolean = getConf(UT_STATISTIC)
 
@@ -433,6 +439,8 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_S3_ENDPOINT_REGION: String = HADOOP_PREFIX + S3_ENDPOINT_REGION
   val S3_AWS_IMDS_ENABLED = "fs.s3a.aws.imds.enabled"
   val SPARK_S3_AWS_IMDS_ENABLED: String = HADOOP_PREFIX + S3_AWS_IMDS_ENABLED
+  val ORC_FORCE_POSITIONAL_EVOLUTION = "orc.force.positional.evolution"
+  val SPARK_ORC_FORCE_POSITIONAL_EVOLUTION = HADOOP_PREFIX + ORC_FORCE_POSITIONAL_EVOLUTION
 
   // ABFS config
   val ABFS_PREFIX = "fs.azure."
@@ -576,6 +584,19 @@ object GlutenConfig extends ConfigRegistry {
       }
       .foreach { case (k, v) => nativeConfMap.put(k, v) }
 
+    // When `orc.force.positional.evolution=true`, vanilla Spark maps ORC columns by
+    // position rather than by name (see OrcUtils.requestedColumnIds). The Velox ORC reader
+    // must do the same, otherwise name-based matching against a mismatched file schema
+    // reads columns back as null/empty. Override the (Velox) orcUseColumnNames session conf
+    // so native reads ORC by position too. Harmless for backends that ignore this key.
+    // String literal is used because gluten-substrait cannot depend on backends-velox.
+    if (
+      backendName == "velox" &&
+      conf.getOrElse(SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, "false").toBoolean
+    ) {
+      nativeConfMap.put("spark.gluten.sql.columnar.backend.velox.orcUseColumnNames", "false")
+    }
+
     // Pass the latest tokens to native
     nativeConfMap.put(
       ReservedKeys.GLUTEN_UGI_TOKENS,
@@ -609,10 +630,8 @@ object GlutenConfig extends ConfigRegistry {
       (SPARK_S3_CONNECTION_MAXIMUM, "15"),
       ("spark.gluten.velox.fs.s3a.retry.mode", "legacy"),
       (
-        "spark.gluten.sql.columnar.backend.velox.IOThreads",
-        conf.getOrElse(
-          GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key,
-          GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.defaultValueString)),
+        GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key,
+        GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.defaultValueString),
       (COLUMNAR_SHUFFLE_CODEC.key, ""),
       (COLUMNAR_SHUFFLE_CODEC_BACKEND.key, ""),
       (DEBUG_CUDF.key, DEBUG_CUDF.defaultValueString),
@@ -1233,6 +1252,18 @@ object GlutenConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val MEMORY_MANAGER_CAPACITY_RATIO =
+    buildConf("spark.gluten.memory.manager.capacity.ratio")
+      .internal()
+      .doc(
+        "Ratio of spark.gluten.memoryOverhead.size.in.bytes to allocate for Velox global " +
+          "memory manager. The memory manager is used during spill operations.")
+      .doubleConf
+      .checkValue(
+        ratio => ratio > 0.0 && ratio <= 1.0,
+        "Memory manager capacity ratio must be between 0.0 and 1.0")
+      .createWithDefault(0.75)
+
   val TRANSFORM_PLAN_LOG_LEVEL =
     buildConf("spark.gluten.sql.transform.logLevel")
       .internal()
@@ -1288,6 +1319,16 @@ object GlutenConfig extends ConfigRegistry {
       .internal()
       .booleanConf
       .createWithDefault(false)
+
+  val SCAN_DETAILED_METRICS_ENABLED =
+    buildConf("spark.gluten.sql.scan.detailedMetrics.enabled")
+      .doc(
+        "When true (default), Velox backend scan operators register all detailed SQL metrics. " +
+          "When false, only essential scan metrics are registered to reduce driver memory " +
+          "usage. Also enabled automatically when spark.gluten.sql.debug is true. " +
+          "Does not affect the ClickHouse backend.")
+      .booleanConf
+      .createWithDefault(true)
 
   val DEBUG_KEEP_JNI_WORKSPACE =
     buildStaticConf("spark.gluten.sql.debug.keepJniWorkspace")
@@ -1390,6 +1431,15 @@ object GlutenConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val FALLBACK_FAIL_ON_FALLBACK =
+    buildConf("spark.gluten.sql.columnar.failOnFallback")
+      .internal()
+      .doc(
+        "When true, throw an exception if any operator falls back to Spark" +
+          " instead of running on the native engine.")
+      .booleanConf
+      .createWithDefault(false)
+
   val TEXT_INPUT_ROW_MAX_BLOCK_SIZE =
     buildConf("spark.gluten.sql.text.input.max.block.size")
       .doc("the max block size for text input rows")
@@ -1463,15 +1513,15 @@ object GlutenConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
-  val CARTESIAN_PRODUCT_TRANSFORMER_ENABLED =
-    buildConf("spark.gluten.sql.cartesianProductTransformerEnabled")
-      .doc("Config to enable CartesianProductExecTransformer.")
+  val COLUMNAR_CARTESIAN_PRODUCT_ENABLED =
+    buildConf("spark.gluten.sql.columnar.cartesianProduct.enabled")
+      .doc("Enable or disable columnar cartesianProduct.")
       .booleanConf
       .createWithDefault(true)
 
-  val BROADCAST_NESTED_LOOP_JOIN_TRANSFORMER_ENABLED =
-    buildConf("spark.gluten.sql.broadcastNestedLoopJoinTransformerEnabled")
-      .doc("Config to enable BroadcastNestedLoopJoinExecTransformer.")
+  val COLUMNAR_BROADCAST_NESTED_LOOP_JOIN_ENABLED =
+    buildConf("spark.gluten.sql.columnar.broadcastNestedLoopJoin.enabled")
+      .doc("Enable or disable columnar broadcastNestedLoopJoin.")
       .booleanConf
       .createWithDefault(true)
 

@@ -72,6 +72,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   private VectorInputBridge<IN> inputBridge;
   private VectorOutputBridge<OUT> outputBridge;
   private String description;
+  private final GlutenMailboxHolder mailboxHolder = new GlutenMailboxHolder();
 
   public GlutenTwoInputOperator(
       StatefulPlanNode plan,
@@ -117,12 +118,25 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   @Override
   public void open() throws Exception {
     super.open();
+    if (!mailboxHolder().get().isMailboxBound()) {
+      ensureMailboxInitialized(getContainingTask());
+    }
     initSession();
   }
 
   @Override
   public String getId() {
     return glutenPlan.getId();
+  }
+
+  @Override
+  public GlutenMailboxHolder mailboxHolder() {
+    return mailboxHolder;
+  }
+
+  @Override
+  public void scheduleProcessElementOnMailbox() {
+    scheduleDrainOnMailbox(this::drainTaskOutput);
   }
 
   @Override
@@ -152,19 +166,27 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
     processElementInternal();
   }
 
-  private void processElementInternal() {
+  @Override
+  public void processElementInternal() {
+    drainOutput(this::drainTaskOutput);
+  }
+
+  private void drainTaskOutput() {
     while (true) {
       UpIterator.State state = task.advance();
       if (state == UpIterator.State.AVAILABLE) {
         final StatefulElement element = task.statefulGet();
-        if (element.isWatermark()) {
-          StatefulWatermark watermark = element.asWatermark();
-          output.emitWatermark(new Watermark(watermark.getTimestamp()));
-        } else {
-          outputBridge.collect(
-              output, element.asRecord(), sessionResource.getAllocator(), outputType);
+        try {
+          if (element.isWatermark()) {
+            StatefulWatermark watermark = element.asWatermark();
+            output.emitWatermark(new Watermark(watermark.getTimestamp()));
+          } else {
+            outputBridge.collect(
+                output, element.asRecord(), sessionResource.getAllocator(), outputType);
+          }
+        } finally {
+          element.close();
         }
-        element.close();
       } else {
         break;
       }
@@ -263,7 +285,8 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
     }
 
     sessionResource = new GlutenSessionResource();
-
+    GlutenSessionResources.getInstance().addSessionResource(getId(), sessionResource);
+    GlutenSessionResources.getInstance().addOperator(getId(), this);
     leftInputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
     rightInputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
 

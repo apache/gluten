@@ -129,10 +129,21 @@ In this way, only the gluten-jar is needed to add to `spark.<driver|executor>.ex
 the static version using a clean docker image without any extra libraries installed ( [build in docker](../developers/velox-backend-build-in-docker.md) ). On host with
 some libraries like jemalloc installed, the script may crash with odd message. You may need to uninstall those libraries to get a clean host. We **strongly recommend** user to build Gluten in this way to avoid dependency lacking issue.
 
-With build option `enable_vcpkg=OFF`, not all dependency libraries will be dynamically linked. After building, you need to separately execute `./dev/build-thirdparty.sh` to 
-pack required shared libraries into another jar named `gluten-thirdparty-lib-$LINUX_OS-$VERSION-$ARCH.jar`. Then you need to add the jar to Spark config `extraClassPath` and 
-set `spark.gluten.loadLibFromJar=true`. Otherwise, you need to install required shared libraries with **exactly the same versions** on each worker node . You may find the 
+With build option `enable_vcpkg=OFF`, not all dependency libraries will be dynamically linked. After building, you need to separately execute `./dev/build-thirdparty.sh` to
+pack required shared libraries into another jar named `gluten-thirdparty-lib-$LINUX_OS-$VERSION-$ARCH.jar`. Then you need to add the jar to Spark config `extraClassPath` and
+set `spark.gluten.loadLibFromJar=true`. Otherwise, you need to install required shared libraries with **exactly the same versions** on each worker node . You may find the
 libraries list from the third-party jar.
+
+### Dynamic OpenSSL with FIPS Support
+
+For environments requiring FIPS compliance or dynamic OpenSSL linking, Gluten supports building with dynamically linked OpenSSL. Set the `VCPKG_DYNAMIC_OPENSSL=ON` environment variable during build:
+
+```bash
+export VCPKG_DYNAMIC_OPENSSL=ON
+./dev/buildbundle-veloxbe.sh --enable_vcpkg=ON
+```
+
+This enables OpenSSL with FIPS features and requires OpenSSL shared libraries to be available on all executor nodes at runtime. For detailed configuration and deployment instructions, see [Dynamic OpenSSL with FIPS Support](VeloxDynamicOpenSSL.md).
 
 # Remote storage support
 

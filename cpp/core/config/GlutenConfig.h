@@ -42,6 +42,9 @@ const std::string kIgnoreMissingFiles = "spark.sql.files.ignoreMissingFiles";
 
 const std::string kSparkOverheadMemory = "spark.gluten.memoryOverhead.size.in.bytes";
 
+const std::string kMemoryManagerCapacityRatio = "spark.gluten.memory.manager.capacity.ratio";
+const double kMemoryManagerCapacityRatioDefault = 0.75;
+
 const std::string kSparkOffHeapMemory = "spark.gluten.memory.offHeap.size.in.bytes";
 
 const std::string kSparkTaskOffHeapMemory = "spark.gluten.memory.task.offHeap.size.in.bytes";

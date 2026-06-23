@@ -240,7 +240,7 @@ public class OffloadedJobGraphGenerator {
     Class<?> inClass = supportsVectorInput ? StatefulRecord.class : RowData.class;
     Class<?> outClass = supportsVectorOutput ? StatefulRecord.class : RowData.class;
     GlutenOneInputOperator<?, ?> newOneInputOp =
-        sourceOperator.cloneWithInputOutputClasses(inClass, outClass);
+        sourceOperator.cloneWithInputOutputClasses(planNode, inClass, outClass);
     offloadedOpConfig.setStreamOperator(newOneInputOp);
     if (supportsVectorOutput) {
       setOffloadedOutputSerializer(offloadedOpConfig, sourceOperator);
@@ -292,19 +292,19 @@ public class OffloadedJobGraphGenerator {
 
   private void setOffloadedOutputSerializer(StreamConfig opConfig, GlutenOperator operator) {
     RowType rowType = operator.getOutputTypes().entrySet().iterator().next().getValue();
-    opConfig.setTypeSerializerOut(new GlutenStatefulRecordSerializer(rowType, operator.getId()));
+    opConfig.setTypeSerializerOut(new GlutenStatefulRecordSerializer(rowType, operator));
   }
 
   private void setOffloadedInputSerializer(StreamConfig opConfig, GlutenOperator operator) {
     opConfig.setupNetworkInputs(
-        new GlutenStatefulRecordSerializer(operator.getInputType(), operator.getId()));
+        new GlutenStatefulRecordSerializer(operator.getInputType(), operator));
   }
 
   private void setOffloadedInputSerializersForTwoInputOperator(
       StreamConfig opConfig, GlutenTwoInputOperator<?, ?> operator) {
     opConfig.setupNetworkInputs(
-        new GlutenStatefulRecordSerializer(operator.getLeftInputType(), operator.getId()),
-        new GlutenStatefulRecordSerializer(operator.getRightInputType(), operator.getId()));
+        new GlutenStatefulRecordSerializer(operator.getLeftInputType(), operator),
+        new GlutenStatefulRecordSerializer(operator.getRightInputType(), operator));
   }
 
   private void setOffloadedStatePartitioner(

@@ -175,6 +175,7 @@ set(VELOX_SRCS
     memory/VeloxColumnarBatch.cc
     memory/VeloxMemoryManager.cc
     operators/functions/RegistrationAllFunctions.cc
+    operators/functions/delta/DeltaBitmapAggregator.cc
     operators/functions/RowConstructorWithNull.cc
     operators/functions/SparkExprToSubfieldFilterParser.cc
     operators/plannodes/RowVectorStream.cc
@@ -211,6 +212,7 @@ set(VELOX_SRCS
     utils/VeloxWriterUtils.cc)
 
 if(ENABLE_S3)
+  list(APPEND VELOX_SRCS filesystem/GlutenS3FileSystem.cc)
   find_package(ZLIB)
 endif()
 
@@ -374,6 +376,64 @@ else()
 endif()
 target_link_libraries(velox PUBLIC external::geos)
 
+find_package(veloxthrift CONFIG)
+if(veloxthrift_FOUND AND TARGET veloxthrift::veloxthrift)
+  add_library(external::veloxthrift ALIAS veloxthrift::veloxthrift)
+else()
+  message(STATUS "import Velox bundled veloxthrift")
+  import_library(
+    external::veloxthrift
+    ${VELOX_BUILD_PATH}/velox/dwio/parquet/thrift/libvelox_dwio_parquet_thrift_raw.a
+  )
+endif()
+target_link_libraries(velox PUBLIC external::veloxthrift)
+
+# Link thrift libraries - check vcpkg first, then fall back to system libraries
+# Determine vcpkg triplet directory based on architecture
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
+  set(VCPKG_TRIPLET_DIR "x64-linux-avx")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(arm64)")
+  set(VCPKG_TRIPLET_DIR "arm64-linux-neon")
+else()
+  message(
+    WARNING
+      "Unknown processor type for vcpkg: ${CMAKE_SYSTEM_PROCESSOR}, defaulting to x64-linux-avx"
+  )
+  set(VCPKG_TRIPLET_DIR "x64-linux-avx")
+endif()
+
+if(DEFINED VCPKG_INSTALLED_DIR
+   AND EXISTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a")
+  message(
+    STATUS
+      "Using vcpkg thrift libraries from ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}"
+  )
+  target_link_libraries(
+    velox
+    PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
+            ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
+else()
+  message(STATUS "Using system thrift libraries from /usr/local/lib")
+  find_library(
+    THRIFTCPP2_LIB
+    NAMES thriftcpp2
+    PATHS /usr/local/lib
+    NO_DEFAULT_PATH)
+  find_library(
+    THRIFTPROTOCOL_LIB
+    NAMES thriftprotocol
+    PATHS /usr/local/lib
+    NO_DEFAULT_PATH)
+
+  if(THRIFTCPP2_LIB AND THRIFTPROTOCOL_LIB)
+    target_link_libraries(velox PRIVATE ${THRIFTCPP2_LIB} ${THRIFTPROTOCOL_LIB})
+  else()
+    message(
+      FATAL_ERROR
+        "Could not find thrift libraries. Please install them or use vcpkg.")
+  endif()
+endif()
+
 find_package(simdjson CONFIG)
 if(simdjson_FOUND AND TARGET simdjson::simdjson)
   target_link_libraries(velox PUBLIC simdjson::simdjson)
@@ -462,6 +522,10 @@ if(ENABLE_GPU)
     facebook::velox::velox_cudf_hive_connector
     ${VELOX_BUILD_PATH}/velox/experimental/cudf/connectors/hive/libvelox_cudf_hive_connector.a
   )
+  import_library(
+    facebook::velox::velox_cudf_iceberg_connector
+    ${VELOX_BUILD_PATH}/velox/experimental/cudf/connectors/hive/iceberg/libvelox_cudf_iceberg_connector.a
+  )
 
   target_compile_definitions(
     velox PRIVATE LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE)
@@ -473,9 +537,13 @@ if(ENABLE_GPU)
 
   target_link_libraries(
     velox
-    PUBLIC facebook::velox::velox_cudf_exec facebook::velox::velox_cudf_vector
+    PUBLIC facebook::velox::velox_cudf_exec
+           facebook::velox::velox_cudf_vector
+           facebook::velox::velox_cudf_iceberg_connector
            facebook::velox::velox_cudf_hive_connector
-           facebook::velox::velox_cudf_expression cudf::cudf velox_curl)
+           facebook::velox::velox_cudf_expression
+           cudf::cudf
+           velox_curl)
 endif()
 
 add_custom_command(

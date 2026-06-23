@@ -124,8 +124,6 @@ jobs:
             ccache -sz
             bash dev/ci-velox-buildstatic-centos-7.sh
             ccache -s
-            mkdir -p /work/.m2/repository/org/apache/arrow/
-            cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
           "
       - name: Save ccache
         if: always()
@@ -137,11 +135,6 @@ jobs:
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arrow-jars-ansi-${{github.sha}}
-          path: .m2/repository/org/apache/arrow/
           if-no-files-found: error
 
   spark-test-backends-velox-ansi41:
@@ -159,11 +152,6 @@ jobs:
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-ansi-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf install -y python3.11 python3.11-pip python3.11-devel && \
@@ -236,11 +224,6 @@ jobs:
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-ansi-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf install -y python3.11 python3.11-pip python3.11-devel && \
@@ -323,11 +306,6 @@ jobs:
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-ansi-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf install -y python3.11 python3.11-pip python3.11-devel && \
@@ -400,11 +378,6 @@ jobs:
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow Jars
-        uses: actions/download-artifact@v4
-        with:
-          name: arrow-jars-ansi-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Prepare
         run: |
           dnf install -y python3.11 python3.11-pip python3.11-devel && \

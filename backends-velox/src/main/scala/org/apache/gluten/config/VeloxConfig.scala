@@ -65,6 +65,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableBroadcastBuildRelationInOffheap: Boolean =
     getConf(VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP)
 
+  def broadcastBuildMergeBatches: Boolean =
+    getConf(VELOX_BROADCAST_BUILD_MERGE_BATCHES)
+
   def enableBroadcastBuildOncePerExecutor: Boolean =
     getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
 
@@ -94,7 +97,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def cudfShuffleMaxPrefetchBytes: Long = getConf(CUDF_SHUFFLE_MAX_PREFETCH_BYTES)
 
-  def orcUseColumnNames: Boolean = getConf(ORC_USE_COLUMN_NAMES)
+  def orcUseColumnNames: Boolean = getConf(ORC_USE_COLUMN_NAMES) &&
+    !conf.getConfString(GlutenConfig.SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, "false").toBoolean
 
   def parquetUseColumnNames: Boolean = getConf(PARQUET_USE_COLUMN_NAMES)
 
@@ -301,7 +305,7 @@ object VeloxConfig extends ConfigRegistry {
       .createWithDefault(10000)
 
   val MAX_TARGET_FILE_SIZE_SESSION =
-    buildConf("spark.gluten.sql.columnar.backend.velox.maxTargetFileSize")
+    buildConf("spark.gluten.sql.columnar.backend.velox.parquetMaxTargetFileSize")
       .doc(
         "The target file size for each output file when writing data. " +
           "0 means no limit on target file size, and the actual file size will be determined by " +
@@ -372,7 +376,7 @@ object VeloxConfig extends ConfigRegistry {
       .createOptional
 
   val COLUMNAR_VELOX_RESIZE_BATCHES_SHUFFLE_INPUT_OUTPUT_MIN_SIZE =
-    buildConf("spark.gluten.sql.columnar.backend.velox.resizeBatches.shuffleInputOuptut.minSize")
+    buildConf("spark.gluten.sql.columnar.backend.velox.resizeBatches.shuffleInputOutput.minSize")
       .doc(
         s"The minimum batch size for shuffle input and output. " +
           s"If size of an input batch is " +
@@ -616,6 +620,17 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val VELOX_BROADCAST_BUILD_MERGE_BATCHES =
+    buildConf("spark.gluten.velox.broadcastBuild.mergeBatches")
+      .doc(
+        "If enabled, all columnar batches in a broadcast build relation will be " +
+          "serialized into a single buffer to reduce the number of addInput calls in " +
+          "HashBuild operator. This can significantly improve BHJ performance when " +
+          "the broadcast table has many small batches, but may increase driver-side " +
+          "peak memory and is not suitable for very large broadcasts.")
+      .booleanConf
+      .createWithDefault(false)
+
   val VELOX_HASHMAP_ABANDON_BUILD_DUPHASH_MIN_ROWS =
     buildConf("spark.gluten.velox.abandonDedupHashMap.minRows")
       .experimental()
@@ -823,9 +838,9 @@ object VeloxConfig extends ConfigRegistry {
   val ENABLE_TIMESTAMP_NTZ_VALIDATION =
     buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")
       .doc(
-        "Enable validation fallback for TimestampNTZ type. When true (default), any plan " +
-          "containing TimestampNTZ will fall back to Spark execution. Set to false during " +
-          "development/testing of TimestampNTZ support to allow native execution.")
+        "Enable validation fallback for TimestampNTZ type. When true, any plan " +
+          "containing TimestampNTZ will fall back to Spark execution. When false, " +
+          "allows native execution for TimestampNTZ scan.")
       .booleanConf
-      .createWithDefault(true)
+      .createWithDefault(false)
 }

@@ -16,8 +16,14 @@
  */
 package org.apache.gluten.streaming.api.operators;
 
+import org.apache.gluten.table.runtime.operators.GlutenMailboxHolder;
+import org.apache.gluten.table.runtime.operators.GlutenSessionResources;
+
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.type.RowType;
+
+import org.apache.flink.api.common.operators.MailboxExecutor;
+import org.apache.flink.streaming.runtime.tasks.StreamTask;
 
 import java.util.Map;
 
@@ -34,4 +40,43 @@ public interface GlutenOperator {
   public default String getDescription() {
     return "";
   }
+
+  /** Mailbox drain helper holder; must be a non-transient field on the concrete operator. */
+  default GlutenMailboxHolder mailboxHolder() {
+    return new GlutenMailboxHolder();
+  }
+
+  default void processElementInternal() {}
+
+  default void bindMailboxExecutor(MailboxExecutor mailboxExecutor) {
+    mailboxHolder().get().bindMailboxExecutor(mailboxExecutor);
+  }
+
+  default void ensureMailboxInitialized(StreamTask<?, ?> containingTask) {
+    mailboxHolder().get().ensureMailboxInitialized(containingTask);
+  }
+
+  default void drainOutput(Runnable drainAction) {
+    mailboxHolder().get().runDrain(drainAction);
+  }
+
+  default void scheduleDrainOnMailbox(Runnable drainAction) {
+    mailboxHolder().get().scheduleDrain(drainAction);
+  }
+
+  /**
+   * Called from native Velox code to drain operator output. Drain is always scheduled on the Flink
+   * task mailbox thread.
+   */
+  static void processElementByJni(String operatorId) {
+    GlutenOperator operator =
+        GlutenSessionResources.getInstance().getOperator(operatorId).orElse(null);
+    if (operator == null) {
+      throw new IllegalArgumentException("Operator not found: " + operatorId);
+    }
+    operator.scheduleProcessElementOnMailbox();
+  }
+
+  /** Schedules native output drain on the mailbox thread. Implemented by concrete operators. */
+  default void scheduleProcessElementOnMailbox() {}
 }

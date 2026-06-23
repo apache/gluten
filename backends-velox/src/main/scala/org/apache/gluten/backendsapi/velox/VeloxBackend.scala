@@ -104,6 +104,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
 
   override def primaryBatchType: Convention.BatchType = VeloxBatchType
 
+  override def supportTimestampNtz: Boolean = true
+
   override def validateScanExec(
       format: ReadFileFormat,
       fields: Array[StructField],
@@ -397,8 +399,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
     }
   }
 
-  override def supportExpandExec(): Boolean = true
-
   override def supportSortExec(): Boolean = true
 
   override def supportSortMergeJoinExec(): Boolean = {
@@ -468,9 +468,9 @@ object VeloxBackendSettings extends BackendSettingsApi {
           }
           windowExpression.windowFunction match {
             case _: RowNumber | _: Rank | _: CumeDist | _: DenseRank | _: PercentRank | _: NTile =>
-            case nv: NthValue if !nv.input.foldable =>
-            case l: Lag if !l.input.foldable =>
-            case l: Lead if !l.input.foldable =>
+            case _: NthValue =>
+            case _: Lag =>
+            case _: Lead =>
             case aggrExpr: AggregateExpression
                 if !aggrExpr.aggregateFunction.isInstanceOf[ApproximatePercentile]
                   && !aggrExpr.aggregateFunction.isInstanceOf[Percentile]
@@ -489,10 +489,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
     val conf = GlutenConfig.get
     conf.enableColumnarShuffle &&
     (conf.isUseGlutenShuffleManager || conf.shuffleManagerSupportsColumnarShuffle)
-  }
-
-  override def enableHashTableBuildOncePerExecutor(): Boolean = {
-    VeloxConfig.get.enableBroadcastBuildOncePerExecutor
   }
 
   override def supportHashBuildJoinTypeOnLeft: JoinType => Boolean = {
