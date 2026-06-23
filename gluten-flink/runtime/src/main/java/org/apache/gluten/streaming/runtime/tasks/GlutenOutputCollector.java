@@ -49,6 +49,7 @@ public class GlutenOutputCollector<T> implements WatermarkGaugeExposingOutput<St
 
   @Override
   public void emitWatermark(Watermark watermark) {
+    watermarkGauge.setCurrentWatermark(watermark.getTimestamp());
     // This is only used when task is finished, so broadcast it.
     outputs.values().forEach(output -> output.emitWatermark(watermark));
   }
@@ -73,7 +74,9 @@ public class GlutenOutputCollector<T> implements WatermarkGaugeExposingOutput<St
     StatefulElement element = (StatefulElement) record.getValue();
     OutputWithChainingCheck<StreamRecord<T>> output = outputs.get(element.getNodeId());
     if (element.isWatermark()) {
-      output.emitWatermark(new Watermark(element.asWatermark().getTimestamp()));
+      Watermark watermark = new Watermark(element.asWatermark().getTimestamp());
+      watermarkGauge.setCurrentWatermark(watermark.getTimestamp());
+      output.emitWatermark(watermark);
     } else {
       output.collect(record);
     }
