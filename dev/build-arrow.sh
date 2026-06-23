@@ -53,11 +53,11 @@ function build_arrow_cpp() {
        -DARROW_PROTOBUF_USE_SHARED=OFF \
        -DARROW_DEPENDENCY_USE_SHARED=OFF \
        -DARROW_DEPENDENCY_SOURCE=BUNDLED \
-       -DARROW_WITH_THRIFT=ON \
        -DARROW_WITH_LZ4=ON \
        -DARROW_WITH_SNAPPY=ON \
        -DARROW_WITH_ZLIB=${ARROW_WITH_ZLIB} \
        -DARROW_WITH_ZSTD=ON \
+       -DBoost_NO_BOOST_CMAKE=TRUE \
        -DARROW_JEMALLOC=OFF \
        -DARROW_SIMD_LEVEL=NONE \
        -DARROW_RUNTIME_SIMD_LEVEL=NONE \
@@ -68,10 +68,6 @@ function build_arrow_cpp() {
        -DARROW_BUILD_SHARED=OFF \
        -DARROW_BUILD_STATIC=ON
 
- # Install thrift.
- cd _build/thrift_ep-prefix/src/thrift_ep-build
- ${SUDO} cmake --install ./ --prefix "${INSTALL_PREFIX}"/
- popd
 }
 
 function build_arrow_java() {

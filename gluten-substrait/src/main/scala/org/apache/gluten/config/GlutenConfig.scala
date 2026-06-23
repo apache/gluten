@@ -325,6 +325,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableFallbackReport: Boolean = getConf(FALLBACK_REPORTER_ENABLED)
 
+  def failOnFallback: Boolean = getConf(FALLBACK_FAIL_ON_FALLBACK)
+
   def debug: Boolean = getConf(DEBUG_ENABLED)
 
   /** Full scan SQL metrics; also enabled when [[debug]] is true. */
@@ -628,10 +630,8 @@ object GlutenConfig extends ConfigRegistry {
       (SPARK_S3_CONNECTION_MAXIMUM, "15"),
       ("spark.gluten.velox.fs.s3a.retry.mode", "legacy"),
       (
-        "spark.gluten.sql.columnar.backend.velox.IOThreads",
-        conf.getOrElse(
-          GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key,
-          GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.defaultValueString)),
+        GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key,
+        GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.defaultValueString),
       (COLUMNAR_SHUFFLE_CODEC.key, ""),
       (COLUMNAR_SHUFFLE_CODEC_BACKEND.key, ""),
       (DEBUG_CUDF.key, DEBUG_CUDF.defaultValueString),
@@ -1429,6 +1429,15 @@ object GlutenConfig extends ConfigRegistry {
       .doc("When true, enable fallback reporter rule to print fallback reason")
       .booleanConf
       .createWithDefault(true)
+
+  val FALLBACK_FAIL_ON_FALLBACK =
+    buildConf("spark.gluten.sql.columnar.failOnFallback")
+      .internal()
+      .doc(
+        "When true, throw an exception if any operator falls back to Spark" +
+          " instead of running on the native engine.")
+      .booleanConf
+      .createWithDefault(false)
 
   val TEXT_INPUT_ROW_MAX_BLOCK_SIZE =
     buildConf("spark.gluten.sql.text.input.max.block.size")

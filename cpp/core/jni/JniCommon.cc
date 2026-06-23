@@ -16,6 +16,7 @@
  */
 
 #include "JniCommon.h"
+#include <folly/system/ThreadName.h>
 
 void gluten::JniCommonState::ensureInitialized(JNIEnv* env) {
   std::lock_guard<std::mutex> lockGuard(mtx_);
@@ -120,7 +121,6 @@ std::shared_ptr<gluten::ColumnarBatch> gluten::JniColumnarBatchIterator::next() 
 std::shared_ptr<gluten::ColumnarBatch> gluten::JniColumnarBatchIterator::nextInternal() const {
   JNIEnv* env = nullptr;
   attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-
   if (!env->CallBooleanMethod(jColumnarBatchItr_, serializedColumnarBatchIteratorHasNext_)) {
     checkException(env);
     return nullptr; // stream ended

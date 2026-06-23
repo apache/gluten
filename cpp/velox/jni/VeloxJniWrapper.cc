@@ -1128,7 +1128,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
       hashTableBuilders[0]->joinBuildVectorHasherMaxNumDistinct(),
       hashTableBuilders[0]->dropDuplicates(),
-      allowParallelJoinBuild ? VeloxBackend::get()->executor() : nullptr);
+      allowParallelJoinBuild ? VeloxBackend::get()->ioExecutor() : nullptr);
 
   for (int i = 1; i < numThreads; ++i) {
     if (hashTableBuilders[i]->joinHasNullKeys()) {

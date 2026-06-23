@@ -42,7 +42,7 @@ import org.apache.arrow.c.ArrowSchema
 
 import scala.collection.JavaConverters._
 import scala.collection.JavaConverters.asScalaIteratorConverter
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{ArrayBuffer, Map}
 
 object ColumnarBuildSideRelation {
   // Keep constructor with BroadcastMode for compatibility
@@ -153,12 +153,15 @@ case class ColumnarBuildSideRelation(
 
   override def asReadOnlyCopy(): ColumnarBuildSideRelation = this
 
-  private var hashTableData: Long = 0L
+  // The relation can be reused as different hash tables by whether dropping duplicates or not.
+  private val hashTableData = Map.empty[Boolean, Long]
 
   def buildHashTable(
-      broadcastContext: BroadcastHashJoinContext): (Long, ColumnarBuildSideRelation) =
+      broadcastContext: BroadcastHashJoinContext)
+      : (Long, ColumnarBuildSideRelation, Boolean) =
     synchronized {
-      if (hashTableData == 0) {
+      val droppedDuplicates = broadcastContext.droppedDuplicates
+      if (!hashTableData.contains(droppedDuplicates)) {
         val startTime = System.nanoTime()
         val runtime = Runtimes.contextInstance(
           BackendsApiManager.getBackendName,
@@ -210,7 +213,7 @@ case class ColumnarBuildSideRelation(
         val hashJoinBuilder = HashJoinBuilder.create(runtime)
 
         // Build the hash table
-        hashTableData = hashJoinBuilder
+        hashTableData(droppedDuplicates) = hashJoinBuilder
           .nativeBuild(
             broadcastContext.buildHashTableId,
             batchArray.toArray,
@@ -232,14 +235,14 @@ case class ColumnarBuildSideRelation(
         val elapsedTime = System.nanoTime() - startTime
         broadcastContext.buildHashTableTimeMetric.foreach(_ += elapsedTime / 1000000)
 
-        (hashTableData, this)
+        (hashTableData(droppedDuplicates), this, droppedDuplicates)
       } else {
-        (HashJoinBuilder.cloneHashTable(hashTableData), null)
+        (HashJoinBuilder.cloneHashTable(hashTableData(droppedDuplicates)), null, droppedDuplicates)
       }
     }
 
-  def reset(): Unit = synchronized {
-    hashTableData = 0
+  def reset(droppedDuplicates: Boolean): Unit = synchronized {
+    hashTableData.remove(droppedDuplicates)
   }
 
   /**

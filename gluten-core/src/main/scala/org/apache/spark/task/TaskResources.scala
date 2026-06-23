@@ -140,7 +140,7 @@ object TaskResources extends TaskListener with Logging {
     if (!inSparkTask()) {
       throw new UnsupportedOperationException(
         "Not in a Spark task. If the code is running on driver or for testing purpose, " +
-          "try using TaskResources#runUnsafe")
+          "try using TaskResources#runUnsafe. Current thread: " + Thread.currentThread().getName)
     }
     val tc = getLocalTaskContext()
     RESOURCE_REGISTRIES.synchronized {

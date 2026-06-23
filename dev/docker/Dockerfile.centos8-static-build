@@ -29,6 +29,7 @@ RUN set -ex; \
     sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true; \
     yum update -y && yum install -y epel-release sudo dnf && yum install -y ccache; \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-11; \
+    pip install cmake==3.31.4; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     yum install -y java-1.8.0-openjdk-devel patch git perl; \
     rpm -qa | grep tzdata; \

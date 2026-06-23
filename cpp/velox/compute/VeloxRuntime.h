@@ -42,6 +42,7 @@ class VeloxRuntime final : public Runtime {
   explicit VeloxRuntime(
       const std::string& kind,
       VeloxMemoryManager* vmm,
+      ThreadManager* threadManager,
       const std::unordered_map<std::string, std::string>& confMap);
 
   ~VeloxRuntime() override;

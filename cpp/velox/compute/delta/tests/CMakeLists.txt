@@ -25,7 +25,7 @@ add_test(
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(
-  velox_delta_read_test DeltaConnectorTest.cpp
+  velox_delta_read_test DeltaConnectorTest.cpp DeltaBitmapAggregatorTest.cpp
                         DeltaDeletionVectorReaderTest.cpp DeltaSplitTest.cpp)
 
 target_link_libraries(velox_delta_read_test velox roaring
