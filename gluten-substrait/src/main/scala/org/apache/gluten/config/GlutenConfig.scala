@@ -530,7 +530,8 @@ object GlutenConfig extends ConfigRegistry {
     "spark.gluten.sql.columnar.backend.velox.preferredBatchBytes",
     "spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan",
     "spark.gluten.sql.columnar.backend.velox.parallelExecution.enabled",
-    "spark.gluten.sql.columnar.backend.velox.parallelExecution.threadPoolSize"
+    "spark.gluten.sql.columnar.backend.velox.parallelExecution.threadPoolSize",
+    "spark.gluten.sql.columnar.backend.velox.parallelExecution.taskDrivers"
   )
 
   /** Get dynamic configs. */

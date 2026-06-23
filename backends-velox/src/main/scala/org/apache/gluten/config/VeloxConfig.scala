@@ -115,6 +115,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def parallelExecutionThreadPoolSize: Option[Int] =
     getConf(PARALLEL_EXECUTION_THREAD_POOL_SIZE)
 
+  def parallelExecutionTaskDrivers: Int =
+    getConf(PARALLEL_EXECUTION_TASK_DRIVERS)
+
   def valueStreamDynamicFilterEnabled: Boolean =
     getConf(VALUE_STREAM_DYNAMIC_FILTER_ENABLED)
 
@@ -538,6 +541,13 @@ object VeloxConfig extends ConfigRegistry {
       .intConf
       .checkValue(_ > 0, "must be a positive number")
       .createOptional
+
+  val PARALLEL_EXECUTION_TASK_DRIVERS =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.parallelExecution.taskDrivers")
+      .doc("Number of task drivers for parallel execution of Velox tasks. Default is 1.")
+      .intConf
+      .checkValue(_ > 0, "must be a positive number")
+      .createWithDefault(1)
 
   val VALUE_STREAM_DYNAMIC_FILTER_ENABLED =
     buildConf("spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled")
