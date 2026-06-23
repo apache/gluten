@@ -20,7 +20,7 @@
 #   2. Builds the Gluten Java/Scala jars and assembles the
 #      `gluten-velox-bundle-spark<spark>_<scala>-linux_amd64-<version>.jar`
 #      fat jar for Spark 4.1 + Scala 2.13 + Java 17 with the Delta profile.
-#   3. Clones delta-io/delta at the requested release tag (default `v4.2.0`),
+#   3. Clones delta-io/delta at the requested release tag (default `v4.3.0`),
 #      drops the bundle jar into `spark-unified/lib/` only (NOT `spark/lib/`
 #      -- see setup-delta.sh for the unmanagedJars scoping rationale),
 #      patches Delta's `DeltaSQLCommandTest` to register the Gluten plugin,
@@ -37,7 +37,7 @@ on:
       delta_ref:
         description: 'delta-io/delta git ref (tag/branch/SHA) to test against'
         required: true
-        default: 'v4.2.0'
+        default: 'v4.3.0'
       spark_version:
         description: 'Delta `-DsparkVersion` value (must match the Gluten -P profile below)'
         required: true
@@ -68,7 +68,7 @@ env:
   MVN_CMD: 'build/mvn -ntp'
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
   # Gluten profile / bundle naming for the build-gluten-bundle and
-  # delta-spark-test jobs. Spark 4.1 + Scala 2.13 + JDK 17 matches Delta v4.2.0's
+  # delta-spark-test jobs. Spark 4.1 + Scala 2.13 + JDK 17 matches Delta v4.3.0's
   # default Spark version (4.1.0) from project/CrossSparkVersions.scala.
   GLUTEN_SPARK_PROFILE: 'spark-4.1'
   GLUTEN_SCALA_PROFILE: 'scala-2.13'
@@ -78,7 +78,7 @@ env:
   # Default values used when the workflow is triggered by pull_request
   # (where `inputs.*` is empty). Keep these in sync with the workflow_dispatch
   # defaults above.
-  DELTA_REF_DEFAULT: 'v4.2.0'
+  DELTA_REF_DEFAULT: 'v4.3.0'
   DELTA_SPARK_VERSION_DEFAULT: '4.1'
   DELTA_TEST_PARALLELISM_DEFAULT: '1'
   # Default mode for pull_request runs (where inputs.* is empty): enforce the
@@ -382,7 +382,7 @@ jobs:
           #   the test phase, cutting the cgroup peak by ~3.8G (~15.9G -> ~12G) --
           #   real headroom under the OOM threshold -- with zero compile-OOM risk.
           # * Forked test JVM:  -Xmx2G via the `set ... Test / javaOptions` command
-          #   below. Delta v4.2.0 caps its test fork at `-Xmx1024m` in build.sbt;
+          #   below. Delta v4.3.0 caps its test fork at `-Xmx1024m` in build.sbt;
           #   Gluten OFFLOADS data to Velox off-heap (capped at 2g via
           #   spark.memory.offHeap.size in the patched DeltaSQLCommandTest), so the
           #   fork's JVM HEAP need is modest -- 2G is generous.

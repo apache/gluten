@@ -23,7 +23,7 @@
 #   setup-delta.sh <delta_ref> <delta_dir> <gluten_bundle_jar> <gluten_repo_root>
 #
 # Arguments:
-#   delta_ref           - git ref (tag/branch/sha) to check out (e.g. v4.2.0)
+#   delta_ref           - git ref (tag/branch/sha) to check out (e.g. v4.3.0)
 #   delta_dir           - destination directory for the Delta clone
 #   gluten_bundle_jar   - path to the gluten-velox-bundle fat jar
 #   gluten_repo_root    - path to the Gluten repository root (used to locate
@@ -80,7 +80,7 @@ echo "::group::Injecting Gluten bundle jar onto the spark project's TEST classpa
 # with `reference to expression is ambiguous`.
 #
 # sbt auto-scans `<baseDirectory>/lib` via `unmanagedBase`. Two relevant
-# projects in Delta v4.2.0 have a `lib/` baseDirectory:
+# projects in Delta v4.3.0 have a `lib/` baseDirectory:
 #   - sparkV1: `project in file("spark")`     -> spark/lib
 #   - spark  : `project in file("spark-unified")` -> spark-unified/lib
 # unmanagedJars are project-scoped (NOT inherited by dependents), so dropping
