@@ -20,6 +20,7 @@ import org.apache.gluten.streaming.api.operators.GlutenOneInputOperatorFactory;
 import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
+import org.apache.gluten.util.ReflectUtils;
 
 import io.github.zhztheplayer.velox4j.connector.CommitStrategy;
 import io.github.zhztheplayer.velox4j.connector.PrintTableHandle;
@@ -38,7 +39,6 @@ import org.apache.flink.table.runtime.operators.sink.SinkOperator;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.util.FlinkRuntimeException;
 
-import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 
@@ -72,27 +72,34 @@ public class PrintSinkFactory implements VeloxSourceSinkFactory {
   // Pulls print-identifier/standard-error from RowDataPrintFunction via reflection.
   // Flink 1.19.x field names: sinkIdentifier (print-identifier), target (standard-error, true =
   // stderr).
-  // Package-private for direct unit testing.
-  static String[] extractPrintOptions(Transformation<RowData> transformation) {
+  static PrintOptions extractPrintOptions(Transformation<RowData> transformation) {
     SimpleOperatorFactory operatorFactory =
         (SimpleOperatorFactory) ((LegacySinkTransformation) transformation).getOperatorFactory();
     SinkOperator sinkOp = (SinkOperator) operatorFactory.getOperator();
     Object rowDataPrintFn = sinkOp.getUserFunction();
-    try {
-      Field writerField = rowDataPrintFn.getClass().getDeclaredField("writer");
-      writerField.setAccessible(true);
-      Object writer = writerField.get(rowDataPrintFn);
-      Field idField = writer.getClass().getDeclaredField("sinkIdentifier");
-      idField.setAccessible(true);
-      Field stdErrField = writer.getClass().getDeclaredField("target");
-      stdErrField.setAccessible(true);
-      String printIdentifier = (String) idField.get(writer);
-      boolean isStdErr = stdErrField.getBoolean(writer);
-      return new String[] {
-        printIdentifier == null ? "" : printIdentifier, Boolean.toString(isStdErr)
-      };
-    } catch (NoSuchFieldException | IllegalAccessException e) {
-      throw new FlinkRuntimeException("Failed to extract print sink options", e);
+    Object writer =
+        ReflectUtils.getObjectField(rowDataPrintFn.getClass(), rowDataPrintFn, "writer");
+    String printIdentifier =
+        (String) ReflectUtils.getObjectField(writer.getClass(), writer, "sinkIdentifier");
+    boolean isStdErr = (boolean) ReflectUtils.getObjectField(writer.getClass(), writer, "target");
+    return new PrintOptions(printIdentifier == null ? "" : printIdentifier, isStdErr);
+  }
+
+  static final class PrintOptions {
+    private final String printIdentifier;
+    private final boolean stdErr;
+
+    PrintOptions(String printIdentifier, boolean stdErr) {
+      this.printIdentifier = printIdentifier;
+      this.stdErr = stdErr;
+    }
+
+    public String getPrintIdentifier() {
+      return printIdentifier;
+    }
+
+    public boolean isStdErr() {
+      return stdErr;
     }
   }
 
@@ -103,14 +110,13 @@ public class PrintSinkFactory implements VeloxSourceSinkFactory {
     Transformation inputTrans = (Transformation) transformation.getInputs().get(0);
     InternalTypeInfo inputTypeInfo = (InternalTypeInfo) inputTrans.getOutputType();
 
-    String[] printOpts = extractPrintOptions(transformation);
-    String printIdentifier = printOpts[0];
-    boolean isStdErr = Boolean.parseBoolean(printOpts[1]);
+    PrintOptions printOpts = extractPrintOptions(transformation);
 
     RowType inputColumns = (RowType) LogicalTypeConverter.toVLType(inputTypeInfo.toLogicalType());
     RowType ignore = new RowType(List.of("num"), List.of(new BigIntType()));
     PrintTableHandle tableHandle =
-        new PrintTableHandle("print-table", inputColumns, printIdentifier, isStdErr);
+        new PrintTableHandle(
+            "print-table", inputColumns, printOpts.getPrintIdentifier(), printOpts.isStdErr());
     TableWriteNode tableWriteNode =
         new TableWriteNode(
             PlanNodeIdGenerator.newId(),

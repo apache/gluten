@@ -103,17 +103,17 @@ class PrintSinkFactoryTest {
   void testExtractPrintOptionsReadsIdentifierAndStderr() throws Exception {
     LegacySinkTransformation<RowData> tx =
         buildSinkTransformation(newRowDataPrintFunction("foo", true));
-    String[] opts = PrintSinkFactory.extractPrintOptions(tx);
-    assertEquals("foo", opts[0]);
-    assertEquals("true", opts[1]);
+    PrintSinkFactory.PrintOptions opts = PrintSinkFactory.extractPrintOptions(tx);
+    assertEquals("foo", opts.getPrintIdentifier());
+    assertTrue(opts.isStdErr());
   }
 
   @Test
   void testExtractPrintOptionsDefaultsWhenUnset() throws Exception {
     LegacySinkTransformation<RowData> tx =
         buildSinkTransformation(newRowDataPrintFunction(null, false));
-    String[] opts = PrintSinkFactory.extractPrintOptions(tx);
-    assertEquals("", opts[0]);
-    assertEquals("false", opts[1]);
+    PrintSinkFactory.PrintOptions opts = PrintSinkFactory.extractPrintOptions(tx);
+    assertEquals("", opts.getPrintIdentifier());
+    assertFalse(opts.isStdErr());
   }
 }
