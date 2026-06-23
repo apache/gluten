@@ -1,0 +1,24 @@
+gluten-flink/ut/src/test/java/org/apache/gluten/streaming/runtime/tasks/GlutenOutputCollectorTest.java
+  s_137d25b1f2ddfb::t_d8768a6dae6657 1-23,25-74,76-78,80,86-120
+  s_137d25b1f2ddfb::t_00cdc03eac9815 24
+  s_137d25b1f2ddfb::t_c98f1ad6390244 75,79,81-85
+gluten-flink/runtime/src/main/java/org/apache/gluten/streaming/runtime/tasks/GlutenOutputCollector.java
+  s_137d25b1f2ddfb::t_d8768a6dae6657 52,77-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.11",
+  "base_commit_sha": "761d27b30d148a5078c8526cd3f9115d07fb8e1d",
+  "prompts": {},
+  "logical_commit_id": "761d27b30d148a5078c8526cd3f9115d07fb8e1d",
+  "sessions": {
+    "s_137d25b1f2ddfb": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_10c606c2cffeHVhpwtd3BGJnQE",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
