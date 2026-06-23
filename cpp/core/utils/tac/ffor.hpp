@@ -351,8 +351,8 @@ inline size_t encodeBlock(const uint64_t* src, size_t blockVals, uint64_t* out) 
   uint64_t base;
   unsigned bw;
   analyze(src, blockVals, base, bw);
-  writeHeader(reinterpret_cast<uint8_t*>(out), static_cast<uint8_t>(bw),
-              static_cast<uint8_t>(blockVals / kLanes), base);
+  writeHeader(
+      reinterpret_cast<uint8_t*>(out), static_cast<uint8_t>(bw), static_cast<uint8_t>(blockVals / kLanes), base);
   const size_t compWords = compressedWords(blockVals, bw);
   encodeRt(src, out + 2, base, blockVals, bw);
   return (2 + compWords) * sizeof(uint64_t);
@@ -391,7 +391,7 @@ inline size_t decodeBlock(const uint64_t* in, size_t inBytes, size_t blockVals, 
 template <bool InAligned, bool OutAligned>
 inline size_t compress64Impl(const uint64_t* input, size_t num, uint8_t* output) {
   alignas(64) uint64_t tmpIn[kMaxValuesPerBlock];
-  alignas(64) uint64_t tmpOut[kMaxValuesPerBlock + 2]; //header(2 words) + payload
+  alignas(64) uint64_t tmpOut[kMaxValuesPerBlock + 2]; // header(2 words) + payload
 
   uint8_t* outPtr = output;
   size_t remaining = num;
@@ -469,8 +469,7 @@ inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t*
       inPtr += kHeaderSize;
       const size_t tailBytes = count * sizeof(uint64_t);
       if (count > 0 && inPtr + tailBytes <= inEnd) {
-        std::memcpy(
-            reinterpret_cast<uint8_t*>(output) + nDecoded * sizeof(uint64_t), inPtr, tailBytes);
+        std::memcpy(reinterpret_cast<uint8_t*>(output) + nDecoded * sizeof(uint64_t), inPtr, tailBytes);
         nDecoded += count;
       }
       break;
@@ -663,8 +662,7 @@ inline size_t decompress128Impl(const uint8_t* input, size_t inputSize, uint8_t*
       break;
     }
 
-    uint64_t* dst64 =
-        OutAligned ? reinterpret_cast<uint64_t*>(output + nDecoded * sizeof(__int128_t)) : tmpOut;
+    uint64_t* dst64 = OutAligned ? reinterpret_cast<uint64_t*>(output + nDecoded * sizeof(__int128_t)) : tmpOut;
     for (size_t j = 0; j < blockVals; ++j) {
       dst64[j * 2] = loBuffer[j];
       dst64[j * 2 + 1] = hiBuffer[j];
