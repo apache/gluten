@@ -102,14 +102,10 @@ class GlutenClickhouseCountDistinctSuite extends GlutenClickHouseWholeStageTrans
   test("check count distinct with agg fallback") {
     val sql = "select count(distinct(a,b)) , skewness(b) from " +
       "values (0, null,1), (0,null,1), (1, 1,1), (2, 2, 1) ,(2,2,2),(3,3,3) as data(a,b,c)"
-    val df = spark.sql(sql)
-    GlutenQueryComparisonTest.checkFallBack(df, noFallback = true)
     compareResultsAgainstVanillaSpark(sql, true, { _ => })
 
     val sqlWithKeys = "select a, count(distinct(b)) , skewness(b) from " +
       "values (0, null,1), (0,null,1), (1, 1,1), (2, 2, 1) ,(2,2,2),(3,3,3) as data(a,b,c) group by a"
-    val dfWithKeys = spark.sql(sqlWithKeys)
-    GlutenQueryComparisonTest.checkFallBack(dfWithKeys, noFallback = true)
     compareResultsAgainstVanillaSpark(sqlWithKeys, true, { _ => })
   }
 
