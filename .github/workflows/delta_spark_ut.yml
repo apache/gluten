@@ -90,16 +90,17 @@ env:
   # Number of shards in the delta-spark-test matrix. Must equal the length of
   # the `shard` matrix below.
   #
-  # Set to 16 (not 8): at 8-way, ~5 of the 8 shards consistently exceed the
-  # job timeout because Delta's generated merge/CDC/DV suites are very
-  # slow under Gluten (observed in run 16, when the cap was 300 min: shards
-  # 0,1,2,3,6 all timed out while 4,5,7 finished in <130 min). Delta's GreedyHashStrategy balances
-  # high-duration suites across shards by estimated duration, so doubling the
-  # shard count roughly halves per-shard wall time and lets every shard finish
-  # (and thus report its results) within the timeout. We keep
+  # EXPERIMENT: temporarily set to 4 (production value is 16) to measure the
+  # wall-clock vs concurrent-runner tradeoff. Sharding is by SUITE, so the total
+  # test work (~1250 shard-minutes, measured) is fixed regardless of shard count
+  # -- more shards = shorter wall-clock but more concurrent runners; fewer shards
+  # = longer per-shard time at the same total runner-hours. Measured: 16 shards
+  # ~= 135 min wall-clock (max shard ~110 min). 4 shards carry ~1/4 of the suites
+  # each (~300+ min/shard), hence the raised job timeout below. (8-way previously
+  # hit the timeout on the slow merge/CDC/DV suites, which is why prod is 16.)
   # TEST_PARALLELISM_COUNT=1 because each forked test JVM uses ~4G (2G heap +
   # 2G off-heap) and >1, atop the 4G sbt launcher, would OOM the runner.
-  DELTA_NUM_SHARDS: '16'
+  DELTA_NUM_SHARDS: '4'
 
 concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
@@ -217,12 +218,14 @@ jobs:
     needs: build-gluten-bundle
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk17
-    timeout-minutes: 350
+    # EXPERIMENT (4-shard): raised from 350 so a 4-shard run (~300+ min/shard)
+    # can finish and be measured instead of timing out. Restore 350 with 16 shards.
+    timeout-minutes: 480
     strategy:
       fail-fast: false
       matrix:
         # Length of this list MUST equal env.DELTA_NUM_SHARDS.
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        shard: [0, 1, 2, 3]
     env:
       # Mirror Delta's spark_test.yaml env vars used by run-tests.py /
       # TestParallelization.scala.
