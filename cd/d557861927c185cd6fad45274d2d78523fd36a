@@ -1,0 +1,24 @@
+gluten-flink/runtime/src/main/java/org/apache/gluten/table/runtime/operators/GlutenOneInputOperator.java
+  s_6f52406df23c98::t_f8840d24820502 192
+.github/workflows/flink.yml
+  s_6f52406df23c98::t_7eae071faf77c8 73
+gluten-flink/runtime/src/main/java/org/apache/gluten/table/runtime/operators/GlutenTwoInputOperator.java
+  s_6f52406df23c98::t_f8840d24820502 144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "cdd557861927c185cd6fad45274d2d78523fd36a",
+  "prompts": {},
+  "logical_commit_id": "7bc8c4efdba523a440ccf2b927224a7a183c698b",
+  "sessions": {
+    "s_6f52406df23c98": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_14bbe9fd2ffep4PIBxKdgtCdFE",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
