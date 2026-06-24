@@ -132,6 +132,7 @@ function install_velox_deps {
   run_and_time install_pulsarclient
   run_and_time install_librdkafka
   run_and_time install_cppkafka
+  run_and_time install_pulsarclient
   run_and_time install_rocksdb
 }
 
