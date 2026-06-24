@@ -8,9 +8,9 @@
 #
 # ---------------------------------------------------------------------------
 # Full 16-shard baseline. Originally seeded from 15 of 16 shards (run
-# 27490052632); shard 2 then hung/OOM-crashed and was excluded. Shard 2's
-# 60 failures have now been merged in on top of that seed, so every shard
-# enforces clean. 954 known failures total.
+# 27490052632). Shard 2 used to hang/OOM-crash on DeletionVectorsSuite's 2B-row
+# DV tests; those two tests are now force-failed in setup-delta.sh, so shard 2
+# runs to completion and contributes 69 failures. 963 known failures total.
 # ---------------------------------------------------------------------------
 io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using SQL conf
 io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using withExtensions
@@ -84,6 +84,7 @@ org.apache.spark.sql.delta.DeltaAlterTableByNameNameColumnMappingSuite#CHANGE CO
 org.apache.spark.sql.delta.DeltaArbitraryColumnNameSuite#create table
 org.apache.spark.sql.delta.DeltaCDCStreamDeletionVectorSuite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamSuite#cdc streams with noop merge
+org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch100Suite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch1Suite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch2Suite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaColumnMappingSuite#add nested column in schema on new protocol
@@ -173,6 +174,7 @@ org.apache.spark.sql.delta.DeltaSuite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaSuite#invalid replaceWhere
 org.apache.spark.sql.delta.DeltaSuite#query with predicates should skip partitions
 org.apache.spark.sql.delta.DeltaSuite#replaceArbitrary should enforce proper usage of backtick
+org.apache.spark.sql.delta.DeltaTableCreationSuite#Default column values: CONVERT TO DELTA keeps EXISTS_DEFAULT
 org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#convert to delta with partitioning change
 org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#partitioned convert to delta with schema change
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - delete tombstones
@@ -516,6 +518,11 @@ org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#U
 org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#UPDATE - Scenario 7
 org.apache.spark.sql.delta.concurrency.TransactionExecutionObserverSuite#Phase Locking - delete command
 org.apache.spark.sql.delta.coordinatedcommits.CoordinatedCommitsSuite#Incomplete backfills are handled properly by next commit after CC to FS conversion
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#DELETE with DVs with column mapping mode=id
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: delete a small number of rows from tables of 2B rows with DVs
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: read from tables of 2B rows with existing DV of many zeros
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#variant types DELETE with DVs with column mapping mode=id
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#variant types DELETE with DVs with column mapping mode=name
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#(It is not a test it is a sbt.testing.SuiteSelector)
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#<suite aborted>
 org.apache.spark.sql.delta.generatedsuites.DeleteBaseSQLNameBasedSuite#Variant type
@@ -524,6 +531,8 @@ org.apache.spark.sql.delta.generatedsuites.DeleteBaseSQLPathBasedDVPredPushOffSu
 org.apache.spark.sql.delta.generatedsuites.DeleteBaseSQLPathBasedDVPredPushOnSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.DeleteBaseSQLPathBasedSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.DeleteBaseScalaSuite#Variant type
+org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLNameBasedSuite#test delete on temp view - nontrivial projection - Dataset TempView
+org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLNameBasedSuite#test delete on temp view - nontrivial projection - SQL TempView
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLPathBasedCDCOnSuite#test delete on temp view - nontrivial projection - Dataset TempView
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLPathBasedCDCOnSuite#test delete on temp view - nontrivial projection - SQL TempView
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLPathBasedDVPredPushOffSuite#test delete on temp view - nontrivial projection - Dataset TempView
