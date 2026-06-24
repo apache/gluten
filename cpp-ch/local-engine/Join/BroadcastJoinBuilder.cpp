@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "BroadCastJoinBuilder.h"
+#include "BroadcastJoinBuilder.h"
 
 #include <Compression/CompressedReadBuffer.h>
 #include <Interpreters/TableJoin.h>
@@ -41,7 +41,7 @@ extern const int UNKNOWN_TYPE;
 
 namespace local_engine
 {
-namespace BroadCastJoinBuilder
+namespace BroadcastJoinBuilder
 {
 using namespace DB;
 static jclass Java_CHBroadcastBuildSideCache = nullptr;
@@ -92,7 +92,7 @@ void cleanBuildHashTable(const std::string & hash_table_id, jlong instance)
     /// Record memory usage in Total Memory Tracker
     ThreadFromGlobalPoolNoTracingContextPropagation thread(clean_join);
     thread.join();
-    LOG_DEBUG(&Poco::Logger::get("BroadCastJoinBuilder"), "Broadcast hash table {} is cleaned", hash_table_id);
+    LOG_DEBUG(&Poco::Logger::get("BroadcastJoinBuilder"), "Broadcast hash table {} is cleaned", hash_table_id);
 }
 
 std::shared_ptr<StorageJoinFromReadBuffer> getJoin(const std::string & key)
@@ -107,12 +107,6 @@ std::shared_ptr<StorageJoinFromReadBuffer> getJoin(const std::string & key)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "broadcast table {} not found, cache value is invalidated.", key);
 
     return wrapper;
-}
-
-// A join in cross rel.
-static bool isCrossRelJoin(const std::string & key)
-{
-    return key.starts_with("BuiltBNLJBroadcastTable-");
 }
 
 static void collectBlocksForCountingRows(NativeReader & block_stream, Block & header, Blocks & result)
@@ -160,6 +154,7 @@ std::shared_ptr<StorageJoinFromReadBuffer> buildJoin(
     jlong row_count,
     const std::string & join_keys,
     jint join_type,
+    bool is_bhj,
     bool has_mixed_join_condition,
     bool is_existence_join,
     const std::string & named_struct,
@@ -173,14 +168,12 @@ std::shared_ptr<StorageJoinFromReadBuffer> buildJoin(
 
     DB::JoinKind kind;
     DB::JoinStrictness strictness;
-    bool is_cross_rel_join = isCrossRelJoin(key);
-    if (is_cross_rel_join) assert(key_names.empty()); // cross rel join should not have join keys
+    if (!is_bhj) assert(key_names.empty()); // cross rel join should not have join keys
 
-    if (is_cross_rel_join)
-        std::tie(kind, strictness) = JoinUtil::getCrossJoinKindAndStrictness(static_cast<substrait::CrossRel_JoinType>(join_type));
-    else
+    if (is_bhj)
         std::tie(kind, strictness) = JoinUtil::getJoinKindAndStrictness(static_cast<substrait::JoinRel_JoinType>(join_type), is_existence_join);
-
+    else
+        std::tie(kind, strictness) = JoinUtil::getCrossJoinKindAndStrictness(static_cast<substrait::CrossRel_JoinType>(join_type));
 
     substrait::NamedStruct substrait_struct;
     substrait_struct.ParseFromString(named_struct);
@@ -202,7 +195,7 @@ std::shared_ptr<StorageJoinFromReadBuffer> buildJoin(
 
         // For not cross join, we need to add a constant join key column
         // to make it behavior like a normal join.
-        if (is_cross_rel_join && kind != JoinKind::Cross)
+        if (!is_bhj && kind != JoinKind::Cross)
         {
             auto data_type_u8 = std::make_shared<DataTypeUInt8>();
             UInt8 const_key_val = 0;

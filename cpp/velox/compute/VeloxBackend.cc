@@ -30,6 +30,7 @@
 #include "utils/qat/QatCodec.h"
 #endif
 #ifdef GLUTEN_ENABLE_GPU
+#include "cudf/GpuLock.h"
 #include "operators/plannodes/CudfVectorStream.h"
 #include "velox/experimental/cudf/CudfConfig.h"
 #include "velox/experimental/cudf/connectors/hive/CudfHiveConnector.h"
@@ -193,6 +194,7 @@ void VeloxBackend::init(
 
 #ifdef GLUTEN_ENABLE_GPU
   if (backendConf_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
+    configureGpuTaskConcurrency(backendConf_->get<uint32_t>(kCudfConcurrentGpuTasks, kCudfConcurrentGpuTasksDefault));
     std::unordered_map<std::string, std::string> options = {
         {velox::cudf_velox::CudfConfig::kCudfEnabled, "true"},
         {velox::cudf_velox::CudfConfig::kCudfDebugEnabled, backendConf_->get(kDebugCudf, kDebugCudfDefault)},

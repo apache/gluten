@@ -216,8 +216,8 @@ object CHStorageJoinBenchmark extends SqlBasedBenchmark with CHSqlBasedBenchmark
 
   def iterateBatch(array: Array[Byte], compressed: Boolean): Int = {
     val blockReader = new CHStreamReader(CHShuffleReadStreamFactory.create(array, compressed))
-    val broadCastIter: Iterator[ColumnarBatch] = IteratorUtil.createBatchIterator(blockReader)
-    broadCastIter.foldLeft(0) {
+    val broadcastIter: Iterator[ColumnarBatch] = IteratorUtil.createBatchIterator(blockReader)
+    broadcastIter.foldLeft(0) {
       case (acc, batch) =>
         acc + batch.numRows
     }

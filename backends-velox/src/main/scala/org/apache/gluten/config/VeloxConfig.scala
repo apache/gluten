@@ -758,6 +758,12 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val CUDF_CONCURRENT_GPU_TASKS =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cudf.concurrentGpuTasks")
+      .doc("The number of concurrent GPU tasks to run.")
+      .intConf
+      .createWithDefault(1)
+
   val CUDF_BATCH_SIZE =
     buildConf("spark.gluten.sql.columnar.backend.velox.cudf.batchSize")
       .doc("Cudf input batch size after shuffle reader")
