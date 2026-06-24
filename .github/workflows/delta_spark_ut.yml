@@ -91,14 +91,14 @@ env:
   # the `shard` matrix below.
   #
   # Set to 16 (not 8): at 8-way, ~5 of the 8 shards consistently exceed the
-  # 300-min job timeout because Delta's generated merge/CDC/DV suites are very
-  # slow under Gluten (observed in run 16: shards 0,1,2,3,6 all hit the 300-min
-  # cap while 4,5,7 finished in <130 min). Delta's GreedyHashStrategy balances
+  # job timeout because Delta's generated merge/CDC/DV suites are very
+  # slow under Gluten (observed in run 16, when the cap was 300 min: shards
+  # 0,1,2,3,6 all timed out while 4,5,7 finished in <130 min). Delta's GreedyHashStrategy balances
   # high-duration suites across shards by estimated duration, so doubling the
   # shard count roughly halves per-shard wall time and lets every shard finish
   # (and thus report its results) within the timeout. We keep
-  # TEST_PARALLELISM_COUNT=1 because each forked test JVM uses ~10G (8G heap +
-  # 2G off-heap) and >1 would OOM the runner.
+  # TEST_PARALLELISM_COUNT=1 because each forked test JVM uses ~4G (2G heap +
+  # 2G off-heap) and >1, atop the 4G sbt launcher, would OOM the runner.
   DELTA_NUM_SHARDS: '16'
 
 concurrency:
