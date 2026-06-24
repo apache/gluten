@@ -19,7 +19,7 @@ package org.apache.spark.sql.delta.test
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
 
-import org.apache.spark.{SparkConf, SparkException, SparkThrowable}
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.delta.catalog.DeltaCatalog
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.test.SharedSparkSession
@@ -55,24 +55,6 @@ trait DeltaSQLCommandTest extends SharedSparkSession {
       .set(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key, "true")
       .set("spark.databricks.delta.snapshotPartitions", "2")
       .set("spark.gluten.sql.fallbackUnexpectedMetadataParquet", "true")
-  }
-
-  /**
-   * Spark master now routes some invalid Delta table-property updates through the newer
-   * UNSUPPORTED_TABLE_CHANGE error class while released Spark versions still report the legacy
-   * temporary error. Both variants preserve the same message payload.
-   */
-  protected def checkInvalidBooleanTablePropertyError(
-      error: SparkException,
-      invalidValue: String): Unit = {
-    val sparkThrowable = error.asInstanceOf[SparkThrowable]
-    val errorClass = sparkThrowable.getErrorClass()
-    val expectedMessage = "For input string: \"" + invalidValue + "\""
-    assert(
-      Set("_LEGACY_ERROR_TEMP_2045", "UNSUPPORTED_TABLE_CHANGE").contains(errorClass),
-      s"Unexpected error class $errorClass with parameters " +
-        s"${sparkThrowable.getMessageParameters()}")
-    assert(sparkThrowable.getMessageParameters().get("message") == expectedMessage)
   }
 }
 // spotless:on
