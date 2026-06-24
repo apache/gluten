@@ -136,9 +136,11 @@ if [ ! -f "$DVS" ]; then
 fi
 # Inject `fail(...)` as the first statement of each test body (the line ending
 # in `) {`). Delta sets no -Xfatal-warnings / dead-code warning, so the now-
-# unreachable original body compiles fine.
-sed -i 's#huge table: read from tables of 2B rows with existing DV of many zeros") {#&\n    fail("[Gluten CI] Force-failed: reading a 2B-row DV table OOMs the forked test JVM (about 13G native, kernel OOM-kill, shard hang). Re-enable when the native memory blow-up is fixed; see setup-delta.sh.")#' "$DVS"
-sed -i 's#number of rows from tables of 2B rows with DVs") {#&\n      fail("[Gluten CI] Force-failed: deleting from a 2B-row DV table OOMs the forked test JVM. Re-enable when the native memory blow-up is fixed; see setup-delta.sh.")#' "$DVS"
+# unreachable original body compiles fine. Keep each injected line <100 chars:
+# Delta's scalastyle enforces a 100-char line length on test sources. The full
+# rationale lives in this comment, so the in-test message stays terse.
+sed -i 's#huge table: read from tables of 2B rows with existing DV of many zeros") {#&\n    fail("[Gluten CI] Force-failed: 2B-row DV read OOMs the test JVM; see setup-delta.sh")#' "$DVS"
+sed -i 's#number of rows from tables of 2B rows with DVs") {#&\n      fail("[Gluten CI] Force-failed: 2B-row DV delete OOMs the test JVM; see setup-delta.sh")#' "$DVS"
 INJECTED=$(grep -c "Gluten CI] Force-failed" "$DVS" || true)
 if [ "$INJECTED" -ne 2 ]; then
   echo "ERROR: expected to force-fail 2 DeletionVectorsSuite tests but injected ${INJECTED}." >&2
