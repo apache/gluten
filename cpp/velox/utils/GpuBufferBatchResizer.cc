@@ -68,7 +68,7 @@ struct DispatchColumn {
     auto values = buffers[bufferIdx++];
 
     // === Step 2: allocate GPU device buffers and copy ===
-    rmm::device_buffer dataBuf(values->size(), stream);
+    rmm::device_buffer dataBuf(values->size(), stream, mr);
     CUDF_CUDA_TRY(
         cudaMemcpyAsync(dataBuf.data(), values->data(), values->size(), cudaMemcpyHostToDevice, stream.value()));
 
@@ -78,7 +78,7 @@ struct DispatchColumn {
     cudf::data_type cudfType{typeId};
     size_t nullCount = nulls == nullptr || nulls->size() == 0
         ? 0
-        : cudf::null_count(reinterpret_cast<const cudf::bitmask_type*>(nulls->data()), 0, numRows, stream);
+        : cudf::null_count(static_cast<const cudf::bitmask_type*>(nullBuf->data()), 0, numRows, stream);
     return std::make_unique<cudf::column>(cudfType, numRows, std::move(dataBuf), std::move(*nullBuf), nullCount);
   }
 
@@ -118,7 +118,7 @@ struct DispatchColumn {
     // === Step 3: create cudf::column ===
     size_t nullCount = nulls == nullptr || nulls->size() == 0
         ? 0
-        : cudf::null_count(reinterpret_cast<const cudf::bitmask_type*>(nulls->data()), 0, numRows, stream);
+        : cudf::null_count(static_cast<const cudf::bitmask_type*>(mask->data()), 0, numRows, stream);
 
     auto offsetColumn = getOffsetsColumn(offsets);
 
