@@ -28,6 +28,8 @@ inline int8_t veloxTypeToTacType(facebook::velox::TypeKind kind) {
   switch (kind) {
     case facebook::velox::TypeKind::BIGINT:
       return tac::kUInt64;
+    case facebook::velox::TypeKind::HUGEINT:
+      return tac::kUInt128;
     default:
       return tac::kUnsupported;
   }

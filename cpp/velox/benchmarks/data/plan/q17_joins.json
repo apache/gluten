@@ -179,7 +179,7 @@
                                     "advancedExtension": {
                                       "optimization": {
                                         "@type": "/google.protobuf.StringValue",
-                                        "value": "inParameters:isBHJ=1\nisNullAwareAntiJoin=0\nbuildHashTableId=BuildedHashTable-421\n"
+                                        "value": "inParameters:isBHJ=1\nisNullAwareAntiJoin=0\nbuildHashTableId=421\n"
                                       }
                                     }
                                   }
