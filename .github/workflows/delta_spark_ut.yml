@@ -280,6 +280,15 @@ jobs:
             /root/.sbt
             /root/.ivy2
             /root/.cache/coursier
+            /root/.m2/repository/io/unitycatalog
+          # /root/.m2/repository/io/unitycatalog: Delta v4.3.0 builds a pinned
+          # Unity Catalog from source and publishes it to BOTH ~/.ivy2/local and
+          # ~/.m2 (see the HOME=/root note in the test step). The build's UC
+          # "already published?" check (build.sbt `ensurePinnedUnityCatalog` +
+          # setup_unitycatalog_main.sh) requires BOTH layouts present, so without
+          # caching the m2 copy every run would rebuild UC (~3-5 min/shard) even
+          # on a warm cache. Scoped to the io.unitycatalog subtree to keep the
+          # cache small.
           # Intentionally NOT keyed by ${{ matrix.shard }} -- all shards share
           # the same dependency tree, so a single shared cache (with parallel
           # save races resolved by GH on a first-write-wins basis) gives the
@@ -515,7 +524,18 @@ jobs:
           ) &
           WATCHDOG_PID=$!
 
-          ./build/sbt \
+          # HOME=/root: Delta v4.3.0's `spark` project gained a pinned Unity
+          # Catalog dependency -- `spark/update` now triggers `ensurePinnedUnityCatalog`
+          # (build.sbt:922), which shells out to project/scripts/setup_unitycatalog_main.sh
+          # to clone+build+publish the UC client/server/spark jars to `~/.ivy2/local`.
+          # That script reads the shell `$HOME`, but the container sets `$HOME=/github/home`
+          # while the sbt JVM's `user.home` (and our cache, lines ~279-282) is `/root`
+          # (the uid-0 passwd home). So sbt published the UC jars to /root/.ivy2 but the
+          # script verified them under /github/home/.ivy2 -> "publish succeeded but ...
+          # ivy.xml is missing" -> the setup script exits 1 and fails `spark/test` before
+          # any test runs. Pinning HOME=/root for the sbt process (inherited by the UC
+          # subprocess) aligns the script's verify path with sbt's real ivy home.
+          HOME=/root ./build/sbt \
             -DsparkVersion=${{ steps.resolve.outputs.spark_version }} \
             -v \
             -J-XX:+UseG1GC -J-Xms512m -J-Xmx4G \
