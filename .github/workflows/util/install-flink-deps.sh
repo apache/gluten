@@ -123,7 +123,7 @@ function install_rocksdb {
   cmake_install_dir frocksdb -DWITH_GFLAGS=OFF -DWITH_TESTS=OFF -DFAIL_ON_WARNINGS=OFF
 }
 
-function_install_pulsarclient {
+function install_pulsarclient {
   wget_and_untar https://github.com/apache/pulsar-client-cpp/archive/refs/tags/${PULSAR_CLIENT_VERSION}.tar.gz pulsarclient
   cmake_install_dir pulsarclient -DBUILD_TESTS=OFF
 }
