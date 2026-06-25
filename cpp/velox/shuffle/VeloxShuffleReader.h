@@ -17,17 +17,27 @@
 
 #pragma once
 
-#include "shuffle/Payload.h"
+#include "memory/VeloxMemoryManager.h"
 #include "shuffle/ShuffleReader.h"
 #include "shuffle/VeloxSortShuffleWriter.h"
 
-#include "velox/serializers/PrestoSerializer.h"
 #include "velox/type/Type.h"
 #include "velox/vector/ComplexVector.h"
 
+#include <vector>
+
 namespace gluten {
 
-class VeloxHashShuffleReaderDeserializer final : public ColumnarBatchIterator {
+class ShuffleReaderDeserializer {
+ public:
+  virtual ~ShuffleReaderDeserializer() = default;
+
+  virtual std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) = 0;
+
+  virtual void stop() = 0;
+};
+
+class VeloxHashShuffleReaderDeserializer final : public ShuffleReaderDeserializer {
  public:
   VeloxHashShuffleReaderDeserializer(
       const std::shared_ptr<StreamReader>& streamReader,
@@ -43,7 +53,13 @@ class VeloxHashShuffleReaderDeserializer final : public ColumnarBatchIterator {
       int64_t& deserializeTime,
       int64_t& decompressTime);
 
-  std::shared_ptr<ColumnarBatch> next() override;
+  ~VeloxHashShuffleReaderDeserializer() override;
+
+  std::shared_ptr<ColumnarBatch> next();
+
+  std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) override;
+
+  void stop() override {}
 
  private:
   bool shouldSkipMerge() const;
@@ -76,7 +92,7 @@ class VeloxHashShuffleReaderDeserializer final : public ColumnarBatchIterator {
   std::vector<facebook::velox::VectorPtr> dictionaries_{};
 };
 
-class VeloxSortShuffleReaderDeserializer final : public ColumnarBatchIterator {
+class VeloxSortShuffleReaderDeserializer final : public ShuffleReaderDeserializer {
  public:
   using RowSizeType = VeloxSortShuffleWriter::RowSizeType;
 
@@ -94,7 +110,11 @@ class VeloxSortShuffleReaderDeserializer final : public ColumnarBatchIterator {
 
   ~VeloxSortShuffleReaderDeserializer() override;
 
-  std::shared_ptr<ColumnarBatch> next() override;
+  std::shared_ptr<ColumnarBatch> next();
+
+  std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) override;
+
+  void stop() override {}
 
  private:
   std::shared_ptr<ColumnarBatch> deserializeToBatch();
@@ -130,7 +150,7 @@ class VeloxSortShuffleReaderDeserializer final : public ColumnarBatchIterator {
   bool reachedEos_{false};
 };
 
-class VeloxRssSortShuffleReaderDeserializer : public ColumnarBatchIterator {
+class VeloxRssSortShuffleReaderDeserializer : public ShuffleReaderDeserializer {
  public:
   VeloxRssSortShuffleReaderDeserializer(
       const std::shared_ptr<StreamReader>& streamReader,
@@ -140,7 +160,13 @@ class VeloxRssSortShuffleReaderDeserializer : public ColumnarBatchIterator {
       facebook::velox::common::CompressionKind veloxCompressionType,
       int64_t& deserializeTime);
 
+  ~VeloxRssSortShuffleReaderDeserializer() override;
+
   std::shared_ptr<ColumnarBatch> next();
+
+  std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) override;
+
+  void stop() override {}
 
  private:
   class VeloxInputStream;
@@ -162,9 +188,9 @@ class VeloxRssSortShuffleReaderDeserializer : public ColumnarBatchIterator {
   bool reachedEos_{false};
 };
 
-class VeloxShuffleReaderDeserializerFactory {
+class VeloxShuffleReader final : public ShuffleReader {
  public:
-  VeloxShuffleReaderDeserializerFactory(
+  VeloxShuffleReader(
       const std::shared_ptr<arrow::Schema>& schema,
       const std::shared_ptr<arrow::util::Codec>& codec,
       facebook::velox::common::CompressionKind veloxCompressionType,
@@ -176,14 +202,18 @@ class VeloxShuffleReaderDeserializerFactory {
       ShuffleWriterType shuffleWriterType,
       bool enableHashShuffleReaderStreamMerge = false);
 
-  std::unique_ptr<ColumnarBatchIterator> createDeserializer(const std::shared_ptr<StreamReader>& streamReader);
+  std::shared_ptr<ResultIterator> read(const std::shared_ptr<StreamReader>& streamReader) override;
 
-  int64_t getDecompressTime();
+  int64_t getDecompressTime() const override;
 
-  int64_t getDeserializeTime();
+  int64_t getDeserializeTime() const override;
+
+  void stop() override;
 
  private:
   void initFromSchema();
+
+  void createDeserializer(const std::shared_ptr<StreamReader>& streamReader);
 
   std::shared_ptr<arrow::Schema> schema_;
   std::shared_ptr<arrow::util::Codec> codec_;
@@ -202,19 +232,7 @@ class VeloxShuffleReaderDeserializerFactory {
 
   int64_t deserializeTime_{0};
   int64_t decompressTime_{0};
-};
 
-class VeloxShuffleReader final : public ShuffleReader {
- public:
-  VeloxShuffleReader(std::unique_ptr<VeloxShuffleReaderDeserializerFactory> factory);
-
-  std::shared_ptr<ResultIterator> read(const std::shared_ptr<StreamReader>& streamReader) override;
-
-  int64_t getDecompressTime() const override;
-
-  int64_t getDeserializeTime() const override;
-
- private:
-  std::unique_ptr<VeloxShuffleReaderDeserializerFactory> factory_;
+  std::unique_ptr<ShuffleReaderDeserializer> deserializer_;
 };
 } // namespace gluten

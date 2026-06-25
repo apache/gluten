@@ -617,7 +617,7 @@ std::shared_ptr<ShuffleReader> VeloxRuntime::createShuffleReader(
   const auto veloxCompressionKind = arrowCompressionTypeToVelox(options.compressionType);
   const auto rowType = facebook::velox::asRowType(gluten::fromArrowSchema(schema));
 
-  auto deserializerFactory = std::make_unique<gluten::VeloxShuffleReaderDeserializerFactory>(
+  return std::make_shared<gluten::VeloxShuffleReader>(
       schema,
       std::move(codec),
       veloxCompressionKind,
@@ -628,8 +628,6 @@ std::shared_ptr<ShuffleReader> VeloxRuntime::createShuffleReader(
       memoryManager(),
       options.shuffleWriterType,
       options.enableHashShuffleReaderStreamMerge);
-
-  return std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
 }
 
 std::unique_ptr<ColumnarBatchSerializer> VeloxRuntime::createColumnarBatchSerializer(struct ArrowSchema* cSchema) {

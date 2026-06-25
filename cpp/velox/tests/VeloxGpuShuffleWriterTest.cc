@@ -301,7 +301,7 @@ class GpuVeloxShuffleWriterTest : public ::testing::TestWithParam<GpuShuffleTest
     const auto schema = toArrowSchema(rowType, getDefaultMemoryManager()->getLeafMemoryPool().get());
     auto codec = createCompressionCodec(compressionType, CodecBackend::NONE);
 
-    auto deserializerFactory = std::make_unique<gluten::VeloxShuffleReaderDeserializerFactory>(
+    auto reader = std::make_shared<gluten::VeloxShuffleReader>(
         schema,
         std::move(codec),
         veloxCompressionType,
@@ -312,7 +312,6 @@ class GpuVeloxShuffleWriterTest : public ::testing::TestWithParam<GpuShuffleTest
         getDefaultMemoryManager(),
         GetParam().shuffleWriterType);
 
-    const auto reader = std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
     const auto iter = reader->read(std::make_shared<TestStreamReader>(std::move(in)));
 
     while (iter->hasNext()) {
