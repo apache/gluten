@@ -717,4 +717,40 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
           e.getCause != null && e.getCause.getMessage.contains("null"))
     }
   }
+
+  test("iceberg write with unsupported codec should fail validation") {
+    withTable("iceberg_codec_test") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_codec_test (id INT, data STRING)
+                  |USING iceberg
+                  |""".stripMargin)
+
+      val unsupportedCodecs = Seq("brotli", "lzo", "lz4raw", "lz4_raw")
+
+      unsupportedCodecs.foreach {
+        codec =>
+          withSQLConf("spark.sql.parquet.compression.codec" -> codec) {
+            val e = intercept[Exception] {
+              spark
+                .sql("INSERT INTO iceberg_codec_test VALUES (1, 'test')")
+                .collect()
+            }
+            assert(
+              e.getMessage.contains("Codec unsupported") ||
+                e.getCause != null && e.getCause.getMessage.contains("Codec unsupported"),
+              s"Expected validation error for codec: $codec, but got: ${e.getMessage}"
+            )
+          }
+      }
+      val supportedCodecs = Seq("snappy", "SNAPPY", "gzip", "GZIP", "zstd", "ZSTD", "none")
+      supportedCodecs.foreach {
+        codec =>
+          withSQLConf("spark.sql.parquet.compression.codec" -> codec) {
+            spark.sql(s"INSERT INTO iceberg_codec_test VALUES (2, 'test_$codec')")
+          }
+      }
+      val result = spark.sql("SELECT COUNT(*) FROM iceberg_codec_test").collect()
+      assert(result.head.getLong(0) == supportedCodecs.length)
+    }
+  }
 }

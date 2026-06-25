@@ -106,8 +106,9 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
     }
 
     val codec = getCodec
-    if (Seq("brotli, lzo").contains(codec)) {
-      return ValidationResult.failed("Not support this codec " + codec)
+    val unsupported = Set("brotli", "lzo", "lz4raw", "lz4_raw")
+    if (unsupported.contains(codec.toLowerCase())) {
+      return ValidationResult.failed("Codec unsupported: " + codec)
     }
     if (query.output.exists(a => !AvroSchemaUtil.makeCompatibleName(a.name).equals(a.name))) {
       return ValidationResult.failed("Not support the compatible column name")
