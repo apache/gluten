@@ -1,0 +1,36 @@
+{
+  "global_reviewers": ["rui-mo"],
+  "areas": [
+    {
+      "name": "Iceberg",
+      "paths": ["gluten-iceberg/**", "cpp/**", "backends-velox/src-iceberg/**", "backends-velox/src-iceberg-spark34/**"],
+      "reviewers": [
+        "infvg"
+      ]
+    },
+    {
+      "name": "Velox backend",
+      "paths": ["backends-velox/**", "cpp/**"],
+      "reviewers": [
+        "rui-mo",
+        "marin-ma"
+      ]
+    },
+    {
+      "name": "CI / GitHub Actions",
+      "paths": [".github/**"],
+      "reviewers": [
+        "ReemaAlzaid"
+      ]
+    }
+  ],
+  "number_of_reviewers": 1,
+  "skip_draft": true,
+  "skip_author": true,
+  "skip_bots": true,
+  "excluded_reviewers": [
+    "dependabot[bot]",
+    "github-actions[bot]"
+  ],
+  "request_even_if_already_reviewed": false
+}
