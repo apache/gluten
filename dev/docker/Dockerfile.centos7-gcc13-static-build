@@ -37,7 +37,9 @@ RUN set -ex; \
     yum install -y git patch sudo java-1.8.0-openjdk-devel ccache; \
     git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
     echo "check_certificate = off" >> ~/.wgetrc; \
-    cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh; \
+    cd /opt/gluten; \
+    cp ep/build-velox/src/socket.h /usr/include/asm-generic/socket.h; \
+    bash ./dev/vcpkg/setup-build-depends.sh; \
     yum remove gcc -y && yum clean all; \
     yes | cp -rf /usr/share/aclocal/* /usr/local/share/aclocal/; \
     mkdir -p ${VCPKG_PATH}; \

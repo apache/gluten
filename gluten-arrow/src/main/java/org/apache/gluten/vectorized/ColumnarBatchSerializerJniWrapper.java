@@ -39,6 +39,8 @@ public class ColumnarBatchSerializerJniWrapper implements RuntimeAware {
 
   public native JniUnsafeByteBuffer serialize(long handle);
 
+  public native JniUnsafeByteBuffer serializeAll(long[] handles);
+
   // Framed [magic | statsLen | statsBlob | bytesLen | bytesBlob] payload produced by
   // VeloxColumnarBatchSerializer::framedSerializeWithStats. Returns byte[] (not
   // JniUnsafeByteBuffer) because the framed wire is small enough that the simpler return type

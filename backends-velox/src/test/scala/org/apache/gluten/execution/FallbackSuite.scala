@@ -310,7 +310,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
-  test("fallback with index based schema evolution") {
+  testWithMinSparkVersion("fallback with index based schema evolution", "3.4") {
     val query = "SELECT c2 FROM test"
     Seq("parquet", "orc").foreach {
       format =>
@@ -333,9 +333,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                     runQueryAndCompare(query) {
                       df =>
                         val plan = df.queryExecution.executedPlan
-                        val fallback = parquetUseColumnNames == "false" ||
-                          orcUseColumnNames == "false"
-                        assert(collect(plan) { case g: GlutenPlan => g }.isEmpty == fallback)
+                        assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
                     }
                   }
                 }
@@ -400,6 +398,28 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
         val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
         assert(fallbackReasons.nonEmpty)
         assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
+    }
+  }
+
+  test("fallback when join post filter has unsupported expression") {
+    GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+      events =>
+        val df = spark.sql("""
+                             |select tmp1.c1, tmp1.c2 from tmp1
+                             |left join tmp2
+                             |on tmp1.c1 = tmp2.c1
+                             |and tmp1.c2 not rlike '^[\\u4e00-\\u9fa5]{2,10}[0-9]+$'
+                             |""".stripMargin)
+        df.collect()
+        GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+
+        val broadcastHashJoin = find(df.queryExecution.executedPlan) {
+          _.isInstanceOf[BroadcastHashJoinExec]
+        }
+        assert(broadcastHashJoin.isDefined)
+        val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
+        assert(fallbackReasons.nonEmpty)
+        assert(fallbackReasons.forall(_.contains("rlike due to Pattern")))
     }
   }
 

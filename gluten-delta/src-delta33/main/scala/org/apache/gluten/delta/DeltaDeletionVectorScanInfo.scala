@@ -17,9 +17,11 @@
 package org.apache.gluten.delta
 
 import org.apache.gluten.sql.shims.SparkShimLoader
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.delta.GlutenDeltaParquetFileFormat
+import org.apache.spark.sql.delta.DeltaParquetFileFormat
 import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
 import org.apache.spark.sql.delta.deletionvectors.{RoaringBitmapArrayFormat, StoredBitmap}
 import org.apache.spark.sql.delta.storage.dv.HadoopFileSystemDVStore
@@ -27,10 +29,9 @@ import org.apache.spark.sql.execution.datasources.PartitionedFile
 
 import org.apache.hadoop.fs.Path
 
-import java.util.{ArrayList => JArrayList}
+import java.util.{Map => JMap}
 
 import scala.collection.JavaConverters._
-import scala.util.Try
 import scala.util.control.NonFatal
 
 object DeltaDeletionVectorScanInfo {
@@ -52,9 +53,27 @@ object DeltaDeletionVectorScanInfo {
       deletionVectorInfo: DeletionVectorInfo)
 
   private val RowIndexFilterIdEncoded =
-    GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_ID_ENCODED
+    DeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_ID_ENCODED
   private val RowIndexFilterTypeKey =
-    GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_TYPE
+    DeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_TYPE
+
+  /**
+   * Materializes per-file Delta DV read options for a split, alongside each file's metadata with
+   * the DV bookkeeping keys stripped. Returns None when no file in the split carries a deletion
+   * vector, so callers can keep the generic split representation.
+   */
+  def normalize(partitionColumnCount: Int, partitionFiles: Seq[PartitionedFile])
+      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
+    val scanInfos = extractAll(activeSparkSession, partitionColumnCount, partitionFiles)
+    if (scanInfos.exists(_.deletionVectorInfo.hasDeletionVector)) {
+      Some(
+        (
+          scanInfos.map(_.normalizedOtherMetadataColumns.asJava),
+          scanInfos.map(info => toDeltaFileReadOptions(info.deletionVectorInfo))))
+    } else {
+      None
+    }
+  }
 
   def extract(
       spark: SparkSession,
@@ -73,11 +92,30 @@ object DeltaDeletionVectorScanInfo {
     files.map(extract(spark, partitionColumnCount, _))
   }
 
-  def extractAllFromJava(
-      spark: SparkSession,
-      partitionColumnCount: Int,
-      files: java.util.List[PartitionedFile]): java.util.List[PartitionFileScanInfo] = {
-    new JArrayList(extractAll(spark, partitionColumnCount, files.asScala.toSeq).asJava)
+  private def toDeltaFileReadOptions(dvInfo: DeletionVectorInfo): DeltaFileReadOptions = {
+    new DeltaFileReadOptions(
+      toSubstraitRowIndexFilterType(dvInfo.rowIndexFilterType),
+      dvInfo.hasDeletionVector,
+      dvInfo.cardinality,
+      dvInfo.serializedDeletionVector)
+  }
+
+  private def toSubstraitRowIndexFilterType(
+      filterType: RowIndexFilterType): DeltaLocalFilesNode.RowIndexFilterType = {
+    filterType match {
+      case IF_CONTAINED => DeltaLocalFilesNode.RowIndexFilterType.IF_CONTAINED
+      case IF_NOT_CONTAINED => DeltaLocalFilesNode.RowIndexFilterType.IF_NOT_CONTAINED
+      case _ => DeltaLocalFilesNode.RowIndexFilterType.KEEP_ALL
+    }
+  }
+
+  private def activeSparkSession: SparkSession = {
+    SparkSession.getActiveSession
+      .orElse(SparkSession.getDefaultSession)
+      .getOrElse {
+        throw new IllegalStateException(
+          "Active SparkSession is required to materialize Delta deletion vectors")
+      }
   }
 
   private def extractDeletionVectorInfo(
@@ -116,21 +154,12 @@ object DeltaDeletionVectorScanInfo {
   }
 
   private def parseDescriptor(encodedDescriptor: String): DeletionVectorDescriptor = {
-    val methods = Seq("deserializeFromBase64", "fromJson")
-    methods.iterator
-      .map {
-        methodName =>
-          Try {
-            val method = DeletionVectorDescriptor.getClass.getMethod(methodName, classOf[String])
-            method
-              .invoke(DeletionVectorDescriptor, encodedDescriptor)
-              .asInstanceOf[DeletionVectorDescriptor]
-          }.toOption
-      }
-      .collectFirst { case Some(descriptor) => descriptor }
-      .getOrElse {
-        throw new IllegalArgumentException("Unable to parse Delta deletion vector descriptor")
-      }
+    try {
+      DeletionVectorDescriptor.deserializeFromBase64(encodedDescriptor)
+    } catch {
+      case NonFatal(e) =>
+        throw new IllegalArgumentException("Unable to parse Delta deletion vector descriptor", e)
+    }
   }
 
   private def parseRowIndexFilterType(filterType: String): RowIndexFilterType = {

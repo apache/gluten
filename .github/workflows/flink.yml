@@ -48,6 +48,7 @@ env:
     --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
     --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+  CCACHE_DIR: "${{ github.workspace }}/.ccache"
 
 jobs:
   flink-test:
@@ -55,10 +56,21 @@ jobs:
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v4
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-flink-centos8-${{github.sha}}
+          restore-keys: |
+            ccache-flink-centos8
       - name: Prepare
         run: |
           source /opt/rh/gcc-toolset-11/enable
-          sudo dnf install -y patchelf
+          sudo dnf install -y patchelf ccache
+          export CCACHE_DIR=${CCACHE_DIR}
+          export CCACHE_MAXSIZE=4G
+          mkdir -p ${CCACHE_DIR}
+          ccache -sz
           sudo yum install https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/tzdata-2026a-1.el9.noarch.rpm -y
           sudo .github/workflows/util/install-flink-deps.sh
           # Remove system fmt v11 from the CI image to avoid header conflicts with
@@ -70,13 +82,20 @@ jobs:
           export fmt_SOURCE=BUNDLED
           export folly_SOURCE=BUNDLED
           git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
-          cd velox4j && git reset --hard 219cbeae1107df872c0b142c784c750c6432e55e
+          cd velox4j && git reset --hard 97fc1edafebd0f505e613d260f77f92f5252d048
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..
+          ccache -s
           git clone https://github.com/nexmark/nexmark.git
           cd nexmark
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-flink-centos8-${{github.sha}}
       - name: Build Gluten Flink
         run: |
           cd $GITHUB_WORKSPACE/gluten-flink

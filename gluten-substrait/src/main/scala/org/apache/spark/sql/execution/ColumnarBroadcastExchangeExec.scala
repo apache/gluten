@@ -132,7 +132,9 @@ case class ColumnarBroadcastExchangeExec(mode: BroadcastMode, child: SparkPlan)
   override def rowType(): Convention.RowType = Convention.RowType.None
 
   override def doCanonicalize(): SparkPlan = {
-    ColumnarBroadcastExchangeExec(mode.canonicalized, child.canonicalized)
+    val canonicalized =
+      BackendsApiManager.getSparkPlanExecApiInstance.doCanonicalizeForBroadcastMode(mode)
+    ColumnarBroadcastExchangeExec(canonicalized, child.canonicalized)
   }
 
   override def doPrepare(): Unit = {

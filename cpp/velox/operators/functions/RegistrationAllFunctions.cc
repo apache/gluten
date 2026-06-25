@@ -19,6 +19,7 @@
 #include "operators/functions/Arithmetic.h"
 #include "operators/functions/RowConstructorWithNull.h"
 #include "operators/functions/RowFunctionWithNull.h"
+#include "operators/functions/delta/DeltaBitmapAggregator.h"
 #include "velox/expression/SpecialFormRegistry.h"
 #include "velox/expression/VectorFunction.h"
 #include "velox/functions/iceberg/Register.h"
@@ -94,6 +95,7 @@ void registerAllFunctions() {
   registerFunctionOverwrite();
 
   velox::functions::iceberg::registerFunctions();
+  registerDeltaBitmapAggregator();
 }
 
 } // namespace gluten

@@ -277,7 +277,7 @@ object MetricsUtil extends Logging {
         }
         ju.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
       case u: UnionMetricsUpdater =>
-        // JoinRel outputs two suites of metrics respectively for hash build and hash probe.
+        // Union outputs two suites of metrics respectively.
         // Therefore, fetch one more suite of metrics here.
         operatorMetrics.add(metrics.getOperatorMetrics(curMetricsIdx))
         curMetricsIdx -= 1

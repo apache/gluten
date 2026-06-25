@@ -1178,7 +1178,7 @@ jobs:
           mkdir -p /work/.ccache
 
           cd /work
-          bash dev/builddeps-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF --build_tests=ON --build_benchmarks=ON --enable_gpu=ON
+          bash dev/builddeps-veloxbe.sh --run_setup_script=ON --build_arrow=OFF --build_tests=ON --build_benchmarks=ON --enable_gpu=ON
           rm -rf ep/build-velox/build/velox_ep
           build/mvn clean package -Pbackends-velox -Pspark-3.4 -DskipTests
           ccache -s

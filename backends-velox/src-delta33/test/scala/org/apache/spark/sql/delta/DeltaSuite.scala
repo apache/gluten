@@ -197,6 +197,34 @@ class DeltaSuite
     checkAnswer(data.toDF(), Row(1) :: Row(2) :: Row(3) :: Row(4) :: Row(5) :: Row(6) :: Nil)
   }
 
+  test("DV scan without metadata row index falls back and stays correct") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
+          .toDF("id", "value")
+          .coalesce(1)
+          .write
+          .format("delta")
+          .save(path)
+
+        spark.sql(
+          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+
+        withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "false") {
+          spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)")
+
+          val log = DeltaLog.forTable(spark, new Path(path))
+          assert(log.update().allFiles.collect().exists(_.deletionVector != null))
+
+          val df = spark.read.format("delta").load(path)
+          val executedPlan = df.queryExecution.executedPlan
+          assert(executedPlan.collect { case _: DeltaScanTransformer => true }.isEmpty)
+          checkAnswer(df, Seq(Row(1, "a"), Row(2, "b")))
+        }
+    }
+  }
+
   test("partitioned append - nulls") {
     val tempDir = Utils.createTempDir()
     Seq(Some(1), None)

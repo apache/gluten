@@ -246,7 +246,7 @@ QueryPlanPtr SerializedPlanParser::parseOp(const substrait::Rel & rel, std::list
 
         if (read_rel_parser->isReadRelFromJavaIter(read))
         {
-            /// If read from java iter, local_files is guranteed to be set in read rel.
+            /// If read from java iter, local_files is guaranteed to be set in read rel.
             auto iter = read.local_files().items().at(0).uri_file();
             auto pos = iter.find(':');
             auto iter_index = std::stoi(iter.substr(pos + 1, iter.size()));

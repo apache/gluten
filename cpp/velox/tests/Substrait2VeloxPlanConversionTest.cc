@@ -28,6 +28,7 @@
 #include "velox/type/Type.h"
 
 #include "FilePathGenerator.h"
+#include "compute/VeloxBackend.h"
 
 using namespace facebook::velox;
 using namespace facebook::velox::test;

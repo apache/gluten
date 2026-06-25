@@ -124,6 +124,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("SPARK-37369: Avoid redundant ColumnarToRow transition on InMemoryTableScan")
     .exclude("analyzes column statistics in cached query")
     .excludeGlutenTest("InMemoryRelation statistics")
+    // Needs to rewrite TimestampNTZType.
+    .excludeGlutenTest("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenColumnExpressionSuite]
     .exclude("input_file_name, input_file_block_start, input_file_block_length - FileScanRDD")
     .exclude("withField should add field with no name")

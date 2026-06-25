@@ -30,6 +30,7 @@
 #include "utils/qat/QatCodec.h"
 #endif
 #ifdef GLUTEN_ENABLE_GPU
+#include "cudf/GpuLock.h"
 #include "operators/plannodes/CudfVectorStream.h"
 #include "velox/experimental/cudf/CudfConfig.h"
 #include "velox/experimental/cudf/connectors/hive/CudfHiveConnector.h"
@@ -87,14 +88,36 @@ void veloxMemoryManagerReleaser(MemoryManager* memoryManager) {
 Runtime* veloxRuntimeFactory(
     const std::string& kind,
     MemoryManager* memoryManager,
+    ThreadManager* threadManager,
     const std::unordered_map<std::string, std::string>& sessionConf) {
   auto* vmm = dynamic_cast<VeloxMemoryManager*>(memoryManager);
   GLUTEN_CHECK(vmm != nullptr, "Not a Velox memory manager");
-  return new VeloxRuntime(kind, vmm, sessionConf);
+  return new VeloxRuntime(kind, vmm, threadManager, sessionConf);
 }
 
 void veloxRuntimeReleaser(Runtime* runtime) {
   delete runtime;
+}
+
+class VeloxThreadManager : public ThreadManager {
+ public:
+  VeloxThreadManager(const std::string& kind, std::unique_ptr<ThreadInitializer> initializer)
+      : ThreadManager(kind), initializer_(std::shared_ptr<ThreadInitializer>(std::move(initializer))) {}
+
+  ThreadInitializer* getThreadInitializer() override {
+    return initializer_.get();
+  }
+
+ private:
+  std::shared_ptr<ThreadInitializer> initializer_;
+};
+
+ThreadManager* veloxThreadManagerFactory(const std::string& kind, std::unique_ptr<ThreadInitializer> initializer) {
+  return new VeloxThreadManager(kind, std::move(initializer));
+}
+
+void veloxThreadManagerReleaser(ThreadManager* threadManager) {
+  delete threadManager;
 }
 } // namespace
 
@@ -122,6 +145,7 @@ void VeloxBackend::init(
 
   // Register factories.
   MemoryManager::registerFactory(kVeloxBackendKind, veloxMemoryManagerFactory, veloxMemoryManagerReleaser);
+  ThreadManager::registerFactory(kVeloxBackendKind, veloxThreadManagerFactory, veloxThreadManagerReleaser);
   Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
@@ -170,6 +194,7 @@ void VeloxBackend::init(
 
 #ifdef GLUTEN_ENABLE_GPU
   if (backendConf_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
+    configureGpuTaskConcurrency(backendConf_->get<uint32_t>(kCudfConcurrentGpuTasks, kCudfConcurrentGpuTasksDefault));
     std::unordered_map<std::string, std::string> options = {
         {velox::cudf_velox::CudfConfig::kCudfEnabled, "true"},
         {velox::cudf_velox::CudfConfig::kCudfDebugEnabled, backendConf_->get(kDebugCudf, kDebugCudfDefault)},
@@ -186,17 +211,30 @@ void VeloxBackend::init(
   }
 #endif
 
+  const int32_t numTaskSlotsPerExecutor = [&]() {
+    if (!backendConf_->valueExists(kNumTaskSlotsPerExecutor)) {
+      LOG(WARNING) << kNumTaskSlotsPerExecutor << " is not set. Falling back to 1.";
+      return 1;
+    }
+    return backendConf_->get<int32_t>(kNumTaskSlotsPerExecutor).value();
+  }();
+  GLUTEN_CHECK(
+      numTaskSlotsPerExecutor >= 0,
+      kNumTaskSlotsPerExecutor + " was set to negative number " + std::to_string(numTaskSlotsPerExecutor) +
+          ", this should not happen.");
+
   const auto spillThreadNum = backendConf_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
   if (spillThreadNum > 0) {
     spillExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(spillThreadNum);
   }
-  auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, kVeloxIOThreadsDefault);
+
+  const auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, numTaskSlotsPerExecutor);
   GLUTEN_CHECK(
       ioThreads >= 0,
       kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
   if (ioThreads > 0) {
-    ioExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
-        ioThreads, std::make_unique<folly::UnboundedBlockingQueue<folly::CPUThreadPoolExecutor::CPUTask>>());
+    ioExecutor_ =
+        std::make_unique<folly::CPUThreadPoolExecutor>(ioThreads, folly::CPUThreadPoolExecutor::makeLifoSemQueue());
   }
 
   initJolFilesystem();

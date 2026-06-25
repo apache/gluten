@@ -1,0 +1,13 @@
+diff --git a/quic/CMakeLists.txt b/quic/CMakeLists.txt
+index eeb657bf7..d7896bb39 100644
+--- a/quic/CMakeLists.txt
++++ b/quic/CMakeLists.txt
+@@ -80,7 +80,7 @@ add_subdirectory(priority)
+ add_subdirectory(happyeyeballs)
+ add_subdirectory(folly_utils)
+ add_subdirectory(datagram)
+-add_subdirectory(xsk)
++#add_subdirectory(xsk)
+ add_subdirectory(api)
+ add_subdirectory(client)
+ add_subdirectory(server)
