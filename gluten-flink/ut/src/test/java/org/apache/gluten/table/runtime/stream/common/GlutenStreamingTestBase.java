@@ -16,7 +16,6 @@
  */
 package org.apache.gluten.table.runtime.stream.common;
 
-import org.apache.flink.configuration.CoreOptions;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.table.api.ExplainDetail;
 import org.apache.flink.table.api.Table;
@@ -133,13 +132,13 @@ public class GlutenStreamingTestBase extends StreamingTestBase {
 
   protected void runAndCheck(String query, List<String> expected) {
     String printResultDirPath = System.getProperty("user.dir") + "/log/";
-    tEnv().getConfig().set(CoreOptions.FLINK_LOG_DIR, printResultDirPath);
-    String printResultFilePath = String.format("%s%s", printResultDirPath, "taskmanager.out");
+    new File(printResultDirPath).mkdirs();
+    String printResultFilePath = printResultDirPath + "taskmanager.out";
     File printResultFile = new File(printResultFilePath);
-    boolean deleteResultFile = true;
     if (printResultFile.exists()) {
-      deleteResultFile = printResultFile.delete();
+      printResultFile.delete();
     }
+
     int savedStdout = C_LIB.dup(1);
     int fileFd = C_LIB.open(printResultFilePath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fileFd < 0) {
@@ -153,48 +152,50 @@ public class GlutenStreamingTestBase extends StreamingTestBase {
       String newQuery = String.format("insert into %s %s", "printT", query);
       TableResult tableResult = tEnv().executeSql(newQuery);
       assertTrue(tableResult.getJobClient().isPresent());
+      JobClient jobClient = tableResult.getJobClient().get();
       try {
-        JobClient jobClient = tableResult.getJobClient().get();
-        if (deleteResultFile) {
-          try {
-            long startTime = System.currentTimeMillis();
-            while (!printResultFile.exists()) {
-              if (System.currentTimeMillis() - startTime > timeoutMS) {
-                break;
-              }
-              Thread.sleep(10);
-            }
-            long fileSize = -1L;
-            startTime = System.currentTimeMillis();
-            while (printResultFile.length() > fileSize) {
-              if (System.currentTimeMillis() - startTime > timeoutMS) {
-                break;
-              }
-              fileSize = printResultFile.length();
-              Thread.sleep(3000);
-            }
-          } finally {
-            jobClient.cancel();
+        long startTime = System.currentTimeMillis();
+        while (printResultFile.length() == 0) {
+          if (System.currentTimeMillis() - startTime > timeoutMS) {
+            break;
           }
+          Thread.sleep(10);
         }
-        List<String> result = new ArrayList<>();
-        try (FileReader fr = new FileReader(printResultFile);
-            BufferedReader br = new BufferedReader(fr)) {
-          String line = null;
-          while ((line = br.readLine()) != null) {
-            result.add(line);
+        long fileSize = -1L;
+        startTime = System.currentTimeMillis();
+        while (printResultFile.length() > fileSize) {
+          if (System.currentTimeMillis() - startTime > timeoutMS) {
+            break;
           }
+          fileSize = printResultFile.length();
+          Thread.sleep(3000);
         }
-        assertThat(result).isEqualTo(expected);
-      } catch (Exception e) {
-        throw new FlinkRuntimeException(e);
+      } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+        throw new FlinkRuntimeException(ie);
       } finally {
-        tEnv().executeSql("drop table if exists printT");
+        jobClient.cancel();
       }
     } finally {
       C_LIB.dup2(savedStdout, 1);
       C_LIB.close(fileFd);
       C_LIB.close(savedStdout);
+    }
+
+    try {
+      List<String> result = new ArrayList<>();
+      try (FileReader fr = new FileReader(printResultFile);
+          BufferedReader br = new BufferedReader(fr)) {
+        String line = null;
+        while ((line = br.readLine()) != null) {
+          result.add(line);
+        }
+      }
+      assertThat(result).isEqualTo(expected);
+    } catch (Exception e) {
+      throw new FlinkRuntimeException(e);
+    } finally {
+      tEnv().executeSql("drop table if exists printT");
     }
   }
 }
