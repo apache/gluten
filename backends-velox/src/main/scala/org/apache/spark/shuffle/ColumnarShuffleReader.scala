@@ -22,7 +22,7 @@ import org.apache.spark._
 import org.apache.spark.internal.{config, Logging}
 import org.apache.spark.io.CompressionCodec
 import org.apache.spark.serializer.SerializerManager
-import org.apache.spark.storage.{BlockId, BlockManager, BlockManagerId, ShuffleBlockFetcherIterator}
+import org.apache.spark.storage.{BlockId, BlockManager, BlockManagerId, GlutenShuffleBlockFetcherIterator}
 import org.apache.spark.util.CompletionIterator
 
 /**
@@ -70,7 +70,7 @@ class ColumnarShuffleReader[K, C](
 
   /** Read the combined key-values for this reduce task */
   override def read(): Iterator[Product2[K, C]] = {
-    val wrappedStreams = new ShuffleBlockFetcherIterator(
+    val shuffleBlockFetcherIterator = new GlutenShuffleBlockFetcherIterator(
       context,
       blockManager.blockStoreClient,
       blockManager,
@@ -89,7 +89,7 @@ class ColumnarShuffleReader[K, C](
       SparkEnv.get.conf.get(config.SHUFFLE_CHECKSUM_ALGORITHM),
       readMetrics,
       fetchContinuousBlocksInBatch
-    ).toCompletionIterator
+    )
 
     val recordIter = dep match {
       case columnarDep: ColumnarShuffleDependency[K, _, C] =>
@@ -97,12 +97,14 @@ class ColumnarShuffleReader[K, C](
         columnarDep.serializer
           .newInstance()
           .asInstanceOf[ColumnarBatchSerializerInstance]
-          .deserializeStreams(wrappedStreams)
+          .deserializeStreams(
+            shuffleBlockFetcherIterator,
+            shuffleBlockFetcherIterator.cleanup)
           .asKeyValueIterator
       case _ =>
         val serializerInstance = dep.serializer.newInstance()
         // Create a key/value iterator for each stream
-        wrappedStreams.flatMap {
+        shuffleBlockFetcherIterator.toCompletionIterator.flatMap {
           case (blockId, wrappedStream) =>
             // Note: the asKeyValueIterator below wraps a key/value iterator inside of a
             // NextIterator. The NextIterator makes sure that close() is called on the

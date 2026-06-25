@@ -134,16 +134,20 @@ private class ColumnarBatchSerializerInstanceImpl(
     shuffleReaderHandle
   }
 
+  // TODO: remove this method for columnar shuffle.
   override def deserializeStream(in: InputStream): DeserializationStream = {
     new TaskDeserializationStream(Iterator((null, in)))
   }
 
   override def deserializeStreams(
-      streams: Iterator[(BlockId, InputStream)]): DeserializationStream = {
-    new TaskDeserializationStream(streams)
+      streams: Iterator[(BlockId, InputStream)],
+      completionFunction: () => Unit): DeserializationStream = {
+    new TaskDeserializationStream(streams, Some(completionFunction))
   }
 
-  private class TaskDeserializationStream(streams: Iterator[(BlockId, InputStream)])
+  private class TaskDeserializationStream(
+      streams: Iterator[(BlockId, InputStream)],
+      completionFunction: Option[() => Unit] = None)
     extends DeserializationStream
     with TaskResource {
     private val streamReader = ShuffleStreamReader(streams)
@@ -219,6 +223,9 @@ private class ColumnarBatchSerializerInstanceImpl(
       if (!closeCalled.compareAndSet(false, true)) {
         return
       }
+      // Stop reading more streams. Blocked by the native reader threads.
+      jniWrapper.stop(shuffleReaderHandle)
+      completionFunction.foreach(_())
       // Would remove the resource object from registry to lower GC pressure.
       TaskResources.releaseResource(resourceId)
     }
@@ -242,7 +249,6 @@ private class ColumnarBatchSerializerInstanceImpl(
       }
       numOutputRows += numRowsTotal
       wrappedOut.close()
-      streamReader.close()
       if (cb != null) {
         cb.close()
       }

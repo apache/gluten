@@ -27,7 +27,9 @@ import scala.reflect.ClassTag
 abstract class ColumnarBatchSerializerInstance extends SerializerInstance {
 
   /** Deserialize the streams of ColumnarBatches. */
-  def deserializeStreams(streams: Iterator[(BlockId, InputStream)]): DeserializationStream
+  def deserializeStreams(
+      streams: Iterator[(BlockId, InputStream)],
+      completionFunction: () => Unit): DeserializationStream
 
   override def serialize[T: ClassTag](t: T): ByteBuffer = {
     throw new UnsupportedOperationException
@@ -42,6 +44,10 @@ abstract class ColumnarBatchSerializerInstance extends SerializerInstance {
   }
 
   override def serializeStream(s: OutputStream): SerializationStream = {
+    throw new UnsupportedOperationException
+  }
+
+  override def deserializeStream(s: InputStream): DeserializationStream = {
     throw new UnsupportedOperationException
   }
 }

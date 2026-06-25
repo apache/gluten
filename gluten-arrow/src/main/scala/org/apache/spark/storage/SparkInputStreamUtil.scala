@@ -19,7 +19,7 @@ package org.apache.spark.storage
 import java.io.InputStream
 
 object SparkInputStreamUtil {
-  def unwrapBufferReleasingInputStream(in: BufferReleasingInputStream): InputStream = {
+  def unwrapBufferReleasingInputStream(in: GlutenBufferReleasingInputStream): InputStream = {
     in.delegate
   }
 }

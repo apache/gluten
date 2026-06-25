@@ -49,5 +49,7 @@ public class ShuffleReaderJniWrapper implements RuntimeAware {
 
   public native void populateMetrics(long shuffleReaderHandle, ShuffleReaderMetrics metrics);
 
+  public native void stop(long shuffleReaderHandle);
+
   public native void close(long shuffleReaderHandle);
 }
