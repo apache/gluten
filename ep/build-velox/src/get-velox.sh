@@ -149,6 +149,20 @@ function apply_compilation_fixes {
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
 }
 
+function apply_push_dyn_filter_patch {
+  echo "Applying push dynamic filter through local partition patch..."
+  pushd $VELOX_HOME
+  local patch_file="${CURRENT_DIR}/push_dyn_filter_through_local_partition.patch"
+  if [ -f "$patch_file" ]; then
+    (git apply --check "$patch_file" && git apply "$patch_file") || {
+      echo "WARNING: Failed to apply push_dyn_filter_through_local_partition.patch"
+    }
+  else
+    echo "WARNING: Patch file $patch_file not found, skipping..."
+  fi
+  popd
+}
+
 function setup_linux {
   local LINUX_DISTRIBUTION=$(. /etc/os-release && echo ${ID})
   local LINUX_VERSION_ID=$(. /etc/os-release && echo ${VERSION_ID})
@@ -230,5 +244,7 @@ fi
 apply_provided_velox_patch
 
 apply_compilation_fixes
+
+apply_push_dyn_filter_patch
 
 echo "Finished getting Velox code"

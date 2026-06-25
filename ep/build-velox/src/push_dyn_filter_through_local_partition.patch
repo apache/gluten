@@ -1,0 +1,228 @@
+diff --git a/velox/exec/LocalPartition.cpp b/velox/exec/LocalPartition.cpp
+--- a/velox/exec/LocalPartition.cpp
++++ b/velox/exec/LocalPartition.cpp
+@@ -270,7 +270,10 @@
+       queue_{operatorCtx_->task()->getLocalExchangeQueue(
+           ctx->splitGroupId,
+           planNodeId,
+-          partition)} {}
++          partition)},
++      dynamicFilters_{operatorCtx_->task()->getLocalExchangeDynamicFilters(
++          ctx->splitGroupId,
++          planNodeId)} {}
+
+ BlockingReason LocalExchange::isBlocked(ContinueFuture* future) {
+   if (blockingReason_ != BlockingReason::kNotBlocked) {
+@@ -324,6 +327,21 @@
+   }
+ }
+
++void LocalExchange::addDynamicFilterLocked(
++    const core::PlanNodeId& /*producer*/,
++    const PushdownFilters& filters) {
++  dynamicFilters_->withWLock([&](auto& dynamicFilters) {
++    for (auto channel : filters.dynamicFilteredColumns) {
++      auto it = filters.filters.find(channel);
++      VELOX_CHECK(it != filters.filters.end());
++      common::Filter::merge(
++          it->second, dynamicFilters.filters.filters[channel]);
++      dynamicFilters.filters.dynamicFilteredColumns.insert(channel);
++    }
++    ++dynamicFilters.version;
++  });
++}
++
+ LocalPartition::LocalPartition(
+     int32_t operatorId,
+     DriverCtx* ctx,
+@@ -338,6 +356,9 @@
+       queues_{
+           ctx->task->getLocalExchangeQueues(ctx->splitGroupId, planNode->id())},
+       numPartitions_{queues_.size()},
++      dynamicFilters_{ctx->task->getLocalExchangeDynamicFilters(
++          ctx->splitGroupId,
++          planNode->id())},
+       partitionFunction_(
+           numPartitions_ == 1 ? nullptr
+                               : planNode->partitionFunctionSpec().create(
+@@ -577,12 +598,49 @@
+   }
+ }
+
++void LocalPartition::maybePushdownDynamicFilters() {
++  std::vector<column_index_t> channels;
++  std::vector<common::FilterPtr> filters;
++  uint64_t version;
++
++  {
++    auto lockedFilters = dynamicFilters_->rlock();
++    if (lockedFilters->version == dynamicFiltersVersion_ ||
++        lockedFilters->filters.dynamicFilteredColumns.empty()) {
++      return;
++    }
++
++    channels.reserve(lockedFilters->filters.dynamicFilteredColumns.size());
++    for (auto channel : lockedFilters->filters.dynamicFilteredColumns) {
++      channels.push_back(channel);
++    }
++    std::sort(channels.begin(), channels.end());
++
++    filters.reserve(channels.size());
++    for (auto channel : channels) {
++      auto it = lockedFilters->filters.filters.find(channel);
++      VELOX_CHECK(it != lockedFilters->filters.filters.end());
++      filters.push_back(it->second);
++    }
++    version = lockedFilters->version;
++  }
++
++  operatorCtx_->driver()->pushdownFilters(
++      this, channels, [&](column_index_t index, common::FilterPtr& filter) {
++        filter = filters[index];
++        return true;
++      });
++  dynamicFiltersVersion_ = version;
++}
++
+ void LocalPartition::addInput(RowVectorPtr input) {
+   prepareForInput(input);
+   if (input->size() == 0) {
+     return;
+   }
+
++  maybePushdownDynamicFilters();
++
+   const auto singlePartition = numPartitions_ == 1
+       ? 0
+       : partitionFunction_->partition(*input, partitions_);
+@@ -628,6 +686,7 @@
+ }
+
+ BlockingReason LocalPartition::isBlocked(ContinueFuture* future) {
++  maybePushdownDynamicFilters();
+   if (!futures_.empty()) {
+     auto blockingReason = blockingReasons_.front();
+     *future = folly::collectAll(futures_.begin(), futures_.end()).unit();
+diff --git a/velox/exec/LocalPartition.h b/velox/exec/LocalPartition.h
+--- a/velox/exec/LocalPartition.h
++++ b/velox/exec/LocalPartition.h
+@@ -20,6 +20,11 @@
+
+ namespace facebook::velox::exec {
+
++struct LocalExchangeDynamicFilters {
++  PushdownFilters filters;
++  uint64_t version{0};
++};
++
+ /// Keeps track of the total size in bytes of the data buffered in all
+ /// LocalExchangeQueues.
+ class LocalExchangeMemoryManager {
+@@ -193,9 +198,19 @@
+   /// notifies the producer that no more data is needed.
+   void close() override;
+
++  bool canAddDynamicFilter() const override {
++    return true;
++  }
++
++  void addDynamicFilterLocked(
++      const core::PlanNodeId& producer,
++      const PushdownFilters& filters) override;
++
+  private:
+   const int partition_;
+   const std::shared_ptr<LocalExchangeQueue> queue_{nullptr};
++  const std::shared_ptr<folly::Synchronized<LocalExchangeDynamicFilters>>
++      dynamicFilters_{nullptr};
+   ContinueFuture future_;
+   BlockingReason blockingReason_{BlockingReason::kNotBlocked};
+ };
+@@ -236,6 +251,8 @@
+   bool isFinished() override;
+
+  protected:
++  void maybePushdownDynamicFilters();
++
+   void prepareForInput(RowVectorPtr& input);
+
+   void allocateIndexBuffers(const std::vector<vector_size_t>& sizes);
+@@ -258,6 +275,8 @@
+
+   const std::vector<std::shared_ptr<LocalExchangeQueue>> queues_;
+   const size_t numPartitions_;
++  const std::shared_ptr<folly::Synchronized<LocalExchangeDynamicFilters>>
++      dynamicFilters_{nullptr};
+   std::unique_ptr<core::PartitionFunction> partitionFunction_;
+
+   std::vector<BlockingReason> blockingReasons_;
+@@ -268,6 +287,7 @@
+   /// Reusable buffers for input partitioning.
+   std::vector<BufferPtr> indexBuffers_;
+   std::vector<vector_size_t*> rawIndices_;
++  uint64_t dynamicFiltersVersion_{0};
+
+  private:
+   // Try getting a reusable vector for 'partition' from the corresponding
+diff --git a/velox/exec/Task.cpp b/velox/exec/Task.cpp
+--- a/velox/exec/Task.cpp
++++ b/velox/exec/Task.cpp
+@@ -3334,6 +3334,8 @@
+       queryCtx_->queryConfig().maxLocalExchangeBufferSize());
+   exchange.vectorPool = std::make_shared<LocalExchangeVectorPool>(
+       queryCtx_->queryConfig().maxLocalExchangeBufferSize());
++  exchange.dynamicFilters =
++      std::make_shared<folly::Synchronized<LocalExchangeDynamicFilters>>();
+   exchange.queues.reserve(numPartitions);
+   for (auto i = 0; i < numPartitions; ++i) {
+     exchange.queues.emplace_back(
+@@ -3414,6 +3416,22 @@
+   return it->second.scaleWriterPartitionBalancer;
+ }
+
++const std::shared_ptr<folly::Synchronized<LocalExchangeDynamicFilters>>&
++Task::getLocalExchangeDynamicFilters(
++    uint32_t splitGroupId,
++    const core::PlanNodeId& planNodeId) {
++  auto& splitGroupState = splitGroupStates_[splitGroupId];
++
++  auto it = splitGroupState.localExchanges.find(planNodeId);
++  VELOX_CHECK(
++      it != splitGroupState.localExchanges.end(),
++      "Incorrect local exchange ID {} for group {}, task {}",
++      planNodeId,
++      splitGroupId,
++      taskId());
++  return it->second.dynamicFilters;
++}
++
+ const std::shared_ptr<LocalExchangeMemoryManager>&
+ Task::getLocalExchangeMemoryManager(
+     uint32_t splitGroupId,
+diff --git a/velox/exec/Task.h b/velox/exec/Task.h
+--- a/velox/exec/Task.h
++++ b/velox/exec/Task.h
+@@ -535,6 +535,11 @@
+       uint32_t splitGroupId,
+       const core::PlanNodeId& planNodeId);
+
++  const std::shared_ptr<folly::Synchronized<LocalExchangeDynamicFilters>>&
++  getLocalExchangeDynamicFilters(
++      uint32_t splitGroupId,
++      const core::PlanNodeId& planNodeId);
++
+   /// Returns the shared skewed partition balancer for scale writer local
+   /// partitioning with the given split group id and plan node id.
+   const std::shared_ptr<common::SkewedPartitionRebalancer>&
+diff --git a/velox/exec/TaskStructs.h b/velox/exec/TaskStructs.h
+--- a/velox/exec/TaskStructs.h
++++ b/velox/exec/TaskStructs.h
+@@ -199,6 +199,8 @@
+   std::vector<std::shared_ptr<LocalExchangeQueue>> queues;
+   std::shared_ptr<common::SkewedPartitionRebalancer>
+       scaleWriterPartitionBalancer;
++  std::shared_ptr<folly::Synchronized<LocalExchangeDynamicFilters>>
++      dynamicFilters;
+ };
+
+ /// Stores inter-operator state (exchange, bridges) for split groups.
