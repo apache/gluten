@@ -20,6 +20,7 @@ import org.apache.gluten.streaming.api.operators.GlutenStreamSource;
 import org.apache.gluten.table.runtime.operators.GlutenSourceFunction;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
+import org.apache.gluten.util.ReflectUtils;
 
 import io.github.zhztheplayer.velox4j.connector.PulsarConnectorSplit;
 import io.github.zhztheplayer.velox4j.connector.PulsarTableHandle;
@@ -37,19 +38,14 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.util.FlinkRuntimeException;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.Set;
 import java.util.UUID;
 
 public class PulsarSourceSinkFactory implements VeloxSourceSinkFactory {
@@ -184,7 +180,7 @@ public class PulsarSourceSinkFactory implements VeloxSourceSinkFactory {
   }
 
   static boolean isPulsarSource(Object source) {
-    return containsPulsarClass(source, 2, Collections.newSetFromMap(new IdentityHashMap<>()));
+    return source.getClass().getSimpleName().equals("PulsarSource");
   }
 
   private static String required(Map<String, String> options, String key) {
@@ -301,71 +297,11 @@ public class PulsarSourceSinkFactory implements VeloxSourceSinkFactory {
     Class<?> clazz = target.getClass();
     while (clazz != null) {
       try {
-        Field field = clazz.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        return Optional.ofNullable(field.get(target));
-      } catch (NoSuchFieldException e) {
+        return Optional.ofNullable(ReflectUtils.getObjectField(clazz, target, fieldName));
+      } catch (FlinkRuntimeException e) {
         clazz = clazz.getSuperclass();
-      } catch (IllegalAccessException e) {
-        throw new FlinkRuntimeException(e);
       }
     }
     return Optional.empty();
-  }
-
-  private static boolean containsPulsarClass(Object target, int depth, Set<Object> visited) {
-    if (target == null || depth < 0 || visited.contains(target)) {
-      return false;
-    }
-    visited.add(target);
-
-    Class<?> clazz = target.getClass();
-    if (clazz.getName().toLowerCase(Locale.ROOT).contains("pulsar")) {
-      return true;
-    }
-    if (isLeafClass(clazz)) {
-      return false;
-    }
-    if (target instanceof Collection) {
-      return ((Collection<?>) target)
-          .stream().anyMatch(value -> containsPulsarClass(value, depth - 1, visited));
-    }
-    if (target instanceof Map) {
-      return ((Map<?, ?>) target)
-          .values().stream().anyMatch(value -> containsPulsarClass(value, depth - 1, visited));
-    }
-    if (clazz.isArray()) {
-      if (target instanceof Object[]) {
-        return Arrays.stream((Object[]) target)
-            .anyMatch(value -> containsPulsarClass(value, depth - 1, visited));
-      }
-      return false;
-    }
-
-    Class<?> current = clazz;
-    while (current != null && !isLeafClass(current)) {
-      for (Field declaredField : current.getDeclaredFields()) {
-        if (Modifier.isStatic(declaredField.getModifiers())) {
-          continue;
-        }
-        try {
-          declaredField.setAccessible(true);
-          if (containsPulsarClass(declaredField.get(target), depth - 1, visited)) {
-            return true;
-          }
-        } catch (IllegalAccessException e) {
-          throw new FlinkRuntimeException(e);
-        }
-      }
-      current = current.getSuperclass();
-    }
-    return false;
-  }
-
-  private static boolean isLeafClass(Class<?> clazz) {
-    return clazz.isPrimitive()
-        || clazz.isEnum()
-        || clazz.getName().startsWith("java.lang.")
-        || clazz.getName().startsWith("java.time.");
   }
 }
