@@ -1,0 +1,112 @@
+<!--
+Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements.  See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to You under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License.  You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+# Delta Spark UT (Gluten) — managing expected failures
+
+Running delta-io/delta's `spark` ScalaTest suite against the Gluten Velox
+bundle produces **many expected failures**: Gluten does not yet offload every
+Delta code path, and falls back or behaves differently in places. If CI simply
+went red on any failure, the signal would be useless and we could never tell a
+*new* breakage from the hundreds of already-known ones.
+
+To make this manageable we keep a **baseline of known failures** and gate each
+run against it. The build is green when the only failing tests are ones already
+recorded in the baseline; it goes red the moment a **previously-passing test
+starts failing** (a regression).
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `known-failures.txt` | Committed baseline: the tests currently expected to fail. One `<suite>#<test>` per line. |
+| `compare-test-results.py` | Parses the JUnit XML from `sbt spark/test` and gates / seeds / aggregates against the baseline. Standard-library only. |
+| `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and patches `DeltaSQLCommandTest`. |
+
+## How the gate works
+
+Each test shard:
+
+1. Runs `sbt spark/test` with ScalaTest's JUnit XML reporter enabled
+   (`-u target/test-reports`), so every suite writes per-test results. (Delta
+   itself only configures the console reporter, so the workflow injects this.)
+2. Runs `compare-test-results.py --mode enforce`, which classifies every test:
+   - **regression** — failed, but not in the baseline → **fails the shard**.
+   - **expected** — failed and in the baseline → ignored.
+   - **now-passing** — in the baseline but passed this run → fails the shard
+     (so the baseline is kept honest), unless `fail_on_fixed=false`.
+
+A final `aggregate` job merges every shard's results into a single, sorted,
+ready-to-commit `known-failures.txt` artifact and reports **stale** baseline
+entries (tests no longer present in any shard, e.g. after a Delta version bump).
+
+Because Delta shards **by suite**, every suite (and therefore every test) runs
+in exactly one shard, so per-shard enforcement sees complete suites and never
+double-counts.
+
+## Bootstrapping the baseline (first time)
+
+While `known-failures.txt` has no entries the gate auto-runs in **seed mode**
+(it never fails — it only records failures). To create the initial baseline:
+
+1. Trigger **Actions → Delta Spark UT (Gluten) → Run workflow** with
+   `update_baseline = true`.
+2. When it finishes, download the **`delta-spark-ut-known-failures`** artifact.
+3. Replace `known-failures.txt` with the file from that artifact and commit it.
+
+From the next run onward the gate enforces the baseline.
+
+## Day-to-day: fixing tests incrementally
+
+- **You fixed Gluten and some Delta tests now pass.** CI will flag them as
+  *now-passing*. Delete those lines from `known-failures.txt` in your PR. That
+  is the whole point — the baseline only ever shrinks as coverage improves.
+- **You intentionally added a new expected failure** (e.g. a Delta path Gluten
+  can't offload yet). Add the exact `Suite#test` line(s) the gate prints under
+  *Regressions* to `known-failures.txt`, ideally with a comment explaining why.
+- **A genuine regression.** Fix it; do **not** add it to the baseline.
+
+The error log prints copy-pasteable `Suite#test` lines for both regressions and
+now-passing tests, and each run's job summary shows the full breakdown.
+
+## Regenerating / refreshing the whole baseline
+
+After a Delta version bump or a large Gluten change, regenerate from scratch the
+same way as bootstrapping: run the workflow with `update_baseline=true`, download
+the `delta-spark-ut-known-failures` artifact, and commit it. The aggregate job
+also lists **stale** entries you can prune.
+
+## Caveats
+
+- **Flaky tests.** A flaky test that usually passes will be flagged as a
+  regression when it flakes; one that usually fails (and is in the baseline)
+  may be flagged as now-passing when it happens to pass. Re-run, or set
+  `fail_on_fixed=false` for that run, and keep genuinely flaky tests out of the
+  enforced set.
+- **Known failures still execute** (and fail) — they are gated *after* the run,
+  not skipped — so they still consume CI time. This keeps us decoupled from
+  Delta's sources; skipping them at runtime would require patching Delta.
+
+## Running the comparison locally
+
+```bash
+# after an sbt spark/test run that wrote delta/**/target/test-reports/*.xml
+python3 .github/workflows/util/delta-spark-ut/compare-test-results.py \
+  --mode enforce \
+  --reports-dir delta \
+  --known-failures .github/workflows/util/delta-spark-ut/known-failures.txt \
+  --failures-out /tmp/failures.txt --ran-out /tmp/ran.txt
+```
