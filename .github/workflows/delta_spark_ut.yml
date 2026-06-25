@@ -1,0 +1,667 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Runs Delta Lake's `spark` sbt module unit tests against a Gluten Velox bundle
+# that is built from the source in this repository. The pipeline:
+#
+#   1. Builds the Velox/Gluten native libraries (centos-7 + vcpkg, x86_64).
+#   2. Builds the Gluten Java/Scala jars and assembles the
+#      `gluten-velox-bundle-spark<spark>_<scala>-linux_amd64-<version>.jar`
+#      fat jar for Spark 4.1 + Scala 2.13 + Java 17 with the Delta profile.
+#   3. Clones delta-io/delta at the requested release tag (default `v4.2.0`),
+#      drops the bundle jar into `spark-unified/lib/` only (NOT `spark/lib/`
+#      -- see setup-delta.sh for the unmanagedJars scoping rationale),
+#      patches Delta's `DeltaSQLCommandTest` to register the Gluten plugin,
+#      and runs `sbt spark/test` sharded across the matrix.
+#
+# Limited to Velox + x86 to keep the matrix simple, per the pipeline's purpose
+# of validating Gluten changes against the latest Delta release.
+
+name: Delta Spark UT (Gluten)
+
+on:
+  workflow_dispatch:
+    inputs:
+      delta_ref:
+        description: 'delta-io/delta git ref (tag/branch/SHA) to test against'
+        required: true
+        default: 'v4.2.0'
+      spark_version:
+        description: 'Delta `-DsparkVersion` value (must match the Gluten -P profile below)'
+        required: true
+        default: '4.1'
+      test_parallelism:
+        description: 'Forked test JVMs per shard (TEST_PARALLELISM_COUNT)'
+        required: true
+        default: '4'
+      update_baseline:
+        description: 'Seed/refresh the known-failures baseline instead of enforcing it'
+        type: boolean
+        required: false
+        default: false
+      fail_on_fixed:
+        description: 'Fail when a baseline test now passes (keeps the baseline honest)'
+        type: boolean
+        required: false
+        default: true
+  pull_request:
+    paths:
+      - '.github/workflows/delta_spark_ut.yml'
+      - '.github/workflows/util/delta-spark-ut/**'
+      - 'gluten-delta/**'
+      - 'backends-velox/src-delta40/**/DeltaSQLCommandTest.scala'
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  MVN_CMD: 'build/mvn -ntp'
+  CCACHE_DIR: "${{ github.workspace }}/.ccache"
+  # Gluten profile / bundle naming for the build-gluten-bundle and
+  # delta-spark-test jobs. Spark 4.1 + Scala 2.13 + JDK 17 matches Delta v4.2.0's
+  # default Spark version (4.1.0) from project/CrossSparkVersions.scala.
+  GLUTEN_SPARK_PROFILE: 'spark-4.1'
+  GLUTEN_SCALA_PROFILE: 'scala-2.13'
+  GLUTEN_JAVA_PROFILE: 'java-17'
+  GLUTEN_BUNDLE_SPARK_VERSION: '4.1'
+  GLUTEN_BUNDLE_SCALA_VERSION: '2.13'
+  # Default values used when the workflow is triggered by pull_request
+  # (where `inputs.*` is empty). Keep these in sync with the workflow_dispatch
+  # defaults above.
+  DELTA_REF_DEFAULT: 'v4.2.0'
+  DELTA_SPARK_VERSION_DEFAULT: '4.1'
+  DELTA_TEST_PARALLELISM_DEFAULT: '4'
+  # Default mode for pull_request runs (where inputs.* is empty): enforce the
+  # committed baseline and fail when a baseline test starts passing. Override
+  # via the workflow_dispatch inputs above.
+  DELTA_UPDATE_BASELINE_DEFAULT: 'false'
+  DELTA_FAIL_ON_FIXED_DEFAULT: 'true'
+  DELTA_SCALA_VERSION: '2.13.16'
+  # Number of shards in the delta-spark-test matrix. Must equal the length of
+  # the `shard` matrix below.
+  #
+  # EXPERIMENT: 4 shards x TEST_PARALLELISM_COUNT=4 (vs production 16 shards x 1).
+  # Both give ~16-way parallelism, but this packs it into 4 runner jobs (4 forks
+  # each) instead of 16 single-fork jobs -- fewer concurrent runners for the same
+  # throughput. Sharding is by SUITE; total work (~1250 shard-minutes) is fixed.
+  # RISK: each forked test JVM uses ~4G (2G heap + 2G off-heap), so 4 forks atop
+  # the sbt launcher push the ~16G runner to its limit and may OOM on heavy suites
+  # -- which is why production uses TEST_PARALLELISM_COUNT=1. Measuring whether it
+  # fits now that the worst memory hog (DeletionVectorsSuite 2B-row) is force-failed.
+  DELTA_NUM_SHARDS: '4'
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  build-native-lib-centos-7:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get Ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-delta-spark-ut-centos7-release-default-${{github.sha}}
+          restore-keys: |
+            ccache-delta-spark-ut-centos7-release-default
+            ccache-centos7-release-default
+      - name: Build Gluten native libraries
+        run: |
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
+            set -e
+            yum install tzdata -y
+            df -a
+            cd /work
+            export CCACHE_DIR=/work/.ccache
+            export CCACHE_MAXSIZE=1G
+            mkdir -p /work/.ccache
+            ccache -sz
+            bash dev/ci-velox-buildstatic-centos-7.sh
+            ccache -s
+            mkdir -p /work/.m2/repository/org/apache/arrow/
+            cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
+          "
+      - name: Save Ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-delta-spark-ut-centos7-release-default-${{github.sha}}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
+          path: ./cpp/build/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-arrow-jars-centos-7-${{github.sha}}
+          path: .m2/repository/org/apache/arrow/
+          if-no-files-found: error
+
+  build-gluten-bundle:
+    needs: build-native-lib-centos-7
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-9-jdk17
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
+          path: ./cpp/build/
+      - name: Download Arrow jars
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-spark-ut-arrow-jars-centos-7-${{github.sha}}
+          path: /root/.m2/repository/org/apache/arrow/
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: /root/.m2/repository
+          key: m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-${{ hashFiles('pom.xml', '**/pom.xml') }}
+          restore-keys: |
+            m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-
+            m2-delta-spark-ut-bundle-
+      - name: Build Gluten Velox + Delta bundle
+        run: |
+          set -euo pipefail
+          yum install -y java-17-openjdk-devel
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          java -version
+          cd "$GITHUB_WORKSPACE"
+          # `install` (not `package`) so the gluten-delta artifact is in the local
+          # m2 repo before the `package/` shaded jar is built. `Dmaven.compiler.release=17`
+          # overrides any user settings.xml that may pin release=1.8 for Java 17 builds.
+          $MVN_CMD clean install \
+            -P${{ env.GLUTEN_SPARK_PROFILE }} \
+            -P${{ env.GLUTEN_SCALA_PROFILE }} \
+            -P${{ env.GLUTEN_JAVA_PROFILE }} \
+            -Pbackends-velox -Pdelta \
+            -DskipTests -Dmaven.compiler.release=17
+      - name: Stage bundle jar
+        run: |
+          set -euo pipefail
+          mkdir -p bundle-out
+          # Match the renamed fat jar produced by package/pom.xml's copy-fat-jar
+          # exec. The version part may bump (e.g. 1.7.0-SNAPSHOT -> 1.8.0-SNAPSHOT),
+          # so glob the version suffix. `2>/dev/null ... || true` keeps a no-match
+          # `ls` from aborting the step under `set -o pipefail`, so the explicit
+          # check below runs instead of dying with a generic "cannot access".
+          jar=$(ls package/target/gluten-velox-bundle-spark${{ env.GLUTEN_BUNDLE_SPARK_VERSION }}_${{ env.GLUTEN_BUNDLE_SCALA_VERSION }}-linux_amd64-*.jar 2>/dev/null | head -n 1 || true)
+          if [ -z "$jar" ] || [ ! -f "$jar" ]; then
+            echo "ERROR: Could not find Gluten bundle jar under package/target/" >&2
+            ls -la package/target/ || true
+            exit 1
+          fi
+          cp "$jar" bundle-out/
+          ls -lh bundle-out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-gluten-bundle-${{github.sha}}
+          path: bundle-out/gluten-velox-bundle-spark*_*-linux_amd64-*.jar
+          if-no-files-found: error
+
+  delta-spark-test:
+    needs: build-gluten-bundle
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-9-jdk17
+    # EXPERIMENT (4 shards x 4 forks): back to 350 -- per-shard suites now run
+    # 4-at-a-time, so each shard should finish well under the cap again.
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        # Length of this list MUST equal env.DELTA_NUM_SHARDS.
+        shard: [0, 1, 2, 3]
+    env:
+      # Mirror Delta's spark_test.yaml env vars used by run-tests.py /
+      # TestParallelization.scala.
+      SHARD_ID: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve workflow inputs
+        id: resolve
+        run: |
+          set -euo pipefail
+          delta_ref='${{ github.event.inputs.delta_ref }}'
+          spark_version='${{ github.event.inputs.spark_version }}'
+          test_parallelism='${{ github.event.inputs.test_parallelism }}'
+          update_baseline='${{ github.event.inputs.update_baseline }}'
+          fail_on_fixed='${{ github.event.inputs.fail_on_fixed }}'
+          : "${delta_ref:=${DELTA_REF_DEFAULT}}"
+          : "${spark_version:=${DELTA_SPARK_VERSION_DEFAULT}}"
+          : "${test_parallelism:=${DELTA_TEST_PARALLELISM_DEFAULT}}"
+          : "${update_baseline:=${DELTA_UPDATE_BASELINE_DEFAULT}}"
+          : "${fail_on_fixed:=${DELTA_FAIL_ON_FIXED_DEFAULT}}"
+          {
+            echo "delta_ref=${delta_ref}"
+            echo "spark_version=${spark_version}"
+            echo "test_parallelism=${test_parallelism}"
+            echo "update_baseline=${update_baseline}"
+            echo "fail_on_fixed=${fail_on_fixed}"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      - name: Download Gluten bundle jar
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-spark-ut-gluten-bundle-${{github.sha}}
+          path: gluten-bundle
+
+      - name: Install minimal tools
+        run: |
+          set -euo pipefail
+          # apache/gluten:centos-9-jdk17 already has java-17, git, tar, a POSIX
+          # shell, and curl-minimal (which provides the `curl` command sbt's
+          # launcher needs). Install the rest of what Delta's build/sbt and the
+          # tests may need. We deliberately do NOT install the full `curl`
+          # package -- it conflicts with the pre-installed curl-minimal.
+          yum install -y java-17-openjdk-devel which findutils gzip python3
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          java -version
+          git --version
+          curl --version | head -n 1
+
+      - name: Cache sbt / Ivy / Coursier
+        uses: actions/cache@v4
+        with:
+          path: |
+            /root/.sbt
+            /root/.ivy2
+            /root/.cache/coursier
+          # Intentionally NOT keyed by ${{ matrix.shard }} -- all shards share
+          # the same dependency tree, so a single shared cache (with parallel
+          # save races resolved by GH on a first-write-wins basis) gives the
+          # best storage / hit-rate tradeoff.
+          key: delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-${{ steps.resolve.outputs.spark_version }}-${{ env.DELTA_SCALA_VERSION }}
+          restore-keys: |
+            delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-${{ steps.resolve.outputs.spark_version }}-
+            delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-
+
+      - name: Clone and patch Delta
+        run: |
+          set -euo pipefail
+          # `2>/dev/null ... || true` keeps a no-match `ls` from aborting the step
+          # under `set -o pipefail`, so the explicit check below emits a clear
+          # error instead of a generic "cannot access".
+          GLUTEN_JAR=$(ls "$GITHUB_WORKSPACE"/gluten-bundle/gluten-velox-bundle-spark*_*-linux_amd64-*.jar 2>/dev/null | head -n 1 || true)
+          if [ -z "$GLUTEN_JAR" ] || [ ! -f "$GLUTEN_JAR" ]; then
+            echo "ERROR: No Gluten bundle jar found under $GITHUB_WORKSPACE/gluten-bundle/" >&2
+            ls -la "$GITHUB_WORKSPACE/gluten-bundle/" || true
+            exit 1
+          fi
+          echo "Using Gluten bundle: $GLUTEN_JAR"
+          bash "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/setup-delta.sh" \
+            "${{ steps.resolve.outputs.delta_ref }}" \
+            "$GITHUB_WORKSPACE/delta" \
+            "$GLUTEN_JAR" \
+            "$GITHUB_WORKSPACE"
+
+      - name: Run Delta spark module tests (shard ${{ matrix.shard }} / ${{ env.DELTA_NUM_SHARDS }})
+        env:
+          NUM_SHARDS: ${{ env.DELTA_NUM_SHARDS }}
+          TEST_PARALLELISM_COUNT: ${{ steps.resolve.outputs.test_parallelism }}
+          # Required by Delta to enable testing-only code paths
+          # (see delta build.sbt: "Test / envVars += DELTA_TESTING -> 1").
+          DELTA_TESTING: '1'
+          # JDK 17 + Gluten/Arrow/Netty requires extra --add-opens and the
+          # `io.netty.tryReflectionSetAccessible` system property; otherwise
+          # the forked test JVM fails with
+          #   java.lang.UnsupportedOperationException: sun.misc.Unsafe or
+          #   java.nio.DirectByteBuffer.<init>(long, int) not available
+          # as soon as Gluten's bundled Arrow allocator initializes Netty
+          # direct buffers. Delta's own `Test / javaOptions` (see
+          # project/CrossSparkVersions.scala `java17TestSettings`) sets the
+          # base add-opens but NOT the Netty property -- Delta's own tests
+          # don't load Arrow/Netty buffers in a way that triggers it.
+          #
+          # Use JAVA_TOOL_OPTIONS so the flags propagate to BOTH the sbt
+          # launcher JVM and the forked test JVM (sbt forks tests and the
+          # child inherits the parent's env). The set below mirrors
+          # `extraJavaTestArgs` from Gluten's own root pom.xml (the
+          # canonical Gluten test JVM flag set).
+          #
+          # NOTE: we deliberately do NOT put `-Xmx` here. JAVA_TOOL_OPTIONS
+          # is processed BEFORE the JVM command line, so Delta's explicit
+          # `-Xmx1024m` (set in build.sbt `Test / javaOptions`) would still
+          # win (last `-Xmx` wins). The forked-test-JVM heap is bumped via
+          # an sbt `set spark / Test / javaOptions ++= ...` command below,
+          # which APPENDS to Delta's own seq -- so our `-Xmx` lands AFTER
+          # `-Xmx1024m` and wins.
+          JAVA_TOOL_OPTIONS: >-
+            -XX:+IgnoreUnrecognizedVMOptions
+            --add-opens=java.base/java.lang=ALL-UNNAMED
+            --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+            --add-opens=java.base/java.io=ALL-UNNAMED
+            --add-opens=java.base/java.net=ALL-UNNAMED
+            --add-opens=java.base/java.nio=ALL-UNNAMED
+            --add-opens=java.base/java.util=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+            --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+            --add-opens=java.base/sun.security.action=ALL-UNNAMED
+            --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
+            -Djdk.reflect.useDirectMethodHandle=false
+            -Dio.netty.tryReflectionSetAccessible=true
+            -Dfile.encoding=UTF-8
+        run: |
+          set -euo pipefail
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          cd "$GITHUB_WORKSPACE/delta"
+          chmod +x build/sbt
+          # Only run the unified `spark` sbt project, NOT `sparkGroup/test` --
+          # `sparkGroup` aggregates many other projects (sparkV2, contribs,
+          # sharing, connect*, ...) that are out of scope for this pipeline.
+          #
+          # JVM heap layout (16 GB ubuntu-22.04 runner, TEST_PARALLELISM=1):
+          # * sbt launcher JVM: -J-Xmx4G, BUT made to RETURN idle memory (see the
+          #   G1 periodic-GC flags below). The per-minute MEM profiler in the
+          #   watchdog (run #18) DISPROVED the old "launcher RSS is well under 4G"
+          #   assumption: the launcher grew to a ROCK-STEADY 5.3G (RSS) during the
+          #   test-compile and then HELD it for the entire run -- ~3.8G of pure
+          #   idle waste during the (long) test phase, where it only relays the
+          #   fork's test events. That fixed 5.3G + the fork's native spike in a
+          #   heavy suite is what pushed the cgroup to the ~16G OOM-kill. G1 does
+          #   NOT uncommit on its own here because the idle launcher never GCs.
+          #   FIX (behaviour-neutral -- touches NO Gluten/Spark runtime config, so
+          #   it cannot pollute the measured pass/fail signal): keep -Xmx4G for the
+          #   compile headroom but force a periodic GC every 10s when idle
+          #   (G1PeriodicGCInterval) with the system-load gate disabled
+          #   (G1PeriodicGCSystemLoadThreshold=0, since the busy fork would
+          #   otherwise suppress it) as a full STW collection
+          #   (-G1PeriodicGCInvokesConcurrent) that uncommits down to a tight free
+          #   ratio (Min/MaxHeapFreeRatio 5/15, JEP 346) above a low -Xms512m
+          #   floor. The idle launcher then drops from ~5.3G back to ~1-2G during
+          #   the test phase, cutting the cgroup peak by ~3.8G (~15.9G -> ~12G) --
+          #   real headroom under the OOM threshold -- with zero compile-OOM risk.
+          # * Forked test JVM:  -Xmx2G via the `set ... Test / javaOptions` command
+          #   below. Delta v4.2.0 caps its test fork at `-Xmx1024m` in build.sbt;
+          #   Gluten OFFLOADS data to Velox off-heap (capped at 2g via
+          #   spark.memory.offHeap.size in the patched DeltaSQLCommandTest), so the
+          #   fork's JVM HEAP need is modest -- 2G is generous.
+          #   HISTORY: briefly bumped to 8G then 4G to absorb a DV+CDC merge suite's
+          #   giant RoaringBitmapArray heap allocation, but that was a Gluten bug
+          #   (garbage native _metadata.row_index) FIXED UPSTREAM by #12269 -- so the
+          #   large heap is no longer needed. Worse, on the ~16G runner the cgroup
+          #   memory.peak hit 15.97G with a 4G fork heap and the kernel OOM-killed
+          #   the fork mid-shard (sudden death, no hs_err / no heap dump), which
+          #   wedged sbt's main process forever in ScalaTestRunner.done -> Thread
+          #   .join (the chronic "shard 2 hang"). The JVM heaps -- not off-heap --
+          #   drive that peak, so 2G fork heap (+ the unchanged 4G sbt launcher,
+          #   which needs its heap to COMPILE the tests) brings the peak to ~13G,
+          #   leaving real headroom. The `++=` appends to Delta's own Test/javaOptions
+          #   seq so our `-Xmx2G` comes AFTER `-Xmx1024m` and wins (last `-Xmx`
+          #   wins). Keep heap-dump-on-OOM so a genuine >2G heap OOM is analyzable.
+          # `-u target/test-reports` enables ScalaTest's JUnit XML reporter so
+          # every suite writes per-test results. Delta itself only configures
+          # the console reporter (-oDF), so without this we'd have no machine-
+          # readable results to gate on. The path is relative to the forked
+          # test JVM's working dir (Test / baseDirectory = spark/), i.e.
+          # delta/spark/target/test-reports/TEST-*.xml.
+          #
+          # We deliberately do NOT let an sbt non-zero exit (which fires on the
+          # MANY expected Delta-on-Gluten failures) fail this step directly.
+          # Instead the known-failures gate below decides pass/fail: the build
+          # is green when the only failures are ones already recorded in the
+          # baseline, and red on a genuine regression.
+          set +e
+          # --- hang watchdog ---------------------------------------------------
+          # Shard 2 (and occasionally others) hangs indefinitely after a suite's
+          # last test with no further output. ScalaTest's failAfter only wraps
+          # individual test BODIES, so a wedge in suite teardown/afterAll -- or in
+          # a non-interruptible native Velox/JNI call that ignores
+          # Thread.interrupt() -- has no timeout and stalls until the 350-min job
+          # limit with zero diagnostics. This watchdog dumps the forked test JVM's
+          # threads (to the job log, and to a file for the artifact) once the test
+          # output has been silent for too long, so the deadlock is diagnosable.
+          SBT_LOG="/tmp/sbt-spark-test-shard-${{ matrix.shard }}.log"
+          : > "$SBT_LOG"
+          rm -f /tmp/sbt-done
+          (
+            # CRITICAL: the step shell runs with `bash -eo pipefail`, which the
+            # subshell inherits. Without `set +e` here, ANY non-zero command --
+            # e.g. fork detection finding no match, or `kill`/`jps` returning
+            # non-zero -- silently kills this watchdog. That errexit kill (plus a
+            # /proc detection miss) is why the watchdog captured ZERO dumps in
+            # runs #12 and #13. A diagnostic must never abort on a failed probe.
+            set +e +o pipefail
+            JSTACK="${JAVA_HOME}/bin/jstack"
+            JPS="${JAVA_HOME}/bin/jps"
+            silent_limit=900   # 15 min with no new test output => treat as hung
+            dumps=0
+            fork_pids() {
+              # The sbt test fork's main class is sbt.ForkMain. Prefer jps (reads
+              # the main class from hsperfdata, robust to sbt's @argfile launch);
+              # fall back to scanning /proc cmdline + @argfile.
+              "$JPS" -l 2>/dev/null | awk '/sbt\.ForkMain/ {print $1}'
+              local p cl arg
+              for p in /proc/[0-9]*; do
+                [ "$(cat "$p/comm" 2>/dev/null)" = "java" ] || continue
+                cl="$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)"
+                case "$cl" in *sbt.ForkMain*) echo "${p##*/}"; continue ;; esac
+                arg="$(printf '%s' "$cl" | tr ' ' '\n' | sed -n 's/^@//p' | head -1)"
+                [ -n "$arg" ] && [ -f "$arg" ] && grep -qa 'sbt\.ForkMain' "$arg" 2>/dev/null \
+                  && echo "${p##*/}"
+              done
+            }
+            all_java_pids() {
+              "$JPS" -q 2>/dev/null
+              local p
+              for p in /proc/[0-9]*; do
+                [ "$(cat "$p/comm" 2>/dev/null)" = "java" ] && echo "${p##*/}"
+              done
+            }
+            echo "HANG WATCHDOG armed: dumps the test JVM after ${silent_limit}s of output silence"
+            hb=0
+            while [ ! -f /tmp/sbt-done ]; do
+              sleep 60
+              [ -f "$SBT_LOG" ] || continue
+              now=$(date +%s)
+              mtime=$(stat -c %Y "$SBT_LOG" 2>/dev/null || echo "$now")
+              silent=$(( now - mtime ))
+              # Per-minute memory profile: heap tuning proved the ~16G OOM peak is
+              # NATIVE-driven, so log which JVM (sbt launcher vs fork) actually grows
+              # toward it -- the last lines before a hang reveal the real hog to cut.
+              # Read /proc directly (no `ps` dependency in the minimal container).
+              memnow=$(awk '{printf "%.2fG",$1/1073741824}' /sys/fs/cgroup/memory.current 2>/dev/null)
+              jvmrss=""
+              for mp in $(all_java_pids 2>/dev/null | sort -un); do
+                r=$(awk '/^VmRSS:/{print $2}' "/proc/$mp/status" 2>/dev/null)
+                [ -n "$r" ] && jvmrss="$jvmrss $(( r / 1024 ))M(p$mp)"
+              done
+              echo "MEM cgroup=${memnow} JVMs=[${jvmrss# }]"
+              hb=$(( hb + 1 ))
+              # Heartbeat every ~5 min so we can SEE the watchdog is alive (and how
+              # long the test has been silent) without waiting for a hang.
+              [ $(( hb % 5 )) -eq 0 ] && echo "HANG WATCHDOG: alive; last test output ${silent}s ago"
+              if [ "$silent" -ge "$silent_limit" ] && [ "$dumps" -lt 3 ]; then
+                dumps=$(( dumps + 1 ))
+                pids="$(fork_pids | sort -un)"
+                # Safety net: if the fork JVM cannot be pinpointed, dump EVERY JVM.
+                [ -n "$pids" ] || pids="$(all_java_pids | sort -un)"
+                echo "::group::HANG WATCHDOG: test output silent ${silent}s -- thread dump #${dumps} (pids:$(printf ' %s' $pids))"
+                [ -n "$pids" ] || echo "HANG WATCHDOG: no java process found to dump"
+                for pid in $pids; do
+                  # SIGQUIT makes the JVM print a full thread dump to its OWN stderr,
+                  # which sbt relays into the test log via the SAME stream as test
+                  # output -- so it lands in the job log even when a separately
+                  # spawned jstack child's output would be buffered/lost. Also write
+                  # jstack to a file for the per-shard artifact.
+                  echo "----- SIGQUIT + jstack pid ${pid} -----"
+                  kill -QUIT "$pid" 2>/dev/null || echo "HANG WATCHDOG: kill -QUIT failed for pid ${pid}"
+                  timeout 120 "$JSTACK" -l "$pid" > "/tmp/threaddump-shard-${{ matrix.shard }}-${dumps}-${pid}.txt" 2>&1 \
+                    || echo "HANG WATCHDOG: jstack failed/timed out for pid ${pid}"
+                done
+                echo "::endgroup::"
+                # The dump is now captured (job log via SIGQUIT + artifact via
+                # jstack file). A hung JVM otherwise stalls the whole shard until
+                # the 350-min job timeout AND keeps the job log frozen so the dump
+                # never becomes reachable. So KILL the wedged JVM(s): the suite
+                # fails fast (acceptable -- errors are expected; only an
+                # unrecoverable hang blocks CI), the job proceeds/ends, and the log
+                # + artifacts flush. Give SIGQUIT a moment to print first.
+                sleep 20
+                echo "HANG WATCHDOG: killing wedged JVM(s) to unblock the shard: $(printf '%s ' $pids)"
+                for pid in $pids; do kill -KILL "$pid" 2>/dev/null; done
+              fi
+            done
+          ) &
+          WATCHDOG_PID=$!
+
+          ./build/sbt \
+            -DsparkVersion=${{ steps.resolve.outputs.spark_version }} \
+            -v \
+            -J-XX:+UseG1GC -J-Xms512m -J-Xmx4G \
+            -J-XX:G1PeriodicGCInterval=10000 \
+            -J-XX:G1PeriodicGCSystemLoadThreshold=0 \
+            -J-XX:-G1PeriodicGCInvokesConcurrent \
+            -J-XX:MinHeapFreeRatio=5 -J-XX:MaxHeapFreeRatio=15 \
+            "++ ${DELTA_SCALA_VERSION}" \
+            'set spark / Test / javaOptions ++= Seq("-Xmx2G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
+            'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
+            "spark/test" 2>&1 | tee "$SBT_LOG"
+          SBT_EXIT=${PIPESTATUS[0]}
+          touch /tmp/sbt-done
+          kill "$WATCHDOG_PID" 2>/dev/null || true
+          set -e
+          echo "sbt spark/test exited with ${SBT_EXIT}"
+
+          # Memory forensics: a sudden forked-JVM death with no hs_err and no heap
+          # dump is almost always a kernel/cgroup OOM-kill (Velox off-heap + JVM
+          # heap exceeding the ~16G runner). Surface the cgroup peak + oom_kill
+          # count so we can confirm/measure it (cgroup v2 paths; best-effort).
+          ( echo "=== cgroup memory forensics (exit ${SBT_EXIT}) ==="
+            for f in /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.max \
+                     /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.events; do
+              [ -r "$f" ] && { echo "--- $f ---"; cat "$f"; }
+            done ) || true
+
+          # A compile/launch failure leaves no reports at all. In that case the
+          # gate would see zero failures and pass spuriously, so fail loudly.
+          REPORT_COUNT=$(find . -path '*/target/test-reports/*.xml' 2>/dev/null | wc -l || true)
+          echo "Found ${REPORT_COUNT} JUnit XML report file(s)."
+          if [ "${REPORT_COUNT}" -eq 0 ]; then
+            echo "::error::sbt produced no test reports (exit ${SBT_EXIT}) -- likely a compile or launch failure, not test failures."
+            exit 1
+          fi
+
+          # update_baseline=true -> SEED mode (record failures, never fail) so the
+          # baseline can be (re)generated. Otherwise ENFORCE against the baseline.
+          GATE_MODE=enforce
+          if [ "${{ steps.resolve.outputs.update_baseline }}" = "true" ]; then
+            GATE_MODE=seed
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/gate-out"
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/compare-test-results.py" \
+            --mode "${GATE_MODE}" \
+            --reports-dir "$GITHUB_WORKSPACE/delta" \
+            --known-failures "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/known-failures.txt" \
+            --failures-out "$GITHUB_WORKSPACE/gate-out/failures-shard-${{ matrix.shard }}.txt" \
+            --ran-out "$GITHUB_WORKSPACE/gate-out/ran-shard-${{ matrix.shard }}.txt" \
+            --fail-on-fixed "${{ steps.resolve.outputs.fail_on_fixed }}"
+
+      - name: Compress heap dumps (if any)
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          if compgen -G "/tmp/*.hprof" > /dev/null; then
+            echo "Found heap dump(s); compressing..."
+            ls -lh /tmp/*.hprof
+            # gzip is single-threaded and slow on multi-GB heaps but is
+            # always present in the centos image. Heap dumps compress ~10x.
+            gzip -1 /tmp/*.hprof
+            ls -lh /tmp/*.hprof.gz
+          else
+            echo "No heap dumps found in /tmp/."
+          fi
+
+      - name: Upload per-shard gate lists
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-gate-lists-shard-${{ matrix.shard }}
+          path: gate-out/*.txt
+          if-no-files-found: warn
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-reports-shard-${{ matrix.shard }}
+          path: |
+            delta/**/target/test-reports/**/*.xml
+            delta/**/target/surefire-reports/**/*.xml
+          if-no-files-found: warn
+
+      - name: Upload hang watchdog thread dumps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-threaddumps-shard-${{ matrix.shard }}
+          path: /tmp/threaddump-shard-${{ matrix.shard }}-*.txt
+          if-no-files-found: ignore
+
+      - name: Upload JVM crash logs and other failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-failure-logs-shard-${{ matrix.shard }}
+          path: |
+            delta/**/target/*.log
+            delta/**/hs_err_pid*.log
+            delta/**/core.*
+            /tmp/*.hprof
+            /tmp/*.hprof.gz
+          if-no-files-found: ignore
+
+  # Merges every shard's failure/ran lists into a single, sorted, ready-to-commit
+  # known-failures.txt and reports global regressions / now-passing / stale
+  # entries. Runs even when some shards went red (if: always()) so the refreshed
+  # baseline artifact is always available -- this is what you download and commit
+  # to bootstrap or refresh the baseline (see util/delta-spark-ut/README.md).
+  delta-spark-aggregate:
+    needs: delta-spark-test
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download per-shard gate lists
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: delta-spark-ut-gate-lists-shard-*
+          path: gate-lists
+          merge-multiple: true
+      - name: Aggregate known failures
+        run: |
+          set -euo pipefail
+          python3 .github/workflows/util/delta-spark-ut/compare-test-results.py \
+            --mode aggregate \
+            --inputs-dir gate-lists \
+            --known-failures .github/workflows/util/delta-spark-ut/known-failures.txt \
+            --baseline-out aggregated/known-failures.txt
+      - name: Upload refreshed baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-spark-ut-known-failures
+          path: aggregated/known-failures.txt
+          if-no-files-found: warn
