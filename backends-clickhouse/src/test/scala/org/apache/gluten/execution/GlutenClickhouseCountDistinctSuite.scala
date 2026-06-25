@@ -105,7 +105,8 @@ class GlutenClickhouseCountDistinctSuite extends GlutenClickHouseWholeStageTrans
     compareResultsAgainstVanillaSpark(sql, true, { _ => })
 
     val sqlWithKeys = "select a, count(distinct(b)) , skewness(b) from " +
-      "values (0, null,1), (0,null,1), (1, 1,1), (2, 2, 1) ,(2,2,2),(3,3,3) as data(a,b,c) group by a"
+      "values (0, null,1), (0,null,1), (1, 1,1), (2, 2, 1) ,(2,2,2),(3,3,3) as data(a,b,c) " +
+      "group by a"
     compareResultsAgainstVanillaSpark(sqlWithKeys, true, { _ => })
   }
 
