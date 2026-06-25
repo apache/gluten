@@ -68,7 +68,7 @@ jobs:
           source /opt/rh/gcc-toolset-11/enable
           sudo dnf install -y patchelf ccache
           export CCACHE_DIR=${CCACHE_DIR}
-          export CCACHE_MAXSIZE=2G
+          export CCACHE_MAXSIZE=4G
           mkdir -p ${CCACHE_DIR}
           ccache -sz
           sudo yum install https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/tzdata-2026a-1.el9.noarch.rpm -y
