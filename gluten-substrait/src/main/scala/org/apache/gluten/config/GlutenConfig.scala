@@ -652,6 +652,7 @@ object GlutenConfig extends ConfigRegistry {
       DEBUG_ENABLED.key,
       // datasource config
       SPARK_SQL_PARQUET_COMPRESSION_CODEC,
+      SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key,
       // datasource config end
       GlutenCoreConfig.COLUMNAR_OVERHEAD_SIZE_IN_BYTES.key,
       GlutenCoreConfig.COLUMNAR_OFFHEAP_SIZE_IN_BYTES.key,

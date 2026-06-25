@@ -960,7 +960,7 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrappe
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_nativeBuild( // NOLINT
     JNIEnv* env,
     jobject wrapper,
-    jstring tableId,
+    jstring /*tableId*/,
     jlongArray batchHandles,
     jobjectArray joinKeys,
     jobjectArray filterBuildColumns,
@@ -985,8 +985,6 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       queryConf.get<uint32_t>(kAbandonDedupHashMapMinRows, kAbandonDedupHashMapMinRowsDefault);
   const auto abandonHashBuildDedupMinPct =
       queryConf.get<uint32_t>(kAbandonDedupHashMapMinPct, kAbandonDedupHashMapMinPctDefault);
-  const auto hashTableId = jStringToCString(env, tableId);
-
   // Convert Java String array to C++ vector<string>
   std::vector<std::string> hashJoinKeys;
   jsize joinKeysCount = env->GetArrayLength(joinKeys);

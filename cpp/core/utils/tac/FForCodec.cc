@@ -37,7 +37,8 @@ FForCodec::compress(const uint8_t* input, int64_t inputSize, uint8_t* output, in
   size_t numValues = inputSize / sizeof(uint64_t);
   auto maxLen = static_cast<int64_t>(ffor::compress64Bound(numValues));
   if (outputSize < maxLen) {
-    return arrow::Status::Invalid("FForCodec: output buffer too small.");
+    return arrow::Status::Invalid(
+        "FForCodec: output buffer too small (need ", maxLen, " bytes, got ", outputSize, ").");
   }
 
   auto written = ffor::compress64(reinterpret_cast<const uint64_t*>(input), numValues, output);
@@ -53,7 +54,51 @@ FForCodec::decompress(const uint8_t* input, int64_t inputSize, uint8_t* output, 
     return arrow::Status::Invalid("FForCodec: output size ", outputSize, " is not a multiple of 8.");
   }
 
-  auto nDecoded = ffor::decompress64(input, inputSize, reinterpret_cast<uint64_t*>(output));
+  auto nDecoded =
+      ffor::decompress64(input, inputSize, reinterpret_cast<uint64_t*>(output), static_cast<size_t>(outputSize));
+  return static_cast<int64_t>(nDecoded);
+}
+
+int64_t FForCodec::maxCompressedLength128(int64_t inputSize) {
+  if (inputSize % sizeof(__int128_t) != 0) {
+    return 0;
+  }
+  size_t numValues = inputSize / sizeof(__int128_t);
+  return static_cast<int64_t>(ffor::compress128Bound(numValues));
+}
+
+arrow::Result<int64_t>
+FForCodec::compress128(const uint8_t* input, int64_t inputSize, uint8_t* output, int64_t outputSize) {
+  if (inputSize == 0) {
+    return 0;
+  }
+  if (inputSize % sizeof(__int128_t) != 0) {
+    return arrow::Status::Invalid(
+        "FForCodec: input size ", inputSize, " is not a multiple of ", sizeof(__int128_t), ".");
+  }
+
+  size_t numValues = inputSize / sizeof(__int128_t);
+  auto maxLen = static_cast<int64_t>(ffor::compress128Bound(numValues));
+  if (outputSize < maxLen) {
+    return arrow::Status::Invalid(
+        "FForCodec: output buffer too small for 128-bit compression (need ", maxLen, " bytes, got ", outputSize, ").");
+  }
+
+  auto written = ffor::compress128(input, numValues, output);
+  return static_cast<int64_t>(written);
+}
+
+arrow::Result<int64_t>
+FForCodec::decompress128(const uint8_t* input, int64_t inputSize, uint8_t* output, int64_t outputSize) {
+  if (outputSize == 0) {
+    return 0;
+  }
+  if (outputSize % sizeof(__int128_t) != 0) {
+    return arrow::Status::Invalid(
+        "FForCodec: output size ", outputSize, " is not a multiple of ", sizeof(__int128_t), ".");
+  }
+
+  auto nDecoded = ffor::decompress128(input, inputSize, output, static_cast<size_t>(outputSize));
   return static_cast<int64_t>(nDecoded);
 }
 

@@ -20,6 +20,7 @@ import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig, VeloxConfig}
 import org.apache.gluten.expression.VeloxDummyExpression
 
 import org.apache.spark.SparkConf
+import org.apache.spark.shuffle.GlutenShuffleUtils
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ShuffleQueryStageExec}
@@ -2248,6 +2249,32 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
             }.size == 1
           )
       }
+    }
+  }
+
+  test("GLUTEN-11539: unsupported spark.io.compression.codec throws with actionable message") {
+    val conf = spark.sparkContext.getConf.clone().set("spark.io.compression.codec", "snappy")
+    val ex = intercept[IllegalArgumentException] {
+      GlutenShuffleUtils.getCompressionCodec(conf)
+    }
+    assert(ex.getMessage.contains("snappy is not supported"))
+    assert(ex.getMessage.contains(GlutenConfig.COLUMNAR_SHUFFLE_CODEC.key))
+  }
+
+  test("GLUTEN-11539: spark.io.compression.codec=none throws with actionable message") {
+    val conf = spark.sparkContext.getConf.clone().set("spark.io.compression.codec", "none")
+    val ex = intercept[IllegalArgumentException] {
+      GlutenShuffleUtils.getCompressionCodec(conf)
+    }
+    assert(ex.getMessage.contains("none is not supported"))
+    assert(ex.getMessage.contains(GlutenConfig.COLUMNAR_SHUFFLE_CODEC.key))
+  }
+
+  test("GLUTEN-11539: supported spark.io.compression.codec is accepted") {
+    Seq("lz4", "zstd").foreach {
+      codec =>
+        val conf = spark.sparkContext.getConf.clone().set("spark.io.compression.codec", codec)
+        assert(GlutenShuffleUtils.getCompressionCodec(conf) === codec)
     }
   }
 }

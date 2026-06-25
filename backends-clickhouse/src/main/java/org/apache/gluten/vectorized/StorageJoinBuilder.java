@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.vectorized;
 
-import org.apache.gluten.execution.BroadCastHashJoinContext;
+import org.apache.gluten.execution.BroadcastJoinContext;
 import org.apache.gluten.execution.JoinTypeTransform;
 import org.apache.gluten.expression.ConverterUtils$;
 import org.apache.gluten.utils.SubstraitUtil;
@@ -36,11 +36,12 @@ public class StorageJoinBuilder {
   public static native long nativeCloneBuildHashTable(long hashTableData);
 
   private static native long nativeBuild(
-      String buildHashTableId,
+      String buildTableId,
       byte[] in,
       long rowCount,
       String joinKeys,
       int joinType,
+      boolean isBhj,
       boolean hasMixedFiltCondition,
       boolean isExistenceJoin,
       byte[] namedStruct,
@@ -53,7 +54,7 @@ public class StorageJoinBuilder {
   public static long build(
       byte[] batches,
       long rowCount,
-      BroadCastHashJoinContext broadCastContext,
+      BroadcastJoinContext broadcastContext,
       List<Expression> newBuildKeys,
       List<Attribute> newOutput,
       boolean hasNullKeyValues) {
@@ -61,8 +62,8 @@ public class StorageJoinBuilder {
     List<Expression> keys;
     List<Attribute> output;
     if (newBuildKeys.isEmpty()) {
-      keys = JavaConverters.<Expression>seqAsJavaList(broadCastContext.buildSideJoinKeys());
-      output = JavaConverters.<Attribute>seqAsJavaList(broadCastContext.buildSideStructure());
+      keys = JavaConverters.<Expression>seqAsJavaList(broadcastContext.buildSideJoinKeys());
+      output = JavaConverters.<Attribute>seqAsJavaList(broadcastContext.buildSideStructure());
     } else {
       keys = newBuildKeys;
       output = newOutput;
@@ -77,24 +78,25 @@ public class StorageJoinBuilder {
             .collect(Collectors.joining(","));
 
     int joinType;
-    if (broadCastContext.buildHashTableId().startsWith("BuiltBNLJBroadcastTable-")) {
-      joinType = SubstraitUtil.toCrossRelSubstrait(broadCastContext.joinType()).ordinal();
-    } else {
-      boolean buildRight = broadCastContext.buildRight();
+    if (broadcastContext.isBhj()) {
+      boolean buildRight = broadcastContext.buildRight();
       joinType =
-          JoinTypeTransform.toSubstraitJoinType(broadCastContext.joinType(), buildRight).ordinal();
+          JoinTypeTransform.toSubstraitJoinType(broadcastContext.joinType(), buildRight).ordinal();
+    } else {
+      joinType = SubstraitUtil.toCrossRelSubstrait(broadcastContext.joinType()).ordinal();
     }
 
     return nativeBuild(
-        broadCastContext.buildHashTableId(),
+        broadcastContext.buildTableId(),
         batches,
         rowCount,
         joinKey,
         joinType,
-        broadCastContext.hasMixedFiltCondition(),
-        broadCastContext.isExistenceJoin(),
+        broadcastContext.isBhj(),
+        broadcastContext.hasMixedFiltCondition(),
+        broadcastContext.isExistenceJoin(),
         SubstraitUtil.toNameStruct(output).toByteArray(),
-        broadCastContext.isNullAwareAntiJoin(),
+        broadcastContext.isNullAwareAntiJoin(),
         hasNullKeyValues);
   }
 }
