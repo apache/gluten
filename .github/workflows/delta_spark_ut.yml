@@ -45,7 +45,7 @@ on:
       test_parallelism:
         description: 'Forked test JVMs per shard (TEST_PARALLELISM_COUNT)'
         required: true
-        default: '1'
+        default: '4'
       update_baseline:
         description: 'Seed/refresh the known-failures baseline instead of enforcing it'
         type: boolean
@@ -80,7 +80,7 @@ env:
   # defaults above.
   DELTA_REF_DEFAULT: 'v4.2.0'
   DELTA_SPARK_VERSION_DEFAULT: '4.1'
-  DELTA_TEST_PARALLELISM_DEFAULT: '1'
+  DELTA_TEST_PARALLELISM_DEFAULT: '4'
   # Default mode for pull_request runs (where inputs.* is empty): enforce the
   # committed baseline and fail when a baseline test starts passing. Override
   # via the workflow_dispatch inputs above.
@@ -90,16 +90,14 @@ env:
   # Number of shards in the delta-spark-test matrix. Must equal the length of
   # the `shard` matrix below.
   #
-  # EXPERIMENT: temporarily set to 4 (production value is 16) to measure the
-  # wall-clock vs concurrent-runner tradeoff. Sharding is by SUITE, so the total
-  # test work (~1250 shard-minutes, measured) is fixed regardless of shard count
-  # -- more shards = shorter wall-clock but more concurrent runners; fewer shards
-  # = longer per-shard time at the same total runner-hours. Measured: 16 shards
-  # ~= 135 min wall-clock (max shard ~110 min). 4 shards carry ~1/4 of the suites
-  # each (~300+ min/shard), hence the raised job timeout below. (8-way previously
-  # hit the timeout on the slow merge/CDC/DV suites, which is why prod is 16.)
-  # TEST_PARALLELISM_COUNT=1 because each forked test JVM uses ~4G (2G heap +
-  # 2G off-heap) and >1, atop the 4G sbt launcher, would OOM the runner.
+  # EXPERIMENT: 4 shards x TEST_PARALLELISM_COUNT=4 (vs production 16 shards x 1).
+  # Both give ~16-way parallelism, but this packs it into 4 runner jobs (4 forks
+  # each) instead of 16 single-fork jobs -- fewer concurrent runners for the same
+  # throughput. Sharding is by SUITE; total work (~1250 shard-minutes) is fixed.
+  # RISK: each forked test JVM uses ~4G (2G heap + 2G off-heap), so 4 forks atop
+  # the sbt launcher push the ~16G runner to its limit and may OOM on heavy suites
+  # -- which is why production uses TEST_PARALLELISM_COUNT=1. Measuring whether it
+  # fits now that the worst memory hog (DeletionVectorsSuite 2B-row) is force-failed.
   DELTA_NUM_SHARDS: '4'
 
 concurrency:
@@ -218,9 +216,9 @@ jobs:
     needs: build-gluten-bundle
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk17
-    # EXPERIMENT (4-shard): raised from 350 so a 4-shard run (~300+ min/shard)
-    # can finish and be measured instead of timing out. Restore 350 with 16 shards.
-    timeout-minutes: 480
+    # EXPERIMENT (4 shards x 4 forks): back to 350 -- per-shard suites now run
+    # 4-at-a-time, so each shard should finish well under the cap again.
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
