@@ -313,6 +313,83 @@ class ScalarFunctionsTest extends GlutenStreamingTestBase {
             "+I[2, 2025-02-28 12:12:12, 2024-02-28 20:12:12]"));
   }
 
+
+  @Test
+  void testTimestampLtzShanghai() {
+    // Verify TIMESTAMP_LTZ with different precisions under Asia/Shanghai (UTC+8).
+    tEnv().getConfig().setLocalTimeZone(ZoneId.of("Asia/Shanghai"));
+
+    // Precision 3 (millis)
+    List<Row> rowsMillis =
+        Arrays.asList(
+            Row.of(
+                1,
+                LocalDateTime.of(2024, 12, 31, 12, 12, 12, 500000000)
+                    .toInstant(ZoneOffset.UTC)),
+            Row.of(
+                2,
+                LocalDateTime.of(2025, 6, 15, 0, 0, 0, 0)
+                    .toInstant(ZoneOffset.UTC)));
+    createSimpleBoundedValuesTable(
+        "timestampLtzMillisSh", "a int, b Timestamp_LTZ(3)", rowsMillis);
+    String queryMillis = "select a, cast(b as string) from timestampLtzMillisSh";
+    runAndCheck(
+        queryMillis,
+        Arrays.asList(
+            "+I[1, 2024-12-31 20:12:12.500]", "+I[2, 2025-06-15 08:00:00.000]"));
+
+    // Precision 6 (micros)
+    List<Row> rowsMicros =
+        Arrays.asList(
+            Row.of(
+                1,
+                LocalDateTime.of(2024, 12, 31, 12, 12, 12, 123456000)
+                    .toInstant(ZoneOffset.UTC)),
+            Row.of(
+                2,
+                LocalDateTime.of(2025, 6, 15, 0, 0, 0, 0)
+                    .toInstant(ZoneOffset.UTC)));
+    createSimpleBoundedValuesTable(
+        "timestampLtzMicrosSh", "a int, b Timestamp_LTZ(6)", rowsMicros);
+    String queryMicros = "select a, cast(b as string) from timestampLtzMicrosSh";
+    runAndCheck(
+        queryMicros,
+        Arrays.asList(
+            "+I[1, 2024-12-31 20:12:12.123456]", "+I[2, 2025-06-15 08:00:00.000000]"));
+
+    // Precision 9 (nanos)
+    List<Row> rowsNanos =
+        Arrays.asList(
+            Row.of(
+                1,
+                LocalDateTime.of(2024, 12, 31, 12, 12, 12, 123456789)
+                    .toInstant(ZoneOffset.UTC)),
+            Row.of(
+                2,
+                LocalDateTime.of(2025, 6, 15, 0, 0, 0, 0)
+                    .toInstant(ZoneOffset.UTC)));
+    createSimpleBoundedValuesTable(
+        "timestampLtzNanosSh", "a int, b Timestamp_LTZ(9)", rowsNanos);
+    String queryNanos = "select a, cast(b as string) from timestampLtzNanosSh";
+    runAndCheck(
+        queryNanos,
+        Arrays.asList(
+            "+I[1, 2024-12-31 20:12:12.123456789]", "+I[2, 2025-06-15 08:00:00.000000000]"));
+
+    // Verify plain TIMESTAMP (not LTZ) is unaffected by timezone
+    List<Row> rowsTs =
+        Arrays.asList(
+            Row.of(1, LocalDateTime.of(2024, 12, 31, 12, 12, 12, 500000000)),
+            Row.of(2, LocalDateTime.of(2025, 6, 15, 0, 0, 0, 0)));
+    createSimpleBoundedValuesTable(
+        "timestampMillisSh", "a int, b Timestamp(3)", rowsTs);
+    String queryTs = "select a, cast(b as string) from timestampMillisSh";
+    runAndCheck(
+        queryTs,
+        Arrays.asList(
+            "+I[1, 2024-12-31 12:12:12.500]", "+I[2, 2025-06-15 00:00:00.000]"));
+  }
+
   @Test
   void testTimestampMicros() {
     List<Row> rows =
