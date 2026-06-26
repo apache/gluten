@@ -37,3 +37,5 @@ add_velox_benchmark(parquet_write_benchmark ParquetWriteBenchmark.cc)
 add_velox_benchmark(plan_validator_util PlanValidatorUtil.cc)
 
 add_velox_benchmark(velox_batch_resizer_benchmark VeloxBatchResizerBenchmark.cc)
+
+add_velox_benchmark(delta_bitmap_benchmark DeltaBitmapBenchmark.cc)

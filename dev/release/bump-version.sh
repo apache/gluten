@@ -18,7 +18,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 <new-version>  e.g., 1.7.0-SNAPSHOT"
+  echo "Usage: $0 <new-version>  e.g., 1.8.0-SNAPSHOT"
   exit 1
 }
 

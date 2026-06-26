@@ -599,12 +599,9 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
           checkGlutenPlan[BatchScanExecTransformer]
         }
 
-        // Ensures the fallback of unsupported function works.
+        // hour(timestamp_ntz) runs natively; output is int (no NTZ propagation).
         runQueryAndCompare("select hour(ts) from view") {
-          df =>
-            assert(collect(df.queryExecution.executedPlan) {
-              case p if p.isInstanceOf[ProjectExec] => p
-            }.nonEmpty)
+          checkGlutenPlan[ProjectExecTransformer]
         }
     }
   }

@@ -28,6 +28,7 @@ import io.github.zhztheplayer.velox4j.iterator.UpIterator;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.query.Query;
 import io.github.zhztheplayer.velox4j.query.SerialTask;
+import io.github.zhztheplayer.velox4j.stateful.NativeCallbackTarget;
 import io.github.zhztheplayer.velox4j.stateful.StatefulElement;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
@@ -50,7 +51,7 @@ import java.util.Map;
  * instead of flink RowData.
  */
 public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
-    implements TwoInputStreamOperator<IN, IN, OUT>, GlutenOperator {
+    implements TwoInputStreamOperator<IN, IN, OUT>, GlutenOperator, NativeCallbackTarget {
 
   private static final Logger LOG = LoggerFactory.getLogger(GlutenTwoInputOperator.class);
 
@@ -67,6 +68,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   private ExternalStreams.BlockingQueue leftInputQueue;
   private ExternalStreams.BlockingQueue rightInputQueue;
   private SerialTask task;
+  private transient volatile boolean closing;
   private final Class<IN> inClass;
   private final Class<OUT> outClass;
   private VectorInputBridge<IN> inputBridge;
@@ -117,6 +119,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void open() throws Exception {
+    closing = false;
     super.open();
     if (!mailboxHolder().get().isMailboxBound()) {
       ensureMailboxInitialized(getContainingTask());
@@ -136,7 +139,18 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void scheduleProcessElementOnMailbox() {
+    if (closing) {
+      return;
+    }
     scheduleDrainOnMailbox(this::drainTaskOutput);
+  }
+
+  @Override
+  public void onProcessingTime(long timestamp) {
+    if (closing) {
+      return;
+    }
+    scheduleProcessElementOnMailbox();
   }
 
   @Override
@@ -168,11 +182,20 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void processElementInternal() {
+    if (closing) {
+      return;
+    }
     drainOutput(this::drainTaskOutput);
   }
 
   private void drainTaskOutput() {
+    if (closing) {
+      return;
+    }
     while (true) {
+      if (closing) {
+        return;
+      }
       UpIterator.State state = task.advance();
       if (state == UpIterator.State.AVAILABLE) {
         final StatefulElement element = task.statefulGet();
@@ -213,18 +236,34 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void close() throws Exception {
-    if (leftInputQueue != null) {
-      leftInputQueue.close();
-    }
-    if (rightInputQueue != null) {
-      rightInputQueue.close();
-    }
-    if (task != null) {
-      task.close();
-    }
-    if (sessionResource != null) {
-      sessionResource.close();
-    }
+    closing = true;
+    GlutenCloseables.runWithCleanup(
+        () -> {
+          if (leftInputQueue != null) {
+            leftInputQueue.close();
+          }
+        },
+        () -> {
+          if (rightInputQueue != null) {
+            rightInputQueue.close();
+          }
+        },
+        () -> {
+          if (task != null) {
+            task.unbindNativeCallbackTarget();
+          }
+        },
+        () -> {
+          if (task != null) {
+            task.close();
+          }
+        },
+        () -> {
+          if (sessionResource != null) {
+            sessionResource.close();
+          }
+        },
+        super::close);
   }
 
   @Override
@@ -286,7 +325,6 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
     sessionResource = new GlutenSessionResource();
     GlutenSessionResources.getInstance().addSessionResource(getId(), sessionResource);
-    GlutenSessionResources.getInstance().addOperator(getId(), this);
     leftInputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
     rightInputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
 
@@ -296,6 +334,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
             VeloxQueryConfig.getConfig(getRuntimeContext()),
             VeloxConnectorConfig.getConfig(getRuntimeContext()));
     task = sessionResource.getSession().queryOps().execute(query);
+    task.bindNativeCallbackTarget(this);
 
     ExternalStreamConnectorSplit leftSplit =
         new ExternalStreamConnectorSplit("connector-external-stream", leftInputQueue.id());

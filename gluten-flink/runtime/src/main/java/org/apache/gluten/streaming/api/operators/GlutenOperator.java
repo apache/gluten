@@ -17,7 +17,6 @@
 package org.apache.gluten.streaming.api.operators;
 
 import org.apache.gluten.table.runtime.operators.GlutenMailboxHolder;
-import org.apache.gluten.table.runtime.operators.GlutenSessionResources;
 
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.type.RowType;
@@ -62,19 +61,6 @@ public interface GlutenOperator {
 
   default void scheduleDrainOnMailbox(Runnable drainAction) {
     mailboxHolder().get().scheduleDrain(drainAction);
-  }
-
-  /**
-   * Called from native Velox code to drain operator output. Drain is always scheduled on the Flink
-   * task mailbox thread.
-   */
-  static void processElementByJni(String operatorId) {
-    GlutenOperator operator =
-        GlutenSessionResources.getInstance().getOperator(operatorId).orElse(null);
-    if (operator == null) {
-      throw new IllegalArgumentException("Operator not found: " + operatorId);
-    }
-    operator.scheduleProcessElementOnMailbox();
   }
 
   /** Schedules native output drain on the mailbox thread. Implemented by concrete operators. */

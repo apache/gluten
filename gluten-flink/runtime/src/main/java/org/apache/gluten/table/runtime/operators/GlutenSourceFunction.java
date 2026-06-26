@@ -22,6 +22,7 @@ import org.apache.gluten.table.runtime.metrics.SourceTaskMetrics;
 import org.apache.gluten.vectorized.FlinkRowToVLVectorConvertor;
 
 import io.github.zhztheplayer.velox4j.connector.ConnectorSplit;
+import io.github.zhztheplayer.velox4j.connector.ParallelSplit;
 import io.github.zhztheplayer.velox4j.iterator.UpIterator;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.query.Query;
@@ -230,6 +231,14 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
     if (sessionResource != null) {
       return;
     }
+
+    ConnectorSplit activeSplit = split;
+    int totalParallelism = getRuntimeContext().getNumberOfParallelSubtasks();
+    int subtaskIndex = getRuntimeContext().getIndexOfThisSubtask();
+    if (split instanceof ParallelSplit) {
+      activeSplit = ((ParallelSplit) split).getSubtaskSplit(subtaskIndex, totalParallelism);
+    }
+
     sessionResource = new GlutenSessionResource();
     GlutenSessionResources.getInstance().addSessionResource(id, sessionResource);
     Session session = sessionResource.getSession();
@@ -239,7 +248,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
             VeloxQueryConfig.getConfig(getRuntimeContext()),
             VeloxConnectorConfig.getConfig(getRuntimeContext()));
     task = session.queryOps().execute(query);
-    task.addSplit(id, split);
+    task.addSplit(id, activeSplit);
     task.noMoreSplits(id);
     taskMetrics = new SourceTaskMetrics(getRuntimeContext().getMetricGroup());
   }

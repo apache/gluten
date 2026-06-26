@@ -14,38 +14,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#pragma once
-#include <memory>
-#include <jni.h>
-#include <substrait/algebra.pb.h>
 
-namespace DB
-{
-class ReadBuffer;
+#include "ThreadInitializer.h"
+
+namespace gluten {
+namespace {
+
+/// A ThreadInitializer whose initialize() and destroy() are no-ops.
+/// Used when no JVM or Spark task context is available (e.g., benchmarks).
+class NoopThreadInitializer final : public ThreadInitializer {
+ public:
+  void initialize(const std::string& threadName) override {}
+  void destroy(const std::string& threadName) override{};
+};
+
+} // namespace
+
+std::unique_ptr<ThreadInitializer> ThreadInitializer::noop() {
+  return std::make_unique<NoopThreadInitializer>();
 }
 
-namespace local_engine
-{
-class StorageJoinFromReadBuffer;
-namespace BroadCastJoinBuilder
-{
-
-std::shared_ptr<StorageJoinFromReadBuffer> buildJoin(
-    const std::string & key,
-    DB::ReadBuffer & input,
-    jlong row_count,
-    const std::string & join_keys,
-    jint join_type,
-    bool has_mixed_join_condition,
-    bool is_existence_join,
-    const std::string & named_struct,
-    bool is_null_aware_anti_join,
-    bool has_null_key_values);
-void cleanBuildHashTable(const std::string & hash_table_id, jlong instance);
-std::shared_ptr<StorageJoinFromReadBuffer> getJoin(const std::string & hash_table_id);
-
-
-void init(JNIEnv *);
-void destroy(JNIEnv *);
-}
-}
+} // namespace gluten

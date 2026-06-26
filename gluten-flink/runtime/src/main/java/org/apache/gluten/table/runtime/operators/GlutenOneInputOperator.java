@@ -31,6 +31,7 @@ import io.github.zhztheplayer.velox4j.plan.TableScanNode;
 import io.github.zhztheplayer.velox4j.query.Query;
 import io.github.zhztheplayer.velox4j.query.SerialTask;
 import io.github.zhztheplayer.velox4j.serde.Serde;
+import io.github.zhztheplayer.velox4j.stateful.NativeCallbackTarget;
 import io.github.zhztheplayer.velox4j.stateful.StatefulElement;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
@@ -49,7 +50,7 @@ import java.util.Map;
 
 /** Calculate operator in gluten, which will call Velox to run. */
 public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
-    implements OneInputStreamOperator<IN, OUT>, GlutenOperator {
+    implements OneInputStreamOperator<IN, OUT>, GlutenOperator, NativeCallbackTarget {
 
   private final StatefulPlanNode glutenPlan;
   private final String id;
@@ -62,6 +63,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   private transient Query query;
   private transient ExternalStreams.BlockingQueue inputQueue;
   protected transient SerialTask task;
+  private transient volatile boolean closing;
   private final Class<IN> inClass;
   private final Class<OUT> outClass;
   private transient VectorInputBridge<IN> inputBridge;
@@ -119,7 +121,6 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
     }
     sessionResource = new GlutenSessionResource();
     GlutenSessionResources.getInstance().addSessionResource(id, sessionResource);
-    GlutenSessionResources.getInstance().addOperator(this.getClass().getSimpleName(), this);
     inputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
     // add a mock input as velox not allow the source is empty.
     if (inputType == null) {
@@ -143,6 +144,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
             VeloxQueryConfig.getConfig(getRuntimeContext()),
             VeloxConnectorConfig.getConfig(getRuntimeContext()));
     task = sessionResource.getSession().queryOps().execute(query);
+    task.bindNativeCallbackTarget(this);
     task.addSplit(
         id, new ExternalStreamConnectorSplit("connector-external-stream", inputQueue.id()));
     task.noMoreSplits(id);
@@ -150,6 +152,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
 
   @Override
   public void open() throws Exception {
+    closing = false;
     super.open();
     if (!mailboxHolder().get().isMailboxBound()) {
       ensureMailboxInitialized(getContainingTask());
@@ -183,16 +186,36 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
 
   @Override
   public void scheduleProcessElementOnMailbox() {
+    if (closing) {
+      return;
+    }
     scheduleDrainOnMailbox(this::drainTaskOutput);
   }
 
   @Override
+  public void onProcessingTime(long timestamp) {
+    if (closing) {
+      return;
+    }
+    scheduleProcessElementOnMailbox();
+  }
+
+  @Override
   public void processElementInternal() {
+    if (closing) {
+      return;
+    }
     drainOutput(this::drainTaskOutput);
   }
 
   private void drainTaskOutput() {
+    if (closing) {
+      return;
+    }
     while (true) {
+      if (closing) {
+        return;
+      }
       UpIterator.State state = task.advance();
       if (state == UpIterator.State.AVAILABLE) {
         final StatefulElement statefulElement = task.statefulGet();
@@ -238,16 +261,34 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
 
   @Override
   public void close() throws Exception {
-    if (task != null) {
-      task.close();
-    }
-    if (inputQueue != null) {
-      inputQueue.noMoreInput();
-      inputQueue.close();
-    }
-    if (sessionResource != null) {
-      sessionResource.close();
-    }
+    closing = true;
+    GlutenCloseables.runWithCleanup(
+        () -> {
+          if (task != null) {
+            task.unbindNativeCallbackTarget();
+          }
+        },
+        () -> {
+          if (task != null) {
+            task.close();
+          }
+        },
+        () -> {
+          if (inputQueue != null) {
+            inputQueue.noMoreInput();
+          }
+        },
+        () -> {
+          if (inputQueue != null) {
+            inputQueue.close();
+          }
+        },
+        () -> {
+          if (sessionResource != null) {
+            sessionResource.close();
+          }
+        },
+        super::close);
   }
 
   @Override

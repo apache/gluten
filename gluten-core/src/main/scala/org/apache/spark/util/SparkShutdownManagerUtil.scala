@@ -17,12 +17,15 @@
 package org.apache.spark.util
 
 object SparkShutdownManagerUtil {
+  private val LIB_UNLOADING_PRIORITY = ShutdownHookManager.SPARK_CONTEXT_SHUTDOWN_PRIORITY - 1
+  assert(LIB_UNLOADING_PRIORITY > ShutdownHookManager.TEMP_DIR_SHUTDOWN_PRIORITY)
+
   def addHook(hook: () => Unit): AnyRef = {
     ShutdownHookManager.addShutdownHook(ShutdownHookManager.DEFAULT_SHUTDOWN_PRIORITY)(hook)
   }
 
   def addHookForLibUnloading(hook: () => Unit): AnyRef = {
-    ShutdownHookManager.addShutdownHook(ShutdownHookManager.SPARK_CONTEXT_SHUTDOWN_PRIORITY)(hook)
+    ShutdownHookManager.addShutdownHook(LIB_UNLOADING_PRIORITY)(hook)
   }
 
   def addHookForTempDirRemoval(hook: () => Unit): AnyRef = {

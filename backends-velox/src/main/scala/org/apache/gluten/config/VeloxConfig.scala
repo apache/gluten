@@ -65,6 +65,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableBroadcastBuildRelationInOffheap: Boolean =
     getConf(VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP)
 
+  def broadcastBuildMergeBatches: Boolean =
+    getConf(VELOX_BROADCAST_BUILD_MERGE_BATCHES)
+
   def enableBroadcastBuildOncePerExecutor: Boolean =
     getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
 
@@ -302,7 +305,7 @@ object VeloxConfig extends ConfigRegistry {
       .createWithDefault(10000)
 
   val MAX_TARGET_FILE_SIZE_SESSION =
-    buildConf("spark.gluten.sql.columnar.backend.velox.maxTargetFileSize")
+    buildConf("spark.gluten.sql.columnar.backend.velox.parquetMaxTargetFileSize")
       .doc(
         "The target file size for each output file when writing data. " +
           "0 means no limit on target file size, and the actual file size will be determined by " +
@@ -617,6 +620,17 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val VELOX_BROADCAST_BUILD_MERGE_BATCHES =
+    buildConf("spark.gluten.velox.broadcastBuild.mergeBatches")
+      .doc(
+        "If enabled, all columnar batches in a broadcast build relation will be " +
+          "serialized into a single buffer to reduce the number of addInput calls in " +
+          "HashBuild operator. This can significantly improve BHJ performance when " +
+          "the broadcast table has many small batches, but may increase driver-side " +
+          "peak memory and is not suitable for very large broadcasts.")
+      .booleanConf
+      .createWithDefault(false)
+
   val VELOX_HASHMAP_ABANDON_BUILD_DUPHASH_MIN_ROWS =
     buildConf("spark.gluten.velox.abandonDedupHashMap.minRows")
       .experimental()
@@ -743,6 +757,12 @@ object VeloxConfig extends ConfigRegistry {
           "the entire stage can be fully and profitably executed on GPU")
       .booleanConf
       .createWithDefault(true)
+
+  val CUDF_CONCURRENT_GPU_TASKS =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cudf.concurrentGpuTasks")
+      .doc("The number of concurrent GPU tasks to run.")
+      .intConf
+      .createWithDefault(1)
 
   val CUDF_BATCH_SIZE =
     buildConf("spark.gluten.sql.columnar.backend.velox.cudf.batchSize")

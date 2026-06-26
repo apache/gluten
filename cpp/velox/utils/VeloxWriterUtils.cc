@@ -49,6 +49,20 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
   }
   auto writeOption = std::make_unique<WriterOptions>();
   writeOption->parquetWriteTimestampUnit = TimestampPrecision::kMicroseconds /*micro*/;
+  bool writeLegacyParquetFormat = false;
+  if (auto it = sparkConfs.find(kParquetStoreDecimalAsInteger); it != sparkConfs.end()) {
+    writeLegacyParquetFormat = boost::iequals(it->second, "true");
+  }
+  // Maps spark.sql.parquet.writeLegacyFormat to Velox enableStoreDecimalAsInteger (inverted).
+  // Controls how DECIMAL values are stored by the Writer:
+  // - true (default when legacy format is off): store as integer using INT32/INT64 for short
+  //   DECIMAL precisions; higher precisions use FIXED_LEN_BYTE_ARRAY.
+  // - false (when spark.sql.parquet.writeLegacyFormat is true): store as FIXED_LEN_BYTE_ARRAY
+  //   regardless of precision (Spark legacy Parquet decimal layout).
+  // TODO: Only DECIMAL is handled here. Spark's writeLegacyFormat also changes ARRAY (bag/array
+  // vs list/element) and MAP (map vs key_value) physical layouts, which are not yet supported
+  // in Gluten native Parquet write.
+  writeOption->enableStoreDecimalAsInteger = !writeLegacyParquetFormat;
   auto compressionCodec = CompressionKind::CompressionKind_SNAPPY;
   if (auto it = sparkConfs.find(kParquetCompressionCodec); it != sparkConfs.end()) {
     auto compressionCodecStr = it->second;

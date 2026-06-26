@@ -84,18 +84,39 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
     }
   }
 
-  private def collectFallbackNodes(plan: QueryPlan[_]): FallbackInfo = {
-    var numGlutenNodes = 0
-    val fallbackNodeToReason = new mutable.HashMap[String, String]
+  /**
+   * Walks `plan` and classifies each operator into one of three buckets:
+   *   - native Gluten operator: invokes `onGluten`
+   *   - vanilla Spark operator considered a fallback: invokes `onFallback` with the reason resolved
+   *     from physical or logical [[FallbackTags]], or a synthetic default when no tag is present
+   *   - structural / non-operator nodes (commands, transitions, codegen wrappers, query stages, AQE
+   *     shuffle reads, reused exchanges, etc.): no callback
+   *
+   * Recurses into AQE subqueries and query stages, and into each visited operator's
+   * `innerChildren`. Subqueries reached purely via expressions on a vanilla Spark plan are not
+   * visited here; callers that need full subquery coverage should use [[processPlan]], which
+   * performs an explicit subquery walk.
+   */
+  def visitFallbackNodes(
+      plan: QueryPlan[_],
+      onFallback: (SparkPlan, String) => Unit,
+      onGluten: SparkPlan => Unit = _ => ()): Unit = {
 
-    def collect(tmp: QueryPlan[_]): Unit = {
+    def fallbackReason(p: SparkPlan): String =
+      FallbackTags
+        .getOption(p)
+        .orElse(p.logicalLink.flatMap(FallbackTags.getOption))
+        .map(_.reason())
+        .getOrElse("Gluten does not touch it or does not support it")
+
+    def visit(tmp: QueryPlan[_]): Unit = {
       tmp.foreachUp {
         case _: ExecutedCommandExec =>
-        case cmd: CommandResultExec => collect(cmd.commandPhysicalPlan)
+        case cmd: CommandResultExec => visit(cmd.commandPhysicalPlan)
         case p: V2CommandExec
             if FallbackTags.nonEmpty(p) ||
               p.logicalLink.exists(FallbackTags.getOption(_).nonEmpty) =>
-          handleVanillaSparkPlan(p, fallbackNodeToReason)
+          onFallback(p, fallbackReason(p))
         case _: V2CommandExec =>
         case _: DataWritingCommandExec =>
         case _: WholeStageCodegenExec =>
@@ -108,26 +129,36 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
         case _: ReusedExchangeExec =>
         case _: NoopLeaf =>
         case w: WriteFilesExec if w.child.isInstanceOf[NoopLeaf] =>
-        case sub: AdaptiveSparkPlanExec if sub.isSubquery => collect(sub.executedPlan)
+        case sub: AdaptiveSparkPlanExec if sub.isSubquery => visit(sub.executedPlan)
         case _: AdaptiveSparkPlanExec =>
-        case p: QueryStageExec => collect(p.plan)
+        case p: QueryStageExec => visit(p.plan)
         case p: GlutenPlan =>
-          numGlutenNodes += 1
-          p.innerChildren.foreach(collect)
+          onGluten(p)
+          p.innerChildren.foreach(visit)
         case i: InMemoryTableScanExec =>
           if (PlanUtil.isGlutenTableCache(i)) {
-            numGlutenNodes += 1
+            onGluten(i)
           } else {
-            addFallbackNodeWithReason(i, "Columnar table cache is disabled", fallbackNodeToReason)
+            onFallback(i, "Columnar table cache is disabled")
           }
         case _: AQEShuffleReadExec => // Ignore
         case p: SparkPlan =>
-          handleVanillaSparkPlan(p, fallbackNodeToReason)
-          p.innerChildren.foreach(collect)
+          onFallback(p, fallbackReason(p))
+          p.innerChildren.foreach(visit)
         case _ =>
       }
     }
-    collect(plan)
+    visit(plan)
+  }
+
+  private def collectFallbackNodes(plan: QueryPlan[_]): FallbackInfo = {
+    var numGlutenNodes = 0
+    val fallbackNodeToReason = new mutable.HashMap[String, String]
+    visitFallbackNodes(
+      plan,
+      onGluten = _ => numGlutenNodes += 1,
+      onFallback = (p, reason) => addFallbackNodeWithReason(p, reason, fallbackNodeToReason)
+    )
     (numGlutenNodes, fallbackNodeToReason.toMap)
   }
 
