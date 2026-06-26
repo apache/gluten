@@ -19,6 +19,7 @@ package org.apache.gluten.substrait.rel;
 import io.substrait.proto.Rel;
 
 import java.io.Serializable;
+import java.util.List;
 
 /** Contains helper functions for constructing substrait relations. */
 public interface RelNode extends Serializable {
@@ -28,4 +29,6 @@ public interface RelNode extends Serializable {
    * @return A rel protobuf
    */
   Rel toProtobuf();
+
+  List<RelNode> childNode();
 }

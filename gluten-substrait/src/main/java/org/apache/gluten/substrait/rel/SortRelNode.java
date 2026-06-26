@@ -24,6 +24,7 @@ import io.substrait.proto.SortField;
 import io.substrait.proto.SortRel;
 
 import java.io.Serializable;
+import java.util.Collections;
 import java.util.List;
 
 public class SortRelNode implements RelNode, Serializable {
@@ -66,5 +67,10 @@ public class SortRelNode implements RelNode, Serializable {
     Rel.Builder builder = Rel.newBuilder();
     builder.setSort(sortBuilder.build());
     return builder.build();
+  }
+
+  @Override
+  public List<RelNode> childNode() {
+    return Collections.singletonList(input);
   }
 }

@@ -24,6 +24,7 @@ import io.substrait.proto.Rel;
 import io.substrait.proto.RelCommon;
 
 import java.io.Serializable;
+import java.util.Collections;
 import java.util.List;
 
 public class GenerateRelNode implements RelNode, Serializable {
@@ -80,5 +81,10 @@ public class GenerateRelNode implements RelNode, Serializable {
     Rel.Builder relBuilder = Rel.newBuilder();
     relBuilder.setGenerate(generateRelBuilder.build());
     return relBuilder.build();
+  }
+
+  @Override
+  public List<RelNode> childNode() {
+    return Collections.singletonList(input);
   }
 }

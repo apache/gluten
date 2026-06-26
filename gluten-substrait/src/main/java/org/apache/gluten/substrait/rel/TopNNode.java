@@ -25,6 +25,7 @@ import io.substrait.proto.TopNRel;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class TopNNode implements RelNode, Serializable {
@@ -72,5 +73,10 @@ public class TopNNode implements RelNode, Serializable {
     Rel.Builder relBuilder = Rel.newBuilder();
     relBuilder.setTopN(topNBuilder.build());
     return relBuilder.build();
+  }
+
+  @Override
+  public List<RelNode> childNode() {
+    return Collections.singletonList(input);
   }
 }

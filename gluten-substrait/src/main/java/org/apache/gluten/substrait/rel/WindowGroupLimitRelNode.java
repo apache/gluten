@@ -26,6 +26,7 @@ import io.substrait.proto.WindowGroupLimitRel;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class WindowGroupLimitRelNode implements RelNode, Serializable {
@@ -87,5 +88,10 @@ public class WindowGroupLimitRelNode implements RelNode, Serializable {
     Rel.Builder builder = Rel.newBuilder();
     builder.setWindowGroupLimit(windowBuilder.build());
     return builder.build();
+  }
+
+  @Override
+  public List<RelNode> childNode() {
+    return Collections.singletonList(input);
   }
 }

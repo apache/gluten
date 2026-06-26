@@ -59,4 +59,9 @@ public class SetRelNode implements RelNode, Serializable {
     builder.setSet(setBuilder.build());
     return builder.build();
   }
+
+  @Override
+  public List<RelNode> childNode() {
+    return inputs;
+  }
 }

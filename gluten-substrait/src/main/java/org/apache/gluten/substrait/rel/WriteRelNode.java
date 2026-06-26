@@ -25,6 +25,7 @@ import io.substrait.proto.*;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class WriteRelNode implements RelNode, Serializable {
@@ -82,5 +83,10 @@ public class WriteRelNode implements RelNode, Serializable {
     Rel.Builder builder = Rel.newBuilder();
     builder.setWrite(writeBuilder.build());
     return builder.build();
+  }
+
+  @Override
+  public List<RelNode> childNode() {
+    return Collections.singletonList(input);
   }
 }

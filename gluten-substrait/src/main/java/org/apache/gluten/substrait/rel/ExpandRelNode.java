@@ -25,6 +25,7 @@ import io.substrait.proto.RelCommon;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class ExpandRelNode implements RelNode, Serializable {
@@ -75,5 +76,10 @@ public class ExpandRelNode implements RelNode, Serializable {
     Rel.Builder builder = Rel.newBuilder();
     builder.setExpand(expandBuilder.build());
     return builder.build();
+  }
+
+  @Override
+  public List<RelNode> childNode() {
+    return Collections.singletonList(input);
   }
 }

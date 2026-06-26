@@ -26,6 +26,7 @@ import io.substrait.proto.RelCommon;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class AggregateRelNode implements RelNode, Serializable {
@@ -82,5 +83,10 @@ public class AggregateRelNode implements RelNode, Serializable {
     Rel.Builder builder = Rel.newBuilder();
     builder.setAggregate(aggBuilder.build());
     return builder.build();
+  }
+
+  @Override
+  public List<RelNode> childNode() {
+    return Collections.singletonList(input);
   }
 }

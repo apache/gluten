@@ -325,6 +325,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableFallbackReport: Boolean = getConf(FALLBACK_REPORTER_ENABLED)
 
+  def enablePassStageInputStats: Boolean = getConf(GLUTEN_PASS_STAGE_INPUT_STATS_ENABLED)
+
   def failOnFallback: Boolean = getConf(FALLBACK_FAIL_ON_FALLBACK)
 
   def debug: Boolean = getConf(DEBUG_ENABLED)
@@ -1431,6 +1433,15 @@ object GlutenConfig extends ConfigRegistry {
       .doc("When true, enable fallback reporter rule to print fallback reason")
       .booleanConf
       .createWithDefault(true)
+
+  val GLUTEN_PASS_STAGE_INPUT_STATS_ENABLED =
+    buildConf("spark.gluten.sql.enablePassStageInputStats")
+      .internal()
+      .doc("When true, pass stage input stats (scan/shuffle/broadcast) to the native engine " +
+        "as estimated row size hints. Disabled by default and no-op for backends that do not " +
+        "consume the hints.")
+      .booleanConf
+      .createWithDefault(false)
 
   val FALLBACK_FAIL_ON_FALLBACK =
     buildConf("spark.gluten.sql.columnar.failOnFallback")

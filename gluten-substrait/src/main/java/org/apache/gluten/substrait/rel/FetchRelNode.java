@@ -23,6 +23,8 @@ import io.substrait.proto.Rel;
 import io.substrait.proto.RelCommon;
 
 import java.io.Serializable;
+import java.util.Collections;
+import java.util.List;
 
 public class FetchRelNode implements RelNode, Serializable {
   private final RelNode input;
@@ -65,5 +67,10 @@ public class FetchRelNode implements RelNode, Serializable {
     Rel.Builder relBuilder = Rel.newBuilder();
     relBuilder.setFetch(fetchRelBuilder.build());
     return relBuilder.build();
+  }
+
+  @Override
+  public List<RelNode> childNode() {
+    return Collections.singletonList(input);
   }
 }

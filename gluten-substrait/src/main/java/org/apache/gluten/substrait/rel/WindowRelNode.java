@@ -27,6 +27,7 @@ import io.substrait.proto.WindowRel;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class WindowRelNode implements RelNode, Serializable {
@@ -92,5 +93,10 @@ public class WindowRelNode implements RelNode, Serializable {
     Rel.Builder builder = Rel.newBuilder();
     builder.setWindow(windowBuilder.build());
     return builder.build();
+  }
+
+  @Override
+  public List<RelNode> childNode() {
+    return Collections.singletonList(input);
   }
 }
