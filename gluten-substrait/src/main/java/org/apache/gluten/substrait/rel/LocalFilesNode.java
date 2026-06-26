@@ -23,6 +23,9 @@ import org.apache.gluten.utils.SubstraitUtil;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.ReadRel;
 import io.substrait.proto.Type;
+import org.apache.spark.sql.types.ArrayType;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
@@ -132,6 +135,18 @@ public class LocalFilesNode implements SplitInfo {
 
     Type.Struct.Builder structBuilder = Type.Struct.newBuilder();
     for (StructField field : fileSchema.fields()) {
+      // A column that contains a VariantType cannot be encoded in a Substrait NamedStruct
+      // because ConverterUtils#getTypeNode has no representation for it. If such a column
+      // is actually projected from this scan, validation in VeloxBackend rejects the plan and
+      // the whole stage falls back to vanilla Spark; we never reach this code path. If the
+      // column is *not* projected, however, it still ends up here because the file schema
+      // contains every data column of the relation regardless of projection. Skipping the
+      // field is safe: the native reader looks up requested columns by name, so an entry
+      // that is not requested is unused, and an entry that is missing from the file schema
+      // simply means the native reader will not see/validate that column.
+      if (containsUnsupportedFileSchemaType(field.dataType())) {
+        continue;
+      }
       structBuilder.addTypes(
           ConverterUtils.getTypeNode(field.dataType(), field.nullable()).toProtobuf());
       namedStructBuilder.addNames(ConverterUtils.normalizeColName(field.name()));
@@ -139,6 +154,33 @@ public class LocalFilesNode implements SplitInfo {
     namedStructBuilder.setStruct(structBuilder.build());
 
     return namedStructBuilder.build();
+  }
+
+  // Returns true if `dt` is, or recursively contains, a Spark type that has no Substrait
+  // representation in ConverterUtils#getTypeNode. Today this is only Spark 4.0's VariantType,
+  // matched by name to remain source-compatible with shims that target older Spark versions.
+  // Package-private for unit tests.
+  static boolean containsUnsupportedFileSchemaType(DataType dt) {
+    if ("variant".equals(dt.typeName())) {
+      return true;
+    }
+    if (dt instanceof StructType) {
+      for (StructField f : ((StructType) dt).fields()) {
+        if (containsUnsupportedFileSchemaType(f.dataType())) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (dt instanceof ArrayType) {
+      return containsUnsupportedFileSchemaType(((ArrayType) dt).elementType());
+    }
+    if (dt instanceof MapType) {
+      MapType m = (MapType) dt;
+      return containsUnsupportedFileSchemaType(m.keyType())
+          || containsUnsupportedFileSchemaType(m.valueType());
+    }
+    return false;
   }
 
   @Override
