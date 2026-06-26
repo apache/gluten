@@ -180,7 +180,37 @@ public class PulsarSourceSinkFactory implements VeloxSourceSinkFactory {
   }
 
   static boolean isPulsarSource(Object source) {
-    return source.getClass().getSimpleName().equals("PulsarSource");
+    return isPulsarSource(source, 0);
+  }
+
+  private static boolean isPulsarSource(Object source, int depth) {
+    if (source == null || depth > 3) {
+      return false;
+    }
+    if (source.getClass().getSimpleName().equals("PulsarSource")) {
+      return true;
+    }
+    // Check wrapped source fields (e.g. Flink wraps PulsarSource in a SourceReaderContext wrapper)
+    for (java.lang.reflect.Field f : source.getClass().getDeclaredFields()) {
+      Class<?> fieldType = f.getType();
+      // Only recurse into non-primitive, non-collection, non-map fields that could wrap a Source
+      if (fieldType.isPrimitive()
+          || fieldType == String.class
+          || Collection.class.isAssignableFrom(fieldType)
+          || Map.class.isAssignableFrom(fieldType)
+          || fieldType.isEnum()) {
+        continue;
+      }
+      f.setAccessible(true);
+      try {
+        Object inner = f.get(source);
+        if (inner != null && isPulsarSource(inner, depth + 1)) {
+          return true;
+        }
+      } catch (IllegalAccessException ignored) {
+      }
+    }
+    return false;
   }
 
   private static String required(Map<String, String> options, String key) {

@@ -53,7 +53,7 @@ class PulsarSourceSinkFactoryTest {
 
   @Test
   void tableParametersMapFlinkSqlOptionsToVeloxPulsarOptions() {
-    FakePulsarSource source = new FakePulsarSource();
+    PulsarSource source = new PulsarSource();
     source.options.put("pulsar.client.serviceUrl", "pulsar://127.0.0.1:16650");
     source.options.put("admin-url", "http://127.0.0.1:18080");
     source.options.put("topics", "persistent://public/default/gluten-pulsar-smoke");
@@ -81,13 +81,13 @@ class PulsarSourceSinkFactoryTest {
     assertThat(PulsarSourceSinkFactory.isPulsarSource(new WrappedSource())).isTrue();
   }
 
-  private static class FakePulsarSource {
+  private static class PulsarSource {
     private final Map<String, String> options = new HashMap<>();
     private FakeSubscriptionType subscriptionType;
   }
 
   private static class WrappedSource {
-    private final Object source = new FakePulsarSource();
+    private final Object source = new PulsarSource();
   }
 
   private enum FakeSubscriptionType {
