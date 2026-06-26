@@ -23,6 +23,7 @@ import org.apache.gluten.memory.memtarget.{KnownNameAndStats, MemoryTarget, Spil
 import org.apache.gluten.proto.MemoryUsageStats
 import org.apache.gluten.utils.ConfigUtil
 
+import org.apache.spark.TaskContext
 import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
 import org.apache.spark.task.{TaskResource, TaskResources}
@@ -54,7 +55,8 @@ object NativeMemoryManager {
       ConfigUtil.serialize(
         GlutenConfig
           .getNativeSessionConf(backendName, GlutenConfigUtil.parseConfig(SQLConf.get.getAllConfs))
-          .asJava)
+          .asJava),
+      name
     )
     spillers.append(new Spiller() {
       override def spill(self: MemoryTarget, phase: Spiller.Phase, size: Long): Long = phase match {
@@ -76,7 +78,8 @@ object NativeMemoryManager {
     private val released: AtomicBoolean = new AtomicBoolean(false)
 
     override def addSpiller(spiller: Spiller): Unit = spillers.append(spiller)
-    override def hold(): Unit = NativeMemoryManagerJniWrapper.hold(handle)
+    override def hold(): Unit =
+      NativeMemoryManagerJniWrapper.hold(handle, name, TaskContext.get().taskAttemptId())
     override def getHandle(): Long = handle
     override def release(): Unit = {
       if (!released.compareAndSet(false, true)) {
@@ -97,7 +100,7 @@ object NativeMemoryManager {
         LOGGER.debug("About to release memory manager, " + dump())
       }
 
-      NativeMemoryManagerJniWrapper.release(handle)
+      NativeMemoryManagerJniWrapper.release(handle, TaskContext.get().taskAttemptId())
 
       if (rl.getUsedBytes != 0) {
         LOGGER.warn(

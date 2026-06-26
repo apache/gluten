@@ -39,6 +39,14 @@ class MemoryManager {
     return kind_;
   }
 
+  std::string name() const {
+    return name_;
+  }
+
+  void setName(const std::string& name) {
+    name_ = name;
+  }
+
   // Get the default Arrow memory pool for this memory manager. This memory pool is held by the memory manager.
   virtual arrow::MemoryPool* defaultArrowMemoryPool() = 0;
 
@@ -58,6 +66,7 @@ class MemoryManager {
 
  private:
   std::string kind_;
+  std::string name_;
 };
 
 } // namespace gluten

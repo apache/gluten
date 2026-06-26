@@ -22,13 +22,13 @@ public class NativeMemoryManagerJniWrapper {
   private NativeMemoryManagerJniWrapper() {}
 
   public static native long create(
-      String backendType, ReservationListener listener, byte[] sessionConf);
+      String backendType, ReservationListener listener, byte[] sessionConf, String name);
 
   public static native byte[] collectUsage(long handle);
 
   public static native long shrink(long handle, long size);
 
-  public static native void hold(long handle);
+  public static native void hold(long handle, String name, long taskAttemptId);
 
-  public static native void release(long handle);
+  public static native void release(long handle, long taskAttemptId);
 }

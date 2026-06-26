@@ -194,6 +194,14 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     return objStore_->save(obj);
   }
 
+  int64_t taskAttemptId() const {
+    return taskAttemptId_;
+  }
+
+  void setTaskAttemptId(int64_t id) {
+    taskAttemptId_ = id;
+  }
+
  protected:
   std::string kind_;
   MemoryManager* memoryManager_;
@@ -206,5 +214,6 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
 
   std::optional<SparkTaskInfo> taskInfo_{std::nullopt};
   std::shared_ptr<WholeStageDumper> dumper_{nullptr};
+  int64_t taskAttemptId_{-1};
 };
 } // namespace gluten
