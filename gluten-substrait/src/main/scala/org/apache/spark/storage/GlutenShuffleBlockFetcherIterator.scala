@@ -1293,8 +1293,7 @@ final private[spark] class GlutenShuffleBlockFetcherIterator(
         diagnosisResponse
       case unexpected: BlockId =>
         throw SparkException.internalError(
-          s"Unexpected type of BlockId, $unexpected",
-          category = "STORAGE")
+          s"Unexpected type of BlockId, $unexpected")
     }
   }
 
