@@ -26,6 +26,10 @@ const std::string kSpillStrategyDefaultValue = "auto";
 const std::string kSpillThreadNum = "spark.gluten.sql.columnar.backend.velox.spillThreadNum";
 const uint32_t kSpillThreadNumDefaultValue = 0;
 const std::string kAggregationSpillEnabled = "spark.gluten.sql.columnar.backend.velox.aggregationSpillEnabled";
+// When enabled, aggregation spilling skips the spill-time sort and re-aggregates each spill
+// partition through a hash table (vectorized) on read, instead of the row-by-row ordered merge.
+const std::string kAggregationSpillHashRecoveryEnabled =
+    "spark.gluten.sql.columnar.backend.velox.aggregationSpillHashRecoveryEnabled";
 const std::string kJoinSpillEnabled = "spark.gluten.sql.columnar.backend.velox.joinSpillEnabled";
 const std::string kOrderBySpillEnabled = "spark.gluten.sql.columnar.backend.velox.orderBySpillEnabled";
 const std::string kWindowSpillEnabled = "spark.gluten.sql.columnar.backend.velox.windowSpillEnabled";

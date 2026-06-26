@@ -678,6 +678,8 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     }
     configs[velox::core::QueryConfig::kAggregationSpillEnabled] =
         std::to_string(veloxCfg_->get<bool>(kAggregationSpillEnabled, true));
+    configs[velox::core::QueryConfig::kAggregationSpillHashRecoveryEnabled] =
+        std::to_string(veloxCfg_->get<bool>(kAggregationSpillHashRecoveryEnabled, false));
     configs[velox::core::QueryConfig::kJoinSpillEnabled] =
         std::to_string(veloxCfg_->get<bool>(kJoinSpillEnabled, true));
     configs[velox::core::QueryConfig::kOrderBySpillEnabled] =
