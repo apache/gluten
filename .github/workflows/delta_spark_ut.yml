@@ -98,7 +98,7 @@ env:
   # the sbt launcher push the ~16G runner to its limit and may OOM on heavy suites
   # -- which is why production uses TEST_PARALLELISM_COUNT=1. Measuring whether it
   # fits now that the worst memory hog (DeletionVectorsSuite 2B-row) is force-failed.
-  DELTA_NUM_SHARDS: '4'
+  DELTA_NUM_SHARDS: '16'
 
 concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
