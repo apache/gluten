@@ -49,6 +49,7 @@ env:
     --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
     --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
 
 jobs:
