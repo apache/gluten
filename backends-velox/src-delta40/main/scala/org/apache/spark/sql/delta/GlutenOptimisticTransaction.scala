@@ -31,6 +31,7 @@ import org.apache.spark.sql.execution.{SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, FileFormatWriter, WriteJobStatsTracker}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 import org.apache.spark.sql.util.ScalaExtensions.OptionExt
 import org.apache.spark.util.SerializableConfiguration
 
@@ -48,6 +49,13 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
       writeOptions: Option[DeltaOptions],
       isOptimize: Boolean,
       additionalConstraints: Seq[Constraint]): Seq[FileAction] = {
+    // Velox has no Arrow representation for VariantType, so the native columnar write path
+    // (which converts rows to Velox batches via RowToVeloxColumnarExec.toArrowSchema) throws
+    // `Unsupported data type: variant` at runtime. Delegate writes whose schema contains a
+    // variant column to the vanilla Delta write path instead of offloading them.
+    if (GlutenOptimisticTransaction.schemaContainsVariant(inputData.schema)) {
+      return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+    }
     hasWritten = true
 
     val spark = inputData.sparkSession
@@ -246,5 +254,24 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
     writeOptions
       .flatMap(_.optimizeWrite)
       .getOrElse(TransactionalWrite.shouldOptimizeWrite(metadata, sessionConf))
+  }
+}
+
+object GlutenOptimisticTransaction {
+
+  /**
+   * Whether `schema` contains a VariantType at any nesting level. Velox has no Arrow mapping for
+   * variant, so a write with such a schema cannot be offloaded to the native columnar writer.
+   * Matched by type name to stay source-compatible across Spark versions.
+   */
+  private[delta] def schemaContainsVariant(schema: StructType): Boolean = {
+    def hasVariant(dataType: DataType): Boolean = dataType match {
+      case dt if dt.typeName == "variant" => true
+      case st: StructType => st.exists(f => hasVariant(f.dataType))
+      case at: ArrayType => hasVariant(at.elementType)
+      case mt: MapType => hasVariant(mt.keyType) || hasVariant(mt.valueType)
+      case _ => false
+    }
+    schema.exists(f => hasVariant(f.dataType))
   }
 }
