@@ -151,6 +151,42 @@ echo "Force-failed 2 DeletionVectorsSuite 2B-row tests (read + delete)."
 git -C "$DELTA_DIR" --no-pager diff -- "spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala" || true
 echo "::endgroup::"
 
+echo "::group::Cherry-picking upstream ScanReportHelper fix (delta-io/delta#7104)"
+# Delta's data-skipping / limit-push-down tests capture a ScanReport per query via
+# ScanReportHelper.collectScans, which matches the concrete `FileSourceScanExec`
+# case class. Under Gluten the file scan is offloaded to DeltaScanTransformer, a
+# sibling that implements the same `FileSourceScanLike` interface, so the match
+# never fires: collectScans returns Nil and `val Seq(r1) = getScanReport {..}`
+# throws `scala.MatchError: List()` in ~56 DataSkipping* / DeltaLimitPushDown* tests.
+#
+# delta-io/delta#7104 fixes this upstream by widening collectScans to match the
+# `FileSourceScanLike` interface, which both the vanilla and Gluten scans
+# implement (behavior-preserving for vanilla). It is already merged but lands
+# after the Delta ref this workflow builds against (v4.2.0), so cherry-pick it
+# onto the checkout rather than maintaining our own edit.
+#
+# Fetch depth 2 so the fix commit AND its parent are present: cherry-pick needs
+# the parent to compute the parent->fix diff against our shallow checkout (a
+# depth-1 fetch grafts the parent away and turns the cherry-pick into an add of
+# the whole tree, conflicting on every file). `cherry-pick -n` stages the change
+# without requiring a committer identity, matching the other working-tree patches
+# above. Once the pinned DELTA_REF advances to include this commit the cherry-pick
+# becomes a clean no-op, so this whole block can simply be deleted.
+SCAN_REPORT_FIX_SHA="46bd45d57eadd7e528002a0ae7bd36ce5a456eca"
+SCAN_REPORT_HELPER="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/test/ScanReportHelper.scala"
+git -C "$DELTA_DIR" fetch --depth 2 origin "$SCAN_REPORT_FIX_SHA"
+git -C "$DELTA_DIR" cherry-pick -n "$SCAN_REPORT_FIX_SHA"
+if ! grep -q 'case fs: FileSourceScanLike => Seq(fs)' "$SCAN_REPORT_HELPER"; then
+  echo "ERROR: cherry-pick of ${SCAN_REPORT_FIX_SHA} did not produce the expected" >&2
+  echo "FileSourceScanLike match in ScanReportHelper; its structure may have changed" >&2
+  echo "in Delta ref '${DELTA_REF}'. Update setup-delta.sh." >&2
+  exit 1
+fi
+echo "Cherry-picked delta-io/delta#7104 (collect scans by FileSourceScanLike)."
+git -C "$DELTA_DIR" --no-pager diff --cached -- \
+  "spark/src/test/scala/org/apache/spark/sql/delta/test/ScanReportHelper.scala" || true
+echo "::endgroup::"
+
 echo "::group::Disabling Delta scalastyle HeaderMatchesChecker"
 # Our reused DeltaSQLCommandTest carries Gluten's ASF-only license header, which
 # does not match Delta's HeaderMatchesChecker regex (the regex expects either a
