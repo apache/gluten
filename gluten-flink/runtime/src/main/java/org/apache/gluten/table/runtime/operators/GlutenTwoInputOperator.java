@@ -184,6 +184,10 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
       if (state == UpIterator.State.AVAILABLE) {
         final StatefulElement element = task.statefulGet();
         try {
+          if (element.isBarrier()) {
+            // Barriers should not appear during normal draining; skip.
+            continue;
+          }
           if (element.isWatermark()) {
             StatefulWatermark watermark = element.asWatermark();
             output.emitWatermark(new Watermark(watermark.getTimestamp()));
@@ -271,8 +275,43 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void prepareSnapshotPreBarrier(long checkpointId) throws Exception {
-    // TODO: notify velox
+    // Inject barrier into Velox operator chain, then drain output until the
+    // barrier emerges, indicating all operators have snapshot and sinks flushed.
+    task.injectBarrier(checkpointId);
+    drainUntilBarrier(checkpointId);
     super.prepareSnapshotPreBarrier(checkpointId);
+  }
+
+  private void drainUntilBarrier(long checkpointId) {
+    while (true) {
+      UpIterator.State state = task.advance();
+      if (state == UpIterator.State.AVAILABLE) {
+        final StatefulElement statefulElement = task.statefulGet();
+        try {
+          if (statefulElement.isBarrier()) {
+            if (statefulElement.asBarrier().getCheckpointId() == checkpointId) {
+              return;
+            }
+            continue;
+          }
+          if (statefulElement.isWatermark()) {
+            StatefulWatermark watermark = statefulElement.asWatermark();
+            output.emitWatermark(new Watermark(watermark.getTimestamp()));
+          } else {
+            long emittedRecords =
+                outputBridge.collect(
+                    output, statefulElement.asRecord(), sessionResource.getAllocator(), outputType);
+            if (taskNumRecordsOut != null) {
+              taskNumRecordsOut.inc(emittedRecords);
+            }
+          }
+        } finally {
+          statefulElement.close();
+        }
+      } else {
+        Thread.yield();
+      }
+    }
   }
 
   @Override
