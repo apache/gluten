@@ -37,6 +37,7 @@ env:
     --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED
+    --add-opens=java.base/sun.reflect.generics.repository=ALL-UNNAMED
   JAVA_TOOL_OPTIONS: >-
     --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED
     --add-opens=java.base/sun.nio.ch=org.apache.arrow.memory.core,ALL-UNNAMED
@@ -50,6 +51,7 @@ env:
     --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED
+    --add-opens=java.base/sun.reflect.generics.repository=ALL-UNNAMED
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
 
 jobs:
