@@ -161,11 +161,6 @@ jobs:
         with:
           name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
-      - name: Download Arrow jars
-        uses: actions/download-artifact@v4
-        with:
-          name: delta-spark-ut-arrow-jars-centos-7-${{github.sha}}
-          path: /root/.m2/repository/org/apache/arrow/
       - name: Cache Maven repository
         uses: actions/cache@v4
         with:
@@ -174,6 +169,11 @@ jobs:
           restore-keys: |
             m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-
             m2-delta-spark-ut-bundle-
+      - name: Download Arrow jars
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-spark-ut-arrow-jars-centos-7-${{github.sha}}
+          path: /root/.m2/repository/org/apache/arrow/
       - name: Build Gluten Velox + Delta bundle
         run: |
           set -euo pipefail
