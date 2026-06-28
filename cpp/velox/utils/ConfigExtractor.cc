@@ -25,7 +25,7 @@
 #include "utils/Macros.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/storage_adapters/s3fs/S3Config.h"
-#include "velox/dwio/parquet/writer/WriterConfig.h"
+#include "velox/dwio/parquet/common/ParquetConfig.h"
 
 namespace gluten {
 
@@ -229,7 +229,7 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
   configs[facebook::velox::connector::hive::HiveConfig::kFileColumnNamesReadAsLowerCaseSession] =
       !conf->get<bool>(kCaseSensitive, false) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kPartitionPathAsLowerCaseSession] = "false";
-  configs[facebook::velox::parquet::WriterConfig::kParquetSessionWriteTimestampUnit] = std::string("6");
+  configs[std::string(facebook::velox::parquet::ParquetConfig::kWriterTimestampUnitSession)] = std::string("6");
   configs[facebook::velox::connector::hive::HiveConfig::kReadTimestampUnitSession] = std::string("6");
   configs[facebook::velox::connector::hive::HiveConfig::kMaxPartitionsPerWritersSession] =
       conf->get<std::string>(kMaxPartitions, "10000");
@@ -243,7 +243,7 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
       conf->get<bool>(kAllowInt32Narrowing, true) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kOrcUseColumnNamesSession] =
       conf->get<bool>(kOrcUseColumnNames, true) ? "true" : "false";
-  configs[facebook::velox::parquet::WriterConfig::kParquetSessionWritePageSize] =
+  configs[std::string(facebook::velox::parquet::ParquetConfig::kWriterPageSizeSession)] =
       conf->get<std::string>(kWriteParquetPageSizeBytes, "1MB");
 
   overwriteVeloxConf(conf.get(), configs, kDynamicBackendConfPrefix);
@@ -307,7 +307,7 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorConfig(
   // read as UTC
   hiveConfMap[facebook::velox::connector::hive::HiveConfig::kReadTimestampPartitionValueAsLocalTime] = "false";
 
-  hiveConfMap[facebook::velox::connector::hive::HiveConfig::kParquetNullStructForMissingFields] = "true";
+  hiveConfMap[std::string(facebook::velox::parquet::ParquetConfig::kNullStructIfAllFieldsMissingSession)] = "true";
 
   overwriteVeloxConf(conf.get(), hiveConfMap, kStaticBackendConfPrefix);
   return std::make_shared<facebook::velox::config::ConfigBase>(std::move(hiveConfMap));
