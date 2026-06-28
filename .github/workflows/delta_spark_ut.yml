@@ -32,6 +32,46 @@
 name: Delta Spark UT (Gluten)
 
 on:
+  # Reusable workflow. velox_backend_x86.yml calls this (gated on Delta-relevant
+  # changes) and passes the native-lib + arrow-jars artifacts it already built,
+  # so the expensive native C++ build is NOT duplicated. Those artifacts live in
+  # the CALLER's run (a called workflow runs as part of the caller run), so the
+  # jobs below download them by name. See velox_backend_x86.yml `delta-spark-ut`.
+  #
+  # NOTE: the `pull_request` trigger was removed so this no longer runs as its own
+  # workflow on PRs (which would double-run the Delta suite). velox_backend_x86.yml
+  # is now the single PR entry point; `workflow_dispatch` keeps manual standalone
+  # runs working (those build the native lib themselves -- see build-native-lib).
+  workflow_call:
+    inputs:
+      native_lib_artifact:
+        description: 'Name of the cpp/build artifact uploaded by the caller'
+        type: string
+        required: true
+      arrow_jars_artifact:
+        description: 'Name of the org.apache.arrow jars artifact uploaded by the caller'
+        type: string
+        required: true
+      delta_ref:
+        type: string
+        required: false
+        default: 'v4.2.0'
+      spark_version:
+        type: string
+        required: false
+        default: '4.1'
+      test_parallelism:
+        type: string
+        required: false
+        default: '4'
+      update_baseline:
+        type: boolean
+        required: false
+        default: false
+      fail_on_fixed:
+        type: boolean
+        required: false
+        default: true
   workflow_dispatch:
     inputs:
       delta_ref:
@@ -56,12 +96,6 @@ on:
         type: boolean
         required: false
         default: true
-  pull_request:
-    paths:
-      - '.github/workflows/delta_spark_ut.yml'
-      - '.github/workflows/util/delta-spark-ut/**'
-      - 'gluten-delta/**'
-      - 'backends-velox/src-delta40/**/DeltaSQLCommandTest.scala'
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
@@ -75,37 +109,32 @@ env:
   GLUTEN_JAVA_PROFILE: 'java-17'
   GLUTEN_BUNDLE_SPARK_VERSION: '4.1'
   GLUTEN_BUNDLE_SCALA_VERSION: '2.13'
-  # Default values used when the workflow is triggered by pull_request
-  # (where `inputs.*` is empty). Keep these in sync with the workflow_dispatch
-  # defaults above.
-  DELTA_REF_DEFAULT: 'v4.2.0'
-  DELTA_SPARK_VERSION_DEFAULT: '4.1'
-  DELTA_TEST_PARALLELISM_DEFAULT: '4'
-  # Default mode for pull_request runs (where inputs.* is empty): enforce the
-  # committed baseline and fail when a baseline test starts passing. Override
-  # via the workflow_dispatch inputs above.
-  DELTA_UPDATE_BASELINE_DEFAULT: 'false'
-  DELTA_FAIL_ON_FIXED_DEFAULT: 'true'
   DELTA_SCALA_VERSION: '2.13.16'
   # Number of shards in the delta-spark-test matrix. Must equal the length of
   # the `shard` matrix below.
   #
-  # EXPERIMENT: 4 shards x TEST_PARALLELISM_COUNT=4 (vs production 16 shards x 1).
-  # Both give ~16-way parallelism, but this packs it into 4 runner jobs (4 forks
-  # each) instead of 16 single-fork jobs -- fewer concurrent runners for the same
-  # throughput. Sharding is by SUITE; total work (~1250 shard-minutes) is fixed.
-  # RISK: each forked test JVM uses ~4G (2G heap + 2G off-heap), so 4 forks atop
-  # the sbt launcher push the ~16G runner to its limit and may OOM on heavy suites
-  # -- which is why production uses TEST_PARALLELISM_COUNT=1. Measuring whether it
-  # fits now that the worst memory hog (DeletionVectorsSuite 2B-row) is force-failed.
+  # 4 shards x TEST_PARALLELISM_COUNT=4 gives ~16-way parallelism packed into 4
+  # runner jobs (4 forks each) rather than 16 single-fork jobs -- fewer concurrent
+  # runners for the same throughput. Sharding is by SUITE; total work
+  # (~1250 shard-minutes) is fixed. Each forked test JVM uses ~4G (2G heap + 2G
+  # off-heap), so 4 forks plus the sbt launcher sit close to the ~16G runner limit;
+  # this fits because the worst memory hog (DeletionVectorsSuite 2B-row) is
+  # force-failed in setup-delta.sh.
   DELTA_NUM_SHARDS: '4'
 
-concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
-  cancel-in-progress: true
+# No `concurrency:` here on purpose. As a reusable workflow this runs inside the
+# caller's run, where `github.workflow` resolves to the CALLER's name -- a group
+# keyed on it would collide with the caller's own group and, with
+# cancel-in-progress, could cancel the parent run. The caller's concurrency
+# already governs cancellation. (A standalone workflow_dispatch run just won't
+# auto-cancel, which is fine for infrequent manual runs.)
 
 jobs:
   build-native-lib-centos-7:
+    # Standalone (workflow_dispatch) only. When called by velox_backend_x86.yml
+    # the caller already built the native lib + arrow jars and passes them as
+    # inputs, so this job is skipped and the duplicate native build is avoided.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -152,6 +181,9 @@ jobs:
 
   build-gluten-bundle:
     needs: build-native-lib-centos-7
+    # Run whether the native lib was built here (dispatch -> success) or provided
+    # by the caller (workflow_call -> build-native-lib-centos-7 skipped).
+    if: ${{ always() && needs.build-native-lib-centos-7.result != 'failure' && needs.build-native-lib-centos-7.result != 'cancelled' }}
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk17
     steps:
@@ -159,7 +191,7 @@ jobs:
       - name: Download native artifacts
         uses: actions/download-artifact@v4
         with:
-          name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
+          name: ${{ inputs.native_lib_artifact || format('delta-spark-ut-native-lib-centos-7-{0}', github.sha) }}
           path: ./cpp/build/
       - name: Cache Maven repository
         uses: actions/cache@v4
@@ -172,7 +204,7 @@ jobs:
       - name: Download Arrow jars
         uses: actions/download-artifact@v4
         with:
-          name: delta-spark-ut-arrow-jars-centos-7-${{github.sha}}
+          name: ${{ inputs.arrow_jars_artifact || format('delta-spark-ut-arrow-jars-centos-7-{0}', github.sha) }}
           path: /root/.m2/repository/org/apache/arrow/
       - name: Build Gluten Velox + Delta bundle
         run: |
@@ -216,10 +248,15 @@ jobs:
 
   delta-spark-test:
     needs: build-gluten-bundle
+    # build-gluten-bundle runs via `if: always()` (its build-native-lib-centos-7 need
+    # is skipped on workflow_call), so this job needs an explicit condition too --
+    # otherwise GitHub's transitive skip propagation, seeing the skipped
+    # build-native-lib-centos-7 ancestor, would skip the whole shard matrix.
+    if: ${{ !cancelled() && needs.build-gluten-bundle.result == 'success' }}
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk17
-    # EXPERIMENT (4 shards x 4 forks): back to 350 -- per-shard suites now run
-    # 4-at-a-time, so each shard should finish well under the cap again.
+    # 350-min safety cap. With 4 forks per shard the per-shard suites run
+    # 4-at-a-time, so a shard finishes well under this.
     timeout-minutes: 350
     strategy:
       fail-fast: false
@@ -235,24 +272,22 @@ jobs:
 
       - name: Resolve workflow inputs
         id: resolve
+        # Every input has a default (workflow_call + workflow_dispatch), so they
+        # are always set; just surface them as step outputs for the steps below.
+        env:
+          DELTA_REF: ${{ inputs.delta_ref }}
+          SPARK_VERSION: ${{ inputs.spark_version }}
+          TEST_PARALLELISM: ${{ inputs.test_parallelism }}
+          UPDATE_BASELINE: ${{ inputs.update_baseline }}
+          FAIL_ON_FIXED: ${{ inputs.fail_on_fixed }}
         run: |
           set -euo pipefail
-          delta_ref='${{ github.event.inputs.delta_ref }}'
-          spark_version='${{ github.event.inputs.spark_version }}'
-          test_parallelism='${{ github.event.inputs.test_parallelism }}'
-          update_baseline='${{ github.event.inputs.update_baseline }}'
-          fail_on_fixed='${{ github.event.inputs.fail_on_fixed }}'
-          : "${delta_ref:=${DELTA_REF_DEFAULT}}"
-          : "${spark_version:=${DELTA_SPARK_VERSION_DEFAULT}}"
-          : "${test_parallelism:=${DELTA_TEST_PARALLELISM_DEFAULT}}"
-          : "${update_baseline:=${DELTA_UPDATE_BASELINE_DEFAULT}}"
-          : "${fail_on_fixed:=${DELTA_FAIL_ON_FIXED_DEFAULT}}"
           {
-            echo "delta_ref=${delta_ref}"
-            echo "spark_version=${spark_version}"
-            echo "test_parallelism=${test_parallelism}"
-            echo "update_baseline=${update_baseline}"
-            echo "fail_on_fixed=${fail_on_fixed}"
+            echo "delta_ref=${DELTA_REF}"
+            echo "spark_version=${SPARK_VERSION}"
+            echo "test_parallelism=${TEST_PARALLELISM}"
+            echo "update_baseline=${UPDATE_BASELINE}"
+            echo "fail_on_fixed=${FAIL_ON_FIXED}"
           } | tee -a "$GITHUB_OUTPUT"
 
       - name: Download Gluten bundle jar
@@ -371,45 +406,26 @@ jobs:
           # `sparkGroup` aggregates many other projects (sparkV2, contribs,
           # sharing, connect*, ...) that are out of scope for this pipeline.
           #
-          # JVM heap layout (16 GB ubuntu-22.04 runner, TEST_PARALLELISM=1):
-          # * sbt launcher JVM: -J-Xmx4G, BUT made to RETURN idle memory (see the
-          #   G1 periodic-GC flags below). The per-minute MEM profiler in the
-          #   watchdog (run #18) DISPROVED the old "launcher RSS is well under 4G"
-          #   assumption: the launcher grew to a ROCK-STEADY 5.3G (RSS) during the
-          #   test-compile and then HELD it for the entire run -- ~3.8G of pure
-          #   idle waste during the (long) test phase, where it only relays the
-          #   fork's test events. That fixed 5.3G + the fork's native spike in a
-          #   heavy suite is what pushed the cgroup to the ~16G OOM-kill. G1 does
-          #   NOT uncommit on its own here because the idle launcher never GCs.
-          #   FIX (behaviour-neutral -- touches NO Gluten/Spark runtime config, so
-          #   it cannot pollute the measured pass/fail signal): keep -Xmx4G for the
-          #   compile headroom but force a periodic GC every 10s when idle
-          #   (G1PeriodicGCInterval) with the system-load gate disabled
-          #   (G1PeriodicGCSystemLoadThreshold=0, since the busy fork would
-          #   otherwise suppress it) as a full STW collection
-          #   (-G1PeriodicGCInvokesConcurrent) that uncommits down to a tight free
-          #   ratio (Min/MaxHeapFreeRatio 5/15, JEP 346) above a low -Xms512m
-          #   floor. The idle launcher then drops from ~5.3G back to ~1-2G during
-          #   the test phase, cutting the cgroup peak by ~3.8G (~15.9G -> ~12G) --
-          #   real headroom under the OOM threshold -- with zero compile-OOM risk.
-          # * Forked test JVM:  -Xmx2G via the `set ... Test / javaOptions` command
-          #   below. Delta v4.2.0 caps its test fork at `-Xmx1024m` in build.sbt;
-          #   Gluten OFFLOADS data to Velox off-heap (capped at 2g via
-          #   spark.memory.offHeap.size in the patched DeltaSQLCommandTest), so the
-          #   fork's JVM HEAP need is modest -- 2G is generous.
-          #   HISTORY: briefly bumped to 8G then 4G to absorb a DV+CDC merge suite's
-          #   giant RoaringBitmapArray heap allocation, but that was a Gluten bug
-          #   (garbage native _metadata.row_index) FIXED UPSTREAM by #12269 -- so the
-          #   large heap is no longer needed. Worse, on the ~16G runner the cgroup
-          #   memory.peak hit 15.97G with a 4G fork heap and the kernel OOM-killed
-          #   the fork mid-shard (sudden death, no hs_err / no heap dump), which
-          #   wedged sbt's main process forever in ScalaTestRunner.done -> Thread
-          #   .join (the chronic "shard 2 hang"). The JVM heaps -- not off-heap --
-          #   drive that peak, so 2G fork heap (+ the unchanged 4G sbt launcher,
-          #   which needs its heap to COMPILE the tests) brings the peak to ~13G,
-          #   leaving real headroom. The `++=` appends to Delta's own Test/javaOptions
-          #   seq so our `-Xmx2G` comes AFTER `-Xmx1024m` and wins (last `-Xmx`
-          #   wins). Keep heap-dump-on-OOM so a genuine >2G heap OOM is analyzable.
+          # JVM heap layout -- two memory consumers on the ~16G runner:
+          # * sbt launcher JVM: -J-Xmx4G for the test compile, then forced to
+          #   return idle memory during the (long) test phase via G1 periodic GC
+          #   (G1PeriodicGCInterval=10s; G1PeriodicGCSystemLoadThreshold=0 so the
+          #   busy fork doesn't suppress it; -XX:-G1PeriodicGCInvokesConcurrent
+          #   forces each periodic GC to a full STW collection) that uncommits to a
+          #   tight free ratio (Min/MaxHeapFreeRatio 5/15, JEP 346) above a low
+          #   -Xms512m floor.
+          #   Without this the idle launcher holds ~5.3G for the whole run; with
+          #   it, it drops back to ~1-2G. These flags touch no Gluten/Spark runtime
+          #   config, so they cannot affect the measured pass/fail signal.
+          # * Forked test JVM: -Xmx2G via the `set ... Test / javaOptions` command
+          #   below. Delta caps its fork at -Xmx1024m in build.sbt; `++=` appends
+          #   so our -Xmx2G comes last and wins. Gluten offloads data to Velox
+          #   off-heap (capped at 2g via spark.memory.offHeap.size in the patched
+          #   DeltaSQLCommandTest), so the fork's heap need is modest. A larger
+          #   fork heap pushed the cgroup peak past the ~16G OOM threshold and the
+          #   kernel OOM-killed the fork mid-shard (no hs_err), wedging sbt -- 2G
+          #   keeps headroom. Keep heap-dump-on-OOM so a real >2G heap OOM is
+          #   analyzable.
           # `-u target/test-reports` enables ScalaTest's JUnit XML reporter so
           # every suite writes per-test results. Delta itself only configures
           # the console reporter (-oDF), so without this we'd have no machine-
@@ -440,8 +456,8 @@ jobs:
             # subshell inherits. Without `set +e` here, ANY non-zero command --
             # e.g. fork detection finding no match, or `kill`/`jps` returning
             # non-zero -- silently kills this watchdog. That errexit kill (plus a
-            # /proc detection miss) is why the watchdog captured ZERO dumps in
-            # runs #12 and #13. A diagnostic must never abort on a failed probe.
+            # /proc detection miss) once made the watchdog capture ZERO dumps. A
+            # diagnostic must never abort on a failed probe.
             set +e +o pipefail
             JSTACK="${JAVA_HOME}/bin/jstack"
             JPS="${JAVA_HOME}/bin/jps"

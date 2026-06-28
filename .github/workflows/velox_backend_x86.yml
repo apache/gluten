@@ -19,6 +19,11 @@ on:
   pull_request:
     paths:
       - '.github/workflows/velox_backend_x86.yml'
+      # Delta Spark UT runs here too (reusable delta_spark_ut.yml). These extra
+      # paths make Delta-CI-only changes trigger this workflow; Delta also runs on
+      # the velox paths below since core/velox changes can affect Delta offload.
+      - '.github/workflows/delta_spark_ut.yml'
+      - '.github/workflows/util/delta-spark-ut/**'
       - '.github/workflows/util/install-spark-deps.sh' #TODO remove after image update
       - '.github/workflows/util/install-spark-resources.sh' #TODO remove after image update
       - 'pom.xml'
@@ -86,6 +91,10 @@ jobs:
             ccache -sz
             bash dev/ci-velox-buildstatic-centos-7.sh
             ccache -s
+            # Stage the custom-built org.apache.arrow jars so the reusable Delta
+            # workflow's bundle build can consume them (see delta-spark-ut job).
+            mkdir -p /work/.m2/repository/org/apache/arrow/
+            cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
           "
 
       - name: "Save ccache"
@@ -100,6 +109,24 @@ jobs:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
           if-no-files-found: error
+      # Consumed by the reusable Delta workflow (delta-spark-ut job).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velox-arrow-jars-centos-7-${{github.sha}}
+          path: .m2/repository/org/apache/arrow/
+          if-no-files-found: error
+
+  # Delta Spark UT, run via the reusable workflow so it reuses the native lib +
+  # arrow jars built above instead of duplicating the native build. Not gated on
+  # Delta-only paths: core/velox/substrait/cpp/shims changes can affect Delta
+  # query offload, so this runs on every trigger like the other spark-test jobs.
+  delta-spark-ut:
+    needs: build-native-lib-centos-7
+    uses: ./.github/workflows/delta_spark_ut.yml
+    with:
+      native_lib_artifact: velox-native-lib-centos-7-${{ github.sha }}
+      arrow_jars_artifact: velox-arrow-jars-centos-7-${{ github.sha }}
+    secrets: inherit
 
   tpc-test-ubuntu:
     needs: build-native-lib-centos-7
