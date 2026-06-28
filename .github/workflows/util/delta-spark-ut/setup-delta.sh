@@ -115,6 +115,31 @@ echo "--- diff vs. upstream ---"
 git -C "$DELTA_DIR" --no-pager diff -- "spark/src/test/scala/org/apache/spark/sql/delta/test/DeltaSQLCommandTest.scala" || true
 echo "::endgroup::"
 
+# Delta's tests collect file-source scans by matching the concrete
+# `FileSourceScanExec` case class; Gluten offloads the scan to
+# DeltaScanTransformer, a `FileSourceScanLike` sibling, so those matches miss
+# (`scala.MatchError: List()`, empty partition filters, broken column-pruning /
+# scan-metric checks across many suites). delta-io/delta#7104 and #7105 widen the
+# matches to the shared `FileSourceScanLike` interface that both the vanilla and
+# Gluten scans implement (behavior-preserving for vanilla). Both are merged
+# upstream but land after the pinned DELTA_REF (v4.2.0), so apply them here; once
+# DELTA_REF includes a commit its cherry-pick is a clean no-op and the call can go.
+#
+# Depth-2 fetch brings each fix commit and its parent, which cherry-pick needs to
+# diff against (a depth-1 fetch grafts the parent away); `-n` stages the change
+# without requiring a committer identity.
+cherry_pick_delta_fix() {
+  local sha="$1" pr="$2"
+  echo "Cherry-picking delta-io/delta${pr}"
+  git -C "$DELTA_DIR" fetch --quiet --depth 2 origin "$sha"
+  git -C "$DELTA_DIR" cherry-pick -n "$sha"
+}
+
+echo "::group::Cherry-picking upstream Delta FileSourceScanLike test fixes"
+cherry_pick_delta_fix 46bd45d57eadd7e528002a0ae7bd36ce5a456eca "#7104 (ScanReportHelper.collectScans)"
+cherry_pick_delta_fix 959e00e15f41f56afc1c9bb95d160c55c6dc7068 "#7105 (9 more test suites)"
+echo "::endgroup::"
+
 echo "::group::Force-failing memory-hog DeletionVectorsSuite 2B-row tests"
 # Two DeletionVectorsSuite tests read from / delete from a 2-billion-row table.
 # Under the Gluten Velox bundle they balloon the forked test JVM to ~13G of
@@ -128,6 +153,10 @@ echo "::group::Force-failing memory-hog DeletionVectorsSuite 2B-row tests"
 # until the native memory blow-up is fixed, at which point this patch should be
 # removed. NOTE: making the suite complete also un-skips the rest of the shard's
 # suite queue, so the known-failures baseline must be refreshed after this.
+#
+# ORDER MATTERS: keep this sed AFTER the cherry-picks above. #7105 also edits
+# DeletionVectorsSuite.scala, and git cherry-pick aborts (exit 128) when the work
+# tree has uncommitted edits to a file it touches.
 DVS="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala"
 if [ ! -f "$DVS" ]; then
   echo "Expected file not found in Delta clone: $DVS" >&2

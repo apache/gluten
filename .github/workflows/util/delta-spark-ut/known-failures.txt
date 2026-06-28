@@ -7,10 +7,15 @@
 # Lines starting with '#' are comments. See README.md in this directory.
 #
 # ---------------------------------------------------------------------------
-# Full 16-shard baseline. Originally seeded from 15 of 16 shards (run
-# 27490052632). Shard 2 used to hang/OOM-crash on DeletionVectorsSuite's 2B-row
-# DV tests; those two tests are now force-failed in setup-delta.sh, so shard 2
-# runs to completion and contributes 69 failures. 963 known failures total.
+# Baseline for the committed 4-shard x 4-fork config. Originally seeded from run
+# 27490052632; refreshed from run 28318129710 (4 x 4) after the FileSourceScanLike
+# test fixes (delta-io/delta #7104 + #7105). 810 known failures total.
+#
+# IMPORTANT: regenerate this baseline under the SAME NUM_SHARDS x
+# TEST_PARALLELISM_COUNT the gate runs (here 4 x 4). ~34 of these failures are
+# fork-parallelism-sensitive -- they pass with 1 fork per JVM but fail with 4 (4
+# Velox forks x ~4G run close to the ~16G runner limit) -- so a baseline captured
+# at a different parallelism spuriously flags them as regressions.
 # ---------------------------------------------------------------------------
 io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using SQL conf
 io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using withExtensions
@@ -110,37 +115,8 @@ org.apache.spark.sql.delta.DeltaInsertIntoDataFrameByPathSuite#insertInto: times
 org.apache.spark.sql.delta.DeltaInsertIntoDataFrameSuite#insertInto: timestamp partition values with different precisions
 org.apache.spark.sql.delta.DeltaInsertIntoSQLByPathSuite#insertInto: timestamp partition values with different precisions
 org.apache.spark.sql.delta.DeltaInsertIntoSQLSuite#insertInto: timestamp partition values with different precisions
-org.apache.spark.sql.delta.DeltaLimitPushDownV1Suite#Works with union
-org.apache.spark.sql.delta.DeltaLimitPushDownV1Suite#limit larger than total
-org.apache.spark.sql.delta.DeltaLimitPushDownV1Suite#limit push-down flag
-org.apache.spark.sql.delta.DeltaLimitPushDownV1Suite#no filter or projection
-org.apache.spark.sql.delta.DeltaLimitPushDownV1Suite#with non-partition filter
-org.apache.spark.sql.delta.DeltaLimitPushDownV1Suite#with partition filter only
-org.apache.spark.sql.delta.DeltaLimitPushDownV1Suite#with projection only
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch100Suite#Works with union
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch100Suite#limit larger than total
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch100Suite#limit push-down flag
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch100Suite#no filter or projection
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch100Suite#with non-partition filter
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch100Suite#with partition filter only
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch100Suite#with projection only
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch1Suite#Works with union
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch1Suite#limit larger than total
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch1Suite#limit push-down flag
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch1Suite#no filter or projection
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch1Suite#with non-partition filter
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch1Suite#with partition filter only
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch1Suite#with projection only
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch2Suite#Works with union
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch2Suite#limit larger than total
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch2Suite#limit push-down flag
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch2Suite#no filter or projection
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch2Suite#with non-partition filter
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch2Suite#with partition filter only
-org.apache.spark.sql.delta.DeltaLimitPushDownWithCatalogOwnedBatch2Suite#with projection only
 org.apache.spark.sql.delta.DeltaLiteVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaLiteVacuumSuite#vacuum for cdc - update/merge
-org.apache.spark.sql.delta.DeltaNameColumnMappingSuite#query with predicates should skip partitions - column mapping name mode
 org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=false, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
 org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=false, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
 org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=false, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
@@ -172,7 +148,6 @@ org.apache.spark.sql.delta.DeltaSuite#SC-8810: skipping deleted file still throw
 org.apache.spark.sql.delta.DeltaSuite#all operations with special characters in path
 org.apache.spark.sql.delta.DeltaSuite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaSuite#invalid replaceWhere
-org.apache.spark.sql.delta.DeltaSuite#query with predicates should skip partitions
 org.apache.spark.sql.delta.DeltaSuite#replaceArbitrary should enforce proper usage of backtick
 org.apache.spark.sql.delta.DeltaTableCreationSuite#Default column values: CONVERT TO DELTA keeps EXISTS_DEFAULT
 org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#convert to delta with partitioning change
@@ -204,19 +179,16 @@ org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skip dele
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#invalid replaceWhere
-org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#query with predicates should skip partitions
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#replaceArbitrary should enforce proper usage of backtick
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#SC-8810: skip deleted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#invalid replaceWhere
-org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#query with predicates should skip partitions
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#replaceArbitrary should enforce proper usage of backtick
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#SC-8810: skip deleted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#invalid replaceWhere
-org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#query with predicates should skip partitions
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#replaceArbitrary should enforce proper usage of backtick
 org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only - Partitioned = false, CDF = false
 org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only - Partitioned = false, CDF = true
@@ -639,53 +611,39 @@ org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumn
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnScalaSuite#schema evolution - extra nested column in source - update - single target partition
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#UDT Data Types - simple and nested
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#data skipping - target-only condition
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#data skipping with matched predicates - with insert clause
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#insert only merge - target data skipping
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#UDT Data Types - simple and nested
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#data skipping with matched predicates - with insert clause
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#insert only merge - target data skipping
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#merge with repartition - partition on multiple columns
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#UDT Data Types - simple and nested
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#data skipping - target-only condition
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#data skipping with matched predicates - with insert clause
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#insert only merge - target data skipping
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#merge with repartition - partition on multiple columns
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#UDT Data Types - simple and nested
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#data skipping - target-only condition
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#data skipping with matched predicates - with insert clause
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#insert only merge - target data skipping
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#UDT Data Types - simple and nested
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#data skipping with matched predicates - with insert clause
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#insert only merge - target data skipping
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#merge with repartition - partition on multiple columns
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#UDT Data Types - simple and nested
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#data skipping - target-only condition
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#data skipping with matched predicates - with insert clause
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#insert only merge - target data skipping
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#merge with repartition - partition on multiple columns
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#UDT Data Types - simple and nested
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#data skipping - target-only condition
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#data skipping with matched predicates - with insert clause
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#insert only merge - target data skipping
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#UDT Data Types - simple and nested
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#data skipping - target-only condition
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#data skipping with matched predicates - with insert clause
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#insert only merge - target data skipping
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLNameBasedSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedCDCOnDVSuite#Variant type
@@ -719,64 +677,15 @@ org.apache.spark.sql.delta.optimize.OptimizeCompactionScalaSuite#optimize - mult
 org.apache.spark.sql.delta.optimize.OptimizeConflictSuite#conflict handling between Optimize and Business Txn
 org.apache.spark.sql.delta.optimize.OptimizeMetricsSuite#optimize ZOrderBy operation metrics in Delta table history
 org.apache.spark.sql.delta.optimize.OptimizeMetricsSuite#optimize metrics on idempotent operations
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DateFormatPartitionExpr(day,yyyy-MM-dd) from timestamp
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DateFormatPartitionExpr(day,yyyy-MM-dd) from timestamp nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DateFormatPartitionExpr(hour,yyyy-MM-dd-HH)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DateFormatPartitionExpr(hour,yyyy-MM-dd-HH) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DateFormatPartitionExpr(month,yyyy-MM) from cast(date)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DateFormatPartitionExpr(month,yyyy-MM) from cast(date) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DateFormatPartitionExpr(month,yyyy-MM) from timestamp
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DateFormatPartitionExpr(month,yyyy-MM) from timestamp nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DatePartitionExpr(date) from cast(date)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DatePartitionExpr(date) from cast(date) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DatePartitionExpr(date) from cast(timestamp)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#DatePartitionExpr(date) from cast(timestamp) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#IdentityPartitionExpr(part)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#IdentityPartitionExpr(part) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#IdentityPartitionExpr(part1) escaped field names
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#SubstringPartitionExpr(my.substr,1,3)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#SubstringPartitionExpr(my.substr,1,3) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#SubstringPartitionExpr(substr,0,3)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#SubstringPartitionExpr(substr,0,3) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#SubstringPartitionExpr(substr,1,3)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#SubstringPartitionExpr(substr,1,3) deeply nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#SubstringPartitionExpr(substr,1,3) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#SubstringPartitionExpr(substr,2,3)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#SubstringPartitionExpr(substr,2,3) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#TimestampTruncPartitionExpr(DD,eventTimeTrunc) from date_trunc(cast(date))
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#TimestampTruncPartitionExpr(DD,eventTimeTrunc) from date_trunc(cast(date)) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#TimestampTruncPartitionExpr(YEAR,eventTimeTrunc) from date_trunc(timestamp)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#TimestampTruncPartitionExpr(YEAR,eventTimeTrunc) from date_trunc(timestamp) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#TruncDatePartitionExpr(date,month)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#TruncDatePartitionExpr(date,month) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#TruncDatePartitionExpr(date,quarter)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#TruncDatePartitionExpr(date,quarter) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#TruncDatePartitionExpr(date,year)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#TruncDatePartitionExpr(date,year) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearMonthDayHourPartitionExpr(year,month,day,hour)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearMonthDayHourPartitionExpr(year,month,day,hour) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearMonthDayPartitionExpr(year,month,day)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearMonthDayPartitionExpr(year,month,day) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearMonthPartitionExpr(year,month)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearMonthPartitionExpr(year,month) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearPartitionExpr(year)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearPartitionExpr(year) from year(cast(date))
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearPartitionExpr(year) from year(cast(date)) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearPartitionExpr(year) from year(date)
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearPartitionExpr(year) from year(date) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#YearPartitionExpr(year) nested
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#end-to-end optimizable partition expression
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#end-to-end test of behaviors of write/read null on partition column
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#five digits year in a date_format yyyy-MM partition column
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#five digits year in a date_format yyyy-MM-dd-HH partition column
-org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#substring on multibyte characters
 org.apache.spark.sql.delta.rowid.ConflictCheckerRowIdSuite#Re-added files keep their row IDs after conflict with txn not updating high watermark
 org.apache.spark.sql.delta.rowid.ConflictCheckerRowIdSuite#concurrent transactions do not assign overlapping row IDs
 org.apache.spark.sql.delta.rowid.ConflictCheckerRowIdSuite#re-added files keep their row ids
 org.apache.spark.sql.delta.rowid.RowIdSuite#Filter by base Row IDs
 org.apache.spark.sql.delta.rowid.RowIdSuite#Filter by base Row IDs in subquery
 org.apache.spark.sql.delta.rowid.RowIdSuite#No dictionary filtering on _metadata.row_id
-org.apache.spark.sql.delta.rowid.RowIdSuite#No row-group skipping on _metadata.row_id
 org.apache.spark.sql.delta.rowid.RowIdSuite#missing base row ids and default row commit versions
 org.apache.spark.sql.delta.rowid.RowIdSuite#row ids can be read back
 org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencySuite#Interleaved delete right after protocol downgrade should abort due to protocol change
@@ -790,8 +699,6 @@ org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencyWithoutDVsSuite#Si
 org.apache.spark.sql.delta.rowtracking.RowTrackingReadWriteSuite#write and read table with all-null materialized columns
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#Data skipping handles aliasing for _metadata fields
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#Test file pruning metrics with data skipping
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#Test file pruning metrics with data skipping - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping on TIMESTAMP_NTZ
@@ -800,16 +707,8 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data s
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping shouldn't use expressions involving a subquery
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping shouldn't use expressions involving a subquery  - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping stats before and after optimize
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping stats before and after optimize - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#loading data from Delta to parquet should skip data
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#loading data from Delta to parquet should skip data - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#support case insensitivity for partitioning filters
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#support case insensitivity for partitioning filters - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#Test file pruning metrics with data skipping - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#Test file pruning metrics with data skipping - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - double nested, single 1 - column mapping name mode
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - double nested, single 1 - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - indexed column names - backtick escapes work as expected - column mapping name mode
@@ -840,20 +739,12 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data 
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - column mapping name mode
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping shouldn't use expressions involving a subquery  - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping shouldn't use expressions involving a subquery  - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping stats before and after optimize - column mapping name mode
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping stats before and after optimize - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping with a different DataFrame schema order and nested columns - column mapping name mode
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping with missing columns in DataFrame - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#loading data from Delta to parquet should skip data - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#loading data from Delta to parquet should skip data - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#support case insensitivity for partitioning filters - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#support case insensitivity for partitioning filters - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#Data skipping handles aliasing for _metadata fields
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#Test file pruning metrics with data skipping
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#Test file pruning metrics with data skipping - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping on TIMESTAMP_NTZ
@@ -862,18 +753,10 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#dat
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping shouldn't use expressions involving a subquery
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping shouldn't use expressions involving a subquery  - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping stats before and after optimize
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping stats before and after optimize - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#loading data from Delta to parquet should skip data
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#loading data from Delta to parquet should skip data - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#support case insensitivity for partitioning filters
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#support case insensitivity for partitioning filters - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#Data skipping handles aliasing for _metadata fields
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#Test file pruning metrics with data skipping
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#Test file pruning metrics with data skipping - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ
@@ -882,18 +765,10 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMES
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping shouldn't use expressions involving a subquery
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping shouldn't use expressions involving a subquery  - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping stats before and after optimize
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping stats before and after optimize - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#loading data from Delta to parquet should skip data
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#loading data from Delta to parquet should skip data - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#support case insensitivity for partitioning filters
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#support case insensitivity for partitioning filters - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Data skipping handles aliasing for _metadata fields
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Test file pruning metrics with data skipping
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Test file pruning metrics with data skipping - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping on TIMESTAMP_NTZ
@@ -902,16 +777,8 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suit
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping shouldn't use expressions involving a subquery
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping shouldn't use expressions involving a subquery  - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#loading data from Delta to parquet should skip data
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#loading data from Delta to parquet should skip data - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#support case insensitivity for partitioning filters
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#support case insensitivity for partitioning filters - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#Data skipping handles aliasing for _metadata fields
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#Test file pruning metrics with data skipping
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#Test file pruning metrics with data skipping - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping on TIMESTAMP_NTZ
@@ -920,16 +787,8 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping shouldn't use expressions involving a subquery
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping shouldn't use expressions involving a subquery  - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#loading data from Delta to parquet should skip data
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#loading data from Delta to parquet should skip data - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#support case insensitivity for partitioning filters
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#support case insensitivity for partitioning filters - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#Data skipping handles aliasing for _metadata fields
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#Test file pruning metrics with data skipping
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#Test file pruning metrics with data skipping - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping on TIMESTAMP_NTZ
@@ -938,14 +797,7 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping shouldn't use expressions involving a subquery
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping shouldn't use expressions involving a subquery  - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#loading data from Delta to parquet should skip data
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#loading data from Delta to parquet should skip data - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#support case insensitivity for partitioning filters
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#support case insensitivity for partitioning filters - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.PartitionLikeDataSkippingColumnMappingSuite#partition-like data skipping for expression COALESCE: COALESCE(TO_DATE(S.b), c) = '1976-07-03' - column mapping id mode
-org.apache.spark.sql.delta.stats.StatsCollectionSuite#gather stats
 org.apache.spark.sql.delta.stats.StatsCollectionSuite#recompute stats multiple columns and files
 org.apache.spark.sql.delta.stats.StatsCollectionSuite#recompute variant stats
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening BIGINT -> DECIMAL(20,0), partitioned=true
