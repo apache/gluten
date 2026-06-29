@@ -313,5 +313,4 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
     transform.setStateKeyType(selector.getProducedType());
     return transform;
   }
-
 }
