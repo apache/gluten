@@ -16,13 +16,6 @@
 name: Gluten Flink Github Runner
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/flink.yml'
-      - 'build/mvn'
-      - 'gluten-flink/**'
   pull_request:
     paths:
       - '.github/workflows/flink.yml'
