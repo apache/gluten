@@ -283,7 +283,9 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
 
   @Override
   public void prepareSnapshotPreBarrier(long checkpointId) throws Exception {
-    // TODO: notify velox
+    // Drain any in-flight data from the Velox pipeline before snapshot.
+    // Flink has already aligned barriers, so no new input will arrive.
+    drainTaskOutput();
     super.prepareSnapshotPreBarrier(checkpointId);
   }
 
