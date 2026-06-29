@@ -186,11 +186,12 @@ object PullOutGenerateProjectHelper extends PullOutProjectHelper {
             // NOTE: DO NOT use eliminateProjectList to create the project list because
             // newGeneratorChild can be a duplicated Attribute in generate.child.output. The native
             // side identifies the last field of projection as generator's input.
-            val newGeneratorChildren = Seq(expressionMap.values.head)
+            val aliasExpr = expressionMap.values.head
             generate.copy(
-              generator =
-                generate.generator.withNewChildren(newGeneratorChildren).asInstanceOf[Generator],
-              child = ProjectExec(generate.child.output ++ newGeneratorChildren, generate.child)
+              generator = generate.generator
+                .withNewChildren(Seq(aliasExpr.toAttribute))
+                .asInstanceOf[Generator],
+              child = ProjectExec(generate.child.output ++ Seq(aliasExpr), generate.child)
             )
           } else {
             // generator.child is Attribute, no need to introduce a Project.

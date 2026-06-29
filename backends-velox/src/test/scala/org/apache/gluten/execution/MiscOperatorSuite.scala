@@ -24,6 +24,7 @@ import org.apache.spark.shuffle.GlutenShuffleUtils
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.joins.BaseJoinExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.functions._
@@ -2276,6 +2277,43 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       codec =>
         val conf = spark.sparkContext.getConf.clone().set("spark.io.compression.codec", codec)
         assert(GlutenShuffleUtils.getCompressionCodec(conf) === codec)
+    }
+  }
+
+  test("exchange reuse with CTE lateral view explode") {
+    // This test verifies the fix for Generate pre-project canonicalization.
+    // When explode(split(col)) is used, a pre-project is inserted to compute the
+    // split expression as an Alias before feeding it to the generator. Before the
+    // fix, the generator use an alias expression as its sub-expression, but Spark's
+    // doCanonicalize does not cope with it.
+    // This caused structurally identical plans from different query
+    // parts to have different canonicalized forms, preventing ReuseExchangeExec
+    // from reusing exchanges.
+    // With AQE on and shuffle partitions > 1, the self-join on the CTE produces
+    // two identical shuffle exchanges that should be reused.
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+      SQLConf.SHUFFLE_PARTITIONS.key -> "2") {
+      runQueryAndCompare("""
+                           |WITH exploded AS (
+                           |  SELECT l_orderkey, word
+                           |  FROM lineitem
+                           |  LATERAL VIEW explode(split(l_comment, ' ')) t AS word
+                           |  WHERE l_orderkey < 10
+                           |)
+                           |SELECT count(*), sum(t1.l_orderkey + t2.l_orderkey)
+                           |FROM exploded t1
+                           |JOIN exploded t2 ON t1.word = t2.word
+                           |""".stripMargin) {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          assert(
+            collect(plan) { case p: GenerateExecTransformer => p }.nonEmpty,
+            "Expected GenerateExecTransformer in the plan")
+          assert(
+            collect(plan) { case re: ReusedExchangeExec => re }.nonEmpty,
+            "Expected ReusedExchangeExec in the plan")
+      }
     }
   }
 }
