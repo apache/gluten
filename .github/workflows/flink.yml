@@ -16,11 +16,20 @@
 name: Gluten Flink Github Runner
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/flink.yml'
+      - 'build/mvn'
+      - 'gluten-flink/**'
   pull_request:
     paths:
       - '.github/workflows/flink.yml'
       - 'build/mvn'
       - 'gluten-flink/**'
+  schedule:
+    - cron: '0 2 * * *'
 
 env:
   MAVEN_OPTS: >-
@@ -95,16 +104,18 @@ jobs:
           cd nexmark
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests
       - name: Save ccache
-        if: success()
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-flink-centos8
       - name: Build Gluten Flink
+        if: github.event_name != 'schedule'
         run: |
           cd $GITHUB_WORKSPACE/gluten-flink
           $GITHUB_WORKSPACE/build/mvn clean package -Dmaven.test.skip=true
       - name: Run Unit Tests
+        if: github.event_name != 'schedule'
         run: |
           cd $GITHUB_WORKSPACE/gluten-flink
           $GITHUB_WORKSPACE/build/mvn test
