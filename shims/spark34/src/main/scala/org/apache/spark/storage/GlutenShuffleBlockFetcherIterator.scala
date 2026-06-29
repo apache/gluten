@@ -16,7 +16,7 @@
  */
 package org.apache.spark.storage
 
-import org.apache.spark.{MapOutputTracker, SparkException, TaskContext}
+import org.apache.spark.{MapOutputTracker, TaskContext}
 import org.apache.spark.MapOutputTracker.SHUFFLE_PUSH_MAP_ID
 import org.apache.spark.errors.SparkCoreErrors
 import org.apache.spark.internal.Logging
@@ -25,7 +25,7 @@ import org.apache.spark.network.shuffle._
 import org.apache.spark.network.shuffle.checksum.{Cause, ShuffleChecksumHelper}
 import org.apache.spark.network.util.{NettyUtils, TransportConf}
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter
-import org.apache.spark.util.{Clock, CompletionIterator, SystemClock, TaskCompletionListener, Utils}
+import org.apache.spark.util.{Clock, SystemClock, TaskCompletionListener, Utils}
 
 import io.netty.util.internal.OutOfDirectMemoryError
 import org.apache.commons.io.IOUtils
@@ -92,7 +92,7 @@ import scala.util.{Failure, Success}
  * @param doBatchFetch
  *   fetch continuous shuffle blocks from same executor in batch if the server side supports.
  */
-final private[spark] class GlutenShuffleBlockFetcherIterator(
+final class GlutenShuffleBlockFetcherIterator(
     context: TaskContext,
     shuffleClient: BlockStoreClient,
     blockManager: BlockManager,
@@ -111,7 +111,7 @@ final private[spark] class GlutenShuffleBlockFetcherIterator(
     shuffleMetrics: ShuffleReadMetricsReporter,
     doBatchFetch: Boolean,
     clock: Clock = new SystemClock())
-  extends Iterator[(BlockId, InputStream)]
+  extends GlutenShuffleBlockFetcherIteratorBase
   with DownloadFileManager
   with Logging {
 
@@ -143,8 +143,10 @@ final private[spark] class GlutenShuffleBlockFetcherIterator(
   private[this] val results = new LinkedBlockingQueue[FetchResult]
 
   /**
-   * Current [[FetchResult]] being processed. We track this so we can release the current buffer in
-   * case of a runtime exception when processing the current buffer.
+   * Current [[FetchResult]] being processed per thread. We track this so we can release the current
+   * buffer in case of a runtime exception when processing the current buffer. Using
+   * ConcurrentHashMap to support concurrent access from multiple threads while allowing cleanup
+   * from any thread.
    */
   private[this] val currentResults: ConcurrentHashMap[Long, SuccessFetchResult] =
     new ConcurrentHashMap[Long, SuccessFetchResult]()
@@ -209,7 +211,7 @@ final private[spark] class GlutenShuffleBlockFetcherIterator(
   initialize()
 
   // Decrements the buffer reference count.
-  // The currentResult is set to null to prevent releasing the buffer again on cleanup()
+  // The currentResult is removed from the map to prevent releasing the buffer again on cleanup()
   private[storage] def releaseCurrentResultBuffer(): Unit = {
     val threadId = Thread.currentThread().getId
     // Release the current buffer if necessary
@@ -236,7 +238,7 @@ final private[spark] class GlutenShuffleBlockFetcherIterator(
   }
 
   /** Mark the iterator as zombie, and release all buffers that haven't been deserialized yet. */
-  def cleanup(): Unit = {
+  private[storage] def cleanup(): Unit = {
     synchronized {
       isZombie = true
     }
@@ -1292,15 +1294,12 @@ final private[spark] class GlutenShuffleBlockFetcherIterator(
         logWarning(diagnosisResponse)
         diagnosisResponse
       case unexpected: BlockId =>
-        throw SparkException.internalError(
-          s"Unexpected type of BlockId, $unexpected")
+        throw new IllegalArgumentException(s"Unexpected type of BlockId, $unexpected")
     }
   }
 
-  def toCompletionIterator: Iterator[(BlockId, InputStream)] = {
-    CompletionIterator[(BlockId, InputStream), this.type](
-      this,
-      onCompleteCallback.onComplete(context))
+  override def onComplete(): Unit = {
+    onCompleteCallback.onComplete(context)
   }
 
   private def fetchUpToMaxBytes(): Unit = {

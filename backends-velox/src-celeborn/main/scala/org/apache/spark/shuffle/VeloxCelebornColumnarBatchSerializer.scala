@@ -253,7 +253,6 @@ private class CelebornColumnarBatchSerializerInstance(
       if (wrappedOut != null) {
         wrappedOut.close()
       }
-      streamReader.close()
       if (cb != null) {
         cb.close()
       }

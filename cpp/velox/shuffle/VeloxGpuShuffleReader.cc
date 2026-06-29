@@ -129,7 +129,7 @@ void VeloxGpuHashShuffleReaderDeserializer::read() {
   std::shared_ptr<arrow::io::InputStream> inputStream = nullptr;
 
   while (true) {
-    // Check if stop has been called
+    // Check if stop has been called.
     if (stop_.load(std::memory_order_acquire)) {
       break;
     }
