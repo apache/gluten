@@ -29,7 +29,7 @@ on:
       - 'build/mvn'
       - 'gluten-flink/**'
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 18 * * *'
 
 env:
   MAVEN_OPTS: >-
