@@ -245,6 +245,7 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
       conf->get<bool>(kOrcUseColumnNames, true) ? "true" : "false";
   configs[std::string(facebook::velox::parquet::ParquetConfig::kWriterPageSizeSession)] =
       conf->get<std::string>(kWriteParquetPageSizeBytes, "1MB");
+  configs[std::string(facebook::velox::parquet::ParquetConfig::kNullStructIfAllFieldsMissingSession)] = "true";
 
   overwriteVeloxConf(conf.get(), configs, kDynamicBackendConfPrefix);
   return std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
@@ -306,8 +307,6 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorConfig(
 
   // read as UTC
   hiveConfMap[facebook::velox::connector::hive::HiveConfig::kReadTimestampPartitionValueAsLocalTime] = "false";
-
-  hiveConfMap[std::string(facebook::velox::parquet::ParquetConfig::kNullStructIfAllFieldsMissingSession)] = "true";
 
   overwriteVeloxConf(conf.get(), hiveConfMap, kStaticBackendConfPrefix);
   return std::make_shared<facebook::velox::config::ConfigBase>(std::move(hiveConfMap));
