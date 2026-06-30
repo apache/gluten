@@ -34,9 +34,7 @@ object IcebergWriteUtil {
   }
 
   private lazy val writePropertiesField = {
-    val field = classOf[SparkWrite].getDeclaredField("writeProperties")
-    field.setAccessible(true)
-    field
+    optionalField(classOf[SparkWrite], "writeProperties")
   }
 
   private lazy val writeConfField = {
@@ -89,7 +87,9 @@ object IcebergWriteUtil {
   }
 
   def getWriteProperty(write: Write): java.util.Map[String, String] = {
-    writePropertiesField.get(write).asInstanceOf[java.util.Map[String, String]]
+    writePropertiesField
+      .map(_.get(write).asInstanceOf[java.util.Map[String, String]])
+      .getOrElse(java.util.Collections.emptyMap[String, String]())
   }
 
   def getWriteConf(write: Write): SparkWriteConf = {
@@ -128,4 +128,12 @@ object IcebergWriteUtil {
     commit
   }
 
+  private def optionalField(cls: Class[_], name: String): Option[java.lang.reflect.Field] =
+    try {
+      val f = cls.getDeclaredField(name)
+      f.setAccessible(true)
+      Some(f)
+    } catch {
+      case _: NoSuchFieldException => None
+    }
 }
