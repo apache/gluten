@@ -202,7 +202,7 @@ WholeStageResultIterator::WholeStageResultIterator(
         std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", "hive-iceberg"}};
         auto deleteFiles = icebergSplitInfo->deleteFilesVec[idx];
         split = std::make_shared<velox::connector::hive::iceberg::HiveIcebergSplit>(
-            connectorIds_.hive,
+            connectorIds_.iceberg,
             paths[idx],
             format,
             starts[idx],
@@ -284,6 +284,7 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
   std::unordered_map<std::string, std::shared_ptr<velox::config::ConfigBase>> connectorConfigs;
   auto hiveSessionConfig = createHiveConnectorSessionConfig(veloxCfg_);
   connectorConfigs[connectorIds_.hive] = hiveSessionConfig;
+  connectorConfigs[connectorIds_.iceberg] = hiveSessionConfig;
   connectorConfigs[connectorIds_.delta] = hiveSessionConfig;
   connectorConfigs[connectorIds_.iterator] = hiveSessionConfig;
 #ifdef GLUTEN_ENABLE_GPU

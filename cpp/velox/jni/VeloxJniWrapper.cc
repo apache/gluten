@@ -52,10 +52,6 @@
 #include "utils/GpuBufferBatchResizer.h"
 #endif
 
-#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
-#include "IcebergNestedField.pb.h"
-#endif
-
 using namespace gluten;
 using namespace facebook;
 
@@ -844,11 +840,7 @@ Java_org_apache_gluten_vectorized_UnifflePartitionWriterJniWrapper_createPartiti
 JNIEXPORT jboolean JNICALL Java_org_apache_gluten_config_ConfigJniWrapper_isEnhancedFeaturesEnabled( // NOLINT
     JNIEnv* env,
     jclass) {
-#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
   return true;
-#else
-  return false;
-#endif
 }
 
 #ifdef GLUTEN_ENABLE_GPU
@@ -867,7 +859,6 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_cudf_VeloxCudfPlanValidatorJni
 }
 #endif
 
-#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_init( // NOLINT
     JNIEnv* env,
     jobject wrapper,
@@ -955,7 +946,6 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrappe
 
   JNI_METHOD_END(nullptr)
 }
-#endif
 
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_nativeBuild( // NOLINT
     JNIEnv* env,

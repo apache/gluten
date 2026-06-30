@@ -90,10 +90,16 @@ public class JniLibLoader {
     }
   }
 
+  /**
+   * Same contract as {@link #load(String)}, with the addition of creating a symbolic link named
+   * {@code linkName} in {@code workDir} pointing at the extracted library. Returns immediately if
+   * {@code libPath} was already loaded by this instance.
+   */
   public synchronized void loadAndCreateLink(String libPath, String linkName) {
     try {
       if (loadedLibraries.contains(libPath)) {
         LOG.debug("Library {} has already been loaded, skipping", libPath);
+        return;
       }
       File file = moveToWorkDir(workDir, libPath);
       loadWithLink(file.getAbsolutePath(), linkName);

@@ -21,6 +21,7 @@
 #include "VariantToVectorConverter.h"
 #include "compute/delta/DeltaConnector.h"
 #include "compute/delta/DeltaSplitInfo.h"
+#include "compute/iceberg/IcebergPlanConverter.h"
 #include "jni/JniHashTable.h"
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
@@ -779,9 +780,7 @@ std::shared_ptr<CudfHiveInsertTableHandle> makeCudfHiveInsertTableHandle(
 
   for (int i = 0; i < tableColumnNames.size(); ++i) {
     columnHandles.push_back(std::make_shared<CudfHiveColumnHandle>(
-        tableColumnNames.at(i),
-        tableColumnTypes.at(i),
-        cudf::data_type{cudf_velox::veloxToCudfTypeId(tableColumnTypes.at(i))}));
+        tableColumnNames.at(i), tableColumnTypes.at(i), cudf_velox::veloxToCudfDataType(tableColumnTypes.at(i))));
   }
 
   return std::make_shared<CudfHiveInsertTableHandle>(
@@ -878,7 +877,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   GLUTEN_CHECK(formatShortName == "parquet", "Unsupported file write format: " + formatShortName);
   dwio::common::FileFormat fileFormat = dwio::common::FileFormat::PARQUET;
 
-  const std::shared_ptr<facebook::velox::parquet::WriterOptions> writerOptions = makeParquetWriteOption(writeConfs);
+  const std::shared_ptr<facebook::velox::dwio::common::WriterOptions> writerOptions =
+      makeParquetWriteOption(writeConfs);
   // Spark's default compression code is snappy.
   const auto& compressionKind =
       writerOptions->compressionKind.value_or(common::CompressionKind::CompressionKind_SNAPPY);
@@ -1584,7 +1584,10 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   connector::ConnectorTableHandlePtr tableHandle;
   auto remainingFilter = readRel.has_filter() ? exprConverter_->toVeloxExpr(readRel.filter(), baseSchema) : nullptr;
   auto connectorId = isDeltaSplitInfo(splitInfo) ? connectorIds_.delta : connectorIds_.hive;
-  if (connectorId == connectorIds_.hive && useCudfTableHandle(splitInfos_) &&
+  if (std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo)) {
+    connectorId = connectorIds_.iceberg;
+  }
+  if ((connectorId == connectorIds_.hive || connectorId == connectorIds_.iceberg) && useCudfTableHandle(splitInfos_) &&
       veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
 #ifdef GLUTEN_ENABLE_GPU
