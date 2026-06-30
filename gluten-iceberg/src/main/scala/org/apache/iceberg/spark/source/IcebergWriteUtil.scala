@@ -89,7 +89,7 @@ object IcebergWriteUtil {
   def getWriteProperty(write: Write): java.util.Map[String, String] = {
     writePropertiesField
       .map(_.get(write).asInstanceOf[java.util.Map[String, String]])
-      .getOrElse(java.util.Map.of())
+      .getOrElse(java.util.Collections.emptyMap[String, String]())
   }
 
   def getWriteConf(write: Write): SparkWriteConf = {
