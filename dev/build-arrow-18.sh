@@ -25,13 +25,12 @@ ARROW_PREFIX=$CURRENT_DIR/../ep/_ep/arrow_ep
 BUILD_TYPE=Release
 INSTALL_PREFIX=${INSTALL_PREFIX:-"/usr/local"}
 
-
 function install_openssl() {
-  pushd ${ARROW_PREFIX}/../
+  pushd ${CURRENT_DIR}/../ep/_ep/
   curl -LO https://github.com/openssl/openssl/releases/download/OpenSSL_1_0_2/openssl-1.0.2.tar.gz
   tar -xzvf openssl-1.0.2.tar.gz
   cd openssl-1.0.2
-  ./Configure --prefix=/opt/openssl --openssldir=/usr/local/ssl linux-ppc64le
+  ./Configure --prefix=/usr/local --openssldir=/usr/local/ssl linux-ppc64le
   make
   make install
   echo $PATH
