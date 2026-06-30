@@ -25,6 +25,7 @@
 #include "utils/Macros.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/storage_adapters/s3fs/S3Config.h"
+#include "velox/dwio/common/Options.h"
 #include "velox/dwio/parquet/common/ParquetConfig.h"
 
 namespace gluten {
