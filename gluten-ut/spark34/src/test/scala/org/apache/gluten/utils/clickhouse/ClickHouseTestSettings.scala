@@ -645,7 +645,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("to_timestamp_ntz")
     .exclude("to_timestamp exception mode")
     .exclude("SPARK-31896: Handle am-pm timestamp parsing when hour is missing")
-    .exclude("DATE_FROM_UNIX_DATE")
     .exclude("UNIX_SECONDS")
     .exclude("TIMESTAMP_SECONDS") // refer to https://github.com/ClickHouse/ClickHouse/issues/69280
     .exclude("TIMESTAMP_MICROS") // refer to https://github.com/apache/gluten/issues/7127

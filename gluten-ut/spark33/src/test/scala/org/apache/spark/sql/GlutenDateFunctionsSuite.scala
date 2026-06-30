@@ -281,4 +281,21 @@ class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTra
     val df1 = Seq(x1, x2).toDF("x")
     checkAnswer(df1.select(to_date(col("x"))), Row(Date.valueOf("2016-02-29")) :: Row(null) :: Nil)
   }
+  testGluten("date_from_unix_date") {
+    val df = Seq(0, 1000, null).toDF("unix_date")
+    
+    checkAnswer(
+      df.select(date_from_unix_date(col("unix_date"))),
+      Seq(
+        Row(Date.valueOf("1970-01-01")),
+        Row(Date.valueOf("1972-09-27")),
+        Row(null)))
+    
+    checkAnswer(
+      df.selectExpr("date_from_unix_date(unix_date)"),
+      Seq(
+        Row(Date.valueOf("1970-01-01")),
+        Row(Date.valueOf("1972-09-27")),
+        Row(null)))
+  }
 }
