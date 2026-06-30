@@ -274,7 +274,7 @@ public class GlutenTwoInputOperator<IN, OUT>
             StatefulWatermark watermark = element.asWatermark();
             output.emitWatermark(new Watermark(watermark.getTimestamp()));
           } else if (element.isWatermarkStatus()) {
-            output.emitWatermarkStatus(toFlinkWatermarkStatus(element));
+            output.emitWatermarkStatus(GlutenWatermarkStatuses.toFlinkWatermarkStatus(element));
           } else {
             outputBridge.collect(
                 output, element.asRecord(), sessionResource.getAllocator(), outputType);
@@ -325,10 +325,6 @@ public class GlutenTwoInputOperator<IN, OUT>
   @Override
   public void processLatencyMarker2(LatencyMarker latencyMarker) throws Exception {
     output.emitLatencyMarker(latencyMarker);
-  }
-
-  private WatermarkStatus toFlinkWatermarkStatus(StatefulElement element) {
-    return element.asWatermarkStatus().isIdle() ? WatermarkStatus.IDLE : WatermarkStatus.ACTIVE;
   }
 
   @Override

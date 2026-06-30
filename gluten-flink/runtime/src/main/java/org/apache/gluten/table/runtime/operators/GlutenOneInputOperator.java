@@ -225,7 +225,8 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
             StatefulWatermark watermark = statefulElement.asWatermark();
             output.emitWatermark(new Watermark(watermark.getTimestamp()));
           } else if (statefulElement.isWatermarkStatus()) {
-            output.emitWatermarkStatus(toFlinkWatermarkStatus(statefulElement));
+            output.emitWatermarkStatus(
+                GlutenWatermarkStatuses.toFlinkWatermarkStatus(statefulElement));
           } else {
             outputBridge.collect(
                 output, statefulElement.asRecord(), sessionResource.getAllocator(), outputType);
@@ -256,10 +257,6 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   public void processWatermarkStatus(WatermarkStatus status) throws Exception {
     task.notifyWatermarkStatus(status.isIdle());
     processElementInternal();
-  }
-
-  private WatermarkStatus toFlinkWatermarkStatus(StatefulElement element) {
-    return element.asWatermarkStatus().isIdle() ? WatermarkStatus.IDLE : WatermarkStatus.ACTIVE;
   }
 
   @Override
