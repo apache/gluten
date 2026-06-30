@@ -29,6 +29,7 @@ abstract class ColumnarBatchSerializerInstance extends SerializerInstance {
   /** Deserialize the streams of ColumnarBatches. */
   def deserializeStreams(streams: Iterator[(BlockId, InputStream)]): DeserializationStream
 
+  // These methods are never called by shuffle code.
   override def serialize[T: ClassTag](t: T): ByteBuffer = {
     throw new UnsupportedOperationException
   }
@@ -42,6 +43,10 @@ abstract class ColumnarBatchSerializerInstance extends SerializerInstance {
   }
 
   override def serializeStream(s: OutputStream): SerializationStream = {
+    throw new UnsupportedOperationException
+  }
+
+  override def deserializeStream(s: InputStream): DeserializationStream = {
     throw new UnsupportedOperationException
   }
 }

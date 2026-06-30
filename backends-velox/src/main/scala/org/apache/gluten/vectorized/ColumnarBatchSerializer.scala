@@ -25,7 +25,7 @@ import org.apache.gluten.utils.ArrowAbiUtil
 
 import org.apache.spark.SparkEnv
 import org.apache.spark.internal.Logging
-import org.apache.spark.serializer.{DeserializationStream, SerializationStream, Serializer, SerializerInstance}
+import org.apache.spark.serializer.{DeserializationStream, Serializer, SerializerInstance}
 import org.apache.spark.shuffle.GlutenShuffleUtils
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.SQLConf
@@ -39,7 +39,6 @@ import org.apache.arrow.c.ArrowSchema
 import org.apache.arrow.memory.BufferAllocator
 
 import java.io._
-import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -132,10 +131,6 @@ private class ColumnarBatchSerializerInstanceImpl(
       allocator.close()
     }
     shuffleReaderHandle
-  }
-
-  override def deserializeStream(in: InputStream): DeserializationStream = {
-    new TaskDeserializationStream(Iterator((null, in)))
   }
 
   override def deserializeStreams(
@@ -250,17 +245,4 @@ private class ColumnarBatchSerializerInstanceImpl(
 
     override def resourceName(): String = getClass.getName
   }
-
-  // Columnar shuffle write process don't need this.
-  override def serializeStream(s: OutputStream): SerializationStream =
-    throw new UnsupportedOperationException
-
-  // These methods are never called by shuffle code.
-  override def serialize[T: ClassTag](t: T): ByteBuffer = throw new UnsupportedOperationException
-
-  override def deserialize[T: ClassTag](bytes: ByteBuffer): T =
-    throw new UnsupportedOperationException
-
-  override def deserialize[T: ClassTag](bytes: ByteBuffer, loader: ClassLoader): T =
-    throw new UnsupportedOperationException
 }

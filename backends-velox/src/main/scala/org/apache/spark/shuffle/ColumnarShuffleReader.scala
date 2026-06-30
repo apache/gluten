@@ -70,6 +70,15 @@ class ColumnarShuffleReader[K, C](
 
   /** Read the combined key-values for this reduce task */
   override def read(): Iterator[Product2[K, C]] = {
+    val columnarDep = dep match {
+      case d: ColumnarShuffleDependency[_, _, _] =>
+        d.asInstanceOf[ColumnarShuffleDependency[K, _, C]]
+      case other =>
+        throw new IllegalArgumentException(
+          s"ColumnarShuffleReader requires ColumnarShuffleDependency " +
+            s"but got ${other.getClass.getName}")
+    }
+
     val wrappedStreams = new ShuffleBlockFetcherIterator(
       context,
       blockManager.blockStoreClient,
@@ -91,26 +100,11 @@ class ColumnarShuffleReader[K, C](
       fetchContinuousBlocksInBatch
     ).toCompletionIterator
 
-    val recordIter = dep match {
-      case columnarDep: ColumnarShuffleDependency[K, _, C] =>
-        // If the dependency is a ColumnarShuffleDependency, we use the columnar serializer.
-        columnarDep.serializer
-          .newInstance()
-          .asInstanceOf[ColumnarBatchSerializerInstance]
-          .deserializeStreams(wrappedStreams)
-          .asKeyValueIterator
-      case _ =>
-        val serializerInstance = dep.serializer.newInstance()
-        // Create a key/value iterator for each stream
-        wrappedStreams.flatMap {
-          case (blockId, wrappedStream) =>
-            // Note: the asKeyValueIterator below wraps a key/value iterator inside of a
-            // NextIterator. The NextIterator makes sure that close() is called on the
-            // underlying InputStream when all records have been read.
-            serializerInstance.deserializeStream(wrappedStream).asKeyValueIterator
-        }
-    }
-
+    val recordIter = columnarDep.serializer
+      .newInstance()
+      .asInstanceOf[ColumnarBatchSerializerInstance]
+      .deserializeStreams(wrappedStreams)
+      .asKeyValueIterator
     // Update the context task metrics for each record read.
     val metricIter = CompletionIterator[(Any, Any), Iterator[(Any, Any)]](
       recordIter.map {

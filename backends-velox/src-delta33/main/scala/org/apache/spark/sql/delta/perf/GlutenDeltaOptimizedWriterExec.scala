@@ -337,7 +337,6 @@ private class GlutenOptimizedWriterShuffleReader(
       false
     ).toCompletionIterator
 
-    // Create a key/value iterator for each stream
     val recordIter = dep match {
       case columnarDep: ColumnarShuffleDependency[Int, ColumnarBatch, ColumnarBatch] =>
         // If the dependency is a ColumnarShuffleDependency, we use the columnar serializer.
