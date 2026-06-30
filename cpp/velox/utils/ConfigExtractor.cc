@@ -219,6 +219,11 @@ void getAbfsHiveConfig(
 #endif
 }
 
+std::string parquetSessionProperty(std::string_view key) {
+  return facebook::velox::dwio::common::formatConfigPrefix(facebook::velox::dwio::common::FileFormat::PARQUET, "_") +
+      std::string(key);
+}
+
 } // namespace
 
 std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionConfig(
@@ -229,7 +234,8 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
   configs[facebook::velox::connector::hive::HiveConfig::kFileColumnNamesReadAsLowerCaseSession] =
       !conf->get<bool>(kCaseSensitive, false) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kPartitionPathAsLowerCaseSession] = "false";
-  configs[std::string(facebook::velox::parquet::ParquetConfig::kWriterTimestampUnitSession)] = std::string("6");
+  configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kWriterTimestampUnitSession)] =
+      std::string("6");
   configs[facebook::velox::connector::hive::HiveConfig::kReadTimestampUnitSession] = std::string("6");
   configs[facebook::velox::connector::hive::HiveConfig::kMaxPartitionsPerWritersSession] =
       conf->get<std::string>(kMaxPartitions, "10000");
@@ -243,9 +249,10 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
       conf->get<bool>(kAllowInt32Narrowing, true) ? "true" : "false";
   configs[facebook::velox::connector::hive::HiveConfig::kOrcUseColumnNamesSession] =
       conf->get<bool>(kOrcUseColumnNames, true) ? "true" : "false";
-  configs[std::string(facebook::velox::parquet::ParquetConfig::kWriterPageSizeSession)] =
+  configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kWriterPageSizeSession)] =
       conf->get<std::string>(kWriteParquetPageSizeBytes, "1MB");
-  configs[std::string(facebook::velox::parquet::ParquetConfig::kNullStructIfAllFieldsMissingSession)] = "true";
+  configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kNullStructIfAllFieldsMissingSession)] =
+      "true";
 
   overwriteVeloxConf(conf.get(), configs, kDynamicBackendConfPrefix);
   return std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
