@@ -104,15 +104,16 @@ import static org.apache.flink.util.Preconditions.checkState;
  * {@link AbstractStreamOperator} has not been deprecated just yet.
  *
  * <p>This class is a Gluten-local copy of Flink 1.19.2 {@link AbstractStreamOperator}. Gluten needs
- * this fork because Flink's {@code AbstractStreamOperator.processWatermarkStatus1/2(...)} methods
- * are final and route two-input {@code WatermarkStatus} events through Flink's Java-side combined
- * watermark status. Gluten must instead forward each input's {@code IDLE}/{@code ACTIVE} status to
- * native execution, where the Gluten operator chain keeps the combined watermark/status as the
- * source of truth. Reusing Flink's base class would prevent {@code GlutenTwoInputOperator} from
- * overriding those two methods, while not using a base class at all would lose the runtime, state,
- * key-context, timer, latency, and checkpoint behavior implemented by {@code
- * AbstractStreamOperator}. Keep this file aligned with Flink 1.19.2 except for making {@code
- * processWatermarkStatus1/2(...)} overridable.
+ * this fork because Flink's watermark status entrypoints are final in both operator base classes:
+ * {@code AbstractStreamOperator.processWatermarkStatus1/2(...)} and {@code
+ * AbstractStreamOperatorV2.processWatermarkStatus(...)}. Those methods route two-input {@code
+ * WatermarkStatus} events through Flink's Java-side combined watermark status. Gluten must instead
+ * forward each input's {@code IDLE}/{@code ACTIVE} status to native execution, where the Gluten
+ * operator chain keeps the combined watermark/status as the source of truth. Reusing either Flink
+ * base class would prevent {@code GlutenTwoInputOperator} from overriding the status handling, while
+ * not using a base class at all would lose the runtime, state, key-context, timer, latency, and
+ * checkpoint behavior implemented by {@code AbstractStreamOperator}. Keep this file aligned with
+ * Flink 1.19.2 except for making {@code processWatermarkStatus1/2(...)} overridable.
  *
  * @param <OUT> The output type of the operator.
  */
