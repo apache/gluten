@@ -36,8 +36,10 @@ This script has three modes:
         fail the build (``--fail-on-fixed true``) so the baseline stays honest
         and contributors remove entries as they fix them.
 
-    If the baseline is empty (not yet bootstrapped) the mode automatically
-    degrades to ``seed`` so the first run is never spuriously red.
+    If the baseline file exists but is empty (not yet bootstrapped) the mode
+    automatically degrades to ``seed`` so the first run is never spuriously red.
+    A *missing* ``--known-failures`` file is treated as a configuration error
+    (the gate fails) so a mis-referenced path can't silently pass.
 
 ``seed`` (bootstrap / ``update_baseline``)
     Never fails. Just writes the current shard's failing tests so the baseline
@@ -257,6 +259,21 @@ def _print_block(write, title, entries, limit=50):
 # Modes
 # --------------------------------------------------------------------------- #
 def run_enforce(args):
+    # In enforce mode a missing baseline file would make load_entries() return an
+    # empty set, silently degrading to seed mode and passing the gate without
+    # enforcing anything. Treat a missing path as a configuration error; an
+    # existing-but-empty file is still allowed (it legitimately seeds).
+    if args.mode == "enforce" and (
+        not args.known_failures or not os.path.exists(args.known_failures)
+    ):
+        eprint(
+            "ERROR: --known-failures '{}' does not exist. In enforce mode the "
+            "baseline file must exist (an existing-but-empty file is allowed and "
+            "triggers seed mode). Refusing to silently pass.".format(
+                args.known_failures
+            )
+        )
+        return 2
     baseline = load_entries(args.known_failures)
     passed, failed, skipped = parse_reports(args.reports_dir)
 

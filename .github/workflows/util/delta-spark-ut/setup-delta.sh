@@ -59,13 +59,13 @@ if [ ! -f "$PATCH_SOURCE" ]; then
 fi
 
 echo "::group::Cloning delta-io/delta @ ${DELTA_REF}"
-# Shallow clone the requested tag/branch. Fall back to full clone when the ref is a SHA.
-if ! git clone --depth 1 --branch "$DELTA_REF" https://github.com/delta-io/delta.git "$DELTA_DIR"; then
-  echo "Shallow clone of ref '${DELTA_REF}' failed, falling back to full clone."
-  rm -rf "$DELTA_DIR"
-  git clone https://github.com/delta-io/delta.git "$DELTA_DIR"
-  git -C "$DELTA_DIR" checkout "$DELTA_REF"
-fi
+# init + shallow fetch resolves a tag, branch OR commit SHA in a single path
+# (`git clone --branch` rejects SHAs). Avoids a full-clone fallback and the
+# destructive `rm -rf "$DELTA_DIR"` it required.
+git init -q "$DELTA_DIR"
+git -C "$DELTA_DIR" remote add origin https://github.com/delta-io/delta.git
+git -C "$DELTA_DIR" fetch -q --depth 1 origin "$DELTA_REF"
+git -C "$DELTA_DIR" checkout -q FETCH_HEAD
 git -C "$DELTA_DIR" --no-pager log -1 --oneline
 echo "::endgroup::"
 
