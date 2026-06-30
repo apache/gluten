@@ -780,9 +780,7 @@ std::shared_ptr<CudfHiveInsertTableHandle> makeCudfHiveInsertTableHandle(
 
   for (int i = 0; i < tableColumnNames.size(); ++i) {
     columnHandles.push_back(std::make_shared<CudfHiveColumnHandle>(
-        tableColumnNames.at(i),
-        tableColumnTypes.at(i),
-        cudf_velox::veloxToCudfDataType(tableColumnTypes.at(i))));
+        tableColumnNames.at(i), tableColumnTypes.at(i), cudf_velox::veloxToCudfDataType(tableColumnTypes.at(i))));
   }
 
   return std::make_shared<CudfHiveInsertTableHandle>(
