@@ -743,7 +743,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
           }
         }
 
-        val newBuildKeys = findLogicalLink(child)
+        val originalBuildKeys = findLogicalLink(child)
           .flatMap(_.getTagValue(JoinKeysTag.ORIGINAL_JOIN_KEYS))
           .getOrElse {
             if (SparkHashJoinUtils.canRewriteAsLongType(buildKeys) && buildKeys.nonEmpty) {
@@ -752,6 +752,15 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
               buildKeys
             }
           }
+        // Use child output because original keys may not match the physical
+        // output attributes after rewrite or aliasing.
+        val outputByExprId = child.output.map(attr => attr.exprId -> attr).toMap
+        val newBuildKeys = originalBuildKeys.map {
+          _.transform {
+            case attr: AttributeReference =>
+              outputByExprId.getOrElse(attr.exprId, attr)
+          }
+        }
 
         val noNeedPreOp = newBuildKeys.forall {
           case _: AttributeReference | _: BoundReference => true
@@ -759,7 +768,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         }
 
         if (noNeedPreOp) {
-          (child, child.output, Seq.empty[Expression])
+          (child, child.output, newBuildKeys)
         } else {
           // pre projection in case of expression join keys
           val appendedProjections = new ArrayBuffer[NamedExpression]()

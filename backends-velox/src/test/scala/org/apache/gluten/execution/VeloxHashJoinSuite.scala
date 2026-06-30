@@ -357,6 +357,38 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  test("Broadcast build once with generated build key alias") {
+    withSQLConf(
+      ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
+      ("spark.sql.adaptive.enabled", "false"),
+      (VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key, "true")
+    ) {
+      createTPCHNotNullTables()
+      val query =
+        """
+          |SELECT /*+ BROADCAST(r) */ l.l_orderkey, l.l_partkey, r.key
+          |FROM lineitem l
+          |LEFT JOIN (
+          |  SELECT p_partkey, key
+          |  FROM (
+          |    SELECT p_partkey, concat('{"Key":"', CAST(p_partkey AS STRING), '"}') AS json_field
+          |    FROM part
+          |  ) p
+          |  LATERAL VIEW json_tuple(json_field, 'Key') b AS key
+          |) r
+          |ON l.l_partkey = r.p_partkey
+          | AND CAST(l.l_partkey AS STRING) = r.key
+          |""".stripMargin
+
+      runQueryAndCompare(query) {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          val broadcastJoins = plan.collect { case bhj: BroadcastHashJoinExecTransformer => bhj }
+          assert(broadcastJoins.nonEmpty, "Should use broadcast hash join")
+      }
+    }
+  }
+
   test("Reuse broadcast exchange with different hash table") {
     withSQLConf(
       ("spark.sql.adaptive.enabled", "false")
