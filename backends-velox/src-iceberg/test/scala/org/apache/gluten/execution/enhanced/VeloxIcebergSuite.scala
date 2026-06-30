@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution.enhanced
 
+import org.apache.gluten.config.VeloxConfig.MAX_TARGET_FILE_SIZE_SESSION
 import org.apache.gluten.execution._
 import org.apache.gluten.tags.EnhancedFeaturesTest
 
@@ -25,6 +26,13 @@ import org.apache.spark.sql.execution.GlutenImplicits._
 import org.apache.spark.sql.execution.datasources.v2.AppendDataExec
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.gluten.TestUtils
+
+import org.apache.hadoop.fs.Path
+import org.apache.iceberg.shaded.org.apache.parquet.ParquetReadOptions
+import org.apache.iceberg.shaded.org.apache.parquet.hadoop.ParquetFileReader
+import org.apache.iceberg.shaded.org.apache.parquet.hadoop.util.HadoopInputFile
+
+import scala.jdk.CollectionConverters._
 
 @EnhancedFeaturesTest
 class VeloxIcebergSuite extends IcebergSuite {
@@ -532,6 +540,110 @@ class VeloxIcebergSuite extends IcebergSuite {
           files.max < 64L * 1024L,
           s"Expected small target file size to keep max file size reasonably small, " +
             s"but got files=${files.mkString("[", ", ", "]")}")
+      }
+    }
+  }
+  test("iceberg parquet writer default row group size test") {
+    val table = "iceberg_default_row_group_size"
+    val defaultRowGroupBytes = 128L * 1024 * 1024
+
+    def parquetFiles(table: String): Seq[String] = {
+      spark.sql(s"""
+      SELECT file_path
+      FROM default.$table.files
+    """).collect().map(_.getString(0)).toSeq
+    }
+
+    case class RowGroupInfo(
+        file: String,
+        ordinal: Int,
+        rowCount: Long,
+        totalByteSize: Long,
+        compressedSize: Long)
+
+    def collectRowGroups(table: String): Seq[RowGroupInfo] = {
+      val conf = spark.sparkContext.hadoopConfiguration
+
+      parquetFiles(table).flatMap {
+        file =>
+          val path = new Path(file)
+          val inputFile = HadoopInputFile.fromPath(path, conf)
+          val options = ParquetReadOptions.builder().build()
+
+          val stream = inputFile.newStream()
+          val footer =
+            try {
+              ParquetFileReader.readFooter(inputFile, options, stream)
+            } finally {
+              stream.close()
+            }
+
+          footer.getBlocks.asScala.zipWithIndex.map {
+            case (block, index) =>
+              val compressedSize =
+                block.getColumns.asScala.map(_.getTotalSize).sum
+
+              RowGroupInfo(
+                file = file,
+                ordinal = index,
+                rowCount = block.getRowCount,
+                totalByteSize = block.getTotalByteSize,
+                compressedSize = compressedSize)
+          }
+      }
+    }
+
+    withSQLConf(
+      MAX_TARGET_FILE_SIZE_SESSION.key -> "0",
+      "spark.sql.shuffle.partitions" -> "1"
+    ) {
+      withTable(table) {
+        spark.sql(s"""
+        CREATE TABLE $table (
+          id BIGINT,
+          payload STRING
+        ) USING iceberg
+        TBLPROPERTIES (
+          'write.parquet.compression-codec' = 'uncompressed'
+        )
+      """)
+
+        val df = spark.sql(s"""
+        INSERT INTO $table
+        SELECT
+          id,
+          array_join(
+            transform(
+              sequence(0, 63),
+              x -> md5(concat(CAST(id AS STRING), ':', CAST(x AS STRING)))
+            ),
+            ''
+          ) AS payload
+        FROM range(0, 90000, 1, 1)
+      """)
+
+        assert(
+          df.queryExecution.executedPlan
+            .asInstanceOf[CommandResultExec]
+            .commandPhysicalPlan
+            .isInstanceOf[VeloxIcebergAppendDataExec])
+
+        checkAnswer(
+          spark.sql(s"SELECT count(*) FROM $table"),
+          Seq(Row(90000L)))
+        val rowGroups = collectRowGroups(table)
+
+        assert(
+          rowGroups.size == 2,
+          "Expected 2 row groups")
+
+        assert(
+          rowGroups.head.totalByteSize < defaultRowGroupBytes,
+          "Expected row group to contain less than default value")
+
+        assert(
+          rowGroups(1).totalByteSize < defaultRowGroupBytes,
+          "Expected row group to contain less than default value")
       }
     }
   }
