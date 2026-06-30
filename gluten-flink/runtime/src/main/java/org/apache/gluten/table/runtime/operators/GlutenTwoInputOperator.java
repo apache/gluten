@@ -65,6 +65,12 @@ import java.util.Map;
 /**
  * Two input operator in gluten, which will call Velox to run. It receives RowVector from upstream
  * instead of flink RowData.
+ *
+ * <p>This class intentionally does not extend {@code AbstractStreamOperator}: in the Flink version
+ * used here, {@code AbstractStreamOperator.processWatermarkStatus1/2(...)} are final and maintain
+ * Flink's Java-side combined watermark status. Gluten needs to forward each input's status to
+ * native, which is the source of truth for combined watermark status inside the Gluten operator
+ * chain.
  */
 public class GlutenTwoInputOperator<IN, OUT>
     implements TwoInputStreamOperator<IN, IN, OUT>,
