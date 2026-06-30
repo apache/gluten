@@ -108,6 +108,7 @@ public class GlutenTwoInputOperator<IN, OUT>
   private transient ProcessingTimeService processingTimeService;
   private ChainingStrategy chainingStrategy = ChainingStrategy.ALWAYS;
   private transient Object currentKey;
+  private transient boolean stateInitialized;
 
   public GlutenTwoInputOperator(
       StatefulPlanNode plan,
@@ -339,6 +340,16 @@ public class GlutenTwoInputOperator<IN, OUT>
     GlutenCloseables.runWithCleanup(
         () -> {
           if (leftInputQueue != null) {
+            leftInputQueue.noMoreInput();
+          }
+        },
+        () -> {
+          if (rightInputQueue != null) {
+            rightInputQueue.noMoreInput();
+          }
+        },
+        () -> {
+          if (leftInputQueue != null) {
             leftInputQueue.close();
           }
         },
@@ -404,6 +415,7 @@ public class GlutenTwoInputOperator<IN, OUT>
   @Override
   public void prepareSnapshotPreBarrier(long checkpointId) throws Exception {
     // TODO: notify velox
+    processElementInternal();
   }
 
   @Override
@@ -413,27 +425,38 @@ public class GlutenTwoInputOperator<IN, OUT>
       CheckpointOptions checkpointOptions,
       CheckpointStreamFactory storageLocation)
       throws Exception {
-    if (task != null) {
-      task.snapshotState(checkpointId);
-    }
+    snapshotNativeState(checkpointId);
     return new OperatorSnapshotFutures();
   }
 
   @Override
   public void initializeState(StreamTaskStateInitializer streamTaskStateManager) throws Exception {
-    initSession();
-    task.initializeState(0, null);
+    initializeNativeState();
   }
 
   public void snapshotState(StateSnapshotContext context) throws Exception {
     // TODO: implement it
-    task.snapshotState(0);
+    snapshotNativeState(context.getCheckpointId());
   }
 
   public void initializeState(StateInitializationContext context) throws Exception {
-    initSession();
     // TODO: implement it
+    initializeNativeState();
+  }
+
+  private void snapshotNativeState(long checkpointId) {
+    if (task != null) {
+      task.snapshotState(checkpointId);
+    }
+  }
+
+  private void initializeNativeState() {
+    if (stateInitialized) {
+      return;
+    }
+    initSession();
     task.initializeState(0, null);
+    stateInitialized = true;
   }
 
   private void initSession() {
@@ -467,13 +490,17 @@ public class GlutenTwoInputOperator<IN, OUT>
   @Override
   public void notifyCheckpointComplete(long checkpointId) throws Exception {
     // TODO: notify velox
-    task.notifyCheckpointComplete(checkpointId);
+    if (task != null) {
+      task.notifyCheckpointComplete(checkpointId);
+    }
   }
 
   @Override
   public void notifyCheckpointAborted(long checkpointId) throws Exception {
     // TODO: notify velox
-    task.notifyCheckpointAborted(checkpointId);
+    if (task != null) {
+      task.notifyCheckpointAborted(checkpointId);
+    }
   }
 
   @Override
