@@ -43,6 +43,7 @@ import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.watermarkstatus.WatermarkStatus;
 import org.apache.flink.table.runtime.operators.TableStreamOperator;
 
 import java.util.List;
@@ -223,6 +224,8 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
           if (statefulElement.isWatermark()) {
             StatefulWatermark watermark = statefulElement.asWatermark();
             output.emitWatermark(new Watermark(watermark.getTimestamp()));
+          } else if (statefulElement.isWatermarkStatus()) {
+            output.emitWatermarkStatus(toFlinkWatermarkStatus(statefulElement));
           } else {
             outputBridge.collect(
                 output, statefulElement.asRecord(), sessionResource.getAllocator(), outputType);
@@ -247,6 +250,16 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
     task.notifyWatermark(mark.getTimestamp());
     // Process any pending elements to ensure watermark-triggered operations complete.
     processElementInternal();
+  }
+
+  @Override
+  public void processWatermarkStatus(WatermarkStatus status) throws Exception {
+    task.notifyWatermarkStatus(status.isIdle());
+    processElementInternal();
+  }
+
+  private WatermarkStatus toFlinkWatermarkStatus(StatefulElement element) {
+    return element.asWatermarkStatus().isIdle() ? WatermarkStatus.IDLE : WatermarkStatus.ACTIVE;
   }
 
   @Override

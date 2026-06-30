@@ -34,12 +34,28 @@ import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
+import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.state.KeyedStateStore;
+import org.apache.flink.metrics.groups.OperatorMetricGroup;
+import org.apache.flink.runtime.checkpoint.CheckpointOptions;
+import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.state.CheckpointStreamFactory;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
-import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
+import org.apache.flink.streaming.api.graph.StreamConfig;
+import org.apache.flink.streaming.api.operators.ChainingStrategy;
+import org.apache.flink.streaming.api.operators.OperatorSnapshotFutures;
+import org.apache.flink.streaming.api.operators.Output;
+import org.apache.flink.streaming.api.operators.SetupableStreamOperator;
+import org.apache.flink.streaming.api.operators.StreamTaskStateInitializer;
+import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
+import org.apache.flink.streaming.runtime.streamrecord.LatencyMarker;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
+import org.apache.flink.streaming.runtime.tasks.StreamTask;
+import org.apache.flink.streaming.runtime.watermarkstatus.WatermarkStatus;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,8 +66,11 @@ import java.util.Map;
  * Two input operator in gluten, which will call Velox to run. It receives RowVector from upstream
  * instead of flink RowData.
  */
-public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
-    implements TwoInputStreamOperator<IN, IN, OUT>, GlutenOperator, NativeCallbackTarget {
+public class GlutenTwoInputOperator<IN, OUT>
+    implements TwoInputStreamOperator<IN, IN, OUT>,
+        SetupableStreamOperator<OUT>,
+        GlutenOperator,
+        NativeCallbackTarget {
 
   private static final Logger LOG = LoggerFactory.getLogger(GlutenTwoInputOperator.class);
 
@@ -75,6 +94,14 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   private VectorOutputBridge<OUT> outputBridge;
   private String description;
   private final GlutenMailboxHolder mailboxHolder = new GlutenMailboxHolder();
+  private transient StreamTask<?, ?> containingTask;
+  private transient StreamConfig config;
+  private transient Output<StreamRecord<OUT>> output;
+  private transient StreamingRuntimeContext runtimeContext;
+  private transient OperatorMetricGroup metricGroup;
+  private transient ProcessingTimeService processingTimeService;
+  private ChainingStrategy chainingStrategy = ChainingStrategy.ALWAYS;
+  private transient Object currentKey;
 
   public GlutenTwoInputOperator(
       StatefulPlanNode plan,
@@ -120,11 +147,54 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   @Override
   public void open() throws Exception {
     closing = false;
-    super.open();
     if (!mailboxHolder().get().isMailboxBound()) {
       ensureMailboxInitialized(getContainingTask());
     }
     initSession();
+  }
+
+  @Override
+  public void setup(
+      StreamTask<?, ?> containingTask, StreamConfig config, Output<StreamRecord<OUT>> output) {
+    this.containingTask = containingTask;
+    this.config = config;
+    this.output = output;
+    this.metricGroup =
+        containingTask
+            .getEnvironment()
+            .getMetricGroup()
+            .getOrAddOperator(config.getOperatorID(), config.getOperatorName());
+    this.runtimeContext =
+        new StreamingRuntimeContext(
+            containingTask.getEnvironment(),
+            containingTask.getEnvironment().getAccumulatorRegistry().getUserMap(),
+            metricGroup,
+            config.getOperatorID(),
+            processingTimeService,
+            null,
+            containingTask.getEnvironment().getExternalResourceInfoProvider());
+  }
+
+  @Override
+  public ChainingStrategy getChainingStrategy() {
+    return chainingStrategy;
+  }
+
+  @Override
+  public void setChainingStrategy(ChainingStrategy chainingStrategy) {
+    this.chainingStrategy = chainingStrategy;
+  }
+
+  public StreamTask<?, ?> getContainingTask() {
+    return containingTask;
+  }
+
+  public StreamingRuntimeContext getRuntimeContext() {
+    return runtimeContext;
+  }
+
+  public ExecutionConfig getExecutionConfig() {
+    return containingTask.getEnvironment().getExecutionConfig();
   }
 
   @Override
@@ -203,6 +273,8 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
           if (element.isWatermark()) {
             StatefulWatermark watermark = element.asWatermark();
             output.emitWatermark(new Watermark(watermark.getTimestamp()));
+          } else if (element.isWatermarkStatus()) {
+            output.emitWatermarkStatus(toFlinkWatermarkStatus(element));
           } else {
             outputBridge.collect(
                 output, element.asRecord(), sessionResource.getAllocator(), outputType);
@@ -216,7 +288,6 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
     }
   }
 
-  @Override
   public void processWatermark(Watermark mark) throws Exception {
     task.notifyWatermark(mark.getTimestamp());
     processElementInternal();
@@ -232,6 +303,32 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   public void processWatermark2(Watermark mark) throws Exception {
     task.notifyWatermark(mark.getTimestamp(), 1);
     processElementInternal();
+  }
+
+  @Override
+  public void processWatermarkStatus1(WatermarkStatus status) throws Exception {
+    task.notifyWatermarkStatus(status.isIdle(), 0);
+    processElementInternal();
+  }
+
+  @Override
+  public void processWatermarkStatus2(WatermarkStatus status) throws Exception {
+    task.notifyWatermarkStatus(status.isIdle(), 1);
+    processElementInternal();
+  }
+
+  @Override
+  public void processLatencyMarker1(LatencyMarker latencyMarker) throws Exception {
+    output.emitLatencyMarker(latencyMarker);
+  }
+
+  @Override
+  public void processLatencyMarker2(LatencyMarker latencyMarker) throws Exception {
+    output.emitLatencyMarker(latencyMarker);
+  }
+
+  private WatermarkStatus toFlinkWatermarkStatus(StatefulElement element) {
+    return element.asWatermarkStatus().isIdle() ? WatermarkStatus.IDLE : WatermarkStatus.ACTIVE;
   }
 
   @Override
@@ -265,9 +362,11 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
           if (sessionResource != null) {
             sessionResource.close();
           }
-        },
-        super::close);
+        });
   }
+
+  @Override
+  public void finish() {}
 
   @Override
   public StatefulPlanNode getPlanNode() {
@@ -303,22 +402,36 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   @Override
   public void prepareSnapshotPreBarrier(long checkpointId) throws Exception {
     // TODO: notify velox
-    super.prepareSnapshotPreBarrier(checkpointId);
   }
 
   @Override
+  public OperatorSnapshotFutures snapshotState(
+      long checkpointId,
+      long timestamp,
+      CheckpointOptions checkpointOptions,
+      CheckpointStreamFactory storageLocation)
+      throws Exception {
+    if (task != null) {
+      task.snapshotState(checkpointId);
+    }
+    return new OperatorSnapshotFutures();
+  }
+
+  @Override
+  public void initializeState(StreamTaskStateInitializer streamTaskStateManager) throws Exception {
+    initSession();
+    task.initializeState(0, null);
+  }
+
   public void snapshotState(StateSnapshotContext context) throws Exception {
     // TODO: implement it
     task.snapshotState(0);
-    super.snapshotState(context);
   }
 
-  @Override
   public void initializeState(StateInitializationContext context) throws Exception {
     initSession();
     // TODO: implement it
     task.initializeState(0, null);
-    super.initializeState(context);
   }
 
   private void initSession() {
@@ -353,13 +466,41 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   public void notifyCheckpointComplete(long checkpointId) throws Exception {
     // TODO: notify velox
     task.notifyCheckpointComplete(checkpointId);
-    super.notifyCheckpointComplete(checkpointId);
   }
 
   @Override
   public void notifyCheckpointAborted(long checkpointId) throws Exception {
     // TODO: notify velox
     task.notifyCheckpointAborted(checkpointId);
-    super.notifyCheckpointAborted(checkpointId);
+  }
+
+  @Override
+  public void setKeyContextElement1(StreamRecord<?> record) throws Exception {}
+
+  @Override
+  public void setKeyContextElement2(StreamRecord<?> record) throws Exception {}
+
+  @Override
+  public OperatorMetricGroup getMetricGroup() {
+    return metricGroup;
+  }
+
+  @Override
+  public OperatorID getOperatorID() {
+    return config.getOperatorID();
+  }
+
+  @Override
+  public void setCurrentKey(Object key) {
+    currentKey = key;
+  }
+
+  @Override
+  public Object getCurrentKey() {
+    return currentKey;
+  }
+
+  public KeyedStateStore getKeyedStateStore() {
+    return null;
   }
 }
