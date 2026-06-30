@@ -47,16 +47,16 @@ public class VeloxBloomFilterTest extends VeloxBackendTestBase {
     buf.putInt(0); // size
     TaskResources$.MODULE$.runUnsafe(
         () -> {
-          final BloomFilter filter = VeloxBloomFilter.readFrom(buf.array());
-          Assert.assertThrows(
-              "Bloom-filter is not initialized",
-              RuntimeException.class,
-              new ThrowingRunnable() {
-                @Override
-                public void run() throws Throwable {
-                  filter.mightContainLong(0);
-                }
-              });
+          RuntimeException exception =
+              Assert.assertThrows(
+                  RuntimeException.class,
+                  new ThrowingRunnable() {
+                    @Override
+                    public void run() throws Throwable {
+                      VeloxBloomFilter.readFrom(buf.array());
+                    }
+                  });
+          Assert.assertTrue(exception.getMessage().contains("Invalid BloomFilter size: 0"));
           return null;
         });
   }

@@ -152,7 +152,7 @@ std::shared_ptr<VeloxColumnarBatch> makeCudfTable(
   DispatchColumn dispatch{stream, cudf::get_current_device_resource_ref(), buffers, numRows};
   for (const auto& colType : type->children()) {
     auto res = VELOX_DYNAMIC_SCALAR_TYPE_DISPATCH(
-        dispatch.readFlatColumn, colType->kind(), cudf_velox::veloxToCudfTypeId(colType));
+        dispatch.readFlatColumn, colType->kind(), cudf_velox::veloxToCudfDataType(colType).id());
     cudfColumns.emplace_back(std::move(res));
   }
   auto cudfTable = std::make_unique<cudf::table>(std::move(cudfColumns));

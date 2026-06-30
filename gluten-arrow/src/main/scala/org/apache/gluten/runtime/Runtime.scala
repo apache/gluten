@@ -81,7 +81,8 @@ object Runtime {
           s"Runtime instance already released: $handle, ${resourceName()}, ${priority()}")
       }
       RuntimeJniWrapper.releaseRuntime(handle)
-
+      ntm.release()
+      nmm.release()
     }
 
     override def priority(): Int = 30
