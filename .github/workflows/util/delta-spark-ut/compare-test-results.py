@@ -76,6 +76,11 @@ import xml.etree.ElementTree as ET
 # would record zero failing testcases and the regression would be missed.
 SUITE_ABORTED = "<suite aborted>"
 
+
+class NoReportsError(RuntimeError):
+    """Raised when no JUnit <testsuite> elements are found under reports_dir."""
+
+
 SEP = "#"
 
 
@@ -212,8 +217,12 @@ def parse_reports(reports_dir):
                 failed.add((suite_name, SUITE_ABORTED))
 
     if not parsed_any:
-        eprint(
-            "WARNING: no JUnit <testsuite> elements found under {}".format(reports_dir)
+        raise NoReportsError(
+            "No JUnit <testsuite> elements found under {}. The test reports are "
+            "missing or in an unexpected format -- refusing to evaluate the gate "
+            "on an empty result set (this would otherwise pass silently).".format(
+                reports_dir
+            )
         )
 
     # A test can't be both passed and failed; failure wins. Skipped only counts
@@ -275,7 +284,11 @@ def run_enforce(args):
         )
         return 2
     baseline = load_entries(args.known_failures)
-    passed, failed, skipped = parse_reports(args.reports_dir)
+    try:
+        passed, failed, skipped = parse_reports(args.reports_dir)
+    except NoReportsError as exc:
+        eprint("ERROR: {}".format(exc))
+        return 2
 
     # Always emit this shard's artifacts for the aggregation job.
     if args.failures_out:
@@ -374,6 +387,18 @@ def run_aggregate(args):
     ran_files = sorted(
         glob.glob(os.path.join(args.inputs_dir, "**", "ran-*.txt"), recursive=True)
     )
+
+    # No per-shard gate lists means the artifacts were never produced or the
+    # download failed (the workflow's download step is continue-on-error). Bail
+    # out before writing an empty baseline-out, which could otherwise be committed
+    # and wipe the entire known-failures.txt.
+    if not failure_files and not ran_files:
+        eprint(
+            "ERROR: no per-shard failures-*.txt / ran-*.txt files found under "
+            "{}. Refusing to aggregate an empty baseline (gate-list artifacts are "
+            "missing or were not downloaded).".format(args.inputs_dir)
+        )
+        return 2
 
     union_failed = set()
     for f in failure_files:

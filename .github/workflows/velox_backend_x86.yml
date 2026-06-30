@@ -126,7 +126,6 @@ jobs:
     with:
       native_lib_artifact: velox-native-lib-centos-7-${{ github.sha }}
       arrow_jars_artifact: velox-arrow-jars-centos-7-${{ github.sha }}
-    secrets: inherit
 
   tpc-test-ubuntu:
     needs: build-native-lib-centos-7
