@@ -69,9 +69,6 @@ struct ShuffleReaderOptions {
   // Whether to enable the reader-side raw payload merge fast path for plain hash shuffle payloads within one input
   // stream.
   bool enableHashShuffleReaderStreamMerge = false;
-
-  // Thread number for async shuffle read.
-  int32_t numReaderThreads = std::thread::hardware_concurrency();
 };
 
 struct ShuffleWriterOptions {

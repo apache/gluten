@@ -51,7 +51,7 @@ class VeloxBackend {
 
   facebook::velox::cache::AsyncDataCache* getAsyncDataCache() const;
 
-  ReaderThreadPool* getReaderThreadPool() const;
+  ReaderThreadPool* getReaderThreadPool();
 
   std::shared_ptr<facebook::velox::config::ConfigBase> getBackendConf() const {
     return backendConf_;
