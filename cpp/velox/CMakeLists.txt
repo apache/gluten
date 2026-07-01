@@ -411,17 +411,24 @@ if(DEFINED VCPKG_INSTALLED_DIR
     PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
             ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
 else()
-  message(STATUS "Using system thrift libraries from /usr/local/lib")
+  # fbthrift is installed either into the Velox dependency prefix (e.g. on macOS
+  # where deps are isolated under deps-install, passed via CMAKE_PREFIX_PATH) or
+  # into a system location such as /usr/local (Linux). Search CMAKE_PREFIX_PATH
+  # in addition to /usr/local/lib rather than hardcoding the latter.
+  message(
+    STATUS
+      "Using thrift libraries from CMAKE_PREFIX_PATH (${CMAKE_PREFIX_PATH}) or /usr/local/lib"
+  )
   find_library(
     THRIFTCPP2_LIB
     NAMES thriftcpp2
-    PATHS /usr/local/lib
-    NO_DEFAULT_PATH)
+    PATHS ${CMAKE_PREFIX_PATH} /usr/local
+    PATH_SUFFIXES lib)
   find_library(
     THRIFTPROTOCOL_LIB
     NAMES thriftprotocol
-    PATHS /usr/local/lib
-    NO_DEFAULT_PATH)
+    PATHS ${CMAKE_PREFIX_PATH} /usr/local
+    PATH_SUFFIXES lib)
 
   if(THRIFTCPP2_LIB AND THRIFTPROTOCOL_LIB)
     target_link_libraries(velox PRIVATE ${THRIFTCPP2_LIB} ${THRIFTPROTOCOL_LIB})
