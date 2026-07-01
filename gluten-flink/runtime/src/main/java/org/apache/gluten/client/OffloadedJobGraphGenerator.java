@@ -18,6 +18,7 @@ package org.apache.gluten.client;
 
 import org.apache.gluten.streaming.api.operators.GlutenOperator;
 import org.apache.gluten.streaming.api.operators.GlutenStreamSource;
+import org.apache.gluten.streaming.api.operators.GlutenTwoInputOperatorFactory;
 import org.apache.gluten.table.runtime.keyselector.GlutenKeySelector;
 import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.table.runtime.operators.GlutenSourceFunction;
@@ -279,7 +280,10 @@ public class OffloadedJobGraphGenerator {
             sourceOperator.getOutputTypes(),
             inClass,
             outClass);
-    offloadedOpConfig.setStreamOperator(newTwoInputOp);
+    // setStreamOperator would wrap this in Flink's SimpleOperatorFactory, which only initializes
+    // ProcessingTimeService for Flink AbstractStreamOperator. GlutenTwoInputOperator uses
+    // GlutenAbstractStreamOperator so it needs the Gluten-specific factory.
+    offloadedOpConfig.setStreamOperatorFactory(new GlutenTwoInputOperatorFactory<>(newTwoInputOp));
     offloadedOpConfig.setStatePartitioner(0, new GlutenKeySelector());
     offloadedOpConfig.setStatePartitioner(1, new GlutenKeySelector());
     if (supportsVectorOutput) {

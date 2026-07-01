@@ -55,7 +55,7 @@ public class GlutenTwoInputOperatorFactory<IN1, IN2, OUT> extends AbstractStream
     LOG.debug("Build gluten operator {}", Serde.toJson(getOperator().getPlanNode()));
     if (operator instanceof GlutenAbstractStreamOperator) {
       ((GlutenAbstractStreamOperator<OUT>) operator)
-          .setProcessingTimeService(processingTimeService);
+          .setProcessingTimeService(parameters.getProcessingTimeService());
     }
     if (operator instanceof SetupableStreamOperator) {
       ((SetupableStreamOperator<OUT>) operator)

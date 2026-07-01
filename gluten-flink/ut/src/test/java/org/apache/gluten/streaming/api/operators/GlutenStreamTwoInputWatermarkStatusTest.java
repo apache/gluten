@@ -78,4 +78,30 @@ public class GlutenStreamTwoInputWatermarkStatusTest extends GlutenStreamJoinOpe
           .containsExactly(WatermarkStatus.IDLE, WatermarkStatus.ACTIVE, new Watermark(1L));
     }
   }
+
+  @Test
+  public void testWatermarksUseNativeTwoInputMinimum() throws Exception {
+    // While both inputs are active, native execution should combine indexed input watermarks by
+    // forwarding only monotonically increasing minimum watermarks downstream.
+    GlutenTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.INNER);
+
+    try (TwoInputStreamOperatorTestHarness<StatefulRecord, StatefulRecord, StatefulRecord> harness =
+        new TwoInputStreamOperatorTestHarness<>(operator)) {
+      harness.setup();
+      harness.open();
+
+      // The first input alone cannot advance the combined watermark because the second input has no
+      // watermark yet.
+      harness.processWatermark1(new Watermark(100L));
+      assertThat(harness.getOutput()).isEmpty();
+
+      // Once both inputs have watermarks, the lower input watermark is emitted.
+      harness.processWatermark2(new Watermark(90L));
+      assertThat(harness.getOutput()).containsExactly(new Watermark(90L));
+
+      // Advancing the lower input exposes input 1's watermark as the new combined minimum.
+      harness.processWatermark2(new Watermark(110L));
+      assertThat(harness.getOutput()).containsExactly(new Watermark(90L), new Watermark(100L));
+    }
+  }
 }
