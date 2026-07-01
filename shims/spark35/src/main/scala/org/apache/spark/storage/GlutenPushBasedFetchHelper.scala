@@ -22,13 +22,12 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.network.shuffle.{BlockStoreClient, MergedBlockMeta, MergedBlocksMetaListener}
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter
 import org.apache.spark.storage.BlockManagerId.SHUFFLE_MERGER_IDENTIFIER
-import org.apache.spark.storage.GlutenShuffleBlockFetcherIterator._
+import org.apache.spark.storage.ShuffleBlockFetcherIterator._
 
 import org.roaringbitmap.RoaringBitmap
 
 import java.util.concurrent.TimeUnit
 
-import scala.collection
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.util.{Failure, Success}

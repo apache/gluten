@@ -23,20 +23,18 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.network.buffer.{FileSegmentManagedBuffer, ManagedBuffer}
 import org.apache.spark.network.shuffle._
 import org.apache.spark.network.shuffle.checksum.{Cause, ShuffleChecksumHelper}
-import org.apache.spark.network.util.{NettyUtils, TransportConf}
+import org.apache.spark.network.util.TransportConf
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter
 import org.apache.spark.util.{Clock, SystemClock, TaskCompletionListener, Utils}
 
 import io.netty.util.internal.OutOfDirectMemoryError
 import org.apache.commons.io.IOUtils
-import org.roaringbitmap.RoaringBitmap
 
 import javax.annotation.concurrent.GuardedBy
 
 import java.io.{InputStream, IOException}
 import java.nio.channels.ClosedByInterruptException
 import java.util.concurrent.{ConcurrentHashMap, LinkedBlockingQueue, TimeUnit}
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.CheckedInputStream
 
 import scala.collection.mutable
@@ -115,7 +113,7 @@ final class GlutenShuffleBlockFetcherIterator(
   with DownloadFileManager
   with Logging {
 
-  import GlutenShuffleBlockFetcherIterator._
+  import ShuffleBlockFetcherIterator._
 
   // Make remote requests at most maxBytesInFlight / 5 in length; the reason to keep them
   // smaller than maxBytesInFlight is to allow multiple, parallel fetches from up to 5
@@ -1515,7 +1513,7 @@ private class GlutenBufferReleasingInputStream(
       } finally {
         // Unset the flag when a remote request finished and free memory is fairly enough.
         if (isNetworkReqDone) {
-          GlutenShuffleBlockFetcherIterator.resetNettyOOMFlagIfPossible(
+          ShuffleBlockFetcherIterator.resetNettyOOMFlagIfPossible(
             iterator.maxReqSizeShuffleToMem)
         }
         closed = true
@@ -1582,279 +1580,4 @@ private class GlutenShuffleFetchCompletionListener(var data: GlutenShuffleBlockF
 
   // Just an alias for onTaskCompletion to avoid confusing
   def onComplete(context: TaskContext): Unit = this.onTaskCompletion(context)
-}
-
-private[storage] object GlutenShuffleBlockFetcherIterator {
-
-  /**
-   * A flag which indicates whether the Netty OOM error has raised during shuffle. If true, unless
-   * there's no in-flight fetch requests, all the pending shuffle fetch requests will be deferred
-   * until the flag is unset (whenever there's a complete fetch request).
-   */
-  val isNettyOOMOnShuffle = new AtomicBoolean(false)
-
-  def resetNettyOOMFlagIfPossible(freeMemoryLowerBound: Long): Unit = {
-    if (isNettyOOMOnShuffle.get() && NettyUtils.freeDirectMemory() >= freeMemoryLowerBound) {
-      isNettyOOMOnShuffle.compareAndSet(true, false)
-    }
-  }
-
-  /**
-   * This function is used to merged blocks when doBatchFetch is true. Blocks which have the same
-   * `mapId` can be merged into one block batch. The block batch is specified by a range of
-   * reduceId, which implies the continuous shuffle blocks that we can fetch in a batch. For
-   * example, input blocks like (shuffle_0_0_0, shuffle_0_0_1, shuffle_0_1_0) can be merged into
-   * (shuffle_0_0_0_2, shuffle_0_1_0_1), and input blocks like (shuffle_0_0_0_2, shuffle_0_0_2,
-   * shuffle_0_0_3) can be merged into (shuffle_0_0_0_4).
-   *
-   * @param blocks
-   *   blocks to be merged if possible. May contains already merged blocks.
-   * @param doBatchFetch
-   *   whether to merge blocks.
-   * @return
-   *   the input blocks if doBatchFetch=false, or the merged blocks if doBatchFetch=true.
-   */
-  def mergeContinuousShuffleBlockIdsIfNeeded(
-      blocks: collection.Seq[FetchBlockInfo],
-      doBatchFetch: Boolean): collection.Seq[FetchBlockInfo] = {
-    val result = if (doBatchFetch) {
-      val curBlocks = new ArrayBuffer[FetchBlockInfo]
-      val mergedBlockInfo = new ArrayBuffer[FetchBlockInfo]
-
-      def mergeFetchBlockInfo(toBeMerged: ArrayBuffer[FetchBlockInfo]): FetchBlockInfo = {
-        val startBlockId = toBeMerged.head.blockId.asInstanceOf[ShuffleBlockId]
-
-        // The last merged block may comes from the input, and we can merge more blocks
-        // into it, if the map id is the same.
-        def shouldMergeIntoPreviousBatchBlockId =
-          mergedBlockInfo.last.blockId.asInstanceOf[ShuffleBlockBatchId].mapId == startBlockId.mapId
-
-        val (startReduceId, size) =
-          if (mergedBlockInfo.nonEmpty && shouldMergeIntoPreviousBatchBlockId) {
-            // Remove the previous batch block id as we will add a new one to replace it.
-            val removed = mergedBlockInfo.remove(mergedBlockInfo.length - 1)
-            (
-              removed.blockId.asInstanceOf[ShuffleBlockBatchId].startReduceId,
-              removed.size + toBeMerged.map(_.size).sum)
-          } else {
-            (startBlockId.reduceId, toBeMerged.map(_.size).sum)
-          }
-
-        FetchBlockInfo(
-          ShuffleBlockBatchId(
-            startBlockId.shuffleId,
-            startBlockId.mapId,
-            startReduceId,
-            toBeMerged.last.blockId.asInstanceOf[ShuffleBlockId].reduceId + 1),
-          size,
-          toBeMerged.head.mapIndex
-        )
-      }
-
-      val iter = blocks.iterator
-      while (iter.hasNext) {
-        val info = iter.next()
-        // It's possible that the input block id is already a batch ID. For example, we merge some
-        // blocks, and then make fetch requests with the merged blocks according to "max blocks per
-        // request". The last fetch request may be too small, and we give up and put the remaining
-        // merged blocks back to the input list.
-        if (info.blockId.isInstanceOf[ShuffleBlockBatchId]) {
-          mergedBlockInfo += info
-        } else {
-          if (curBlocks.isEmpty) {
-            curBlocks += info
-          } else {
-            val curBlockId = info.blockId.asInstanceOf[ShuffleBlockId]
-            val currentMapId = curBlocks.head.blockId.asInstanceOf[ShuffleBlockId].mapId
-            if (curBlockId.mapId != currentMapId) {
-              mergedBlockInfo += mergeFetchBlockInfo(curBlocks)
-              curBlocks.clear()
-            }
-            curBlocks += info
-          }
-        }
-      }
-      if (curBlocks.nonEmpty) {
-        mergedBlockInfo += mergeFetchBlockInfo(curBlocks)
-      }
-      mergedBlockInfo
-    } else {
-      blocks
-    }
-    result
-  }
-
-  /**
-   * The block information to fetch used in FetchRequest.
-   * @param blockId
-   *   block id
-   * @param size
-   *   estimated size of the block. Note that this is NOT the exact bytes. Size of remote block is
-   *   used to calculate bytesInFlight.
-   * @param mapIndex
-   *   the mapIndex for this block, which indicate the index in the map stage.
-   */
-  private[storage] case class FetchBlockInfo(blockId: BlockId, size: Long, mapIndex: Int)
-
-  /**
-   * A request to fetch blocks from a remote BlockManager.
-   * @param address
-   *   remote BlockManager to fetch from.
-   * @param blocks
-   *   Sequence of the information for blocks to fetch from the same address.
-   * @param forMergedMetas
-   *   true if this request is for requesting push-merged meta information; false if it is for
-   *   regular or shuffle chunks.
-   */
-  case class FetchRequest(
-      address: BlockManagerId,
-      blocks: collection.Seq[FetchBlockInfo],
-      forMergedMetas: Boolean = false) {
-    val size = blocks.map(_.size).sum
-  }
-
-  /** Result of a fetch from a remote block. */
-  sealed private[storage] trait FetchResult
-
-  /**
-   * Result of a fetch from a remote block successfully.
-   * @param blockId
-   *   block id
-   * @param mapIndex
-   *   the mapIndex for this block, which indicate the index in the map stage.
-   * @param address
-   *   BlockManager that the block was fetched from.
-   * @param size
-   *   estimated size of the block. Note that this is NOT the exact bytes. Size of remote block is
-   *   used to calculate bytesInFlight.
-   * @param buf
-   *   `ManagedBuffer` for the content.
-   * @param isNetworkReqDone
-   *   Is this the last network request for this host in this fetch request.
-   */
-  private[storage] case class SuccessFetchResult(
-      blockId: BlockId,
-      mapIndex: Int,
-      address: BlockManagerId,
-      size: Long,
-      buf: ManagedBuffer,
-      isNetworkReqDone: Boolean)
-    extends FetchResult {
-    require(buf != null)
-    require(size >= 0)
-  }
-
-  /**
-   * Result of a fetch from a remote block unsuccessfully.
-   * @param blockId
-   *   block id
-   * @param mapIndex
-   *   the mapIndex for this block, which indicate the index in the map stage
-   * @param address
-   *   BlockManager that the block was attempted to be fetched from
-   * @param e
-   *   the failure exception
-   */
-  private[storage] case class FailureFetchResult(
-      blockId: BlockId,
-      mapIndex: Int,
-      address: BlockManagerId,
-      e: Throwable)
-    extends FetchResult
-
-  /** Result of a fetch request that should be deferred for some reasons, e.g., Netty OOM */
-  private[storage] case class DeferFetchRequestResult(fetchRequest: FetchRequest)
-    extends FetchResult
-
-  /**
-   * Result of an un-successful fetch of either of these: 1) Remote shuffle chunk. 2) Local
-   * push-merged block.
-   *
-   * Instead of treating this as a [[FailureFetchResult]], we fallback to fetch the original blocks.
-   *
-   * @param blockId
-   *   block id
-   * @param address
-   *   BlockManager that the push-merged block was attempted to be fetched from
-   * @param size
-   *   size of the block, used to update bytesInFlight.
-   * @param isNetworkReqDone
-   *   Is this the last network request for this host in this fetch request. Used to update
-   *   reqsInFlight.
-   */
-  private[storage] case class FallbackOnPushMergedFailureResult(
-      blockId: BlockId,
-      address: BlockManagerId,
-      size: Long,
-      isNetworkReqDone: Boolean)
-    extends FetchResult
-
-  /**
-   * Result of a successful fetch of meta information for a remote push-merged block.
-   *
-   * @param shuffleId
-   *   shuffle id.
-   * @param shuffleMergeId
-   *   shuffleMergeId is used to uniquely identify merging process of shuffle by an indeterminate
-   *   stage attempt.
-   * @param reduceId
-   *   reduce id.
-   * @param blockSize
-   *   size of each push-merged block.
-   * @param bitmaps
-   *   bitmaps for every chunk.
-   * @param address
-   *   BlockManager that the meta was fetched from.
-   */
-  private[storage] case class PushMergedRemoteMetaFetchResult(
-      shuffleId: Int,
-      shuffleMergeId: Int,
-      reduceId: Int,
-      blockSize: Long,
-      bitmaps: Array[RoaringBitmap],
-      address: BlockManagerId)
-    extends FetchResult
-
-  /**
-   * Result of a failure while fetching the meta information for a remote push-merged block.
-   *
-   * @param shuffleId
-   *   shuffle id.
-   * @param shuffleMergeId
-   *   shuffleMergeId is used to uniquely identify merging process of shuffle by an indeterminate
-   *   stage attempt.
-   * @param reduceId
-   *   reduce id.
-   * @param address
-   *   BlockManager that the meta was fetched from.
-   */
-  private[storage] case class PushMergedRemoteMetaFailedFetchResult(
-      shuffleId: Int,
-      shuffleMergeId: Int,
-      reduceId: Int,
-      address: BlockManagerId)
-    extends FetchResult
-
-  /**
-   * Result of a successful fetch of meta information for a push-merged-local block.
-   *
-   * @param shuffleId
-   *   shuffle id.
-   * @param shuffleMergeId
-   *   shuffleMergeId is used to uniquely identify merging process of shuffle by an indeterminate
-   *   stage attempt.
-   * @param reduceId
-   *   reduce id.
-   * @param bitmaps
-   *   bitmaps for every chunk.
-   * @param localDirs
-   *   local directories where the push-merged shuffle files are storedl
-   */
-  private[storage] case class PushMergedLocalMetaFetchResult(
-      shuffleId: Int,
-      shuffleMergeId: Int,
-      reduceId: Int,
-      bitmaps: Array[RoaringBitmap],
-      localDirs: Array[String])
-    extends FetchResult
 }
