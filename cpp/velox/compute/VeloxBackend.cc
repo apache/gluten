@@ -211,8 +211,6 @@ void VeloxBackend::init(
     velox::exec::Operator::registerOperator(std::make_unique<CudfVectorStreamOperatorTranslator>());
     velox::cudf_velox::registerSparkFunctions("");
     velox::cudf_velox::registerSparkAggregateFunctions("");
-    readerThreadPool_ = std::make_unique<ReaderThreadPool>(
-        backendConf_->get<int32_t>(kShuffleReaderThreads, std::thread::hardware_concurrency()));
   }
 #endif
 

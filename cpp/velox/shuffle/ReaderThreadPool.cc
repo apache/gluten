@@ -83,8 +83,8 @@ void ReaderThreadPool::workerThread() {
           break;
         }
         auto& prioritizedTask = tasks_.top();
-        LOG(WARNING) << "Worker thread " << std::this_thread::get_id() << " is executing a task with priority "
-                     << prioritizedTask.priority;
+        LOG(INFO) << "Worker thread " << std::this_thread::get_id() << " is executing a task with priority "
+                  << prioritizedTask.priority;
         task = std::move(prioritizedTask.task);
         tasks_.pop();
       }

@@ -17,7 +17,11 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include "velox/common/base/Exceptions.h"
+
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <queue>
 
@@ -30,8 +34,9 @@ class CachedBatchQueue {
 
   void put(std::shared_ptr<T> batch) {
     std::unique_lock<std::mutex> lock(mtx_);
-    const auto batchSize = batch->numBytes();
+    VELOX_CHECK(!noMoreBatches_, "Cannot put batch after noMoreBatches() is called");
 
+    const auto batchSize = batch->numBytes();
     VELOX_CHECK_LE(batchSize, capacity_, "Batch size exceeds queue capacity");
 
     notFull_.wait(lock, [&]() { return totalSize_ + batchSize <= capacity_; });
@@ -67,6 +72,7 @@ class CachedBatchQueue {
     notEmpty_.notify_all();
   }
 
+ private:
   int64_t size() const {
     return totalSize_;
   }
@@ -75,7 +81,6 @@ class CachedBatchQueue {
     return queue_.empty();
   }
 
- private:
   int64_t capacity_;
   int64_t totalSize_{0};
   bool noMoreBatches_{false};
