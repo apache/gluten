@@ -110,10 +110,10 @@ import static org.apache.flink.util.Preconditions.checkState;
  * WatermarkStatus} events through Flink's Java-side combined watermark status. Gluten must instead
  * forward each input's {@code IDLE}/{@code ACTIVE} status to native execution, where the Gluten
  * operator chain keeps the combined watermark/status as the source of truth. Reusing either Flink
- * base class would prevent {@code GlutenTwoInputOperator} from overriding the status handling, while
- * not using a base class at all would lose the runtime, state, key-context, timer, latency, and
- * checkpoint behavior implemented by {@code AbstractStreamOperator}. Keep this file aligned with
- * Flink 1.19.2 except for making {@code processWatermarkStatus1/2(...)} overridable.
+ * base class would prevent {@code GlutenTwoInputOperator} from overriding the status handling,
+ * while not using a base class at all would lose the runtime, state, key-context, timer, latency,
+ * and checkpoint behavior implemented by {@code AbstractStreamOperator}. Keep this file aligned
+ * with Flink 1.19.2 except for making {@code processWatermarkStatus1/2(...)} overridable.
  *
  * @param <OUT> The output type of the operator.
  */
