@@ -39,13 +39,23 @@ function prepare_arrow_build() {
 function build_arrow_cpp() {
   pushd $ARROW_PREFIX/cpp
   ARROW_WITH_ZLIB=ON
+  # Major version of the compiler CMake will use, when it is clang. Non-clang
+  # compilers (e.g. gcc) do not define __clang_major__, leaving this empty.
+  clang_major_version=$(echo | ${CXX:-c++} -dM -E -x c++ - 2>/dev/null | awk '/__clang_major__/ {print $3}')
   # The zlib version bundled with arrow is not compatible with clang 17.
   # It can be removed after upgrading the arrow version.
   if [[ "$(uname)" == "Darwin" ]]; then
-    clang_major_version=$(echo | clang -dM -E - | grep __clang_major__ | awk '{print $3}')
-    if [ "${clang_major_version}" -ge 17 ]; then
+    if [ -n "${clang_major_version}" ] && [ "${clang_major_version}" -ge 17 ]; then
       ARROW_WITH_ZLIB=OFF
     fi
+  fi
+  # Clang 21 added -Wcharacter-conversion (enabled by default), which Arrow's
+  # bundled googletest trips under its own -Werror. Downgrade it to a warning on
+  # clang 21+. Not OS-specific: any clang 21+ (macOS or Linux) is affected. Can be
+  # removed once an Arrow upgrade ships a newer googletest.
+  EXTRA_CMAKE_CXX_FLAGS=""
+  if [ -n "${clang_major_version}" ] && [ "${clang_major_version}" -ge 21 ]; then
+    EXTRA_CMAKE_CXX_FLAGS="-Wno-error=character-conversion"
   fi
   cmake_install \
        -DARROW_PARQUET=OFF \
