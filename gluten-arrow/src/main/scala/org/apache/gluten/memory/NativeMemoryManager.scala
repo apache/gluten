@@ -115,4 +115,5 @@ object NativeMemoryManager {
   def apply(backendName: String, name: String): NativeMemoryManager = {
     new Impl(backendName, name)
   }
+
 }

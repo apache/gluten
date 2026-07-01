@@ -23,6 +23,7 @@
 #include "folly/String.h"
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxColumnarBatch.h"
+#include "operators/hashjoin/HashTableSerializer.h"
 #include "substrait/algebra.pb.h"
 #include "substrait/type.pb.h"
 #include "velox/core/PlanNode.h"
@@ -161,6 +162,88 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
 
 long getJoin(const std::string& hashTableId) {
   return JniHashTableContext::getInstance().callJavaGet(hashTableId);
+}
+
+size_t serializedHashTableSize(std::shared_ptr<HashTableBuilder> builder) {
+  VELOX_CHECK_NOT_NULL(builder, "Hash table builder cannot be null");
+
+  auto hashTable = builder->hashTable();
+  VELOX_CHECK_NOT_NULL(hashTable, "Hash table cannot be null");
+
+  auto* hashTableFalse = dynamic_cast<facebook::velox::exec::HashTable<false>*>(hashTable.get());
+  if (hashTableFalse != nullptr) {
+    return HashTableSerializer::serializedSize<false>(hashTableFalse);
+  }
+
+  auto* hashTableTrue = dynamic_cast<facebook::velox::exec::HashTable<true>*>(hashTable.get());
+  VELOX_CHECK_NOT_NULL(hashTableTrue, "Hash table must be either HashTable<false> or HashTable<true>");
+  return HashTableSerializer::serializedSize<true>(hashTableTrue);
+}
+
+void serializeHashTableTo(std::shared_ptr<HashTableBuilder> builder, uint8_t* data, size_t size) {
+  VELOX_CHECK_NOT_NULL(builder, "Hash table builder cannot be null");
+  VELOX_CHECK_NOT_NULL(data, "Serialized buffer cannot be null");
+
+  auto hashTable = builder->hashTable();
+  VELOX_CHECK_NOT_NULL(hashTable, "Hash table cannot be null");
+
+  auto* hashTableFalse = dynamic_cast<facebook::velox::exec::HashTable<false>*>(hashTable.get());
+  if (hashTableFalse != nullptr) {
+    HashTableSerializer::serializeTo<false>(hashTableFalse, data, size);
+    return;
+  }
+
+  auto* hashTableTrue = dynamic_cast<facebook::velox::exec::HashTable<true>*>(hashTable.get());
+  VELOX_CHECK_NOT_NULL(hashTableTrue, "Hash table must be either HashTable<false> or HashTable<true>");
+  HashTableSerializer::serializeTo<true>(hashTableTrue, data, size);
+}
+
+std::shared_ptr<HashTableBuilder>
+deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool joinHasNullKeys) {
+  VELOX_CHECK_NOT_NULL(data, "Serialized data cannot be null");
+  VELOX_CHECK_GT(size, 0, "Invalid data size");
+
+  auto pool = defaultLeafVeloxMemoryPool();
+  auto* poolPtr = pool.get();
+
+  std::unique_ptr<facebook::velox::exec::BaseHashTable> hashTable;
+  if (ignoreNullKeys) {
+    auto derived = HashTableSerializer::deserialize<true>(data, size, poolPtr);
+    hashTable = std::move(derived);
+  } else {
+    auto derived = HashTableSerializer::deserialize<false>(data, size, poolPtr);
+    hashTable = std::move(derived);
+  }
+
+  std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>> emptyKeys;
+  std::vector<uint32_t> emptyChannels;
+
+  auto keyTypes = hashTable->rows()->keyTypes();
+  std::vector<std::string> names;
+  for (size_t i = 0; i < keyTypes.size(); ++i) {
+    names.push_back("key" + std::to_string(i));
+  }
+  auto rowType = facebook::velox::ROW(std::move(names), std::move(keyTypes));
+
+  auto builder = std::make_shared<HashTableBuilder>(
+      facebook::velox::core::JoinType::kInner,
+      false,
+      false,
+      -1,
+      emptyKeys,
+      emptyChannels,
+      false,
+      rowType,
+      poolPtr,
+      1000,
+      1000000,
+      100000,
+      0);
+
+  builder->setHashTable(std::move(hashTable));
+  // Restore the joinHasNullKeys flag
+  builder->setJoinHasNullKeys(joinHasNullKeys);
+  return builder;
 }
 
 } // namespace gluten

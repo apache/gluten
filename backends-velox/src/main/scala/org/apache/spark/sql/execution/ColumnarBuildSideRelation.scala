@@ -212,24 +212,117 @@ case class ColumnarBuildSideRelation(
 
         val hashJoinBuilder = HashJoinBuilder.create(runtime)
 
-        // Build the hash table
-        hashTableData(droppedDuplicates) = hashJoinBuilder
-          .nativeBuild(
-            broadcastContext.buildHashTableId,
-            batchArray.toArray,
-            joinKeys,
-            broadcastContext.filterBuildColumns,
-            broadcastContext.filterPropagatesNulls,
-            broadcastContext.substraitJoinType.ordinal(),
-            broadcastContext.hasMixedFiltCondition,
-            broadcastContext.isExistenceJoin,
-            SubstraitUtil.toNameStruct(newOutput).toByteArray,
-            broadcastContext.isNullAwareAntiJoin,
-            broadcastContext.bloomFilterPushdownSize,
-            buildThreads
-          )
+        try {
+          // Build the hash table
+          hashTableData(droppedDuplicates) = hashJoinBuilder
+            .nativeBuild(
+              broadcastContext.buildHashTableId,
+              batchArray.toArray,
+              joinKeys,
+              broadcastContext.filterBuildColumns,
+              broadcastContext.filterPropagatesNulls,
+              broadcastContext.substraitJoinType.ordinal(),
+              broadcastContext.hasMixedFiltCondition,
+              broadcastContext.isExistenceJoin,
+              SubstraitUtil.toNameStruct(newOutput).toByteArray,
+              broadcastContext.isNullAwareAntiJoin,
+              broadcastContext.bloomFilterPushdownSize,
+              buildThreads
+            )
+        } finally {
+          jniWrapper.close(serializeHandle)
+        }
 
-        jniWrapper.close(serializeHandle)
+        // Update build hash table time metric
+        val elapsedTime = System.nanoTime() - startTime
+        broadcastContext.buildHashTableTimeMetric.foreach(_ += elapsedTime / 1000000)
+
+        (hashTableData(droppedDuplicates), this, droppedDuplicates)
+      } else {
+        (
+          HashJoinBuilder.cloneHashTable(hashTableData(droppedDuplicates)),
+          null,
+          droppedDuplicates)
+      }
+    }
+
+  /**
+   * Build hash table with provided runtime (for driver-side build). This version doesn't rely on
+   * TaskContext and can be called from the driver.
+   */
+  def buildHashTableWithRuntime(
+      broadcastContext: BroadcastHashJoinContext,
+      runtime: org.apache.gluten.runtime.Runtime): (Long, ColumnarBuildSideRelation, Boolean) =
+    synchronized {
+      val droppedDuplicates = broadcastContext.droppedDuplicates
+      if (!hashTableData.contains(droppedDuplicates)) {
+        val startTime = System.nanoTime()
+        val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
+        val serializeHandle: Long = {
+          val allocator = ArrowBufferAllocators.globalInstance()
+          val cSchema = ArrowSchema.allocateNew(allocator)
+          val arrowSchema = SparkArrowUtil.toArrowSchema(
+            SparkShimLoader.getSparkShims.structFromAttributes(output),
+            SQLConf.get.sessionLocalTimeZone)
+          ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
+          val handle = jniWrapper
+            .init(cSchema.memoryAddress())
+          cSchema.close()
+          handle
+        }
+
+        val batchArray = new ArrayBuffer[Long]
+
+        var batchId = 0
+        while (batchId < batches.size) {
+          batchArray.append(jniWrapper.deserialize(serializeHandle, batches(batchId)))
+          batchId += 1
+        }
+
+        logDebug(
+          s"BHJ value size: " +
+            s"${broadcastContext.buildHashTableId} = ${batches.length}")
+
+        val (keys, newOutput) = if (newBuildKeys.isEmpty) {
+          (
+            broadcastContext.buildSideJoinKeys.asJava,
+            broadcastContext.buildSideStructure.asJava
+          )
+        } else {
+          (
+            newBuildKeys.asJava,
+            output.asJava
+          )
+        }
+
+        val joinKeys = keys.asScala.map {
+          key =>
+            val attr = ConverterUtils.getAttrFromExpr(key)
+            ConverterUtils.genColumnNameWithExprId(attr)
+        }.toArray
+
+        val hashJoinBuilder = HashJoinBuilder.create(runtime)
+
+        try {
+          // Build the hash table
+          hashTableData(droppedDuplicates) = hashJoinBuilder
+            .nativeBuild(
+              broadcastContext.buildHashTableId,
+              batchArray.toArray,
+              joinKeys,
+              broadcastContext.filterBuildColumns,
+              broadcastContext.filterPropagatesNulls,
+              broadcastContext.substraitJoinType.ordinal(),
+              broadcastContext.hasMixedFiltCondition,
+              broadcastContext.isExistenceJoin,
+              SubstraitUtil.toNameStruct(newOutput).toByteArray,
+              broadcastContext.isNullAwareAntiJoin,
+              broadcastContext.bloomFilterPushdownSize,
+              buildThreads
+            )
+        } finally {
+          jniWrapper.close(serializeHandle)
+        }
 
         // Update build hash table time metric
         val elapsedTime = System.nanoTime() - startTime

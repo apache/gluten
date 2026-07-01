@@ -113,6 +113,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
     getConf(VALUE_STREAM_DYNAMIC_FILTER_ENABLED)
 
   def enableTimestampNtzValidation: Boolean = getConf(ENABLE_TIMESTAMP_NTZ_VALIDATION)
+
+  def enableDriverSideBroadcastHashTableBuild: Boolean =
+    getConf(VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD)
 }
 
 object VeloxConfig extends ConfigRegistry {
@@ -679,6 +682,15 @@ object VeloxConfig extends ConfigRegistry {
         "When enabled, the hash table is " +
           "constructed once per executor. If not enabled, " +
           "the hash table is rebuilt for each task.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD =
+    buildConf("spark.gluten.sql.columnar.backend.velox.driverSideBroadcastHashTableBuild")
+      .doc(
+        "Enable driver-side broadcast hash table build. When enabled, the hash table is " +
+          "built and serialized on the driver, then broadcast to executors. When disabled, " +
+          "each executor builds its own hash table from the broadcast data.")
       .booleanConf
       .createWithDefault(true)
 

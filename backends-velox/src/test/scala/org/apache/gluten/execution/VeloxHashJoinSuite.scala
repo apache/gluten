@@ -22,8 +22,9 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
-import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarSubqueryBroadcastExec, InputIteratorTransformer}
+import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarSubqueryBroadcastExec, InputIteratorTransformer, SerializedHashTableBroadcastRelation}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
+import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.joins.HashedRelationBroadcastMode
 
 class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
@@ -38,6 +39,27 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
 
   override protected def sparkConf: SparkConf = super.sparkConf
     .set("spark.unsafe.exceptionOnMemoryLeak", "true")
+
+  override protected def beforeEach(): Unit = {
+    super.beforeEach()
+    VeloxBroadcastBuildSideCache.cleanAll()
+  }
+
+  override protected def afterEach(): Unit = {
+    try {
+      VeloxBroadcastBuildSideCache.cleanAll()
+    } finally {
+      super.afterEach()
+    }
+  }
+
+  private def collectBroadcastRelations(df: org.apache.spark.sql.DataFrame)
+      : Seq[BuildSideRelation] = {
+    collectWithSubqueries(df.queryExecution.executedPlan) {
+      case exchange: ColumnarBroadcastExchangeExec =>
+        exchange.executeBroadcast[BuildSideRelation]().value
+    }
+  }
 
   test("generate hash join plan - v1") {
     withSQLConf(
@@ -313,6 +335,125 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  test(
+    "driver-side broadcast hash table build uses serialized relation and preserves join results") {
+    withSQLConf(
+      ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
+      ("spark.sql.adaptive.enabled", "false"),
+      (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
+      (VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key, "true")
+    ) {
+      withTable("driver_build_fact", "driver_build_dim") {
+        spark.range(
+          0,
+          200).selectExpr("id as k", "id % 11 as v").write.saveAsTable("driver_build_fact")
+        spark.range(0, 50).selectExpr("id as k", "concat('dim_', cast(id as string)) as name").write
+          .saveAsTable("driver_build_dim")
+
+        val query =
+          """
+            |SELECT /*+ BROADCAST(driver_build_dim) */
+            |  f.k, f.v, d.name
+            |FROM driver_build_fact f
+            |JOIN driver_build_dim d
+            |ON f.k = d.k
+            |ORDER BY f.k
+            |""".stripMargin
+
+        runQueryAndCompare(query) {
+          df =>
+            val plan = df.queryExecution.executedPlan
+            val broadcastJoins = plan.collect { case bhj: BroadcastHashJoinExecTransformer => bhj }
+            assert(broadcastJoins.nonEmpty, "Should use broadcast hash join")
+
+            val relations = collectBroadcastRelations(df)
+            assert(
+              relations.size == 1,
+              s"Expected a single broadcast relation, got ${relations.size}")
+            assert(
+              relations.head.isInstanceOf[SerializedHashTableBroadcastRelation],
+              s"Expected SerializedHashTableBroadcastRelation," +
+                s" got ${relations.head.getClass.getName}"
+            )
+
+            val serializedRelation =
+              relations.head.asInstanceOf[SerializedHashTableBroadcastRelation]
+            assert(serializedRelation.getSerializedHashTable.sizeInBytes > 0)
+            assert(
+              VeloxBroadcastBuildSideCache.driverSerializedCacheSize() >= 1,
+              s"Expected driver serialized cache to contain entries, got " +
+                s"${VeloxBroadcastBuildSideCache.driverSerializedCacheSize()}"
+            )
+        }
+
+        VeloxBroadcastBuildSideCache.cleanAll()
+        assert(VeloxBroadcastBuildSideCache.driverSerializedCacheSize() == 0)
+      }
+    }
+  }
+
+  test("driver-side broadcast hash table build reuses exchange and cache cleanup works") {
+    withSQLConf(
+      ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
+      ("spark.sql.adaptive.enabled", "false"),
+      ("spark.sql.exchange.reuse", "true"),
+      (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
+      (VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key, "true")
+    ) {
+      withTable("reuse_fact", "reuse_dim") {
+        spark.range(0, 400).selectExpr("id as id", "id % 40 as k").write.saveAsTable("reuse_fact")
+        spark.range(0, 40).selectExpr("id as k", "id * 3 as v").write.saveAsTable("reuse_dim")
+
+        val query =
+          """
+            |WITH shared_dim AS (
+            |  SELECT * FROM reuse_dim WHERE k < 20
+            |)
+            |SELECT /*+ BROADCAST(d1), BROADCAST(d2) */ count(*)
+            |FROM reuse_fact f
+            |JOIN shared_dim d1
+            |  ON f.k = d1.k
+            |JOIN shared_dim d2
+            |  ON f.k = d2.k
+            |""".stripMargin
+
+        runQueryAndCompare(query) {
+          df =>
+            val plan = df.queryExecution.executedPlan
+            val broadcastJoins = plan.collect { case bhj: BroadcastHashJoinExecTransformer => bhj }
+            assert(
+              broadcastJoins.size == 2,
+              s"Expected two broadcast hash joins, got ${broadcastJoins.size}")
+
+            val reusedExchanges = collectWithSubqueries(plan) {
+              case reused: ReusedExchangeExec => reused
+            }
+            assert(
+              reusedExchanges.nonEmpty,
+              "Expected reused broadcast exchange for shared build side")
+
+            val relations = collectBroadcastRelations(df)
+            assert(
+              relations.size == 1,
+              s"Expected one materialized broadcast relation, got ${relations.size}")
+            assert(
+              relations.head.isInstanceOf[SerializedHashTableBroadcastRelation],
+              s"Expected SerializedHashTableBroadcastRelation," +
+                s" got ${relations.head.getClass.getName}"
+            )
+            assert(
+              VeloxBroadcastBuildSideCache.driverSerializedCacheSize() >= 1,
+              s"Expected driver serialized cache to contain entries, got " +
+                s"${VeloxBroadcastBuildSideCache.driverSerializedCacheSize()}"
+            )
+        }
+
+        VeloxBroadcastBuildSideCache.cleanAll()
+        assert(VeloxBroadcastBuildSideCache.driverSerializedCacheSize() == 0)
+      }
+    }
+  }
+
   test("Broadcast join with multiple cast expressions in join keys") {
     withSQLConf(
       ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
@@ -481,4 +622,5 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
           }
         })
   }
+
 }

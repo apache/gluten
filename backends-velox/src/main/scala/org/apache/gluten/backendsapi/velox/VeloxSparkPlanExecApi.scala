@@ -22,7 +22,7 @@ import org.apache.gluten.exception.{GlutenExceptionUtil, GlutenNotSupportExcepti
 import org.apache.gluten.execution._
 import org.apache.gluten.expression._
 import org.apache.gluten.expression.aggregate.{HLLAdapter, VeloxBloomFilterAggregate, VeloxCollectList, VeloxCollectSet}
-import org.apache.gluten.extension.JoinKeysTag
+import org.apache.gluten.extension.{BroadcastJoinContextInfo, BroadcastJoinContextTag}
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.shuffle.NeedCustomColumnarBatchSerializer
 import org.apache.gluten.sql.shims.SparkShimLoader
@@ -44,7 +44,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, CollectList, CollectSet}
 import org.apache.spark.sql.catalyst.expressions.objects.{AssertNotNull, StaticInvoke}
 import org.apache.spark.sql.catalyst.optimizer.BuildSide
-import org.apache.spark.sql.catalyst.plans.JoinType
+import org.apache.spark.sql.catalyst.plans.{ExistenceJoin, FullOuter, InnerLike, JoinType, LeftAnti, LeftOuter, LeftSemi, RightOuter}
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.AQEShuffleReadExec
@@ -63,6 +63,7 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.task.TaskResources
 
+import io.substrait.proto.JoinRel
 import org.apache.commons.lang3.ClassUtils
 
 import javax.ws.rs.core.UriBuilder
@@ -715,7 +716,23 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       child: SparkPlan,
       numOutputRows: SQLMetric,
       dataSize: SQLMetric,
-      buildThreads: SQLMetric): BuildSideRelation = {
+      buildThreads: SQLMetric,
+      buildHashTableTimeMetric: SQLMetric,
+      serializeHashTableTimeMetric: SQLMetric,
+      serializedHashTableSizeMetric: SQLMetric): BuildSideRelation = {
+
+    @scala.annotation.tailrec
+    def findLogicalLink(
+        plan: SparkPlan): Option[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan] = {
+      plan.logicalLink match {
+        case some @ Some(_) => some
+        case None =>
+          plan.children match {
+            case Seq(child) => findLogicalLink(child)
+            case _ => None
+          }
+      }
+    }
 
     val buildKeys = mode match {
       case mode1: HashedRelationBroadcastMode =>
@@ -729,22 +746,29 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       if (VeloxConfig.get.enableBroadcastBuildOncePerExecutor) {
 
         // Try to lookup from TreeNodeTag using child's logical plan
-        // Need to recursively find logicalLink in case of AQE or other wrappers
-        @scala.annotation.tailrec
-        def findLogicalLink(
-            plan: SparkPlan): Option[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan] = {
-          plan.logicalLink match {
-            case some @ Some(_) => some
-            case None =>
-              plan.children match {
-                case Seq(child) => findLogicalLink(child)
-                case _ => None
-              }
-          }
-        }
-
         val newBuildKeys = findLogicalLink(child)
-          .flatMap(_.getTagValue(JoinKeysTag.ORIGINAL_JOIN_KEYS))
+          .flatMap {
+            logicalPlan =>
+              logicalPlan
+                .getTagValue(BroadcastJoinContextTag.BROADCAST_JOIN_CONTEXT)
+                .flatMap {
+                  contexts =>
+                    val childOutputSet = child.outputSet
+                    contexts.find {
+                      ctx =>
+                        val buildOutputSet = ctx.buildOutputSet
+                        childOutputSet.subsetOf(buildOutputSet) && buildOutputSet.subsetOf(
+                          childOutputSet)
+                    }
+                }.map {
+                  ctx =>
+                    if (ctx.buildRight) {
+                      ctx.originalRightKeys
+                    } else {
+                      ctx.originalLeftKeys
+                    }
+                }
+          }
           .getOrElse {
             if (SparkHashJoinUtils.canRewriteAsLongType(buildKeys) && buildKeys.nonEmpty) {
               SparkHashJoinUtils.getOriginalKeysFromPacked(buildKeys.head)
@@ -850,6 +874,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       .mapPartitions(itr => Iterator(BroadcastUtils.serializeStream(itr)))
       .filter(_.numRows != 0)
       .collect
+    val buildSideRowCount = serialized.map(_.numRows).sum
     val rawSize = serialized.map(_.sizeInBytes()).sum
     if (rawSize >= GlutenConfig.get.maxBroadcastTableSize) {
       throw new SparkException(
@@ -857,7 +882,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
           s"${SparkMemoryUtil.bytesToString(GlutenConfig.get.maxBroadcastTableSize)}: " +
           s"${SparkMemoryUtil.bytesToString(rawSize)}")
     }
-    numOutputRows += serialized.map(_.numRows).sum
+    numOutputRows += buildSideRowCount
     dataSize += rawSize
 
     val rawThreads =
@@ -867,7 +892,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     val buildThreadsValue = if (rawThreads < 1) 1 else rawThreads
     buildThreads += buildThreadsValue
 
-    if (useOffheapBroadcastBuildRelation) {
+    // Create the base ColumnarBuildSideRelation first
+    val columnarRelation = if (useOffheapBroadcastBuildRelation) {
       TaskResources.runUnsafe {
         UnsafeColumnarBuildSideRelation(
           newOutput,
@@ -885,6 +911,167 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         newBuildKeys,
         offload,
         buildThreadsValue)
+    }
+
+    // Check if we should build hash table on driver (Spark-native approach)
+    // Only do this for HashedRelationBroadcastMode and when offload is enabled
+    val shouldBuildOnDriver = VeloxConfig.get.enableDriverSideBroadcastHashTableBuild &&
+      mode.isInstanceOf[HashedRelationBroadcastMode] &&
+      offload
+
+    if (shouldBuildOnDriver) {
+      // Try to get broadcast join context from logical plan tag
+      // In multi-join scenarios, there may be multiple contexts. Find the one that matches
+      // the current broadcast child's output.
+      val joinContextOpt: Option[BroadcastJoinContextInfo] =
+        findLogicalLink(child).flatMap {
+          logicalPlan =>
+            logicalPlan.getTagValue(
+              BroadcastJoinContextTag.BROADCAST_JOIN_CONTEXT
+            ).flatMap {
+              contexts =>
+                val childOutputSet = AttributeSet(newOutput)
+                // Find the context whose build output matches the child's output
+                contexts.find {
+                  ctx =>
+                    val buildOutputMatches = childOutputSet.subsetOf(ctx.buildOutputSet) &&
+                      ctx.buildOutputSet.subsetOf(childOutputSet)
+                    buildOutputMatches
+                }
+            }
+        }
+
+      joinContextOpt match {
+        case Some(joinContext) =>
+          // We have join context information - build hash table on driver
+          logInfo(
+            s"Building hash table on driver in BroadcastExchangeExec " +
+              s"with join context: $joinContext")
+
+          // Create a broadcast ID for this hash table
+          val broadcastId = s"broadcast_exchange_${child.id}_${System.identityHashCode(mode)}"
+
+          // Convert Spark JoinType to Substrait JoinType
+          val substraitJoinType = joinContext.joinType match {
+            case _: InnerLike =>
+              JoinRel.JoinType.JOIN_TYPE_INNER
+            case FullOuter =>
+              JoinRel.JoinType.JOIN_TYPE_OUTER
+            case LeftOuter |
+                RightOuter =>
+              JoinRel.JoinType.JOIN_TYPE_LEFT
+            case LeftSemi |
+                ExistenceJoin(_) =>
+              JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI
+            case LeftAnti =>
+              JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI
+            case _ =>
+              JoinRel.JoinType.UNRECOGNIZED
+          }
+
+          // Extract filter information from join condition
+          val (filterBuildColumns, filterPropagatesNulls, hasMixedFiltCondition) =
+            joinContext.condition match {
+              case Some(cond) =>
+                val buildAttrs = joinContext.buildOutputSet
+                val cols: Array[String] = cond.references.toSeq.collect {
+                  case a: Attribute if buildAttrs.contains(a) =>
+                    ConverterUtils.genColumnNameWithExprId(a)
+                }.toArray
+                val propagatesNulls = SparkShimLoader.getSparkShims.isNullIntolerant(cond)
+                (cols, propagatesNulls, true)
+              case None =>
+                (Array.empty[String], false, false)
+            }
+
+          // Calculate bloom filter pushdown size if enabled
+          val bloomFilterPushdownSize = if (VeloxConfig.get.hashProbeDynamicFilterPushdownEnabled) {
+            VeloxConfig.get.hashProbeBloomFilterPushdownMaxSize
+          } else {
+            -1
+          }
+
+          // Use the join keys from the matched context
+          // Since we already matched the context by comparing outputs,
+          // we know this is the correct one
+          val joinKeys = if (joinContext.buildRight) {
+            joinContext.originalRightKeys
+          } else {
+            joinContext.originalLeftKeys
+          }
+          val buildContext = BroadcastHashJoinContext(
+            buildSideJoinKeys = if (newBuildKeys.nonEmpty) newBuildKeys else joinKeys,
+            substraitJoinType = substraitJoinType,
+            buildRight = joinContext.buildRight,
+            hasMixedFiltCondition = hasMixedFiltCondition,
+            isExistenceJoin = joinContext.joinType
+              .isInstanceOf[ExistenceJoin],
+            buildSideStructure = newOutput,
+            filterBuildColumns = filterBuildColumns,
+            filterPropagatesNulls = filterPropagatesNulls,
+            buildHashTableId = broadcastId,
+            isNullAwareAntiJoin = joinContext.isNullAwareAntiJoin,
+            bloomFilterPushdownSize = bloomFilterPushdownSize,
+            buildHashTableTimeMetric = Option(buildHashTableTimeMetric),
+            serializeHashTableTimeMetric = Option(serializeHashTableTimeMetric),
+            serializedHashTableSizeMetric = Option(serializedHashTableSizeMetric)
+          )
+
+          try {
+            // Build and serialize hash table on driver
+            val (serializedHashTable, safeMode) = columnarRelation match {
+              case rel: ColumnarBuildSideRelation =>
+                (
+                  VeloxBroadcastBuildSideCache
+                    .buildAndSerializeOnDriverInBroadcastExchange(
+                      rel,
+                      buildContext,
+                      buildSideRowCount),
+                  rel.safeBroadcastMode
+                )
+              case rel: UnsafeColumnarBuildSideRelation =>
+                (
+                  VeloxBroadcastBuildSideCache
+                    .buildAndSerializeOnDriverInBroadcastExchange(
+                      rel,
+                      buildContext,
+                      buildSideRowCount),
+                  rel.getSafeBroadcastMode
+                )
+            }
+
+            logInfo(
+              s"Successfully built hash table on driver: " +
+                s"size=${serializedHashTable.sizeInBytes} bytes, " +
+                s"rows=${serializedHashTable.numRows}, " +
+                s"joinType=${joinContext.joinType}, " +
+                s"broadcastId=$broadcastId")
+
+            // Return SerializedHashTableBroadcastRelation
+            SerializedHashTableBroadcastRelation(
+              serializedHashTable,
+              safeMode,
+              newOutput,
+              0L, // buildTimeMs - tracked inside SerializedBroadcastHashTable
+              0L // serializeTimeMs - tracked inside SerializedBroadcastHashTable
+            )
+          } catch {
+            case e: Exception =>
+              logWarning(
+                s"Failed to build hash table on driver for broadcastId=$broadcastId, " +
+                  s"falling back to executor-side build: ${e.getMessage}",
+                e)
+              columnarRelation
+          }
+
+        case None =>
+          // No join context available - fall back to executor-side build
+          logInfo(s"No broadcast join context found in logical plan, using executor-side build")
+          columnarRelation
+      }
+    } else {
+      // Return ColumnarBuildSideRelation for executor-side build (legacy approach)
+      columnarRelation
     }
   }
 
