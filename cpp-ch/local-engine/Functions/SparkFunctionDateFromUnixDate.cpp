@@ -24,3 +24,5 @@ REGISTER_FUNCTION(SparkFunctionDateFromUnixDate)
 {
     factory.registerFunction<local_engine::SparkFunctionDateFromUnixDate>();
 }
+
+}
