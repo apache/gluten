@@ -26,6 +26,7 @@ import io.github.zhztheplayer.velox4j.plan.PlanNode;
 import io.github.zhztheplayer.velox4j.plan.ProjectNode;
 
 import org.apache.flink.streaming.api.watermark.Watermark;
+import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.watermarkstatus.WatermarkStatus;
 import org.apache.flink.streaming.util.OneInputStreamOperatorTestHarness;
 import org.apache.flink.table.data.RowData;
@@ -67,6 +68,22 @@ public class GlutenStreamWatermarkStatusTest extends GlutenStreamOperatorTestBas
       harness.processWatermark(new Watermark(1L));
       assertThat(harness.getOutput())
           .containsExactly(WatermarkStatus.IDLE, WatermarkStatus.ACTIVE, new Watermark(1L));
+    }
+  }
+
+  @Test
+  public void testRecordDoesNotReactivateIdleNativeProjectOperator() throws Exception {
+    GlutenOneInputOperator operator = createTestOperator(createProjectPlan(), typeInfo, typeInfo);
+
+    try (OneInputStreamOperatorTestHarness<RowData, RowData> harness =
+        createTestHarness(operator, typeInfo, typeInfo)) {
+      harness.processWatermarkStatus(WatermarkStatus.IDLE);
+      assertThat(harness.getOutput()).containsExactly(WatermarkStatus.IDLE);
+
+      harness.processElement(new StreamRecord<>(testData.get(0), 1L));
+      assertThat(harness.getOutput()).contains(WatermarkStatus.IDLE);
+      assertThat(harness.getOutput()).doesNotContain(WatermarkStatus.ACTIVE);
+      assertThat(extractOutputFromHarness(harness)).containsExactly(testData.get(0));
     }
   }
 
