@@ -1,0 +1,46 @@
+gluten-flink/planner/src/main/java/org/apache/gluten/velox/KafkaSourceSinkFactory.java
+  s_6e0a20853d90af::t_2bf68f07d0ab54 52,139-140,147-148
+  s_6e0a20853d90af::t_d287ac2b5e1a2a 105,121
+  s_6e0a20853d90af::t_71ba545032ac61 141-146
+gluten-flink/runtime/src/main/java/org/apache/gluten/table/runtime/config/VeloxConnectorConfig.java
+  s_6e0a20853d90af::t_7697b160e448fe 42,49
+gluten-flink/ut/src/test/java/org/apache/gluten/table/runtime/stream/common/KafkaSourceCheckpointStateHelper.java
+  s_6e0a20853d90af::t_0f4bc9356498a4 1-262
+gluten-flink/runtime/src/main/java/org/apache/gluten/table/runtime/operators/GlutenSourceFunction.java
+  s_6e0a20853d90af::t_f85c526c44b7fc 36-38,50,72,215-216,219-223,228-238
+  s_6e0a20853d90af::t_998a7bd8faf66d 217-218,240-252,265
+gluten-flink/ut/src/test/java/org/apache/gluten/table/runtime/stream/custom/KafkaSourceCheckpointIT.java
+  s_6e0a20853d90af::t_9ff5e80a2ff2a6 151-156
+  s_6e0a20853d90af::t_e2c9a5542061df 24,54-55,126,135-136,141-143,171-174,176,179,254-260,262-271,274-275
+  s_6e0a20853d90af::t_f8d1f63c7fe0b1 159-161,354-355
+  s_6e0a20853d90af::t_b4d59d91b53f4d 73-75,77-81
+  s_6e0a20853d90af::t_d8e27ac00c4c54 19-21
+  s_6e0a20853d90af::t_b44a6b9cd6a485 94,122,177-178,180,191-194,261,357-359
+  s_6e0a20853d90af::t_861ebc5195e925 31,38,89,195-253,317-320,322
+  s_6e0a20853d90af::t_fdb89ea8133ef6 129-132,175,181
+  s_6e0a20853d90af::t_beeda17c223fc9 30,167-170,182-190,272-273
+  s_6e0a20853d90af::t_71ba545032ac61 23,28-29,35,56,137-138
+  s_6e0a20853d90af::t_e01d536bb4bbae 1-18,25-27,32-34,36-37,39-53,57-68,83-88,90-93,95-121,123-125,127-128,133-134,139-140,144-150,157-158,162-166,276-316,321,323-353,360-371
+  s_6e0a20853d90af::t_7e7ef7d6ec212c 22
+  s_6e0a20853d90af::t_d8568f1e36022e 69-72,76,82,356
+gluten-flink/ut/pom.xml
+  s_6e0a20853d90af::t_966607cbf0bd5c 134-139
+  s_6e0a20853d90af::t_ead19a8aa9c83c 133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "846ef7fcade8a082ecbe672a7dfb537db38577af",
+  "prompts": {},
+  "logical_commit_id": "846ef7fcade8a082ecbe672a7dfb537db38577af",
+  "sessions": {
+    "s_6e0a20853d90af": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0e35573f3ffeQi2KAAMbPz3QDo",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
