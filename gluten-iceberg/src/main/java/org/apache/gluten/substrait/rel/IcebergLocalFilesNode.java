@@ -58,21 +58,18 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
     List<DeleteFile> deleteFiles = deleteFilesList.get(index);
     ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.Builder icebergBuilder =
         ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.newBuilder();
-
-    switch (fileFormat) {
-      case ParquetReadFormat:
-        ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions parquetReadOptions =
-            ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions.newBuilder().build();
-        icebergBuilder.setParquet(parquetReadOptions);
+    switch (fileBuilder.getFileFormatCase()) {
+      case PARQUET:
+        icebergBuilder.setParquet(fileBuilder.getParquet());
         break;
-      case OrcReadFormat:
-        ReadRel.LocalFiles.FileOrFiles.OrcReadOptions orcReadOptions =
-            ReadRel.LocalFiles.FileOrFiles.OrcReadOptions.newBuilder().build();
-        icebergBuilder.setOrc(orcReadOptions);
+      case ORC:
+        icebergBuilder.setOrc(fileBuilder.getOrc());
         break;
       default:
         throw new UnsupportedOperationException(
-            "Unsupported file format " + fileFormat.name() + " for iceberg data file.");
+            "Unsupported file format "
+                + fileBuilder.getFileFormatCase().name()
+                + " for iceberg data file.");
     }
 
     for (DeleteFile delete : deleteFiles) {
