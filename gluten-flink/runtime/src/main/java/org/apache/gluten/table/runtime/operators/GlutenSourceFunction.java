@@ -200,6 +200,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
       task = null;
     }
     if (sessionResource != null) {
+      GlutenTaskSessionContext.unregisterSessionResource(id);
       sessionResource.close();
       sessionResource = null;
     }
@@ -241,7 +242,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
     }
 
     sessionResource = new GlutenSessionResource();
-    GlutenSessionResources.getInstance().addSessionResource(id, sessionResource);
+    GlutenTaskSessionContext.addSessionResource(id, sessionResource);
     Session session = sessionResource.getSession();
     query =
         new Query(

@@ -120,7 +120,7 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
       outputBridge = VectorOutputBridge.Factory.create(outClass);
     }
     sessionResource = new GlutenSessionResource();
-    GlutenSessionResources.getInstance().addSessionResource(id, sessionResource);
+    GlutenTaskSessionContext.addSessionResource(id, sessionResource);
     inputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
     // add a mock input as velox not allow the source is empty.
     if (inputType == null) {
@@ -282,6 +282,9 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
           if (inputQueue != null) {
             inputQueue.close();
           }
+        },
+        () -> {
+          GlutenTaskSessionContext.unregisterSessionResource(id);
         },
         () -> {
           if (sessionResource != null) {
