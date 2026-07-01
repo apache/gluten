@@ -1,0 +1,31 @@
+gluten-flink/runtime/src/main/java/org/apache/gluten/streaming/api/operators/GlutenAbstractStreamOperator.java
+  s_740041a40dfcba::t_ffd39383c47315 113-116
+gluten-flink/ut/src/test/java/org/apache/gluten/streaming/api/operators/GlutenStreamWatermarkStatusTest.java
+  s_740041a40dfcba::t_1b5c09e26ab984 28,55-69
+  s_740041a40dfcba::t_63f1ba9254a73c 54,87-90
+  s_740041a40dfcba::t_0eaaf2ce511259 29
+  s_740041a40dfcba::t_079b8abb249be4 1-27,30-53,70-86,91-94
+.github/workflows/flink.yml
+  s_740041a40dfcba::t_0b84770ae28c56 91
+gluten-flink/ut/src/test/java/org/apache/gluten/streaming/api/operators/GlutenStreamTwoInputWatermarkStatusTest.java
+  s_740041a40dfcba::t_ca4c2cec83612e 1-22,24,26-37,40-50,70-72
+  s_740041a40dfcba::t_60bff0283fae56 23,51-69
+  s_740041a40dfcba::t_99667b4fafdcd5 25,38-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "e4729a7aeb3177339e04c0c0171fc28128aceca4",
+  "prompts": {},
+  "logical_commit_id": "e4729a7aeb3177339e04c0c0171fc28128aceca4",
+  "sessions": {
+    "s_740041a40dfcba": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0e9942bd9ffeKbvUZ4oXaz8Nkc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
