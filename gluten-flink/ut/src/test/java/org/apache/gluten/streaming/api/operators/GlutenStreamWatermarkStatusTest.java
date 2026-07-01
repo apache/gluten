@@ -44,13 +44,17 @@ public class GlutenStreamWatermarkStatusTest extends GlutenStreamOperatorTestBas
 
   @Test
   public void testWatermarkStatusPropagationThroughNativeProjectOperator() throws Exception {
+    // One-input operators should forward explicit upstream IDLE/ACTIVE status changes through
+    // native execution and emit the corresponding Flink WatermarkStatus downstream.
     GlutenOneInputOperator operator = createTestOperator(createProjectPlan(), typeInfo, typeInfo);
 
     try (OneInputStreamOperatorTestHarness<RowData, RowData> harness =
         createTestHarness(operator, typeInfo, typeInfo)) {
+      // IDLE marks the only input idle, so the operator immediately becomes idle.
       harness.processWatermarkStatus(WatermarkStatus.IDLE);
       assertThat(harness.getOutput()).containsExactly(WatermarkStatus.IDLE);
 
+      // An explicit ACTIVE status from upstream should reactivate the operator.
       harness.processWatermarkStatus(WatermarkStatus.ACTIVE);
       assertThat(harness.getOutput()).containsExactly(WatermarkStatus.IDLE, WatermarkStatus.ACTIVE);
     }
@@ -58,6 +62,8 @@ public class GlutenStreamWatermarkStatusTest extends GlutenStreamOperatorTestBas
 
   @Test
   public void testWatermarkReactivatesIdleNativeProjectOperator() throws Exception {
+    // Flink treats a watermark from an idle input as an implicit reactivation. Native execution
+    // must emit ACTIVE before forwarding the watermark so downstream operators see valid ordering.
     GlutenOneInputOperator operator = createTestOperator(createProjectPlan(), typeInfo, typeInfo);
 
     try (OneInputStreamOperatorTestHarness<RowData, RowData> harness =
@@ -73,6 +79,8 @@ public class GlutenStreamWatermarkStatusTest extends GlutenStreamOperatorTestBas
 
   @Test
   public void testRecordDoesNotReactivateIdleNativeProjectOperator() throws Exception {
+    // Records are not watermark/status events. They should still be processed while the input is
+    // marked idle, but they must not implicitly emit ACTIVE; upstream is responsible for that.
     GlutenOneInputOperator operator = createTestOperator(createProjectPlan(), typeInfo, typeInfo);
 
     try (OneInputStreamOperatorTestHarness<RowData, RowData> harness =
@@ -80,6 +88,7 @@ public class GlutenStreamWatermarkStatusTest extends GlutenStreamOperatorTestBas
       harness.processWatermarkStatus(WatermarkStatus.IDLE);
       assertThat(harness.getOutput()).containsExactly(WatermarkStatus.IDLE);
 
+      // The projected record is produced, while the watermark status output remains idle only.
       harness.processElement(new StreamRecord<>(testData.get(0), 1L));
       assertThat(harness.getOutput()).contains(WatermarkStatus.IDLE);
       assertThat(harness.getOutput()).doesNotContain(WatermarkStatus.ACTIVE);

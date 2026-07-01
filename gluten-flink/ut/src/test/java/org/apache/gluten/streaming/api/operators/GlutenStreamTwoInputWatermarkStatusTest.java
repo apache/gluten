@@ -33,6 +33,8 @@ public class GlutenStreamTwoInputWatermarkStatusTest extends GlutenStreamJoinOpe
 
   @Test
   public void testWatermarkStatusPropagationThroughNativeJoinOperator() throws Exception {
+    // Two-input operators combine per-input watermark status in native execution. The operator
+    // becomes idle only when all inputs are idle, and becomes active when any input reactivates.
     GlutenTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.INNER);
 
     try (TwoInputStreamOperatorTestHarness<StatefulRecord, StatefulRecord, StatefulRecord> harness =
@@ -40,12 +42,16 @@ public class GlutenStreamTwoInputWatermarkStatusTest extends GlutenStreamJoinOpe
       harness.setup();
       harness.open();
 
+      // One idle input is excluded from combined watermark calculation, but the operator is not
+      // idle yet because the other input is still active.
       harness.processWatermarkStatus1(WatermarkStatus.IDLE);
       assertThat(harness.getOutput()).isEmpty();
 
+      // Once both inputs are idle, the combined status changes to IDLE and is emitted downstream.
       harness.processWatermarkStatus2(WatermarkStatus.IDLE);
       assertThat(harness.getOutput()).containsExactly(WatermarkStatus.IDLE);
 
+      // Reactivating either input changes the combined status back to ACTIVE.
       harness.processWatermarkStatus1(WatermarkStatus.ACTIVE);
       assertThat(harness.getOutput()).containsExactly(WatermarkStatus.IDLE, WatermarkStatus.ACTIVE);
     }
@@ -53,6 +59,8 @@ public class GlutenStreamTwoInputWatermarkStatusTest extends GlutenStreamJoinOpe
 
   @Test
   public void testWatermarkReactivatesIdleNativeJoinOperator() throws Exception {
+    // A watermark received after all inputs became idle should implicitly reactivate that input.
+    // Native execution must emit ACTIVE before the resulting combined watermark.
     GlutenTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.INNER);
 
     try (TwoInputStreamOperatorTestHarness<StatefulRecord, StatefulRecord, StatefulRecord> harness =
@@ -64,6 +72,7 @@ public class GlutenStreamTwoInputWatermarkStatusTest extends GlutenStreamJoinOpe
       harness.processWatermarkStatus2(WatermarkStatus.IDLE);
       assertThat(harness.getOutput()).containsExactly(WatermarkStatus.IDLE);
 
+      // Input 1's watermark makes the combined status active again and advances the watermark.
       harness.processWatermark1(new Watermark(1L));
       assertThat(harness.getOutput())
           .containsExactly(WatermarkStatus.IDLE, WatermarkStatus.ACTIVE, new Watermark(1L));
