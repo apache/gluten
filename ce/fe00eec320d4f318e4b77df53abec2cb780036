@@ -1,0 +1,20 @@
+.github/workflows/flink.yml
+  s_740041a40dfcba::t_cb798441ceae2b 91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "cefe00eec320d4f318e4b77df53abec2cb780036",
+  "prompts": {},
+  "logical_commit_id": "cefe00eec320d4f318e4b77df53abec2cb780036",
+  "sessions": {
+    "s_740041a40dfcba": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0e9942bd9ffeKbvUZ4oXaz8Nkc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
