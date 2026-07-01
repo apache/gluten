@@ -49,6 +49,7 @@ import java.util.Properties;
 import java.util.UUID;
 
 public class KafkaSourceSinkFactory implements VeloxSourceSinkFactory {
+  public static final String GLUTEN_KAFKA_SOURCE_UID = "gluten-kafka-source";
 
   @SuppressWarnings("rawtypes")
   @Override
@@ -101,6 +102,7 @@ public class KafkaSourceSinkFactory implements VeloxSourceSinkFactory {
           startupMode.equals("LATEST")
               ? "latest-offsets"
               : startupMode.equals("EARLIEST") ? "earliest-offsets" : "group-offsets");
+      String autoResetOffset = startupMode.equals("LATEST") ? "latest" : "earliest";
       kafkaTableParameters.put("enable.auto.commit", checkpointEnabled ? "false" : "true");
       kafkaTableParameters.put(
           "client.id",
@@ -116,7 +118,7 @@ public class KafkaSourceSinkFactory implements VeloxSourceSinkFactory {
               kafkaTableParameters.get("group.id"),
               format,
               Boolean.valueOf(kafkaTableParameters.getOrDefault("enable.auto.commit", "false")),
-              "latest",
+              autoResetOffset,
               List.of());
 
       PlanNode kafkaScan =
@@ -134,13 +136,16 @@ public class KafkaSourceSinkFactory implements VeloxSourceSinkFactory {
                   RowData.class),
               "KafkaSource");
       SourceTransformation sourceTransformation = (SourceTransformation) transformation;
-      return new LegacySourceTransformation<RowData>(
-          sourceTransformation.getName(),
-          sourceOp,
-          transformation.getOutputType(),
-          sourceTransformation.getParallelism(),
-          sourceTransformation.getBoundedness(),
-          false);
+      LegacySourceTransformation<RowData> transformationWithNativeSource =
+          new LegacySourceTransformation<RowData>(
+              sourceTransformation.getName(),
+              sourceOp,
+              transformation.getOutputType(),
+              sourceTransformation.getParallelism(),
+              sourceTransformation.getBoundedness(),
+              false);
+      transformationWithNativeSource.setUid(GLUTEN_KAFKA_SOURCE_UID);
+      return transformationWithNativeSource;
     } catch (Exception e) {
       throw new FlinkRuntimeException(e);
     }

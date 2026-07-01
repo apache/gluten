@@ -33,6 +33,9 @@ import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.common.typeutils.base.StringSerializer;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
@@ -44,6 +47,7 @@ import org.apache.flink.table.data.RowData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -65,6 +69,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
   private Query query;
   private SerialTask task;
   private SourceTaskMetrics taskMetrics;
+  private transient ListState<String> checkpointedSourceState;
   private final Class<OUT> outClass;
 
   public GlutenSourceFunction(
@@ -207,15 +212,44 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
 
   @Override
   public void snapshotState(FunctionSnapshotContext context) throws Exception {
-    // TODO: implement it
-    this.task.snapshotState(0);
+    checkpointedSourceState.clear();
+
+    snapshotNativeState(context.getCheckpointId());
+    String[] sourceState = getNativeSourceStateSnapshot();
+    if (sourceState != null) {
+      for (String record : sourceState) {
+        checkpointedSourceState.add(record);
+      }
+    }
   }
 
   @Override
   public void initializeState(FunctionInitializationContext context) throws Exception {
+    ListStateDescriptor<String> descriptor =
+        new ListStateDescriptor<>("gluten-source-checkpoint-state", StringSerializer.INSTANCE);
+    checkpointedSourceState = context.getOperatorStateStore().getListState(descriptor);
+
+    List<String> restoredRecords = new ArrayList<>();
+    if (context.isRestored()) {
+      for (String record : checkpointedSourceState.get()) {
+        restoredRecords.add(record);
+      }
+    }
+
     initSession();
-    // TODO: implement it
-    this.task.initializeState(0, null);
+    initializeNativeState(restoredRecords.toArray(new String[0]));
+  }
+
+  protected void initializeNativeState(String[] restoredRecords) {
+    this.task.initializeState(0, null, restoredRecords);
+  }
+
+  protected void snapshotNativeState(long checkpointId) {
+    this.task.snapshotState(checkpointId);
+  }
+
+  protected String[] getNativeSourceStateSnapshot() {
+    return this.task.snapshotSourceState();
   }
 
   public String[] notifyCheckpointComplete(long checkpointId) throws Exception {
@@ -228,7 +262,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
     this.task.notifyCheckpointAborted(checkpointId);
   }
 
-  private void initSession() {
+  protected void initSession() {
     if (sessionResource != null) {
       return;
     }
