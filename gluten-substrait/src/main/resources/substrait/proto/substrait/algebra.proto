@@ -219,12 +219,25 @@ message ReadRel {
           repeated int32 equalityFieldIds = 7;
           Map lowerBounds = 8;
           Map upperBounds = 9;
+          int64 data_sequence_number = 10;
+        }
+        message FieldId {
+          int32 id = 1;
+          repeated FieldId children = 2;
+        }
+        message IdentityPartitionKey {
+          int32 source_id = 1;
+          bytes value = 2;
+          bool is_null = 3;
         }
         oneof file_format {
           ParquetReadOptions parquet = 1;
           OrcReadOptions orc = 2;
         }
         repeated DeleteFile delete_files = 3;
+        repeated FieldId schema_field_ids = 4;
+        int64 data_sequence_number = 5;
+        repeated IdentityPartitionKey identity_partition_keys = 6;
       }
 
       message DeltaReadOptions {

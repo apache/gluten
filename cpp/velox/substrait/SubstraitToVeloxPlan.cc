@@ -1589,11 +1589,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   auto baseSchema = ROW(std::move(names), std::move(types));
   // The columns present in the table, if not available default to the baseSchema.
   auto tableSchema = splitInfo->tableSchema ? splitInfo->tableSchema : baseSchema;
+  const auto icebergSplitInfo = std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo);
 
-  // Build dataColumns from tableSchema, excluding partition columns.
-  // HiveTableHandle::dataColumns() is used as fileSchema for the reader.
-  // Partition columns should not be validated against the file's physical types
-  // (their values come from the partition path, not from the file).
   std::unordered_set<std::string> partitionColNames;
   for (int idx = 0; idx < colNameList.size(); idx++) {
     if (columnTypes[idx] == ColumnType::kPartitionKey) {
@@ -1601,7 +1598,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     }
   }
   RowTypePtr dataColumns;
-  if (partitionColNames.empty()) {
+  if (partitionColNames.empty() || (icebergSplitInfo && !icebergSplitInfo->fieldIds.empty())) {
     dataColumns = tableSchema;
   } else {
     std::vector<std::string> dataColNames;
@@ -1628,38 +1625,74 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     connectorId = connectorIds_.cudfHive;
 #endif
   }
+  auto icebergColumnByName = [&](const std::string& name) -> const IcebergColumnInfo* {
+    if (!icebergSplitInfo) {
+      return nullptr;
+    }
+    if (auto it = icebergSplitInfo->columns.find(name); it != icebergSplitInfo->columns.end()) {
+      return &it->second;
+    }
+    if (asLowerCase) {
+      for (const auto& [columnName, column] : icebergSplitInfo->columns) {
+        auto normalizedName = columnName;
+        folly::toLowerAscii(normalizedName);
+        if (normalizedName == name) {
+          return &column;
+        }
+      }
+    }
+    return nullptr;
+  };
   common::SubfieldFilters subfieldFilters;
+  std::vector<int32_t> dataColumnFieldIds;
+  std::vector<connector::hive::HiveColumnHandlePtr> filterColumnHandles;
+  if (icebergSplitInfo && !icebergSplitInfo->fieldIds.empty()) {
+    VELOX_USER_CHECK_EQ(icebergSplitInfo->fieldIds.size(), dataColumns->size());
+    for (int i = 0; i < dataColumns->size(); ++i) {
+      const auto& field = icebergSplitInfo->fieldIds[i];
+      dataColumnFieldIds.push_back(field.fieldId);
+      const auto* column = icebergColumnByName(dataColumns->nameOf(i));
+      filterColumnHandles.push_back(std::make_shared<connector::hive::iceberg::IcebergColumnHandle>(
+          dataColumns->nameOf(i),
+          partitionColNames.count(dataColumns->nameOf(i)) ? ColumnType::kPartitionKey : ColumnType::kRegular,
+          dataColumns->childAt(i),
+          field,
+          std::vector<common::Subfield>{},
+          column ? column->initialDefault : std::nullopt));
+    }
+  }
   tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
-      connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+      connectorId,
+      "hive_table",
+      std::move(subfieldFilters),
+      remainingFilter,
+      dataColumns,
+      std::vector<std::string>{},
+      std::unordered_map<std::string, std::string>{},
+      std::move(filterColumnHandles),
+      1.0,
+      "",
+      std::move(dataColumnFieldIds));
 
   // Get assignments and out names.
   std::vector<std::string> outNames;
   outNames.reserve(colNameList.size());
   connector::ColumnHandleMap assignments;
-  const auto icebergSplitInfo = std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo);
   for (int idx = 0; idx < colNameList.size(); idx++) {
     auto outName = SubstraitParser::makeNodeName(planNodeId_, idx);
     auto columnType = columnTypes[idx];
-    const IcebergColumnInfo* icebergColumn = nullptr;
-    if (icebergSplitInfo) {
-      auto columnIt = icebergSplitInfo->columns.find(colNameList[idx]);
-      if (columnIt != icebergSplitInfo->columns.end()) {
-        icebergColumn = &columnIt->second;
-      } else if (asLowerCase) {
-        for (const auto& [name, column] : icebergSplitInfo->columns) {
-          auto normalizedName = name;
-          folly::toLowerAscii(normalizedName);
-          if (normalizedName == colNameList[idx]) {
-            icebergColumn = &column;
-            break;
-          }
-        }
-      }
-    }
-    // Gluten serializes Iceberg partition dates as ISO strings. Use Iceberg
-    // handles only for regular columns so all data columns are mapped by field
-    // ID together, while partition columns keep the existing Hive conversion.
-    if (icebergColumn && columnType == ColumnType::kRegular) {
+    const auto* icebergColumn = icebergColumnByName(colNameList[idx]);
+    if (icebergSplitInfo && !icebergSplitInfo->fieldIds.empty() &&
+        (columnType == ColumnType::kRegular || columnType == ColumnType::kPartitionKey)) {
+      const auto fieldIndex = dataColumns->getChildIdx(colNameList[idx]);
+      assignments[outName] = std::make_shared<connector::hive::iceberg::IcebergColumnHandle>(
+          colNameList[idx],
+          columnType,
+          dataColumns->childAt(fieldIndex),
+          icebergSplitInfo->fieldIds.at(fieldIndex),
+          std::vector<common::Subfield>{},
+          icebergColumn ? icebergColumn->initialDefault : std::nullopt);
+    } else if (icebergColumn && columnType == ColumnType::kRegular) {
       assignments[outName] = std::make_shared<connector::hive::iceberg::IcebergColumnHandle>(
           colNameList[idx],
           columnType,

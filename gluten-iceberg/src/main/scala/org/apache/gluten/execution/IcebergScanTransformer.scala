@@ -34,8 +34,9 @@ import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.types.{ArrayType, DataType, StructType}
 
-import org.apache.iceberg.{BaseTable, MetadataColumns, SnapshotSummary, TableProperties}
+import org.apache.iceberg.{BaseTable, FileFormat, MetadataColumns, TableProperties}
 import org.apache.iceberg.avro.AvroSchemaUtil
+import org.apache.iceberg.spark.SparkSchemaUtil
 import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
 import org.apache.iceberg.spark.source.metrics.NumSplits
 import org.apache.iceberg.types.{Type, Types}
@@ -44,6 +45,8 @@ import org.apache.iceberg.types.Types.{ListType, MapType, NestedField}
 
 import java.util.{HashMap => JHashMap}
 import java.util.Locale
+
+import scala.collection.JavaConverters._
 
 case class IcebergScanTransformer(
     override val output: Seq[AttributeReference],
@@ -70,6 +73,11 @@ case class IcebergScanTransformer(
   private lazy val icebergInitialDefaults =
     GlutenIcebergSourceUtil.getInitialDefaults(scan)
 
+  private lazy val equalityDeleteFiles = GlutenIcebergSourceUtil.equalityDeleteFiles(scan)
+
+  private lazy val equalityDeleteSchema =
+    if (equalityDeleteFiles.isEmpty) null else GlutenIcebergSourceUtil.tableSchema(scan)
+
   private lazy val icebergFieldIds =
     if (icebergInitialDefaults.isEmpty) {
       new JHashMap[String, Integer]()
@@ -91,63 +99,64 @@ case class IcebergScanTransformer(
       return validationResult
     }
 
-    if (!BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead()) {
-      val notSupport = table match {
-        case t: SparkTable =>
-          t.table() match {
-            case t: BaseTable =>
-              t.operations()
-                .current()
-                .schema()
-                .columns()
-                .stream
-                .anyMatch(c => containsUuidOrFixedType(c.`type`()) || containsMetadataColumn(c))
-            case _ => false
-          }
-        case _ => false
-      }
-      if (notSupport) {
-        return ValidationResult.failed("Contains not supported data type or metadata column")
-      }
-      // Allow input_file_name() and related metadata functions
-      val allowedMetadataColumns =
-        IcebergScanTransformer.InputFileRelatedMetadataColumnNames
-      val hasUnsupportedMetadata = scan.readSchema().fieldNames.exists {
-        f =>
-          MetadataColumns.isMetadataColumn(f) &&
-          !allowedMetadataColumns.contains(f.toLowerCase(Locale.ROOT))
-      }
-      if (hasUnsupportedMetadata) {
-        return ValidationResult.failed("Read unsupported metadata column")
-      }
-      val containsEqualityDelete = table match {
-        case t: SparkTable =>
-          t.table() match {
-            case t: BaseTable =>
-              val snapshot = t
-                .operations()
-                .current()
-                .currentSnapshot()
-              if (snapshot == null) {
-                false
-              } else {
-                snapshot
-                  .summary()
-                  .getOrDefault(SnapshotSummary.TOTAL_EQ_DELETES_PROP, "0")
-                  .toInt > 0
-              }
-            case _ => false
-          }
-        case _ => false
-      }
-      if (containsEqualityDelete) {
-        return ValidationResult.failed("Contains equality delete files")
-      }
+    val notSupport = table match {
+      case t: SparkTable =>
+        t.table() match {
+          case t: BaseTable =>
+            t.operations()
+              .current()
+              .schema()
+              .columns()
+              .stream
+              .anyMatch(c => containsUuidOrFixedType(c.`type`()) || containsMetadataColumn(c))
+          case _ => false
+        }
+      case _ => false
+    }
+    if (notSupport) {
+      return ValidationResult.failed("Contains not supported data type or metadata column")
+    }
 
-      if (hasRenamedColumn) {
-        return ValidationResult.failed(
-          "The column is renamed or data type mismatch, cannot read it.")
+    // Allow input_file_name() and related metadata functions.
+    val allowedMetadataColumns =
+      IcebergScanTransformer.InputFileRelatedMetadataColumnNames
+
+    val hasUnsupportedMetadata = scan.readSchema().fieldNames.exists {
+      f =>
+        MetadataColumns.isMetadataColumn(f) &&
+        !allowedMetadataColumns.contains(f.toLowerCase(Locale.ROOT))
+    }
+
+    if (hasUnsupportedMetadata) {
+      return ValidationResult.failed("Read unsupported metadata column")
+    }
+
+    if (equalityDeleteFiles.nonEmpty) {
+      val fields = equalityDeleteSchema.columns().asScala.map(f => f.fieldId() -> f).toMap
+      for (delete <- equalityDeleteFiles) {
+        if (delete.format() != FileFormat.PARQUET && delete.format() != FileFormat.ORC) {
+          return ValidationResult.failed("Unsupported equality delete file format")
+        }
+        if (delete.equalityFieldIds() == null || delete.equalityFieldIds().isEmpty) {
+          return ValidationResult.failed("Equality delete file has no equality fields")
+        }
+        for (id <- delete.equalityFieldIds().asScala) {
+          val field = equalityDeleteSchema.findField(id)
+          if (
+            field == null || AvroSchemaUtil.makeCompatibleName(field.name()) != field.name() ||
+            !BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead(
+              SparkSchemaUtil.convert(field.`type`()),
+              !fields.contains(id))
+          ) {
+            return ValidationResult.failed(s"Unsupported Iceberg equality field ID: $id")
+          }
+        }
       }
+    }
+
+    if (hasRenamedColumn) {
+      return ValidationResult.failed(
+        "The column is renamed or data type mismatch, cannot read it.")
     }
 
     val baseTable = table match {
@@ -235,7 +244,8 @@ case class IcebergScanTransformer(
           getPartitionSchema,
           metadataColumnNames,
           icebergFieldIds,
-          icebergInitialDefaults)
+          icebergInitialDefaults,
+          equalityDeleteSchema)
       case _ => throw new GlutenNotSupportException()
     }
     val localFiles = splitInfo.asInstanceOf[LocalFilesNode]
@@ -287,10 +297,25 @@ case class IcebergScanTransformer(
     val ops = icebergTable.operations().current()
     val currentSchema = ops.schema()
     val oldSchemas = icebergTable.operations().current().schemas()
-    oldSchemas
-      .stream()
-      .filter(s => s.schemaId() != ops.currentSchemaId())
-      .anyMatch(s => !typesMatch(s.asStruct(), currentSchema.asStruct(), scan.readSchema()))
+    val equalityFields = equalityDeleteFiles.flatMap(_.equalityFieldIds().asScala)
+      .map(id => currentSchema.findColumnName(id)).distinct
+    val validationSchema = StructType(
+      scan.readSchema().fields ++ SparkSchemaUtil.convert(
+        currentSchema.select(equalityFields.asJava))
+        .fields.filterNot(f => scan.readSchema().fieldNames.contains(f.name)))
+    oldSchemas.asScala.filter(_.schemaId() != ops.currentSchemaId()).exists {
+      oldSchema =>
+        val evolvedOrcStruct = equalityDeleteFiles.nonEmpty &&
+          fileFormat == ReadFileFormat.OrcReadFormat && currentSchema.columns().asScala.exists {
+            field =>
+              val oldField = oldSchema.findField(field.fieldId())
+              field.`type`().isNestedType && oldField != null && oldField.`type`() != field.`type`()
+          }
+        evolvedOrcStruct || !typesMatch(
+          oldSchema.asStruct(),
+          currentSchema.asStruct(),
+          validationSchema)
+    }
   }
 
   private def typesMatch(icebergType: Type, currentType: Type, sparkType: DataType): Boolean = {
