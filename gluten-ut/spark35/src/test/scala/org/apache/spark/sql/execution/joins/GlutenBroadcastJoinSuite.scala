@@ -19,7 +19,8 @@ package org.apache.spark.sql.execution.joins
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.utils.BackendTestUtils
 
-import org.apache.spark.sql.{GlutenTestsCommonTrait, SparkSession}
+import org.apache.spark.SparkConf
+import org.apache.spark.sql.{GlutenSQLTestsBaseTrait, GlutenTestsCommonTrait, SparkSession}
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, ConvertToLocalRelation, NullPropagation}
 import org.apache.spark.sql.internal.SQLConf
 
@@ -41,40 +42,13 @@ class GlutenBroadcastJoinSuite extends BroadcastJoinSuite with GlutenTestsCommon
     SparkSession.clearActiveSession()
     SparkSession.clearDefaultSession()
 
+    val conf = new SparkConf()
+      .setMaster("local-cluster[2,1,1024]")
+
     val sparkBuilder = SparkSession
       .builder()
-      .master("local-cluster[2,1,1024]")
-      .appName("Gluten-UT")
-      .config(SQLConf.OPTIMIZER_EXCLUDED_RULES.key, ConvertToLocalRelation.ruleName)
-      .config("spark.driver.memory", "1G")
-      .config("spark.sql.adaptive.enabled", "true")
-      .config("spark.sql.shuffle.partitions", "1")
-      .config("spark.sql.files.maxPartitionBytes", "134217728")
-      .config("spark.memory.offHeap.enabled", "true")
-      .config("spark.memory.offHeap.size", "1024MB")
-      .config("spark.plugins", "org.apache.gluten.GlutenPlugin")
-      .config("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
-      .config("spark.sql.warehouse.dir", warehouse)
-      // Avoid static evaluation for literal input by spark catalyst.
-      .config(
-        "spark.sql.optimizer.excludedRules",
-        ConstantFolding.ruleName + "," +
-          NullPropagation.ruleName)
-      // Avoid the code size overflow error in Spark code generation.
-      .config("spark.sql.codegen.wholeStage", "false")
+      .config(GlutenSQLTestsBaseTrait.nativeSparkConf(conf, warehouse))
+    spark = sparkBuilder.getOrCreate()
 
-    spark = if (BackendTestUtils.isCHBackendLoaded()) {
-      sparkBuilder
-        .config("spark.io.compression.codec", "LZ4")
-        .config("spark.gluten.sql.columnar.backend.ch.worker.id", "1")
-        .config(GlutenConfig.NATIVE_VALIDATION_ENABLED.key, "false")
-        .config("spark.sql.files.openCostInBytes", "134217728")
-        .config("spark.unsafe.exceptionOnMemoryLeak", "true")
-        .getOrCreate()
-    } else {
-      sparkBuilder
-        .config("spark.unsafe.exceptionOnMemoryLeak", "true")
-        .getOrCreate()
-    }
   }
 }
