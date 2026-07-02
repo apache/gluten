@@ -1,5 +1,6 @@
 org.apache.gluten.velox.FromElementsSourceFactory
 org.apache.gluten.velox.KafkaSourceSinkFactory
+org.apache.gluten.velox.PulsarSourceSinkFactory
 org.apache.gluten.velox.PrintSinkFactory
 org.apache.gluten.velox.NexmarkSourceFactory
 org.apache.gluten.velox.FileSystemSinkFactory

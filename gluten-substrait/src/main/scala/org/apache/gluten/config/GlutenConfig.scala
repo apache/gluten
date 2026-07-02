@@ -528,7 +528,8 @@ object GlutenConfig extends ConfigRegistry {
     "spark.gluten.sql.columnar.backend.velox.cachePrefetchMinPct",
     "spark.gluten.sql.columnar.backend.velox.memoryPoolCapacityTransferAcrossTasks",
     "spark.gluten.sql.columnar.backend.velox.preferredBatchBytes",
-    "spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan"
+    "spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan",
+    "spark.gluten.sql.columnar.backend.velox.columnarBatchSerializerCompression"
   )
 
   /** Get dynamic configs. */
@@ -1051,10 +1052,10 @@ object GlutenConfig extends ConfigRegistry {
         "When true, the Velox columnar cache serializer computes per-partition " +
           "min/max/null/row-count stats and embeds them in the cached payload so " +
           "that the Spark optimizer can prune whole partitions on equality / " +
-          "range predicates. When false (default) the serializer writes the " +
-          "legacy raw payload with no stats, and partition pruning is disabled. " +
-          "Default is off until cross-workload benchmarks confirm zero regression " +
-          "on non-pruning queries.")
+          "range predicates. When false (default), the serializer still writes " +
+          "the V3 per-column payload with empty stats so projected cache reads " +
+          "can lazily materialize only requested columns, while partition pruning " +
+          "is disabled.")
       .booleanConf
       .createWithDefault(false)
 

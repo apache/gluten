@@ -23,7 +23,7 @@
 
 namespace gluten {
 
-std::unique_ptr<facebook::velox::parquet::WriterOptions> makeParquetWriteOption(
+std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOption(
     const std::unordered_map<std::string, std::string>& sparkConfs);
 
 } // namespace gluten

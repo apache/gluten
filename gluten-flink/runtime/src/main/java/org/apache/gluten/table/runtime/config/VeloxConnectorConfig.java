@@ -33,6 +33,7 @@ public class VeloxConnectorConfig {
       List.of(
           "connector-nexmark",
           "connector-kafka",
+          "connector-pulsar",
           "connector-fuzzer",
           "connector-filesystem",
           "connector-from-elements",

@@ -162,7 +162,10 @@ public class ConsistentHash<T extends ConsistentHash.Node> {
   public Set<Partition<T>> getPartition(T node) {
     lock.readLock().lock();
     try {
-      return nodes.get(node);
+      // Return a defensive copy: the map value is internal mutable state, and getNodes() copies
+      // for the same reason. Callers get a snapshot they can't use to mutate the ring.
+      Set<Partition<T>> partitions = nodes.get(node);
+      return partitions == null ? null : new HashSet<>(partitions);
     } finally {
       lock.readLock().unlock();
     }
@@ -255,7 +258,11 @@ public class ConsistentHash<T extends ConsistentHash.Node> {
       return node;
     }
 
-    public void setSlot(long slot) {
+    // Non-public on purpose: only ConsistentHash.add() assigns the slot, during ring construction
+    // (accessible as a nestmate). Keeping it out of the public API stops callers of getPartition()
+    // from mutating ring state through a returned Partition (e.g. changing a slot so removeNode()
+    // drops the wrong entry).
+    private void setSlot(long slot) {
       this.slot = slot;
     }
 

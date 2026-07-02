@@ -56,6 +56,7 @@ import org.apache.spark.sql.execution.joins.{BuildSideRelation, ClickHouseBuildS
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.utils.{CHExecUtil, PushDownUtil}
 import org.apache.spark.sql.execution.window._
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.SparkVersionUtil
@@ -402,6 +403,21 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
       right: ExpressionTransformer,
       original: GetMapValue): ExpressionTransformer =
     GetMapValueTransformer(substraitExprName, left, right, failOnError = false, original)
+
+  /** Transform map_from_entries to Substrait. */
+  override def genMapFromEntriesTransformer(
+      substraitExprName: String,
+      child: ExpressionTransformer,
+      expr: Expression): ExpressionTransformer = {
+    val mapKeyDedupPolicy = SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)
+    val chExprName =
+      if (mapKeyDedupPolicy.toString == SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+        ExpressionNames.MAP_FROM_ENTRIES_LAST_WIN
+      } else {
+        substraitExprName
+      }
+    GenericExpressionTransformer(chExprName, Seq(child), expr)
+  }
 
   /**
    * Generate ShuffleDependency for ColumnarShuffleExchangeExec.
