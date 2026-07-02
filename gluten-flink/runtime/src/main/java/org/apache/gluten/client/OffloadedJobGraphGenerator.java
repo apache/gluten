@@ -243,6 +243,8 @@ public class OffloadedJobGraphGenerator {
     Class<?> outClass = supportsVectorOutput ? StatefulRecord.class : RowData.class;
     GlutenOneInputOperator<?, ?> newOneInputOp =
         sourceOperator.cloneWithInputOutputClasses(planNode, inClass, outClass);
+    // setStreamOperator would wrap this in Flink's SimpleOperatorFactory and skip Gluten-specific
+    // mailbox binding performed by GlutenOneInputOperatorFactory.
     offloadedOpConfig.setStreamOperatorFactory(new GlutenOneInputOperatorFactory<>(newOneInputOp));
     if (supportsVectorOutput) {
       setOffloadedOutputSerializer(offloadedOpConfig, sourceOperator);
