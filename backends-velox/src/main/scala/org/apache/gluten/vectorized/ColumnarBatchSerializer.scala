@@ -222,9 +222,6 @@ private class ColumnarBatchSerializerInstanceImpl(
       if (!closeCalled.compareAndSet(false, true)) {
         return
       }
-      // Stop reading more streams. Blocked by the native reader threads.
-      jniWrapper.stop(shuffleReaderHandle)
-      onComplete.foreach(_())
       // Would remove the resource object from registry to lower GC pressure.
       TaskResources.releaseResource(resourceId)
     }
@@ -243,6 +240,10 @@ private class ColumnarBatchSerializerInstanceImpl(
     }
 
     private def close0(): Unit = {
+      // Stop the native reader from reading more streams.
+      jniWrapper.stop(shuffleReaderHandle)
+      onComplete.foreach(_())
+
       if (numBatchesTotal > 0) {
         readBatchNumRows.set(numRowsTotal.toDouble / numBatchesTotal)
       }

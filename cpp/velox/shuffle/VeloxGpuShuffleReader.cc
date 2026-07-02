@@ -120,6 +120,10 @@ std::unique_ptr<ColumnarBatchIterator> VeloxGpuHashShuffleReaderDeserializer::de
 void VeloxGpuHashShuffleReaderDeserializer::stop() {
   // Signal threads to stop if not already stopped.
   stop_.store(true, std::memory_order_release);
+  // Unblock any reader threads that might be waiting in CachedBatchQueue::put().
+  if (batchQueue_) {
+    batchQueue_->noMoreBatches();
+  }
   // Wait for all reader threads to complete.
   std::unique_lock<std::mutex> lock(completionMtx_);
   completionCV_.wait(lock, [this] { return activeReaders_.load(std::memory_order_acquire) == 0; });
@@ -180,7 +184,7 @@ void VeloxGpuHashShuffleReaderDeserializer::read() {
     auto batch =
         std::make_shared<GpuBufferColumnarBatch>(rowType_, std::move(arrowBuffers), static_cast<int32_t>(numRows));
 
-    // Put batch into queue.
+    // Put batch into queue. Blocked if queue is full.
     batchQueue_->put(batch);
   }
 

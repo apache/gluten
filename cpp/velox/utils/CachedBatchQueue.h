@@ -40,7 +40,7 @@ class CachedBatchQueue {
 
     notFull_.wait(lock, [&]() { return noMoreBatches_ || totalSize_ + batchSize <= capacity_; });
     if (noMoreBatches_) {
-      LOG(WARNING) << "Discard batch due to calling put() after noMorBatches().";
+      LOG(WARNING) << "Discard batch due to calling put() after noMoreBatches().";
       return;
     }
 
@@ -58,8 +58,8 @@ class CachedBatchQueue {
       return nullptr;
     }
     auto batch = std::move(queue_.front());
-    LOG(INFO) << "Trying to get from cached buffer queue. Queue length: " << queue_.size()
-              << ", total size in queue: " << totalSize_ << ", current batch size: " << batch->numBytes() << std::endl;
+    DLOG(INFO) << "CachedBatchQueue get(): Queue length=" << queue_.size() << ", queue size in bytes=" << totalSize_
+               << ", current batch size in bytes=" << batch->numBytes();
 
     queue_.pop();
     totalSize_ -= batch->numBytes();
@@ -70,6 +70,9 @@ class CachedBatchQueue {
 
   void noMoreBatches() {
     std::lock_guard<std::mutex> lock(mtx_);
+    if (noMoreBatches_) {
+      return;
+    }
     noMoreBatches_ = true;
     notFull_.notify_all();
     notEmpty_.notify_all();
