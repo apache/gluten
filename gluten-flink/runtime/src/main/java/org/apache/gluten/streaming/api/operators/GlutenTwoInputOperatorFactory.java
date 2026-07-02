@@ -20,6 +20,7 @@ import org.apache.gluten.table.runtime.operators.GlutenMailboxOperatorHelper;
 
 import io.github.zhztheplayer.velox4j.serde.Serde;
 
+import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperatorFactory;
 import org.apache.flink.streaming.api.operators.SetupableStreamOperator;
 import org.apache.flink.streaming.api.operators.StreamOperator;
@@ -56,6 +57,9 @@ public class GlutenTwoInputOperatorFactory<IN1, IN2, OUT> extends AbstractStream
     if (operator instanceof GlutenAbstractStreamOperator) {
       ((GlutenAbstractStreamOperator<OUT>) operator)
           .setProcessingTimeService(parameters.getProcessingTimeService());
+    }
+    if (operator instanceof AbstractStreamOperator) {
+      ((AbstractStreamOperator) operator).setProcessingTimeService(processingTimeService);
     }
     if (operator instanceof SetupableStreamOperator) {
       ((SetupableStreamOperator<OUT>) operator)

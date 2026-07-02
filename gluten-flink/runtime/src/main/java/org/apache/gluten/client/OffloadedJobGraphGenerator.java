@@ -17,6 +17,7 @@
 package org.apache.gluten.client;
 
 import org.apache.gluten.streaming.api.operators.GlutenOperator;
+import org.apache.gluten.streaming.api.operators.GlutenOneInputOperatorFactory;
 import org.apache.gluten.streaming.api.operators.GlutenStreamSource;
 import org.apache.gluten.streaming.api.operators.GlutenTwoInputOperatorFactory;
 import org.apache.gluten.table.runtime.keyselector.GlutenKeySelector;
@@ -242,7 +243,7 @@ public class OffloadedJobGraphGenerator {
     Class<?> outClass = supportsVectorOutput ? StatefulRecord.class : RowData.class;
     GlutenOneInputOperator<?, ?> newOneInputOp =
         sourceOperator.cloneWithInputOutputClasses(planNode, inClass, outClass);
-    offloadedOpConfig.setStreamOperator(newOneInputOp);
+    offloadedOpConfig.setStreamOperatorFactory(new GlutenOneInputOperatorFactory<>(newOneInputOp));
     if (supportsVectorOutput) {
       setOffloadedOutputSerializer(offloadedOpConfig, sourceOperator);
     }
