@@ -78,6 +78,7 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           export CCACHE_DIR=${CCACHE_DIR}
           export CCACHE_MAXSIZE=5G
+          export simdjson_SOURCE=BUNDLED
           mkdir -p ${CCACHE_DIR}
           ccache -sz
           git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
