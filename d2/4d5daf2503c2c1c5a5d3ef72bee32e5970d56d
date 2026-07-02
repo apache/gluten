@@ -1,0 +1,20 @@
+gluten-flink/runtime/src/main/java/org/apache/gluten/streaming/api/operators/GlutenAbstractStreamOperator.java
+  s_740041a40dfcba::t_8608107f40dd5d 107-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "d24d5daf2503c2c1c5a5d3ef72bee32e5970d56d",
+  "prompts": {},
+  "logical_commit_id": "4f07ca5a5b443ac75f3cad345bb4e7aa396e7bfa",
+  "sessions": {
+    "s_740041a40dfcba": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0e9942bd9ffeKbvUZ4oXaz8Nkc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+gluten-flink/ut/src/test/java/org/apache/gluten/streaming/api/operators/GlutenStreamWatermarkStatusTest.java
+  s_740041a40dfcba::t_7472c7d863f5a5 29,71-86
+  s_740041a40dfcba::t_9d9d8b9bc4cc61 87-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "f1078e22522fdfea8de17983233b4abb296caec4",
+  "prompts": {},
+  "logical_commit_id": "8817216af6b7d6e10ad1e411c8e7c2b19fca03cb",
+  "sessions": {
+    "s_740041a40dfcba": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0e9942bd9ffeKbvUZ4oXaz8Nkc",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
