@@ -69,8 +69,20 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
           fileContent = FileContent::kData;
           break;
       }
+
+      std::vector<int32_t> equalityFieldIds;
+      equalityFieldIds.reserve(deleteFile.equalityfieldids_size());
+      for (int fieldIdx = 0; fieldIdx < deleteFile.equalityfieldids_size(); ++fieldIdx) {
+        equalityFieldIds.emplace_back(deleteFile.equalityfieldids(fieldIdx));
+      }
+
       deletes.emplace_back(IcebergDeleteFile(
-          fileContent, deleteFile.filepath(), format, deleteFile.recordcount(), deleteFile.filesize()));
+          fileContent,
+          deleteFile.filepath(),
+          format,
+          deleteFile.recordcount(),
+          deleteFile.filesize(),
+          std::move(equalityFieldIds)));
     }
     icebergSplitInfo->deleteFilesVec.emplace_back(deletes);
   } else {

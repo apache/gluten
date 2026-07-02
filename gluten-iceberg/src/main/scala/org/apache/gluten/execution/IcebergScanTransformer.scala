@@ -79,35 +79,39 @@ case class IcebergScanTransformer(
       return validationResult
     }
 
+    val notSupport = table match {
+      case t: SparkTable =>
+        t.table() match {
+          case t: BaseTable =>
+            t.operations()
+              .current()
+              .schema()
+              .columns()
+              .stream
+              .anyMatch(c => containsUuidOrFixedType(c.`type`()) || containsMetadataColumn(c))
+          case _ => false
+        }
+      case _ => false
+    }
+    if (notSupport) {
+      return ValidationResult.failed("Contains not supported data type or metadata column")
+    }
+
+    // Allow input_file_name() and related metadata functions.
+    val allowedMetadataColumns =
+      IcebergScanTransformer.InputFileRelatedMetadataColumnNames
+
+    val hasUnsupportedMetadata = scan.readSchema().fieldNames.exists {
+      f =>
+        MetadataColumns.isMetadataColumn(f) &&
+        !allowedMetadataColumns.contains(f.toLowerCase(Locale.ROOT))
+    }
+
+    if (hasUnsupportedMetadata) {
+      return ValidationResult.failed("Read unsupported metadata column")
+    }
+
     if (!BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead()) {
-      val notSupport = table match {
-        case t: SparkTable =>
-          t.table() match {
-            case t: BaseTable =>
-              t.operations()
-                .current()
-                .schema()
-                .columns()
-                .stream
-                .anyMatch(c => containsUuidOrFixedType(c.`type`()) || containsMetadataColumn(c))
-            case _ => false
-          }
-        case _ => false
-      }
-      if (notSupport) {
-        return ValidationResult.failed("Contains not supported data type or metadata column")
-      }
-      // Allow input_file_name() and related metadata functions
-      val allowedMetadataColumns =
-        IcebergScanTransformer.InputFileRelatedMetadataColumnNames
-      val hasUnsupportedMetadata = scan.readSchema().fieldNames.exists {
-        f =>
-          MetadataColumns.isMetadataColumn(f) &&
-          !allowedMetadataColumns.contains(f.toLowerCase(Locale.ROOT))
-      }
-      if (hasUnsupportedMetadata) {
-        return ValidationResult.failed("Read unsupported metadata column")
-      }
       val containsEqualityDelete = table match {
         case t: SparkTable =>
           t.table() match {
@@ -128,14 +132,15 @@ case class IcebergScanTransformer(
           }
         case _ => false
       }
+
       if (containsEqualityDelete) {
         return ValidationResult.failed("Contains equality delete files")
       }
+    }
 
-      if (hasRenamedColumn) {
-        return ValidationResult.failed(
-          "The column is renamed or data type mismatch, cannot read it.")
-      }
+    if (hasRenamedColumn) {
+      return ValidationResult.failed(
+        "The column is renamed or data type mismatch, cannot read it.")
     }
 
     val baseTable = table match {

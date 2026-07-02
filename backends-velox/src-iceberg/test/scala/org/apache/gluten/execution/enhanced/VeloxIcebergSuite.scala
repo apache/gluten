@@ -20,11 +20,19 @@ import org.apache.gluten.execution._
 import org.apache.gluten.tags.EnhancedFeaturesTest
 
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
 import org.apache.spark.sql.execution.CommandResultExec
 import org.apache.spark.sql.execution.GlutenImplicits._
 import org.apache.spark.sql.execution.datasources.v2.AppendDataExec
 import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.gluten.TestUtils
+
+import org.apache.iceberg.{FileFormat, SnapshotSummary}
+import org.apache.iceberg.data.{GenericAppenderFactory, GenericRecord}
+import org.apache.iceberg.io.OutputFileFactory
+import org.apache.iceberg.spark.source.SparkTable
+
+import java.util.Collections
 
 @EnhancedFeaturesTest
 class VeloxIcebergSuite extends IcebergSuite {
@@ -534,5 +542,88 @@ class VeloxIcebergSuite extends IcebergSuite {
             s"but got files=${files.mkString("[", ", ", "]")}")
       }
     }
+  }
+  test("iceberg equality delete write via Iceberg API and native Gluten read") {
+    withTable("iceberg_eq_delete_tb") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_eq_delete_tb (
+                  |  id INT,
+                  |  data STRING
+                  |) USING iceberg
+                  |TBLPROPERTIES (
+                  |  'format-version' = '2'
+                  |)
+                  |""".stripMargin)
+
+      spark.sql("""
+                  |INSERT INTO iceberg_eq_delete_tb VALUES
+                  |(1, 'a'), (2, 'b'), (3, 'c')
+                  |""".stripMargin)
+
+      val table = loadIcebergTable("iceberg_eq_delete_tb")
+
+      val idFieldId = table.schema().findField("id").fieldId()
+      val equalityDeleteSchema = table.schema().select("id")
+
+      val appenderFactory = new GenericAppenderFactory(
+        table.schema(),
+        table.spec(),
+        Array(idFieldId),
+        equalityDeleteSchema,
+        null)
+      val outputFileFactory = OutputFileFactory
+        .builderFor(table, 1, 1)
+        .format(FileFormat.PARQUET)
+        .build()
+
+      val outputFile = outputFileFactory.newOutputFile()
+      val deleteWriter =
+        appenderFactory.newEqDeleteWriter(outputFile, FileFormat.PARQUET, null)
+
+      try {
+        val deleteRecord = GenericRecord
+          .create(equalityDeleteSchema)
+          .copy(Collections.singletonMap[String, AnyRef]("id", Int.box(2)))
+
+        deleteWriter.write(deleteRecord)
+      } finally {
+        deleteWriter.close()
+      }
+
+      table
+        .newRowDelta()
+        .addDeletes(deleteWriter.toDeleteFile())
+        .commit()
+
+      table.refresh()
+      spark.catalog.refreshTable("iceberg_eq_delete_tb")
+
+      val eqDeletes = Option(
+        table.currentSnapshot().summary().get(SnapshotSummary.TOTAL_EQ_DELETES_PROP))
+        .getOrElse("0")
+        .toInt
+
+      assert(eqDeletes > 0, "Expected this test to create an equality-delete file")
+
+      runQueryAndCompare("""
+                           |SELECT * FROM iceberg_eq_delete_tb ORDER BY id
+                           |""".stripMargin) {
+        df =>
+          checkGlutenPlan[IcebergScanTransformer](df)
+          checkAnswer(df, Row(1, "a") :: Row(3, "c") :: Nil)
+      }
+    }
+  }
+
+  private def loadIcebergTable(tableName: String): org.apache.iceberg.Table = {
+    val catalog = spark.sessionState.catalogManager
+      .catalog("spark_catalog")
+      .asInstanceOf[TableCatalog]
+
+    val sparkTable = catalog
+      .loadTable(Identifier.of(Array("default"), tableName))
+      .asInstanceOf[SparkTable]
+
+    sparkTable.table()
   }
 }
