@@ -29,6 +29,8 @@ import org.apache.spark.sql.gluten.TestUtils
 
 import org.apache.hadoop.fs.Path
 import org.apache.iceberg.shaded.org.apache.parquet.ParquetReadOptions
+import org.apache.iceberg.shaded.org.apache.parquet.column.Encoding
+import org.apache.iceberg.shaded.org.apache.parquet.column.page.{DataPage, DataPageV1, DataPageV2}
 import org.apache.iceberg.shaded.org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.iceberg.shaded.org.apache.parquet.hadoop.util.HadoopInputFile
 
@@ -540,6 +542,114 @@ class VeloxIcebergSuite extends IcebergSuite {
           files.max < 64L * 1024L,
           s"Expected small target file size to keep max file size reasonably small, " +
             s"but got files=${files.mkString("[", ", ", "]")}")
+      }
+    }
+  }
+
+  test("iceberg parquet writer respects dictionary page size bytes") {
+    val table = "iceberg_dict_page_size_tbl"
+
+    def parquetFiles(table: String): Seq[String] = {
+      spark.sql(s"""
+                   |SELECT file_path
+                   |FROM default.$table.files
+                   |""".stripMargin).collect().map(_.getString(0)).toSeq
+    }
+
+    def pageEncoding(page: DataPage): Encoding = {
+      page.accept(new DataPage.Visitor[Encoding] {
+        override def visit(dataPageV1: DataPageV1): Encoding = dataPageV1.getValueEncoding
+        override def visit(dataPageV2: DataPageV2): Encoding = dataPageV2.getDataEncoding
+      })
+    }
+
+    def dataPageEncodings(table: String, columnName: String): Seq[Encoding] = {
+      val conf = spark.sparkContext.hadoopConfiguration
+
+      parquetFiles(table).flatMap {
+        file =>
+          val inputFile = HadoopInputFile.fromPath(new Path(file), conf)
+          val reader = ParquetFileReader.open(inputFile, ParquetReadOptions.builder().build())
+
+          try {
+            val column = reader
+              .getFooter
+              .getFileMetaData
+              .getSchema
+              .getColumns
+              .asScala
+              .find(_.getPath.toSeq == Seq(columnName))
+              .getOrElse {
+                fail(s"Column $columnName was not found in Parquet file $file")
+              }
+
+            val encodings = scala.collection.mutable.ArrayBuffer.empty[Encoding]
+
+            var rowGroup = reader.readNextRowGroup()
+            while (rowGroup != null) {
+              val pageReader = rowGroup.getPageReader(column)
+              pageReader.readDictionaryPage()
+
+              var page = pageReader.readPage()
+              while (page != null) {
+                encodings += pageEncoding(page)
+                page = pageReader.readPage()
+              }
+
+              rowGroup = reader.readNextRowGroup()
+            }
+
+            encodings
+          } finally {
+            reader.close()
+          }
+      }
+    }
+
+    withSQLConf(
+      "spark.sql.shuffle.partitions" -> "1"
+    ) {
+      withTable(table) {
+        spark.sql(s"""
+                     |CREATE TABLE $table (
+                     |  value SMALLINT
+                     |) USING iceberg
+                     |TBLPROPERTIES (
+                     |  'write.format.default' = 'parquet',
+                     |  'write.parquet.compression-codec' = 'uncompressed',
+                     |  'write.parquet.dict-size-bytes' = '1B'
+                     |)
+                     |""".stripMargin)
+
+        val df = spark.sql(s"""
+                              |INSERT INTO $table
+                              |SELECT CAST(id + 1 AS SMALLINT)
+                              |FROM range(0, 10000, 1, 1)
+                              |""".stripMargin)
+
+        assert(
+          df.queryExecution.executedPlan
+            .asInstanceOf[CommandResultExec]
+            .commandPhysicalPlan
+            .isInstanceOf[VeloxIcebergAppendDataExec])
+
+        checkAnswer(
+          spark.sql(s"SELECT count(*) FROM $table"),
+          Seq(Row(10000L)))
+
+        val encodings = dataPageEncodings(table, "value")
+
+        assert(encodings.nonEmpty, "Expected at least one Parquet data page")
+        assert(
+          encodings.head == Encoding.RLE_DICTIONARY,
+          s"Expected the first data page to use dictionary encoding, " +
+            s"but got encodings=${encodings.mkString("[", ", ", "]")}"
+        )
+        assert(
+          encodings.contains(Encoding.PLAIN),
+          s"Expected write.parquet.dict-size-bytes=1B to make later data pages fall back " +
+            s"to PLAIN, but got encodings=${encodings.mkString("[", ", ", "]")}"
+        )
       }
     }
   }

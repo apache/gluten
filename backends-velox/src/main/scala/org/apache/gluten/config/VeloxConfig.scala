@@ -862,6 +862,12 @@ object VeloxConfig extends ConfigRegistry {
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("1MB")
 
+  val PARQUET_DICT_SIZE_BYTES =
+    buildConf("spark.gluten.sql.columnar.backend.velox.parquet.dictionaryPageSizeBytes")
+      .doc("The maximum size in bytes for a Parquet dictionary page")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("2MB")
+
   val ENABLE_TIMESTAMP_NTZ_VALIDATION =
     buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")
       .doc(
