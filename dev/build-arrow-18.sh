@@ -30,7 +30,7 @@ function install_openssl() {
   curl -LO https://github.com/openssl/openssl/releases/download/OpenSSL_1_0_2/openssl-1.0.2.tar.gz
   tar -xzvf openssl-1.0.2.tar.gz
   cd openssl-1.0.2
-  ./Configure --prefix=/usr/local --openssldir=/usr/local/ssl linux-ppc64le
+  ./Configure --prefix=/opt/openssl --openssldir=/usr/local/ssl linux-ppc64le
   make
   make install
   echo $PATH
@@ -51,7 +51,7 @@ function prepare_arrow_build() {
 }
 
 function build_arrow_cpp() {
-  export OPENSSL_ROOT_DIR=/usr/local/ssl
+  export OPENSSL_ROOT_DIR=/opt/openssl
   export ARROW_THRIFT_URL="https://www.apache.org/dyn/closer.lua/thrift/0.20.0/thrift-0.20.0.tar.gz?action=download"
   pushd $ARROW_PREFIX/cpp
   ARROW_WITH_ZLIB=ON
