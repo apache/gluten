@@ -1,0 +1,98 @@
+# GitLab CI/CD for Apache Gluten Flink.
+# Uses the velox-deps Docker image (same as velox/velox4j CI) with all C++
+# dependencies pre-installed as SYSTEM libraries in /usr/local.
+#
+# Prerequisite: the velox-deps image must be built and pushed:
+#   docker build -t listar1111/velox-deps:ubuntu20 \
+#     -f scripts/Dockerfile.ubuntu20 .   (in bigo-sg/velox repo)
+#   docker push listar1111/velox-deps:ubuntu20
+
+variables:
+  CCACHE_DIR: "/data/build/ccache"
+  CCACHE_MAXSIZE: "5G"
+  DEBIAN_FRONTEND: "noninteractive"
+  MAVEN_OPTS: >-
+    -Xmx2g
+    --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED
+    --add-opens=java.base/sun.nio.ch=org.apache.arrow.memory.core,ALL-UNNAMED
+    --add-opens=java.base/java.lang=ALL-UNNAMED
+    --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+    --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+    --add-opens=java.base/java.io=ALL-UNNAMED
+    --add-opens=java.base/java.net=ALL-UNNAMED
+    --add-opens=java.base/java.util=ALL-UNNAMED
+    --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+    --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED
+    --add-opens=java.base/sun.reflect.generics.repository=ALL-UNNAMED
+  JAVA_TOOL_OPTIONS: >-
+    --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED
+    --add-opens=java.base/sun.nio.ch=org.apache.arrow.memory.core,ALL-UNNAMED
+    --add-opens=java.base/java.lang=ALL-UNNAMED
+    --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+    --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+    --add-opens=java.base/java.io=ALL-UNNAMED
+    --add-opens=java.base/java.net=ALL-UNNAMED
+    --add-opens=java.base/java.util=ALL-UNNAMED
+    --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+    --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED
+    --add-opens=java.base/sun.reflect.generics.repository=ALL-UNNAMED
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+stages:
+  - build
+  - test
+
+.build-template:
+  tags:
+    - velox4j
+  image: listar1111/velox-deps:ubuntu20
+  interruptible: true
+  before_script:
+    - export CC=/usr/bin/gcc-11
+    - export CXX=/usr/bin/g++-11
+    - export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+    - export PATH=$JAVA_HOME/bin:$PATH
+
+# Build velox4j (native + Java), then build Gluten Flink and nexmark.
+gluten-flink-build:
+  extends: .build-template
+  stage: build
+  script:
+    # 1. Clone and build velox4j with the fix patch.
+    - git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
+    - cd velox4j && git reset --hard 9811c337d5e37ab8d16d5bf0791b48836fcd2afd
+    - git apply $CI_PROJECT_DIR/gluten-flink/patches/fix-velox4j.patch
+    - $CI_PROJECT_DIR/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
+    - cd ..
+
+    # 2. Build nexmark.
+    - git clone https://github.com/nexmark/nexmark.git
+    - cd nexmark
+    - $CI_PROJECT_DIR/build/mvn clean install -DskipTests
+    - cd ..
+
+    # 3. Build Gluten Flink.
+    - cd $CI_PROJECT_DIR/gluten-flink
+    - $CI_PROJECT_DIR/build/mvn clean package -Dmaven.test.skip=true
+  artifacts:
+    paths:
+      - velox4j/target/
+      - gluten-flink/*/target/
+    expire_in: 1 day
+
+# Run Gluten Flink unit tests.
+gluten-flink-test:
+  extends: .build-template
+  stage: test
+  needs: ["gluten-flink-build"]
+  script:
+    - cd $CI_PROJECT_DIR/gluten-flink
+    - $CI_PROJECT_DIR/build/mvn test
