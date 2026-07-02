@@ -134,9 +134,15 @@ public class FileSystemSinkFactory implements VeloxSourceSinkFactory {
             "FileSystemInsertTable");
     GlutenOneInputOperatorFactory<?, ?> operatorFactory =
         new GlutenOneInputOperatorFactory(onewInputOperator);
+    // If rowtime transformation was applied (rowtimeFieldIndex != -1), a native
+    // StreamRecordTimestampInserter sits at this position. Replace it with a Gluten columnar
+    // inserter so the chain stays columnar end-to-end; otherwise this is a no-op.
+    Transformation<RowData> veloxFileWriterInput =
+        GlutenRowtimeInserterHelper.processTransformation(
+            (Transformation<RowData>) fileWriterTransformation.getInputs().get(0));
     Transformation<RowData> veloxFileWriterTransformation =
         new OneInputTransformation(
-            fileWriterTransformation.getInputs().get(0),
+            veloxFileWriterInput,
             fileWriterTransformation.getName(),
             operatorFactory,
             fileWriterTransformation.getOutputType(),
