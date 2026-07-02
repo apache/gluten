@@ -16,8 +16,8 @@
  */
 package org.apache.gluten.client;
 
-import org.apache.gluten.streaming.api.operators.GlutenOperator;
 import org.apache.gluten.streaming.api.operators.GlutenOneInputOperatorFactory;
+import org.apache.gluten.streaming.api.operators.GlutenOperator;
 import org.apache.gluten.streaming.api.operators.GlutenStreamSource;
 import org.apache.gluten.streaming.api.operators.GlutenTwoInputOperatorFactory;
 import org.apache.gluten.table.runtime.keyselector.GlutenKeySelector;
