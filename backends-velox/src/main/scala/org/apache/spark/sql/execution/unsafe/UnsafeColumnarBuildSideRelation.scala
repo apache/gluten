@@ -174,10 +174,12 @@ class UnsafeColumnarBuildSideRelation(
           )
         }
 
+        val outputByExprId = newOutput.asScala.map(attr => attr.exprId -> attr).toMap
         val joinKeys = keys.asScala.map {
           key =>
             val attr = ConverterUtils.getAttrFromExpr(key)
-            ConverterUtils.genColumnNameWithExprId(attr)
+            val outputAttr = outputByExprId.getOrElse(attr.exprId, attr)
+            ConverterUtils.genColumnNameWithExprId(outputAttr)
         }.toArray
 
         val hashJoinBuilder = HashJoinBuilder.create(runtime)
