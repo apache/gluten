@@ -104,7 +104,7 @@ class ColumnarShuffleReader[K, C](
             shuffleBlockFetcherIterator.onComplete)
           .asKeyValueIterator
       case _ =>
-        val shuffleBlockFetcherIterator = new ShuffleBlockFetcherIterator(
+        val wrappedStreams = new ShuffleBlockFetcherIterator(
           context,
           blockManager.blockStoreClient,
           blockManager,
@@ -123,10 +123,12 @@ class ColumnarShuffleReader[K, C](
           SparkEnv.get.conf.get(config.SHUFFLE_CHECKSUM_ALGORITHM),
           readMetrics,
           fetchContinuousBlocksInBatch
-        )
+        ).toCompletionIterator
+
         val serializerInstance = dep.serializer.newInstance()
+
         // Create a key/value iterator for each stream
-        shuffleBlockFetcherIterator.toCompletionIterator.flatMap {
+        wrappedStreams.flatMap {
           case (blockId, wrappedStream) =>
             // Note: the asKeyValueIterator below wraps a key/value iterator inside of a
             // NextIterator. The NextIterator makes sure that close() is called on the
