@@ -27,7 +27,6 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 
 import scala.collection.JavaConverters._
-import scala.collection.Traversable
 import scala.io.Source
 
 /**
@@ -210,7 +209,7 @@ object AllGlutenConfiguration {
         StandardOpenOption.CREATE,
         StandardOpenOption.TRUNCATE_EXISTING)
     } else {
-      assertFileContent(path, lines, regenScript)
+      assertFileContent(path, lines.toSeq, regenScript)
     }
   }
 
@@ -223,35 +222,27 @@ object AllGlutenConfiguration {
    *   source file path
    * @param regenScript
    *   regeneration script
-   * @param splitFirstExpectedLine
-   *   whether to split the first expected line into multiple lines by EOL
    */
   def assertFileContent(
       path: Path,
-      expectedLines: Traversable[String],
-      regenScript: String,
-      splitFirstExpectedLine: Boolean = false)(implicit
+      expectedLines: Seq[String],
+      regenScript: String)(implicit
       prettifier: Prettifier,
       pos: Position): Unit = {
     val fileSource = Source.fromFile(path.toUri, StandardCharsets.UTF_8.name())
     try {
-      def expectedLinesIter = if (splitFirstExpectedLine) {
-        Source.fromString(expectedLines.head).getLines()
-      } else {
-        expectedLines.toIterator
-      }
-      val fileLinesIter = fileSource.getLines()
+      val fileLines = fileSource.getLines().toSeq
       val regenerationHint = s"The file ($path) is out of date. " + {
         if (regenScript != null && regenScript.nonEmpty) {
           s" Please regenerate it by running `${regenScript.stripMargin}`. "
         } else ""
       }
-      val fileLineCount = fileLinesIter.length
+      val fileLineCount = fileLines.length
       withClue(s"Line number is not expected. $regenerationHint") {
-        assertResult(expectedLinesIter.size)(fileLineCount)(prettifier, pos)
+        assertResult(expectedLines.size)(fileLineCount)(prettifier, pos)
       }
-      fileLinesIter.zipWithIndex
-        .zip(expectedLinesIter)
+      fileLines.zipWithIndex
+        .zip(expectedLines)
         .foreach {
           case ((lineInFile, lineIndex), expectedLine) =>
             val lineNum = lineIndex + 1
