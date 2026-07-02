@@ -340,8 +340,9 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
 
   @Override
   public void notifyCheckpointComplete(long checkpointId) throws Exception {
-    // TODO: notify velox
-    task.notifyCheckpointComplete(checkpointId);
+    if (!(this instanceof GlutenStreamingFileWriterOperator)) {
+      task.notifyCheckpointComplete(checkpointId);
+    }
     super.notifyCheckpointComplete(checkpointId);
   }
 
