@@ -20,7 +20,7 @@ import org.apache.gluten.backendsapi.clickhouse.CHConfig
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.expression.{FlattenedAnd, FlattenedOr}
 
-import org.apache.spark.SparkConf
+import org.apache.spark.{SparkConf, SparkException}
 import org.apache.spark.sql.{DataFrame, GlutenTestUtils, Row}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
@@ -1069,6 +1069,69 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
       runQueryAndCompare(
         "select map_concat(map(1, 'a', 2, 'b'), map(3, null)), map_concat()"
       )(checkGlutenPlan[ProjectExecTransformer])
+    }
+  }
+
+  test("Test map_from_entries") {
+    withSQLConf(
+      SQLConf.OPTIMIZER_EXCLUDED_RULES.key ->
+        (ConstantFolding.ruleName + "," + NullPropagation.ruleName)) {
+      val query =
+        """
+          |select id, map_from_entries(entries) from (
+          |  select id,
+          |    case
+          |      when id = 0 then array(
+          |        named_struct('key', cast(1 as int), 'value', 'a'),
+          |        named_struct('key', cast(2 as int), 'value', cast(null as string)))
+          |      when id = 1 then cast(array() as array<struct<key:int,value:string>>)
+          |      when id = 2 then cast(null as array<struct<key:int,value:string>>)
+          |      else array(
+          |        cast(null as struct<key:int,value:string>),
+          |        named_struct('key', cast(4 as int), 'value', 'd'))
+          |    end as entries
+          |  from range(4)
+          |) order by id
+          |""".stripMargin
+      runQueryAndCompare(query)(checkGlutenPlan[ProjectExecTransformer])
+      runQueryAndCompare(
+        "select map_from_entries(cast(array() as array<struct<key:int,value:string>>)) " +
+          "from range(1)")(checkGlutenPlan[ProjectExecTransformer])
+
+      intercept[SparkException] {
+        sql(
+          """
+            |select map_from_entries(array(
+            |  named_struct('key', cast(null as int), 'value', 'a')))
+            |from range(1)
+            |""".stripMargin).collect()
+      }
+
+      intercept[SparkException] {
+        sql(
+          """
+            |select map_from_entries(array(
+            |  named_struct('key', cast(1 as int), 'value', 'a'),
+            |  named_struct('key', cast(1 as int), 'value', 'b')))
+            |from range(1)
+            |""".stripMargin).collect()
+      }
+    }
+  }
+
+  test("Test map_from_entries with LAST_WIN map key policy") {
+    withSQLConf(
+      SQLConf.OPTIMIZER_EXCLUDED_RULES.key ->
+        (ConstantFolding.ruleName + "," + NullPropagation.ruleName),
+      SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.LAST_WIN.toString
+    ) {
+      runQueryAndCompare(
+        """
+          |select map_from_entries(array(
+          |  named_struct('key', cast(1 as int), 'value', 'a'),
+          |  named_struct('key', cast(1 as int), 'value', 'b')))
+          |from range(1)
+          |""".stripMargin)(checkGlutenPlan[ProjectExecTransformer])
     }
   }
 

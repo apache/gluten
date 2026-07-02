@@ -192,7 +192,6 @@ object CHExpressionUtil {
     URL_DECODE -> DefaultValidator(),
     URL_ENCODE -> DefaultValidator(),
     FORMAT_STRING -> FormatStringValidator(),
-    SKEWNESS -> DefaultValidator(),
     MAKE_YM_INTERVAL -> DefaultValidator(),
     MAP_ZIP_WITH -> DefaultValidator(),
     KURTOSIS -> DefaultValidator(),

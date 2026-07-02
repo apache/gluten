@@ -157,9 +157,6 @@ install_centos_8() {
 
     pip3 install --upgrade pip
 
-    # Requires cmake >= 3.28.3
-    pip3 install cmake==3.28.3
-
     dnf -y --enablerepo=powertools install autoconf-archive ninja-build
 
     install_maven_from_source
@@ -175,8 +172,6 @@ install_centos_9() {
 
     pip3 install --upgrade pip
 
-    # Requires cmake >= 3.28.3
-    pip3 install cmake==3.28.3
 
     dnf -y --enablerepo=crb install autoconf-archive ninja-build
 

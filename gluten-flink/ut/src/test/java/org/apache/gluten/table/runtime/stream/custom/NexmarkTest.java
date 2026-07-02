@@ -71,7 +71,7 @@ public class NexmarkTest {
         }
       };
 
-  private static final int KAFKA_PORT = 9092;
+  private static final int KAFKA_PORT = 19092;
   private static String topicName = "nexmark";
 
   @RegisterExtension
@@ -83,7 +83,7 @@ public class NexmarkTest {
   private static final Map<String, String> KAFKA_VARIABLES =
       new HashMap<>() {
         {
-          put("BOOTSTRAP_SERVERS", "localhost:9092");
+          put("BOOTSTRAP_SERVERS", "localhost:" + KAFKA_PORT);
           put("NEXMARK_TABLE", "kafka");
         }
       };
@@ -282,6 +282,16 @@ public class NexmarkTest {
         for (Path entry : stream) {
           queryFiles.add(entry.getFileName().toString());
         }
+      }
+
+      String queryFilter = System.getProperty("nexmark.queries");
+      if (queryFilter != null && !queryFilter.trim().isEmpty()) {
+        List<String> selectedQueries =
+            Arrays.stream(queryFilter.split(","))
+                .map(String::trim)
+                .filter(query -> !query.isEmpty())
+                .collect(Collectors.toList());
+        queryFiles.retainAll(selectedQueries);
       }
 
       return queryFiles.stream().sorted().collect(Collectors.toList());

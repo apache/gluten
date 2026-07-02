@@ -220,7 +220,7 @@ public class StreamExecLocalWindowAggregate extends StreamExecWindowAggregateBas
             offset,
             windowType,
             outputType,
-            false,
+            windowing.isRowtime(),
             rowtimeIndex,
             -1,
             -1);

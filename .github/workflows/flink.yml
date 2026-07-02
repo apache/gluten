@@ -21,6 +21,8 @@ on:
       - '.github/workflows/flink.yml'
       - 'build/mvn'
       - 'gluten-flink/**'
+  schedule:
+    - cron: '0 18 * * *'
 
 env:
   MAVEN_OPTS: >-
@@ -36,6 +38,8 @@ env:
     --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
     --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED
+    --add-opens=java.base/sun.reflect.generics.repository=ALL-UNNAMED
   JAVA_TOOL_OPTIONS: >-
     --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED
     --add-opens=java.base/sun.nio.ch=org.apache.arrow.memory.core,ALL-UNNAMED
@@ -48,6 +52,8 @@ env:
     --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
     --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED
+    --add-opens=java.base/sun.reflect.generics.repository=ALL-UNNAMED
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
 
 jobs:
@@ -63,7 +69,7 @@ jobs:
           key: ccache-flink-centos8
           restore-keys: |
             ccache-flink-centos8
-      - name: Prepare
+      - name: Prepare and build velox4j
         run: |
           source /opt/rh/gcc-toolset-11/enable
           sudo dnf install -y patchelf ccache
@@ -82,25 +88,30 @@ jobs:
           export fmt_SOURCE=BUNDLED
           export folly_SOURCE=BUNDLED
           git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
-          cd velox4j && git reset --hard 97fc1edafebd0f505e613d260f77f92f5252d048
+          cd velox4j && git reset --hard 9811c337d5e37ab8d16d5bf0791b48836fcd2afd
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..
           ccache -s
-          git clone https://github.com/nexmark/nexmark.git
-          cd nexmark
-          $GITHUB_WORKSPACE/build/mvn clean install -DskipTests
       - name: Save ccache
         if: success()
         uses: actions/cache/save@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-flink-centos8
+      - name: Build nexmark
+        if: github.event_name != 'schedule'
+        run: |
+          git clone https://github.com/nexmark/nexmark.git
+          cd nexmark
+          $GITHUB_WORKSPACE/build/mvn clean install -DskipTests
       - name: Build Gluten Flink
+        if: github.event_name != 'schedule'
         run: |
           cd $GITHUB_WORKSPACE/gluten-flink
           $GITHUB_WORKSPACE/build/mvn clean package -Dmaven.test.skip=true
       - name: Run Unit Tests
+        if: github.event_name != 'schedule'
         run: |
           cd $GITHUB_WORKSPACE/gluten-flink
           $GITHUB_WORKSPACE/build/mvn test

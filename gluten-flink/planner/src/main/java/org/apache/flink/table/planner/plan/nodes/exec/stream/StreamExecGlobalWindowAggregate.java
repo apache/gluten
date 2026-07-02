@@ -259,7 +259,7 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
             offset,
             windowType,
             outputType,
-            true,
+            windowing.isRowtime(),
             rowtimeIndex,
             windowStartIndex,
             windowEndIndex);

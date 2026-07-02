@@ -114,12 +114,18 @@ function compile {
     -Wno-error=uninitialized -Wno-unknown-warning-option -Wno-deprecated-declarations'
   if [[ "$(uname)" == "Darwin" ]]; then
     CXX_FLAGS="$CXX_FLAGS -Wno-inconsistent-missing-override -Wno-macro-redefined"
+    if [[ "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
+      CXX_FLAGS="$CXX_FLAGS -isystem /usr/local/include"
+    fi
   fi
 
   COMPILE_OPTION="-DCMAKE_CXX_FLAGS=\"$CXX_FLAGS\" -DVELOX_ENABLE_PARQUET=ON -DVELOX_BUILD_TESTING=OFF \
       -DVELOX_MONO_LIBRARY=ON -DVELOX_BUILD_RUNNER=OFF -DVELOX_SIMDJSON_SKIPUTF8VALIDATION=ON \
       -DVELOX_ENABLE_GEO=OFF"
-  if [[ "$(uname)" == "Darwin" && "$INSTALL_PREFIX" != "/usr/local" && "$INSTALL_PREFIX" != /usr/local/* ]]; then
+  if [ -n "${INSTALL_PREFIX:-}" ]; then
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_PREFIX_PATH=${INSTALL_PREFIX} -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX}"
+  fi
+  if [[ "$(uname)" == "Darwin" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON"
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PREFIX_PATH=/usr/local"
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
@@ -213,6 +219,8 @@ if [ "$OS" == 'Darwin' ]; then
   if [[ "$INSTALL_PREFIX" == "/usr/local" || "$INSTALL_PREFIX" == /usr/local/* ]]; then
     echo "INFO: INSTALL_PREFIX=$INSTALL_PREFIX is under /usr/local; keeping /usr/local visible to CMake." >&2
   fi
+elif [ -n "${INSTALL_PREFIX:-}" ]; then
+  export INSTALL_PREFIX
 fi
 
 echo "Start building Velox..."

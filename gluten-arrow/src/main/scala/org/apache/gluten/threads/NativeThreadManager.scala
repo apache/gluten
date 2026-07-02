@@ -18,29 +18,29 @@ package org.apache.gluten.threads
 
 import org.apache.gluten.exception.GlutenException
 
-import org.apache.spark.task.{TaskResource, TaskResources}
-
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Scala wrapper around a native ThreadManager handle.
  *
- * Created once per Spark task and registered as a [[TaskResource]] so it is automatically released
- * when the task completes. The ThreadManager wraps a [[NativeThreadInitializer]] that propagates
- * task context to native worker threads spawned by folly executors.
+ * Created once per Spark task by [[org.apache.gluten.runtime.Runtime]]. The ThreadManager wraps a
+ * [[NativeThreadInitializer]] that propagates task context to native worker threads spawned by
+ * folly executors.
  */
 trait NativeThreadManager {
 
   /** @return opaque native handle passed to RuntimeJniWrapper#createRuntime. */
   def getHandle(): Long
+
+  /** Release the native ThreadManager handle. Called by Runtime during task completion. */
+  def release(): Unit
 }
 
 object NativeThreadManager {
   private class Impl(
       private val backendName: String,
       private val initializer: NativeThreadInitializer)
-    extends NativeThreadManager
-    with TaskResource {
+    extends NativeThreadManager {
     private val handle = NativeThreadManagerJniWrapper.create(backendName, initializer)
     private val released = new AtomicBoolean(false)
 
@@ -49,20 +49,15 @@ object NativeThreadManager {
     override def release(): Unit = {
       if (!released.compareAndSet(false, true)) {
         throw new GlutenException(
-          s"Thread manager instance already released: $handle, ${resourceName()}, ${priority()}")
+          s"Thread manager instance already released: $handle")
       }
       NativeThreadManagerJniWrapper.release(handle)
     }
-
-    // Release before MemoryManager (10) but after most other resources.
-    override def priority(): Int = 20
-
-    override def resourceName(): String = "ntm"
   }
 
   /**
-   * Create a new NativeThreadManager and register it with the current Spark task's
-   * [[TaskResources]] so it is automatically released when the task finishes.
+   * Create a new NativeThreadManager. The caller (typically Runtime) is responsible for calling
+   * `release()` when the manager is no longer needed.
    *
    * @param backendName
    *   the backend kind string (e.g., "velox").
@@ -70,6 +65,6 @@ object NativeThreadManager {
    *   callback invoked when native worker threads are created / destroyed.
    */
   def apply(backendName: String, initializer: NativeThreadInitializer): NativeThreadManager = {
-    TaskResources.addAnonymousResource(new Impl(backendName, initializer))
+    new Impl(backendName, initializer)
   }
 }

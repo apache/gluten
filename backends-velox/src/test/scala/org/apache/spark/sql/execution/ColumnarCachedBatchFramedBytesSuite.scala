@@ -469,4 +469,281 @@ class ColumnarCachedBatchFramedBytesSuite extends AnyFunSuite {
     assert(row.numFields == 5)
   }
 
+  // V3 framing tests
+
+  /** Build a minimal V3 framed byte array with one empty column. */
+  private def craftV3Framed(
+      statsBlob: Array[Byte],
+      numRows: Int,
+      numCols: Int,
+      colBytesLists: List[Array[Byte]]): Array[Byte] = {
+    val out = new java.io.ByteArrayOutputStream()
+    // V3 magic
+    out.write(Array[Byte](0xfe.toByte, 0xca.toByte, 0x53.toByte, 0x03.toByte))
+    writeU32LE(out, statsBlob.length)
+    out.write(statsBlob)
+    writeU32LE(out, numRows)
+    writeU32LE(out, numCols)
+    colBytesLists.foreach {
+      cb =>
+        writeU32LE(out, cb.length)
+        out.write(cb)
+    }
+    out.toByteArray
+  }
+
+  test("V3: parseFramedBytes routes magic 0x03 to parseV3Frame") {
+    val stats: InternalRow = new GenericInternalRow(Array[Any](1L, 10L, 0, 5, 100L))
+    val statsBlob = CachedColumnarBatchKryoSerializer.serializeStats(stats, null)
+    val colBytes = Array[Byte](0xab.toByte, 0xcd.toByte) // dummy column bytes
+    val framed = craftV3Framed(statsBlob, 5, 1, List(colBytes))
+
+    val (parsedStats, returnedBytes) =
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(framed, null)
+    // stats should be extracted correctly
+    assert(parsedStats != null)
+    // bytes = full V3 frame (C++ will parse from magic)
+    assert(
+      java.util.Arrays.equals(returnedBytes, framed),
+      "V3: returned bytes must equal full frame")
+  }
+
+  test("V3: statsLen=0 means lazy frame without partition stats") {
+    val colBytes = Array[Byte](0xab.toByte, 0xcd.toByte)
+    val framed = craftV3Framed(Array.emptyByteArray, 5, 1, List(colBytes))
+
+    val (parsedStats, returnedBytes) =
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(framed, StructType(Nil))
+
+    assert(parsedStats === null, "V3 no-stats frame should expose null stats to buildFilter")
+    assert(
+      java.util.Arrays.equals(returnedBytes, framed),
+      "V3 no-stats parser should return the full frame for native projected read")
+  }
+
+  test("V3: wrong magic version throws with clear message") {
+    val badMagic = Array[Byte](0xfe.toByte, 0xca.toByte, 0x53.toByte, 0x05.toByte) // unknown 0x05
+    // Need at least 12 bytes to pass the length guard.
+    val padded = badMagic ++ Array.fill(12)(0.toByte)
+    val ex = intercept[IllegalArgumentException] {
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(padded, null)
+    }
+    assert(
+      ex.getMessage.contains("0x05") || ex.getMessage.toLowerCase(Locale.ROOT).contains("magic"),
+      s"expected version/magic info in message, got: ${ex.getMessage}"
+    )
+  }
+
+  test("V3: malformed magic prefix is rejected before stats parsing") {
+    val statsBlob = CachedColumnarBatchKryoSerializer.serializeStats(
+      new GenericInternalRow(Array.empty[Any]),
+      StructType(Nil))
+    val framed = {
+      val out = new java.io.ByteArrayOutputStream()
+      out.write(Array[Byte](0x00.toByte, 0xca.toByte, 0x53.toByte, 0x03.toByte))
+      writeU32LE(out, statsBlob.length)
+      out.write(statsBlob)
+      writeU32LE(out, 0)
+      writeU32LE(out, 0)
+      out.toByteArray
+    }
+
+    val ex = intercept[IllegalArgumentException] {
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(framed, StructType(Nil))
+    }
+    assert(
+      ex.getMessage.toLowerCase(Locale.ROOT).contains("magic"),
+      s"expected full magic validation, got: ${ex.getMessage}")
+  }
+
+  // Cross-language V3 golden paired with the cpp golden in
+  // cpp/velox/tests/VeloxColumnarBatchSerializerTest.cc
+  //   TEST_F(VeloxColumnarBatchSerializerTest, framedSerializeWithStatsV3EmptyGolden)
+  // Empty 0-row / 0-col input has no Velox per-column payload, so the byte literal
+  // pins the V3 magic + statsLen + statsBlob + numRows + numCols frame contract without
+  // PrestoSerde payload drift.
+  private val kGoldenFrameV3Empty: Array[Byte] = Array[Int](
+    0xfe, 0xca, 0x53, 0x03,
+    0x04, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00
+  ).map(_.toByte)
+
+  test("V3: cpp golden empty frame parses on JVM") {
+    val (parsedStats, returnedBytes) =
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(kGoldenFrameV3Empty, StructType(Nil))
+    assert(parsedStats !== null)
+    assert(parsedStats.numFields === 0)
+    assert(java.util.Arrays.equals(returnedBytes, kGoldenFrameV3Empty))
+  }
+
+  // Cross-language V3 no-stats golden paired with the cpp golden:
+  //   TEST_F(VeloxColumnarBatchSerializerTest, framedSerializeV3NoStatsEmptyGolden)
+  private val kGoldenFrameV3NoStatsEmpty: Array[Byte] = Array[Int](
+    0xfe, 0xca, 0x53, 0x03,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00
+  ).map(_.toByte)
+
+  test("V3: cpp no-stats empty frame parses on JVM") {
+    val (parsedStats, returnedBytes) =
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(
+        kGoldenFrameV3NoStatsEmpty,
+        StructType(Nil))
+    assert(parsedStats === null)
+    assert(java.util.Arrays.equals(returnedBytes, kGoldenFrameV3NoStatsEmpty))
+  }
+
+  // Cross-language V3 non-empty no-stats frame fixture paired with the cpp literal in
+  //   TEST_F(VeloxColumnarBatchSerializerTest,
+  //     deserializeV3ZeroProjectionNonEmptyNoStatsFrameFixture)
+  //
+  // The column payload bytes are intentionally tiny dummy payloads. The purpose of this
+  // fixture is to pin the V3 frame-level contract for non-empty batches:
+  //   [magic][statsLen=0][numRows=5][numCols=3][colLen+colBytes]*
+  private val kFrameFixtureV3NoStatsNonEmpty: Array[Byte] = Array[Int](
+    0xfe, 0xca, 0x53, 0x03,
+    0x00, 0x00, 0x00, 0x00,
+    0x05, 0x00, 0x00, 0x00,
+    0x03, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00,
+    0xaa,
+    0x02, 0x00, 0x00, 0x00,
+    0xbb, 0xcc,
+    0x03, 0x00, 0x00, 0x00,
+    0xdd, 0xee, 0xff
+  ).map(_.toByte)
+
+  test("V3: cpp no-stats non-empty frame fixture parses on JVM") {
+    val schema = StructType(
+      Seq(
+        StructField("a", IntegerType),
+        StructField("b", LongType),
+        StructField("c", StringType)))
+    val (parsedStats, returnedBytes) =
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(
+        kFrameFixtureV3NoStatsNonEmpty,
+        schema)
+    assert(parsedStats === null)
+    assert(java.util.Arrays.equals(returnedBytes, kFrameFixtureV3NoStatsNonEmpty))
+  }
+
+  // Cross-language V3 non-empty with-stats frame fixture paired with the cpp literal in
+  //   TEST_F(VeloxColumnarBatchSerializerTest,
+  //     deserializeV3ZeroProjectionNonEmptyWithStatsFrameFixture)
+  //
+  // statsBlob = [numCols=3] + 3 unsupported column records. This keeps the stats parser
+  // deterministic while still pinning non-empty V3 statsLen + per-column layout.
+  private val kFrameFixtureV3WithStatsNonEmpty: Array[Byte] = Array[Int](
+    0xfe, 0xca, 0x53, 0x03,
+    0x37, 0x00, 0x00, 0x00,
+    0x03, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    0x05, 0x00, 0x00, 0x00,
+    0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x01, 0x00, 0x00, 0x00,
+    0x05, 0x00, 0x00, 0x00,
+    0x16, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x02, 0x00, 0x00, 0x00,
+    0x05, 0x00, 0x00, 0x00,
+    0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x05, 0x00, 0x00, 0x00,
+    0x03, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00,
+    0xaa,
+    0x02, 0x00, 0x00, 0x00,
+    0xbb, 0xcc,
+    0x03, 0x00, 0x00, 0x00,
+    0xdd, 0xee, 0xff
+  ).map(_.toByte)
+
+  test("V3: cpp with-stats non-empty frame fixture parses on JVM") {
+    val schema = StructType(
+      Seq(
+        StructField("a", IntegerType),
+        StructField("b", LongType),
+        StructField("c", StringType)))
+    val (parsedStats, returnedBytes) =
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(
+        kFrameFixtureV3WithStatsNonEmpty,
+        schema)
+    assert(parsedStats !== null)
+    assert(parsedStats.numFields === 15)
+    assert(parsedStats.isNullAt(0))
+    assert(parsedStats.isNullAt(1))
+    assert(parsedStats.getInt(2) === 0)
+    assert(parsedStats.getInt(3) === 5)
+    assert(parsedStats.getLong(4) === 11L)
+    assert(parsedStats.getInt(7) === 1)
+    assert(parsedStats.getLong(9) === 22L)
+    assert(parsedStats.getInt(12) === 2)
+    assert(parsedStats.getLong(14) === 33L)
+    assert(java.util.Arrays.equals(returnedBytes, kFrameFixtureV3WithStatsNonEmpty))
+  }
+
+  test("V3: too-short frame (< 12 bytes) rejected by dispatcher") {
+    val shortV3 = Array[Byte](0xfe.toByte, 0xca.toByte, 0x53.toByte, 0x03.toByte, 0, 0)
+    intercept[IllegalArgumentException] {
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(shortV3, null)
+    }
+  }
+
+  test("V3: frame with truncated colLen claim is rejected at JVM layer") {
+    val stats: InternalRow = new GenericInternalRow(Array[Any](1L, 10L, 0, 5, 100L))
+    val statsBlob = CachedColumnarBatchKryoSerializer.serializeStats(stats, null)
+    val out = new java.io.ByteArrayOutputStream()
+    out.write(Array[Byte](0xfe.toByte, 0xca.toByte, 0x53.toByte, 0x03.toByte))
+    writeU32LE(out, statsBlob.length)
+    out.write(statsBlob)
+    writeU32LE(out, 5)
+    writeU32LE(out, 1)
+    writeU32LE(out, 3)
+    out.write(Array[Byte](0xab.toByte, 0xcd.toByte))
+
+    val ex = intercept[IllegalArgumentException] {
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(out.toByteArray, null)
+    }
+    assert(
+      ex.getMessage.contains("colBytes truncated"),
+      s"expected truncated-column message, got: ${ex.getMessage}")
+  }
+
+  test("V3: trailing bytes after column payloads are rejected at JVM layer") {
+    val framed =
+      craftV3Framed(Array.emptyByteArray, 5, 1, List(Array[Byte](0xab.toByte))) :+ 0x42.toByte
+
+    val ex = intercept[IllegalArgumentException] {
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(framed, StructType(Nil))
+    }
+    assert(
+      ex.getMessage.contains("trailing"),
+      s"expected trailing-bytes message, got: ${ex.getMessage}")
+  }
+
+  test("V3: parseFramedBytes rejects statsBlob/frame column-count mismatch") {
+    // statsBlob describes 2 columns, but the frame header declares numCols=1: the embedded stats
+    // would mis-align against the actual columns. parseV3Frame must fail fast.
+    val twoColStats: InternalRow =
+      new GenericInternalRow(Array[Any](1L, 10L, 0, 5, 100L, 2L, 20L, 0, 5, 200L))
+    val statsBlob = CachedColumnarBatchKryoSerializer.serializeStats(twoColStats, null)
+    val framed = craftV3Framed(statsBlob, 5, 1, List(Array[Byte](0xab.toByte)))
+    val ex = intercept[IllegalArgumentException] {
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(framed, null)
+    }
+    assert(
+      ex.getMessage.contains("column-count mismatch"),
+      s"expected stats/frame column-count mismatch message, got: ${ex.getMessage}")
+  }
+
+  test("V3 + V2: V2 frames still parsed correctly after V3 magic added") {
+    val stats: InternalRow = new GenericInternalRow(Array[Any](5L, 50L, 0, 10, 200L))
+    val payload = Array[Byte](10, 20, 30)
+    val v2Framed = craftFramed(stats, payload) // V2 magic 0x02
+    val (parsedStats, bytesBlob) =
+      CachedColumnarBatchKryoSerializer.parseFramedBytes(v2Framed, null)
+    assert(parsedStats != null)
+    assert(java.util.Arrays.equals(bytesBlob, payload), "V2 bytesBlob must be pure Presto bytes")
+  }
 }

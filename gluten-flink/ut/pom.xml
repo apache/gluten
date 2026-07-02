@@ -39,6 +39,8 @@
             --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
             --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
             --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+            --add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED
+            --add-opens=java.base/sun.reflect.generics.repository=ALL-UNNAMED
             --add-opens=java.base/sun.nio.ch=ALL-UNNAMED</extraJavaTestArgs>
   </properties>
 
@@ -51,6 +53,11 @@
     <dependency>
       <groupId>org.apache.gluten</groupId>
       <artifactId>gluten-flink-runtime</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.gluten</groupId>
+      <artifactId>gluten-flink-planner</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
@@ -95,12 +102,6 @@
       <groupId>org.apache.flink</groupId>
       <artifactId>flink-clients</artifactId>
       <version>${flink.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>com.github.nexmark</groupId>
-      <artifactId>nexmark-flink</artifactId>
-      <version>0.3-SNAPSHOT</version>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>io.github.zhztheplayer</groupId>
@@ -225,4 +226,24 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <profile>
+      <id>nexmark-tests</id>
+      <activation>
+        <property>
+          <name>maven.test.skip</name>
+          <value>!true</value>
+        </property>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>com.github.nexmark</groupId>
+          <artifactId>nexmark-flink</artifactId>
+          <version>0.3-SNAPSHOT</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
 </project>

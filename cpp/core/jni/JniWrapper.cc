@@ -72,6 +72,17 @@ jmethodID shuffleReaderMetricsSetDeserializeTime;
 jclass shuffleStreamReaderClass;
 jmethodID shuffleStreamReaderNextStream;
 
+jbyteArray toJByteArray(JNIEnv* env, const std::vector<uint8_t>& bytes, const std::string& context) {
+  GLUTEN_CHECK(
+      bytes.size() <= static_cast<size_t>(std::numeric_limits<jsize>::max()),
+      context + " size exceeds Java byte[] limit: " + std::to_string(bytes.size()));
+  jbyteArray out = env->NewByteArray(static_cast<jsize>(bytes.size()));
+  if (!bytes.empty()) {
+    env->SetByteArrayRegion(out, 0, static_cast<jsize>(bytes.size()), reinterpret_cast<const jbyte*>(bytes.data()));
+  }
+  return out;
+}
+
 class JavaInputStreamAdaptor final : public arrow::io::InputStream {
  public:
   JavaInputStreamAdaptor(JNIEnv* env, arrow::MemoryPool* pool, jobject jniIn) : pool_(pool) {
@@ -1408,19 +1419,42 @@ Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_serializeWit
   auto serializer = ctx->createColumnarBatchSerializer(nullptr);
   std::vector<uint8_t> framed = serializer->framedSerializeWithStats(batch);
 
-  // Outer-layer size defense (inner layer = bytesLen <= UINT32_MAX in
-  // framedSerializeWithStats). jsize is signed int32; > INT32_MAX wraps
-  // negative -> NewByteArray would throw NegativeArraySizeException.
-  // Fail fast here so JNI_METHOD_END surfaces it as GlutenException.
-  GLUTEN_CHECK(
-      framed.size() <= static_cast<size_t>(std::numeric_limits<jsize>::max()),
-      "serializeWithStats: framed payload (" + std::to_string(framed.size()) + " bytes) exceeds Java byte[] limit (" +
-          std::to_string(std::numeric_limits<jsize>::max()) + ")");
-  jbyteArray out = env->NewByteArray(static_cast<jsize>(framed.size()));
-  if (!framed.empty()) {
-    env->SetByteArrayRegion(out, 0, static_cast<jsize>(framed.size()), reinterpret_cast<jbyte*>(framed.data()));
+  return toJByteArray(env, framed, "serializeWithStats framed payload");
+  JNI_METHOD_END(nullptr)
+}
+
+JNIEXPORT jbyteArray JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_serializeV3( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong handle) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto batch = ObjectStore::retrieve<ColumnarBatch>(handle);
+  GLUTEN_DCHECK(batch != nullptr, "Cannot find the ColumnarBatch with handle " + std::to_string(handle));
+  auto serializer = ctx->createColumnarBatchSerializer(nullptr);
+  std::vector<uint8_t> framed = serializer->framedSerializeV3(batch);
+  if (framed.empty()) {
+    return nullptr; // Non-Velox backend; caller treats null as "V3 not supported".
   }
-  return out;
+  return toJByteArray(env, framed, "serializeV3 framed payload");
+  JNI_METHOD_END(nullptr)
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_serializeWithStatsV3( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong handle) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto batch = ObjectStore::retrieve<ColumnarBatch>(handle);
+  GLUTEN_DCHECK(batch != nullptr, "Cannot find the ColumnarBatch with handle " + std::to_string(handle));
+  auto serializer = ctx->createColumnarBatchSerializer(nullptr);
+  std::vector<uint8_t> framed = serializer->framedSerializeWithStatsV3(batch);
+  if (framed.empty()) {
+    return nullptr; // Non-Velox backend; caller treats null as "V3 not supported".
+  }
+  return toJByteArray(env, framed, "serializeWithStatsV3 framed payload");
   JNI_METHOD_END(nullptr)
 }
 
@@ -1474,6 +1508,38 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchSerializer
   JNI_METHOD_START
   ObjectStore::release(serializerHandle);
   JNI_METHOD_END()
+}
+
+JNIEXPORT jlong JNICALL
+Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_deserializeWithProjection( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong serializerHandle,
+    jbyteArray data,
+    jintArray requestedCols) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto serializer = ObjectStore::retrieve<ColumnarBatchSerializer>(serializerHandle);
+  GLUTEN_DCHECK(serializer != nullptr, "ColumnarBatchSerializer cannot be null");
+  int32_t size = env->GetArrayLength(data);
+  auto safeData = getByteArrayElementsSafe(env, data);
+  // null requestedCols → all columns (nullopt); non-null (including int[0]) → selection.
+  std::optional<std::vector<int32_t>> requestedOpt;
+  if (requestedCols != nullptr) {
+    jsize nCols = env->GetArrayLength(requestedCols);
+    if (nCols == 0) {
+      // Empty selection (e.g. count(*) zero-column projection). GetIntArrayElements
+      // may return a null pointer for an empty jintArray, so avoid pointer arithmetic
+      // (nullptr + 0 is UB) and construct an empty selection directly.
+      requestedOpt.emplace();
+    } else {
+      auto safeCols = getIntArrayElementsSafe(env, requestedCols);
+      requestedOpt = std::vector<int32_t>(safeCols.elems(), safeCols.elems() + nCols);
+    }
+  }
+  auto batch = serializer->deserializeV3(safeData.elems(), size, requestedOpt);
+  return ctx->saveObject(batch);
+  JNI_METHOD_END(kInvalidObjectHandle)
 }
 
 #ifdef __cplusplus

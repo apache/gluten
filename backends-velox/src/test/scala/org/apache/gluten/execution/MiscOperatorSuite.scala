@@ -2257,16 +2257,17 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     val ex = intercept[IllegalArgumentException] {
       GlutenShuffleUtils.getCompressionCodec(conf)
     }
-    assert(ex.getMessage.contains("snappy is not supported"))
+    assert(ex.getMessage.contains("does not support codec 'snappy'"))
+    assert(ex.getMessage.contains("spark.shuffle.compress=false"))
     assert(ex.getMessage.contains(GlutenConfig.COLUMNAR_SHUFFLE_CODEC.key))
   }
 
-  test("GLUTEN-11539: spark.io.compression.codec=none throws with actionable message") {
+  test("GLUTEN-11539: spark.io.compression.codec=none throws pointing to spark.shuffle.compress") {
     val conf = spark.sparkContext.getConf.clone().set("spark.io.compression.codec", "none")
     val ex = intercept[IllegalArgumentException] {
       GlutenShuffleUtils.getCompressionCodec(conf)
     }
-    assert(ex.getMessage.contains("none is not supported"))
+    assert(ex.getMessage.contains("spark.shuffle.compress=false"))
     assert(ex.getMessage.contains(GlutenConfig.COLUMNAR_SHUFFLE_CODEC.key))
   }
 

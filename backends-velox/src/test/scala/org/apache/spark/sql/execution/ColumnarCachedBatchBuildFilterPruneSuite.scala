@@ -99,6 +99,56 @@ class ColumnarCachedBatchBuildFilterPruneSuite extends AnyFunSuite {
       "order: stats=null pass-through first, then stats-covers-literal kept")
   }
 
+  // Regression: a batch whose stats row is non-null but carries a NULL lower/upper bound for a
+  // predicate-referenced column must NOT be pruned. Such per-batch null bounds arise from
+  // data-dependent writer demotions invisible to the schema-level stripUnsupportedConjuncts:
+  // a binary-collation VARCHAR whose 256B upper-bound prefix is all 0xFF (carry overflow), or a
+  // dictionary-encoded numeric on the V2 fallback path. Without the per-batch bypass, vanilla
+  // buildFilter evaluates `null <= 999 && 999 <= null` -> null -> coerced false -> the batch is
+  // silently dropped (data loss).
+  test("null lower/upper bound on referenced column bypasses pruning (batch kept)") {
+    val serializer = new ColumnarCachedBatchSerializer
+    val attr = AttributeReference("id", LongType, nullable = false)()
+    val predicate = EqualTo(attr, Literal(999L))
+    val filter = serializer.buildFilter(Seq(predicate), Seq(attr))
+
+    val nullBoundStats = new GenericInternalRow(Array[Any](null, null, 0, 10, 80L))
+    val batch = CachedColumnarBatch(
+      numRows = 10,
+      sizeInBytes = 80L,
+      bytes = Array.fill[Byte](40)(0),
+      stats = nullBoundStats)
+
+    val result = filter(0, Iterator[CachedBatch](batch)).toList
+    assert(
+      result.length === 1,
+      "null-bound referenced column must bypass pruning -> batch kept (no silent data loss)")
+    assert(result.head.numRows === 10)
+  }
+
+  // The bypass must split a contiguous run correctly: a finite-bound batch that the predicate
+  // excludes is still pruned, a null-bound batch in the middle is passed through, and a finite
+  // covering batch after it is still kept -- no batch double-emitted or skipped.
+  test("null-bound bypass splits a contiguous run: pruned dropped, null-bound + covering kept") {
+    val serializer = new ColumnarCachedBatchSerializer
+    val attr = AttributeReference("id", LongType, nullable = false)()
+    val predicate = EqualTo(attr, Literal(999L))
+    val filter = serializer.buildFilter(Seq(predicate), Seq(attr))
+
+    val prunable = batchWithStats(5, 0L, 100L) // finite, excludes 999 -> pruned
+    val nullBound = CachedColumnarBatch(
+      numRows = 7,
+      sizeInBytes = 56L,
+      bytes = Array.fill[Byte](28)(0),
+      stats = new GenericInternalRow(Array[Any](null, null, 0, 7, 56L)))
+    val covering = batchWithStats(9, 900L, 1000L) // finite, covers 999 -> kept
+
+    val result = filter(0, Iterator[CachedBatch](prunable, nullBound, covering)).toList
+    assert(
+      result.map(_.numRows) === Seq(7, 9),
+      "prunable dropped; null-bound bypassed (kept); covering kept -- run split correctly")
+  }
+
   // ---------------------------------------------------------------------------
   // W1-W8 -- non-binary collation StringType wrapper behavior.
   // The wrapper strips AND-conjuncts referencing non-binary collation StringType

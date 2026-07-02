@@ -141,7 +141,7 @@ class NexmarkSourceFactoryTest {
             long.class,
             long.class);
     Object generatorConfig =
-        generatorConfigCtor.newInstance(nexmarkConfig, 0L, 0L, maxEvents, maxEvents, 0L);
+        generatorConfigCtor.newInstance(nexmarkConfig, 0L, 0L, maxEvents, 0L, 0L);
 
     Class<?> nexmarkSourceCls = Class.forName(NEXMARK_SOURCE_CN);
     Constructor<?> nexmarkSourceCtor =

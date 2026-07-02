@@ -259,6 +259,9 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
           }
         },
         () -> {
+          GlutenTaskSessionContext.unregisterSessionResource(getId());
+        },
+        () -> {
           if (sessionResource != null) {
             sessionResource.close();
           }
@@ -324,7 +327,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
     }
 
     sessionResource = new GlutenSessionResource();
-    GlutenSessionResources.getInstance().addSessionResource(getId(), sessionResource);
+    GlutenTaskSessionContext.addSessionResource(getId(), sessionResource);
     leftInputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
     rightInputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
 
