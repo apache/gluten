@@ -1,0 +1,20 @@
+gluten-flink/runtime/src/main/java/org/apache/gluten/client/OffloadedJobGraphGenerator.java
+  s_f7a7322ed23655::t_1c2b831ce180cc 246-247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "133afa0e6a6dc2210a419579f931e1d7e8210ac9",
+  "prompts": {},
+  "logical_commit_id": "133afa0e6a6dc2210a419579f931e1d7e8210ac9",
+  "sessions": {
+    "s_f7a7322ed23655": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0de89e0d9ffejJuamxqtHGXw8b",
+        "model": "gpt-5.5"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
