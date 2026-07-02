@@ -413,16 +413,26 @@ if(DEFINED VCPKG_INSTALLED_DIR
     PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
             ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
 else()
-  message(STATUS "Using system thrift libraries from /usr/local/lib")
+  set(THRIFT_LIBRARY_DIRS)
+  if(CMAKE_INSTALL_PREFIX)
+    list(APPEND THRIFT_LIBRARY_DIRS "${CMAKE_INSTALL_PREFIX}/lib")
+  endif()
+  foreach(PREFIX_PATH IN LISTS CMAKE_PREFIX_PATH)
+    list(APPEND THRIFT_LIBRARY_DIRS "${PREFIX_PATH}/lib" "${PREFIX_PATH}")
+  endforeach()
+  list(APPEND THRIFT_LIBRARY_DIRS /usr/local/lib)
+  list(REMOVE_DUPLICATES THRIFT_LIBRARY_DIRS)
+
+  message(STATUS "Searching thrift libraries in ${THRIFT_LIBRARY_DIRS}")
   find_library(
     THRIFTCPP2_LIB
     NAMES thriftcpp2
-    PATHS /usr/local/lib
+    PATHS ${THRIFT_LIBRARY_DIRS}
     NO_DEFAULT_PATH)
   find_library(
     THRIFTPROTOCOL_LIB
     NAMES thriftprotocol
-    PATHS /usr/local/lib
+    PATHS ${THRIFT_LIBRARY_DIRS}
     NO_DEFAULT_PATH)
 
   if(THRIFTCPP2_LIB AND THRIFTPROTOCOL_LIB)
