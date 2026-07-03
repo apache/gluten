@@ -50,6 +50,17 @@ This script has three modes:
     sorted, ready-to-commit ``known-failures.txt`` and report stale baseline
     entries (tests no longer present in any shard).
 
+Flaky quarantine (``--flaky-tests``)
+    Some Delta-on-Gluten failures are non-deterministic (e.g. a native bug that
+    only triggers on certain runtime plans), so they are neither a stable pass
+    nor a stable failure and cannot live in the baseline: baselining them turns
+    the gate red on every run where they pass, and leaving them out turns it red
+    on every run where they fail. ``flaky-tests.txt`` quarantines them -- a
+    quarantined test never counts as a regression (when it fails) nor as
+    now-passing (when it passes), and is excluded from the regenerated baseline.
+    Its SUITE is an fnmatch glob (so one line covers a root-cause family across
+    generated suite variants); its TEST name is matched exactly.
+
 Baseline file format (``known-failures.txt``)::
 
     # comment lines start with '#'
@@ -65,6 +76,7 @@ centos image used by the Delta UT pipeline with no ``pip install``.
 """
 
 import argparse
+import fnmatch
 import glob
 import os
 import sys
@@ -118,6 +130,36 @@ def load_entries(path):
             if parsed is not None:
                 entries.add(parsed)
     return entries
+
+
+def make_is_flaky(flaky_entries):
+    """Build a predicate that matches a (suite, test) tuple against flaky entries.
+
+    A flaky entry quarantines a test whose failure is known to be non-deterministic
+    (see flaky-tests.txt). The entry's SUITE is treated as an fnmatch glob so a
+    single line can cover a root-cause family across generated suite variants
+    (e.g. ``*DVs*Suite`` matches every deletion-vector merge suite, ``*`` matches
+    any suite); the TEST name is matched exactly (test names are freeform and may
+    contain glob metacharacters, so they are never globbed).
+    """
+    exact = set()
+    globbed = []
+    for suite, test in flaky_entries:
+        if any(ch in suite for ch in "*?["):
+            globbed.append((suite, test))
+        else:
+            exact.add((suite, test))
+
+    def is_flaky(entry):
+        if entry in exact:
+            return True
+        suite, test = entry
+        for glob_suite, glob_test in globbed:
+            if test == glob_test and fnmatch.fnmatchcase(suite, glob_suite):
+                return True
+        return False
+
+    return is_flaky
 
 
 def write_entries(path, entries, header=None):
@@ -284,6 +326,7 @@ def run_enforce(args):
         )
         return 2
     baseline = load_entries(args.known_failures)
+    flaky_is = make_is_flaky(load_entries(args.flaky_tests))
     try:
         passed, failed, skipped = parse_reports(args.reports_dir)
     except NoReportsError as exc:
@@ -330,8 +373,13 @@ def run_enforce(args):
             )
             return 0
 
-        regressions = failed - baseline
-        fixed = baseline & passed
+        regressions = {e for e in (failed - baseline) if not flaky_is(e)}
+        quarantined = {e for e in (failed - baseline) if flaky_is(e)}
+        # `- flaky` on fixed is defensive: flaky tests are excluded from the
+        # regenerated baseline (aggregate mode), so a flaky test should never be in
+        # `baseline` in the first place -- but if one slips in, don't let its
+        # non-deterministic pass trip the now-passing gate.
+        fixed = {e for e in (baseline & passed) if not flaky_is(e)}
         expected = failed & baseline
 
         write("")
@@ -340,6 +388,7 @@ def run_enforce(args):
         write("| Expected failures (in baseline) | {} |".format(len(expected)))
         write("| **Regressions (new failures)** | {} |".format(len(regressions)))
         write("| Now-passing (remove from baseline) | {} |".format(len(fixed)))
+        write("| Quarantined flaky failures (ignored) | {} |".format(len(quarantined)))
 
         _print_block(
             write, "Regressions -- new failures NOT in the baseline", regressions
@@ -351,6 +400,12 @@ def run_enforce(args):
                 "the regression, or (if it is a genuinely new expected "
                 "failure) add the lines above to `known-failures.txt`."
             )
+
+        _print_block(
+            write,
+            "Quarantined flaky failures -- ignored (see flaky-tests.txt)",
+            quarantined,
+        )
 
         if args.fail_on_fixed:
             _print_block(
@@ -407,6 +462,13 @@ def run_aggregate(args):
     for f in ran_files:
         union_ran |= load_entries(f)
 
+    flaky_is = make_is_flaky(load_entries(args.flaky_tests))
+    # Exclude quarantined flaky tests from the regenerated baseline: a flaky test
+    # that happened to fail this run must never be baked into known-failures.txt
+    # (otherwise it would trip the now-passing gate on the next run where it
+    # passes). Flaky failures are tracked in flaky-tests.txt, not the baseline.
+    baseline_body = {e for e in union_failed if not flaky_is(e)}
+
     header = (
         "# Known Delta-on-Gluten unit test failures.\n"
         "#\n"
@@ -418,7 +480,7 @@ def run_aggregate(args):
         "# update_baseline=true and committing the produced artifact.\n"
     )
     if args.baseline_out:
-        write_entries(args.baseline_out, union_failed, header=header)
+        write_entries(args.baseline_out, baseline_body, header=header)
 
     write, handle = _summary_sink()
     try:
@@ -434,15 +496,30 @@ def run_aggregate(args):
         if args.known_failures and os.path.exists(args.known_failures):
             baseline = load_entries(args.known_failures)
             if baseline:
-                regressions = union_failed - baseline
-                fixed = baseline & (union_ran - union_failed)
+                regressions = {e for e in (union_failed - baseline) if not flaky_is(e)}
+                quarantined = {e for e in (union_failed - baseline) if flaky_is(e)}
+                fixed = {
+                    e
+                    for e in (baseline & (union_ran - union_failed))
+                    if not flaky_is(e)
+                }
                 stale = baseline - union_ran
                 write("| Baseline entries | {} |".format(len(baseline)))
                 write("| Regressions (global) | {} |".format(len(regressions)))
                 write("| Now-passing (global) | {} |".format(len(fixed)))
+                write(
+                    "| Quarantined flaky failures (ignored) | {} |".format(
+                        len(quarantined)
+                    )
+                )
                 write("| Stale (not seen this run) | {} |".format(len(stale)))
                 _print_block(write, "Regressions (global)", regressions)
                 _print_block(write, "Now-passing (global)", fixed)
+                _print_block(
+                    write,
+                    "Quarantined flaky failures -- ignored (see flaky-tests.txt)",
+                    quarantined,
+                )
                 _print_block(write, "Stale baseline entries (suite/test gone)", stale)
                 if args.fail_on_regression and regressions:
                     exit_code = 1
@@ -468,6 +545,13 @@ def main(argv=None):
     )
     parser.add_argument(
         "--known-failures", help="Path to the committed known-failures.txt baseline."
+    )
+    parser.add_argument(
+        "--flaky-tests",
+        help="Path to flaky-tests.txt: tests quarantined as non-deterministic. A "
+        "flaky test is neither counted as a regression when it fails nor as "
+        "now-passing when it passes, and is excluded from the regenerated baseline "
+        "(aggregate mode). Optional; omitting it disables quarantining.",
     )
     parser.add_argument(
         "--reports-dir", help="Root dir to search for JUnit XML (enforce/seed)."

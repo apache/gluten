@@ -1,0 +1,32 @@
+# Quarantined flaky Delta-on-Gluten tests.
+#
+# These tests fail NON-DETERMINISTICALLY under the Gluten Velox bundle: the same
+# byte-for-byte bundle passes them on one CI run and fails them on the next. They
+# therefore cannot live in known-failures.txt -- baselining them turns the gate
+# red on every run where they PASS (fail-on-fixed), while leaving them out turns
+# it red on every run where they FAIL. The Delta Spark UT (Gluten) gate treats a
+# quarantined test as NEUTRAL: it never counts as a regression when it fails, nor
+# as now-passing when it passes, and it is excluded from the regenerated baseline.
+#
+# Format: <suite-glob>#<exact test name>. The SUITE part is an fnmatch glob so a
+# single line covers a root-cause family across generated suite variants (e.g.
+# `*DVs*Suite` = every deletion-vector merge suite); the TEST name is matched
+# exactly. Lines starting with '#' are comments.
+#
+# Prefer fixing the underlying bug and REMOVING the entry over growing this list.
+# Every entry should reference a tracking issue for the root cause.
+#
+# ---------------------------------------------------------------------------
+# Root cause: native Delta DV bitmap aggregator aborts on an invalid Long.MAX_VALUE
+# (9223372036854775807 > kMaxRepresentableValue) row index during MERGE that writes
+# deletion vectors -- RoaringBitmapArray.cpp addSafe, INVALID_STATE VeloxRuntimeError.
+# Intermittent (depends on runtime plan/scan/scheduling), so it hits a different
+# `*DVs*Suite` MERGE test on each run. Tracked upstream (DV bitmap Long.MAX_VALUE).
+# Remove these once the row-index materialization is fixed in the native backend.
+# ---------------------------------------------------------------------------
+*DVs*Suite#basic case - merge to Delta table by path, isPartitioned: true
+*DVs*Suite#extended syntax - conditional update + conditional delete + conditional insert - isPartitioned: true
+*DVs*Suite#extended syntax - update + conditional insert - isPartitioned: true
+*DVs*Suite#matched only merge - disabled - with update and delete - isPartitioned: true
+*DVs*Suite#matched only merge - enabled - with update and delete - isPartitioned: true
+*DVs*Suite#single file, isPartitioned: true

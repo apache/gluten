@@ -590,6 +590,7 @@ jobs:
             --mode "${GATE_MODE}" \
             --reports-dir "$GITHUB_WORKSPACE/delta" \
             --known-failures "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/known-failures.txt" \
+            --flaky-tests "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/flaky-tests.txt" \
             --failures-out "$GITHUB_WORKSPACE/gate-out/failures-shard-${{ matrix.shard }}.txt" \
             --ran-out "$GITHUB_WORKSPACE/gate-out/ran-shard-${{ matrix.shard }}.txt" \
             --fail-on-fixed "${{ steps.resolve.outputs.fail_on_fixed }}"
@@ -673,6 +674,7 @@ jobs:
             --mode aggregate \
             --inputs-dir gate-lists \
             --known-failures .github/workflows/util/delta-spark-ut/known-failures.txt \
+            --flaky-tests .github/workflows/util/delta-spark-ut/flaky-tests.txt \
             --baseline-out aggregated/known-failures.txt
       - name: Upload refreshed baseline
         if: always()

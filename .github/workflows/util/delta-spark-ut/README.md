@@ -33,6 +33,7 @@ starts failing** (a regression).
 | File | Purpose |
 |---|---|
 | `known-failures.txt` | Committed baseline: the tests currently expected to fail. One `<suite>#<test>` per line. |
+| `flaky-tests.txt` | Quarantine list: tests whose pass/fail is non-deterministic. Ignored by the gate whether they pass or fail. `<suite-glob>#<test>` per line. |
 | `compare-test-results.py` | Parses the JUnit XML from `sbt spark/test` and gates / seeds / aggregates against the baseline. Standard-library only. |
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and patches `DeltaSQLCommandTest`. |
 
@@ -48,6 +49,8 @@ Each test shard:
    - **expected** — failed and in the baseline → ignored.
    - **now-passing** — in the baseline but passed this run → fails the shard
      (so the baseline is kept honest), unless `fail_on_fixed=false`.
+   - **quarantined** — matches an entry in `flaky-tests.txt` → always ignored,
+     whether it passed or failed (see [Flaky tests](#flaky-tests) below).
 
 A final `aggregate` job merges every shard's results into a single, sorted,
 ready-to-commit `known-failures.txt` artifact and reports **stale** baseline
@@ -89,13 +92,36 @@ same way as bootstrapping: run the workflow with `update_baseline=true`, downloa
 the `delta-spark-ut-known-failures` artifact, and commit it. The aggregate job
 also lists **stale** entries you can prune.
 
+## Flaky tests
+
+Some tests are genuinely non-deterministic (e.g. the Delta MERGE-with-deletion-vector
+suites that intermittently hit a native row-index bug). Such a test would otherwise
+red the gate as a **regression** when it flakes to a failure, or as **now-passing**
+when it flakes to a pass — noise either way.
+
+List these in **`flaky-tests.txt`** to **quarantine** them: the gate ignores a
+quarantined test whether it passes or fails, and never writes it into the
+regenerated baseline. Format is one `<suite-glob>#<test>` per line, `#`-comments
+and blank lines allowed:
+
+```
+# suite portion is an fnmatch glob; test portion is matched exactly.
+*DVs*Suite#matched only merge - enabled - with update and delete - isPartitioned: true
+```
+
+- The **suite** portion is an `fnmatch` glob, so `*DVs*Suite` covers every
+  generated deletion-vector merge variant in one line. Use the narrowest glob
+  that still covers the root-cause family.
+- The **test** portion is matched **exactly** (test names are freeform and may
+  contain glob metacharacters), so a same-named test in a non-matching suite is
+  still gated normally.
+
+Quarantining is an **interim** measure — it hides a real bug from CI. Each entry
+should reference the tracking issue, and be removed once the underlying bug is
+fixed so the test is enforced again.
+
 ## Caveats
 
-- **Flaky tests.** A flaky test that usually passes will be flagged as a
-  regression when it flakes; one that usually fails (and is in the baseline)
-  may be flagged as now-passing when it happens to pass. Re-run, or set
-  `fail_on_fixed=false` for that run, and keep genuinely flaky tests out of the
-  enforced set.
 - **Known failures still execute** (and fail) — they are gated *after* the run,
   not skipped — so they still consume CI time. This keeps us decoupled from
   Delta's sources; skipping them at runtime would require patching Delta.
@@ -108,5 +134,6 @@ python3 .github/workflows/util/delta-spark-ut/compare-test-results.py \
   --mode enforce \
   --reports-dir delta \
   --known-failures .github/workflows/util/delta-spark-ut/known-failures.txt \
+  --flaky-tests .github/workflows/util/delta-spark-ut/flaky-tests.txt \
   --failures-out /tmp/failures.txt --ran-out /tmp/ran.txt
 ```
