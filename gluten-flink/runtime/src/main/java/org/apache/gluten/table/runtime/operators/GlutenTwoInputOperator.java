@@ -226,31 +226,57 @@ public class GlutenTwoInputOperator<IN, OUT> extends GlutenAbstractStreamOperato
     }
   }
 
+  @Override
   public void processWatermark(Watermark mark) throws Exception {
+    if (task == null) {
+      throw new NullPointerException(
+          "task is null in processWatermark; expected to be initialized in open() and "
+              + "cleared only after close()");
+    }
     task.notifyWatermark(mark.getTimestamp());
     processElementInternal();
   }
 
   @Override
   public void processWatermark1(Watermark mark) throws Exception {
+    if (task == null) {
+      throw new NullPointerException(
+          "task is null in processWatermark1; expected to be initialized in open() and "
+              + "cleared only after close()");
+    }
     task.notifyWatermark(mark.getTimestamp(), 0);
     processElementInternal();
   }
 
   @Override
   public void processWatermark2(Watermark mark) throws Exception {
+    if (task == null) {
+      throw new NullPointerException(
+          "task is null in processWatermark2; expected to be initialized in open() and "
+              + "cleared only after close()");
+    }
     task.notifyWatermark(mark.getTimestamp(), 1);
     processElementInternal();
   }
 
   @Override
   public void processWatermarkStatus1(WatermarkStatus status) throws Exception {
+    if (task == null) {
+      throw new NullPointerException(
+          "task is null in processWatermarkStatus1; expected to be initialized in open() and "
+              + "cleared only after close()");
+    }
     task.notifyWatermarkStatus(status.isIdle(), 0);
     processElementInternal();
   }
 
   @Override
   public void processWatermarkStatus2(WatermarkStatus status) throws Exception {
+    if (task == null) {
+      throw new NullPointerException(
+          "task is null in processWatermarkStatus2; expected to be initialized in open() and "
+              + "cleared only after close()");
+    }
     task.notifyWatermarkStatus(status.isIdle(), 1);
     processElementInternal();
   }

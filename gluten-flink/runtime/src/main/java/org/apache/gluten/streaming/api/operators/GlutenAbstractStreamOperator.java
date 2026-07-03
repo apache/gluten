@@ -143,6 +143,12 @@ public abstract class GlutenAbstractStreamOperator<OUT>
 
   protected transient Output<StreamRecord<OUT>> output;
 
+  // Used by the default processWatermark1/2 and processWatermarkStatus1/2 implementations below.
+  // Concrete two-input subclasses (e.g. GlutenTwoInputOperator) override those entrypoints to
+  // forward each input's watermark/status directly to native, bypassing this Java-side combined
+  // watermark. The field and the private indexed overloads are kept to stay aligned with Flink
+  // 1.19.2's AbstractStreamOperator and to serve any future subclass that wants the default
+  // behavior; they are effectively dead code for the current Gluten operators.
   private transient IndexedCombinedWatermarkStatus combinedWatermark;
 
   /** The runtime context for UDFs. */
