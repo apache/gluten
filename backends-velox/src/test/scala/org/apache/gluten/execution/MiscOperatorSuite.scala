@@ -1186,14 +1186,14 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
           }
         }
 
-        // Fallback for array(struct(...), null) literal.
+        // array(struct(...), null) literal is not a sub-expression of generator.
         runQueryAndCompare(s"""
                               |SELECT $func(array(
                               |  named_struct('c1', 0, 'c2', 1),
                               |  named_struct('c1', 2, 'c2', null),
                               |  null));
                               |""".stripMargin) {
-          checkSparkPlan[GenerateExec]
+          checkGlutenPlan[GenerateExecTransformer]
         }
     }
   }
