@@ -1247,10 +1247,7 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_seriali
   VELOX_CHECK_GT(address, 0, "Serialized hash table buffer address must be positive");
   VELOX_CHECK_GE(size, 0, "Serialized hash table buffer size must be non-negative");
   const auto serializedSize = gluten::serializedHashTableSize(builder);
-  VELOX_CHECK_EQ(
-      static_cast<size_t>(size),
-      serializedSize,
-      "Hash table buffer size mismatch");
+  VELOX_CHECK_EQ(static_cast<size_t>(size), serializedSize, "Hash table buffer size mismatch");
   gluten::serializeHashTableTo(builder, reinterpret_cast<uint8_t*>(address), serializedSize);
   JNI_METHOD_END()
 }

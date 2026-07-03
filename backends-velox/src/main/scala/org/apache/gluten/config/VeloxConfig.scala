@@ -692,7 +692,7 @@ object VeloxConfig extends ConfigRegistry {
           "built and serialized on the driver, then broadcast to executors. When disabled, " +
           "each executor builds its own hash table from the broadcast data.")
       .booleanConf
-      .createWithDefault(true)
+      .createWithDefault(false)
 
   val QUERY_TRACE_ENABLED = buildConf("spark.gluten.sql.columnar.backend.velox.queryTraceEnabled")
     .doc("Enable query tracing flag.")
