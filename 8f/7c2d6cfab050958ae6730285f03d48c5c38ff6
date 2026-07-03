@@ -1,0 +1,23 @@
+gluten-flink/runtime/src/main/java/org/apache/gluten/table/runtime/operators/GlutenTwoInputOperator.java
+  s_f5200a1474daf7::t_ace50a4a66c93e 231-235,242-246,253-257,264-268,275-279
+  s_f5200a1474daf7::t_ebcf7a4e5b1fc1 229
+gluten-flink/runtime/src/main/java/org/apache/gluten/streaming/api/operators/GlutenAbstractStreamOperator.java
+  s_f5200a1474daf7::t_a05cc2a6da7e3a 146-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "8f7c2d6cfab050958ae6730285f03d48c5c38ff6",
+  "prompts": {},
+  "logical_commit_id": "8f7c2d6cfab050958ae6730285f03d48c5c38ff6",
+  "sessions": {
+    "s_f5200a1474daf7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0d9d2dd04ffeEV4VpFdTx0GKmQ",
+        "model": "glm-5.2"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
