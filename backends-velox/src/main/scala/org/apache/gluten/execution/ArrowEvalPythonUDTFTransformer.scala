@@ -193,6 +193,10 @@ case class ArrowEvalPythonUDTFTransformer(
 
   override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
     copy(child = newChild)
+
+  override def requiredChildConvention(): Seq[ConventionReq] = {
+    Seq(ConventionReq.vanillaRow)
+  }
 }
 
 // Made with Bob
