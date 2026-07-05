@@ -30,11 +30,11 @@ object SparkSchemaUtil {
   }
 
   def toArrowSchema(schema: StructType): Schema = {
-    SparkArrowUtil.toArrowSchema(schema, getLocalTimezoneID)
+    SparkArrowUtil.toArrowSchema(schema, getLocalTimezoneID, enableLargeVarTypes)
   }
 
   def toArrowSchema(schema: StructType, timeZoneId: String): Schema = {
-    SparkArrowUtil.toArrowSchema(schema, timeZoneId)
+    SparkArrowUtil.toArrowSchema(schema, timeZoneId, enableLargeVarTypes)
   }
 
   def isTimeZoneIDEquivalentToUTC(zoneId: String): Boolean = {
@@ -43,6 +43,10 @@ object SparkSchemaUtil {
 
   def getLocalTimezoneID: String = {
     SQLConf.get.sessionLocalTimeZone
+  }
+
+  def enableLargeVarTypes: Boolean = {
+    SQLConf.get.getConfString("spark.sql.execution.arrow.useLargeVarTypes", "false").toBoolean
   }
 
   def timeZoneIDEquals(one: String, other: String): Boolean = {
