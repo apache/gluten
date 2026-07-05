@@ -20,6 +20,7 @@ import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.StructVector;
+import org.apache.arrow.vector.holders.NullableLargeVarCharHolder;
 import org.apache.arrow.vector.holders.NullableVarCharHolder;
 import org.apache.spark.annotation.DeveloperApi;
 import org.apache.spark.sql.types.DataType;
@@ -166,8 +167,12 @@ public class ArrowColumnVector extends ColumnVector {
       accessor = new DecimalAccessor((DecimalVector) vector);
     } else if (vector instanceof VarCharVector) {
       accessor = new StringAccessor((VarCharVector) vector);
+    } else if (vector instanceof LargeVarCharVector) {
+      accessor = new LargeStringAccessor((LargeVarCharVector) vector);
     } else if (vector instanceof VarBinaryVector) {
       accessor = new BinaryAccessor((VarBinaryVector) vector);
+    } else if (vector instanceof LargeVarBinaryVector) {
+      accessor = new LargeBinaryAccessor((LargeVarBinaryVector) vector);
     } else if (vector instanceof DateDayVector) {
       accessor = new DateAccessor((DateDayVector) vector);
     } else if (vector instanceof TimeStampMicroTZVector) {
@@ -414,11 +419,51 @@ public class ArrowColumnVector extends ColumnVector {
     }
   }
 
+  static class LargeStringAccessor extends ArrowVectorAccessor {
+
+    private final LargeVarCharVector accessor;
+    private final NullableLargeVarCharHolder stringResult = new NullableLargeVarCharHolder();
+
+    LargeStringAccessor(LargeVarCharVector vector) {
+      super(vector);
+      this.accessor = vector;
+    }
+
+    @Override
+    final UTF8String getUTF8String(int rowId) {
+      accessor.get(rowId, stringResult);
+      if (stringResult.isSet == 0) {
+        return null;
+      } else {
+        return UTF8String.fromAddress(
+            null,
+            stringResult.buffer.memoryAddress() + stringResult.start,
+            // A single string cannot be larger than the max integer size, so the conversion is safe
+            (int) (stringResult.end - stringResult.start));
+      }
+    }
+  }
+
   static class BinaryAccessor extends ArrowVectorAccessor {
 
     private final VarBinaryVector accessor;
 
     BinaryAccessor(VarBinaryVector vector) {
+      super(vector);
+      this.accessor = vector;
+    }
+
+    @Override
+    final byte[] getBinary(int rowId) {
+      return accessor.getObject(rowId);
+    }
+  }
+
+  static class LargeBinaryAccessor extends ArrowVectorAccessor {
+
+    private final LargeVarBinaryVector accessor;
+
+    LargeBinaryAccessor(LargeVarBinaryVector vector) {
       super(vector);
       this.accessor = vector;
     }

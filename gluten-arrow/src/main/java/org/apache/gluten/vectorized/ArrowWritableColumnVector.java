@@ -23,6 +23,8 @@ import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.StructVector;
+import org.apache.arrow.vector.holders.NullableLargeVarBinaryHolder;
+import org.apache.arrow.vector.holders.NullableLargeVarCharHolder;
 import org.apache.arrow.vector.holders.NullableVarBinaryHolder;
 import org.apache.arrow.vector.holders.NullableVarCharHolder;
 import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
@@ -78,8 +80,7 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
    * elements, not number of bytes.
    */
   public static ArrowWritableColumnVector[] allocateColumns(int capacity, StructType schema) {
-    String timeZoneId = SparkSchemaUtil.getLocalTimezoneID();
-    Schema arrowSchema = SparkArrowUtil.toArrowSchema(schema, timeZoneId);
+    Schema arrowSchema = SparkSchemaUtil.toArrowSchema(schema);
     VectorSchemaRoot newRoot =
         VectorSchemaRoot.create(arrowSchema, ArrowBufferAllocators.contextInstance());
 
@@ -94,8 +95,7 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
 
   public static ArrowWritableColumnVector[] allocateColumns(
       int valueCount, long[] totalSizes, StructType schema) {
-    String timeZoneId = SparkSchemaUtil.getLocalTimezoneID();
-    Schema arrowSchema = SparkArrowUtil.toArrowSchema(schema, timeZoneId);
+    Schema arrowSchema = SparkSchemaUtil.toArrowSchema(schema);
     VectorSchemaRoot newRoot =
         VectorSchemaRoot.create(arrowSchema, ArrowBufferAllocators.contextInstance());
 
@@ -208,8 +208,10 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     vectorCount.getAndIncrement();
     refCnt.getAndIncrement();
     String timeZoneId = SparkSchemaUtil.getLocalTimezoneID();
+    boolean useLargeVarTypes = SparkSchemaUtil.enableLargeVarTypes();
     List<Field> fields =
-        Arrays.asList(SparkArrowUtil.toArrowField("col", dataType, true, timeZoneId));
+        Arrays.asList(
+            SparkArrowUtil.toArrowField("col", dataType, true, timeZoneId, useLargeVarTypes));
     Schema arrowSchema = new Schema(fields);
     VectorSchemaRoot root =
         VectorSchemaRoot.create(arrowSchema, ArrowBufferAllocators.contextInstance());
@@ -265,8 +267,12 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
       accessor = new DecimalAccessor((DecimalVector) vector);
     } else if (vector instanceof VarCharVector) {
       accessor = new StringAccessor((VarCharVector) vector);
+    } else if (vector instanceof LargeVarCharVector) {
+      accessor = new LargeStringAccessor((LargeVarCharVector) vector);
     } else if (vector instanceof VarBinaryVector) {
       accessor = new BinaryAccessor((VarBinaryVector) vector);
+    } else if (vector instanceof LargeVarBinaryVector) {
+      accessor = new LargeBinaryAccessor((LargeVarBinaryVector) vector);
     } else if (vector instanceof DateDayVector) {
       accessor = new DateAccessor((DateDayVector) vector);
     } else if (vector instanceof TimeStampMicroVector || vector instanceof TimeStampMicroTZVector) {
@@ -336,8 +342,12 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
       return new DecimalWriter((DecimalVector) vector);
     } else if (vector instanceof VarCharVector) {
       return new StringWriter((VarCharVector) vector);
+    } else if (vector instanceof LargeVarCharVector) {
+      return new LargeStringWriter((LargeVarCharVector) vector);
     } else if (vector instanceof VarBinaryVector) {
       return new BinaryWriter((VarBinaryVector) vector);
+    } else if (vector instanceof LargeVarBinaryVector) {
+      return new LargeBinaryWriter((LargeVarBinaryVector) vector);
     } else if (vector instanceof DateDayVector) {
       return new DateWriter((DateDayVector) vector);
     } else if (vector instanceof TimeStampMicroVector || vector instanceof TimeStampMicroTZVector) {
@@ -1078,6 +1088,30 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     }
   }
 
+  private static class LargeStringAccessor extends ArrowVectorAccessor {
+    private final LargeVarCharVector accessor;
+    private final NullableLargeVarCharHolder stringResult = new NullableLargeVarCharHolder();
+
+    LargeStringAccessor(LargeVarCharVector vector) {
+      super(vector);
+      this.accessor = vector;
+    }
+
+    @Override
+    final UTF8String getUTF8String(int rowId) {
+      accessor.get(rowId, stringResult);
+      if (stringResult.isSet == 0) {
+        return null;
+      } else {
+        return UTF8String.fromAddress(
+            null,
+            stringResult.buffer.memoryAddress() + stringResult.start,
+            // A single string cannot be larger than the max integer size, so the conversion is safe
+            (int) (stringResult.end - stringResult.start));
+      }
+    }
+  }
+
   private static class DictionaryEncodedStringAccessor extends ArrowVectorAccessor {
     private final IntVector index;
     private final VarCharVector dictionary;
@@ -1128,6 +1162,35 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
             null,
             stringResult.buffer.memoryAddress() + stringResult.start,
             stringResult.end - stringResult.start);
+      }
+    }
+  }
+
+  private static class LargeBinaryAccessor extends ArrowVectorAccessor {
+    private final LargeVarBinaryVector accessor;
+    private final NullableLargeVarBinaryHolder stringResult = new NullableLargeVarBinaryHolder();
+
+    LargeBinaryAccessor(LargeVarBinaryVector vector) {
+      super(vector);
+      this.accessor = vector;
+    }
+
+    @Override
+    final byte[] getBinary(int rowId) {
+      return accessor.getObject(rowId);
+    }
+
+    @Override
+    final UTF8String getUTF8String(int rowId) {
+      accessor.get(rowId, stringResult);
+      if (stringResult.isSet == 0) {
+        return null;
+      } else {
+        return UTF8String.fromAddress(
+            null,
+            stringResult.buffer.memoryAddress() + stringResult.start,
+            // A single string cannot be larger than the max integer size, so the conversion is safe
+            (int) (stringResult.end - stringResult.start));
       }
     }
   }
@@ -1977,10 +2040,94 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     }
   }
 
+  private static class LargeStringWriter extends ArrowVectorWriter {
+    private final LargeVarCharVector writer;
+    private int rowId;
+
+    LargeStringWriter(LargeVarCharVector vector) {
+      super(vector);
+      this.writer = vector;
+      this.rowId = 0;
+    }
+
+    @Override
+    final void setNull(int rowId) {
+      writer.setNull(rowId);
+    }
+
+    @Override
+    final void setNulls(int rowId, int count) {
+      for (int i = 0; i < count; i++) {
+        writer.setNull(rowId + i);
+      }
+    }
+
+    @Override
+    final void setBytes(int rowId, int count, byte[] src, int srcIndex) {
+      writer.setSafe(rowId, src, srcIndex, count);
+    }
+
+    @Override
+    final void appendBytes(byte[] value, int offset, int length) {
+      writer.setSafe(rowId, value, offset, length);
+      rowId++;
+    }
+
+    @Override
+    void setValueNullSafe(SpecializedGetters input, int ordinal) {
+      UTF8String value = input.getUTF8String(ordinal);
+      setBytes(count, value.numBytes(), value.getBytes(), 0);
+    }
+
+    @Override
+    void unsafeSetValueNullSafe(SpecializedGetters input, int ordinal) {
+      UTF8String value = input.getUTF8String(ordinal);
+      writer.set(count, value.getBytes(), 0, value.numBytes());
+    }
+  }
+
   private static class BinaryWriter extends ArrowVectorWriter {
     private final VarBinaryVector writer;
 
     BinaryWriter(VarBinaryVector vector) {
+      super(vector);
+      this.writer = vector;
+    }
+
+    @Override
+    final void setNull(int rowId) {
+      writer.setNull(rowId);
+    }
+
+    @Override
+    final void setNulls(int rowId, int count) {
+      for (int i = 0; i < count; i++) {
+        writer.setNull(rowId + i);
+      }
+    }
+
+    @Override
+    final void setBytes(int rowId, int count, byte[] src, int srcIndex) {
+      writer.setSafe(rowId, src, srcIndex, count);
+    }
+
+    @Override
+    void setValueNullSafe(SpecializedGetters input, int ordinal) {
+      byte[] value = input.getBinary(ordinal);
+      setBytes(count, value.length, value, 0);
+    }
+
+    @Override
+    void unsafeSetValueNullSafe(SpecializedGetters input, int ordinal) {
+      byte[] value = input.getBinary(ordinal);
+      writer.set(count, value, 0, value.length);
+    }
+  }
+
+  private static class LargeBinaryWriter extends ArrowVectorWriter {
+    private final LargeVarBinaryVector writer;
+
+    LargeBinaryWriter(LargeVarBinaryVector vector) {
       super(vector);
       this.writer = vector;
     }

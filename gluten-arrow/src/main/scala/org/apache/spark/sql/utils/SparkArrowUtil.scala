@@ -31,7 +31,10 @@ import scala.collection.JavaConverters._
 object SparkArrowUtil {
 
   /** Maps data type from Spark to Arrow. NOTE: timeZoneId required for TimestampTypes */
-  def toArrowType(dt: DataType, timeZoneId: String): ArrowType = dt match {
+  def toArrowType(
+      dt: DataType,
+      timeZoneId: String,
+      largeVarTypes: Boolean = false): ArrowType = dt match {
     case BooleanType => ArrowType.Bool.INSTANCE
     case ByteType => new ArrowType.Int(8, true)
     case ShortType => new ArrowType.Int(8 * 2, true)
@@ -39,8 +42,10 @@ object SparkArrowUtil {
     case LongType => new ArrowType.Int(8 * 8, true)
     case FloatType => new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)
     case DoubleType => new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
-    case StringType => ArrowType.Utf8.INSTANCE
-    case BinaryType => ArrowType.Binary.INSTANCE
+    case StringType if !largeVarTypes => ArrowType.Utf8.INSTANCE
+    case BinaryType if !largeVarTypes => ArrowType.Binary.INSTANCE
+    case StringType if largeVarTypes => ArrowType.LargeUtf8.INSTANCE
+    case BinaryType if largeVarTypes => ArrowType.LargeBinary.INSTANCE
     case DecimalType.Fixed(precision, scale) => new ArrowType.Decimal(precision, scale, 128)
     case DateType => new ArrowType.Date(DateUnit.DAY)
     case TimestampType =>
@@ -72,6 +77,8 @@ object SparkArrowUtil {
       DoubleType
     case ArrowType.Utf8.INSTANCE => StringType
     case ArrowType.Binary.INSTANCE => BinaryType
+    case ArrowType.LargeUtf8.INSTANCE => StringType
+    case ArrowType.LargeBinary.INSTANCE => BinaryType
     case d: ArrowType.Decimal => DecimalType(d.getPrecision, d.getScale)
     case date: ArrowType.Date if date.getUnit == DateUnit.DAY => DateType
     case ts: ArrowType.Timestamp if ts.getUnit == TimeUnit.MICROSECOND && ts.getTimezone == null =>
@@ -93,14 +100,19 @@ object SparkArrowUtil {
   }
 
   /** Maps field from Spark to Arrow. NOTE: timeZoneId required for TimestampType */
-  def toArrowField(name: String, dt: DataType, nullable: Boolean, timeZoneId: String): Field = {
+  def toArrowField(
+      name: String,
+      dt: DataType,
+      nullable: Boolean,
+      timeZoneId: String,
+      largeVarTypes: Boolean = false): Field = {
     dt match {
       case ArrayType(elementType, containsNull) =>
         val fieldType = new FieldType(nullable, ArrowType.List.INSTANCE, null)
         new Field(
           name,
           fieldType,
-          Seq(toArrowField("element", elementType, containsNull, timeZoneId)).asJava)
+          Seq(toArrowField("element", elementType, containsNull, timeZoneId, largeVarTypes)).asJava)
       case StructType(fields) =>
         val fieldType = new FieldType(nullable, ArrowType.Struct.INSTANCE, null)
         new Field(
@@ -113,7 +125,8 @@ object SparkArrowUtil {
                   normalizeColName(field.name),
                   field.dataType,
                   field.nullable,
-                  timeZoneId))
+                  timeZoneId,
+                  largeVarTypes))
             .toSeq
             .asJava
         )
@@ -130,11 +143,15 @@ object SparkArrowUtil {
                 .add(MapVector.KEY_NAME, keyType, nullable = false)
                 .add(MapVector.VALUE_NAME, valueType, nullable = valueContainsNull),
               nullable = false,
-              timeZoneId
+              timeZoneId,
+              largeVarTypes
             )).asJava
         )
+      case udt: UserDefinedType[_] =>
+        toArrowField(name, udt.sqlType, nullable, timeZoneId, largeVarTypes)
       case dataType =>
-        val fieldType = new FieldType(nullable, toArrowType(dataType, timeZoneId), null)
+        val fieldType =
+          new FieldType(nullable, toArrowType(dataType, timeZoneId, largeVarTypes), null)
         new Field(name, fieldType, Seq.empty[Field].asJava)
     }
   }
@@ -162,9 +179,12 @@ object SparkArrowUtil {
   }
 
   /** Maps schema from Spark to Arrow. NOTE: timeZoneId required for TimestampType in StructType */
-  def toArrowSchema(schema: StructType, timeZoneId: String): Schema = {
+  def toArrowSchema(
+      schema: StructType,
+      timeZoneId: String,
+      largeVarTypes: Boolean = false): Schema = {
     new Schema(schema.map {
-      field => toArrowField(field.name, field.dataType, field.nullable, timeZoneId)
+      field => toArrowField(field.name, field.dataType, field.nullable, timeZoneId, largeVarTypes)
     }.asJava)
   }
 
