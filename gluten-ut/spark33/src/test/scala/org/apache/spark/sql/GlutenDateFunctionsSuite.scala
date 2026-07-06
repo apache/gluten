@@ -282,20 +282,20 @@ class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTra
     checkAnswer(df1.select(to_date(col("x"))), Row(Date.valueOf("2016-02-29")) :: Row(null) :: Nil)
   }
   testGluten("date_from_unix_date") {
-    val df = Seq(0, 1000, null).toDF("unix_date")
+    // -100000 and 200000 are outside ClickHouse's native Date32 range
+    // [1900-01-01, 2299-12-31]. They guard against implementations that clamp to that
+    // range (e.g. mapping to CH toDate32), which would silently diverge from Spark.
+    val df = Seq(Some(0), Some(1000), Some(-100000), Some(200000), None).toDF("unix_date")
+    val expected = Seq(
+      Row(Date.valueOf("1970-01-01")),
+      Row(Date.valueOf("1972-09-27")),
+      Row(Date.valueOf("1696-03-17")),
+      Row(Date.valueOf("2517-08-01")),
+      Row(null))
 
-    checkAnswer(
-      df.select(date_from_unix_date(col("unix_date"))),
-      Seq(
-        Row(Date.valueOf("1970-01-01")),
-        Row(Date.valueOf("1972-09-27")),
-        Row(null)))
-
-    checkAnswer(
-      df.selectExpr("date_from_unix_date(unix_date)"),
-      Seq(
-        Row(Date.valueOf("1970-01-01")),
-        Row(Date.valueOf("1972-09-27")),
-        Row(null)))
+    // date_from_unix_date is only available in the Scala functions API since Spark 3.5,
+    // so go through expr() here.
+    checkAnswer(df.select(expr("date_from_unix_date(unix_date)")), expected)
+    checkAnswer(df.selectExpr("date_from_unix_date(unix_date)"), expected)
   }
 }
