@@ -43,17 +43,32 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Replaces a native Flink {@link StreamRecordTimestampInserter} (per-row timestamp) with a Gluten
- * columnar inserter (batch-max timestamp) so the columnar chain stays intact when the downstream
- * sink is offloaded to Velox.
+ * Inspects a sink input chain for the native Flink {@link StreamRecordTimestampInserter} (per-row
+ * timestamp) added by {@code CommonExecSink.applyRowtimeTransformation}, and either removes or
+ * replaces it depending on whether the downstream sink actually consumes the timestamp.
  *
- * <p>The native inserter is constructed by {@code CommonExecSink.applyRowtimeTransformation} and
- * sits somewhere on the sink's input chain (position depends on the sink: for a simple sink like
- * Fuzzer/DiscardingSink it is the direct input; for FileSystem it sits below the
- * StreamingFileWriter and PartitionCommitter). Each sink factory's {@code buildVeloxSink} invokes
- * this helper on the inserter-bearing transformation it is about to replace; if no inserter is
- * present (e.g., {@code rowtimeFieldIndex == -1}), the helper is a no-op and returns the input
- * unchanged.
+ * <p>The native inserter stamps each row's rowtime onto the surrounding {@code StreamRecord} so
+ * that downstream {@code SinkFunction.Context.timestamp()} readers (or sinks that read {@code
+ * StreamRecord.timestamp} directly) can access it. Sinks that never read the timestamp therefore
+ * don't need the inserter at all.
+ *
+ * <p>Callers declare this via {@code requiresTimestamp}:
+ *
+ * <ul>
+ *   <li>{@code false}: the sink does not consume {@code StreamRecord.timestamp}. The inserter is
+ *       removed from the op chain and its upstream is wired directly to the sink. This is the
+ *       correct behavior for every sink currently wired through the helper (Print, Fuzzer/Discard,
+ *       FileSystem): Print reads rowtime from RowData via {@code SinkOperator.timestamp()};
+ *       SinkV2-based sinks (DiscardingSink, etc.) cannot read the timestamp at all; the velox file
+ *       writer doesn't consult StreamRecord.timestamp for partition/roll/commit.
+ *   <li>{@code true}: the sink does consume {@code StreamRecord.timestamp}. The inserter is rebuilt
+ *       as a Gluten columnar inserter (batch-max timestamp on a {@link StatefulRecord}) so the
+ *       columnar chain stays intact end-to-end. No current caller uses this branch; it's kept for
+ *       future sinks that read the timestamp directly.
+ * </ul>
+ *
+ * <p>If no inserter is present (e.g., {@code rowtimeFieldIndex == -1}), the helper is a no-op and
+ * returns the input unchanged regardless of {@code requiresTimestamp}.
  */
 public final class GlutenRowtimeInserterHelper {
 
@@ -61,13 +76,14 @@ public final class GlutenRowtimeInserterHelper {
 
   /**
    * Convenience overload that accepts a {@link DataStream} (typical entry point for factories that
-   * use {@code sinkTransformation.getInputStream()}). Inspects the underlying transformation; if it
-   * is a native inserter, rebuilds it as a Gluten columnar inserter and returns a new DataStream
-   * whose terminal node is the Gluten inserter. Otherwise returns the inputStream unchanged.
+   * use {@code sinkTransformation.getInputStream()}). Inspects the underlying transformation and
+   * removes or replaces the inserter per {@code requiresTimestamp}; returns a new DataStream whose
+   * terminal node reflects the result, or the inputStream unchanged when no replacement happened.
    */
-  public static DataStream<RowData> process(DataStream<RowData> inputStream) {
+  public static DataStream<RowData> process(
+      DataStream<RowData> inputStream, boolean requiresTimestamp) {
     Transformation<RowData> inputTrans = inputStream.getTransformation();
-    Transformation<RowData> newTrans = processTransformation(inputTrans);
+    Transformation<RowData> newTrans = processTransformation(inputTrans, requiresTimestamp);
     if (newTrans == inputTrans) {
       return inputStream;
     }
@@ -75,11 +91,19 @@ public final class GlutenRowtimeInserterHelper {
   }
 
   /**
-   * Inspect {@code inputTrans}; if it is a native {@link StreamRecordTimestampInserter}, rebuild it
-   * as a Gluten columnar inserter whose input is the native inserter's upstream. Returns the new
-   * transformation, or the original inputTrans when no replacement happened.
+   * Inspect {@code inputTrans}. If it is a native {@link StreamRecordTimestampInserter}:
+   *
+   * <ul>
+   *   <li>when {@code requiresTimestamp} is false, return the inserter's upstream, removing the
+   *       inserter from the op chain;
+   *   <li>when {@code requiresTimestamp} is true, rebuild it as a Gluten columnar inserter whose
+   *       input is the native inserter's upstream.
+   * </ul>
+   *
+   * <p>Returns the original inputTrans when no inserter is present.
    */
-  public static Transformation<RowData> processTransformation(Transformation<RowData> inputTrans) {
+  public static Transformation<RowData> processTransformation(
+      Transformation<RowData> inputTrans, boolean requiresTimestamp) {
     if (!(inputTrans instanceof OneInputTransformation)) {
       return inputTrans;
     }
@@ -92,14 +116,17 @@ public final class GlutenRowtimeInserterHelper {
     if (!(op instanceof StreamRecordTimestampInserter)) {
       return inputTrans;
     }
-    int rowtimeIndex =
-        (int) ReflectUtils.getObjectField(StreamRecordTimestampInserter.class, op, "rowtimeIndex");
     List<Transformation<?>> inputs = oneInput.getInputs();
     if (inputs.isEmpty()) {
       return inputTrans;
     }
     @SuppressWarnings("unchecked")
     Transformation<RowData> aboveInserter = (Transformation<RowData>) inputs.get(0);
+    if (!requiresTimestamp) {
+      return aboveInserter;
+    }
+    int rowtimeIndex =
+        (int) ReflectUtils.getObjectField(StreamRecordTimestampInserter.class, op, "rowtimeIndex");
     return buildGlutenInserter(aboveInserter, rowtimeIndex, oneInput.getParallelism());
   }
 

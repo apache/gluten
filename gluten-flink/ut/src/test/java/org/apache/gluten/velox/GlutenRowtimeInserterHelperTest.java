@@ -63,22 +63,25 @@ class GlutenRowtimeInserterHelperTest {
   void testNoOpForNonOneInputTransformation() {
     Transformation<RowData> stub =
         new StubTransformation("stub", InternalTypeInfo.of(UPSTREAM_ROW_TYPE));
-    assertSame(stub, GlutenRowtimeInserterHelper.processTransformation(stub));
+    assertSame(stub, GlutenRowtimeInserterHelper.processTransformation(stub, false));
+    assertSame(stub, GlutenRowtimeInserterHelper.processTransformation(stub, true));
   }
 
   @Test
   void testNoOpForNonInserterOperator() {
     Transformation<RowData> upstream = newUpstream();
     OneInputTransformation<RowData, RowData> tx = newOtherOperatorTx(upstream);
-    assertSame(tx, GlutenRowtimeInserterHelper.processTransformation(tx));
+    assertSame(tx, GlutenRowtimeInserterHelper.processTransformation(tx, false));
+    assertSame(tx, GlutenRowtimeInserterHelper.processTransformation(tx, true));
   }
 
   @Test
-  void testReplacesNativeInserter() {
+  void testReplacesNativeInserterWhenTimestampRequired() {
     Transformation<RowData> upstream = newUpstream();
     OneInputTransformation<RowData, RowData> nativeTx = newNativeInserterTx(upstream, 0);
 
-    Transformation<RowData> result = GlutenRowtimeInserterHelper.processTransformation(nativeTx);
+    Transformation<RowData> result =
+        GlutenRowtimeInserterHelper.processTransformation(nativeTx, true);
 
     assertNotSame(nativeTx, result);
     assertTrue(result instanceof OneInputTransformation);
@@ -90,6 +93,17 @@ class GlutenRowtimeInserterHelperTest {
     assertTrue(op instanceof GlutenOneInputOperator);
     assertSame(upstream, out.getInputs().get(0));
     assertSame(1, out.getParallelism());
+  }
+
+  @Test
+  void testRemovesNativeInserterWhenTimestampNotRequired() {
+    Transformation<RowData> upstream = newUpstream();
+    OneInputTransformation<RowData, RowData> nativeTx = newNativeInserterTx(upstream, 0);
+
+    Transformation<RowData> result =
+        GlutenRowtimeInserterHelper.processTransformation(nativeTx, false);
+
+    assertSame(upstream, result);
   }
 
   private static final class StubTransformation extends Transformation<RowData> {

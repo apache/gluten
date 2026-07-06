@@ -108,11 +108,10 @@ public class PrintSinkFactory implements VeloxSourceSinkFactory {
   public Transformation buildVeloxSink(
       Transformation<RowData> transformation, Map<String, Object> parameters) {
     Transformation inputTrans = (Transformation) transformation.getInputs().get(0);
-    // If the upstream chain contains a native StreamRecordTimestampInserter (e.g., when this
-    // sink is reached via a rowtime-bearing path), replace it with a Gluten columnar inserter.
-    // For the typical PrintSink path (SinkFunctionProvider), no inserter is present and this is
-    // a no-op.
-    inputTrans = GlutenRowtimeInserterHelper.processTransformation(inputTrans);
+    // PrintSink reads rowtime directly from RowData via SinkOperator.timestamp() and never
+    // inspects StreamRecord.timestamp, so a native StreamRecordTimestampInserter on the input
+    // chain (if any) is dead weight — remove it.
+    inputTrans = GlutenRowtimeInserterHelper.processTransformation(inputTrans, false);
     InternalTypeInfo inputTypeInfo = (InternalTypeInfo) inputTrans.getOutputType();
 
     PrintOptions printOpts = extractPrintOptions(transformation);
