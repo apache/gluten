@@ -161,6 +161,7 @@ object VeloxBroadcastBuildSideCache
           val result =
             SerializedBroadcastHashTable.fromHashTable(
               hashTableHandle,
+              broadcastId,
               relation,
               droppedDuplicates,
               numRows)

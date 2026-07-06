@@ -242,7 +242,9 @@ case class ColumnarBuildSideRelation(
         (hashTableData(droppedDuplicates), this, droppedDuplicates)
       } else {
         (
-          HashJoinBuilder.cloneHashTable(hashTableData(droppedDuplicates)),
+          HashJoinBuilder.cloneHashTable(
+            broadcastContext.buildHashTableId,
+            hashTableData(droppedDuplicates)),
           null,
           droppedDuplicates)
       }
