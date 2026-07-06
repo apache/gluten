@@ -32,8 +32,8 @@
 
 namespace gluten {
 
-/// Convert the buffers to cudf table.
-/// Multi-threaded deserializer that uses producer threads to pre-fetch and deserialize batches.
+/// Read and convert the serialized buffers to cudf table.
+/// Multi-threaded deserializer that uses producer threads to fetch and deserialize batches.
 class VeloxGpuAsyncHashShuffleReaderDeserializer final : public ShuffleReaderDeserializer {
  public:
   VeloxGpuAsyncHashShuffleReaderDeserializer(
