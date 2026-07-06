@@ -49,6 +49,8 @@ public class Metrics implements IMetrics {
   public long[] processedSplits;
   public long[] skippedStrides;
   public long[] processedStrides;
+  public long[] skippedPages;
+  public long[] processedPages;
   public long[] remainingFilterTime;
   public long[] ioWaitTime;
   public long[] storageReadBytes;
@@ -103,6 +105,8 @@ public class Metrics implements IMetrics {
       long[] processedSplits,
       long[] skippedStrides,
       long[] processedStrides,
+      long[] skippedPages,
+      long[] processedPages,
       long[] remainingFilterTime,
       long[] ioWaitTime,
       long[] storageReadBytes,
@@ -149,6 +153,8 @@ public class Metrics implements IMetrics {
     this.processedSplits = processedSplits;
     this.skippedStrides = skippedStrides;
     this.processedStrides = processedStrides;
+    this.skippedPages = skippedPages;
+    this.processedPages = processedPages;
     this.remainingFilterTime = remainingFilterTime;
     this.ioWaitTime = ioWaitTime;
     this.storageReadBytes = storageReadBytes;
@@ -203,6 +209,8 @@ public class Metrics implements IMetrics {
         processedSplits[index],
         skippedStrides[index],
         processedStrides[index],
+        skippedPages[index],
+        processedPages[index],
         remainingFilterTime[index],
         ioWaitTime[index],
         storageReadBytes[index],

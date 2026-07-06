@@ -129,6 +129,8 @@ object MetricsUtil extends Logging {
     var skippedSplits: Long = 0
     var processedSplits: Long = 0
     var skippedStrides: Long = 0
+    var skippedPages: Long = 0
+    var processedPages: Long = 0
     var processedStrides: Long = 0
     var remainingFilterTime: Long = 0
     var ioWaitTime: Long = 0
@@ -168,6 +170,8 @@ object MetricsUtil extends Logging {
       processedSplits += metrics.processedSplits
       skippedStrides += metrics.skippedStrides
       processedStrides += metrics.processedStrides
+      skippedPages += metrics.skippedPages
+      processedPages += metrics.processedPages
       remainingFilterTime += metrics.remainingFilterTime
       ioWaitTime += metrics.ioWaitTime
       storageReadBytes += metrics.storageReadBytes
@@ -213,6 +217,8 @@ object MetricsUtil extends Logging {
       processedSplits,
       skippedStrides,
       processedStrides,
+      skippedPages,
+      processedPages,
       remainingFilterTime,
       ioWaitTime,
       storageReadBytes,

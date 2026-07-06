@@ -1,0 +1,103 @@
+diff --git a/velox/dwio/common/Statistics.h b/velox/dwio/common/Statistics.h
+index 12483bb4c..1c496416a 100644
+--- a/velox/dwio/common/Statistics.h
++++ b/velox/dwio/common/Statistics.h
+@@ -682,6 +682,13 @@ struct ColumnReaderStatistics {
+   // Total time spent in loading pages, in nanoseconds.
+   io::IoCounter pageLoadTimeNs;
+ 
++  // Number of pages skipped (only page header read, compressed data never
++  // fetched or decompressed).
++  int64_t skippedPages{0};
++
++  // Number of pages processed (compressed data fetched and decompressed).
++  int64_t processedPages{0};
++
+   // Per-column decoding statistics. Only populated when decoding stats
+   // collection is enabled.
+   std::optional<DecodingStatsSet> decodingStatsSet;
+@@ -702,6 +709,8 @@ struct ColumnReaderStatistics {
+   void mergeFrom(const ColumnReaderStatistics& other) {
+     flattenStringDictionaryValues += other.flattenStringDictionaryValues;
+     pageLoadTimeNs.merge(other.pageLoadTimeNs);
++    skippedPages += other.skippedPages;
++    processedPages += other.processedPages;
+     if (other.decodingStatsSet) {
+       if (!decodingStatsSet) {
+         decodingStatsSet.emplace();
+@@ -728,6 +737,12 @@ struct ColumnReaderStatistics {
+               pageLoadTimeNs.max(),
+               RuntimeCounter::Unit::kNanos));
+     }
++    if (skippedPages > 0) {
++      result.emplace("skippedPages", RuntimeMetric(skippedPages));
++    }
++    if (processedPages > 0) {
++      result.emplace("processedPages", RuntimeMetric(processedPages));
++    }
+     if (decodingStatsSet) {
+       decodingStatsSet->toRuntimeMetrics(result);
+     }
+diff --git a/velox/dwio/parquet/reader/PageReader.cpp b/velox/dwio/parquet/reader/PageReader.cpp
+index 3e7065288..edfccb5c3 100644
+--- a/velox/dwio/parquet/reader/PageReader.cpp
++++ b/velox/dwio/parquet/reader/PageReader.cpp
+@@ -73,9 +73,11 @@ void PageReader::seekToPage(int64_t row) {
+               inputStream_.get(),
+               bufferStart_,
+               bufferEnd_);
++          ++stats_.skippedPages;
+           continue;
+         }
+         prepareDictionary(pageHeader);
++        ++stats_.processedPages;
+         continue;
+       default:
+         break; // ignore INDEX page type and any other custom extensions
+@@ -271,6 +273,7 @@ void PageReader::prepareDataPageV1(const PageHeader& pageHeader, int64_t row) {
+         bufferStart_,
+         bufferEnd_);
+ 
++    ++stats_.skippedPages;
+     return;
+   }
+   pageData_ = readBytes(*pageHeader.compressed_page_size(), pageBuffer_);
+@@ -336,6 +339,7 @@ void PageReader::prepareDataPageV1(const PageHeader& pageHeader, int64_t row) {
+ 
+   if (row != kRepDefOnly) {
+     makeDecoder();
++    ++stats_.processedPages;
+   }
+ }
+ 
+@@ -350,6 +354,7 @@ void PageReader::prepareDataPageV2(const PageHeader& pageHeader, int64_t row) {
+         inputStream_.get(),
+         bufferStart_,
+         bufferEnd_);
++    ++stats_.skippedPages;
+     return;
+   }
+ 
+@@ -415,6 +420,7 @@ void PageReader::prepareDataPageV2(const PageHeader& pageHeader, int64_t row) {
+   }
+   if (row != kRepDefOnly) {
+     makeDecoder();
++    ++stats_.processedPages;
+   }
+ }
+ 
+diff --git a/velox/dwio/parquet/reader/ParquetReader.cpp b/velox/dwio/parquet/reader/ParquetReader.cpp
+index 8ece28fed..c78cce994 100644
+--- a/velox/dwio/parquet/reader/ParquetReader.cpp
++++ b/velox/dwio/parquet/reader/ParquetReader.cpp
+@@ -1609,8 +1609,7 @@ class ParquetRowReader::Impl {
+     stats.skippedStrides += skippedStrides_;
+     stats.processedStrides += rowGroupIds_.size();
+     stats.parquetFooterEstimatedBytes += readerBase_->initialThriftSize();
+-    stats.columnReaderStats.pageLoadTimeNs.merge(
+-        columnReaderStats_.pageLoadTimeNs);
++    stats.columnReaderStats.mergeFrom(columnReaderStats_);
+   }
+ 
+   void resetFilterCaches() {
+
