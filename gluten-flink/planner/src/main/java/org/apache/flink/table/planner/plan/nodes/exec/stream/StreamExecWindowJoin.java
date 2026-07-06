@@ -17,6 +17,7 @@
 package org.apache.flink.table.planner.plan.nodes.exec.stream;
 
 import org.apache.gluten.rexnode.Utils;
+import org.apache.gluten.streaming.api.operators.GlutenTwoInputOperatorFactory;
 import org.apache.gluten.table.runtime.operators.GlutenTwoInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
@@ -36,6 +37,7 @@ import io.github.zhztheplayer.velox4j.plan.TableScanNode;
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
+import org.apache.flink.streaming.api.operators.StreamOperator;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.api.transformations.TwoInputTransformation;
 import org.apache.flink.table.api.TableException;
@@ -245,9 +247,11 @@ public class StreamExecWindowJoin extends ExecNodeBase<RowData>
             leftTransform,
             rightTransform,
             createTransformationMeta(WINDOW_JOIN_TRANSFORMATION, config),
-            operator,
+            new GlutenTwoInputOperatorFactory<RowData, RowData, RowData>(
+                (StreamOperator<RowData>) operator),
             InternalTypeInfo.of(returnType),
             leftTransform.getParallelism(),
+            0L,
             false);
 
     // set KeyType and Selector for state

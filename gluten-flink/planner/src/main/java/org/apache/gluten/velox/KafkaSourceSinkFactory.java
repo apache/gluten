@@ -31,6 +31,7 @@ import io.github.zhztheplayer.velox4j.plan.TableScanWithWatermarkNode;
 import io.github.zhztheplayer.velox4j.plan.WatermarkPushDownSpec;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
+import org.apache.flink.api.connector.source.Boundedness;
 import org.apache.flink.api.connector.source.Source;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.streaming.api.transformations.LegacySourceTransformation;
@@ -54,7 +55,11 @@ public class KafkaSourceSinkFactory implements VeloxSourceSinkFactory {
   @Override
   public boolean match(Transformation<RowData> transformation) {
     if (transformation instanceof SourceTransformation) {
-      Source source = ((SourceTransformation) transformation).getSource();
+      SourceTransformation sourceTransformation = (SourceTransformation) transformation;
+      if (sourceTransformation.getBoundedness() == Boundedness.BOUNDED) {
+        return false;
+      }
+      Source source = sourceTransformation.getSource();
       return source.getClass().getSimpleName().equals("KafkaSource");
     }
     return false;
