@@ -93,8 +93,6 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def cudfEnableValidation: Boolean = getConf(CUDF_ENABLE_VALIDATION)
 
-  def cudfAllowCpuFallback: Boolean = getConf(CUDF_ALLOW_CPU_FALLBACK)
-
   def cudfBatchSize: Int = getConf(CUDF_BATCH_SIZE)
 
   def cudfShuffleMaxPrefetchBytes: Long = getConf(CUDF_SHUFFLE_MAX_PREFETCH_BYTES)
