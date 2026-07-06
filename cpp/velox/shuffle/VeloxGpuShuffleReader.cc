@@ -132,6 +132,26 @@ void VeloxGpuHashShuffleReaderDeserializer::stop() {
 void VeloxGpuHashShuffleReaderDeserializer::read() {
   std::shared_ptr<arrow::io::InputStream> inputStream = nullptr;
 
+  struct ActiveReaderGuard {
+    VeloxGpuHashShuffleReaderDeserializer* self;
+    std::shared_ptr<arrow::io::InputStream>& inputStream;
+
+    ~ActiveReaderGuard() {
+      if (inputStream != nullptr) {
+        const auto st = inputStream->Close();
+        if (!st.ok()) {
+          LOG(WARNING) << "Failed to close GPU shuffle reader input stream. Error: " << st.message();
+        }
+      }
+      if (self->activeReaders_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        if (self->batchQueue_) {
+          self->batchQueue_->noMoreBatches();
+        }
+        self->completionCV_.notify_all();
+      }
+    }
+  } guard{this, inputStream};
+
   while (true) {
     // Check if stop has been called.
     if (stop_.load(std::memory_order_acquire)) {
@@ -188,16 +208,7 @@ void VeloxGpuHashShuffleReaderDeserializer::read() {
     batchQueue_->put(batch);
   }
 
-  // Close input stream if it's still open.
-  if (inputStream != nullptr) {
-    GLUTEN_THROW_NOT_OK(inputStream->Close());
-  }
-
-  // Decrement active reader count.
-  if (activeReaders_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-    batchQueue_->noMoreBatches();
-    completionCV_.notify_all();
-  }
+  // ActiveReaderGuard will close any open stream and decrement activeReaders_ / notify completion.
 }
 
 bool VeloxGpuHashShuffleReaderDeserializer::isStopped() const {
