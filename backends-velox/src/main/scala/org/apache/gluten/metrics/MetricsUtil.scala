@@ -129,8 +129,8 @@ object MetricsUtil extends Logging {
         }
     }
 
-    val loadLazyVectorMetricsIdx = orderedNodeIds.size() - 1
-    if (loadLazyVectorMetricsIdx >= 0 && loadLazyVectorMetricsIdx < operatorMetrics.size()) {
+    val loadLazyVectorMetricsIdx = operatorMetrics.size() - 1
+    if (loadLazyVectorMetricsIdx >= 0) {
       operatorMetrics.get(loadLazyVectorMetricsIdx).loadLazyVectorTime =
         root.path("loadLazyVectorTime").asLong(0L)
     }

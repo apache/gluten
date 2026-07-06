@@ -120,7 +120,7 @@ Scala parses the payload in `MetricsUtil.parseNativeOperatorMetrics`:
 3. Convert every Velox operator stat for the node into `OperatorMetrics`.
 4. If the node id is in `omittedNodeIds` and has no stat, insert an empty
    `OperatorMetrics` placeholder.
-5. Attach `loadLazyVectorTime` to the last ordered node.
+5. Attach `loadLazyVectorTime` to the last flattened native metric suite.
 6. Validate that the parsed count matches `Metrics.numMetrics`.
 
 This produces the flat `JList[OperatorMetrics]` that the Spark updater tree
@@ -211,6 +211,8 @@ The merge behavior is designed around Velox pipeline shape:
 - Input-side counters are taken from the last consumed suite.
 - Output-side and write counters are taken from the first consumed suite.
 - CPU, wall time, spill, allocation, and most custom counters are accumulated.
+- `loadLazyVectorTime` is attached to the final flattened suite and accumulated
+  across consumed suites.
 - Peak memory uses the maximum value.
 
 This gives the Spark operator one coherent metric row even when it was
