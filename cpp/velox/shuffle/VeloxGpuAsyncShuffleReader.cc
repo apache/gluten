@@ -15,23 +15,12 @@
  * limitations under the License.
  */
 
-#include "VeloxGpuShuffleReader.h"
-
-#include <arrow/array/array_binary.h>
-#include <arrow/io/buffered.h>
-
-#include "memory/GpuBufferColumnarBatch.h"
-#include "memory/VeloxColumnarBatch.h"
+#include "shuffle/VeloxGpuAsyncShuffleReader.h"
+#include "compute/VeloxBackend.h"
 #include "shuffle/Payload.h"
-#include "shuffle/Utils.h"
-#include "utils/CachedBatchQueue.h"
-#include "utils/Common.h"
-#include "utils/Macros.h"
-#include "utils/Timer.h"
 
+#include <arrow/io/buffered.h>
 #include <algorithm>
-
-using namespace facebook::velox;
 
 namespace gluten {
 
@@ -69,7 +58,6 @@ VeloxGpuAsyncHashShuffleReaderDeserializer::VeloxGpuAsyncHashShuffleReaderDeseri
     const facebook::velox::RowTypePtr& rowType,
     int64_t readerBufferSize,
     VeloxMemoryManager* memoryManager,
-    ReaderThreadPool* threadPool,
     int64_t& deserializeTime,
     int64_t& decompressTime)
     : streamReader_(streamReader),
@@ -78,9 +66,9 @@ VeloxGpuAsyncHashShuffleReaderDeserializer::VeloxGpuAsyncHashShuffleReaderDeseri
       rowType_(rowType),
       readerBufferSize_(readerBufferSize),
       memoryManager_(memoryManager),
-      threadPool_(threadPool),
       deserializeTime_(deserializeTime),
-      decompressTime_(decompressTime) {}
+      decompressTime_(decompressTime),
+      threadPool_(VeloxBackend::get()->getReaderThreadPool()) {}
 
 VeloxGpuAsyncHashShuffleReaderDeserializer::~VeloxGpuAsyncHashShuffleReaderDeserializer() {
   // Wait for all reader threads to complete before destroying
@@ -92,8 +80,7 @@ VeloxGpuAsyncHashShuffleReaderDeserializer::~VeloxGpuAsyncHashShuffleReaderDeser
   deserializeTime_ += deserializeTimeCounter_.load(std::memory_order_relaxed);
 }
 
-std::unique_ptr<ColumnarBatchIterator> VeloxGpuAsyncHashShuffleReaderDeserializer::deserializeStreams(
-    int32_t priority) {
+std::unique_ptr<ColumnarBatchIterator> VeloxGpuAsyncHashShuffleReaderDeserializer::deserializeStreams() {
   batchQueue_ = std::make_unique<CachedBatchQueue<GpuBufferColumnarBatch>>(1L << 30);
 
   if (!threadPool_) {
@@ -109,9 +96,9 @@ std::unique_ptr<ColumnarBatchIterator> VeloxGpuAsyncHashShuffleReaderDeserialize
   for (size_t i = 0; i < numThreads; ++i) {
     tasks.emplace_back([this]() { read(); });
   }
-  threadPool_->submitBatch(std::move(tasks), priority);
+  threadPool_->submitBatch(std::move(tasks), priority_);
 
-  if (priority == 0) {
+  if (priority_ == 0) {
     threadPool_->start();
   }
 

@@ -674,7 +674,7 @@ std::shared_ptr<ColumnarBatch> VeloxHashShuffleReaderDeserializer::next() {
   return columnarBatch;
 }
 
-std::unique_ptr<ColumnarBatchIterator> VeloxHashShuffleReaderDeserializer::deserializeStreams(int32_t priority) {
+std::unique_ptr<ColumnarBatchIterator> VeloxHashShuffleReaderDeserializer::deserializeStreams() {
   return std::make_unique<SyncShuffleReaderIterator<VeloxHashShuffleReaderDeserializer>>(this);
 }
 
@@ -711,7 +711,7 @@ VeloxSortShuffleReaderDeserializer::~VeloxSortShuffleReaderDeserializer() {
   }
 }
 
-std::unique_ptr<ColumnarBatchIterator> VeloxSortShuffleReaderDeserializer::deserializeStreams(int32_t priority) {
+std::unique_ptr<ColumnarBatchIterator> VeloxSortShuffleReaderDeserializer::deserializeStreams() {
   return std::make_unique<SyncShuffleReaderIterator<VeloxSortShuffleReaderDeserializer>>(this);
 }
 
@@ -921,7 +921,7 @@ std::shared_ptr<ColumnarBatch> VeloxRssSortShuffleReaderDeserializer::next() {
   return std::make_shared<VeloxColumnarBatch>(std::move(rowVector));
 }
 
-std::unique_ptr<ColumnarBatchIterator> VeloxRssSortShuffleReaderDeserializer::deserializeStreams(int32_t priority) {
+std::unique_ptr<ColumnarBatchIterator> VeloxRssSortShuffleReaderDeserializer::deserializeStreams() {
   return std::make_unique<SyncShuffleReaderIterator<VeloxRssSortShuffleReaderDeserializer>>(this);
 }
 
@@ -951,25 +951,12 @@ size_t VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::remainingSize() 
 
 VeloxShuffleReader::VeloxShuffleReader(
     const std::shared_ptr<arrow::Schema>& schema,
-    const std::shared_ptr<arrow::util::Codec>& codec,
-    facebook::velox::common::CompressionKind veloxCompressionType,
-    const RowTypePtr& rowType,
-    int32_t batchSize,
-    int64_t readerBufferSize,
-    int64_t deserializerBufferSize,
     VeloxMemoryManager* memoryManager,
-    ShuffleWriterType shuffleWriterType,
-    bool enableHashShuffleReaderStreamMerge)
-    : schema_(schema),
-      codec_(codec),
-      veloxCompressionType_(veloxCompressionType),
-      rowType_(rowType),
-      batchSize_(batchSize),
-      readerBufferSize_(readerBufferSize),
-      deserializerBufferSize_(deserializerBufferSize),
-      memoryManager_(memoryManager),
-      shuffleWriterType_(shuffleWriterType),
-      enableHashShuffleReaderStreamMerge_(enableHashShuffleReaderStreamMerge) {
+    const std::shared_ptr<ShuffleReaderOptions>& options)
+    : schema_(schema), memoryManager_(memoryManager), options_(options) {
+  codec_ = gluten::createCompressionCodec(options->compressionType, options->codecBackend);
+  veloxCompressionType_ = arrowCompressionTypeToVelox(options->compressionType);
+  rowType_ = facebook::velox::asRowType(gluten::fromArrowSchema(schema));
   initFromSchema();
 }
 
@@ -978,16 +965,27 @@ void VeloxShuffleReader::createDeserializer(const std::shared_ptr<StreamReader>&
     case ShuffleWriterType::kGpuHashShuffle: {
 #ifdef GLUTEN_ENABLE_GPU
       VELOX_CHECK(!hasComplexType_);
-      deserializer_ = std::make_unique<VeloxGpuAsyncHashShuffleReaderDeserializer>(
-          streamReader,
-          schema_,
-          codec_,
-          rowType_,
-          readerBufferSize_,
-          memoryManager_,
-          VeloxBackend::get()->getReaderThreadPool(),
-          deserializeTime_,
-          decompressTime_);
+      if (options_->enableGpuAsyncReader) {
+        deserializer_ = std::make_unique<VeloxGpuAsyncHashShuffleReaderDeserializer>(
+            streamReader,
+            schema_,
+            codec_,
+            rowType_,
+            readerBufferSize_,
+            memoryManager_,
+            deserializeTime_,
+            decompressTime_);
+      } else {
+        deserializer_ = std::make_unique<VeloxGpuHashShuffleReaderDeserializer>(
+            streamReader,
+            schema_,
+            codec_,
+            rowType_,
+            readerBufferSize_,
+            memoryManager_,
+            deserializeTime_,
+            decompressTime_);
+      }
 #else
       throw GlutenException("GLUTEN_ENABLE_GPU is not set. GPU shuffle reader deserializer is not supported.");
 #endif
@@ -998,12 +996,12 @@ void VeloxShuffleReader::createDeserializer(const std::shared_ptr<StreamReader>&
           schema_,
           codec_,
           rowType_,
-          batchSize_,
-          readerBufferSize_,
+          options_->batchSize,
+          options_->readerBufferSize,
           memoryManager_,
           isValidityBuffer_,
           hasComplexType_,
-          enableHashShuffleReaderStreamMerge_,
+          options_->enableHashShuffleReaderStreamMerge,
           deserializeTime_,
           decompressTime_);
     } break;
@@ -1013,16 +1011,16 @@ void VeloxShuffleReader::createDeserializer(const std::shared_ptr<StreamReader>&
           schema_,
           codec_,
           rowType_,
-          batchSize_,
-          readerBufferSize_,
-          deserializerBufferSize_,
+          options_->batchSize,
+          options_->readerBufferSize,
+          options_->deserializerBufferSize,
           memoryManager_,
           deserializeTime_,
           decompressTime_);
       break;
     case ShuffleWriterType::kRssSortShuffle:
       deserializer_ = std::make_unique<VeloxRssSortShuffleReaderDeserializer>(
-          streamReader, memoryManager_, rowType_, batchSize_, veloxCompressionType_, deserializeTime_);
+          streamReader, memoryManager_, rowType_, options_->batchSize, veloxCompressionType_, deserializeTime_);
       break;
     default:
       VELOX_UNREACHABLE();
@@ -1060,9 +1058,9 @@ void VeloxShuffleReader::initFromSchema() {
 }
 
 std::shared_ptr<ResultIterator> VeloxShuffleReader::read(const std::shared_ptr<StreamReader>& streamReader) {
-  createDeserializer(streamReader);
   // TODO: Support reader priority for async reader.
-  return std::make_shared<ResultIterator>(deserializer_->deserializeStreams(0));
+  createDeserializer(streamReader);
+  return std::make_shared<ResultIterator>(deserializer_->deserializeStreams());
 }
 
 int64_t VeloxShuffleReader::getDecompressTime() const {

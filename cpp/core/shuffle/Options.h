@@ -69,6 +69,8 @@ struct ShuffleReaderOptions {
   // Whether to enable the reader-side raw payload merge fast path for plain hash shuffle payloads within one input
   // stream.
   bool enableHashShuffleReaderStreamMerge = false;
+
+  bool enableGpuAsyncReader = true;
 };
 
 struct ShuffleWriterOptions {

@@ -17,6 +17,7 @@
 package org.apache.gluten.vectorized
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config
 import org.apache.gluten.config.{GlutenConfig, ShuffleWriterType, VeloxConfig}
 import org.apache.gluten.iterator.ClosableIterator
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
@@ -100,19 +101,16 @@ private class ColumnarBatchSerializerInstanceImpl(
       }
     val compressionCodecBackend =
       GlutenConfig.get.columnarShuffleCodecBackend.orNull
-    val batchSize = GlutenConfig.get.maxBatchSize
-    val readerBufferSize = GlutenConfig.get.columnarShuffleReaderBufferSize
-    val deserializerBufferSize = GlutenConfig.get.columnarSortShuffleDeserializerBufferSize
-    val enableHashShuffleReaderStreamMerge = VeloxConfig.get.enableHashShuffleReaderStreamMerge
     val shuffleReaderHandle = jniWrapper.make(
+      shuffleWriterType.name,
       cSchema.memoryAddress(),
       compressionCodec,
       compressionCodecBackend,
-      batchSize,
-      readerBufferSize,
-      deserializerBufferSize,
-      shuffleWriterType.name,
-      enableHashShuffleReaderStreamMerge
+      GlutenConfig.get.maxBatchSize,
+      GlutenConfig.get.columnarShuffleReaderBufferSize,
+      GlutenConfig.get.columnarSortShuffleDeserializerBufferSize,
+      VeloxConfig.get.enableHashShuffleReaderStreamMerge,
+      VeloxConfig.get.enableGpuAsyncShuffleReader
     )
     // Close shuffle reader instance as lately as the end of task processing,
     // since the native reader could hold a reference to memory pool that

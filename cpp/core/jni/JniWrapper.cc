@@ -1283,28 +1283,31 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_OnHeapJniByteInputStrea
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrapper_make( // NOLINT
     JNIEnv* env,
     jobject wrapper,
+    jstring shuffleWriterType,
     jlong cSchema,
     jstring compressionType,
     jstring compressionBackend,
     jint batchSize,
     jlong readerBufferSize,
     jlong deserializerBufferSize,
-    jstring shuffleWriterType,
-    jboolean enableHashShuffleReaderStreamMerge) {
+    jboolean enableHashShuffleReaderStreamMerge,
+    jboolean enableAsyncReader) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
 
-  ShuffleReaderOptions options = ShuffleReaderOptions{};
-  options.compressionType = getCompressionType(env, compressionType);
-  if (compressionType != nullptr) {
-    options.codecBackend = getCodecBackend(env, compressionBackend);
-  }
-  options.batchSize = batchSize;
-  options.readerBufferSize = readerBufferSize;
-  options.deserializerBufferSize = deserializerBufferSize;
-  options.enableHashShuffleReaderStreamMerge = enableHashShuffleReaderStreamMerge;
+  auto options = std::make_shared<ShuffleReaderOptions>();
+  options->shuffleWriterType = ShuffleWriter::stringToType(jStringToCString(env, shuffleWriterType));
 
-  options.shuffleWriterType = ShuffleWriter::stringToType(jStringToCString(env, shuffleWriterType));
+  options->compressionType = getCompressionType(env, compressionType);
+  if (compressionType != nullptr) {
+    options->codecBackend = getCodecBackend(env, compressionBackend);
+  }
+  options->batchSize = batchSize;
+  options->readerBufferSize = readerBufferSize;
+  options->deserializerBufferSize = deserializerBufferSize;
+  options->enableHashShuffleReaderStreamMerge = enableHashShuffleReaderStreamMerge;
+  options->enableGpuAsyncReader = enableAsyncReader;
+
   std::shared_ptr<arrow::Schema> schema =
       arrowGetOrThrow(arrow::ImportSchema(reinterpret_cast<struct ArrowSchema*>(cSchema)));
 

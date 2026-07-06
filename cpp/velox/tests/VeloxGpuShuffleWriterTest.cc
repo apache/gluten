@@ -148,20 +148,22 @@ std::vector<GpuShuffleTestParams> getTestParams() {
     for (const auto compressionThreshold : compressionThresholds) {
       // Local.
       for (const auto mergeBufferSize : mergeBufferSizes) {
-        params.push_back(GpuShuffleTestParams{
-            .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
-            .partitionWriterType = PartitionWriterType::kLocal,
-            .compressionType = compression,
-            .compressionThreshold = compressionThreshold,
-            .mergeBufferSize = mergeBufferSize});
+        params.push_back(
+            GpuShuffleTestParams{
+                .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+                .partitionWriterType = PartitionWriterType::kLocal,
+                .compressionType = compression,
+                .compressionThreshold = compressionThreshold,
+                .mergeBufferSize = mergeBufferSize});
       }
 
       // Rss.
-      params.push_back(GpuShuffleTestParams{
-          .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
-          .partitionWriterType = PartitionWriterType::kRss,
-          .compressionType = compression,
-          .compressionThreshold = compressionThreshold});
+      params.push_back(
+          GpuShuffleTestParams{
+              .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+              .partitionWriterType = PartitionWriterType::kRss,
+              .compressionType = compression,
+              .compressionThreshold = compressionThreshold});
     }
   }
 
@@ -297,20 +299,15 @@ class GpuVeloxShuffleWriterTest : public ::testing::TestWithParam<GpuShuffleTest
       const RowTypePtr& rowType,
       std::vector<std::shared_ptr<GpuBufferColumnarBatch>>& bufferBatches,
       std::shared_ptr<arrow::io::InputStream> in) {
-    const auto veloxCompressionType = arrowCompressionTypeToVelox(compressionType);
     const auto schema = toArrowSchema(rowType, getDefaultMemoryManager()->getLeafMemoryPool().get());
-    auto codec = createCompressionCodec(compressionType, CodecBackend::NONE);
+    const auto options = std::make_shared<ShuffleReaderOptions>();
+    options->compressionType = compressionType;
+    options->batchSize = kDefaultBatchSize;
+    options->readerBufferSize = kDefaultReadBufferSize;
+    options->deserializerBufferSize = GetParam().deserializerBufferSize;
+    options->shuffleWriterType = GetParam().shuffleWriterType;
 
-    auto reader = std::make_shared<gluten::VeloxShuffleReader>(
-        schema,
-        std::move(codec),
-        veloxCompressionType,
-        rowType,
-        kDefaultBatchSize,
-        kDefaultReadBufferSize,
-        GetParam().deserializerBufferSize,
-        getDefaultMemoryManager(),
-        GetParam().shuffleWriterType);
+    const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
     const auto iter = reader->read(std::make_shared<TestStreamReader>(std::move(in)));
 
@@ -493,12 +490,7 @@ TEST_P(GpuHashPartitioningShuffleWriterTest, hashPart1Vector) {
         makeFlatVector<int32_t>({232, 34567235, 1212, 4567}),
         makeFlatVector<int32_t>(
             4, [](vector_size_t row) { return row % 2; }, nullEvery(5), DATE()),
-        makeFlatVector<Timestamp>(
-            4,
-            [](vector_size_t row) {
-              return Timestamp{row % 2, 0};
-            },
-            nullEvery(5))};
+        makeFlatVector<Timestamp>(4, [](vector_size_t row) { return Timestamp{row % 2, 0}; }, nullEvery(5))};
 
     const auto vector = makeRowVector(data);
 

@@ -20,12 +20,10 @@
 #include "memory/GpuBufferColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
 #include "shuffle/ReaderThreadPool.h"
-#include "shuffle/ShuffleReader.h"
 #include "shuffle/VeloxShuffleReader.h"
 #include "utils/CachedBatchQueue.h"
 
 #include "velox/type/Type.h"
-#include "velox/vector/ComplexVector.h"
 
 #include <atomic>
 #include <mutex>
@@ -43,13 +41,12 @@ class VeloxGpuAsyncHashShuffleReaderDeserializer final : public ShuffleReaderDes
       const facebook::velox::RowTypePtr& rowType,
       int64_t readerBufferSize,
       VeloxMemoryManager* memoryManager,
-      ReaderThreadPool* threadPool,
       int64_t& deserializeTime,
       int64_t& decompressTime);
 
   ~VeloxGpuAsyncHashShuffleReaderDeserializer() override;
 
-  std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) override;
+  std::unique_ptr<ColumnarBatchIterator> deserializeStreams() override;
 
   void stop() override;
 
@@ -65,13 +62,13 @@ class VeloxGpuAsyncHashShuffleReaderDeserializer final : public ShuffleReaderDes
   facebook::velox::RowTypePtr rowType_;
   int64_t readerBufferSize_;
   VeloxMemoryManager* memoryManager_;
-  ReaderThreadPool* threadPool_;
+
+  int32_t priority_{0};
 
   int64_t& deserializeTime_;
   int64_t& decompressTime_;
 
-  std::atomic<int64_t> deserializeTimeCounter_{0};
-  std::atomic<int64_t> decompressTimeCounter_{0};
+  ReaderThreadPool* threadPool_;
 
   std::unique_ptr<CachedBatchQueue<GpuBufferColumnarBatch>> batchQueue_;
   std::atomic<int> activeReaders_{0};
@@ -82,5 +79,8 @@ class VeloxGpuAsyncHashShuffleReaderDeserializer final : public ShuffleReaderDes
 
   std::mutex completionMtx_;
   std::condition_variable completionCV_;
+
+  std::atomic<int64_t> deserializeTimeCounter_{0};
+  std::atomic<int64_t> decompressTimeCounter_{0};
 };
 } // namespace gluten

@@ -98,14 +98,15 @@ private class CelebornColumnarBatchSerializerInstance(
     val enableHashShuffleReaderStreamMerge = VeloxConfig.get.enableHashShuffleReaderStreamMerge
     val handle = jniWrapper
       .make(
+        shuffleWriterType.name,
         cSchema.memoryAddress(),
         compressionCodec,
         compressionCodecBackend,
         batchSize,
         readerBufferSize,
         deserializerBufferSize,
-        shuffleWriterType.name,
-        enableHashShuffleReaderStreamMerge
+        enableHashShuffleReaderStreamMerge,
+        false
       )
     // Close shuffle reader instance as lately as the end of task processing,
     // since the native reader could hold a reference to memory pool that

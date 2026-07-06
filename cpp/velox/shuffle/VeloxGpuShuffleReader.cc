@@ -121,7 +121,7 @@ std::shared_ptr<ColumnarBatch> VeloxGpuHashShuffleReaderDeserializer::next() {
   return std::make_shared<GpuBufferColumnarBatch>(rowType_, std::move(arrowBuffers), static_cast<int32_t>(numRows));
 }
 
-std::unique_ptr<ColumnarBatchIterator> VeloxGpuHashShuffleReaderDeserializer::deserializeStreams(int32_t priority) {
+std::unique_ptr<ColumnarBatchIterator> VeloxGpuHashShuffleReaderDeserializer::deserializeStreams() {
   return std::make_unique<SyncShuffleReaderIterator<VeloxGpuHashShuffleReaderDeserializer>>(this);
 }
 

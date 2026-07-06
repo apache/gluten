@@ -36,14 +36,15 @@ public class ShuffleReaderJniWrapper implements RuntimeAware {
   }
 
   public native long make(
+      String shuffleWriterType,
       long cSchema,
       String compressionType,
       String compressionCodecBackend,
       int batchSize,
       long readerBufferSize,
       long deserializerBufferSize,
-      String shuffleWriterType,
-      boolean enableHashShuffleReaderStreamMerge);
+      boolean enableHashShuffleReaderStreamMerge,
+      boolean enableGpuAsyncReader);
 
   public native long read(long shuffleReaderHandle, ShuffleStreamReader streamReader);
 

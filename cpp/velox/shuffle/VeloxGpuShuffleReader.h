@@ -43,7 +43,7 @@ class VeloxGpuHashShuffleReaderDeserializer final : public ShuffleReaderDeserial
 
   std::shared_ptr<ColumnarBatch> next();
 
-  std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) override;
+  std::unique_ptr<ColumnarBatchIterator> deserializeStreams() override;
 
  private:
   bool resolveNextBlockType();
