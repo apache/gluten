@@ -92,7 +92,8 @@ VeloxGpuAsyncHashShuffleReaderDeserializer::~VeloxGpuAsyncHashShuffleReaderDeser
   deserializeTime_ += deserializeTimeCounter_.load(std::memory_order_relaxed);
 }
 
-std::unique_ptr<ColumnarBatchIterator> VeloxGpuAsyncHashShuffleReaderDeserializer::deserializeStreams(int32_t priority) {
+std::unique_ptr<ColumnarBatchIterator> VeloxGpuAsyncHashShuffleReaderDeserializer::deserializeStreams(
+    int32_t priority) {
   batchQueue_ = std::make_unique<CachedBatchQueue<GpuBufferColumnarBatch>>(1L << 30);
 
   if (!threadPool_) {

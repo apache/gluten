@@ -38,8 +38,8 @@
 #include <algorithm>
 
 #ifdef GLUTEN_ENABLE_GPU
-#include "shuffle/VeloxGpuShuffleReader.h"
 #include "shuffle/VeloxGpuAsyncShuffleReader.h"
+#include "shuffle/VeloxGpuShuffleReader.h"
 #endif
 
 using namespace facebook::velox;
