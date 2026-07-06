@@ -153,6 +153,8 @@ trait HashJoinLikeExecTransformer extends BaseJoinExec with TransformSupport {
   override def metricsUpdater(): MetricsUpdater =
     BackendsApiManager.getMetricsApiInstance.genHashJoinTransformerMetricsUpdater(metrics)
 
+  protected var joinParamsForMetrics: Option[JoinParams] = None
+
   override def outputPartitioning: Partitioning = joinBuildSide match {
     case BuildLeft =>
       joinType match {
@@ -238,6 +240,7 @@ trait HashJoinLikeExecTransformer extends BaseJoinExec with TransformSupport {
     val operatorId = context.nextOperatorId(this.nodeName)
 
     val joinParams = new JoinParams
+    joinParamsForMetrics = Some(joinParams)
     if (JoinUtils.preProjectionNeeded(streamedKeyExprs)) {
       joinParams.streamPreProjectionNeeded = true
     }

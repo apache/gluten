@@ -252,6 +252,8 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
       conf->get<bool>(kOrcUseColumnNames, true) ? "true" : "false";
   configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kWriterPageSizeSession)] =
       conf->get<std::string>(kWriteParquetPageSizeBytes, "1MB");
+  configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kWriterDictionaryPageSizeLimitSession)] =
+      conf->get<std::string>(kWriteParquetDictSizeBytes, "2MB");
   configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kNullStructIfAllFieldsMissingSession)] =
       "true";
 

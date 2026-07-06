@@ -91,6 +91,16 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
 
 long getJoin(const std::string& hashTableId);
 
+// Return the exact serialized hash table size for direct buffer allocation.
+size_t serializedHashTableSize(std::shared_ptr<HashTableBuilder> builder);
+
+// Serialize hash table directly to a caller-provided buffer.
+void serializeHashTableTo(std::shared_ptr<HashTableBuilder> builder, uint8_t* data, size_t size);
+
+// Deserialize hash table from broadcast data with explicit ignoreNullKeys parameter
+std::shared_ptr<HashTableBuilder>
+deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool joinHasNullKeys = false);
+
 // Initialize the JNI hash table context
 inline void initVeloxJniHashTable(JNIEnv* env, JavaVM* javaVm) {
   JniHashTableContext::getInstance().initialize(env, javaVm);

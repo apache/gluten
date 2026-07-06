@@ -42,6 +42,26 @@ public class ReflectUtils {
     }
   }
 
+  public static Object tryGetObjectField(Class<?> clazz, Object obj, String fieldName) {
+    try {
+      return getObjectField(clazz, obj, fieldName);
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  public static Object tryGetObjectField(Object obj, String fieldName) {
+    Class<?> clazz = obj.getClass();
+    while (clazz != null) {
+      Object value = tryGetObjectField(clazz, obj, fieldName);
+      if (value != null) {
+        return value;
+      }
+      clazz = clazz.getSuperclass();
+    }
+    return null;
+  }
+
   public static Object invokeObjectMethod(
       Class<?> clazz, Object obj, String methodName, Class<?>[] paramTypes, Object[] paramValues) {
     try {

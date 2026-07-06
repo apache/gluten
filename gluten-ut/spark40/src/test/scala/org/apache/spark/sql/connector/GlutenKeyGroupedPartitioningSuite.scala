@@ -21,6 +21,7 @@ import org.apache.gluten.execution.SortMergeJoinExecTransformer
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, GlutenSQLTestsBaseTrait, Row}
+import org.apache.spark.sql.catalyst.plans.physical.KeyGroupedPartitioning
 import org.apache.spark.sql.connector.catalog.{Column, Identifier, InMemoryTableCatalog}
 import org.apache.spark.sql.connector.distributions.Distributions
 import org.apache.spark.sql.connector.expressions.Expressions.{bucket, days, identity, years}
@@ -1069,6 +1070,51 @@ class GlutenKeyGroupedPartitioningSuite
 
           checkAnswer(df, Seq(Row(1, "aa", 40.0, 42.0)))
         }
+    }
+  }
+
+  testGluten(
+    "GLUTEN-10992: KeyGroupedPartitioning shuffle falls back to vanilla Spark") {
+    val items_partitions = Array(identity("id"))
+    createTable(items, itemsColumns, items_partitions)
+
+    sql(
+      s"INSERT INTO testcat.ns.$items VALUES " +
+        "(1, 'aa', 40.0, cast('2020-01-01' as timestamp)), " +
+        "(3, 'bb', 10.0, cast('2020-01-01' as timestamp)), " +
+        "(4, 'cc', 15.5, cast('2020-02-01' as timestamp))")
+
+    createTable(purchases, purchasesColumns, Array.empty)
+    sql(
+      s"INSERT INTO testcat.ns.$purchases VALUES " +
+        "(1, 42.0, cast('2020-01-01' as timestamp)), " +
+        "(3, 19.5, cast('2020-02-01' as timestamp))")
+
+    // With V2 bucketing shuffle enabled and only one side reporting partitioning, Spark
+    // shuffles the other side with a ShuffleExchangeExec whose output partitioning is
+    // KeyGroupedPartitioning. Gluten native shuffle does not support it, so the exchange
+    // must fall back to vanilla Spark. Offloading it to ColumnarShuffleExchangeExec would
+    // crash with a scala.MatchError in ExecUtil.genShuffleDependency (GLUTEN-10992).
+    withSQLConf(SQLConf.V2_BUCKETING_SHUFFLE_ENABLED.key -> "true") {
+      val df = createJoinTestDF(Seq("id" -> "item_id"))
+      val plan = df.queryExecution.executedPlan
+
+      val keyGroupedShuffles = collect(plan) {
+        case s: ShuffleExchangeExec
+            if s.outputPartitioning.isInstanceOf[KeyGroupedPartitioning] =>
+          s
+      }
+      assert(
+        keyGroupedShuffles.nonEmpty,
+        "KeyGroupedPartitioning shuffle should fall back to a vanilla ShuffleExchangeExec")
+
+      val columnarKeyGroupedShuffles = collectAllShuffles(plan)
+        .filter(_.outputPartitioning.isInstanceOf[KeyGroupedPartitioning])
+      assert(
+        columnarKeyGroupedShuffles.isEmpty,
+        "KeyGroupedPartitioning must not be offloaded to ColumnarShuffleExchangeExec")
+
+      checkAnswer(df, Seq(Row(1, "aa", 40.0, 42.0), Row(3, "bb", 10.0, 19.5)))
     }
   }
 

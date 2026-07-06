@@ -104,9 +104,10 @@ delta::DeltaRowIndexFilterType parseDeltaRowIndexFilterType(int filterType) {
 std::shared_ptr<DeltaSplitInfo> parseDeltaSplitInfo(
     const substrait::ReadRel_LocalFiles_FileOrFiles& file,
     std::shared_ptr<SplitInfo> splitInfo) {
-  auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo)
-      ? std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo)
-      : std::make_shared<DeltaSplitInfo>(*splitInfo);
+  auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo);
+  if (!deltaSplitInfo) {
+    deltaSplitInfo = std::make_shared<DeltaSplitInfo>(*splitInfo);
+  }
 
   deltaSplitInfo->format = dwio::common::FileFormat::PARQUET;
   const auto& deltaReadOptions = file.delta();
@@ -118,14 +119,14 @@ std::shared_ptr<DeltaSplitInfo> parseDeltaSplitInfo(
     return deltaSplitInfo;
   }
 
-  auto serializedPayload = deltaReadOptions.serialized_deletion_vector();
+  const auto& serializedPayload = deltaReadOptions.serialized_deletion_vector();
   VELOX_USER_CHECK(!serializedPayload.empty(), "Delta split has a deletion vector without a serialized payload");
   VELOX_USER_CHECK_LE(
       serializedPayload.size(),
       static_cast<size_t>(std::numeric_limits<int32_t>::max()),
       "Delta deletion vector serialized payload is too large");
   const auto cardinality = static_cast<uint64_t>(deltaReadOptions.deletion_vector_cardinality());
-  auto payload = std::make_shared<std::string>(std::move(serializedPayload));
+  auto payload = std::make_shared<std::string>(serializedPayload);
   const SplitPayloadBufferView payloadView{
       reinterpret_cast<const uint8_t*>(payload->data()), static_cast<int32_t>(payload->size())};
   deltaSplitInfo->deletionVectors.emplace_back(
