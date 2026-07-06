@@ -17,7 +17,6 @@
 package org.apache.gluten.vectorized
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.config
 import org.apache.gluten.config.{GlutenConfig, ShuffleWriterType, VeloxConfig}
 import org.apache.gluten.iterator.ClosableIterator
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
@@ -92,7 +91,10 @@ private class ColumnarBatchSerializerInstanceImpl(
       SparkSchemaUtil.toArrowSchema(schema, SQLConf.get.sessionLocalTimeZone)
     val cSchema = ArrowSchema.allocateNew(allocator)
     ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
+
     val conf = SparkEnv.get.conf
+    val glutenConfig = GlutenConfig.get
+    val veloxConfig = VeloxConfig.get
     val compressionCodec =
       if (conf.getBoolean("spark.shuffle.compress", true)) {
         GlutenShuffleUtils.getCompressionCodec(conf)
@@ -100,17 +102,17 @@ private class ColumnarBatchSerializerInstanceImpl(
         null // uncompressed
       }
     val compressionCodecBackend =
-      GlutenConfig.get.columnarShuffleCodecBackend.orNull
+      glutenConfig.columnarShuffleCodecBackend.orNull
     val shuffleReaderHandle = jniWrapper.make(
       shuffleWriterType.name,
       cSchema.memoryAddress(),
       compressionCodec,
       compressionCodecBackend,
-      GlutenConfig.get.maxBatchSize,
-      GlutenConfig.get.columnarShuffleReaderBufferSize,
-      GlutenConfig.get.columnarSortShuffleDeserializerBufferSize,
-      VeloxConfig.get.enableHashShuffleReaderStreamMerge,
-      VeloxConfig.get.enableGpuAsyncShuffleReader
+      glutenConfig.maxBatchSize,
+      glutenConfig.columnarShuffleReaderBufferSize,
+      glutenConfig.columnarSortShuffleDeserializerBufferSize,
+      veloxConfig.enableHashShuffleReaderStreamMerge,
+      veloxConfig.enableGpuAsyncShuffleReader
     )
     // Close shuffle reader instance as lately as the end of task processing,
     // since the native reader could hold a reference to memory pool that
