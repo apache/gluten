@@ -35,9 +35,9 @@ public class HashJoinBuilder implements RuntimeAware {
     return runtime.getHandle();
   }
 
-  public static native void clearHashTable(long hashTableData);
+  public static native void clearHashTable(String cacheKey, long hashTableData);
 
-  public static native long cloneHashTable(long hashTableData);
+  public static native long cloneHashTable(String cacheKey, long hashTableData);
 
   public static native long deserializeHashTableDirect(
       long address, int size, boolean ignoreNullKeys, boolean joinHasNullKeys);

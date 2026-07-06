@@ -305,7 +305,12 @@ class UnsafeColumnarBuildSideRelation(
 
         (hashTableData(droppedDuplicates), this, droppedDuplicates)
       } else {
-        (HashJoinBuilder.cloneHashTable(hashTableData(droppedDuplicates)), null, droppedDuplicates)
+        (
+          HashJoinBuilder.cloneHashTable(
+            broadcastContext.buildHashTableId,
+            hashTableData(droppedDuplicates)),
+          null,
+          droppedDuplicates)
       }
     }
 

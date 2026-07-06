@@ -458,26 +458,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   } else if (
       sJoin.has_advanced_extension() &&
       SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isBHJ=")) {
-    std::string hashTableId = sJoin.hashtableid();
-
-    std::shared_ptr<core::OpaqueHashTable> opaqueSharedHashTable = nullptr;
-    bool joinHasNullKeys = false;
-
-    try {
-      auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(getJoin(hashTableId));
-      joinHasNullKeys = hashTableBuilder->joinHasNullKeys();
-      auto originalShared = hashTableBuilder->hashTable();
-      opaqueSharedHashTable = std::shared_ptr<core::OpaqueHashTable>(
-          originalShared, reinterpret_cast<core::OpaqueHashTable*>(originalShared.get()));
-
-      LOG(INFO) << "Successfully retrieved and aliased HashTable for reuse. ID: " << hashTableId;
-    } catch (const std::exception& e) {
-      LOG(WARNING)
-          << "Error retrieving HashTable from ObjectStore: " << e.what()
-          << ". Falling back to building new table. To ensure correct results, please verify that spark.gluten.velox.buildHashTableOncePerExecutor.enabled is set to false.";
-      opaqueSharedHashTable = nullptr;
-    }
-
+    const auto& hashTableId = sJoin.hashtableid();
+    const auto joinNodeId = hashTableId.empty() ? nextPlanNodeId() : hashTableId;
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(
         nextPlanNodeId(),
@@ -489,10 +471,11 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         leftNode,
         rightNode,
         getJoinOutputType(leftNode, rightNode, joinType),
+        true,
         false,
         false,
-        joinHasNullKeys,
-        opaqueSharedHashTable);
+        nullptr,
+        sJoin.hashtableid());
   } else {
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(

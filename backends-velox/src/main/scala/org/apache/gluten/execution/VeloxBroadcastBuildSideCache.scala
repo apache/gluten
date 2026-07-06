@@ -245,7 +245,7 @@ object VeloxBroadcastBuildSideCache
         }
       }
 
-      HashJoinBuilder.clearHashTable(value.pointer)
+      HashJoinBuilder.clearHashTable(key, value.pointer)
     }
   }
 }
