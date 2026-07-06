@@ -18,29 +18,34 @@ package org.apache.gluten.memory.memtarget;
 
 import com.google.common.base.Preconditions;
 
+/**
+ * Wraps {@code target} and, on each successful {@code borrow}, performs a preemptive spill probe
+ * against {@code overTarget}.
+ *
+ * <p>The probe asks {@code overTarget} to borrow {@code ratio * target.usedBytes()} bytes, then
+ * immediately releases them. Because {@code overTarget} shares Spark's memory pool with {@code
+ * target}, the borrow call forces Spark to spill other memory consumers if the pool is tight, and
+ * the subsequent repay frees the reservation without holding any actual memory. The net effect is
+ * that subsequent allocations under {@code target} start with the pool in a shrunk state and are
+ * less likely to hit an OOM that {@code target} itself cannot spill out of (for example, a two-step
+ * reservation where step A is spillable but step B is not).
+ *
+ * <p>Historically the over-acquired memory was held for the lifetime of the reservation as a backup
+ * for OOM; that shape was changed in <a
+ * href="https://github.com/apache/gluten/pull/8247">#8247</a>, which added the {@code granted >=
+ * size} gate and moved the {@code overTarget.repay} to run right after {@code overTarget.borrow}.
+ * The class no longer holds any over-acquired bytes.
+ */
 public class OverAcquire implements MemoryTarget {
 
   // The underlying target.
   private final MemoryTarget target;
 
-  // This consumer holds the over-acquired memory.
+  // Probes Spark's memory pool by borrowing / immediately repaying; see the class Javadoc.
   private final MemoryTarget overTarget;
 
-  // The ratio is normally 0.
-  //
-  // If set to some value other than 0, the consumer will try
-  //   over-acquire this ratio of memory each time it acquires
-  //   from Spark.
-  //
-  // Once OOM, the over-acquired memory will be used as backup.
-  //
-  // The over-acquire is a general workaround for underling reservation
-  //   procedures that were not perfectly-designed for spilling. For example,
-  //   reservation for a two-step procedure: step A is capable for
-  //   spilling while step B is not. If not reserving enough memory
-  //   for step B before it's started, it might raise OOM since step A
-  //   is ended and no longer open for spilling. In this case the
-  //   over-acquired memory will be used in step B.
+  // Fraction of target.usedBytes() used as the probe size on each successful borrow. When set to
+  // 0, no probe runs and MemoryTargets#overAcquire returns target unwrapped.
   private final double ratio;
 
   OverAcquire(MemoryTarget target, MemoryTarget overTarget, double ratio) {

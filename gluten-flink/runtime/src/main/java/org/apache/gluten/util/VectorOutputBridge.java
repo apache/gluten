@@ -19,6 +19,7 @@ package org.apache.gluten.util;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
+import org.apache.flink.connector.file.table.stream.PartitionCommitInfo;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 
@@ -64,6 +65,11 @@ public interface VectorOutputBridge<OUT> extends Serializable {
       } else if (outputClass.isAssignableFrom(StatefulRecord.class)) {
         @SuppressWarnings("unchecked")
         VectorOutputBridge<OUT> bridge = (VectorOutputBridge<OUT>) new StatefulRecordOutputBridge();
+        return bridge;
+      } else if (outputClass.isAssignableFrom(PartitionCommitInfo.class)) {
+        @SuppressWarnings("unchecked")
+        VectorOutputBridge<OUT> bridge =
+            (VectorOutputBridge<OUT>) new PartitionCommitInfoOutputBridge();
         return bridge;
       } else {
         throw new UnsupportedOperationException(
@@ -132,6 +138,18 @@ public interface VectorOutputBridge<OUT> extends Serializable {
         outputElement = new StreamRecord<>(null);
       }
       return outputElement;
+    }
+  }
+
+  class PartitionCommitInfoOutputBridge implements VectorOutputBridge<PartitionCommitInfo> {
+
+    @Override
+    public void collect(
+        Output<StreamRecord<PartitionCommitInfo>> collector,
+        StatefulRecord record,
+        BufferAllocator allocator,
+        RowType outputType) {
+      throw new UnsupportedOperationException("PartitionCommitInfo is not supported");
     }
   }
 }

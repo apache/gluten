@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.execution.unsafe
 
+import org.apache.gluten.execution.VeloxBroadcastBuildSideCache
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.memory.memtarget.ThrowOnOomMemoryTarget.OutOfMemoryException
 
@@ -77,6 +78,8 @@ class UnsafeColumnarBuildSideRelationTest extends SharedSparkSession {
     // be released after a full-GC.
     unsafeRelWithIdentityMode = null
     unsafeRelWithHashMode = null
+    // Clean up the broadcast build side cache to release any cached serialized hash tables
+    VeloxBroadcastBuildSideCache.cleanAll()
     System.gc()
     Thread.sleep(1000)
     // Since we trigger GC in beforeAll() to clean up residual memory from previous test suites,

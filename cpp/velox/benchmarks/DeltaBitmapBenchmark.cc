@@ -24,10 +24,14 @@
 
 #include <benchmark/benchmark.h>
 
+#include "compute/delta/DeltaDeletionVectorReader.h"
 #include "compute/delta/RoaringBitmapArray.h"
 #include "velox/common/base/Exceptions.h"
+#include "velox/common/memory/Memory.h"
 
+using gluten::delta::DeltaDeletionVectorReader;
 using gluten::delta::RoaringBitmapArray;
+using namespace facebook::velox;
 
 namespace {
 
@@ -276,4 +280,74 @@ BENCHMARK_CAPTURE(
     ->Args({1 << 18, 64})
     ->Unit(benchmark::kMillisecond);
 
-BENCHMARK_MAIN();
+// Benchmark for applyDeletionFilter: measures the hot path where a batch of
+// rows is checked against the deletion vector bitmap.
+// deletionPercent: fraction of rows in the total file that are deleted.
+// batchSize: number of rows per batch (typical Velox batch size).
+void BM_ApplyDeletionFilter(benchmark::State& state, double deletionPercent) {
+  const auto batchSize = static_cast<uint64_t>(state.range(0));
+  const uint64_t totalFileRows = 1000000; // 1M row file
+  const auto numDeleted = static_cast<uint64_t>(totalFileRows * deletionPercent / 100.0);
+
+  // Build a DV with deletions spread across the file.
+  RoaringBitmapArray bitmap;
+  const uint64_t stride = numDeleted > 0 ? totalFileRows / numDeleted : 0;
+  for (uint64_t i = 0; i < numDeleted; ++i) {
+    bitmap.addSafe(i * stride);
+  }
+  const auto payload = bitmap.serializeToString(true);
+
+  // Load the DV reader.
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(std::string_view(payload.data(), payload.size()));
+
+  // Allocate the output bitmap buffer.
+  auto pool = memory::memoryManager()->addLeafPool();
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(batchSize), pool.get());
+
+  // Simulate scanning through the file in batches.
+  const uint64_t numBatches = totalFileRows / batchSize;
+  // Only count rows actually processed (drop tail < batchSize).
+  const uint64_t rowsProcessed = numBatches * batchSize;
+  uint64_t totalDeletedFound = 0;
+
+  for (auto _ : state) {
+    totalDeletedFound = 0;
+    for (uint64_t batch = 0; batch < numBatches; ++batch) {
+      reader.applyDeletionFilter(batch * batchSize, batchSize, deleteBitmap);
+      // Count bits set to prevent dead-code elimination.
+      // Padding bits in the last word are safe: applyDeletionFilter memsets
+      // the entire bitmap to zero before setting only in-range bits.
+      auto* raw = deleteBitmap->as<uint64_t>();
+      for (uint64_t w = 0; w < bits::nwords(batchSize); ++w) {
+        totalDeletedFound += __builtin_popcountll(raw[w]);
+      }
+    }
+    benchmark::DoNotOptimize(totalDeletedFound);
+  }
+
+  state.SetItemsProcessed(state.iterations() * rowsProcessed);
+  state.counters["batch_size"] = benchmark::Counter(batchSize);
+  state.counters["deletion_pct"] = benchmark::Counter(deletionPercent);
+  state.counters["deleted_found"] = benchmark::Counter(totalDeletedFound);
+  state.counters["total_batches"] = benchmark::Counter(numBatches);
+}
+
+// Sparse deletions (1%) - the common case for MERGE/UPDATE operations.
+BENCHMARK_CAPTURE(BM_ApplyDeletionFilter, Sparse_1pct, 1.0)->Arg(4096)->Unit(benchmark::kMillisecond);
+// Moderate deletions (10%).
+BENCHMARK_CAPTURE(BM_ApplyDeletionFilter, Moderate_10pct, 10.0)->Arg(4096)->Unit(benchmark::kMillisecond);
+// Dense deletions (50%).
+BENCHMARK_CAPTURE(BM_ApplyDeletionFilter, Dense_50pct, 50.0)->Arg(4096)->Unit(benchmark::kMillisecond);
+// Very dense deletions (90%).
+BENCHMARK_CAPTURE(BM_ApplyDeletionFilter, VeryDense_90pct, 90.0)->Arg(4096)->Unit(benchmark::kMillisecond);
+// Sparse with large batch (typical Velox max batch).
+BENCHMARK_CAPTURE(BM_ApplyDeletionFilter, Sparse_1pct_LargeBatch, 1.0)->Arg(10000)->Unit(benchmark::kMillisecond);
+
+int main(int argc, char** argv) {
+  memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
+  benchmark::Initialize(&argc, argv);
+  benchmark::RunSpecifiedBenchmarks();
+  benchmark::Shutdown();
+  return 0;
+}

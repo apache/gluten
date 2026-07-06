@@ -497,7 +497,10 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
       child: SparkPlan,
       numOutputRows: SQLMetric,
       dataSize: SQLMetric,
-      buildThreads: SQLMetric): BuildSideRelation = {
+      buildThreads: SQLMetric,
+      buildHashTableTimeMetric: SQLMetric,
+      serializeHashTableTimeMetric: SQLMetric,
+      serializedHashTableSizeMetric: SQLMetric): BuildSideRelation = {
 
     val (buildKeys, isNullAware) = mode match {
       case mode1: HashedRelationBroadcastMode =>

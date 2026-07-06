@@ -68,7 +68,7 @@ AggregateCompanion toAggregateCompanion(const core::AggregationNode::Aggregate& 
       return ::substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT;
     }
     default:
-      VELOX_UNSUPPORTED("Unsupported Aggregate Step '{}' in Substrait ", mapAggregationStepToName(step));
+      VELOX_UNSUPPORTED("Unsupported Aggregate Step '{}' in Substrait ", core::AggregationNode::toName(step));
   }
 }
 
