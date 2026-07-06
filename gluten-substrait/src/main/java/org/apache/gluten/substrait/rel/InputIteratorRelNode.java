@@ -40,7 +40,7 @@ public class InputIteratorRelNode implements RelNode {
   private final List<TypeNode> types;
   private final List<String> names;
   private final Long iteratorIndex;
-  private BigInt rowSize;
+  private BigInt rowCount;
 
   private InputStats inputStats;
 
@@ -50,12 +50,12 @@ public class InputIteratorRelNode implements RelNode {
     this.iteratorIndex = iteratorIndex;
   }
 
-  public BigInt getRowSize() {
-    return rowSize;
+  public BigInt getRowCount() {
+    return rowCount;
   }
 
-  public void setRowSize(BigInt rowSize) {
-    this.rowSize = rowSize;
+  public void setRowCount(BigInt rowCount) {
+    this.rowCount = rowCount;
   }
 
   public InputStats getInputStats() {
@@ -86,11 +86,12 @@ public class InputIteratorRelNode implements RelNode {
         LocalFilesBuilder.makeLocalFiles(ConverterUtils.ITERATOR_PREFIX() + iteratorIndex);
     readBuilder.setLocalFiles(iteratorIndexNode.toProtobuf());
 
-    if (null != rowSize) {
-      Any inputRowSize =
-          Any.pack(StringValue.newBuilder().setValue("rowSize=" + rowSize.toLong() + "\n").build());
+    if (null != rowCount) {
+      Any inputRowCount =
+          Any.pack(
+              StringValue.newBuilder().setValue("rowSize=" + rowCount.toLong() + "\n").build());
       AdvancedExtensionNode advancedExtension =
-          ExtensionBuilder.makeAdvancedExtension(inputRowSize, null);
+          ExtensionBuilder.makeAdvancedExtension(inputRowCount, null);
       readBuilder.setAdvancedExtension(advancedExtension.toProtobuf());
     }
 
@@ -100,7 +101,7 @@ public class InputIteratorRelNode implements RelNode {
   }
 
   @Override
-  public List<RelNode> childNode() {
+  public List<RelNode> childNodes() {
     return new ArrayList<>();
   }
 }

@@ -79,7 +79,7 @@ public class ExpandRelNode implements RelNode, Serializable {
   }
 
   @Override
-  public List<RelNode> childNode() {
+  public List<RelNode> childNodes() {
     return Collections.singletonList(input);
   }
 }

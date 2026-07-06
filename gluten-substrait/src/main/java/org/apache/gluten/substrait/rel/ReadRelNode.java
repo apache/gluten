@@ -46,7 +46,7 @@ public class ReadRelNode implements RelNode, Serializable {
   private final AdvancedExtensionNode extensionNode;
   private boolean streamKafka = false;
 
-  private BigInt rowSize;
+  private BigInt rowCount;
   private InputStats inputStats;
 
   ReadRelNode(
@@ -62,12 +62,12 @@ public class ReadRelNode implements RelNode, Serializable {
     this.extensionNode = extensionNode;
   }
 
-  public BigInt getRowSize() {
-    return rowSize;
+  public BigInt getRowCount() {
+    return rowCount;
   }
 
-  public void setRowSize(BigInt rowSize) {
-    this.rowSize = rowSize;
+  public void setRowCount(BigInt rowCount) {
+    this.rowCount = rowCount;
   }
 
   public InputStats getInputStats() {
@@ -100,12 +100,14 @@ public class ReadRelNode implements RelNode, Serializable {
     }
 
     if (extensionNode != null) {
-      if (null != rowSize) {
+      if (null != rowCount) {
         Any optimization = extensionNode.getOptimization();
         Any enhancement = extensionNode.getEnhancement();
         try {
-          Any any = Any.parseFrom(optimization.toByteArray());
-          String newOptimizationStr = any.getValue() + "rowSize=" + rowSize.toLong() + "\n";
+          String existingOptimizationStr =
+              optimization == null ? "" : optimization.unpack(StringValue.class).getValue();
+          String newOptimizationStr =
+              existingOptimizationStr + "rowSize=" + rowCount.toLong() + "\n";
           Any newOptimization =
               Any.pack(StringValue.newBuilder().setValue(newOptimizationStr).build());
           readBuilder.setAdvancedExtension(
@@ -117,12 +119,12 @@ public class ReadRelNode implements RelNode, Serializable {
         readBuilder.setAdvancedExtension(extensionNode.toProtobuf());
       }
     } else {
-      if (null != rowSize) {
-        Any inputRowSize =
+      if (null != rowCount) {
+        Any inputRowCount =
             Any.pack(
-                StringValue.newBuilder().setValue("rowSize=" + rowSize.toLong() + "\n").build());
+                StringValue.newBuilder().setValue("rowSize=" + rowCount.toLong() + "\n").build());
         AdvancedExtensionNode advancedExtension =
-            ExtensionBuilder.makeAdvancedExtension(inputRowSize, null);
+            ExtensionBuilder.makeAdvancedExtension(inputRowCount, null);
         readBuilder.setAdvancedExtension(advancedExtension.toProtobuf());
       }
     }
@@ -133,7 +135,7 @@ public class ReadRelNode implements RelNode, Serializable {
   }
 
   @Override
-  public List<RelNode> childNode() {
+  public List<RelNode> childNodes() {
     return new ArrayList<>();
   }
 }

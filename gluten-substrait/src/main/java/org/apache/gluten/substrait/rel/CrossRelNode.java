@@ -73,7 +73,7 @@ public class CrossRelNode implements RelNode, Serializable {
   }
 
   @Override
-  public List<RelNode> childNode() {
+  public List<RelNode> childNodes() {
     List<RelNode> children = new ArrayList<>();
     children.add(left);
     children.add(right);

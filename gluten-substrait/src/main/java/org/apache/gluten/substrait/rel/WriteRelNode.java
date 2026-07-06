@@ -86,7 +86,7 @@ public class WriteRelNode implements RelNode, Serializable {
   }
 
   @Override
-  public List<RelNode> childNode() {
+  public List<RelNode> childNodes() {
     return Collections.singletonList(input);
   }
 }

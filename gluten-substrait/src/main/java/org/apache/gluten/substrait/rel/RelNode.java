@@ -30,5 +30,5 @@ public interface RelNode extends Serializable {
    */
   Rel toProtobuf();
 
-  List<RelNode> childNode();
+  List<RelNode> childNodes();
 }

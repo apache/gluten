@@ -28,6 +28,28 @@ import org.apache.spark.sql.execution.datasources.LogicalRelation
 import scala.collection.{mutable, Seq}
 
 object ApplyStageInputStatsRule extends Logging {
+  private def estimateInputIteratorRowCount(stats: InputStats, index: Int): Option[Long] = {
+    if (stats.inputStatsKind == BroadcastStats) {
+      Some(stats.rowCount.toLong)
+    } else {
+      val totalBytes = Math.max(stats.bytesByPartitionId.sum, 1L)
+      if (index >= 0 && index < stats.bytesByPartitionId.length) {
+        val partitionBytes = stats.bytesByPartitionId(index)
+        Some((1.0d * stats.rowCount.toLong / totalBytes * partitionBytes).toLong)
+      } else {
+        logWarning(
+          s"Skip invalid input stats index $index, bytesByPartitionId length: " +
+            s"${stats.bytesByPartitionId.length}")
+        None
+      }
+    }
+  }
+
+  private def estimateScanRowCount(stats: InputStats, partitionLength: Int): Long = {
+    val safePartitionLength = Math.max(partitionLength, 1)
+    (1.0d * stats.rowCount.toLong / safePartitionLength).toLong
+  }
+
   def setStageInputStatsToInputNode(
       ws: WholeStageTransformContext,
       index: Int,
@@ -43,26 +65,23 @@ object ApplyStageInputStatsRule extends Logging {
         case input: InputIteratorRelNode =>
           val stats = input.getInputStats
           if (null != stats) {
-            val totalBytes = Math.max(stats.bytesByPartitionId.sum, 1)
-            val estimatedRowCount =
-              if (stats.inputStatsKind == BroadcastStats) {
-                stats.rowCount.toLong
-              } else {
-                (1.0d * stats.rowCount.toLong / totalBytes * stats.bytesByPartitionId(index)).toLong
-              }
-            logInfo(s"pass input stats idx: $index with estimated row count $estimatedRowCount")
-            input.setRowSize(estimatedRowCount)
+            estimateInputIteratorRowCount(stats, index).foreach {
+              estimatedRowCount =>
+                logDebug(
+                  s"pass input stats idx: $index with estimated row count $estimatedRowCount")
+                input.setRowCount(estimatedRowCount)
+            }
           }
         case scan: ReadRelNode =>
           val stats = scan.getInputStats
           if (null != stats) {
-            val estimatedRowCount = (1.0d * stats.rowCount.toLong / partitionLength).toLong
-            logInfo(s"pass scan stats idx: $index with estimated row count $estimatedRowCount")
-            scan.setRowSize(estimatedRowCount)
+            val estimatedRowCount = estimateScanRowCount(stats, partitionLength)
+            logDebug(s"pass scan stats idx: $index with estimated row count $estimatedRowCount")
+            scan.setRowCount(estimatedRowCount)
           }
         case _ =>
       }
-      node.childNode().forEach(relNodesQueue.enqueue(_))
+      node.childNodes().forEach(relNodesQueue.enqueue(_))
     }
   }
 
