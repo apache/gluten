@@ -93,6 +93,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def cudfEnableValidation: Boolean = getConf(CUDF_ENABLE_VALIDATION)
 
+  def cudfAllowCpuFallback: Boolean = getConf(CUDF_ALLOW_CPU_FALLBACK)
+
   def cudfBatchSize: Int = getConf(CUDF_BATCH_SIZE)
 
   def cudfShuffleMaxPrefetchBytes: Long = getConf(CUDF_SHUFFLE_MAX_PREFETCH_BYTES)
@@ -764,6 +766,12 @@ object VeloxConfig extends ConfigRegistry {
       .doc(
         "Heuristics you can apply to validate a cuDF/GPU plan and only offload when " +
           "the entire stage can be fully and profitably executed on GPU")
+      .booleanConf
+      .createWithDefault(true)
+
+  val CUDF_ALLOW_CPU_FALLBACK =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cudf.allowCpuFallback")
+      .doc("Allow cuDF to fall back to CPU execution for unsupported operators.")
       .booleanConf
       .createWithDefault(true)
 
