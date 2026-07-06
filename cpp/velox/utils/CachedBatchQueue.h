@@ -54,6 +54,10 @@ class CachedBatchQueue {
     std::unique_lock<std::mutex> lock(mtx_);
     notEmpty_.wait(lock, [&]() { return noMoreBatches_ || !queue_.empty(); });
 
+    if (exception_) {
+      std::rethrow_exception(exception_);
+    }
+
     if (queue_.empty()) {
       return nullptr;
     }
@@ -78,6 +82,25 @@ class CachedBatchQueue {
     notEmpty_.notify_all();
   }
 
+  /// Returns true if another producer has already set an exception.
+  /// Producers can poll this to abort early without waiting for put() to unblock.
+  bool hasException() const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    return exception_ != nullptr;
+  }
+
+  /// Called by a producer thread to propagate an exception to the consumer.
+  /// Wakes up any blocked get() call, which will rethrow the exception.
+  void setException(std::exception_ptr e) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (!exception_) {
+      exception_ = std::move(e);
+    }
+    noMoreBatches_ = true;
+    notFull_.notify_all();
+    notEmpty_.notify_all();
+  }
+
  private:
   int64_t size() const {
     return totalSize_;
@@ -90,10 +113,11 @@ class CachedBatchQueue {
   int64_t capacity_;
   int64_t totalSize_{0};
   bool noMoreBatches_{false};
+  std::exception_ptr exception_{nullptr};
 
   std::queue<std::shared_ptr<T>> queue_;
 
-  std::mutex mtx_;
+  mutable std::mutex mtx_;
   std::condition_variable notEmpty_;
   std::condition_variable notFull_;
 };
