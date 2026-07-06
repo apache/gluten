@@ -57,6 +57,7 @@ on:
         required: false
         default: 'v4.2.0'
       spark_version:
+        description: 'Spark version driving both the Gluten bundle profile (-Pspark-<v>) and Delta -DsparkVersion.'
         type: string
         required: false
         default: '4.1'
@@ -79,7 +80,7 @@ on:
         required: true
         default: 'v4.2.0'
       spark_version:
-        description: 'Delta `-DsparkVersion` value (must match the Gluten -P profile below)'
+        description: 'Spark version: drives the Gluten bundle profile (-Pspark-<v>) and Delta -DsparkVersion together. Scala 2.13 + JDK 17 are assumed, so pair a non-4.1 value with a compatible delta_ref.'
         required: true
         default: '4.1'
       test_parallelism:
@@ -102,12 +103,17 @@ env:
   MVN_CMD: 'build/mvn -ntp'
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
   # Gluten profile / bundle naming for the build-gluten-bundle and
-  # delta-spark-test jobs. Spark 4.1 + Scala 2.13 + JDK 17 matches Delta v4.2.0's
-  # default Spark version (4.1.0) from project/CrossSparkVersions.scala.
-  GLUTEN_SPARK_PROFILE: 'spark-4.1'
+  # delta-spark-test jobs. `spark_version` is the single source of truth for the
+  # Spark version: it drives the Gluten bundle profile (-Pspark-<v>), the bundle
+  # jar name, and Delta's -DsparkVersion, so the tests always run against a bundle
+  # built for the same Spark version (no separate value to keep in sync). Scala
+  # 2.13 + JDK 17 are pinned -- they match Delta v4.2.0's default Spark 4.1.0 from
+  # project/CrossSparkVersions.scala -- so pair a non-default spark_version with a
+  # compatible delta_ref.
+  GLUTEN_SPARK_PROFILE: spark-${{ inputs.spark_version }}
   GLUTEN_SCALA_PROFILE: 'scala-2.13'
   GLUTEN_JAVA_PROFILE: 'java-17'
-  GLUTEN_BUNDLE_SPARK_VERSION: '4.1'
+  GLUTEN_BUNDLE_SPARK_VERSION: ${{ inputs.spark_version }}
   GLUTEN_BUNDLE_SCALA_VERSION: '2.13'
   DELTA_SCALA_VERSION: '2.13.16'
   # Number of shards in the delta-spark-test matrix. Must equal the length of

@@ -9,7 +9,9 @@
 # ---------------------------------------------------------------------------
 # Baseline for the committed 4-shard x 4-fork config. Originally seeded from run
 # 27490052632; refreshed from run 28318129710 (4 x 4) after the FileSourceScanLike
-# test fixes (delta-io/delta #7104 + #7105). 810 known failures total.
+# test fixes (delta-io/delta #7104 + #7105). The authoritative failure count is
+# the number of entries below (and the delta-spark-aggregate job summary); it is
+# deliberately not restated here so it can't drift as the baseline is refreshed.
 #
 # IMPORTANT: regenerate this baseline under the SAME NUM_SHARDS x
 # TEST_PARALLELISM_COUNT the gate runs (here 4 x 4). ~34 of these failures are

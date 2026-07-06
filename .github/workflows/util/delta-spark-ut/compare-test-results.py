@@ -93,6 +93,15 @@ class NoReportsError(RuntimeError):
     """Raised when no JUnit <testsuite> elements are found under reports_dir."""
 
 
+class CorruptReportError(NoReportsError):
+    """Raised when an expected JUnit report file (TEST-*.xml) fails to parse.
+
+    Subclasses NoReportsError so the enforce/seed handler treats a truncated
+    report as a hard data error (exit 2) instead of silently dropping the
+    suite's results and letting the gate pass on partial data.
+    """
+
+
 SEP = "#"
 
 
@@ -220,6 +229,16 @@ def parse_reports(reports_dir):
         try:
             tree = ET.parse(xml_file)
         except ET.ParseError as exc:
+            # A TEST-*.xml that fails to parse is almost always a report truncated
+            # when a forked test JVM was killed mid-write (e.g. OOM). Silently
+            # skipping it drops that suite's results and could let the gate go
+            # green on partial data, so fail hard for report files. Other XML that
+            # merely matched the broad `target/**` glob is still skipped.
+            if os.path.basename(xml_file).startswith("TEST-"):
+                raise CorruptReportError(
+                    "corrupt or truncated JUnit report {}: {}. Refusing to "
+                    "evaluate the gate on partial data.".format(xml_file, exc)
+                )
             eprint("WARNING: could not parse {}: {}".format(xml_file, exc))
             continue
         root = tree.getroot()
