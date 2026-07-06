@@ -110,7 +110,7 @@ public class PrintSinkFactory implements VeloxSourceSinkFactory {
     Transformation inputTrans = (Transformation) transformation.getInputs().get(0);
     // PrintSink reads rowtime directly from RowData via SinkOperator.timestamp() and never
     // inspects StreamRecord.timestamp, so a native StreamRecordTimestampInserter on the input
-    // chain (if any) is dead weight — remove it.
+    // chain (if any) is dead weight - remove it.
     inputTrans = GlutenRowtimeInserterHelper.processTransformation(inputTrans, false);
     InternalTypeInfo inputTypeInfo = (InternalTypeInfo) inputTrans.getOutputType();
 
