@@ -183,7 +183,9 @@ public class StreamExecTableSourceScan extends CommonExecTableSourceScan
             "checkpoint.enabled",
             planner.getExecEnv().getCheckpointConfig().isCheckpointingEnabled(),
             "watermarkPushDownSpec",
-            watermarkPushDownSpec));
+            watermarkPushDownSpec,
+            VeloxSourceSinkFactory.FACTORY_CLASS_LOADER_KEY,
+            StreamExecTableSourceScan.class.getClassLoader()));
     // --- End Gluten-specific code changes ---
   }
 }

@@ -308,6 +308,7 @@ object ExpressionNames {
   final val TRANSFORM_KEYS = "transform_keys"
   final val TRANSFORM_VALUES = "transform_values"
   final val MAP_FROM_ENTRIES = "map_from_entries"
+  final val MAP_FROM_ENTRIES_LAST_WIN = "map_from_entries_last_win"
   final val STR_TO_MAP = "str_to_map"
   final val MAP_FILTER = "map_filter"
   final val MAP_CONTAINS_KEY = "map_contains_key"

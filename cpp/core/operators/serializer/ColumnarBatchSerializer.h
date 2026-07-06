@@ -18,9 +18,11 @@
 #pragma once
 
 #include <arrow/c/abi.h>
+#include <optional>
 #include <vector>
 
 #include "memory/ColumnarBatch.h"
+#include "utils/Exception.h"
 
 namespace gluten {
 
@@ -38,12 +40,33 @@ class ColumnarBatchSerializer {
 
   virtual std::shared_ptr<ColumnarBatch> deserialize(uint8_t* data, int32_t size) = 0;
 
-  // Backend-overridable framed serialization carrying per-column stats.
-  // Layout: [magic | statsLen | statsBlob | bytesLen | bytesBlob]. Default returns an empty
-  // vector to indicate the stats extension is not supported; callers detect that and fall back
-  // to the legacy serialize() path. The Velox backend overrides with the full implementation.
+  // V2: Backend-overridable framed serialization carrying per-column stats.
+  // Layout: [magic=0xFECA5302 | statsLen | statsBlob | bytesLen | bytesBlob].
+  // Default returns empty vector (not supported); callers fall back to legacy serialize().
   virtual std::vector<uint8_t> framedSerializeWithStats(const std::shared_ptr<ColumnarBatch>& /*batch*/) {
     return {};
+  }
+
+  // V3: Per-column framed serialization without stats (lazy deserialization support).
+  // Layout: [magic=0xFECA5303 | statsLen=0 | numRows | numCols | per-col(colLen+colBytes)].
+  // Default returns empty vector (not supported); callers detect and fall back.
+  virtual std::vector<uint8_t> framedSerializeV3(const std::shared_ptr<ColumnarBatch>& /*batch*/) {
+    return {};
+  }
+
+  // V3: Per-column framed serialization + stats (lazy deserialization + pruning support).
+  // Layout: [magic=0xFECA5303 | statsLen | statsBlob | numRows | numCols | per-col(colLen+colBytes)].
+  // Default returns empty vector (not supported); callers detect and fall back.
+  virtual std::vector<uint8_t> framedSerializeWithStatsV3(const std::shared_ptr<ColumnarBatch>& /*batch*/) {
+    return {};
+  }
+
+  // V3: Deserialize with column projection; returns M-column RowVector (only requested columns).
+  // requestedColumns: nullopt=all columns, optional<vector{}>= zero columns, optional<vector{...}>=M cols.
+  // Default throws GlutenException (not supported for non-Velox backends).
+  virtual std::shared_ptr<ColumnarBatch>
+  deserializeV3(uint8_t* /*data*/, int32_t /*size*/, const std::optional<std::vector<int32_t>>& /*requestedColumns*/) {
+    throw GlutenException("deserializeV3 is not supported for this backend");
   }
 
  protected:

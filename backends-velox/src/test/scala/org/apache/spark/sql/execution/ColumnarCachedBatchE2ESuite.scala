@@ -176,25 +176,27 @@ class ColumnarCachedBatchE2ESuite
     }
   }
 
-  test("Float NaN partition: filter on non-NaN not silently pruned") {
+  test("Float NaN same batch: filter on non-NaN not silently pruned") {
+    // coalesce(1) forces the NaN row (id=7) and the queried finite row (id=42) into the SAME
+    // cached batch, deterministically reproducing the regression: previously a NaN poisoned the
+    // whole column to unsupported -> null min/max bounds -> vanilla buildFilter pruned the batch
+    // -> the finite k=42.0 row was silently dropped. NaN must instead be skipped so the finite
+    // bounds [0, 999] are emitted and the matching row is returned (parity with vanilla Spark).
     val df = spark
       .range(N)
       .select(
         when(col("id") === 7L, lit(Float.NaN))
           .otherwise(col("id").cast("float"))
           .as("k"))
-      .repartition(P)
+      .coalesce(1)
       .cache()
     try {
       df.count()
-      // pivot=42 is a non-NaN value that exists somewhere; the partition that
-      // contains it may also contain the NaN row at id=7 (collision possible
-      // depending on hash partitioning). Either way, equality must find it.
       val result = df.filter(col("k") === 42.0f).count()
       assert(
         result == 1L,
         s"expected 1 row with k=42.0, got $result " +
-          s"(NaN may have poisoned partition stats)")
+          s"(NaN must not poison partition stats / prune the finite match)")
     } finally {
       df.unpersist()
     }
@@ -384,20 +386,20 @@ class ColumnarCachedBatchE2ESuite
     }
   }
 
-  // Config-gate negative test: with partition stats disabled (the production default),
-  // serializeWithStats must NOT be invoked -- the legacy serialize() path is taken and stats
-  // are emitted as null. A bug in the gate could silently activate stats for all users, or
-  // break correctness on the legacy stats=null read path.
+  // Partition-stats negative test: with partition stats disabled (the production default),
+  // V3 lazy no-stats bytes are still written, but stats are emitted as null. A bug in the
+  // gate could silently activate stats for all users, or break correctness on the
+  // stats=null buildFilter pass-through path.
   //
   // Asserts correctness only, not numOutputRows: the Gluten native scan reports row counts
   // on a separate metrics path, so InMemoryTableScanExec.numOutputRows can legitimately be 0
   // in either gated branch (see "numOutputRows reflects post-filter row count" above).
-  test("partitionStats.enabled=false: legacy serialize() path correctness preserved") {
+  test("partitionStats.enabled=false: V3 lazy no-stats path correctness preserved") {
     withSQLConf(
       GlutenConfig.COLUMNAR_TABLE_CACHE_PARTITION_STATS_ENABLED.key -> "false") {
       val cached = cacheRange()
       try {
-        cached.count() // materialize cache via legacy serialize() path (stats emitted as null)
+        cached.count() // materialize cache via V3 no-stats path (stats emitted as null)
         val result = cached.filter(col("k") === pivot).count()
         assert(result == 1L, s"expected exactly one row matching k=$pivot, got $result")
       } finally {
@@ -431,8 +433,8 @@ class ColumnarCachedBatchE2ESuite
     }
   }
 
-  // Reverse: legacy v1 payload at build (stats=null), reader cannot fabricate
-  // stats. Distinct from the same-config legacy test: this forces cross-config.
+  // Reverse: V3 no-stats payload at build (stats=null), reader cannot fabricate stats.
+  // Distinct from the same-config no-stats test: this forces cross-config.
   test("cross-config: build with stats disabled, read with stats enabled") {
     var cached: DataFrame = null
     var filtered: DataFrame = null
@@ -507,6 +509,37 @@ class ColumnarCachedBatchE2ESuite
       } finally {
         df.unpersist(blocking = true)
       }
+    }
+  }
+
+  // V3 lazy deserialization smoke tests
+
+  test("V3 default: cache + equality filter produces correct result") {
+    val cached = cacheRange()
+    try {
+      cached.count()
+      val result = cached.filter(col("k") === pivot).count()
+      assert(result == 1L, s"V3: expected 1 row matching k=$pivot, got $result")
+    } finally {
+      cached.unpersist()
+    }
+  }
+
+  test("V3 default: multi-column cache, partial projection, no crash") {
+    val cached = spark
+      .range(N)
+      .selectExpr(
+        "cast(id as bigint) as a",
+        "cast(id*2 as bigint) as b",
+        "cast(id+1 as bigint) as c")
+      .repartitionByRange(P, col("a"))
+      .cache()
+    try {
+      cached.count()
+      val result = cached.filter(col("a") === pivot).select("a", "c").count()
+      assert(result == 1L, s"V3 projection: expected 1 row, got $result")
+    } finally {
+      cached.unpersist()
     }
   }
 }

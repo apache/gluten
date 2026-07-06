@@ -163,6 +163,20 @@ public class ConsistentHashTest {
         });
   }
 
+  @Test
+  public void testGetPartitionReturnsDefensiveCopy() {
+    HostNode node = new HostNode("executor-1");
+    consistentHash.addNode(node);
+
+    Set<ConsistentHash.Partition<ConsistentHash.Node>> partitions =
+        consistentHash.getPartition(node);
+    Assert.assertEquals(REPLICAS, partitions.size());
+
+    // Mutating the returned set must not affect the ring's internal state.
+    partitions.clear();
+    Assert.assertEquals(REPLICAS, consistentHash.getPartition(node).size());
+  }
+
   private static class HostNode implements ConsistentHash.Node {
     private final String host;
 

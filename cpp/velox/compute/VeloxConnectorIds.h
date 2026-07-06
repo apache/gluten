@@ -23,10 +23,12 @@ namespace gluten {
 
 struct VeloxConnectorIds {
   std::string hive;
+  std::string iceberg;
   std::string delta;
   std::string iterator;
   std::string cudfHive;
   bool hiveRegistered{false};
+  bool icebergRegistered{false};
   bool deltaRegistered{false};
   bool iteratorRegistered{false};
   bool cudfHiveRegistered{false};

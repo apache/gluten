@@ -26,9 +26,6 @@ import org.apache.flink.runtime.state.KeyedStateBackend;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 
-import java.util.HashMap;
-import java.util.Map;
-
 // Manage the session and resource for Velox.
 class GlutenSessionResource {
   private Session session;
@@ -75,28 +72,5 @@ class GlutenSessionResource {
 
   public void setKeyedStateBackend(KeyedStateBackend<?> keyedStateBackend) {
     this.keyedStateBackend = keyedStateBackend;
-  }
-}
-
-public class GlutenSessionResources {
-  private static final GlutenSessionResources instance = new GlutenSessionResources();
-  private Map<String, GlutenSessionResource> sessionResources = new HashMap<>();
-
-  private GlutenSessionResources() {}
-
-  public static GlutenSessionResources getInstance() {
-    return instance;
-  }
-
-  public GlutenSessionResource getSessionResource(String id) {
-    return sessionResources.get(id);
-  }
-
-  public void addSessionResource(String id, GlutenSessionResource sessionResource) {
-    sessionResources.put(id, sessionResource);
-  }
-
-  public Session getSession(String id) {
-    return sessionResources.get(id).getSession();
   }
 }

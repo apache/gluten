@@ -26,9 +26,9 @@ import org.mockito.Mockito.{mock, when}
 import org.scalatest.funsuite.AnyFunSuite
 
 /**
- * Unit tests for `ColumnarCachedBatchSerializer.serializeOneBatchWithStats`. Exercises the
- * fast-path / fallback catch arms with a Mockito-stubbed JNI wrapper, without requiring a Velox
- * runtime or native libraries.
+ * Unit tests for `ColumnarCachedBatchSerializer` serialization helpers. Exercises the fast-path /
+ * fallback catch arms with a Mockito-stubbed JNI wrapper, without requiring a Velox runtime or
+ * native libraries.
  */
 class ColumnarCachedBatchSerializerHelperSuite extends AnyFunSuite {
 
@@ -45,6 +45,13 @@ class ColumnarCachedBatchSerializerHelperSuite extends AnyFunSuite {
       CachedColumnarBatch(1, legacyCachedBytes.length, legacyCachedBytes, null, null)
     }
     (closure, () => called)
+  }
+
+  private def writeU32LE(out: java.io.ByteArrayOutputStream, v: Int): Unit = {
+    out.write(v & 0xff)
+    out.write((v >>> 8) & 0xff)
+    out.write((v >>> 16) & 0xff)
+    out.write((v >>> 24) & 0xff)
   }
 
   test("corrupt magic frame is absorbed into legacy fallback (stats=null)") {
@@ -150,5 +157,95 @@ class ColumnarCachedBatchSerializerHelperSuite extends AnyFunSuite {
 
     // Restore for subsequent tests / suites in the same JVM.
     flagField.setBoolean(ColumnarCachedBatchSerializer, true)
+  }
+
+  test("V3 null JNI return trips V3 capability latch and falls back") {
+    ColumnarCachedBatchSerializer.withStatsExtV3AvailabilityForBenchmark(true) {
+      val jni = mock(classOf[ColumnarBatchSerializerJniWrapper])
+      when(jni.serializeV3(anyLong())).thenReturn(null)
+      val (fallback, wasCalled) = newFallbackProbe()
+
+      val cb = ColumnarCachedBatchSerializer.serializeOneBatchV3(
+        jni,
+        0L,
+        1,
+        structSchema,
+        includeStats = false,
+        fallback)
+
+      assert(wasCalled(), "fallback closure should be invoked when V3 returns null")
+      assert(cb.asInstanceOf[CachedColumnarBatch].stats == null)
+      assert(
+        !ColumnarCachedBatchSerializer.statsExtV3Available,
+        "null V3 JNI return should trip the V3 JVM-lifetime capability latch")
+    }
+  }
+
+  test("V3 UnsatisfiedLinkError trips V3 capability latch and falls back") {
+    ColumnarCachedBatchSerializer.withStatsExtV3AvailabilityForBenchmark(true) {
+      val jni = mock(classOf[ColumnarBatchSerializerJniWrapper])
+      when(jni.serializeWithStatsV3(anyLong()))
+        .thenThrow(new UnsatisfiedLinkError("serializeWithStatsV3 (test injection)"))
+      val (fallback, wasCalled) = newFallbackProbe()
+
+      val cb = ColumnarCachedBatchSerializer.serializeOneBatchV3(
+        jni,
+        0L,
+        1,
+        structSchema,
+        includeStats = true,
+        fallback)
+
+      assert(wasCalled(), "fallback closure should be invoked on V3 ULE")
+      assert(cb.asInstanceOf[CachedColumnarBatch].stats == null)
+      assert(
+        !ColumnarCachedBatchSerializer.statsExtV3Available,
+        "V3 ULE should trip the V3 JVM-lifetime capability latch")
+    }
+  }
+
+  test("V3 corrupt frame falls back without disabling V3 capability") {
+    ColumnarCachedBatchSerializer.withStatsExtV3AvailabilityForBenchmark(true) {
+      val corruptV3Frame: Array[Byte] = Array[Byte](
+        0xfe.toByte,
+        0xca.toByte,
+        0x53.toByte,
+        0x03.toByte,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        4,
+        0,
+        0,
+        0,
+        0x11.toByte
+      )
+      val jni = mock(classOf[ColumnarBatchSerializerJniWrapper])
+      when(jni.serializeV3(anyLong())).thenReturn(corruptV3Frame)
+      val (fallback, wasCalled) = newFallbackProbe()
+
+      val cb = ColumnarCachedBatchSerializer.serializeOneBatchV3(
+        jni,
+        0L,
+        1,
+        structSchema,
+        includeStats = false,
+        fallback)
+
+      assert(wasCalled(), "fallback closure should be invoked on corrupt V3 frame")
+      assert(cb.asInstanceOf[CachedColumnarBatch].stats == null)
+      assert(
+        ColumnarCachedBatchSerializer.statsExtV3Available,
+        "corrupt data should not disable the V3 JNI capability latch")
+    }
   }
 }

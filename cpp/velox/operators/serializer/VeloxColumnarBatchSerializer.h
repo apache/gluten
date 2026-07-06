@@ -18,6 +18,7 @@
 #pragma once
 
 #include <arrow/c/abi.h>
+#include <optional>
 
 #include "memory/ColumnarBatch.h"
 #include "operators/serializer/ColumnarBatchSerializer.h"
@@ -42,7 +43,8 @@ class VeloxColumnarBatchSerializer : public ColumnarBatchSerializer {
   VeloxColumnarBatchSerializer(
       arrow::MemoryPool* arrowPool,
       std::shared_ptr<facebook::velox::memory::MemoryPool> veloxPool,
-      struct ArrowSchema* cSchema);
+      struct ArrowSchema* cSchema,
+      const std::string& compressionKind = "none");
 
   void append(const std::shared_ptr<ColumnarBatch>& batch) override;
 
@@ -57,10 +59,29 @@ class VeloxColumnarBatchSerializer : public ColumnarBatchSerializer {
   // false so the JVM side falls back to pass-through in buildFilter.
   std::vector<ColumnStats> computeStats(facebook::velox::RowVectorPtr rowVector);
 
-  // Returns framed bytes: [STATS_FRAMED_MAGIC: 4B] [statsLen: u32 LE] [statsBlob] [bytesLen: u32 LE]
-  // [bytesBlob]. statsBlob layout matches the JVM-side reader (CachedColumnarBatchKryoSerializer
-  // .deserializeStats). Magic 0xFE 0xCA 0x53 0x02 aligns with the JVM Kryo STATS_FRAMED_MAGIC.
+  // V2: Returns framed bytes [STATS_FRAMED_MAGIC=0x02: 4B][statsLen: u32 LE][statsBlob]
+  // [bytesLen: u32 LE][bytesBlob]. statsBlob matches JVM CachedColumnarBatchKryoSerializer.
   std::vector<uint8_t> framedSerializeWithStats(const std::shared_ptr<ColumnarBatch>& batch) override;
+
+  // V3: Per-column framed bytes [STATS_FRAMED_MAGIC_V3=0x03: 4B][statsLen=0: u32 LE]
+  // [numRows: u32 LE][numCols: u32 LE][per-col: colLen(u32 LE) + colBytes].
+  // Each colBytes is produced by PrestoVectorSerde::serializeSingleColumn (self-contained).
+  std::vector<uint8_t> framedSerializeV3(const std::shared_ptr<ColumnarBatch>& batch) override;
+
+  // V3: Per-column framed bytes [STATS_FRAMED_MAGIC_V3=0x03: 4B][statsLen: u32 LE][statsBlob]
+  // [numRows: u32 LE][numCols: u32 LE][per-col: colLen(u32 LE) + colBytes].
+  // Each colBytes is produced by PrestoVectorSerde::serializeSingleColumn (self-contained).
+  std::vector<uint8_t> framedSerializeWithStatsV3(const std::shared_ptr<ColumnarBatch>& batch) override;
+
+  // V3: Deserialize with column projection; returns M-column RowVector.
+  // requestedColumns: nullopt=all columns, optional<vector{}>=zero cols, optional<vector{i,j}>=M cols.
+  std::shared_ptr<ColumnarBatch>
+  deserializeV3(uint8_t* data, int32_t size, const std::optional<std::vector<int32_t>>& requestedColumns) override;
+
+ private:
+  // Extract statsBlob from per-column stats (shared by V2 and V3 write paths).
+  std::vector<uint8_t> buildStatsBlob(const std::vector<ColumnStats>& perCol, uint32_t numRows, uint32_t numCols);
+  std::vector<uint8_t> framedSerializeV3Impl(const std::shared_ptr<ColumnarBatch>& batch, bool includeStats);
 
  protected:
   std::shared_ptr<facebook::velox::memory::MemoryPool> veloxPool_;

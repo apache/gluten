@@ -631,6 +631,15 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val COLUMNAR_VELOX_BATCH_SERIALIZER_COMPRESSION =
+    buildConf("spark.gluten.sql.columnar.backend.velox.columnarBatchSerializerCompression")
+      .internal()
+      .doc("which compression for the columnar batch serializer (e.g. broadcast).")
+      .stringConf
+      .transform(_.toLowerCase(Locale.ROOT))
+      .checkValues(Set("none", "zstd", "zlib", "snappy", "lz4", "gzip"))
+      .createWithDefault("none")
+
   val VELOX_HASHMAP_ABANDON_BUILD_DUPHASH_MIN_ROWS =
     buildConf("spark.gluten.velox.abandonDedupHashMap.minRows")
       .experimental()

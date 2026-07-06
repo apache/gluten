@@ -445,4 +445,40 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
         }
     }
   }
+
+  test("test columnarBatchSerializerCompression") {
+    Seq("none", "zstd", "zlib", "snappy", "lz4", "gzip").foreach(
+      compression =>
+        withSQLConf(
+          GlutenConfig.GLUTEN_COLUMNAR_TO_ROW_MEM_THRESHOLD.key -> "16",
+          VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key -> "true",
+          VeloxConfig.COLUMNAR_VELOX_BATCH_SERIALIZER_COMPRESSION.key -> compression
+        ) {
+          withTable("t1", "t2") {
+            spark.sql("""
+                        |CREATE TABLE t1 USING PARQUET
+                        |AS SELECT id as c1, id as c2 FROM range(10)
+                        |""".stripMargin)
+
+            spark.sql("""
+                        |CREATE TABLE t2 USING PARQUET PARTITIONED BY (c1)
+                        |AS SELECT id as c1, id as c2 FROM range(30)
+                        |""".stripMargin)
+
+            val df = spark.sql("""
+                                 |SELECT t1.c2
+                                 |FROM t1, t2
+                                 |WHERE t1.c1 = t2.c1
+                                 |AND t1.c2 < 4
+                                 |""".stripMargin)
+
+            checkAnswer(df, Row(0) :: Row(1) :: Row(2) :: Row(3) :: Nil)
+
+            val subqueryBroadcastExecs = collectWithSubqueries(df.queryExecution.executedPlan) {
+              case subqueryBroadcast: ColumnarSubqueryBroadcastExec => subqueryBroadcast
+            }
+            assert(subqueryBroadcastExecs.size == 1)
+          }
+        })
+  }
 }

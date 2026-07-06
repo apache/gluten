@@ -56,6 +56,7 @@
 #include "velox/connectors/hive/BufferedInputBuilder.h"
 #include "velox/connectors/hive/HiveConnector.h"
 #include "velox/connectors/hive/HiveDataSource.h"
+#include "velox/connectors/hive/iceberg/IcebergConnector.h"
 #include "velox/connectors/hive/storage_adapters/abfs/RegisterAbfsFileSystem.h" // @manual
 #include "velox/connectors/hive/storage_adapters/gcs/RegisterGcsFileSystem.h" // @manual
 #include "velox/connectors/hive/storage_adapters/hdfs/HdfsFileSystem.h"
@@ -378,6 +379,13 @@ std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createDelta
     const std::string& connectorId,
     folly::Executor* ioExecutor) const {
   return std::make_shared<delta::DeltaConnector>(connectorId, hiveConnectorConfig_, ioExecutor);
+}
+
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createIcebergConnector(
+    const std::string& connectorId,
+    folly::Executor* ioExecutor) const {
+  return std::make_shared<velox::connector::hive::iceberg::IcebergConnector>(
+      connectorId, hiveConnectorConfig_, ioExecutor);
 }
 
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createValueStreamConnector(

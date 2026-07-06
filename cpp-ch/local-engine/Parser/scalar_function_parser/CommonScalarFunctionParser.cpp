@@ -173,6 +173,8 @@ REGISTER_COMMON_SCALAR_FUNCTION_PARSER(GetMapValue, get_map_value, arrayElementO
 REGISTER_COMMON_SCALAR_FUNCTION_PARSER(MapKeys, map_keys, mapKeys);
 REGISTER_COMMON_SCALAR_FUNCTION_PARSER(MapValues, map_values, mapValues);
 REGISTER_COMMON_SCALAR_FUNCTION_PARSER(MapFromArrays, map_from_arrays, mapFromArrays);
+REGISTER_COMMON_SCALAR_FUNCTION_PARSER(MapFromEntries, map_from_entries, sparkMapFromEntries);
+REGISTER_COMMON_SCALAR_FUNCTION_PARSER(MapFromEntriesLastWin, map_from_entries_last_win, sparkMapFromEntriesLastWin);
 
 // json functions
 REGISTER_COMMON_SCALAR_FUNCTION_PARSER(FlattenJsonStringOnRequired, flattenJSONStringOnRequired, flattenJSONStringOnRequired);
