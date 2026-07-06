@@ -28,13 +28,26 @@
 
 namespace gluten {
 
+template <typename T>
+class SyncShuffleReaderIterator : public ColumnarBatchIterator {
+ public:
+  explicit SyncShuffleReaderIterator(T* deserializer) : deserializer_(deserializer) {}
+
+  std::shared_ptr<ColumnarBatch> next() override {
+    return deserializer_->next();
+  }
+
+ private:
+  T* deserializer_;
+};
+
 class ShuffleReaderDeserializer {
  public:
   virtual ~ShuffleReaderDeserializer() = default;
 
   virtual std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) = 0;
 
-  virtual void stop() = 0;
+  virtual void stop() {}
 };
 
 class VeloxHashShuffleReaderDeserializer final : public ShuffleReaderDeserializer {
@@ -58,8 +71,6 @@ class VeloxHashShuffleReaderDeserializer final : public ShuffleReaderDeserialize
   std::shared_ptr<ColumnarBatch> next();
 
   std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) override;
-
-  void stop() override {}
 
  private:
   bool shouldSkipMerge() const;
@@ -114,8 +125,6 @@ class VeloxSortShuffleReaderDeserializer final : public ShuffleReaderDeserialize
 
   std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) override;
 
-  void stop() override {}
-
  private:
   std::shared_ptr<ColumnarBatch> deserializeToBatch();
 
@@ -165,8 +174,6 @@ class VeloxRssSortShuffleReaderDeserializer : public ShuffleReaderDeserializer {
   std::shared_ptr<ColumnarBatch> next();
 
   std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) override;
-
-  void stop() override {}
 
  private:
   class VeloxInputStream;

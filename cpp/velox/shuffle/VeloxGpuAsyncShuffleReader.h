@@ -17,39 +17,47 @@
 
 #pragma once
 
+#include "memory/GpuBufferColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
-#include "shuffle/Payload.h"
+#include "shuffle/ReaderThreadPool.h"
 #include "shuffle/ShuffleReader.h"
+#include "shuffle/VeloxShuffleReader.h"
+#include "utils/CachedBatchQueue.h"
 
-#include "velox/serializers/PrestoSerializer.h"
 #include "velox/type/Type.h"
 #include "velox/vector/ComplexVector.h"
+
+#include <atomic>
+#include <mutex>
 
 namespace gluten {
 
 /// Convert the buffers to cudf table.
-/// Add a lock after reader produces the Vector, relase the lock after the thread processes all the batches.
-/// After move the shuffle read operation to gpu, move the lock to start read.
-class VeloxGpuHashShuffleReaderDeserializer final : public ColumnarBatchIterator {
+/// Multi-threaded deserializer that uses producer threads to pre-fetch and deserialize batches.
+class VeloxGpuAsyncHashShuffleReaderDeserializer final : public ShuffleReaderDeserializer {
  public:
-  VeloxGpuHashShuffleReaderDeserializer(
+  VeloxGpuAsyncHashShuffleReaderDeserializer(
       const std::shared_ptr<StreamReader>& streamReader,
       const std::shared_ptr<arrow::Schema>& schema,
       const std::shared_ptr<arrow::util::Codec>& codec,
       const facebook::velox::RowTypePtr& rowType,
       int64_t readerBufferSize,
       VeloxMemoryManager* memoryManager,
+      ReaderThreadPool* threadPool,
       int64_t& deserializeTime,
       int64_t& decompressTime);
 
-  std::shared_ptr<ColumnarBatch> next();
+  ~VeloxGpuAsyncHashShuffleReaderDeserializer() override;
 
   std::unique_ptr<ColumnarBatchIterator> deserializeStreams(int32_t priority) override;
 
- private:
-  bool resolveNextBlockType();
+  void stop() override;
 
-  void loadNextStream();
+ private:
+  // Reader thread function that deserializes batches.
+  void read();
+
+  bool isStopped() const;
 
   std::shared_ptr<StreamReader> streamReader_;
   std::shared_ptr<arrow::Schema> schema_;
@@ -57,13 +65,22 @@ class VeloxGpuHashShuffleReaderDeserializer final : public ColumnarBatchIterator
   facebook::velox::RowTypePtr rowType_;
   int64_t readerBufferSize_;
   VeloxMemoryManager* memoryManager_;
+  ReaderThreadPool* threadPool_;
 
   int64_t& deserializeTime_;
   int64_t& decompressTime_;
 
-  std::shared_ptr<arrow::io::InputStream> in_{nullptr};
+  std::atomic<int64_t> deserializeTimeCounter_{0};
+  std::atomic<int64_t> decompressTimeCounter_{0};
 
-  bool reachedEos_{false};
-  bool blockTypeResolved_{false};
+  std::unique_ptr<CachedBatchQueue<GpuBufferColumnarBatch>> batchQueue_;
+  std::atomic<int> activeReaders_{0};
+
+  std::mutex readStreamMtx_;
+
+  std::atomic<bool> stop_{false};
+
+  std::mutex completionMtx_;
+  std::condition_variable completionCV_;
 };
 } // namespace gluten

@@ -627,7 +627,7 @@ final class GlutenShuffleBlockFetcherIterator(
 
   private def assertPositiveBlockSize(blockId: BlockId, blockSize: Long): Unit = {
     if (blockSize < 0) {
-      throw BlockException(blockId, "Negative block size " + size)
+      throw BlockException(blockId, "Negative block size " + blockSize)
     } else if (blockSize == 0) {
       throw BlockException(blockId, "Zero-sized blocks should be excluded.")
     }

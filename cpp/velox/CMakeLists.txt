@@ -225,6 +225,7 @@ if(ENABLE_GPU)
     cudf/CudfPlanValidator.cc
     cudf/GpuLock.cc
     operators/plannodes/CudfVectorStream.cc
+    shuffle/VeloxGpuAsyncShuffleReader.cc
     shuffle/VeloxGpuShuffleReader.cc
     shuffle/VeloxGpuShuffleWriter.cc
     operators/serializer/VeloxGpuColumnarBatchSerializer.cc

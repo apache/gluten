@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-#include "VeloxGpuShuffleReader.h"
-
 #include <arrow/array/array_binary.h>
 #include <arrow/io/buffered.h>
 
@@ -24,31 +22,19 @@
 #include "memory/VeloxColumnarBatch.h"
 #include "shuffle/Payload.h"
 #include "shuffle/Utils.h"
-#include "utils/CachedBatchQueue.h"
+#include "shuffle/VeloxGpuShuffleReader.h"
 #include "utils/Common.h"
 #include "utils/Macros.h"
 #include "utils/Timer.h"
 
 #include <algorithm>
 
+#include "VeloxShuffleReader.h"
+
 using namespace facebook::velox;
 
 namespace gluten {
-
 namespace {
-
-template <typename T>
-class AsyncShuffleReaderIterator : public ColumnarBatchIterator {
- public:
-  explicit AsyncShuffleReaderIterator(CachedBatchQueue<T>* batchQueue) : batchQueue_(batchQueue) {}
-
-  std::shared_ptr<ColumnarBatch> next() override {
-    return batchQueue_->get();
-  }
-
- private:
-  CachedBatchQueue<T>* batchQueue_;
-};
 
 arrow::Result<BlockType> readBlockType(arrow::io::InputStream* inputStream) {
   BlockType type;
@@ -69,7 +55,6 @@ VeloxGpuHashShuffleReaderDeserializer::VeloxGpuHashShuffleReaderDeserializer(
     const facebook::velox::RowTypePtr& rowType,
     int64_t readerBufferSize,
     VeloxMemoryManager* memoryManager,
-    ReaderThreadPool* threadPool,
     int64_t& deserializeTime,
     int64_t& decompressTime)
     : streamReader_(streamReader),
@@ -78,138 +63,66 @@ VeloxGpuHashShuffleReaderDeserializer::VeloxGpuHashShuffleReaderDeserializer(
       rowType_(rowType),
       readerBufferSize_(readerBufferSize),
       memoryManager_(memoryManager),
-      threadPool_(threadPool),
       deserializeTime_(deserializeTime),
       decompressTime_(decompressTime) {}
 
-VeloxGpuHashShuffleReaderDeserializer::~VeloxGpuHashShuffleReaderDeserializer() {
-  // Wait for all reader threads to complete before destroying
-  if (!isStopped()) {
-    stop();
+bool VeloxGpuHashShuffleReaderDeserializer::resolveNextBlockType() {
+  GLUTEN_ASSIGN_OR_THROW(auto blockType, readBlockType(in_.get()));
+  switch (blockType) {
+    case BlockType::kEndOfStream:
+      return false;
+    case BlockType::kPlainPayload:
+      return true;
+    default:
+      throw GlutenException(fmt::format("Unsupported block type: {}", static_cast<int32_t>(blockType)));
+  }
+}
+
+void VeloxGpuHashShuffleReaderDeserializer::loadNextStream() {
+  if (reachedEos_) {
+    return;
   }
 
-  decompressTime_ += decompressTimeCounter_.load(std::memory_order_relaxed);
-  deserializeTime_ += deserializeTimeCounter_.load(std::memory_order_relaxed);
+  auto in = streamReader_->readNextStream(memoryManager_->defaultArrowMemoryPool());
+  if (in == nullptr) {
+    reachedEos_ = true;
+    return;
+  }
+
+  GLUTEN_ASSIGN_OR_THROW(
+      in_,
+      arrow::io::BufferedInputStream::Create(
+          readerBufferSize_, memoryManager_->defaultArrowMemoryPool(), std::move(in)));
+}
+
+std::shared_ptr<ColumnarBatch> VeloxGpuHashShuffleReaderDeserializer::next() {
+  if (in_ == nullptr) {
+    loadNextStream();
+
+    if (reachedEos_) {
+      return nullptr;
+    }
+  }
+
+  while (!resolveNextBlockType()) {
+    loadNextStream();
+
+    if (reachedEos_) {
+      return nullptr;
+    }
+  }
+
+  uint32_t numRows = 0;
+  GLUTEN_ASSIGN_OR_THROW(
+      auto arrowBuffers,
+      BlockPayload::deserialize(
+          in_.get(), codec_, memoryManager_->defaultArrowMemoryPool(), numRows, deserializeTime_, decompressTime_));
+
+  return std::make_shared<GpuBufferColumnarBatch>(rowType_, std::move(arrowBuffers), static_cast<int32_t>(numRows));
 }
 
 std::unique_ptr<ColumnarBatchIterator> VeloxGpuHashShuffleReaderDeserializer::deserializeStreams(int32_t priority) {
-  batchQueue_ = std::make_unique<CachedBatchQueue<GpuBufferColumnarBatch>>(1L << 30);
-
-  if (!threadPool_) {
-    throw GlutenException("Thread pool must be provided to VeloxGpuHashShuffleReaderDeserializer");
-  }
-
-  const size_t numThreads = threadPool_->getNumThreads();
-  activeReaders_.store(numThreads);
-
-  // Submit reader tasks to the thread pool.
-  std::vector<ReaderThreadPool::Task> tasks;
-  tasks.reserve(numThreads);
-  for (size_t i = 0; i < numThreads; ++i) {
-    tasks.emplace_back([this]() { read(); });
-  }
-  threadPool_->submitBatch(std::move(tasks), priority);
-
-  if (priority == 0) {
-    threadPool_->start();
-  }
-
-  return std::make_unique<AsyncShuffleReaderIterator<GpuBufferColumnarBatch>>(batchQueue_.get());
-}
-
-void VeloxGpuHashShuffleReaderDeserializer::stop() {
-  // Signal threads to stop if not already stopped.
-  stop_.store(true, std::memory_order_release);
-  // Unblock any reader threads that might be waiting in CachedBatchQueue::put().
-  if (batchQueue_) {
-    batchQueue_->noMoreBatches();
-  }
-  // Wait for all reader threads to complete.
-  std::unique_lock<std::mutex> lock(completionMtx_);
-  completionCV_.wait(lock, [this] { return activeReaders_.load(std::memory_order_acquire) == 0; });
-}
-
-void VeloxGpuHashShuffleReaderDeserializer::read() {
-  std::shared_ptr<arrow::io::InputStream> inputStream = nullptr;
-
-  try {
-    while (true) {
-      // Check if stop has been called, or if a sibling producer encountered an error.
-      if (stop_.load(std::memory_order_acquire) || batchQueue_->hasException()) {
-        break;
-      }
-
-      if (inputStream == nullptr) {
-        std::lock_guard<std::mutex> lockGuard(readStreamMtx_);
-        auto rawStream = streamReader_->readNextStream(memoryManager_->defaultArrowMemoryPool());
-        if (rawStream == nullptr) {
-          // No more streams available.
-          break;
-        }
-
-        GLUTEN_ASSIGN_OR_THROW(
-            inputStream,
-            arrow::io::BufferedInputStream::Create(
-                readerBufferSize_, memoryManager_->defaultArrowMemoryPool(), std::move(rawStream)));
-      }
-
-      GLUTEN_ASSIGN_OR_THROW(auto blockType, readBlockType(inputStream.get()));
-
-      if (blockType == BlockType::kEndOfStream) {
-        GLUTEN_THROW_NOT_OK(inputStream->Close());
-        inputStream = nullptr;
-        continue;
-      }
-
-      if (blockType != BlockType::kPlainPayload) {
-        throw GlutenException(fmt::format("Unsupported block type: {}", static_cast<int32_t>(blockType)));
-      }
-
-      uint32_t numRows = 0;
-      int64_t localDeserializeTime = 0;
-      int64_t localDecompressTime = 0;
-
-      GLUTEN_ASSIGN_OR_THROW(
-          auto arrowBuffers,
-          BlockPayload::deserialize(
-              inputStream.get(),
-              codec_,
-              memoryManager_->defaultArrowMemoryPool(),
-              numRows,
-              localDeserializeTime,
-              localDecompressTime));
-
-      deserializeTimeCounter_.fetch_add(localDeserializeTime, std::memory_order_relaxed);
-      decompressTimeCounter_.fetch_add(localDecompressTime, std::memory_order_relaxed);
-
-      auto batch =
-          std::make_shared<GpuBufferColumnarBatch>(rowType_, std::move(arrowBuffers), static_cast<int32_t>(numRows));
-
-      // Put batch into queue. Blocked if queue is full.
-      batchQueue_->put(batch);
-    }
-
-    if (inputStream != nullptr) {
-      GLUTEN_THROW_NOT_OK(inputStream->Close());
-    }
-  } catch (...) {
-    // Forward the exception to the consumer thread via the queue.
-    if (batchQueue_) {
-      batchQueue_->setException(std::current_exception());
-    }
-  }
-
-  // Decrement activeReaders_; the last reader signals noMoreBatches() and wakes the completion waiter.
-  if (activeReaders_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-    if (batchQueue_) {
-      batchQueue_->noMoreBatches();
-    }
-    completionCV_.notify_all();
-  }
-}
-
-bool VeloxGpuHashShuffleReaderDeserializer::isStopped() const {
-  return stop_.load(std::memory_order_acquire);
+  return std::make_unique<SyncShuffleReaderIterator<VeloxGpuHashShuffleReaderDeserializer>>(this);
 }
 
 } // namespace gluten

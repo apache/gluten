@@ -47,19 +47,6 @@ namespace gluten {
 
 namespace {
 
-template <typename T>
-class SyncShuffleReaderIterator : public ColumnarBatchIterator {
- public:
-  explicit SyncShuffleReaderIterator(T* deserializer) : deserializer_(deserializer) {}
-
-  std::shared_ptr<ColumnarBatch> next() override {
-    return deserializer_->next();
-  }
-
- private:
-  T* deserializer_;
-};
-
 arrow::Result<BlockType> readBlockType(arrow::io::InputStream* inputStream) {
   BlockType type;
   ARROW_ASSIGN_OR_RAISE(auto bytes, inputStream->Read(sizeof(BlockType), &type));
