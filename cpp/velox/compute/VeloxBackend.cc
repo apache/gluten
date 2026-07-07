@@ -306,10 +306,7 @@ facebook::velox::cache::AsyncDataCache* VeloxBackend::getAsyncDataCache() const 
 ReaderThreadPool* VeloxBackend::getReaderThreadPool() {
   static std::once_flag readerThreadPoolInit;
   std::call_once(readerThreadPoolInit, [this] {
-    const auto configuredThreads =
-        backendConf_->get<int32_t>(kShuffleReaderThreads, static_cast<int32_t>(std::thread::hardware_concurrency()));
-    // std::thread::hardware_concurrency() can return 0;
-    const auto numThreads = configuredThreads > 0 ? configuredThreads : 1;
+    const auto numThreads = backendConf_->get<int32_t>(kShuffleReaderThreads, 1);
     readerThreadPool_ = std::make_unique<ReaderThreadPool>(numThreads);
   });
   return readerThreadPool_.get();

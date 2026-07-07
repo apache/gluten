@@ -148,22 +148,20 @@ std::vector<GpuShuffleTestParams> getTestParams() {
     for (const auto compressionThreshold : compressionThresholds) {
       // Local.
       for (const auto mergeBufferSize : mergeBufferSizes) {
-        params.push_back(
-            GpuShuffleTestParams{
-                .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
-                .partitionWriterType = PartitionWriterType::kLocal,
-                .compressionType = compression,
-                .compressionThreshold = compressionThreshold,
-                .mergeBufferSize = mergeBufferSize});
+        params.push_back(GpuShuffleTestParams{
+            .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+            .partitionWriterType = PartitionWriterType::kLocal,
+            .compressionType = compression,
+            .compressionThreshold = compressionThreshold,
+            .mergeBufferSize = mergeBufferSize});
       }
 
       // Rss.
-      params.push_back(
-          GpuShuffleTestParams{
-              .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
-              .partitionWriterType = PartitionWriterType::kRss,
-              .compressionType = compression,
-              .compressionThreshold = compressionThreshold});
+      params.push_back(GpuShuffleTestParams{
+          .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+          .partitionWriterType = PartitionWriterType::kRss,
+          .compressionType = compression,
+          .compressionThreshold = compressionThreshold});
     }
   }
 
@@ -490,7 +488,12 @@ TEST_P(GpuHashPartitioningShuffleWriterTest, hashPart1Vector) {
         makeFlatVector<int32_t>({232, 34567235, 1212, 4567}),
         makeFlatVector<int32_t>(
             4, [](vector_size_t row) { return row % 2; }, nullEvery(5), DATE()),
-        makeFlatVector<Timestamp>(4, [](vector_size_t row) { return Timestamp{row % 2, 0}; }, nullEvery(5))};
+        makeFlatVector<Timestamp>(
+            4,
+            [](vector_size_t row) {
+              return Timestamp{row % 2, 0};
+            },
+            nullEvery(5))};
 
     const auto vector = makeRowVector(data);
 

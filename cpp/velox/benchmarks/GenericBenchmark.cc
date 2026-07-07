@@ -238,7 +238,7 @@ std::shared_ptr<VeloxShuffleWriter> createShuffleWriter(
 
 std::shared_ptr<ShuffleReader> createShuffleReader(Runtime* runtime, const std::shared_ptr<arrow::Schema>& schema) {
   auto readerOptions = std::make_shared<ShuffleReaderOptions>();
-  readerOptions->shuffleWriterType = ShuffleWriter::stringToType(FLAGS_shuffle_writer),
+  readerOptions->shuffleWriterType = ShuffleWriter::stringToType(FLAGS_shuffle_writer);
   setCompressionTypeFromFlag(readerOptions->compressionType, readerOptions->codecBackend);
   return runtime->createShuffleReader(schema, readerOptions);
 }

@@ -74,6 +74,8 @@ private class CelebornColumnarBatchSerializerInstance(
   private val runtime =
     Runtimes.contextInstance(BackendsApiManager.getBackendName, "CelebornShuffleReader")
 
+  private val jniWrapper = ShuffleReaderJniWrapper.create(runtime)
+
   private val shuffleReaderHandle = {
     val allocator: BufferAllocator = ArrowBufferAllocators
       .contextInstance(classOf[CelebornColumnarBatchSerializerInstance].getSimpleName)
@@ -91,7 +93,6 @@ private class CelebornColumnarBatchSerializerInstance(
       }
     val compressionCodecBackend =
       GlutenConfig.get.columnarShuffleCodecBackend.orNull
-    val jniWrapper = ShuffleReaderJniWrapper.create(runtime)
     val batchSize = GlutenConfig.get.maxBatchSize
     val readerBufferSize = GlutenConfig.get.columnarShuffleReaderBufferSize
     val deserializerBufferSize = GlutenConfig.get.columnarSortShuffleDeserializerBufferSize
@@ -247,6 +248,7 @@ private class CelebornColumnarBatchSerializerInstance(
     }
 
     private def close0(): Unit = {
+      jniWrapper.stop(shuffleReaderHandle)
       if (numBatchesTotal > 0) {
         readBatchNumRows.set(numRowsTotal.toDouble / numBatchesTotal)
       }

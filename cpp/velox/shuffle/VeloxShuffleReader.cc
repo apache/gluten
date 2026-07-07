@@ -961,7 +961,7 @@ VeloxShuffleReader::VeloxShuffleReader(
 }
 
 void VeloxShuffleReader::createDeserializer(const std::shared_ptr<StreamReader>& streamReader) {
-  switch (shuffleWriterType_) {
+  switch (options_->shuffleWriterType) {
     case ShuffleWriterType::kGpuHashShuffle: {
 #ifdef GLUTEN_ENABLE_GPU
       VELOX_CHECK(!hasComplexType_);
@@ -971,7 +971,7 @@ void VeloxShuffleReader::createDeserializer(const std::shared_ptr<StreamReader>&
             schema_,
             codec_,
             rowType_,
-            readerBufferSize_,
+            options_->readerBufferSize,
             memoryManager_,
             deserializeTime_,
             decompressTime_);
@@ -981,7 +981,7 @@ void VeloxShuffleReader::createDeserializer(const std::shared_ptr<StreamReader>&
             schema_,
             codec_,
             rowType_,
-            readerBufferSize_,
+            options_->readerBufferSize,
             memoryManager_,
             deserializeTime_,
             decompressTime_);

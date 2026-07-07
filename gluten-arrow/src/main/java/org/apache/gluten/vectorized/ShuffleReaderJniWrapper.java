@@ -50,6 +50,8 @@ public class ShuffleReaderJniWrapper implements RuntimeAware {
 
   public native void populateMetrics(long shuffleReaderHandle, ShuffleReaderMetrics metrics);
 
+  // Stop the native shuffle reader from reading and deserializing streams
+  // when the deserializer is closed.
   public native void stop(long shuffleReaderHandle);
 
   public native void close(long shuffleReaderHandle);

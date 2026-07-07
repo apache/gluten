@@ -226,8 +226,6 @@ class VeloxShuffleReader final : public ShuffleReader {
   std::vector<bool> isValidityBuffer_;
   bool hasComplexType_{false};
 
-  ShuffleWriterType shuffleWriterType_;
-
   int64_t deserializeTime_{0};
   int64_t decompressTime_{0};
 
