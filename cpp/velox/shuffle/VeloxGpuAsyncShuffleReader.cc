@@ -57,6 +57,7 @@ VeloxGpuAsyncHashShuffleReaderDeserializer::VeloxGpuAsyncHashShuffleReaderDeseri
     const std::shared_ptr<arrow::util::Codec>& codec,
     const facebook::velox::RowTypePtr& rowType,
     int64_t readerBufferSize,
+    int64_t maxPrefetchBytes,
     VeloxMemoryManager* memoryManager,
     int64_t& deserializeTime,
     int64_t& decompressTime)
@@ -65,6 +66,7 @@ VeloxGpuAsyncHashShuffleReaderDeserializer::VeloxGpuAsyncHashShuffleReaderDeseri
       codec_(codec),
       rowType_(rowType),
       readerBufferSize_(readerBufferSize),
+      maxPrefetchBytes_(maxPrefetchBytes),
       memoryManager_(memoryManager),
       deserializeTime_(deserializeTime),
       decompressTime_(decompressTime),
@@ -81,7 +83,7 @@ VeloxGpuAsyncHashShuffleReaderDeserializer::~VeloxGpuAsyncHashShuffleReaderDeser
 }
 
 std::unique_ptr<ColumnarBatchIterator> VeloxGpuAsyncHashShuffleReaderDeserializer::deserializeStreams() {
-  batchQueue_ = std::make_unique<CachedBatchQueue<GpuBufferColumnarBatch>>(1L << 30);
+  batchQueue_ = std::make_unique<CachedBatchQueue<GpuBufferColumnarBatch>>(maxPrefetchBytes_);
 
   if (!threadPool_) {
     throw GlutenException("Thread pool must be provided to VeloxGpuHashShuffleReaderDeserializer");
@@ -118,9 +120,9 @@ void VeloxGpuAsyncHashShuffleReaderDeserializer::stop() {
 }
 
 void VeloxGpuAsyncHashShuffleReaderDeserializer::read() {
-  std::shared_ptr<arrow::io::InputStream> inputStream = nullptr;
-
   try {
+    std::shared_ptr<arrow::io::InputStream> inputStream = nullptr;
+
     while (true) {
       // Check if stop has been called, or if a sibling producer encountered an error.
       if (stop_.load(std::memory_order_acquire) || batchQueue_->hasException()) {

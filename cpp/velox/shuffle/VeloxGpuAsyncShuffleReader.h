@@ -40,6 +40,7 @@ class VeloxGpuAsyncHashShuffleReaderDeserializer final : public ShuffleReaderDes
       const std::shared_ptr<arrow::util::Codec>& codec,
       const facebook::velox::RowTypePtr& rowType,
       int64_t readerBufferSize,
+      int64_t maxPrefetchBytes,
       VeloxMemoryManager* memoryManager,
       int64_t& deserializeTime,
       int64_t& decompressTime);
@@ -61,6 +62,7 @@ class VeloxGpuAsyncHashShuffleReaderDeserializer final : public ShuffleReaderDes
   std::shared_ptr<arrow::util::Codec> codec_;
   facebook::velox::RowTypePtr rowType_;
   int64_t readerBufferSize_;
+  int64_t maxPrefetchBytes_;
   VeloxMemoryManager* memoryManager_;
 
   int32_t priority_{0};

@@ -70,7 +70,9 @@ struct ShuffleReaderOptions {
   // stream.
   bool enableHashShuffleReaderStreamMerge = false;
 
-  bool enableGpuAsyncReader = true;
+  // GPU shuffle reader.
+  bool enableGpuAsyncReader = false;
+  int64_t gpuAsyncReaderMaxPrefetchBytes = 1 << 30;
 };
 
 struct ShuffleWriterOptions {

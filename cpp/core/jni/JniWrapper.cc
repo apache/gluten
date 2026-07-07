@@ -15,21 +15,10 @@
  * limitations under the License.
  */
 
-#include <jni.h>
-#include <algorithm>
-#include <cstdint>
-#include <filesystem>
-#include <limits>
-
 #include "compute/Runtime.h"
 #include "config/GlutenConfig.h"
 #include "jni/JniCommon.h"
 #include "jni/JniError.h"
-
-#include <arrow/c/bridge.h>
-#include <google/protobuf/stubs/common.h>
-#include <optional>
-#include <string>
 #include "memory/AllocationListener.h"
 #include "memory/SplitAwareColumnarBatchIterator.h"
 #include "operators/serializer/ColumnarBatchSerializer.h"
@@ -40,6 +29,16 @@
 #include "shuffle/Utils.h"
 #include "utils/ArrowStatus.h"
 #include "utils/StringUtil.h"
+
+#include <arrow/c/bridge.h>
+#include <google/protobuf/stubs/common.h>
+#include <jni.h>
+#include <algorithm>
+#include <cstdint>
+#include <filesystem>
+#include <limits>
+#include <optional>
+#include <string>
 
 using namespace gluten;
 
@@ -1291,7 +1290,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrappe
     jlong readerBufferSize,
     jlong deserializerBufferSize,
     jboolean enableHashShuffleReaderStreamMerge,
-    jboolean enableAsyncReader) {
+    jboolean enableAsyncReader,
+    jlong gpuAsyncReaderMaxPrefetchBytes) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
 
@@ -1306,7 +1306,11 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrappe
   options->readerBufferSize = readerBufferSize;
   options->deserializerBufferSize = deserializerBufferSize;
   options->enableHashShuffleReaderStreamMerge = enableHashShuffleReaderStreamMerge;
+
+#ifdef GLUTEN_ENABLE_GPU
   options->enableGpuAsyncReader = enableAsyncReader;
+  options->gpuAsyncReaderMaxPrefetchBytes = gpuAsyncReaderMaxPrefetchBytes;
+#endif
 
   std::shared_ptr<arrow::Schema> schema =
       arrowGetOrThrow(arrow::ImportSchema(reinterpret_cast<struct ArrowSchema*>(cSchema)));

@@ -37,6 +37,9 @@
 
 #include <algorithm>
 
+#include "VeloxGpuAsyncShuffleReader.h"
+#include "config/VeloxConfig.h"
+
 #ifdef GLUTEN_ENABLE_GPU
 #include "shuffle/VeloxGpuAsyncShuffleReader.h"
 #include "shuffle/VeloxGpuShuffleReader.h"
@@ -972,6 +975,7 @@ void VeloxShuffleReader::createDeserializer(const std::shared_ptr<StreamReader>&
             codec_,
             rowType_,
             options_->readerBufferSize,
+            options_->gpuAsyncReaderMaxPrefetchBytes,
             memoryManager_,
             deserializeTime_,
             decompressTime_);

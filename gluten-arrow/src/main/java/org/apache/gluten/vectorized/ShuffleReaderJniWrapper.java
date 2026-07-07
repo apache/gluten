@@ -35,6 +35,28 @@ public class ShuffleReaderJniWrapper implements RuntimeAware {
     return runtime.getHandle();
   }
 
+  public long make(
+      String shuffleWriterType,
+      long cSchema,
+      String compressionType,
+      String compressionCodecBackend,
+      int batchSize,
+      long readerBufferSize,
+      long deserializerBufferSize,
+      boolean enableHashShuffleReaderStreamMerge) {
+    return make(
+        shuffleWriterType,
+        cSchema,
+        compressionType,
+        compressionCodecBackend,
+        batchSize,
+        readerBufferSize,
+        deserializerBufferSize,
+        enableHashShuffleReaderStreamMerge,
+        false,
+        0L);
+  }
+
   public native long make(
       String shuffleWriterType,
       long cSchema,
@@ -44,7 +66,8 @@ public class ShuffleReaderJniWrapper implements RuntimeAware {
       long readerBufferSize,
       long deserializerBufferSize,
       boolean enableHashShuffleReaderStreamMerge,
-      boolean enableGpuAsyncReader);
+      boolean enableGpuAsyncReader,
+      long gpuAsyncReaderMaxPrefetchBytes);
 
   public native long read(long shuffleReaderHandle, ShuffleStreamReader streamReader);
 

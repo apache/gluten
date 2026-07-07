@@ -306,7 +306,8 @@ facebook::velox::cache::AsyncDataCache* VeloxBackend::getAsyncDataCache() const 
 ReaderThreadPool* VeloxBackend::getReaderThreadPool() {
   static std::once_flag readerThreadPoolInit;
   std::call_once(readerThreadPoolInit, [this] {
-    const auto numThreads = backendConf_->get<int32_t>(kShuffleReaderThreads, 1);
+    const auto numThreads =
+        backendConf_->get<int32_t>(kGpuAsyncShuffleReaderThreads, kGpuAsyncShuffleReaderThreadsDefault);
     readerThreadPool_ = std::make_unique<ReaderThreadPool>(numThreads);
   });
   return readerThreadPool_.get();
