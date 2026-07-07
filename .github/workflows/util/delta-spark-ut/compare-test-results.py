@@ -48,7 +48,9 @@ This script has three modes:
 ``aggregate`` (final job)
     Merge every shard's ``--failures-out`` / ``--ran-out`` file into a single,
     sorted, ready-to-commit ``known-failures.txt`` and report stale baseline
-    entries (tests no longer present in any shard).
+    entries (tests no longer present in any shard). Pass ``--expected-shards N``
+    to fail when fewer than ``N`` shards contributed gate lists (a shard that
+    died before writing them), so an incomplete baseline is never produced.
 
 Flaky quarantine (``--flaky-tests``)
     Some Delta-on-Gluten failures are non-deterministic (e.g. a native bug that
@@ -79,6 +81,7 @@ import argparse
 import fnmatch
 import glob
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -454,6 +457,23 @@ def run_enforce(args):
             handle.close()
 
 
+def _shard_ids(files, prefix):
+    """Return the set of shard ids from gate-list filenames.
+
+    Gate lists are named ``<prefix><shard-id>.txt`` (e.g. ``failures-shard-0.txt``,
+    ``ran-shard-0.txt``); this extracts the ``<shard-id>`` token so aggregate mode
+    can count how many shards contributed. Matching is on the basename, so nested
+    download dirs are fine.
+    """
+    ids = set()
+    pat = re.compile(r"^" + re.escape(prefix) + r"(.+)\.txt$")
+    for f in files:
+        m = pat.match(os.path.basename(f))
+        if m:
+            ids.add(m.group(1))
+    return ids
+
+
 def run_aggregate(args):
     failure_files = sorted(
         glob.glob(os.path.join(args.inputs_dir, "**", "failures-*.txt"), recursive=True)
@@ -473,6 +493,31 @@ def run_aggregate(args):
             "missing or were not downloaded).".format(args.inputs_dir)
         )
         return 2
+
+    # Completeness guard: each shard writes its failures-<id>.txt and ran-<id>.txt
+    # together (see run_enforce), so a shard that died before the gate step -- or
+    # whose artifact failed to download -- contributes neither. The empty-inputs
+    # check above only catches losing *all* shards; without this a partial set
+    # would silently regenerate a baseline missing that shard's failures, wrongly
+    # shrinking known-failures.txt and reddening the next run. A shard counts as
+    # complete only when BOTH its files are present (robust to partial downloads).
+    if args.expected_shards:
+        complete = _shard_ids(failure_files, "failures-") & _shard_ids(
+            ran_files, "ran-"
+        )
+        if len(complete) != args.expected_shards:
+            eprint(
+                "ERROR: expected {} shard gate-list set(s) but found {} complete "
+                "(shards: {}). A shard's failures-*/ran-* artifact is missing -- it "
+                "likely died before writing its gate lists or its artifact failed "
+                "to download -- so the regenerated baseline would be incomplete and "
+                "could wrongly shrink known-failures.txt. Refusing to aggregate.".format(
+                    args.expected_shards,
+                    len(complete),
+                    ", ".join(sorted(complete)) or "none",
+                )
+            )
+            return 2
 
     union_failed = set()
     for f in failure_files:
@@ -589,6 +634,15 @@ def main(argv=None):
     )
     parser.add_argument(
         "--inputs-dir", help="Dir with per-shard failures-*/ran-* files (aggregate)."
+    )
+    parser.add_argument(
+        "--expected-shards",
+        type=int,
+        default=0,
+        help="In aggregate mode, the number of shards expected to contribute gate "
+        "lists. When >0, fail if fewer complete shard gate-list pairs "
+        "(failures-*/ran-*) are found -- e.g. a shard died before writing them -- so "
+        "an incomplete baseline is never produced. 0 (default) disables the check.",
     )
     parser.add_argument(
         "--baseline-out", help="Write the merged baseline here (aggregate)."

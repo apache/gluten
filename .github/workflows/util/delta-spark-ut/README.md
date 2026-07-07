@@ -92,6 +92,12 @@ same way as bootstrapping: run the workflow with `update_baseline=true`, downloa
 the `delta-spark-ut-known-failures` artifact, and commit it. The aggregate job
 also lists **stale** entries you can prune.
 
+The aggregate job passes `--expected-shards` (the shard count), so if a shard
+dies before writing its gate lists (or its artifact fails to download) the
+aggregate **fails** instead of emitting a baseline that silently omits that
+shard's failures — which would otherwise shrink `known-failures.txt` and red the
+next run. Re-run the workflow if this happens.
+
 ## Flaky tests
 
 Some tests are genuinely non-deterministic (e.g. the Delta MERGE-with-deletion-vector

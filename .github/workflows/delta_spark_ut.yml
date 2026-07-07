@@ -679,6 +679,7 @@ jobs:
           python3 .github/workflows/util/delta-spark-ut/compare-test-results.py \
             --mode aggregate \
             --inputs-dir gate-lists \
+            --expected-shards "${{ env.DELTA_NUM_SHARDS }}" \
             --known-failures .github/workflows/util/delta-spark-ut/known-failures.txt \
             --flaky-tests .github/workflows/util/delta-spark-ut/flaky-tests.txt \
             --baseline-out aggregated/known-failures.txt
