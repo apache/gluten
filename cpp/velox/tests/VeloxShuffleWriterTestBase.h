@@ -63,7 +63,8 @@ class VeloxShuffleWriterTestBase : public facebook::velox::test::VectorTestBase 
     auto listener = std::make_unique<TestAllocationListener>();
     listener_ = listener.get();
 
-    std::unordered_map<std::string, std::string> conf{{kMemoryReservationBlockSize, "1"}, {kDebugModeEnabled, "true"}, {kGpuAsyncShuffleReaderThreads, "2"}};
+    std::unordered_map<std::string, std::string> conf{
+        {kMemoryReservationBlockSize, "1"}, {kDebugModeEnabled, "true"}, {kGpuAsyncShuffleReaderThreads, "2"}};
 
     VeloxBackend::create(std::move(listener), conf);
   }
