@@ -539,6 +539,7 @@ class VeloxShuffleReaderStreamMergeTest : public ::testing::Test, public VeloxSh
     options->readerBufferSize = kDefaultReadBufferSize;
     options->deserializerBufferSize = kDefaultDeserializerBufferSize;
     options->shuffleWriterType = ShuffleWriterType::kHashShuffle;
+    options->enableHashShuffleReaderStreamMerge = enableStreamMerge.has_value() ? enableStreamMerge.value() : false;
 
     const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
