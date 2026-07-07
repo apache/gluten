@@ -1204,8 +1204,8 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::constructValueStreamNode(
   auto outputType = ROW(std::move(outNames), std::move(boltTypeList));
   int64_t rowCount = 0;
   if (readRel.has_advanced_extension() &&
-      SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowSize=") >= 0) {
-    rowCount = SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowSize=");
+      SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowCount=") >= 0) {
+    rowCount = SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowCount=");
   }
 
   std::shared_ptr<ResultIterator> iterator;
@@ -1376,12 +1376,12 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Re
     auto tableScanNode =
         std::make_shared<core::TableScanNode>(nextPlanNodeId(), std::move(outputType), tableHandle, assignments);
     if (readRel.has_advanced_extension() &&
-        SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowSize=") >= 0) {
+        SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowCount=") >= 0) {
       LOG(INFO) << "table scan node rowcount: "
-                << SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowSize=")
+                << SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowCount=")
                 << std::endl;
       tableScanNode->setRowCount(
-          SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowSize="));
+          SubstraitParser::configLongValueInOptimization(readRel.advanced_extension(), "rowCount="));
     }
     // Set split info map.
     splitInfoMap_[tableScanNode->id()] = splitInfo;
