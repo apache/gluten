@@ -1,0 +1,28 @@
+gluten-flink/ut/src/test/java/org/apache/gluten/table/runtime/operators/GlutenSourceFunctionWatermarkStatusE2ETest.java
+  s_23651fc93834ee::t_d6e75054b5a17c 24,28,37-41
+  s_23651fc93834ee::t_b0cf94cce01719 25
+  s_23651fc93834ee::t_c21429eb85bbed 1-23,26-27,29-36,42-43
+gluten-flink/runtime/src/main/java/org/apache/gluten/table/runtime/operators/GlutenSourceFunction.java
+  s_23651fc93834ee::t_8849c4a3b8d79e 66-68
+  s_23651fc93834ee::t_6f72240212e2be 65,69-71
+  s_23651fc93834ee::t_31caf05d91313d 91-93,95
+  s_23651fc93834ee::t_0dcfab110101ae 279-281
+  s_23651fc93834ee::t_13de4d188127a5 94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "5d08f10fb349c223af88b714f211ea8a7c021b6c",
+  "prompts": {},
+  "logical_commit_id": "5d08f10fb349c223af88b714f211ea8a7c021b6c",
+  "sessions": {
+    "s_23651fc93834ee": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0d944f4e6ffeWmKFgw1SHWXBka",
+        "model": "glm-5.2"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
