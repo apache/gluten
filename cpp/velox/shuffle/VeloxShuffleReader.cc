@@ -1076,6 +1076,8 @@ int64_t VeloxShuffleReader::getDeserializeTime() const {
 }
 
 void VeloxShuffleReader::stop() {
-  deserializer_->stop();
+  if (deserializer_) {
+    deserializer_->stop();
+  }
 }
 } // namespace gluten
