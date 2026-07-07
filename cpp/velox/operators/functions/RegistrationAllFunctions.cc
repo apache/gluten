@@ -50,9 +50,6 @@ void registerPrestoVectorFunctions() {
 namespace gluten {
 namespace {
 
-constexpr const char* kSparkAnsiCast = "spark_ansi_cast";
-constexpr const char* kSparkLegacyCast = "spark_legacy_cast";
-
 void registerFunctionOverwrite() {
   velox::functions::registerUnaryNumeric<RoundFunction>({"round"});
   velox::registerFunction<RoundFunction, int8_t, int8_t, int32_t>({"round"});
@@ -88,7 +85,7 @@ void registerFunctionOverwrite() {
 
 void registerAllFunctions() {
   velox::functions::sparksql::registerFunctions("");
-  velox::functions::sparksql::registerSparkCastModeSpecialForms(kSparkAnsiCast, kSparkLegacyCast);
+  velox::functions::sparksql::registerSparkCastModeSpecialForms();
   velox::aggregate::prestosql::registerAllAggregateFunctions(
       "", true /*registerCompanionFunctions*/, false /*onlyPrestoSignatures*/, true /*overwrite*/);
   velox::functions::aggregate::sparksql::registerAggregateFunctions(
