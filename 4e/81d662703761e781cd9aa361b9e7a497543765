@@ -1,0 +1,30 @@
+gluten-flink/runtime/src/main/java/org/apache/gluten/client/OffloadedJobGraphGenerator.java
+  s_23651fc93834ee::t_9fd7d29be9a28e 190-199
+gluten-flink/runtime/src/main/java/org/apache/gluten/table/runtime/operators/GlutenSourceFunction.java
+  s_23651fc93834ee::t_0232bafb593fda 96-100
+gluten-flink/runtime/src/main/java/org/apache/gluten/streaming/api/operators/GlutenStreamSource.java
+  s_23651fc93834ee::t_654689a62d6eb7 82-85
+gluten-flink/ut/src/test/java/org/apache/gluten/table/runtime/operators/GlutenSourceFunctionWatermarkStatusE2ETest.java
+  s_23651fc93834ee::t_6c07f6da41c87c 207-208
+  s_23651fc93834ee::t_9f2be0703ab674 43-45,128-137,160,169,184
+  s_23651fc93834ee::t_8d9944c3a63fa7 19,22-42,46-47,49,51,53-58,62-69,71-85,89-100,102-104,106-127,138-159,161-164,166-168,170-183,185-206,209-234
+  s_23651fc93834ee::t_25cd197d7f2d44 165
+  s_23651fc93834ee::t_17255f968147a0 101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "4e81d662703761e781cd9aa361b9e7a497543765",
+  "prompts": {},
+  "logical_commit_id": "4e81d662703761e781cd9aa361b9e7a497543765",
+  "sessions": {
+    "s_23651fc93834ee": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0d944f4e6ffeWmKFgw1SHWXBka",
+        "model": "glm-5.2"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
