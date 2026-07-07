@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+if (ENABLE_BOLT)
+
 cmake_minimum_required(VERSION 3.25)
 
 find_package(JNI REQUIRED)
@@ -44,3 +46,4 @@ if(TARGET hdfs_client::hdfs_client)
     endif()
 endif()
 
+endif()
