@@ -1491,9 +1491,9 @@ final class GlutenShuffleBlockFetcherIterator(
  * Helper class that ensures a ManagedBuffer is released upon InputStream.close() and also detects
  * stream corruption if streamCompressedOrEncrypted is true
  */
-private class GlutenBufferReleasingInputStream(
+class GlutenBufferReleasingInputStream(
     // This is visible for testing
-    private[storage] val delegate: InputStream,
+    val delegate: InputStream,
     private val iterator: GlutenShuffleBlockFetcherIterator,
     private val blockId: BlockId,
     private val mapIndex: Int,
