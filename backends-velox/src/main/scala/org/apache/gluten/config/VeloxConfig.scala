@@ -113,6 +113,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
     getConf(VALUE_STREAM_DYNAMIC_FILTER_ENABLED)
 
   def enableTimestampNtzValidation: Boolean = getConf(ENABLE_TIMESTAMP_NTZ_VALIDATION)
+
+  def enableDriverSideBroadcastHashTableBuild: Boolean =
+    getConf(VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD)
 }
 
 object VeloxConfig extends ConfigRegistry {
@@ -682,6 +685,15 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD =
+    buildConf("spark.gluten.sql.columnar.backend.velox.driverSideBroadcastHashTableBuild")
+      .doc(
+        "Enable driver-side broadcast hash table build. When enabled, the hash table is " +
+          "built and serialized on the driver, then broadcast to executors. When disabled, " +
+          "each executor builds its own hash table from the broadcast data.")
+      .booleanConf
+      .createWithDefault(false)
+
   val QUERY_TRACE_ENABLED = buildConf("spark.gluten.sql.columnar.backend.velox.queryTraceEnabled")
     .doc("Enable query tracing flag.")
     .booleanConf
@@ -767,6 +779,12 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val CUDF_ALLOW_CPU_FALLBACK =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cudf.allowCpuFallback")
+      .doc("Allow cuDF to fall back to CPU execution for unsupported operators.")
+      .booleanConf
+      .createWithDefault(true)
+
   val CUDF_CONCURRENT_GPU_TASKS =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.cudf.concurrentGpuTasks")
       .doc("The number of concurrent GPU tasks to run.")
@@ -849,6 +867,12 @@ object VeloxConfig extends ConfigRegistry {
       .doc("The page size in bytes is for compression.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("1MB")
+
+  val PARQUET_DICT_SIZE_BYTES =
+    buildConf("spark.gluten.sql.columnar.backend.velox.parquet.dictionaryPageSizeBytes")
+      .doc("The maximum size in bytes for a Parquet dictionary page")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("2MB")
 
   val ENABLE_TIMESTAMP_NTZ_VALIDATION =
     buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")

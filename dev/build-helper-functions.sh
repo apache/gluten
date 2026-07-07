@@ -174,7 +174,9 @@ function cmake_install {
   fi
   mkdir -p "${BINARY_DIR}"
   CPU_TARGET="${CPU_TARGET:-unknown}"
-  COMPILER_FLAGS=$(get_cxx_flags $CPU_TARGET)
+  # EXTRA_CMAKE_CXX_FLAGS lets a caller append dependency-specific compiler flags
+  # for a single cmake_install invocation without affecting other dependencies.
+  COMPILER_FLAGS="$(get_cxx_flags $CPU_TARGET) ${EXTRA_CMAKE_CXX_FLAGS:-}"
 
   local MACOS_ISOLATION_FLAGS=""
   if [[ "$(uname)" == "Darwin" ]]; then

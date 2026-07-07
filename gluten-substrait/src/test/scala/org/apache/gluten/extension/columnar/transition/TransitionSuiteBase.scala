@@ -77,6 +77,21 @@ object TransitionSuiteBase {
     override def output: Seq[Attribute] = List.empty
   }
 
+  /**
+   * Leaf with rowType=None and batchType=None. Used only to exercise
+   * [[InsertTransitions.applyForNode]]'s defensive fail-fast on unexecutable children; no
+   * production plan declares itself this way.
+   */
+  case class NoConventionLeaf() extends LeafExecNode with GlutenPlan {
+    override def rowType(): Convention.RowType = Convention.RowType.None
+
+    override def batchType(): Convention.BatchType = Convention.BatchType.None
+
+    override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
+
+    override def output: Seq[Attribute] = List.empty
+  }
+
   case class RowUnary(override val rowType: Convention.RowType, override val child: SparkPlan)
     extends UnaryExecNode
     with GlutenPlan {

@@ -25,9 +25,8 @@ ARROW_PREFIX=$CURRENT_DIR/../ep/_ep/arrow_ep
 BUILD_TYPE=Release
 INSTALL_PREFIX=${INSTALL_PREFIX:-"/usr/local"}
 
-
 function install_openssl() {
-  pushd ${ARROW_PREFIX}/../
+  pushd ${CURRENT_DIR}/../ep/_ep/
   curl -LO https://github.com/openssl/openssl/releases/download/OpenSSL_1_0_2/openssl-1.0.2.tar.gz
   tar -xzvf openssl-1.0.2.tar.gz
   cd openssl-1.0.2
@@ -52,7 +51,7 @@ function prepare_arrow_build() {
 }
 
 function build_arrow_cpp() {
-  export OPENSSL_ROOT_DIR=/usr/local/ssl
+  export OPENSSL_ROOT_DIR=/opt/openssl
   export ARROW_THRIFT_URL="https://www.apache.org/dyn/closer.lua/thrift/0.20.0/thrift-0.20.0.tar.gz?action=download"
   pushd $ARROW_PREFIX/cpp
   ARROW_WITH_ZLIB=ON

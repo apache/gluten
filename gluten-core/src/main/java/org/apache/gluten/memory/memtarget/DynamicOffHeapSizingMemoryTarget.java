@@ -19,6 +19,7 @@ package org.apache.gluten.memory.memtarget;
 import org.apache.gluten.memory.SimpleMemoryUsageRecorder;
 import org.apache.gluten.proto.MemoryUsageStats;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.spark.annotation.Experimental;
 import org.apache.spark.util.SparkThreadPoolUtil;
 import org.slf4j.Logger;
@@ -127,6 +128,20 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
   // Test only.
   private static final AtomicLong TOTAL_EXPLICIT_GC_COUNT = new AtomicLong(0L);
 
+  // Package-private test hooks — the ledger-correctness tests need to observe the static
+  // counter that gates exceedsMaxMemoryUsage(), and to reset it between test methods to avoid
+  // order-dependent state leakage. Not for production use; @VisibleForTesting flags any accidental
+  // same-package caller.
+  @VisibleForTesting
+  static long usedOffHeapBytesForTesting() {
+    return USED_OFF_HEAP_BYTES.get();
+  }
+
+  @VisibleForTesting
+  static void resetUsedOffHeapBytesForTesting() {
+    USED_OFF_HEAP_BYTES.set(0L);
+  }
+
   private final String name = MemoryTargetUtil.toUniqueName("DynamicOffHeapSizing");
   private final SimpleMemoryUsageRecorder recorder = new SimpleMemoryUsageRecorder();
 
@@ -199,18 +214,30 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
           });
     }
 
-    USED_OFF_HEAP_BYTES.addAndGet(size);
-    recorder.inc(size);
-    target.borrow(size);
-    return size;
+    // Record only what the wrapped target actually grants. Booking the requested
+    // `size` up-front (as the previous implementation did) inflates the counters
+    // for the window between the addAndGet and the target.borrow return, and
+    // would leave phantom bytes recorded permanently when the target grants
+    // less than requested — causing subsequent `exceedsMaxMemoryUsage` checks
+    // to reject allocations that were in fact within budget.
+    final long granted = target.borrow(size);
+    USED_OFF_HEAP_BYTES.addAndGet(granted);
+    recorder.inc(granted);
+    return granted;
   }
 
   @Override
   public long repay(long size) {
-    USED_OFF_HEAP_BYTES.addAndGet(-size);
-    recorder.inc(-size);
-    target.repay(size);
-    return size;
+    if (size == 0) {
+      return 0;
+    }
+    // Same rationale as borrow: reconcile against what the wrapped target
+    // actually freed, so under-frees don't leave the counters below zero and
+    // over-frees don't leak accounting.
+    final long freed = target.repay(size);
+    USED_OFF_HEAP_BYTES.addAndGet(-freed);
+    recorder.inc(-freed);
+    return freed;
   }
 
   @Override

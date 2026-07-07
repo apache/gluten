@@ -163,6 +163,10 @@ class JniCommonState {
 
   jmethodID runtimeAwareCtxHandle();
 
+  JavaVM* getJavaVM() const {
+    return vm_;
+  }
+
  private:
   void initialize(JNIEnv* env);
 

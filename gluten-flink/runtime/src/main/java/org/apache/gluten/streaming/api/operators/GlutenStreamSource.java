@@ -18,13 +18,11 @@ package org.apache.gluten.streaming.api.operators;
 
 import org.apache.gluten.table.runtime.operators.GlutenSourceFunction;
 import org.apache.gluten.util.ReflectUtils;
-import org.apache.gluten.util.Utils;
 
 import io.github.zhztheplayer.velox4j.connector.ConnectorSplit;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
-import org.apache.flink.api.common.TaskInfo;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.streaming.api.operators.StreamSource;
 
@@ -91,19 +89,7 @@ public class GlutenStreamSource extends StreamSource implements GlutenOperator {
   @Override
   public void notifyCheckpointComplete(long checkpointId) throws Exception {
     super.notifyCheckpointComplete(checkpointId);
-    String[] committed = sourceFunction.notifyCheckpointComplete(checkpointId);
-    SourceFunction.SourceContext sourceContext = getSourceContext();
-    TaskInfo taskInfo = getRuntimeContext().getTaskInfo();
-    if (sourceContext != null
-        && committed != null
-        && taskInfo.getTaskName().contains("StreamingFileWriter")) {
-      sourceContext.collect(
-          Utils.constructCommitInfo(
-              checkpointId,
-              taskInfo.getIndexOfThisSubtask(),
-              taskInfo.getNumberOfParallelSubtasks(),
-              committed));
-    }
+    sourceFunction.notifyCheckpointComplete(checkpointId);
   }
 
   @Override

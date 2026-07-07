@@ -191,6 +191,8 @@ const uint32_t kGlogSeverityLevelDefault = 1;
 
 // Iceberg write configs
 const std::string kWriteParquetPageSizeBytes = "spark.gluten.sql.columnar.backend.velox.parquet.pageSizeBytes";
+const std::string kWriteParquetDictSizeBytes =
+    "spark.gluten.sql.columnar.backend.velox.parquet.dictionaryPageSizeBytes";
 
 // Query trace
 /// Enable query tracing flag.

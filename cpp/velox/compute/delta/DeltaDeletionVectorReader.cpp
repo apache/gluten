@@ -52,14 +52,6 @@ uint32_t readUint32LittleEndian(const char* data) {
       (static_cast<uint32_t>(bytes[2]) << 16) | (static_cast<uint32_t>(bytes[3]) << 24);
 }
 
-uint64_t readUint64LittleEndian(const char* data) {
-  const auto* bytes = reinterpret_cast<const uint8_t*>(data);
-  return static_cast<uint64_t>(bytes[0]) | (static_cast<uint64_t>(bytes[1]) << 8) |
-      (static_cast<uint64_t>(bytes[2]) << 16) | (static_cast<uint64_t>(bytes[3]) << 24) |
-      (static_cast<uint64_t>(bytes[4]) << 32) | (static_cast<uint64_t>(bytes[5]) << 40) |
-      (static_cast<uint64_t>(bytes[6]) << 48) | (static_cast<uint64_t>(bytes[7]) << 56);
-}
-
 roaring::Roaring64Map deserializeDeltaBitmapArray(std::string_view serializedPayload, const std::string& dvPath) {
   VELOX_USER_CHECK_GE(
       serializedPayload.size(),
@@ -183,15 +175,30 @@ void DeltaDeletionVectorReader::applyDeletionFilter(uint64_t baseReadOffset, uin
   auto* rawBitmap = deleteBitmap->asMutable<uint64_t>();
   std::memset(rawBitmap, 0, bits::nbytes(size));
 
+  // Use an iterator-based approach instead of per-row contains() lookups.
+  // This is O(deletions_in_range) rather than O(batch_size), which is
+  // significantly faster when deletions are sparse relative to batch size.
+  // Guard against uint64_t overflow when baseReadOffset is near UINT64_MAX.
+  const uint64_t rangeEnd = (size <= UINT64_MAX - baseReadOffset) ? baseReadOffset + size : UINT64_MAX;
+  auto it = deletionBitmap_->begin();
+  if (!it.move_equalorlarger(baseReadOffset)) {
+    // No deleted rows at or after baseReadOffset — nothing to mark.
+    deleteBitmap->setSize(0);
+    return;
+  }
+
   bool hasDeletedRows = false;
   uint64_t highestDeletedIndex = 0;
-  for (uint64_t i = 0; i < size; ++i) {
-    const uint64_t absoluteRowPos = baseReadOffset + i;
-    if (deletionBitmap_->contains(absoluteRowPos)) {
-      bits::setBit(rawBitmap, i);
-      hasDeletedRows = true;
-      highestDeletedIndex = i;
+  while (it != deletionBitmap_->end()) {
+    const uint64_t absoluteRowPos = *it;
+    if (absoluteRowPos >= rangeEnd) {
+      break;
     }
+    const uint64_t relativeIndex = absoluteRowPos - baseReadOffset;
+    bits::setBit(rawBitmap, relativeIndex);
+    hasDeletedRows = true;
+    highestDeletedIndex = relativeIndex;
+    ++it;
   }
 
   deleteBitmap->setSize(hasDeletedRows ? bits::nbytes(highestDeletedIndex + 1) : 0);
