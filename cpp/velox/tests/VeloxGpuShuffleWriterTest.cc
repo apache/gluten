@@ -158,8 +158,7 @@ std::vector<GpuShuffleTestParams> getTestParams() {
               .compressionType = compression,
               .compressionThreshold = compressionThreshold,
               .mergeBufferSize = mergeBufferSize,
-              .enableGpuAsyncReader = enableGpuAsyncReader,
-              .asyncShuffleReaderThreads = 2});
+              .enableGpuAsyncReader = enableGpuAsyncReader});
         }
       }
 
