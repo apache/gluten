@@ -30,6 +30,7 @@ import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.exchange.{ShuffleExchangeExec, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.joins.SortMergeJoinExec
+import org.apache.spark.sql.functions.{col, max}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -101,6 +102,10 @@ class GlutenKeyGroupedPartitioningSuite
 
   private def collectAllShuffles(plan: SparkPlan): Seq[ColumnarShuffleExchangeExec] = {
     collect(plan) { case s: ColumnarShuffleExchangeExec => s }
+  }
+
+  private def collectVanillaShuffles(plan: SparkPlan): Seq[ShuffleExchangeExec] = {
+    collect(plan) { case s: ShuffleExchangeExec => s }
   }
 
   private def collectScans(plan: SparkPlan): Seq[BatchScanExec] = {
@@ -1871,6 +1876,161 @@ class GlutenKeyGroupedPartitioningSuite
           Row(1, "aa", 40.0, 42.0),
           Row(1, "aa", 40.0, 89.0),
           Row(3, "bb", 10.0, 19.5)))
+    }
+  }
+
+  testGluten("SPARK-53322: checkpointed scans avoid shuffles for aggregates") {
+    withTempDir {
+      dir =>
+        spark.sparkContext.setCheckpointDir(dir.getPath)
+        val itemsPartitions = Array(identity("id"))
+        createTable(items, itemsColumns, itemsPartitions)
+        sql(
+          s"INSERT INTO testcat.ns.$items VALUES " +
+            "(1, 'aa', 40.0, cast('2020-01-01' as timestamp)), " +
+            "(1, 'aa', 41.0, cast('2020-01-02' as timestamp)), " +
+            "(2, 'bb', 10.0, cast('2020-01-01' as timestamp)), " +
+            "(3, 'cc', 15.5, cast('2020-02-01' as timestamp))")
+
+        val scanDF = spark.read.table(s"testcat.ns.$items").checkpoint()
+        val df = scanDF.groupBy("id").agg(max("price").as("res")).select("res")
+        checkAnswer(df.sort("res"), Seq(Row(10.0), Row(15.5), Row(41.0)))
+
+        val shuffles = collectAllShuffles(df.queryExecution.executedPlan)
+        assert(
+          shuffles.isEmpty,
+          "should not contain shuffle when not grouping by partition values")
+    }
+  }
+
+  testGluten("SPARK-53322: checkpointed scans aren't used for SPJ") {
+    withTempDir {
+      dir =>
+        spark.sparkContext.setCheckpointDir(dir.getPath)
+        val itemsPartitions = Array(identity("id"))
+        createTable(items, itemsColumns, itemsPartitions)
+        sql(
+          s"INSERT INTO testcat.ns.$items VALUES " +
+            "(1, 'aa', 41.0, cast('2020-01-01' as timestamp)), " +
+            "(2, 'bb', 10.0, cast('2020-01-02' as timestamp)), " +
+            "(3, 'cc', 15.5, cast('2020-01-03' as timestamp))")
+
+        val purchasePartitions = Array(identity("item_id"))
+        createTable(purchases, purchasesColumns, purchasePartitions)
+        sql(
+          s"INSERT INTO testcat.ns.$purchases VALUES " +
+            "(1, 40.0, cast('2020-01-01' as timestamp)), " +
+            "(3, 25.5, cast('2020-01-03' as timestamp)), " +
+            "(4, 20.0, cast('2020-01-04' as timestamp))")
+
+        for {
+          pushdownValues <- Seq(true, false)
+          checkpointBothScans <- Seq(true, false)
+        } {
+          withSQLConf(
+            SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+            SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushdownValues.toString) {
+            val scanDF1 = spark.read.table(s"testcat.ns.$items").checkpoint().as("i")
+            val scanDF2 = if (checkpointBothScans) {
+              spark.read.table(s"testcat.ns.$purchases").checkpoint().as("p")
+            } else {
+              spark.read.table(s"testcat.ns.$purchases").as("p")
+            }
+
+            val df = scanDF1
+              .join(scanDF2, col("id") === col("item_id"))
+              .selectExpr("id", "name", "i.price AS purchase_price", "p.price AS sale_price")
+              .orderBy("id", "purchase_price", "sale_price")
+            checkAnswer(df, Seq(Row(1, "aa", 41.0, 40.0), Row(3, "cc", 15.5, 25.5)))
+
+            // One shuffle for sort and two shuffles for join are expected.
+            assert(collectAllShuffles(df.queryExecution.executedPlan).length === 3)
+          }
+        }
+    }
+  }
+
+  testGluten("SPARK-53322: checkpointed scans can't shuffle other children on SPJ") {
+    withTempDir {
+      dir =>
+        spark.sparkContext.setCheckpointDir(dir.getPath)
+        val itemsPartitions = Array(identity("id"))
+        createTable(items, itemsColumns, itemsPartitions)
+        sql(
+          s"INSERT INTO testcat.ns.$items VALUES " +
+            "(1, 'aa', 41.0, cast('2020-01-01' as timestamp)), " +
+            "(2, 'bb', 10.0, cast('2020-01-02' as timestamp)), " +
+            "(3, 'cc', 15.5, cast('2020-01-03' as timestamp))")
+
+        createTable(purchases, purchasesColumns, Array.empty)
+        sql(
+          s"INSERT INTO testcat.ns.$purchases VALUES " +
+            "(1, 40.0, cast('2020-01-01' as timestamp)), " +
+            "(3, 25.5, cast('2020-01-03' as timestamp)), " +
+            "(4, 20.0, cast('2020-01-04' as timestamp))")
+
+        Seq(true, false).foreach {
+          pushdownValues =>
+            withSQLConf(
+              SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+              SQLConf.V2_BUCKETING_SHUFFLE_ENABLED.key -> "true",
+              SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> pushdownValues.toString
+            ) {
+              val scanDF1 = spark.read.table(s"testcat.ns.$items").checkpoint().as("i")
+              val scanDF2 = spark.read.table(s"testcat.ns.$purchases").as("p")
+
+              val df = scanDF1
+                .join(scanDF2, col("id") === col("item_id"))
+                .selectExpr("id", "name", "i.price AS purchase_price", "p.price AS sale_price")
+                .orderBy("id", "purchase_price", "sale_price")
+              checkAnswer(df, Seq(Row(1, "aa", 41.0, 40.0), Row(3, "cc", 15.5, 25.5)))
+
+              // One shuffle for sort and two shuffles for join are expected.
+              assert(collectAllShuffles(df.queryExecution.executedPlan).length === 3)
+            }
+        }
+    }
+  }
+
+  testGluten("SPARK-53322: checkpointed scans can be shuffled by children on SPJ") {
+    withTempDir {
+      dir =>
+        spark.sparkContext.setCheckpointDir(dir.getPath)
+        val itemsPartitions = Array(identity("id"))
+        createTable(items, itemsColumns, itemsPartitions)
+        sql(
+          s"INSERT INTO testcat.ns.$items VALUES " +
+            "(1, 'aa', 41.0, cast('2020-01-01' as timestamp)), " +
+            "(2, 'bb', 10.0, cast('2020-01-02' as timestamp)), " +
+            "(3, 'cc', 15.5, cast('2020-01-03' as timestamp))")
+
+        createTable(purchases, purchasesColumns, Array(identity("item_id")))
+        sql(
+          s"INSERT INTO testcat.ns.$purchases VALUES " +
+            "(1, 40.0, cast('2020-01-01' as timestamp)), " +
+            "(3, 25.5, cast('2020-01-03' as timestamp)), " +
+            "(4, 20.0, cast('2020-01-04' as timestamp))")
+
+        withSQLConf(
+          SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+          SQLConf.V2_BUCKETING_SHUFFLE_ENABLED.key -> "true",
+          SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> "true"
+        ) {
+          val scanDF1 = spark.read.table(s"testcat.ns.$items").checkpoint().as("i")
+          val scanDF2 = spark.read.table(s"testcat.ns.$purchases").as("p")
+
+          val df = scanDF1
+            .join(scanDF2, col("id") === col("item_id"))
+            .selectExpr("id", "name", "i.price AS purchase_price", "p.price AS sale_price")
+            .orderBy("id", "purchase_price", "sale_price")
+          checkAnswer(df, Seq(Row(1, "aa", 41.0, 40.0), Row(3, "cc", 15.5, 25.5)))
+
+          // One shuffle for sort and one vanilla shuffle for one side of join are expected.
+          val plan = df.queryExecution.executedPlan
+          assert(collectAllShuffles(plan).length === 1)
+          // KeyGroupedPartitioning shuffle falls back to vanilla ShuffleExchangeExec
+          assert(collectVanillaShuffles(plan).length === 1)
+        }
     }
   }
 

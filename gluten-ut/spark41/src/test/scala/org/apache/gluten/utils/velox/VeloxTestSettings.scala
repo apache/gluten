@@ -80,12 +80,12 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("SPARK-48012")
     .excludeByPrefix("SPARK-44647")
     .excludeByPrefix("SPARK-41471")
+    .excludeByPrefix("SPARK-53322")
     // disable due to check for SMJ node
     .excludeByPrefix("SPARK-41413: partitioned join:")
     .excludeByPrefix("SPARK-42038: partially clustered:")
     .exclude("SPARK-44641: duplicated records when SPJ is not triggered")
     // TODO: fix on Spark-4.1
-    .excludeByPrefix("SPARK-53322") // see https://github.com/apache/spark/pull/53132
     .excludeByPrefix("SPARK-54439") // see https://github.com/apache/spark/pull/53142
   enableSuite[GlutenLocalScanSuite]
   enableSuite[GlutenMetadataColumnSuite]
