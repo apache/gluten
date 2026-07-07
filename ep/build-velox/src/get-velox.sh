@@ -166,6 +166,17 @@ function apply_compilation_fixes {
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
 }
 
+function apply_bloomfilter_final_patch {
+  echo "Applying bloom filter final-removal patch..."
+  pushd $VELOX_HOME
+  git apply --check ${CURRENT_DIR}/remove-bloomfilter-final.patch && \
+    git apply ${CURRENT_DIR}/remove-bloomfilter-final.patch || {
+    echo "Failed to apply bloom filter final-removal patch"
+    exit 1
+  }
+  popd
+}
+
 function apply_skipped_processed_pages_patch {
   echo "Applying skipped/processed pages patch..."
   pushd $VELOX_HOME
@@ -258,6 +269,8 @@ fi
 apply_provided_velox_patch
 
 apply_compilation_fixes
+
+apply_bloomfilter_final_patch
 
 apply_skipped_processed_pages_patch
 
