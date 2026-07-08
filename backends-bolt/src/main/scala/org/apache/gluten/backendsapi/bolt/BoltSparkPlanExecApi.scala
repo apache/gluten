@@ -186,7 +186,7 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
   }
 
   /** Transform sequence to Substrait. */
-  override def genSequenceTransformer(
+  def genSequenceTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
       expr: Sequence): ExpressionTransformer = {
@@ -379,7 +379,7 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
    * Bolt does not need the sort-based aggregate semantic, so a SortAggregateExec is offloaded as a
    * regular hash aggregate transformer.
    */
-  override def offloadSortAggregate(plan: BaseAggregateExec): HashAggregateExecBaseTransformer =
+  def offloadSortAggregate(plan: BaseAggregateExec): HashAggregateExecBaseTransformer =
     HashAggregateExecBaseTransformer.from(plan)
 
   /** Generate HashAggregateExecPullOutHelper */
@@ -711,7 +711,10 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
       child: SparkPlan,
       numOutputRows: SQLMetric,
       dataSize: SQLMetric,
-      buildThreads: SQLMetric): BuildSideRelation = {
+      buildThreads: SQLMetric,
+      buildHashTableTimeMetric: SQLMetric,
+      serializeHashTableTimeMetric: SQLMetric,
+      serializedHashTableSizeMetric: SQLMetric): BuildSideRelation = {
     val useOffheapBroadcastBuildRelation =
       BoltConfig.get.enableBroadcastBuildRelationInOffheap
     val serialized: Array[ColumnarBatchSerializeResult] = child
@@ -1045,7 +1048,7 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
     }
   }
 
-  override def validatePaimonScanCapabilities(
+  def validatePaimonScanCapabilities(
       hasPrimaryKeys: Boolean,
       allSplitsRawConvertible: Boolean,
       deletionVectorsEnabled: Boolean,
@@ -1098,7 +1101,7 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
     }
   }
 
-  override def rewritePaimonPushdownFilters(
+  def rewritePaimonPushdownFilters(
       filters: Seq[Expression],
       primaryKeys: Set[String],
       metadataColumns: Set[String]): Seq[Expression] = {
