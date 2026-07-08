@@ -115,6 +115,18 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       case _ => Seq(partition)
     }
 
+    val metadataFromSpark = getMetadataColumns().map(_.name)
+
+    val inputFileRelatedMetadataKeys = Seq(
+      InputFileName().prettyName,
+      InputFileBlockStart().prettyName,
+      InputFileBlockLength().prettyName)
+
+    val neededInputFileRelatedMetadataKeys =
+      inputFileRelatedMetadataKeys.filter(k => output.exists(_.name == k))
+
+    val metadataColumnNames = (metadataFromSpark ++ neededInputFileRelatedMetadataKeys).distinct
+
     BackendsApiManager.getIteratorApiInstance
       .genSplitInfo(
         partition.index,
@@ -122,7 +134,7 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
         getPartitionSchema,
         getDataSchema,
         readFileFormat,
-        getMetadataColumns().map(_.name),
+        metadataColumnNames,
         getProperties)
   }
 

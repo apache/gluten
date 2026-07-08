@@ -600,6 +600,26 @@ object VeloxConfig extends ConfigRegistry {
       .stringConf
       .createWithDefault("legacy")
 
+  val S3_UPLOAD_PART_ASYNC =
+    buildStaticConf("spark.gluten.velox.s3UploadPartAsync")
+      .doc("If true, S3 multipart upload parts are uploaded asynchronously.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val S3_MAX_CONCURRENT_UPLOAD_NUM =
+    buildStaticConf("spark.gluten.velox.s3MaxConcurrentUploadNum")
+      .doc("The maximum number of in-flight S3 part uploads per file.")
+      .intConf
+      .checkValue(_ > 0, "must be a positive number")
+      .createWithDefault(4)
+
+  val S3_UPLOAD_THREADS =
+    buildStaticConf("spark.gluten.velox.s3UploadThreads")
+      .doc("The number of shared S3 part upload threads.")
+      .intConf
+      .checkValue(_ > 0, "must be a positive number")
+      .createWithDefault(16)
+
   val VELOX_ORC_SCAN_ENABLED =
     buildConf("spark.gluten.sql.columnar.backend.velox.orc.scan.enabled")
       .doc("Enable velox orc scan. If disabled, vanilla spark orc scan will be used.")

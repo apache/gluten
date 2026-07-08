@@ -56,6 +56,15 @@ void getS3HiveConfig(
   // Log location of AWS C++ SDK
   const std::string kVeloxS3LogLocation = "spark.gluten.velox.s3LogLocation";
 
+  // Whether to upload S3 multipart parts asynchronously.
+  const std::string kVeloxS3UploadPartAsync = "spark.gluten.velox.s3UploadPartAsync";
+
+  // Maximum number of in-flight S3 part uploads per file.
+  const std::string kVeloxS3MaxConcurrentUploadNum = "spark.gluten.velox.s3MaxConcurrentUploadNum";
+
+  // Number of shared S3 part upload threads.
+  const std::string kVeloxS3UploadThreads = "spark.gluten.velox.s3UploadThreads";
+
   const std::unordered_map<S3Config::Keys, std::pair<std::string, std::optional<std::string>>> sparkSuffixes = {
       {S3Config::Keys::kAccessKey, std::make_pair("access.key", std::nullopt)},
       {S3Config::Keys::kSecretKey, std::make_pair("secret.key", std::nullopt)},
@@ -112,6 +121,13 @@ void getS3HiveConfig(
     }
   };
 
+  auto setGlutenS3ConfigIfPresent = [&](const std::string& glutenKey, std::string_view s3Suffix) {
+    auto value = conf->get<std::string>(glutenKey);
+    if (value.has_value()) {
+      hiveConfMap[std::string(S3Config::kS3Prefix) + std::string(s3Suffix)] = value.value();
+    }
+  };
+
   setFromEnvOrConfigIfPresent("AWS_ENDPOINT", S3Config::Keys::kEndpoint);
   setFromEnvOrConfigIfPresent("AWS_MAX_ATTEMPTS", S3Config::Keys::kMaxAttempts);
   setFromEnvOrConfigIfPresent("AWS_RETRY_MODE", S3Config::Keys::kRetryMode);
@@ -137,6 +153,9 @@ void getS3HiveConfig(
   if (logLocation.has_value()) {
     hiveConfMap[S3Config::kS3LogLocation] = logLocation.value();
   };
+  setGlutenS3ConfigIfPresent(kVeloxS3UploadPartAsync, "part-upload-async");
+  setGlutenS3ConfigIfPresent(kVeloxS3MaxConcurrentUploadNum, "max-concurrent-upload-num");
+  setGlutenS3ConfigIfPresent(kVeloxS3UploadThreads, "upload-threads");
 
   // Convert all Spark bucket configs to Velox bucket configs.
   for (const auto& [key, value] : conf->rawConfigs()) {
