@@ -171,11 +171,12 @@ trait SparkShims {
   def generateMetadataColumns(
       file: PartitionedFile,
       metadataColumnNames: Seq[String] = Seq.empty): Map[String, String] = {
-    Map(
+    val requested = metadataColumnNames.toSet
+    Seq(
       InputFileName().prettyName -> file.filePath.toString,
       InputFileBlockStart().prettyName -> file.start.toString,
       InputFileBlockLength().prettyName -> file.length.toString
-    )
+    ).collect { case (name, value) if requested.contains(name) => name -> value }.toMap
   }
 
   // For compatibility with Spark-3.5.

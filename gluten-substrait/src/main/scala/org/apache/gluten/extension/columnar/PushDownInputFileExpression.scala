@@ -21,7 +21,7 @@ import org.apache.gluten.execution.{BatchScanExecTransformerBase, FileSourceScan
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, NamedExpression}
 import org.apache.spark.sql.catalyst.optimizer.CollapseProjectShim
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{DeserializeToObjectExec, FileSourceScanExec, LeafExecNode, ProjectExec, SerializeFromObjectExec, SparkPlan, UnionExec}
+import org.apache.spark.sql.execution.{DeserializeToObjectExec, FileSourceScanExec, FilterExec, LeafExecNode, ProjectExec, SerializeFromObjectExec, SparkPlan, UnionExec}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
 
@@ -96,6 +96,12 @@ object PushDownInputFileExpression {
         }
         val newChild = addMetadataCol(child, replacedExprs)
         ProjectExec(newProjectList, newChild)
+      case f @ FilterExec(condition, child)
+          if containsInputFileRelatedExpr(condition) && hasInputFileRelatedSource(child) =>
+        val replacedExprs = mutable.Map[String, Alias]()
+        val newCondition = rewriteExpr(condition, replacedExprs)
+        val newChild = addMetadataCol(child, replacedExprs)
+        ProjectExec(f.output, FilterExec(newCondition, newChild))
     }
 
     private def addMetadataCol(
