@@ -16,9 +16,9 @@
  */
 package org.apache.spark.sql
 
-import org.apache.gluten.execution.{FileSourceScanExecTransformer, WholeStageTransformer}
+import org.apache.gluten.execution.FileSourceScanExecTransformer
 
-import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, ReusedSubqueryExec, ScalarSubquery}
+import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, ExecSubqueryExpression, ReusedSubqueryExec, ScalarSubquery}
 import org.apache.spark.sql.internal.SQLConf
 
 class GlutenSubquerySuite extends SubquerySuite with GlutenSQLTestsTrait {
@@ -37,24 +37,23 @@ class GlutenSubquerySuite extends SubquerySuite with GlutenSQLTestsTrait {
     "SPARK-28441: COUNT bug with attribute ref in subquery input and output with PythonUDF"
   )
 
-  // === Following cases override super class's cases ===
-  // TODO: fix in Spark-4.0
-  ignoreGluten("SPARK-26893 Allow pushdown of partition pruning subquery filters to file source") {
+  testGluten("SPARK-26893: Allow pushdown of partition pruning subquery filters to file source") {
     withTable("a", "b") {
       spark.range(4).selectExpr("id", "id % 2 AS p").write.partitionBy("p").saveAsTable("a")
       spark.range(2).write.saveAsTable("b")
 
-      // need to execute the query before we can examine fs.inputRDDs()
       val df = sql("SELECT * FROM a WHERE p <= (SELECT MIN(id) FROM b)")
       checkAnswer(df, Seq(Row(0, 0), Row(2, 0)))
-      assert(stripAQEPlan(df.queryExecution.executedPlan).collectFirst {
-        case t: WholeStageTransformer => t
-      } match {
-        case Some(WholeStageTransformer(fs: FileSourceScanExecTransformer, _)) =>
-          fs.dynamicallySelectedPartitions.toPartitionArray
-            .exists(_.filePath.toString.contains("p=0"))
-        case _ => false
-      })
+      // need to execute the query before we can examine fs.inputRDDs()
+      val fileSourceScanExec = collect(stripAQEPlan(df.queryExecution.executedPlan)) {
+        case fs: FileSourceScanExecTransformer => fs
+      }
+      assert(fileSourceScanExec.size === 1)
+      val scan = fileSourceScanExec.head
+      assert(scan.partitionFilters.exists(ExecSubqueryExpression.hasSubquery))
+      val selectedPartitions = scan.dynamicallySelectedPartitions.toPartitionArray
+      assert(selectedPartitions.nonEmpty)
+      assert(selectedPartitions.forall(_.filePath.toString.contains("p=0")))
     }
   }
 
