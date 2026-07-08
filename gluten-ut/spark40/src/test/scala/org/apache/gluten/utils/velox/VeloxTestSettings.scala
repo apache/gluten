@@ -1148,7 +1148,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSQLQuerySuiteAE]
   enableSuite[GlutenWindowQuerySuite]
   enableSuite[GlutenCollapseProjectExecTransformerSuite]
-  // TODO: 4.x enableSuite[GlutenSparkSessionExtensionSuite]  // 1 failure
+  enableSuite[GlutenSparkSessionExtensionSuite]
   enableSuite[GlutenGroupBasedDeleteFromTableSuite]
   enableSuite[GlutenDeltaBasedDeleteFromTableSuite]
   enableSuite[GlutenDataFrameToSchemaSuite]
