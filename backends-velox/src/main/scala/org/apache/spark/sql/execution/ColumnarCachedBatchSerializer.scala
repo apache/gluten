@@ -246,6 +246,50 @@ object CachedColumnarBatchKryoSerializer {
   val STATS_FRAMED_MAGIC: Array[Byte] =
     Array[Byte](0xfe.toByte, 0xca.toByte, 0x53.toByte, 0x02.toByte)
 
+  // V3 magic: same as V2 but last byte = 0x03.
+  val STATS_FRAMED_MAGIC_V3: Array[Byte] =
+    Array[Byte](0xfe.toByte, 0xca.toByte, 0x53.toByte, 0x03.toByte)
+
+  private def magicHex(bytes: Array[Byte]): String = {
+    if (bytes == null || bytes.length < 4) {
+      "<short>"
+    } else {
+      f"0x${bytes(0) & 0xff}%02X${bytes(1) & 0xff}%02X" +
+        f"${bytes(2) & 0xff}%02X${bytes(3) & 0xff}%02X"
+    }
+  }
+
+  private[execution] def hasFrameMagic(bytes: Array[Byte], magic: Array[Byte]): Boolean = {
+    bytes != null && bytes.length >= magic.length && {
+      var i = 0
+      while (i < magic.length) {
+        if (bytes(i) != magic(i)) {
+          return false
+        }
+        i += 1
+      }
+      true
+    }
+  }
+
+  private def requireFrameMagic(bytes: Array[Byte], magic: Array[Byte], version: String): Unit = {
+    require(
+      hasFrameMagic(bytes, magic),
+      s"$version framed bytes magic mismatch: expected ${magicHex(magic)}, got ${magicHex(bytes)}")
+  }
+
+  private def framedMagicVersion(framed: Array[Byte]): Int = {
+    if (hasFrameMagic(framed, STATS_FRAMED_MAGIC)) {
+      0x02
+    } else if (hasFrameMagic(framed, STATS_FRAMED_MAGIC_V3)) {
+      0x03
+    } else {
+      throw new IllegalArgumentException(
+        s"framed bytes magic mismatch: expected ${magicHex(STATS_FRAMED_MAGIC)}(V2) or " +
+          s"${magicHex(STATS_FRAMED_MAGIC_V3)}(V3), got ${magicHex(framed)}")
+    }
+  }
+
   // Per-column statsBlob layout (LE throughout, matches the cpp emitter in
   // VeloxColumnarBatchSerializer.cc):
   //
@@ -617,44 +661,100 @@ object CachedColumnarBatchKryoSerializer {
   }
 
   /**
-   * Parse the JNI `serializeWithStats` framed return into (stats InternalRow, bytesBlob).
+   * Parse the JNI `serializeWithStats` framed return into (stats InternalRow, bytesBlob). Routes on
+   * the full 4-byte magic: V2 -> 0xFECA5302, V3 -> 0xFECA5303.
    *
-   * Framed layout (matches cpp VeloxColumnarBatchSerializer.cc): `[ STATS_FRAMED_MAGIC: 4B ] [
-   * statsLen: u32 LE ] [ statsBlob ] [ bytesLen: u32 LE ] [ bytesBlob ]`.
-   *
-   * Eager guards catch corrupt magic / truncated framing before they propagate.
+   * V2 layout: `[ magic: 4B ] [ statsLen: u32 LE ] [ statsBlob ] [ bytesLen: u32 LE ] [ bytesBlob
+   * ]` V3 layout: `[ magic: 4B ] [ statsLen: u32 LE ] [ statsBlob ] [ numRows: u32 LE ] [ numCols:
+   * u32 LE ] [ per-col ]`
    */
   private[execution] def parseFramedBytes(
       framed: Array[Byte],
       schema: StructType): (InternalRow, Array[Byte]) = {
+    // V2 minimum = 4+4+4=12B; V3 minimum = 4+4+4+4=16B; use 12 for dispatcher guard.
     require(
-      framed != null && framed.length >= 4 + 4 + 4,
+      framed != null && framed.length >= 12,
       s"framed bytes too short: len=${if (framed == null) -1 else framed.length}")
-    require(
-      framed(0) == STATS_FRAMED_MAGIC(0) && framed(1) == STATS_FRAMED_MAGIC(1) &&
-        framed(2) == STATS_FRAMED_MAGIC(2) && framed(3) == STATS_FRAMED_MAGIC(3),
-      f"framed bytes magic mismatch: expected " +
-        f"0x${STATS_FRAMED_MAGIC(0) & 0xff}%02X${STATS_FRAMED_MAGIC(1) & 0xff}%02X" +
-        f"${STATS_FRAMED_MAGIC(2) & 0xff}%02X${STATS_FRAMED_MAGIC(3) & 0xff}%02X, got " +
-        f"0x${framed(0) & 0xff}%02X${framed(1) & 0xff}%02X" +
-        f"${framed(2) & 0xff}%02X${framed(3) & 0xff}%02X"
-    )
+    framedMagicVersion(framed) match {
+      case 0x02 => parseV2Frame(framed, schema)
+      case 0x03 => parseV3Frame(framed, schema)
+    }
+  }
+
+  /** V2 parse: extract stats + pure Presto bytesBlob. */
+  private def parseV2Frame(framed: Array[Byte], schema: StructType): (InternalRow, Array[Byte]) = {
+    requireFrameMagic(framed, STATS_FRAMED_MAGIC, "V2")
     val buf = ByteBuffer.wrap(framed).order(ByteOrder.LITTLE_ENDIAN)
     buf.position(4) // skip magic
     val statsLen = buf.getInt
     require(
       statsLen >= 0 && statsLen <= buf.remaining() - 4,
-      s"framed bytes statsLen=$statsLen exceeds remaining buffer ${buf.remaining() - 4}")
+      s"V2 framed bytes statsLen=$statsLen exceeds remaining buffer ${buf.remaining() - 4}")
     val statsBlob = new Array[Byte](statsLen)
     buf.get(statsBlob)
     val stats = deserializeStats(statsBlob, schema)
     val bytesLen = buf.getInt
     require(
       bytesLen >= 0 && bytesLen == buf.remaining(),
-      s"framed bytes bytesLen=$bytesLen != remaining ${buf.remaining()} (truncated or trailing)")
+      s"V2 framed bytes bytesLen=$bytesLen != remaining ${buf.remaining()} (truncated or trailing)")
     val bytesBlob = new Array[Byte](bytesLen)
     buf.get(bytesBlob)
     (stats, bytesBlob)
+  }
+
+  /**
+   * V3 parse: extract stats; bytes = the full V3 framed array (C++ deserializeV3 starts at magic).
+   * Invariant: returned bytes[0..3] == V3 magic; C++ deserializeV3 re-validates the schema-level
+   * contract (magic, statsLen, numRows/numCols, per-col bounds, schema numCols match), while this
+   * JVM parser fails fast on top-level frame bounds and statsBlob/frame column-count agreement (the
+   * only invariant C++ can't see, since C++ doesn't decode the statsBlob).
+   */
+  private def parseV3Frame(framed: Array[Byte], schema: StructType): (InternalRow, Array[Byte]) = {
+    require(framed.length >= 16, s"V3 framed bytes too short (min 16B): len=${framed.length}")
+    requireFrameMagic(framed, STATS_FRAMED_MAGIC_V3, "V3")
+    val buf = ByteBuffer.wrap(framed).order(ByteOrder.LITTLE_ENDIAN)
+    buf.position(4) // skip magic
+    val statsLen = buf.getInt
+    require(
+      statsLen >= 0 && statsLen <= buf.remaining() - 8, // 8 = numRows(4)+numCols(4)
+      s"V3 framed bytes statsLen=$statsLen invalid")
+    val statsBlob = new Array[Byte](statsLen)
+    buf.get(statsBlob)
+    val stats = if (statsLen == 0) null else deserializeStats(statsBlob, schema)
+    val numRows = buf.getInt
+    require(numRows >= 0, s"V3 framed bytes numRows=$numRows invalid")
+    val numCols = buf.getInt
+    require(numCols >= 0, s"V3 framed bytes numCols=$numCols invalid")
+    // The stats InternalRow must carry exactly 5 slots per frame column
+    // (lowerBound, upperBound, nullCount, count, sizeInBytes). A mismatch means the embedded
+    // statsBlob's column count disagrees with the frame's numCols -- a corrupt/mis-encoded frame
+    // that would mis-align partition stats against the actual columns; fail fast here.
+    require(
+      stats == null || stats.numFields == numCols * 5,
+      s"V3 framed bytes stats row numFields=${if (stats == null) -1 else stats.numFields} " +
+        s"!= numCols*5=${numCols * 5} (statsBlob/frame column-count mismatch)"
+    )
+    var col = 0
+    while (col < numCols) {
+      require(
+        buf.remaining() >= 4,
+        s"V3 framed bytes truncated before colLen col=$col")
+      val colLen = buf.getInt
+      require(
+        colLen >= 0,
+        s"V3 framed bytes colLen=$colLen invalid at col=$col")
+      require(
+        colLen <= buf.remaining(),
+        s"V3 framed bytes colBytes truncated at col=$col: colLen=$colLen " +
+          s"remaining=${buf.remaining()}")
+      buf.position(buf.position() + colLen)
+      col += 1
+    }
+    require(
+      buf.remaining() == 0,
+      s"V3 framed bytes has trailing bytes after column payloads: trailing=${buf.remaining()}")
+    // Return full framed bytes; C++ deserializeV3 will skip magic+stats and per-col.
+    (stats, framed)
   }
 }
 
@@ -762,6 +862,7 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
         val structSchema = StructType(
           schema.map(a => StructField(a.name, a.dataType, a.nullable)))
         val backendName = BackendsApiManager.getBackendName
+        // Hoist partition-level configs: GlutenConfig.get allocates a fresh object on each call.
         val partitionStatsEnabled =
           GlutenConfig.get.getConf(GlutenConfig.COLUMNAR_TABLE_CACHE_PARTITION_STATS_ENABLED)
         val jni = ColumnarBatchSerializerJniWrapper.create(
@@ -784,13 +885,31 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
                 stats = null,
                 schema = null)
             }
-            // Route through serializeWithStats when the partition-stats conf is enabled and the
-            // JNI extension is linked in libgluten.so. Capability is detected lazily at the
-            // call site: a new Gluten jar paired with an older native library will throw
-            // UnsatisfiedLinkError on the first invocation; we catch it once, cache the
-            // result, and fall back to the legacy serialize() path emitting stats=null. The
-            // buildFilter wrapper directs such batches through without pruning.
-            if (partitionStatsEnabled && ColumnarCachedBatchSerializer.statsExtAvailable) {
+            def statsOrLegacySerializeInline(): CachedBatch = {
+              if (partitionStatsEnabled && ColumnarCachedBatchSerializer.statsExtAvailable) {
+                ColumnarCachedBatchSerializer.serializeOneBatchWithStats(
+                  jni,
+                  handle,
+                  batch.numRows(),
+                  structSchema,
+                  () => legacySerializeInline())
+              } else {
+                legacySerializeInline()
+              }
+            }
+            // V3 is the default cache format for Velox table cache: it stores each column
+            // independently so reads can materialize only requested columns. Partition stats are
+            // an optional V3 payload used for pruning, not a prerequisite for lazy reads.
+            if (ColumnarCachedBatchSerializer.statsExtV3Available) {
+              ColumnarCachedBatchSerializer.serializeOneBatchV3(
+                jni,
+                handle,
+                batch.numRows(),
+                structSchema,
+                includeStats = partitionStatsEnabled,
+                fallbackToV2OrLegacy = () => statsOrLegacySerializeInline())
+            } else if (partitionStatsEnabled && ColumnarCachedBatchSerializer.statsExtAvailable) {
+              // V2 stats path.
               ColumnarCachedBatchSerializer.serializeOneBatchWithStats(
                 jni,
                 handle,
@@ -820,8 +939,17 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
         conf)
     } else {
       // Find the ordinals and data types of the requested columns.
+      val cacheExprIds = cacheAttributes.map(_.exprId)
+      val cachedAttrNames =
+        cacheAttributes.map(a => s"${a.name}#${a.exprId.id}").mkString("[", ",", "]")
       val requestedColumnIndices = selectedAttributes.map {
-        a => cacheAttributes.map(_.exprId).indexOf(a.exprId)
+        a =>
+          val idx = cacheExprIds.indexOf(a.exprId)
+          require(
+            idx >= 0,
+            s"selected cache attribute ${a.name}#${a.exprId.id} is not present in cached " +
+              s"attributes $cachedAttrNames")
+          idx
       }
       val shouldSelectAttributes = cacheAttributes != selectedAttributes
       val localSchema = toStructType(cacheAttributes)
@@ -847,21 +975,40 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
 
               override def next(): ColumnarBatch = {
                 val cachedBatch = it.next().asInstanceOf[CachedColumnarBatch]
-                val batchHandle =
-                  jniWrapper
-                    .deserialize(deserializerHandle, cachedBatch.bytes)
-                val batch = ColumnarBatches.create(batchHandle)
-                if (shouldSelectAttributes) {
-                  try {
-                    ColumnarBatches.select(
-                      BackendsApiManager.getBackendName,
-                      batch,
-                      requestedColumnIndices.toArray)
-                  } finally {
-                    batch.close()
-                  }
+                // V3 bytes are ALWAYS routed to deserializeWithProjection.
+                // V3 framed bytes must NOT go to jni.deserialize() (expects Presto format).
+                // Structural validation (magic, statsLen, numRows/numCols, per-col bounds,
+                // schema numCols match) is handled by C++ deserializeV3; no JVM-side frame
+                // walk before the JNI call.
+                if (isV3Format(cachedBatch.bytes)) {
+                  // C++ returns the requested M-column batch; LazyVector loads those columns
+                  // on first access instead of eagerly decoding the full cached schema.
+                  val reqIndices: Array[Int] =
+                    if (cacheAttributes == selectedAttributes) null // all cols: C++ loadAll
+                    else if (requestedColumnIndices.isEmpty) Array.empty[Int] // count(*): 0 cols
+                    else requestedColumnIndices.toArray // projection: M cols
+                  val batchHandle = jniWrapper.deserializeWithProjection(
+                    deserializerHandle,
+                    cachedBatch.bytes,
+                    reqIndices)
+                  ColumnarBatches.create(batchHandle)
+                  // No ColumnarBatches.select(): C++ returns M-column batch.
                 } else {
-                  batch
+                  // V2 path (original logic).
+                  val batchHandle = jniWrapper.deserialize(deserializerHandle, cachedBatch.bytes)
+                  val batch = ColumnarBatches.create(batchHandle)
+                  if (shouldSelectAttributes) {
+                    try {
+                      ColumnarBatches.select(
+                        BackendsApiManager.getBackendName,
+                        batch,
+                        requestedColumnIndices.toArray)
+                    } finally {
+                      batch.close()
+                    }
+                  } else {
+                    batch
+                  }
                 }
               }
             })
@@ -910,6 +1057,12 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
     }
   }
 
+  /** True iff bytes starts with V3 magic (0xFE 0xCA 0x53 0x03). */
+  private def isV3Format(bytes: Array[Byte]): Boolean =
+    CachedColumnarBatchKryoSerializer.hasFrameMagic(
+      bytes,
+      CachedColumnarBatchKryoSerializer.STATS_FRAMED_MAGIC_V3)
+
   override def buildFilter(
       predicates: Seq[Expression],
       cachedAttributes: Seq[Attribute])
@@ -920,9 +1073,25 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
     // predicate vector; empty filteredPredicates degrade gracefully because
     // super reduces partitionFilters with .reduceOption(And).getOrElse(Literal(true))
     // -- verified against spark-sql_2.13-4.0.1-sources CachedBatchSerializer.scala.
-    val parent = super.buildFilter(
-      stripUnsupportedConjuncts(predicates, cachedAttributes),
-      cachedAttributes)
+    val strippedPredicates = stripUnsupportedConjuncts(predicates, cachedAttributes)
+    val parent = super.buildFilter(strippedPredicates, cachedAttributes)
+    // Cached-column ordinals (each maps to a 5-slot group in the stats InternalRow) referenced by
+    // the surviving predicates. A batch whose stats row carries a null min/max bound for any of
+    // these columns must NOT be pruned by the vanilla parent: vanilla turns `col = l` / `col <= l`
+    // into bound comparisons that evaluate to null on null bounds -> coerced false -> `!eval` ->
+    // the batch is silently dropped (data loss). Such per-batch null bounds come from
+    // data-dependent writer demotions that the schema-level stripUnsupportedConjuncts cannot see:
+    // e.g. a binary-collation VARCHAR whose 256B upper-bound prefix is all 0xFF (carry overflow,
+    // VeloxColumnarBatchSerializer.cc), or a dictionary-encoded numeric on the V2 fallback path.
+    // Those batches are routed through unchanged, exactly like stats==null batches. Float/double
+    // NaN columns no longer demote (the writer skips NaN), so they keep finite bounds and prune
+    // normally.
+    val referencedOrdinals: Set[Int] = {
+      val refIds = strippedPredicates.flatMap(_.references.map(_.exprId)).toSet
+      cachedAttributes.zipWithIndex.collect {
+        case (a, i) if refIds.contains(a.exprId) => i
+      }.toSet
+    }
     (index, cachedBatchIterator) =>
       new Iterator[CachedBatch] {
         private val peekable = cachedBatchIterator.buffered
@@ -932,16 +1101,16 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
         // safe to call from both hasNext and next.
         private def advance(): Unit = {
           while (!staged.hasNext && peekable.hasNext) {
-            val stats = statsOf(peekable.head)
-            if (stats == null) {
-              // Pass through: do NOT feed to parent, which would NPE on null stats.
+            if (bypassPruning(peekable.head)) {
+              // Pass through: do NOT feed to parent, which would NPE on null stats or wrongly
+              // prune a batch on a null per-column bound.
               staged = Iterator.single(peekable.next())
             } else {
               // Feed parent a self-terminating sub-iterator covering the contiguous run of
-              // stats!=null batches; loop afterwards in case parent prunes everything in the run.
+              // prunable batches; loop afterwards in case parent prunes everything in the run.
               val runIt = new Iterator[CachedBatch] {
                 override def hasNext: Boolean =
-                  peekable.hasNext && statsOf(peekable.head) != null
+                  peekable.hasNext && !bypassPruning(peekable.head)
                 override def next(): CachedBatch = peekable.next()
               }
               staged = parent(index, runIt)
@@ -953,6 +1122,22 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
           case ccb: CachedColumnarBatch => ccb.stats
           case smcb: SimpleMetricsCachedBatch => smcb.stats
           case _ => null
+        }
+
+        // A batch skips vanilla pruning when it has no stats at all, or when any
+        // predicate-referenced column has a null lower/upper bound in this batch's stats row
+        // (vanilla would otherwise prune it to null -> drop; see referencedOrdinals).
+        private def bypassPruning(batch: CachedBatch): Boolean = {
+          val stats = statsOf(batch)
+          if (stats == null) {
+            true
+          } else {
+            referencedOrdinals.exists {
+              ci =>
+                val base = ci * 5
+                base + 1 < stats.numFields && (stats.isNullAt(base) || stats.isNullAt(base + 1))
+            }
+          }
         }
 
         override def hasNext: Boolean = {
@@ -1039,6 +1224,83 @@ object ColumnarCachedBatchSerializer extends Logging {
           "This typically indicates a Gluten jar / native library version mismatch.",
         cause
       )
+    }
+  }
+
+  // Visible for testing: reset the capability flag so a unit test can re-exercise the
+  // probe-once semantics.
+  private[execution] def resetStatsExtAvailableForTesting(): Unit = {
+    statsExtAvailableFlag = true
+  }
+
+  // V3 lazy deserialization support
+
+  // Separate capability latch for the V3 JNI symbols
+  // (framedSerializeV3 / framedSerializeWithStatsV3).
+  @volatile private var statsExtV3AvailableFlag: Boolean = true
+
+  def statsExtV3Available: Boolean = statsExtV3AvailableFlag
+
+  // Benchmark-only hook used by ColumnarTableCacheLazyDeserBenchmark to materialize the old
+  // eager/raw cache bytes as a baseline. This is intentionally package-private and not a user
+  // configuration: V3 lazy deserialization remains the production default.
+  private[execution] def withStatsExtV3AvailabilityForBenchmark[T](available: Boolean)(
+      f: => T): T = synchronized {
+    val previous = statsExtV3AvailableFlag
+    statsExtV3AvailableFlag = available
+    try {
+      f
+    } finally {
+      statsExtV3AvailableFlag = previous
+    }
+  }
+
+  def markStatsExtV3Unavailable(cause: Throwable): Unit = {
+    if (statsExtV3AvailableFlag) {
+      statsExtV3AvailableFlag = false
+      logWarning(
+        "V3 table cache serialization JNI path is unavailable; " +
+          "disabling V3 per-column lazy deserialization for this JVM. " +
+          "This typically indicates a Gluten jar / native library version mismatch.",
+        cause
+      )
+    }
+  }
+
+  // V3 per-batch serialization: identical two-arm catch structure to serializeOneBatchWithStats.
+  // null return from JNI = non-Velox backend; treated as one-shot latch, not corrupt frame.
+  private[execution] def serializeOneBatchV3(
+      jni: ColumnarBatchSerializerJniWrapper,
+      handle: Long,
+      numRows: Int,
+      structSchema: StructType,
+      includeStats: Boolean,
+      fallbackToV2OrLegacy: () => CachedBatch): CachedBatch = {
+    try {
+      val framed =
+        if (includeStats) jni.serializeWithStatsV3(handle)
+        else jni.serializeV3(handle)
+      if (framed == null) {
+        // Non-Velox backend returns null; set latch and fall back.
+        markStatsExtV3Unavailable(
+          new RuntimeException("framedSerializeV3 returned null (backend not supported)"))
+        return fallbackToV2OrLegacy()
+      }
+      val (stats, _) = CachedColumnarBatchKryoSerializer.parseFramedBytes(framed, structSchema)
+      // bytes = full V3 frame (C++ deserializeV3 parses from byte 0 including magic).
+      CachedColumnarBatch(
+        numRows,
+        framed.length,
+        framed,
+        stats,
+        schema = if (stats == null) null else structSchema)
+    } catch {
+      case e: UnsatisfiedLinkError =>
+        markStatsExtV3Unavailable(e)
+        fallbackToV2OrLegacy()
+      case NonFatal(e) =>
+        warnCorruptStatsFrame(e) // count against shared corrupt-frame cap
+        fallbackToV2OrLegacy()
     }
   }
 }

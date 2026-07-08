@@ -14,38 +14,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#pragma once
-#include <memory>
-#include <jni.h>
-#include <substrait/algebra.pb.h>
+#include "jni/TaskContextJniWrapper.h"
 
-namespace DB
-{
-class ReadBuffer;
+#include "jni/JniCommon.h"
+
+namespace gluten {
+
+int64_t getCurrentSparkTaskAttemptId() {
+  JavaVM* vm = getJniCommonState()->getJavaVM();
+  JNIEnv* env = nullptr;
+  attachCurrentThreadAsDaemonOrThrow(vm, &env);
+
+  static jclass taskContextJniWrapperClass =
+      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/task/TaskContextJniWrapper;");
+  static jmethodID currentTaskAttemptIdMethod =
+      getStaticMethodIdOrError(env, taskContextJniWrapperClass, "currentTaskAttemptId", "()J");
+
+  jlong id = env->CallStaticLongMethod(taskContextJniWrapperClass, currentTaskAttemptIdMethod);
+  checkException(env);
+  return static_cast<int64_t>(id);
 }
 
-namespace local_engine
-{
-class StorageJoinFromReadBuffer;
-namespace BroadCastJoinBuilder
-{
-
-std::shared_ptr<StorageJoinFromReadBuffer> buildJoin(
-    const std::string & key,
-    DB::ReadBuffer & input,
-    jlong row_count,
-    const std::string & join_keys,
-    jint join_type,
-    bool has_mixed_join_condition,
-    bool is_existence_join,
-    const std::string & named_struct,
-    bool is_null_aware_anti_join,
-    bool has_null_key_values);
-void cleanBuildHashTable(const std::string & hash_table_id, jlong instance);
-std::shared_ptr<StorageJoinFromReadBuffer> getJoin(const std::string & hash_table_id);
-
-
-void init(JNIEnv *);
-void destroy(JNIEnv *);
-}
-}
+} // namespace gluten

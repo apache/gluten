@@ -33,7 +33,7 @@ import org.apache.gluten.utils._
 
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions.{Alias, CumeDist, DenseRank, Descending, Expression, Lag, Lead, NamedExpression, NthValue, NTile, PercentRank, RangeFrame, Rank, RowNumber, SortOrder, SpecialFrameBoundary, SpecifiedWindowFrame}
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, ApproximatePercentile, HyperLogLogPlusPlus, Percentile}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, ApproximatePercentile, Count, HyperLogLogPlusPlus, Percentile}
 import org.apache.spark.sql.catalyst.plans.{JoinType, LeftOuter, RightOuter}
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, CharVarcharUtils}
 import org.apache.spark.sql.connector.read.Scan
@@ -103,6 +103,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
   val GLUTEN_VELOX_BROADCAST_CACHE_EXPIRED_TIME_DEFAULT: Int = 86400
 
   override def primaryBatchType: Convention.BatchType = VeloxBatchType
+
+  override def supportTimestampNtz: Boolean = true
 
   override def validateScanExec(
       format: ReadFileFormat,
@@ -466,13 +468,22 @@ object VeloxBackendSettings extends BackendSettingsApi {
           }
           windowExpression.windowFunction match {
             case _: RowNumber | _: Rank | _: CumeDist | _: DenseRank | _: PercentRank | _: NTile =>
-            case nv: NthValue if !nv.input.foldable =>
-            case l: Lag if !l.input.foldable =>
-            case l: Lead if !l.input.foldable =>
-            case aggrExpr: AggregateExpression
-                if !aggrExpr.aggregateFunction.isInstanceOf[ApproximatePercentile]
-                  && !aggrExpr.aggregateFunction.isInstanceOf[Percentile]
-                  && !aggrExpr.aggregateFunction.isInstanceOf[HyperLogLogPlusPlus] =>
+            case _: NthValue =>
+            case _: Lag =>
+            case _: Lead =>
+            case ae: AggregateExpression =>
+              // Velox only supports count() and count(T) signatures for the window count
+              // function. Spark's count(c1, c2, ...) (counts rows where ALL arguments are
+              // non-null) is normally rewritten to single-arg form by RewriteMultiChildrenCount.
+              // If the rewrite did not run (e.g., the rule is disabled), keep us safe by
+              // falling back to vanilla Spark instead of crashing inside Velox.
+              ae.aggregateFunction match {
+                case c: Count if c.children.size > 1 =>
+                  allSupported = false
+                case _: ApproximatePercentile | _: Percentile | _: HyperLogLogPlusPlus =>
+                  allSupported = false
+                case _ =>
+              }
             case _ =>
               allSupported = false
           }
@@ -487,10 +498,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
     val conf = GlutenConfig.get
     conf.enableColumnarShuffle &&
     (conf.isUseGlutenShuffleManager || conf.shuffleManagerSupportsColumnarShuffle)
-  }
-
-  override def enableHashTableBuildOncePerExecutor(): Boolean = {
-    VeloxConfig.get.enableBroadcastBuildOncePerExecutor
   }
 
   override def supportHashBuildJoinTypeOnLeft: JoinType => Boolean = {

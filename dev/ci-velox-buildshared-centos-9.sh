@@ -24,5 +24,8 @@ if [ "$(uname -m)" = "aarch64" ]; then
     export VCPKG_FORCE_SYSTEM_BINARIES=1;
 fi
 
+
+export VELOX_BUILD_SHARED=ON 
+
 ./dev/builddeps-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF --build_tests=ON \
     --build_examples=ON --build_benchmarks=ON

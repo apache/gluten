@@ -21,7 +21,8 @@ import org.apache.gluten.execution.{BatchScanExecTransformerBase, FileSourceScan
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, NamedExpression}
 import org.apache.spark.sql.catalyst.optimizer.CollapseProjectShim
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{DeserializeToObjectExec, LeafExecNode, ProjectExec, SerializeFromObjectExec, SparkPlan, UnionExec}
+import org.apache.spark.sql.execution.{DeserializeToObjectExec, FileSourceScanExec, LeafExecNode, ProjectExec, SerializeFromObjectExec, SparkPlan, UnionExec}
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
 
 import java.util.Locale
@@ -87,7 +88,8 @@ object PushDownInputFileExpression {
 
   object PreOffload extends Rule[SparkPlan] {
     override def apply(plan: SparkPlan): SparkPlan = plan.transformUp {
-      case ProjectExec(projectList, child) if projectList.exists(containsInputFileRelatedExpr) =>
+      case ProjectExec(projectList, child)
+          if projectList.exists(containsInputFileRelatedExpr) && hasInputFileRelatedSource(child) =>
         val replacedExprs = mutable.Map[String, Alias]()
         val newProjectList = projectList.map {
           expr => rewriteExpr(expr, replacedExprs).asInstanceOf[NamedExpression]
@@ -104,8 +106,10 @@ object PushDownInputFileExpression {
           // For BatchScanExecTransformerBase (includes Iceberg scans), add fallback tag
           // to prevent offloading when input_file expressions are present
           addFallbackTag(ProjectExec(p.output ++ replacedExprs.values, p))
-        case p: LeafExecNode =>
+        case p: LeafExecNode if shouldAddInputFileExpr(p) =>
           addFallbackTag(ProjectExec(p.output ++ replacedExprs.values, p))
+        case p: LeafExecNode =>
+          p
         // Output of SerializeFromObjectExec's child and output of DeserializeToObjectExec must be
         // a single-field row.
         case p @ (_: SerializeFromObjectExec | _: DeserializeToObjectExec) =>
@@ -127,6 +131,23 @@ object PushDownInputFileExpression {
           u.copy(children = newFirstChild +: newOtherChildren)
         case p => p.withNewChildren(p.children.map(child => addMetadataCol(child, replacedExprs)))
       }
+
+    private def hasInputFileRelatedSource(plan: SparkPlan): Boolean = {
+      plan match {
+        case _: BatchScanExecTransformerBase => true
+        case p: LeafExecNode => shouldAddInputFileExpr(p)
+        case _ => plan.children.exists(hasInputFileRelatedSource)
+      }
+    }
+
+    private def shouldAddInputFileExpr(plan: SparkPlan): Boolean = {
+      plan match {
+        case _: FileSourceScanExec => true
+        case _: BatchScanExec => true
+        case p if HiveTableScanExecTransformer.isHiveTableScan(p) => true
+        case _ => false
+      }
+    }
   }
 
   object PostOffload extends Rule[SparkPlan] {

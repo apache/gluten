@@ -38,6 +38,7 @@
 #include "tests/utils/LocalRssClient.h"
 #include "tests/utils/TestAllocationListener.h"
 #include "tests/utils/TestStreamReader.h"
+#include "threads/ThreadInitializer.h"
 #include "utils/Exception.h"
 #include "utils/StringUtil.h"
 #include "utils/Timer.h"
@@ -382,7 +383,7 @@ void setQueryTraceConfig(std::unordered_map<std::string, std::string>& configs) 
 }
 } // namespace
 
-using RuntimeFactory = std::function<VeloxRuntime*(MemoryManager* memoryManager)>;
+using RuntimeFactory = std::function<VeloxRuntime*(MemoryManager* memoryManager, ThreadManager* threadManager)>;
 
 auto BM_Generic = [](::benchmark::State& state,
                      const std::string& planFile,
@@ -398,7 +399,8 @@ auto BM_Generic = [](::benchmark::State& state,
 
   auto* listenerPtr = listener.get();
   auto* memoryManager = MemoryManager::create(kVeloxBackendKind, std::move(listener));
-  auto runtime = runtimeFactory(memoryManager);
+  auto* threadManager = ThreadManager::create(kVeloxBackendKind, ThreadInitializer::noop());
+  auto runtime = runtimeFactory(memoryManager, threadManager);
 
   auto plan = getPlanFromFile("Plan", planFile);
   std::vector<std::string> splits{};
@@ -507,6 +509,7 @@ auto BM_Generic = [](::benchmark::State& state,
 
   updateBenchmarkMetrics(state, elapsedTime, readInputTime, writerMetrics, readerMetrics);
   Runtime::release(runtime);
+  ThreadManager::release(threadManager);
   MemoryManager::release(memoryManager);
 };
 
@@ -522,7 +525,8 @@ auto BM_ShuffleWriteRead = [](::benchmark::State& state,
 
   auto* listenerPtr = listener.get();
   auto* memoryManager = MemoryManager::create(kVeloxBackendKind, std::move(listener));
-  auto runtime = runtimeFactory(memoryManager);
+  auto* threadManager = ThreadManager::create(kVeloxBackendKind, ThreadInitializer::noop());
+  auto runtime = runtimeFactory(memoryManager, threadManager);
 
   const size_t dirIndex = std::hash<std::thread::id>{}(std::this_thread::get_id()) % localDirs.size();
   const auto dataFileDir =
@@ -554,6 +558,7 @@ auto BM_ShuffleWriteRead = [](::benchmark::State& state,
 
   updateBenchmarkMetrics(state, elapsedTime, readInputTime, writerMetrics, readerMetrics);
   Runtime::release(runtime);
+  ThreadManager::release(threadManager);
   MemoryManager::release(memoryManager);
 };
 
@@ -709,8 +714,8 @@ int main(int argc, char** argv) {
     }
   }
 
-  RuntimeFactory runtimeFactory = [=](MemoryManager* memoryManager) {
-    return dynamic_cast<VeloxRuntime*>(Runtime::create(kVeloxBackendKind, memoryManager, sessionConf));
+  RuntimeFactory runtimeFactory = [=](MemoryManager* memoryManager, ThreadManager* threadManager) {
+    return dynamic_cast<VeloxRuntime*>(Runtime::create(kVeloxBackendKind, memoryManager, threadManager, sessionConf));
   };
 
   const auto localDirs = createLocalDirs();

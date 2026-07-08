@@ -63,7 +63,14 @@ public:
         return func_node;
     }
 };
+// for skewness
+struct SkewnessNameStruct
+{
+    static constexpr auto spark_name = "skewness";
+    static constexpr auto ch_name = "skewSamp";
+};
 
+static const AggregateFunctionParserRegister<AggregateFunctionParserStddev<SkewnessNameStruct>> registerer_skewness;
 static const AggregateFunctionParserRegister<AggregateFunctionParserStddev<StddevNameStruct>> registerer_stddev;
 static const AggregateFunctionParserRegister<AggregateFunctionParserStddev<StddevSampNameStruct>> registerer_stddev_samp;
 }

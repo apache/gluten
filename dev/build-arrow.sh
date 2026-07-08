@@ -39,13 +39,23 @@ function prepare_arrow_build() {
 function build_arrow_cpp() {
   pushd $ARROW_PREFIX/cpp
   ARROW_WITH_ZLIB=ON
+  # Major version of the compiler CMake will use, when it is clang. Non-clang
+  # compilers (e.g. gcc) do not define __clang_major__, leaving this empty.
+  clang_major_version=$(echo | ${CXX:-c++} -dM -E -x c++ - 2>/dev/null | awk '/__clang_major__/ {print $3}')
   # The zlib version bundled with arrow is not compatible with clang 17.
   # It can be removed after upgrading the arrow version.
   if [[ "$(uname)" == "Darwin" ]]; then
-    clang_major_version=$(echo | clang -dM -E - | grep __clang_major__ | awk '{print $3}')
-    if [ "${clang_major_version}" -ge 17 ]; then
+    if [ -n "${clang_major_version}" ] && [ "${clang_major_version}" -ge 17 ]; then
       ARROW_WITH_ZLIB=OFF
     fi
+  fi
+  # Clang 21 added -Wcharacter-conversion (enabled by default), which Arrow's
+  # bundled googletest trips under its own -Werror. Downgrade it to a warning on
+  # clang 21+. Not OS-specific: any clang 21+ (macOS or Linux) is affected. Can be
+  # removed once an Arrow upgrade ships a newer googletest.
+  EXTRA_CMAKE_CXX_FLAGS=""
+  if [ -n "${clang_major_version}" ] && [ "${clang_major_version}" -ge 21 ]; then
+    EXTRA_CMAKE_CXX_FLAGS="-Wno-error=character-conversion"
   fi
   cmake_install \
        -DARROW_PARQUET=OFF \
@@ -53,11 +63,11 @@ function build_arrow_cpp() {
        -DARROW_PROTOBUF_USE_SHARED=OFF \
        -DARROW_DEPENDENCY_USE_SHARED=OFF \
        -DARROW_DEPENDENCY_SOURCE=BUNDLED \
-       -DARROW_WITH_THRIFT=ON \
        -DARROW_WITH_LZ4=ON \
        -DARROW_WITH_SNAPPY=ON \
        -DARROW_WITH_ZLIB=${ARROW_WITH_ZLIB} \
        -DARROW_WITH_ZSTD=ON \
+       -DBoost_NO_BOOST_CMAKE=TRUE \
        -DARROW_JEMALLOC=OFF \
        -DARROW_SIMD_LEVEL=NONE \
        -DARROW_RUNTIME_SIMD_LEVEL=NONE \
@@ -68,10 +78,6 @@ function build_arrow_cpp() {
        -DARROW_BUILD_SHARED=OFF \
        -DARROW_BUILD_STATIC=ON
 
- # Install thrift.
- cd _build/thrift_ep-prefix/src/thrift_ep-build
- ${SUDO} cmake --install ./ --prefix "${INSTALL_PREFIX}"/
- popd
 }
 
 function build_arrow_java() {
@@ -133,6 +139,11 @@ function build_arrow_java() {
 }
 
 echo "Start to build Arrow"
+if [[ $(uname -m) == "ppc64le" && $SPARK_VERSION == "4.0" ]]; then
+    echo "Building Spark 4.0 on ppc64le";
+    source ${CURRENT_DIR}/build-arrow-18.sh;
+    exit 0;
+fi
 prepare_arrow_build
 build_arrow_cpp
 echo "Finished building arrow CPP"

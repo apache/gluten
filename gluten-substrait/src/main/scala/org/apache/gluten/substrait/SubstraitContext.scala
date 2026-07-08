@@ -35,6 +35,9 @@ case class JoinParams() {
 
   // Whether the join is with condition
   var isWithCondition = false
+
+  // Whether this join actually uses a pre-built serialized hash table from driver-side build.
+  var usesDriverSideSerializedHashTable = false
 }
 
 case class AggregationParams() {

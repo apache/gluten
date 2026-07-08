@@ -74,10 +74,14 @@ object GlutenShuffleUtils {
           conf
             .get(sparkCodecKey, IO_COMPRESSION_CODEC.defaultValueString)
             .toLowerCase(Locale.ROOT)
-        checkCodecValues(
-          sparkCodecKey,
-          codec,
-          BackendsApiManager.getSettings.shuffleSupportedCodec())
+        val supportedCodecs = BackendsApiManager.getSettings.shuffleSupportedCodec()
+        if (!supportedCodecs.contains(codec)) {
+          throw new IllegalArgumentException(
+            s"Gluten shuffle does not support codec '$codec'. " +
+              s"To disable shuffle compression, set spark.shuffle.compress=false. " +
+              s"To use a supported codec, set ${GlutenConfig.COLUMNAR_SHUFFLE_CODEC.key} " +
+              s"to ${supportedCodecs.mkString(" or ")}.")
+        }
         codec
     }
   }

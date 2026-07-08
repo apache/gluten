@@ -26,6 +26,7 @@
 #include "compute/Runtime.h"
 #include "memory/AllocationListener.h"
 #include "shuffle/rss/RssClient.h"
+#include "threads/ThreadInitializer.h"
 #include "utils/Compression.h"
 #include "utils/Exception.h"
 #include "utils/ResourceMap.h"
@@ -161,6 +162,10 @@ class JniCommonState {
   void close();
 
   jmethodID runtimeAwareCtxHandle();
+
+  JavaVM* getJavaVM() const {
+    return vm_;
+  }
 
  private:
   void initialize(JNIEnv* env);
@@ -548,4 +553,87 @@ class JavaRssClient : public RssClient {
   jobject javaRssShuffleWriter_;
   jmethodID javaPushPartitionData_;
   jbyteArray array_;
+};
+
+/// Bridges gluten::ThreadInitializer callbacks to a Java-side
+/// NativeThreadInitializer instance via JNI.
+///
+/// On initialize(), attaches the current native thread to the JVM and calls
+/// into the Java initializer so it can install Spark TaskContext or other
+/// task-local state. On destroy(), calls the Java destroy() method but
+/// does NOT detach the thread — the underlying JVM thread may be reused by
+/// the pool, and detaching prematurely could allow the Java Thread object
+/// to be garbage-collected.
+class SparkThreadInitializer final : public gluten::ThreadInitializer {
+ public:
+  /// @param vm The JavaVM pointer from JNI_OnLoad.
+  /// @param jInitializerLocalRef A local reference to a Java object
+  ///        implementing org.apache.gluten.threads.NativeThreadInitializer.
+  ///        A global reference is created internally.
+  SparkThreadInitializer(JavaVM* vm, jobject jInitializerLocalRef) : vm_(vm) {
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    jInitializerGlobalRef_ = env->NewGlobalRef(jInitializerLocalRef);
+    GLUTEN_CHECK(jInitializerGlobalRef_ != nullptr, "Failed to create global reference for native thread initializer.");
+    (void)initializeMethod(env);
+  }
+
+  SparkThreadInitializer(const SparkThreadInitializer&) = delete;
+  SparkThreadInitializer(SparkThreadInitializer&&) = delete;
+  SparkThreadInitializer& operator=(const SparkThreadInitializer&) = delete;
+  SparkThreadInitializer& operator=(SparkThreadInitializer&&) = delete;
+
+  ~SparkThreadInitializer() override {
+    JNIEnv* env;
+    if (vm_->GetEnv(reinterpret_cast<void**>(&env), jniVersion) != JNI_OK) {
+      LOG(WARNING) << "SparkThreadInitializer#~SparkThreadInitializer(): "
+                   << "JNIEnv was not attached to current thread";
+      return;
+    }
+    env->DeleteGlobalRef(jInitializerGlobalRef_);
+  }
+
+  void initialize(const std::string& threadName) override {
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    jstring jThreadName = env->NewStringUTF(threadName.c_str());
+    env->CallVoidMethod(jInitializerGlobalRef_, initializeMethod(env), jThreadName);
+    env->DeleteLocalRef(jThreadName);
+    checkException(env);
+  }
+
+  void destroy(const std::string& threadName) override {
+    // IMPORTANT: Do not call vm_.DetachCurrentThread here, otherwise Java side thread
+    // object might be dereferenced and garbage-collected, to break the reuse of thread
+    // resources.
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    jstring jThreadName = env->NewStringUTF(threadName.c_str());
+    env->CallVoidMethod(jInitializerGlobalRef_, destroyMethod(env), jThreadName);
+    env->DeleteLocalRef(jThreadName);
+    checkException(env);
+  }
+
+ private:
+  jmethodID initializeMethod(JNIEnv* env) {
+    static jmethodID initializeMethod =
+        getMethodIdOrError(env, nativeThreadInitializerClass(env), "initialize", "(Ljava/lang/String;)V");
+    return initializeMethod;
+  }
+
+  jmethodID destroyMethod(JNIEnv* env) {
+    static jmethodID destroyMethod =
+        getMethodIdOrError(env, nativeThreadInitializerClass(env), "destroy", "(Ljava/lang/String;)V");
+    return destroyMethod;
+  }
+
+  jclass nativeThreadInitializerClass(JNIEnv* env) {
+    static jclass javaInitializerClass =
+        createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/threads/NativeThreadInitializer;");
+    return javaInitializerClass;
+  }
+
+ private:
+  JavaVM* vm_;
+  jobject jInitializerGlobalRef_;
 };

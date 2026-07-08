@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.config
 
+import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.shuffle.SupportsColumnarShuffle
 
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
@@ -325,6 +326,10 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableFallbackReport: Boolean = getConf(FALLBACK_REPORTER_ENABLED)
 
+  def enablePassStageInputStats: Boolean = getConf(GLUTEN_PASS_STAGE_INPUT_STATS_ENABLED)
+
+  def failOnFallback: Boolean = getConf(FALLBACK_FAIL_ON_FALLBACK)
+
   def debug: Boolean = getConf(DEBUG_ENABLED)
 
   /** Full scan SQL metrics; also enabled when [[debug]] is true. */
@@ -526,13 +531,22 @@ object GlutenConfig extends ConfigRegistry {
     "spark.gluten.sql.columnar.backend.velox.cachePrefetchMinPct",
     "spark.gluten.sql.columnar.backend.velox.memoryPoolCapacityTransferAcrossTasks",
     "spark.gluten.sql.columnar.backend.velox.preferredBatchBytes",
-    "spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan"
+    "spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan",
+    "spark.gluten.sql.columnar.backend.velox.columnarBatchSerializerCompression"
   )
+
+  private def backendSettings(backendName: String) = {
+    // Only one backend is loaded in a running Gluten session. Use backend settings hooks to avoid
+    // hard-coding backend-specific configs in common code.
+    BackendsApiManager.getSettings
+  }
 
   /** Get dynamic configs. */
   def getNativeSessionConf(backendName: String, conf: Map[String, String]): Map[String, String] = {
+    val settings = backendSettings(backendName)
     val nativeConfMap = mutable.Map[String, String](conf.filter {
-      case (key, _) => nativeKeys.contains(key)
+      case (key, _) =>
+        nativeKeys.contains(key) || settings.extraNativeSessionConfKeys().contains(key)
     }.toSeq: _*)
 
     Seq(
@@ -628,10 +642,8 @@ object GlutenConfig extends ConfigRegistry {
       (SPARK_S3_CONNECTION_MAXIMUM, "15"),
       ("spark.gluten.velox.fs.s3a.retry.mode", "legacy"),
       (
-        "spark.gluten.sql.columnar.backend.velox.IOThreads",
-        conf.getOrElse(
-          GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key,
-          GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.defaultValueString)),
+        GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key,
+        GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.defaultValueString),
       (COLUMNAR_SHUFFLE_CODEC.key, ""),
       (COLUMNAR_SHUFFLE_CODEC_BACKEND.key, ""),
       (DEBUG_CUDF.key, DEBUG_CUDF.defaultValueString),
@@ -648,10 +660,12 @@ object GlutenConfig extends ConfigRegistry {
       (SQLConf.SESSION_LOCAL_TIMEZONE.key, SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString)
     ).foreach { case (k, defaultValue) => nativeConfMap.put(k, conf.getOrElse(k, defaultValue)) }
 
+    val settings = backendSettings(backendName)
     val keys = Set(
       DEBUG_ENABLED.key,
       // datasource config
       SPARK_SQL_PARQUET_COMPRESSION_CODEC,
+      SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key,
       // datasource config end
       GlutenCoreConfig.COLUMNAR_OVERHEAD_SIZE_IN_BYTES.key,
       GlutenCoreConfig.COLUMNAR_OFFHEAP_SIZE_IN_BYTES.key,
@@ -664,7 +678,9 @@ object GlutenConfig extends ConfigRegistry {
       COLUMNAR_CUDF_ENABLED.key
     )
 
-    nativeConfMap ++= conf.filter { case (k, _) => keys.contains(k) }
+    nativeConfMap ++= conf.filter {
+      case (k, _) => keys.contains(k) || settings.extraNativeBackendConfKeys().contains(k)
+    }
 
     val confPrefix = prefixOf(backendName)
     val s3Prefix = HADOOP_PREFIX + S3A_PREFIX
@@ -1050,10 +1066,10 @@ object GlutenConfig extends ConfigRegistry {
         "When true, the Velox columnar cache serializer computes per-partition " +
           "min/max/null/row-count stats and embeds them in the cached payload so " +
           "that the Spark optimizer can prune whole partitions on equality / " +
-          "range predicates. When false (default) the serializer writes the " +
-          "legacy raw payload with no stats, and partition pruning is disabled. " +
-          "Default is off until cross-workload benchmarks confirm zero regression " +
-          "on non-pruning queries.")
+          "range predicates. When false (default), the serializer still writes " +
+          "the V3 per-column payload with empty stats so projected cache reads " +
+          "can lazily materialize only requested columns, while partition pruning " +
+          "is disabled.")
       .booleanConf
       .createWithDefault(false)
 
@@ -1429,6 +1445,24 @@ object GlutenConfig extends ConfigRegistry {
       .doc("When true, enable fallback reporter rule to print fallback reason")
       .booleanConf
       .createWithDefault(true)
+
+  val GLUTEN_PASS_STAGE_INPUT_STATS_ENABLED =
+    buildConf("spark.gluten.sql.enablePassStageInputStats")
+      .internal()
+      .doc("When true, pass stage input stats (scan/shuffle/broadcast) to the native engine " +
+        "as estimated row size hints. Disabled by default and no-op for backends that do not " +
+        "consume the hints.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val FALLBACK_FAIL_ON_FALLBACK =
+    buildConf("spark.gluten.sql.columnar.failOnFallback")
+      .internal()
+      .doc(
+        "When true, throw an exception if any operator falls back to Spark" +
+          " instead of running on the native engine.")
+      .booleanConf
+      .createWithDefault(false)
 
   val TEXT_INPUT_ROW_MAX_BLOCK_SIZE =
     buildConf("spark.gluten.sql.text.input.max.block.size")

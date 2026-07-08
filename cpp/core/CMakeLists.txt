@@ -128,6 +128,8 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     memory/MemoryManager.cc
     memory/ArrowMemoryPool.cc
     memory/ColumnarBatch.cc
+    threads/ThreadInitializer.cc
+    threads/ThreadManager.cc
     shuffle/Dictionary.cc
     shuffle/FallbackRangePartitioner.cc
     shuffle/HashPartitioner.cc
@@ -148,7 +150,8 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     utils/StringUtil.cc
     utils/ObjectStore.cc
     jni/JniError.cc
-    jni/JniCommon.cc)
+    jni/JniCommon.cc
+    jni/TaskContextJniWrapper.cc)
 
 file(MAKE_DIRECTORY ${root_directory}/releases)
 add_library(gluten SHARED ${SPARK_COLUMNAR_PLUGIN_SRCS})

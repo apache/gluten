@@ -70,7 +70,7 @@ cd "$SCRIPT_ROOT"
 if [ ! -d "$VCPKG_ROOT" ] || [ -z "$(ls "$VCPKG_ROOT")" ]; then
     # The builtin-baseline (commit hash) specified in vcpkg.json should exist in this branch.
     # Therefore, upgrading the builtin-baseline may require updating the branch.
-    git clone https://github.com/microsoft/vcpkg.git --branch 2025.09.17 "$VCPKG_ROOT"
+    git clone https://github.com/microsoft/vcpkg.git --branch 2026.03.18 "$VCPKG_ROOT"
 fi
 [ -f "$VCPKG" ] || "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
 
@@ -92,7 +92,7 @@ if [ "${VCPKG_DYNAMIC_OPENSSL:-OFF}" = "ON" ]; then
 fi
 
 
-$VCPKG install --no-print-usage \
+$VCPKG install --no-print-usage --allow-unsupported \
     --triplet="${VCPKG_TRIPLET}" --host-triplet="${VCPKG_TRIPLET}" ${EXTRA_FEATURES}
 
 # For fixing a build error like below when gluten's build type is Debug:

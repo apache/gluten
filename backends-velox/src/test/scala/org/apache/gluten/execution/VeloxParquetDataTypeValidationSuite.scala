@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.velox.VeloxValidatorApi
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.Row
 
 import java.io.File
 
@@ -466,17 +467,17 @@ class VeloxParquetDataTypeValidationSuite extends VeloxWholeStageTransformerSuit
     }
   }
 
-  testWithMinSparkVersion("Fallback for TimestampNTZ type scan", "3.4") {
+  testWithMinSparkVersion("TimestampNTZ type scan", "3.4") {
     withTempDir {
       dir =>
         val path = new File(dir, "ntz_data").toURI.getPath
         val inputDf =
           spark.sql("SELECT CAST('2024-01-01 00:00:00' AS TIMESTAMP_NTZ) AS ts_ntz")
         inputDf.write.format("parquet").save(path)
-        val df = spark.read.format("parquet").load(path)
+        val df = spark.read.parquet(path)
         val executedPlan = getExecutedPlan(df)
-        assert(!executedPlan.exists(plan => plan.isInstanceOf[BatchScanExecTransformer]))
-        checkAnswer(df, inputDf)
+        assert(executedPlan.exists(plan => plan.isInstanceOf[BatchScanExecTransformer]))
+        checkAnswer(df, Seq(Row(java.time.LocalDateTime.of(2024, 1, 1, 0, 0, 0, 0))))
     }
   }
 

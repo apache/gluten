@@ -50,6 +50,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -58,6 +59,13 @@
 
 namespace gluten {
 namespace ffor {
+
+// Byte order (applies to the 128-bit codec below): this codec round-trips
+// data as native uint64 reads/writes against the lo (offset 0) and hi
+// (offset 8) halves of each 128-bit value (DECIMAL128's in-memory layout in
+// Velox).  Producer and consumer share byte order by virtue of running in
+// the same Spark cluster -- LZ4 and any other shuffle codec carry the same
+// implicit assumption -- so no explicit endian guard is needed here.
 
 static constexpr unsigned kLanes = 4;
 
@@ -335,15 +343,55 @@ inline constexpr size_t compress64Bound(size_t num) {
   return (nBlocks + 1) * kHeaderSize + num * sizeof(uint64_t);
 }
 
+// Encode one block: write header + bit-packed payload into `out`.
+// Returns the number of bytes written.  `out` must be 8-byte aligned;
+// callers whose output buffer is unaligned stage through a local scratch.
+// Shared by the 64-bit and 128-bit codecs.
+inline size_t encodeBlock(const uint64_t* src, size_t blockVals, uint64_t* out) {
+  uint64_t base;
+  unsigned bw;
+  analyze(src, blockVals, base, bw);
+  writeHeader(
+      reinterpret_cast<uint8_t*>(out), static_cast<uint8_t>(bw), static_cast<uint8_t>(blockVals / kLanes), base);
+  const size_t compWords = compressedWords(blockVals, bw);
+  encodeRt(src, out + 2, base, blockVals, bw);
+  return (2 + compWords) * sizeof(uint64_t);
+}
+
+// Decode one block of `blockVals` values from `in` into `dst`.
+// Returns the number of bytes consumed, or 0 on failure (corrupt header or
+// payload that would read past inEnd).  `in` must be 8-byte aligned;
+// callers whose input buffer is unaligned stage through a local scratch.
+// Shared by the 64-bit and 128-bit codecs.
+inline size_t decodeBlock(const uint64_t* in, size_t inBytes, size_t blockVals, uint64_t* dst) {
+  if (inBytes < kHeaderSize) {
+    return 0;
+  }
+  uint8_t bw;
+  uint8_t count;
+  uint64_t base;
+  readHeader(reinterpret_cast<const uint8_t*>(in), bw, count, base);
+  if (bw > 64 || bw == kBwTailMarker || static_cast<size_t>(count) * kLanes != blockVals) {
+    return 0;
+  }
+  const size_t compWords = compressedWords(blockVals, bw);
+  const size_t totalBytes = (2 + compWords) * sizeof(uint64_t);
+  if (totalBytes > inBytes) {
+    return 0;
+  }
+  decodeRt(in + 2, dst, base, blockVals, bw);
+  return totalBytes;
+}
+
 // Template-based compress/decompress with alignment dispatch.
 // InAligned:  true if input  (const uint64_t*) is 8-byte aligned.
 // OutAligned: true if output (uint8_t*) is 8-byte aligned.
-// When aligned, encode_rt/decode_rt work on pointers directly.
-// When not aligned, a per-block aligned temp buffer is used.
+// encodeBlock requires aligned uint64_t* output; when the caller's output
+// buffer is unaligned, we stage through tmpOut and memcpy back.
 template <bool InAligned, bool OutAligned>
 inline size_t compress64Impl(const uint64_t* input, size_t num, uint8_t* output) {
   alignas(64) uint64_t tmpIn[kMaxValuesPerBlock];
-  alignas(64) uint64_t tmpOut[kMaxValuesPerBlock];
+  alignas(64) uint64_t tmpOut[kMaxValuesPerBlock + 2]; // header(2 words) + payload
 
   uint8_t* outPtr = output;
   size_t remaining = num;
@@ -355,35 +403,21 @@ inline size_t compress64Impl(const uint64_t* input, size_t num, uint8_t* output)
       blockVals = kMaxValuesPerBlock;
     }
 
-    // Analyze — read input via memcpy if unaligned.
-    const uint64_t* analyzeSrc;
+    const uint64_t* src;
     if constexpr (InAligned) {
-      analyzeSrc = inPtr;
+      src = inPtr;
     } else {
       std::memcpy(tmpIn, inPtr, blockVals * sizeof(uint64_t));
-      analyzeSrc = tmpIn;
+      src = tmpIn;
     }
 
-    uint64_t base;
-    unsigned bw;
-    analyze(analyzeSrc, blockVals, base, bw);
-
-    writeHeader(outPtr, static_cast<uint8_t>(bw), static_cast<uint8_t>(blockVals / kLanes), base);
-    outPtr += kHeaderSize;
-
-    size_t compN = compressedWords(blockVals, bw);
-    size_t compBytes = compN * sizeof(uint64_t);
-
-    // Encode: pick aligned src/dst.
-    const uint64_t* encIn = InAligned ? inPtr : tmpIn;
-    uint64_t* encOut = OutAligned ? reinterpret_cast<uint64_t*>(outPtr) : tmpOut;
-
-    encodeRt(encIn, encOut, base, blockVals, bw);
-
-    if constexpr (!OutAligned) {
-      std::memcpy(outPtr, tmpOut, compBytes);
+    if constexpr (OutAligned) {
+      outPtr += encodeBlock(src, blockVals, reinterpret_cast<uint64_t*>(outPtr));
+    } else {
+      const size_t produced = encodeBlock(src, blockVals, tmpOut);
+      std::memcpy(outPtr, tmpOut, produced);
+      outPtr += produced;
     }
-    outPtr += compBytes;
 
     inPtr += blockVals;
     remaining -= blockVals;
@@ -418,62 +452,53 @@ inline size_t compress64(const uint64_t* input, size_t num, uint8_t* output) {
 }
 
 // Template-based decompress with alignment dispatch.
+// decodeBlock requires aligned uint64_t* input; when the caller's input
+// buffer is unaligned, we stage through tmpIn and memcpy in.
 template <bool InAligned, bool OutAligned>
-inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t* output) {
-  alignas(64) uint64_t tmpIn[kMaxValuesPerBlock];
+inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t* output, size_t outputSize) {
+  alignas(64) uint64_t tmpIn[kMaxValuesPerBlock + 2];
   alignas(64) uint64_t tmpOut[kMaxValuesPerBlock];
 
   const uint8_t* inPtr = input;
   const uint8_t* inEnd = input + inputSize;
+  const size_t outValuesMax = outputSize / sizeof(uint64_t);
   size_t nDecoded = 0;
 
   while (inPtr + kHeaderSize <= inEnd) {
-    uint8_t bw;
-    uint8_t count;
-    uint64_t base;
-    readHeader(inPtr, bw, count, base);
-    inPtr += kHeaderSize;
-
-    if (bw == kBwTailMarker) {
-      if (count > 0) {
-        // memcpy handles any alignment, no special case needed.
-        std::memcpy(reinterpret_cast<uint8_t*>(output) + nDecoded * sizeof(uint64_t), inPtr, count * sizeof(uint64_t));
+    if (inPtr[0] == kBwTailMarker) {
+      const uint8_t count = inPtr[1];
+      inPtr += kHeaderSize;
+      const size_t tailBytes = static_cast<size_t>(count) * sizeof(uint64_t);
+      if (count > 0 && inPtr + tailBytes <= inEnd && count <= outValuesMax - nDecoded) {
+        std::memcpy(reinterpret_cast<uint8_t*>(output) + nDecoded * sizeof(uint64_t), inPtr, tailBytes);
         nDecoded += count;
       }
       break;
     }
-
-    size_t blockVals = static_cast<size_t>(count) * kLanes;
-    size_t compBytes = compressedWords(blockVals, bw) * sizeof(uint64_t);
-
-    if (inPtr + compBytes > inEnd) {
+    const size_t blockVals = static_cast<size_t>(inPtr[1]) * kLanes;
+    if (blockVals == 0 || blockVals > kMaxValuesPerBlock || blockVals > outValuesMax - nDecoded) {
       break;
     }
+    const size_t remaining = static_cast<size_t>(inEnd - inPtr);
+    uint64_t* decDst = OutAligned ? output + nDecoded : tmpOut;
 
-    // Decode: pick aligned src/dst.
-    const uint64_t* decIn;
+    size_t consumed;
     if constexpr (InAligned) {
-      decIn = reinterpret_cast<const uint64_t*>(inPtr);
+      consumed = decodeBlock(reinterpret_cast<const uint64_t*>(inPtr), remaining, blockVals, decDst);
     } else {
-      std::memcpy(tmpIn, inPtr, compBytes);
-      decIn = tmpIn;
+      const size_t n = std::min(remaining, sizeof(tmpIn));
+      std::memcpy(tmpIn, inPtr, n);
+      consumed = decodeBlock(tmpIn, n, blockVals, decDst);
     }
-
-    uint64_t* decOut;
-    if constexpr (OutAligned) {
-      decOut = output + nDecoded;
-    } else {
-      decOut = tmpOut;
+    if (consumed == 0) {
+      break;
     }
-
-    decodeRt(decIn, decOut, base, blockVals, bw);
+    inPtr += consumed;
 
     if constexpr (!OutAligned) {
       std::memcpy(
           reinterpret_cast<uint8_t*>(output) + nDecoded * sizeof(uint64_t), tmpOut, blockVals * sizeof(uint64_t));
     }
-
-    inPtr += compBytes;
     nDecoded += blockVals;
   }
 
@@ -481,19 +506,191 @@ inline size_t decompress64Impl(const uint8_t* input, size_t inputSize, uint64_t*
 }
 
 // Runtime dispatch.
-inline size_t decompress64(const uint8_t* input, size_t inputSize, uint64_t* output) {
+inline size_t decompress64(const uint8_t* input, size_t inputSize, uint64_t* output, size_t outputSize) {
   bool inOk = (reinterpret_cast<uintptr_t>(input) % alignof(uint64_t) == 0);
   bool outOk = (reinterpret_cast<uintptr_t>(output) % alignof(uint64_t) == 0);
   if (inOk && outOk) {
-    return decompress64Impl<true, true>(input, inputSize, output);
+    return decompress64Impl<true, true>(input, inputSize, output, outputSize);
   }
   if (inOk && !outOk) {
-    return decompress64Impl<true, false>(input, inputSize, output);
+    return decompress64Impl<true, false>(input, inputSize, output, outputSize);
   }
   if (!inOk && outOk) {
-    return decompress64Impl<false, true>(input, inputSize, output);
+    return decompress64Impl<false, true>(input, inputSize, output, outputSize);
   }
-  return decompress64Impl<false, false>(input, inputSize, output);
+  return decompress64Impl<false, false>(input, inputSize, output, outputSize);
+}
+
+// =============================================================================
+// 128-bit codec.
+//
+// Each 128-bit value occupies a 16B slot (lo at offset 0, hi at offset 8 --
+// the DECIMAL128 / __int128_t layout used by Velox).  Per block, the lo and
+// hi halves are gathered into two stack scratches and each is fed through
+// the 64-bit FFOR encoder.  Reads/writes go through native uint64, so the
+// codec is byte-order agnostic as long as producer and consumer agree.
+//
+// Wire format per block:  [hdr][lo payload][hdr][hi payload]
+// followed by one tail block (kBwTailMarker) carrying the remaining 16B
+// values raw.
+// =============================================================================
+
+inline constexpr size_t compress128Bound(size_t numValues) {
+  // Two 64-bit streams (lo + hi), worst case each = compress64Bound(numValues).
+  return 2 * compress64Bound(numValues);
+}
+
+// 128-bit compress.  See encodeBlock for InAligned/OutAligned semantics.
+template <bool InAligned, bool OutAligned>
+inline size_t compress128Impl(const uint8_t* input, size_t numValues, uint8_t* output) {
+  alignas(64) uint64_t loBuffer[kMaxValuesPerBlock];
+  alignas(64) uint64_t hiBuffer[kMaxValuesPerBlock];
+  alignas(64) uint64_t tmpIn[kMaxValuesPerBlock * 2];
+  alignas(64) uint64_t tmpOut[kMaxValuesPerBlock + 2]; // header(2 words) + payload
+
+  uint8_t* outPtr = output;
+  size_t remaining = numValues;
+  const uint8_t* inPtr = input;
+
+  while (remaining >= kLanes) {
+    size_t blockVals = remaining - (remaining % kLanes);
+    if (blockVals > kMaxValuesPerBlock) {
+      blockVals = kMaxValuesPerBlock;
+    }
+
+    const uint64_t* in64;
+    if constexpr (InAligned) {
+      in64 = reinterpret_cast<const uint64_t*>(inPtr);
+    } else {
+      std::memcpy(tmpIn, inPtr, blockVals * sizeof(__int128_t));
+      in64 = tmpIn;
+    }
+    for (size_t j = 0; j < blockVals; ++j) {
+      loBuffer[j] = in64[j * 2];
+      hiBuffer[j] = in64[j * 2 + 1];
+    }
+
+    if constexpr (OutAligned) {
+      outPtr += encodeBlock(loBuffer, blockVals, reinterpret_cast<uint64_t*>(outPtr));
+      outPtr += encodeBlock(hiBuffer, blockVals, reinterpret_cast<uint64_t*>(outPtr));
+    } else {
+      size_t n = encodeBlock(loBuffer, blockVals, tmpOut);
+      std::memcpy(outPtr, tmpOut, n);
+      outPtr += n;
+      n = encodeBlock(hiBuffer, blockVals, tmpOut);
+      std::memcpy(outPtr, tmpOut, n);
+      outPtr += n;
+    }
+
+    inPtr += blockVals * sizeof(__int128_t);
+    remaining -= blockVals;
+  }
+
+  // Tail: one header + remaining values copied raw.
+  writeHeader(outPtr, kBwTailMarker, static_cast<uint8_t>(remaining), 0);
+  outPtr += kHeaderSize;
+  if (remaining > 0) {
+    std::memcpy(outPtr, inPtr, remaining * sizeof(__int128_t));
+    outPtr += remaining * sizeof(__int128_t);
+  }
+  return static_cast<size_t>(outPtr - output);
+}
+
+// Runtime dispatch — check alignment once, pick the right template.
+inline size_t compress128(const uint8_t* input, size_t numValues, uint8_t* output) {
+  const bool inOk = (reinterpret_cast<uintptr_t>(input) % alignof(uint64_t) == 0);
+  const bool outOk = (reinterpret_cast<uintptr_t>(output) % alignof(uint64_t) == 0);
+  if (inOk && outOk) {
+    return compress128Impl<true, true>(input, numValues, output);
+  }
+  if (inOk && !outOk) {
+    return compress128Impl<true, false>(input, numValues, output);
+  }
+  if (!inOk && outOk) {
+    return compress128Impl<false, true>(input, numValues, output);
+  }
+  return compress128Impl<false, false>(input, numValues, output);
+}
+
+// 128-bit decompress.  decodeBlock requires aligned uint64_t* input; when
+// the caller's input buffer is unaligned, we stage through tmpIn.
+template <bool InAligned, bool OutAligned>
+inline size_t decompress128Impl(const uint8_t* input, size_t inputSize, uint8_t* output, size_t outputSize) {
+  alignas(64) uint64_t loBuffer[kMaxValuesPerBlock];
+  alignas(64) uint64_t hiBuffer[kMaxValuesPerBlock];
+  alignas(64) uint64_t tmpIn[kMaxValuesPerBlock + 2];
+  alignas(64) uint64_t tmpOut[kMaxValuesPerBlock * 2];
+
+  const uint8_t* inPtr = input;
+  const uint8_t* inEnd = input + inputSize;
+  const size_t outValuesMax = outputSize / sizeof(__int128_t);
+  size_t nDecoded = 0;
+
+  while (inPtr + kHeaderSize <= inEnd) {
+    if (inPtr[0] == kBwTailMarker) {
+      const uint8_t count = inPtr[1];
+      inPtr += kHeaderSize;
+      const size_t tailBytes = static_cast<size_t>(count) * sizeof(__int128_t);
+      if (inPtr + tailBytes > inEnd || count > outValuesMax - nDecoded) {
+        break;
+      }
+      std::memcpy(output + nDecoded * sizeof(__int128_t), inPtr, tailBytes);
+      nDecoded += count;
+      break;
+    }
+    const size_t blockVals = static_cast<size_t>(inPtr[1]) * kLanes;
+    if (blockVals == 0 || blockVals > kMaxValuesPerBlock || blockVals > outValuesMax - nDecoded) {
+      break;
+    }
+
+    auto decodeOne = [&](uint64_t* dst) -> bool {
+      const size_t remaining = static_cast<size_t>(inEnd - inPtr);
+      size_t consumed;
+      if constexpr (InAligned) {
+        consumed = decodeBlock(reinterpret_cast<const uint64_t*>(inPtr), remaining, blockVals, dst);
+      } else {
+        const size_t n = std::min(remaining, sizeof(tmpIn));
+        std::memcpy(tmpIn, inPtr, n);
+        consumed = decodeBlock(tmpIn, n, blockVals, dst);
+      }
+      if (consumed == 0) {
+        return false;
+      }
+      inPtr += consumed;
+      return true;
+    };
+    if (!decodeOne(loBuffer) || !decodeOne(hiBuffer)) {
+      break;
+    }
+
+    uint64_t* dst64 = OutAligned ? reinterpret_cast<uint64_t*>(output + nDecoded * sizeof(__int128_t)) : tmpOut;
+    for (size_t j = 0; j < blockVals; ++j) {
+      dst64[j * 2] = loBuffer[j];
+      dst64[j * 2 + 1] = hiBuffer[j];
+    }
+    if constexpr (!OutAligned) {
+      std::memcpy(output + nDecoded * sizeof(__int128_t), tmpOut, blockVals * sizeof(__int128_t));
+    }
+    nDecoded += blockVals;
+  }
+
+  return nDecoded;
+}
+
+// Runtime dispatch — check alignment once, pick the right template.
+inline size_t decompress128(const uint8_t* input, size_t inputSize, uint8_t* output, size_t outputSize) {
+  const bool inOk = (reinterpret_cast<uintptr_t>(input) % alignof(uint64_t) == 0);
+  const bool outOk = (reinterpret_cast<uintptr_t>(output) % alignof(uint64_t) == 0);
+  if (inOk && outOk) {
+    return decompress128Impl<true, true>(input, inputSize, output, outputSize);
+  }
+  if (inOk && !outOk) {
+    return decompress128Impl<true, false>(input, inputSize, output, outputSize);
+  }
+  if (!inOk && outOk) {
+    return decompress128Impl<false, true>(input, inputSize, output, outputSize);
+  }
+  return decompress128Impl<false, false>(input, inputSize, output, outputSize);
 }
 
 } // namespace ffor

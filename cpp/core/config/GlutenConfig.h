@@ -74,6 +74,14 @@ const std::string kParquetWriterVersion = "parquet.writer.version";
 
 const std::string kParquetCompressionCodec = "spark.sql.parquet.compression.codec";
 
+/// Spark `spark.sql.parquet.writeLegacyFormat` (passed from the JVM as "true"/"false").
+/// Used in VeloxWriterUtils to set `WriterOptions::enableStoreDecimalAsInteger` (inverted).
+/// Velox decimal storage when enableStoreDecimalAsInteger is:
+/// - true (Spark legacy off / unset): INT32/INT64 for short DECIMAL precisions; higher precisions
+///   use FIXED_LEN_BYTE_ARRAY.
+/// - false (Spark legacy on): FIXED_LEN_BYTE_ARRAY for all DECIMAL precisions.
+const std::string kParquetStoreDecimalAsInteger = "spark.sql.parquet.writeLegacyFormat";
+
 const std::string kColumnarToRowMemoryThreshold = "spark.gluten.sql.columnarToRowMemoryThreshold";
 
 const std::string kUGIUserName = "spark.gluten.ugi.username";
@@ -102,6 +110,8 @@ const std::string kCudfEnabled = "spark.gluten.sql.columnar.cudf";
 constexpr bool kCudfEnabledDefault = false;
 const std::string kDebugCudf = "spark.gluten.sql.debug.cudf";
 const std::string kDebugCudfDefault = "false";
+const std::string kCudfAllowCpuFallback = "spark.gluten.sql.columnar.backend.velox.cudf.allowCpuFallback";
+const std::string kCudfAllowCpuFallbackDefault = "true";
 
 std::unordered_map<std::string, std::string>
 parseConfMap(JNIEnv* env, const uint8_t* planData, const int32_t planDataLength);

@@ -33,17 +33,20 @@ public class VeloxConnectorConfig {
       List.of(
           "connector-nexmark",
           "connector-kafka",
+          "connector-pulsar",
           "connector-fuzzer",
           "connector-filesystem",
           "connector-from-elements",
           "connector-print");
   private static final String keyTaskIndex = "task_index";
+  private static final String keyParallelism = "parallelism";
   private static final String keyQueryUUId = "query_uuid";
 
   public static ConnectorConfig getConfig(RuntimeContext context) {
     Map<String, String> configMap = new HashMap<>();
     TaskInfo taskInfo = context.getTaskInfo();
     configMap.put(keyTaskIndex, String.valueOf(taskInfo.getIndexOfThisSubtask()));
+    configMap.put(keyParallelism, String.valueOf(taskInfo.getNumberOfParallelSubtasks()));
     configMap.put(
         keyQueryUUId,
         UUID.nameUUIDFromBytes(context.getJobInfo().getJobId().toHexString().getBytes())

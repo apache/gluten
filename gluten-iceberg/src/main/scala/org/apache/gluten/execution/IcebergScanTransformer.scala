@@ -33,7 +33,7 @@ import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.types.{ArrayType, DataType, StructType}
 
-import org.apache.iceberg.{BaseTable, MetadataColumns, Schema, SnapshotSummary, TableProperties}
+import org.apache.iceberg.{BaseTable, MetadataColumns, SnapshotSummary, TableProperties}
 import org.apache.iceberg.avro.AvroSchemaUtil
 import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
 import org.apache.iceberg.spark.source.metrics.NumSplits
@@ -271,12 +271,12 @@ case class IcebergScanTransformer(
       case (iceberg: Types.StructType, currentType: Types.StructType, sparkStruct: StructType) =>
         sparkStruct.forall {
           sparkField =>
-            val currentField = new Schema(currentType.fields()).findField(sparkField.name)
+            val currentField = currentType.field(sparkField.name)
             // Find not exists column
             if (currentField == null) {
               false
             } else {
-              val field = new Schema(iceberg.fields()).findField(currentField.fieldId())
+              val field = iceberg.field(currentField.fieldId())
               // The field does not exist in old schema, add column case
               if (field == null) {
                 true

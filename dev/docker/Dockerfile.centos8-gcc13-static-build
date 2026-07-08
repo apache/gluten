@@ -29,8 +29,10 @@ RUN set -ex; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     yum install -y java-1.8.0-openjdk-devel patch git perl python3 automake libtool flex; \
     dnf -y --enablerepo=powertools install autoconf-archive ninja-build; \
-    pip3 install --upgrade pip; \
-    pip3 install cmake; \
+    wget https://github.com/Kitware/CMake/releases/download/v3.31.12/cmake-3.31.12-linux-$(uname -m).sh; \
+    chmod +x cmake-3.31.12-linux-$(uname -m).sh; \
+    ./cmake-3.31.12-linux-$(uname -m).sh --skip-license --prefix=/usr/local; \
+    rm -f cmake-3.31.12-linux-$(uname -m).sh; \
     rpm -qa | grep tzdata; \
     dnf clean all; \
     git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \

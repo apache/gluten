@@ -17,7 +17,8 @@
 package org.apache.gluten.test;
 
 import org.apache.gluten.config.GlutenConfig;
-import org.apache.gluten.config.VeloxConfig$;
+import org.apache.gluten.config.GlutenCoreConfig;
+import org.apache.gluten.config.VeloxConfig;
 
 import com.codahale.metrics.MetricRegistry;
 import org.apache.spark.SparkConf;
@@ -72,7 +73,8 @@ public final class MockVeloxBackend {
   private static SparkConf newSparkConf() {
     final SparkConf conf = new SparkConf();
     conf.set(GlutenConfig.SPARK_OFFHEAP_SIZE_KEY(), "1g");
-    conf.set(VeloxConfig$.MODULE$.COLUMNAR_VELOX_CONNECTOR_IO_THREADS().key(), "0");
+    conf.set(GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR().key(), "1");
+    conf.set(VeloxConfig.COLUMNAR_VELOX_CONNECTOR_IO_THREADS().key(), "0");
     return conf;
   }
 }

@@ -26,7 +26,7 @@ ENV VCPKG_BINARY_SOURCES=clear;files,${VCPKG_PATH},readwrite
 
 RUN set -ex; \
     yum update -y && yum install -y epel-release sudo dnf && yum install -y ccache; \
-    dnf install -y --setopt=install_weak_deps=False gcc-toolset-12 gcc-toolset-13; \
+    dnf install -y --setopt=install_weak_deps=False gcc-toolset-12 gcc-toolset-13 perl-FindBin cmake; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     yum install -y java-17-openjdk-devel patch git perl; \
     dnf clean all; \

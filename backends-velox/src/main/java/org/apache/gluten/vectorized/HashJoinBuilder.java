@@ -39,6 +39,19 @@ public class HashJoinBuilder implements RuntimeAware {
 
   public static native long cloneHashTable(long hashTableData);
 
+  public static native long deserializeHashTableDirect(
+      long address, int size, boolean ignoreNullKeys, boolean joinHasNullKeys);
+
+  public static native boolean getHashTableIgnoreNullKeys(long hashTableHandle);
+
+  public static native boolean getHashTableJoinHasNullKeys(long hashTableHandle);
+
+  public static native long getHashTableBloomFilterBlocksByteSize(long hashTableHandle);
+
+  public static native long serializedHashTableSizeDirect(long hashTableHandle);
+
+  public static native void serializeHashTableDirect(long hashTableHandle, long address, long size);
+
   public native long nativeBuild(
       String buildHashTableId,
       long[] batchHandlers,

@@ -65,6 +65,26 @@ object Transition {
       s"No viable transition to [$required] found for plan: ${plan.simpleString(maxFields)}")
   }
 
+  /**
+   * Raised when `plan` has a child whose observed Convention has neither a recognizable row type
+   * nor a recognizable batch type. Such a child cannot be executed and has no `from` convention to
+   * search from, so callers should raise this at planning time instead of accepting the child and
+   * letting the failure surface later at task execution.
+   */
+  def notExecutable(plan: SparkPlan, child: SparkPlan): GlutenException = {
+    new GlutenException(
+      "Child plan has no recognizable row type or batch type, so no transition can be inserted " +
+        "for it. Parent: " +
+        s"${plan.simpleString(maxFields)}. Child: ${child.simpleString(maxFields)}.")
+  }
+
+  /** Single-argument variant for the root-plan case. See [[notExecutable(plan, child)]]. */
+  def notExecutable(plan: SparkPlan): GlutenException = {
+    new GlutenException(
+      "Plan has no recognizable row type or batch type, so no transition can be inserted for " +
+        s"it. Plan: ${plan.simpleString(maxFields)}.")
+  }
+
   trait Factory {
     final def findTransitionOrThrow(from: Convention, to: ConventionReq)(
         otherwise: => Exception): Transition = {

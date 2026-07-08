@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.table.runtime.operators;
 
+import org.apache.gluten.streaming.api.operators.GlutenAbstractStreamOperator;
 import org.apache.gluten.streaming.api.operators.GlutenOperator;
 import org.apache.gluten.table.runtime.config.VeloxConnectorConfig;
 import org.apache.gluten.table.runtime.config.VeloxQueryConfig;
@@ -28,6 +29,7 @@ import io.github.zhztheplayer.velox4j.iterator.UpIterator;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.query.Query;
 import io.github.zhztheplayer.velox4j.query.SerialTask;
+import io.github.zhztheplayer.velox4j.stateful.NativeCallbackTarget;
 import io.github.zhztheplayer.velox4j.stateful.StatefulElement;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
@@ -35,10 +37,10 @@ import io.github.zhztheplayer.velox4j.type.RowType;
 
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
-import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.watermarkstatus.WatermarkStatus;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,9 +50,15 @@ import java.util.Map;
 /**
  * Two input operator in gluten, which will call Velox to run. It receives RowVector from upstream
  * instead of flink RowData.
+ *
+ * <p>This class intentionally does not extend {@code AbstractStreamOperator}: in the Flink version
+ * used here, {@code AbstractStreamOperator.processWatermarkStatus1/2(...)} are final and maintain
+ * Flink's Java-side combined watermark status. Gluten needs to forward each input's status to
+ * native, which is the source of truth for combined watermark status inside the Gluten operator
+ * chain.
  */
-public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
-    implements TwoInputStreamOperator<IN, IN, OUT>, GlutenOperator {
+public class GlutenTwoInputOperator<IN, OUT> extends GlutenAbstractStreamOperator<OUT>
+    implements TwoInputStreamOperator<IN, IN, OUT>, GlutenOperator, NativeCallbackTarget {
 
   private static final Logger LOG = LoggerFactory.getLogger(GlutenTwoInputOperator.class);
 
@@ -67,12 +75,14 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   private ExternalStreams.BlockingQueue leftInputQueue;
   private ExternalStreams.BlockingQueue rightInputQueue;
   private SerialTask task;
+  private transient volatile boolean closing;
   private final Class<IN> inClass;
   private final Class<OUT> outClass;
   private VectorInputBridge<IN> inputBridge;
   private VectorOutputBridge<OUT> outputBridge;
   private String description;
   private final GlutenMailboxHolder mailboxHolder = new GlutenMailboxHolder();
+  private transient boolean stateInitialized;
 
   public GlutenTwoInputOperator(
       StatefulPlanNode plan,
@@ -117,6 +127,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void open() throws Exception {
+    closing = false;
     super.open();
     if (!mailboxHolder().get().isMailboxBound()) {
       ensureMailboxInitialized(getContainingTask());
@@ -136,7 +147,18 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void scheduleProcessElementOnMailbox() {
+    if (closing) {
+      return;
+    }
     scheduleDrainOnMailbox(this::drainTaskOutput);
+  }
+
+  @Override
+  public void onProcessingTime(long timestamp) {
+    if (closing) {
+      return;
+    }
+    scheduleProcessElementOnMailbox();
   }
 
   @Override
@@ -168,11 +190,20 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void processElementInternal() {
+    if (closing) {
+      return;
+    }
     drainOutput(this::drainTaskOutput);
   }
 
   private void drainTaskOutput() {
+    if (closing) {
+      return;
+    }
     while (true) {
+      if (closing) {
+        return;
+      }
       UpIterator.State state = task.advance();
       if (state == UpIterator.State.AVAILABLE) {
         final StatefulElement element = task.statefulGet();
@@ -180,6 +211,8 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
           if (element.isWatermark()) {
             StatefulWatermark watermark = element.asWatermark();
             output.emitWatermark(new Watermark(watermark.getTimestamp()));
+          } else if (element.isWatermarkStatus()) {
+            output.emitWatermarkStatus(GlutenWatermarkStatuses.toFlinkWatermarkStatus(element));
           } else {
             outputBridge.collect(
                 output, element.asRecord(), sessionResource.getAllocator(), outputType);
@@ -195,36 +228,102 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
 
   @Override
   public void processWatermark(Watermark mark) throws Exception {
+    if (task == null) {
+      throw new NullPointerException(
+          "task is null in processWatermark; expected to be initialized in open() and "
+              + "cleared only after close()");
+    }
     task.notifyWatermark(mark.getTimestamp());
     processElementInternal();
   }
 
   @Override
   public void processWatermark1(Watermark mark) throws Exception {
+    if (task == null) {
+      throw new NullPointerException(
+          "task is null in processWatermark1; expected to be initialized in open() and "
+              + "cleared only after close()");
+    }
     task.notifyWatermark(mark.getTimestamp(), 0);
     processElementInternal();
   }
 
   @Override
   public void processWatermark2(Watermark mark) throws Exception {
+    if (task == null) {
+      throw new NullPointerException(
+          "task is null in processWatermark2; expected to be initialized in open() and "
+              + "cleared only after close()");
+    }
     task.notifyWatermark(mark.getTimestamp(), 1);
     processElementInternal();
   }
 
   @Override
+  public void processWatermarkStatus1(WatermarkStatus status) throws Exception {
+    if (task == null) {
+      throw new NullPointerException(
+          "task is null in processWatermarkStatus1; expected to be initialized in open() and "
+              + "cleared only after close()");
+    }
+    task.notifyWatermarkStatus(status.isIdle(), 0);
+    processElementInternal();
+  }
+
+  @Override
+  public void processWatermarkStatus2(WatermarkStatus status) throws Exception {
+    if (task == null) {
+      throw new NullPointerException(
+          "task is null in processWatermarkStatus2; expected to be initialized in open() and "
+              + "cleared only after close()");
+    }
+    task.notifyWatermarkStatus(status.isIdle(), 1);
+    processElementInternal();
+  }
+
+  @Override
   public void close() throws Exception {
-    if (leftInputQueue != null) {
-      leftInputQueue.close();
-    }
-    if (rightInputQueue != null) {
-      rightInputQueue.close();
-    }
-    if (task != null) {
-      task.close();
-    }
-    if (sessionResource != null) {
-      sessionResource.close();
-    }
+    closing = true;
+    GlutenCloseables.runWithCleanup(
+        () -> {
+          if (leftInputQueue != null) {
+            leftInputQueue.noMoreInput();
+          }
+        },
+        () -> {
+          if (rightInputQueue != null) {
+            rightInputQueue.noMoreInput();
+          }
+        },
+        () -> {
+          if (leftInputQueue != null) {
+            leftInputQueue.close();
+          }
+        },
+        () -> {
+          if (rightInputQueue != null) {
+            rightInputQueue.close();
+          }
+        },
+        () -> {
+          if (task != null) {
+            task.unbindNativeCallbackTarget();
+          }
+        },
+        () -> {
+          if (task != null) {
+            task.close();
+          }
+        },
+        () -> {
+          GlutenTaskSessionContext.unregisterSessionResource(getId());
+        },
+        () -> {
+          if (sessionResource != null) {
+            sessionResource.close();
+          }
+        },
+        super::close);
   }
 
   @Override
@@ -261,22 +360,37 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   @Override
   public void prepareSnapshotPreBarrier(long checkpointId) throws Exception {
     // TODO: notify velox
+    processElementInternal();
     super.prepareSnapshotPreBarrier(checkpointId);
   }
 
   @Override
   public void snapshotState(StateSnapshotContext context) throws Exception {
     // TODO: implement it
-    task.snapshotState(0);
+    snapshotNativeState(context.getCheckpointId());
     super.snapshotState(context);
   }
 
   @Override
   public void initializeState(StateInitializationContext context) throws Exception {
-    initSession();
     // TODO: implement it
-    task.initializeState(0, null);
+    initializeNativeState();
     super.initializeState(context);
+  }
+
+  private void snapshotNativeState(long checkpointId) {
+    if (task != null) {
+      task.snapshotState(checkpointId);
+    }
+  }
+
+  private void initializeNativeState() {
+    if (stateInitialized) {
+      return;
+    }
+    initSession();
+    task.initializeState(0, null);
+    stateInitialized = true;
   }
 
   private void initSession() {
@@ -285,8 +399,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
     }
 
     sessionResource = new GlutenSessionResource();
-    GlutenSessionResources.getInstance().addSessionResource(getId(), sessionResource);
-    GlutenSessionResources.getInstance().addOperator(getId(), this);
+    GlutenTaskSessionContext.addSessionResource(getId(), sessionResource);
     leftInputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
     rightInputQueue = sessionResource.getSession().externalStreamOps().newBlockingQueue();
 
@@ -296,6 +409,7 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
             VeloxQueryConfig.getConfig(getRuntimeContext()),
             VeloxConnectorConfig.getConfig(getRuntimeContext()));
     task = sessionResource.getSession().queryOps().execute(query);
+    task.bindNativeCallbackTarget(this);
 
     ExternalStreamConnectorSplit leftSplit =
         new ExternalStreamConnectorSplit("connector-external-stream", leftInputQueue.id());
@@ -310,14 +424,18 @@ public class GlutenTwoInputOperator<IN, OUT> extends AbstractStreamOperator<OUT>
   @Override
   public void notifyCheckpointComplete(long checkpointId) throws Exception {
     // TODO: notify velox
-    task.notifyCheckpointComplete(checkpointId);
+    if (task != null) {
+      task.notifyCheckpointComplete(checkpointId);
+    }
     super.notifyCheckpointComplete(checkpointId);
   }
 
   @Override
   public void notifyCheckpointAborted(long checkpointId) throws Exception {
     // TODO: notify velox
-    task.notifyCheckpointAborted(checkpointId);
+    if (task != null) {
+      task.notifyCheckpointAborted(checkpointId);
+    }
     super.notifyCheckpointAborted(checkpointId);
   }
 }

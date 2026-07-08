@@ -44,9 +44,11 @@ case class InsertTransitions(convReq: ConventionReq) extends Rule[SparkPlan] {
       case (child, convReq) =>
         val from = convFunc.conventionOf(child)
         if (from.isNone) {
-          // For example, a union op with row child and columnar child at the same time,
-          // The plan is actually not executable, and we cannot tell about its convention.
-          child
+          // Defensive check: a GlutenPlan that declares both rowType() and batchType() as None
+          // is not executable. No production plan does this today, but the pre-existing branch
+          // silently returned the child, which would defer the failure to task execution with
+          // an unrelated error. Fail at planning time instead so the offending pair is visible.
+          throw Transition.notExecutable(node, child)
         } else {
           val transition =
             Transition.factory.findTransitionOrThrow(from, convReq)(Transition.notFound(node))
@@ -94,11 +96,26 @@ object Transitions {
     enforceReq(plan, ConventionReq.ofBatch(ConventionReq.BatchType.Is(toBatchType)))
   }
 
+  /**
+   * Wraps `plan` in the shortest transition chain that produces the given [[ConventionReq]].
+   *
+   * Only validates the ROOT of `plan`. Callers that need to guarantee every descendant is
+   * executable should route through [[InsertTransitions.apply]] first, which visits each non-leaf
+   * node via `transformUp` and raises [[Transition.notExecutable]] on any child whose `Convention`
+   * is `isNone`.
+   */
   def enforceReq(plan: SparkPlan, req: ConventionReq): SparkPlan = {
     val convFunc = ConventionFunc.create()
     val removed = RemoveTransitions.removeForNode(plan)
+    val from = convFunc.conventionOf(removed)
+    if (from.isNone) {
+      // Symmetric with InsertTransitions.applyForNode; see the comment there. Also replaces the
+      // internal assert(!from.isNone) buried in Transition.Factory#findTransition so callers see
+      // a GlutenException with the plan spelled out instead of a bare AssertionError.
+      throw Transition.notExecutable(removed)
+    }
     val transition = Transition.factory
-      .findTransitionOrThrow(convFunc.conventionOf(removed), req)(Transition.notFound(removed, req))
+      .findTransitionOrThrow(from, req)(Transition.notFound(removed, req))
     val out = transition.apply(removed)
     out
   }

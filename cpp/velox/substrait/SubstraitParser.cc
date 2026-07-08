@@ -17,9 +17,8 @@
 
 #include "SubstraitParser.h"
 #include "TypeUtils.h"
-#include "velox/common/base/Exceptions.h"
-
 #include "VeloxSubstraitSignature.h"
+#include "velox/common/base/Exceptions.h"
 
 namespace gluten {
 
@@ -78,6 +77,8 @@ TypePtr SubstraitParser::parseType(const ::substrait::Type& substraitType, bool 
       return DATE();
     case ::substrait::Type::KindCase::kTimestampTz:
       return TIMESTAMP();
+    case ::substrait::Type::KindCase::kTimestamp:
+      return TIMESTAMP_UTC();
     case ::substrait::Type::KindCase::kDecimal: {
       auto precision = substraitType.decimal().precision();
       auto scale = substraitType.decimal().scale();
@@ -355,6 +356,9 @@ int64_t SubstraitParser::getLiteralValue(const ::substrait::Expression::Literal&
     int128_t decimalValue;
     memcpy(&decimalValue, decimal.c_str(), 16);
     return static_cast<int64_t>(decimalValue);
+  }
+  if (literal.has_timestamp()) {
+    return literal.timestamp();
   }
   return literal.i64();
 }

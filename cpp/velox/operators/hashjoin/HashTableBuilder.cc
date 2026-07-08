@@ -181,7 +181,10 @@ bool HashTableBuilder::abandonHashBuildDedupEarly(int64_t numDistinct) const {
 
 void HashTableBuilder::abandonHashBuildDedup() {
   abandonHashBuildDedup_ = true;
-  uniqueTable_->setAllowDuplicates(true);
+
+  if (!dropDuplicates_) {
+    uniqueTable_->setAllowDuplicates(true);
+  }
   lookup_.reset();
 }
 

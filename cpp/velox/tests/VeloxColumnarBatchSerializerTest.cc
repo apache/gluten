@@ -23,6 +23,7 @@
 #include "memory/VeloxColumnarBatch.h"
 #include "operators/serializer/VeloxColumnarBatchSerializer.h"
 
+#include "velox/vector/LazyVector.h"
 #include "velox/vector/arrow/Bridge.h"
 #include "velox/vector/tests/utils/VectorTestBase.h"
 
@@ -43,6 +44,17 @@ class VeloxColumnarBatchSerializerTest : public ::testing::Test, public test::Ve
 
   static void TearDownTestSuite() {
     VeloxBackend::get()->tearDown();
+  }
+
+  std::shared_ptr<VeloxColumnarBatchSerializer> makeV3Deserializer(arrow::MemoryPool* arrowPool) {
+    auto schemaVector = makeRowVector(
+        {"a", "b", "c"},
+        {makeFlatVector<int32_t>({1, 2, 3, 4, 5}),
+         makeFlatVector<int64_t>({10, 20, 30, 40, 50}),
+         makeFlatVector<StringView>({"a", "bb", "ccc", "dddd", "eeeee"})});
+    ArrowSchema cSchema;
+    exportToArrow(schemaVector, cSchema, ArrowUtils::getBridgeOptions());
+    return std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, &cSchema);
   }
 };
 
@@ -98,10 +110,13 @@ TEST_F(VeloxColumnarBatchSerializerTest, computeStatsBigintFlatVector) {
   EXPECT_EQ(stats[0].nullCount, 0);
 }
 
-// REAL FlatVector: no-NaN partition becomes supported; any NaN row poisons the
-// column to hasLowerBound=hasUpperBound=false (Spark NaN != NaN, would silently
+// REAL FlatVector: a no-NaN partition is supported; a partition that mixes NaN with finite
+// values stays supported and emits the FINITE min/max (NaN skipped) -- matching vanilla Spark
+// Float/DoubleColumnStats, which ignores NaN and keeps finite bounds. Poisoning to
+// hasLowerBound=hasUpperBound=false here would emit null bounds and let the vanilla buildFilter
+// silently prune finite matching rows (data loss). (Spark NaN != NaN, would silently
 // drop matching rows under min/max pruning).
-TEST_F(VeloxColumnarBatchSerializerTest, computeStatsNaNRealPartitionPoisons) {
+TEST_F(VeloxColumnarBatchSerializerTest, computeStatsNaNRealSkippedFiniteBoundsEmitted) {
   auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
   auto serializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, nullptr);
 
@@ -115,9 +130,13 @@ TEST_F(VeloxColumnarBatchSerializerTest, computeStatsNaNRealPartitionPoisons) {
     ASSERT_EQ(stats.size(), 1u);
     EXPECT_TRUE(stats[0].hasLowerBound) << "REAL FlatVector w/o NaN must be supported";
     EXPECT_TRUE(stats[0].hasUpperBound);
+    EXPECT_EQ(stats[0].lowerBound.value<float>(), 0.5f);
+    EXPECT_EQ(stats[0].upperBound.value<float>(), 3.5f);
   }
 
-  // (b) REAL FlatVector WITH NaN -- must fall back to unsupported.
+  // (b) REAL FlatVector mixing NaN with finite values -- NaN is skipped (matches vanilla Spark),
+  // the column stays supported, and the FINITE [1.5, 3.5] bounds are emitted. Emitting null
+  // bounds here would let the vanilla buildFilter prune the batch and drop the finite rows.
   {
     const float nan = std::numeric_limits<float>::quiet_NaN();
     std::vector<VectorPtr> children = {
@@ -126,7 +145,24 @@ TEST_F(VeloxColumnarBatchSerializerTest, computeStatsNaNRealPartitionPoisons) {
     auto vector = makeRowVector(children);
     auto stats = serializer->computeStats(vector);
     ASSERT_EQ(stats.size(), 1u);
-    EXPECT_FALSE(stats[0].hasLowerBound) << "NaN-poisoned REAL column must emit hasLowerBound=false (NB4)";
+    EXPECT_TRUE(stats[0].hasLowerBound) << "NaN must be skipped, finite bounds still emitted (no poison)";
+    EXPECT_TRUE(stats[0].hasUpperBound);
+    EXPECT_EQ(stats[0].lowerBound.value<float>(), 1.5f);
+    EXPECT_EQ(stats[0].upperBound.value<float>(), 3.5f);
+  }
+
+  // (c) REAL FlatVector that is ALL NaN -- no finite value observed, so no bounds are emitted
+  // (hasLowerBound=false). With null bounds the JVM stats row stays unsupported for this column;
+  // there are no finite values that could be wrongly pruned.
+  {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    std::vector<VectorPtr> children = {
+        makeFlatVector<float>({nan, nan, nan}),
+    };
+    auto vector = makeRowVector(children);
+    auto stats = serializer->computeStats(vector);
+    ASSERT_EQ(stats.size(), 1u);
+    EXPECT_FALSE(stats[0].hasLowerBound) << "all-NaN column observes no finite value -> no bounds";
     EXPECT_FALSE(stats[0].hasUpperBound);
   }
 }
@@ -683,26 +719,26 @@ TEST_F(VeloxColumnarBatchSerializerTest, computeStatsBooleanFlatVectorWithNulls)
   EXPECT_EQ(stats[0].nullCount, 2);
 }
 
-// NaN-poisoned float column must STILL accrue real nullCount (not
-// early-return). framed stats serialize nullCount even when
-// emitSupported=0; under-counting on `[NaN, null]` would let
-// `col IS NULL` predicates incorrectly prune matching rows under
-// Spark IsNull pruning.
+// A float column mixing NaN with nulls and finite values: NaN is skipped (matches vanilla),
+// finite bounds are still emitted, and nullCount counts only true nulls (NaN is non-null).
+// Under-counting nullCount would let `col IS NULL` pruning (`nullCount > 0`) wrongly drop rows.
 TEST_F(VeloxColumnarBatchSerializerTest, computeStatsNaNFloatStillCountsNulls) {
   auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
   auto serializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, nullptr);
 
   const float nan = std::numeric_limits<float>::quiet_NaN();
   std::vector<VectorPtr> children = {
-      // [1.0, null, NaN, null, 2.0] -- 2 nulls, 1 NaN poisons min/max.
+      // [1.0, null, NaN, null, 2.0] -- 2 nulls, 1 NaN (skipped), finite bounds [1.0, 2.0].
       makeNullableFlatVector<float>({1.0f, std::nullopt, nan, std::nullopt, 2.0f}),
   };
   auto vector = makeRowVector(children);
   auto stats = serializer->computeStats(vector);
   ASSERT_EQ(stats.size(), 1u);
-  EXPECT_FALSE(stats[0].hasLowerBound) << "NaN poisons min/max -> unsupported";
-  EXPECT_FALSE(stats[0].hasUpperBound);
-  EXPECT_EQ(stats[0].nullCount, 2) << "NaN scan must continue and count both nulls (IsNull prune correctness)";
+  EXPECT_TRUE(stats[0].hasLowerBound) << "NaN skipped, finite bounds still emitted (matches vanilla)";
+  EXPECT_TRUE(stats[0].hasUpperBound);
+  EXPECT_EQ(stats[0].lowerBound.value<float>(), 1.0f);
+  EXPECT_EQ(stats[0].upperBound.value<float>(), 2.0f);
+  EXPECT_EQ(stats[0].nullCount, 2) << "NaN is non-null; only true nulls counted (IsNull prune correctness)";
 }
 
 // Non-flat encoding (Dictionary / Constant / Complex) must still
@@ -1021,6 +1057,323 @@ TEST_F(VeloxColumnarBatchSerializerTest, framedSerializeWithStatsAllNullColNoBou
     EXPECT_EQ(p[k], 0u) << "sizeInBytes placeholder byte " << k << " must be 0";
   }
   // No lowerLen / upperLen / bounds bytes follow when supported=0.
+}
+
+// Cross-language V3 golden-frame pin.
+//
+// Empty 0-row / 0-col input has no per-column PrestoSerde payload, so this
+// byte-equal golden pins the V3 top-level frame contract:
+//   [ magic=0x03 ][ statsLen ][ statsBlob(numCols=0) ][ numRows=0 ][ numCols=0 ]
+// Paired with ColumnarCachedBatchFramedBytesSuite's kGoldenFrameV3Empty parser
+// round-trip on the JVM side.
+TEST_F(VeloxColumnarBatchSerializerTest, framedSerializeWithStatsV3EmptyGolden) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto serializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, nullptr);
+
+  auto rowVector = makeRowVector(ROW({}, {}), 0);
+  auto batch = std::make_shared<VeloxColumnarBatch>(rowVector);
+
+  std::vector<uint8_t> actual = serializer->framedSerializeWithStatsV3(batch);
+
+  static const std::vector<uint8_t> kGoldenFrame = {0xFE, 0xCA, 0x53, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  EXPECT_EQ(actual, kGoldenFrame) << "framedSerializeWithStatsV3 empty frame diverged.";
+}
+
+TEST_F(VeloxColumnarBatchSerializerTest, framedSerializeV3NoStatsEmptyGolden) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto serializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, nullptr);
+
+  auto rowVector = makeRowVector(ROW({}, {}), 0);
+  auto batch = std::make_shared<VeloxColumnarBatch>(rowVector);
+
+  std::vector<uint8_t> actual = serializer->framedSerializeV3(batch);
+
+  static const std::vector<uint8_t> kGoldenFrame = {
+      0xFE, 0xCA, 0x53, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  EXPECT_EQ(actual, kGoldenFrame) << "framedSerializeV3 no-stats empty frame diverged.";
+}
+
+namespace {
+
+uint32_t readU32LE(const std::vector<uint8_t>& bytes, size_t& offset) {
+  GLUTEN_CHECK(offset + 4 <= bytes.size(), "readU32LE offset out of range");
+  uint32_t value = static_cast<uint32_t>(bytes[offset]) | (static_cast<uint32_t>(bytes[offset + 1]) << 8) |
+      (static_cast<uint32_t>(bytes[offset + 2]) << 16) | (static_cast<uint32_t>(bytes[offset + 3]) << 24);
+  offset += 4;
+  return value;
+}
+
+void appendU32LE(std::vector<uint8_t>& bytes, uint32_t value) {
+  bytes.push_back(static_cast<uint8_t>(value & 0xFF));
+  bytes.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+  bytes.push_back(static_cast<uint8_t>((value >> 16) & 0xFF));
+  bytes.push_back(static_cast<uint8_t>((value >> 24) & 0xFF));
+}
+
+void appendU64LE(std::vector<uint8_t>& bytes, uint64_t value) {
+  for (int i = 0; i < 8; ++i) {
+    bytes.push_back(static_cast<uint8_t>((value >> (8 * i)) & 0xFF));
+  }
+}
+
+void assertV3WriterFrameLayout(
+    const std::vector<uint8_t>& framed,
+    uint32_t expectedRows,
+    uint32_t expectedColumns,
+    bool expectStats) {
+  ASSERT_GE(framed.size(), 16u);
+  ASSERT_EQ(framed[0], 0xFE);
+  ASSERT_EQ(framed[1], 0xCA);
+  ASSERT_EQ(framed[2], 0x53);
+  ASSERT_EQ(framed[3], 0x03);
+
+  size_t offset = 4;
+  const uint32_t statsLen = readU32LE(framed, offset);
+  if (expectStats) {
+    ASSERT_GT(statsLen, 0u);
+    ASSERT_GE(framed.size() - offset, statsLen);
+    size_t statsOffset = offset;
+    ASSERT_EQ(readU32LE(framed, statsOffset), expectedColumns);
+  } else {
+    ASSERT_EQ(statsLen, 0u);
+  }
+  offset += statsLen;
+
+  ASSERT_EQ(readU32LE(framed, offset), expectedRows);
+  ASSERT_EQ(readU32LE(framed, offset), expectedColumns);
+  for (uint32_t col = 0; col < expectedColumns; ++col) {
+    const uint32_t colLen = readU32LE(framed, offset);
+    ASSERT_GT(colLen, 0u) << "non-empty writer frame must include serialized bytes for col " << col;
+    ASSERT_GE(framed.size() - offset, colLen);
+    offset += colLen;
+  }
+  ASSERT_EQ(offset, framed.size()) << "writer frame must not contain trailing bytes";
+}
+
+std::vector<uint8_t> v3NoStatsNonEmptyFrameFixture() {
+  return {0xFE, 0xCA, 0x53, 0x03, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01,
+          0x00, 0x00, 0x00, 0xaa, 0x02, 0x00, 0x00, 0x00, 0xbb, 0xcc, 0x03, 0x00, 0x00, 0x00, 0xdd, 0xee, 0xff};
+}
+
+std::vector<uint8_t> v3WithStatsNonEmptyFrameFixture() {
+  std::vector<uint8_t> stats;
+  appendU32LE(stats, 3);
+  for (uint32_t col = 0; col < 3; ++col) {
+    stats.push_back(0); // unsupported: no lower/upper bound payload follows.
+    appendU32LE(stats, 0); // nullCount
+    appendU32LE(stats, 5); // count
+    appendU64LE(stats, 0); // sizeInBytes placeholder
+  }
+
+  std::vector<uint8_t> framed = {0xFE, 0xCA, 0x53, 0x03};
+  appendU32LE(framed, static_cast<uint32_t>(stats.size()));
+  framed.insert(framed.end(), stats.begin(), stats.end());
+  appendU32LE(framed, 5);
+  appendU32LE(framed, 3);
+  framed.insert(
+      framed.end(),
+      {0x01, 0x00, 0x00, 0x00, 0xaa, 0x02, 0x00, 0x00, 0x00, 0xbb, 0xcc, 0x03, 0x00, 0x00, 0x00, 0xdd, 0xee, 0xff});
+  return framed;
+}
+
+} // namespace
+
+TEST_F(VeloxColumnarBatchSerializerTest, framedSerializeV3NonEmptyWriterLayout) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto serializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, nullptr);
+  std::vector<VectorPtr> children = {
+      makeNullableFlatVector<int32_t>({1, 2, std::nullopt, 4, 5}),
+      makeFlatVector<int64_t>({10, 20, 30, 40, 50}),
+      makeFlatVector<StringView>({"a", "bb", "ccc", "dddd", "eeeee"}),
+  };
+  auto vector = makeRowVector({"a", "b", "c"}, children);
+  auto batch = std::make_shared<VeloxColumnarBatch>(vector);
+
+  auto framed = serializer->framedSerializeV3(batch);
+
+  assertV3WriterFrameLayout(framed, 5, 3, false);
+
+  std::vector<int32_t> requestedColumns = {0, 2};
+  auto deserializer = makeV3Deserializer(arrowPool);
+  auto projectedBatch = deserializer->deserializeV3(
+      framed.data(), static_cast<int32_t>(framed.size()), std::optional<std::vector<int32_t>>(requestedColumns));
+  auto projectedVector = std::dynamic_pointer_cast<VeloxColumnarBatch>(projectedBatch)->getRowVector();
+  auto expectedProjected = makeRowVector({"a", "c"}, {children[0], children[2]});
+  test::assertEqualVectors(expectedProjected, projectedVector);
+}
+
+TEST_F(VeloxColumnarBatchSerializerTest, framedSerializeWithStatsV3NonEmptyWriterLayout) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto serializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, nullptr);
+  std::vector<VectorPtr> children = {
+      makeNullableFlatVector<int32_t>({1, 2, std::nullopt, 4, 5}),
+      makeFlatVector<int64_t>({10, 20, 30, 40, 50}),
+      makeFlatVector<StringView>({"a", "bb", "ccc", "dddd", "eeeee"}),
+  };
+  auto vector = makeRowVector({"a", "b", "c"}, children);
+  auto batch = std::make_shared<VeloxColumnarBatch>(vector);
+
+  auto framed = serializer->framedSerializeWithStatsV3(batch);
+
+  assertV3WriterFrameLayout(framed, 5, 3, true);
+
+  std::vector<int32_t> requestedColumns = {0, 2};
+  auto deserializer = makeV3Deserializer(arrowPool);
+  auto projectedBatch = deserializer->deserializeV3(
+      framed.data(), static_cast<int32_t>(framed.size()), std::optional<std::vector<int32_t>>(requestedColumns));
+  auto projectedVector = std::dynamic_pointer_cast<VeloxColumnarBatch>(projectedBatch)->getRowVector();
+  auto expectedProjected = makeRowVector({"a", "c"}, {children[0], children[2]});
+  test::assertEqualVectors(expectedProjected, projectedVector);
+}
+
+TEST_F(VeloxColumnarBatchSerializerTest, deserializeV3ZeroProjectionNonEmptyNoStatsFrameFixture) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto deserializer = makeV3Deserializer(arrowPool);
+  auto framed = v3NoStatsNonEmptyFrameFixture();
+  std::vector<int32_t> requestedColumns;
+
+  assertV3WriterFrameLayout(framed, 5, 3, false);
+  auto projectedBatch = deserializer->deserializeV3(
+      framed.data(), static_cast<int32_t>(framed.size()), std::optional<std::vector<int32_t>>(requestedColumns));
+  auto projectedVector = std::dynamic_pointer_cast<VeloxColumnarBatch>(projectedBatch)->getRowVector();
+
+  ASSERT_EQ(projectedVector->size(), 5);
+  ASSERT_EQ(projectedVector->childrenSize(), 0u);
+}
+
+TEST_F(VeloxColumnarBatchSerializerTest, deserializeV3ZeroProjectionNonEmptyWithStatsFrameFixture) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto deserializer = makeV3Deserializer(arrowPool);
+  auto framed = v3WithStatsNonEmptyFrameFixture();
+  std::vector<int32_t> requestedColumns;
+
+  assertV3WriterFrameLayout(framed, 5, 3, true);
+  auto projectedBatch = deserializer->deserializeV3(
+      framed.data(), static_cast<int32_t>(framed.size()), std::optional<std::vector<int32_t>>(requestedColumns));
+  auto projectedVector = std::dynamic_pointer_cast<VeloxColumnarBatch>(projectedBatch)->getRowVector();
+
+  ASSERT_EQ(projectedVector->size(), 5);
+  ASSERT_EQ(projectedVector->childrenSize(), 0u);
+}
+
+TEST_F(VeloxColumnarBatchSerializerTest, deserializeV3RejectsTrailingBytes) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto deserializer = makeV3Deserializer(arrowPool);
+  auto framed = v3NoStatsNonEmptyFrameFixture();
+  framed.push_back(0x42);
+  std::vector<int32_t> requestedColumns;
+
+  EXPECT_THROW(
+      (void)deserializer->deserializeV3(
+          framed.data(), static_cast<int32_t>(framed.size()), std::optional<std::vector<int32_t>>(requestedColumns)),
+      GlutenException);
+}
+
+TEST_F(VeloxColumnarBatchSerializerTest, deserializeV3RejectsTruncatedColumnBytes) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto deserializer = makeV3Deserializer(arrowPool);
+  auto framed = v3NoStatsNonEmptyFrameFixture();
+  framed.pop_back();
+  std::vector<int32_t> requestedColumns;
+
+  EXPECT_THROW(
+      (void)deserializer->deserializeV3(
+          framed.data(), static_cast<int32_t>(framed.size()), std::optional<std::vector<int32_t>>(requestedColumns)),
+      GlutenException);
+}
+
+TEST_F(VeloxColumnarBatchSerializerTest, deserializeV3RejectsSchemaNumColsMismatch) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto deserializer = makeV3Deserializer(arrowPool);
+  auto framed = v3NoStatsNonEmptyFrameFixture();
+  framed[12] = 0x04;
+  std::vector<int32_t> requestedColumns;
+
+  EXPECT_THROW(
+      (void)deserializer->deserializeV3(
+          framed.data(), static_cast<int32_t>(framed.size()), std::optional<std::vector<int32_t>>(requestedColumns)),
+      GlutenException);
+}
+
+TEST_F(VeloxColumnarBatchSerializerTest, deserializeV3RejectsRequestedColumnOutOfRange) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto deserializer = makeV3Deserializer(arrowPool);
+  auto framed = v3NoStatsNonEmptyFrameFixture();
+  std::vector<int32_t> requestedColumns = {3};
+
+  EXPECT_THROW(
+      (void)deserializer->deserializeV3(
+          framed.data(), static_cast<int32_t>(framed.size()), std::optional<std::vector<int32_t>>(requestedColumns)),
+      GlutenException);
+}
+
+TEST_F(VeloxColumnarBatchSerializerTest, deserializeV3RejectsDecodedColumnRowCountMismatch) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+
+  std::vector<VectorPtr> children = {
+      makeNullableFlatVector<int32_t>({1, 2, std::nullopt, 4, 5}),
+      makeFlatVector<int64_t>({10, 20, 30, 40, 50}),
+      makeFlatVector<StringView>({"a", "bb", "ccc", "dddd", "eeeee"}),
+  };
+  auto vector = makeRowVector({"a", "b", "c"}, children);
+  auto batch = std::make_shared<VeloxColumnarBatch>(vector);
+
+  auto serializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, nullptr);
+  std::vector<uint8_t> framed = serializer->framedSerializeV3(batch);
+
+  // No-stats V3 layout puts numRows at offset 8. Keep the 5-row column payloads intact, but
+  // declare 4 rows in the frame header so the lazy column loader must reject the mismatch.
+  ASSERT_GE(framed.size(), 12u);
+  framed[8] = 0x04;
+  framed[9] = 0x00;
+  framed[10] = 0x00;
+  framed[11] = 0x00;
+
+  ArrowSchema cSchema;
+  exportToArrow(vector, cSchema, ArrowUtils::getBridgeOptions());
+  auto deserializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, &cSchema);
+  std::vector<int32_t> requestedColumns = {0};
+
+  auto projectedBatch = deserializer->deserializeV3(
+      framed.data(), static_cast<int32_t>(framed.size()), std::optional<std::vector<int32_t>>(requestedColumns));
+  auto projectedVector = std::dynamic_pointer_cast<VeloxColumnarBatch>(projectedBatch)->getRowVector();
+
+  ASSERT_EQ(projectedVector->size(), 4);
+  ASSERT_TRUE(isLazyNotLoaded(*projectedVector->childAt(0)));
+  EXPECT_THROW((void)projectedVector->childAt(0)->loadedVector(), GlutenException);
+}
+
+TEST_F(VeloxColumnarBatchSerializerTest, deserializeV3ProjectsNonEmptyFrameAsLazyColumns) {
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+
+  std::vector<VectorPtr> children = {
+      makeNullableFlatVector<int32_t>({1, 2, std::nullopt, 4, 5}),
+      makeFlatVector<int64_t>({10, 20, 30, 40, 50}),
+      makeFlatVector<StringView>({"a", "bb", "ccc", "dddd", "eeeee"}),
+  };
+  auto vector = makeRowVector({"a", "b", "c"}, children);
+  auto batch = std::make_shared<VeloxColumnarBatch>(vector);
+
+  auto serializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, nullptr);
+  std::vector<uint8_t> framed = serializer->framedSerializeV3(batch);
+
+  ArrowSchema cSchema;
+  exportToArrow(vector, cSchema, ArrowUtils::getBridgeOptions());
+  auto deserializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, &cSchema);
+  std::vector<int32_t> requestedColumns = {0, 2};
+
+  auto projectedBatch = deserializer->deserializeV3(
+      framed.data(), static_cast<int32_t>(framed.size()), std::optional<std::vector<int32_t>>(requestedColumns));
+  auto projectedVector = std::dynamic_pointer_cast<VeloxColumnarBatch>(projectedBatch)->getRowVector();
+
+  ASSERT_EQ(projectedVector->size(), vector->size());
+  ASSERT_EQ(projectedVector->childrenSize(), 2u);
+  ASSERT_TRUE(isLazyNotLoaded(*projectedVector->childAt(0)));
+  ASSERT_TRUE(isLazyNotLoaded(*projectedVector->childAt(1)));
+
+  auto expected = makeRowVector({"a", "c"}, {children[0], children[2]});
+  test::assertEqualVectors(expected, projectedVector);
 }
 
 } // namespace gluten

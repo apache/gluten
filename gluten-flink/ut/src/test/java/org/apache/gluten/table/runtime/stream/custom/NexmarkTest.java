@@ -41,6 +41,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,7 +71,7 @@ public class NexmarkTest {
         }
       };
 
-  private static final int KAFKA_PORT = 9092;
+  private static final int KAFKA_PORT = 19092;
   private static String topicName = "nexmark";
 
   @RegisterExtension
@@ -82,7 +83,7 @@ public class NexmarkTest {
   private static final Map<String, String> KAFKA_VARIABLES =
       new HashMap<>() {
         {
-          put("BOOTSTRAP_SERVERS", "localhost:9092");
+          put("BOOTSTRAP_SERVERS", "localhost:" + KAFKA_PORT);
           put("NEXMARK_TABLE", "kafka");
         }
       };
@@ -102,6 +103,45 @@ public class NexmarkTest {
 
     EnvironmentSettings settings = EnvironmentSettings.newInstance().inStreamingMode().build();
     tEnv = StreamTableEnvironment.create(env, settings);
+  }
+
+  @Test
+  void testNexmarkSourceSqlDoesNotPushDownWatermark() {
+    String createNexmarkSource = readSqlFromFile(NEXMARK_RESOURCE_DIR + "/ddl_gen.sql");
+    createNexmarkSource = replaceVariables(createNexmarkSource, NEXMARK_VARIABLES);
+    try {
+      tEnv.executeSql(createNexmarkSource);
+      String explain = tEnv.explainSql("SELECT * FROM datagen");
+
+      assertThat(explain).contains("WatermarkAssigner");
+      List<String> tableSourceScanLines =
+          Arrays.stream(explain.split("\\R"))
+              .filter(line -> line.contains("TableSourceScan"))
+              .collect(Collectors.toList());
+      assertThat(tableSourceScanLines).isNotEmpty();
+      assertThat(tableSourceScanLines).noneMatch(line -> line.contains("watermark=["));
+    } finally {
+      tEnv.executeSql("drop table if exists datagen");
+    }
+  }
+
+  @Test
+  void testKafkaSourceSqlPushesDownWatermark() {
+    String createKafkaSource = readSqlFromFile(NEXMARK_RESOURCE_DIR + "/ddl_kafka.sql");
+    createKafkaSource = replaceVariables(createKafkaSource, KAFKA_VARIABLES);
+    try {
+      tEnv.executeSql(createKafkaSource);
+      String explain = tEnv.explainSql("SELECT * FROM kafka");
+
+      List<String> tableSourceScanLines =
+          Arrays.stream(explain.split("\\R"))
+              .filter(line -> line.contains("TableSourceScan"))
+              .collect(Collectors.toList());
+      assertThat(tableSourceScanLines).isNotEmpty();
+      assertThat(tableSourceScanLines).anyMatch(line -> line.contains("watermark=["));
+    } finally {
+      tEnv.executeSql("drop table if exists kafka");
+    }
   }
 
   @Test
@@ -174,6 +214,8 @@ public class NexmarkTest {
       String sql = String.format("drop function if exists %s", func);
       tEnv.executeSql(sql);
     }
+    tEnv.executeSql("drop table if exists datagen");
+    tEnv.executeSql("drop table if exists kafka");
   }
 
   private void executeQuery(StreamTableEnvironment tEnv, String queryFileName, boolean kafkaSource)
@@ -240,6 +282,16 @@ public class NexmarkTest {
         for (Path entry : stream) {
           queryFiles.add(entry.getFileName().toString());
         }
+      }
+
+      String queryFilter = System.getProperty("nexmark.queries");
+      if (queryFilter != null && !queryFilter.trim().isEmpty()) {
+        List<String> selectedQueries =
+            Arrays.stream(queryFilter.split(","))
+                .map(String::trim)
+                .filter(query -> !query.isEmpty())
+                .collect(Collectors.toList());
+        queryFiles.retainAll(selectedQueries);
       }
 
       return queryFiles.stream().sorted().collect(Collectors.toList());

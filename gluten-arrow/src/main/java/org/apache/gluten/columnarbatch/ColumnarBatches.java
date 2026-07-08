@@ -95,8 +95,7 @@ public final class ColumnarBatches {
    * Light batch: Data is not readable from JVM, a long int handle (which is a pointer usually) is
    * used to bind the batch to a native side implementation.
    */
-  @VisibleForTesting
-  static boolean isLightBatch(ColumnarBatch batch) {
+  public static boolean isLightBatch(ColumnarBatch batch) {
     return identifyBatchType(batch) == BatchType.LIGHT;
   }
 
@@ -128,7 +127,7 @@ public final class ColumnarBatches {
    * Ensure the input batch is offloaded as native-based columnar batch (See {@link IndicatorVector}
    * and {@link PlaceholderVector}). This method will close the input column batch after offloaded.
    */
-  static ColumnarBatch ensureOffloaded(BufferAllocator allocator, ColumnarBatch batch) {
+  public static ColumnarBatch ensureOffloaded(BufferAllocator allocator, ColumnarBatch batch) {
     if (ColumnarBatches.isLightBatch(batch)) {
       return batch;
     }

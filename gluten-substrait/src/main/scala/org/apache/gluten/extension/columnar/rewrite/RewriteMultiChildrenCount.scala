@@ -19,16 +19,24 @@ package org.apache.gluten.extension.columnar.rewrite
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.utils.PullOutProjectHelper
 
-import org.apache.spark.sql.catalyst.expressions.{If, IsNull, Literal, Or}
+import org.apache.spark.sql.catalyst.expressions.{Expression, If, IsNull, Literal, NamedExpression, Or}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Count, Partial}
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
+import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.types.IntegerType
 
 /**
- * This Rule is used to rewrite the count for aggregates if:
+ * This Rule is used to rewrite multi-children count for both partial aggregates and window
+ * functions, since Velox only supports `count()` and `count(T)` signatures.
+ *
+ * For partial aggregates the rewrite triggers when:
  *   - the count is partial
  *   - the count has more than one child
+ *
+ * For window functions the rewrite triggers whenever the inner aggregate function of the window
+ * expression is a `Count` with more than one child. The aggregate mode for window functions is
+ * always `Complete`, so we don't gate on mode there.
  *
  * A rewrite count multi-children example:
  * {{{
@@ -43,7 +51,7 @@ import org.apache.spark.sql.types.IntegerType
  *   )
  * }}}
  *
- * TODO: Remove this rule when Velox support multi-children Count
+ * TODO: Remove this rule when Velox support multi-children Count.
  */
 object RewriteMultiChildrenCount extends RewriteSingleNode with PullOutProjectHelper {
   private lazy val shouldRewriteCount = BackendsApiManager.getSettings.shouldRewriteCount()
@@ -51,6 +59,7 @@ object RewriteMultiChildrenCount extends RewriteSingleNode with PullOutProjectHe
   override def isRewritable(plan: SparkPlan): Boolean = {
     plan match {
       case _: BaseAggregateExec => true
+      case _: WindowExec => true
       case _ => false
     }
   }
@@ -69,8 +78,37 @@ object RewriteMultiChildrenCount extends RewriteSingleNode with PullOutProjectHe
     }
   }
 
+  /** Window functions don't have Partial/Final modes; rewrite any multi-child Count. */
+  private def extractWindowCountForRewrite(aggExpr: AggregateExpression): Option[Count] = {
+    aggExpr.aggregateFunction match {
+      case c: Count if c.children.size > 1 => Option(c)
+      case _ => None
+    }
+  }
+
   private def shouldRewrite(aggregateExpressions: Seq[AggregateExpression]): Boolean = {
     aggregateExpressions.exists(extractCountForRewrite(_).isDefined)
+  }
+
+  private def shouldRewriteWindow(windowExpressions: Seq[NamedExpression]): Boolean = {
+    windowExpressions.exists(_.find {
+      case ae: AggregateExpression => extractWindowCountForRewrite(ae).isDefined
+      case _ => false
+    }.isDefined)
+  }
+
+  private def buildSingleChildCount(count: Count): Count = {
+    // Follow vanilla Spark Count semantics: count rows where every argument is non-null.
+    val nullableChildren = count.children.filter(_.nullable)
+    val newChild: Expression = if (nullableChildren.isEmpty) {
+      Literal.create(1, IntegerType)
+    } else {
+      If(
+        nullableChildren.map(IsNull).reduce(Or),
+        Literal.create(null, IntegerType),
+        Literal.create(1, IntegerType))
+    }
+    count.copy(children = newChild :: Nil)
   }
 
   private def rewriteCount(
@@ -79,22 +117,23 @@ object RewriteMultiChildrenCount extends RewriteSingleNode with PullOutProjectHe
       aggExpr =>
         val countOpt = extractCountForRewrite(aggExpr)
         countOpt
-          .map {
-            count =>
-              // Follow vanillas Spark Count function
-              val nullableChildren = count.children.filter(_.nullable)
-              val newChild = if (nullableChildren.isEmpty) {
-                Literal.create(1, IntegerType)
-              } else {
-                If(
-                  nullableChildren.map(IsNull).reduce(Or),
-                  Literal.create(null, IntegerType),
-                  Literal.create(1, IntegerType))
-              }
-              val newCount = count.copy(children = newChild :: Nil)
-              aggExpr.copy(aggregateFunction = newCount)
-          }
+          .map(count => aggExpr.copy(aggregateFunction = buildSingleChildCount(count)))
           .getOrElse(aggExpr)
+    }
+  }
+
+  private def rewriteWindowExpressions(
+      windowExpressions: Seq[NamedExpression]): Seq[NamedExpression] = {
+    windowExpressions.map {
+      expr =>
+        expr
+          .transformDown {
+            case ae: AggregateExpression =>
+              extractWindowCountForRewrite(ae)
+                .map(count => ae.copy(aggregateFunction = buildSingleChildCount(count)))
+                .getOrElse(ae)
+          }
+          .asInstanceOf[NamedExpression]
     }
   }
 
@@ -107,6 +146,12 @@ object RewriteMultiChildrenCount extends RewriteSingleNode with PullOutProjectHe
       case agg: BaseAggregateExec if shouldRewrite(agg.aggregateExpressions) =>
         val newAggExprs = rewriteCount(agg.aggregateExpressions)
         copyBaseAggregateExec(agg)(newAggregateExpressions = newAggExprs)
+
+      case window: WindowExec if shouldRewriteWindow(window.windowExpression) =>
+        val newWindow =
+          window.copy(windowExpression = rewriteWindowExpressions(window.windowExpression))
+        newWindow.copyTagsFrom(window)
+        newWindow
 
       case _ => plan
     }

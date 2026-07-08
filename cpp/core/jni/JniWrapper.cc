@@ -72,6 +72,17 @@ jmethodID shuffleReaderMetricsSetDeserializeTime;
 jclass shuffleStreamReaderClass;
 jmethodID shuffleStreamReaderNextStream;
 
+jbyteArray toJByteArray(JNIEnv* env, const std::vector<uint8_t>& bytes, const std::string& context) {
+  GLUTEN_CHECK(
+      bytes.size() <= static_cast<size_t>(std::numeric_limits<jsize>::max()),
+      context + " size exceeds Java byte[] limit: " + std::to_string(bytes.size()));
+  jbyteArray out = env->NewByteArray(static_cast<jsize>(bytes.size()));
+  if (!bytes.empty()) {
+    env->SetByteArrayRegion(out, 0, static_cast<jsize>(bytes.size()), reinterpret_cast<const jbyte*>(bytes.data()));
+  }
+  return out;
+}
+
 class JavaInputStreamAdaptor final : public arrow::io::InputStream {
  public:
   JavaInputStreamAdaptor(JNIEnv* env, arrow::MemoryPool* pool, jobject jniIn) : pool_(pool) {
@@ -182,8 +193,9 @@ class InternalRuntime : public Runtime {
   InternalRuntime(
       const std::string& kind,
       MemoryManager* memoryManager,
+      ThreadManager* threadManager,
       const std::unordered_map<std::string, std::string>& confMap)
-      : Runtime(kind, memoryManager, confMap) {}
+      : Runtime(kind, memoryManager, threadManager, confMap) {}
 };
 
 MemoryManager* internalMemoryManagerFactory(const std::string& kind, std::unique_ptr<AllocationListener> listener) {
@@ -194,11 +206,33 @@ void internalMemoryManagerReleaser(MemoryManager* memoryManager) {
   delete memoryManager;
 }
 
+class InternalThreadManager : public ThreadManager {
+ public:
+  InternalThreadManager(const std::string& kind, std::unique_ptr<ThreadInitializer> initializer)
+      : ThreadManager(kind), initializer_(std::shared_ptr<ThreadInitializer>(std::move(initializer))) {}
+
+  ThreadInitializer* getThreadInitializer() override {
+    return initializer_.get();
+  }
+
+ private:
+  std::shared_ptr<ThreadInitializer> initializer_;
+};
+
+ThreadManager* internalThreadManagerFactory(const std::string& kind, std::unique_ptr<ThreadInitializer> initializer) {
+  return new InternalThreadManager(kind, std::move(initializer));
+}
+
+void internalThreadManagerReleaser(ThreadManager* threadManager) {
+  delete threadManager;
+}
+
 Runtime* internalRuntimeFactory(
     const std::string& kind,
     MemoryManager* memoryManager,
+    ThreadManager* threadManager,
     const std::unordered_map<std::string, std::string>& sessionConf) {
-  return new InternalRuntime(kind, memoryManager, sessionConf);
+  return new InternalRuntime(kind, memoryManager, threadManager, sessionConf);
 }
 
 void internalRuntimeReleaser(Runtime* runtime) {
@@ -253,6 +287,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   getJniErrorState()->ensureInitialized(env);
 
   MemoryManager::registerFactory(kInternalBackendKind, internalMemoryManagerFactory, internalMemoryManagerReleaser);
+  ThreadManager::registerFactory(kInternalBackendKind, internalThreadManagerFactory, internalThreadManagerReleaser);
   Runtime::registerFactory(kInternalBackendKind, internalRuntimeFactory, internalRuntimeReleaser);
 
   byteArrayClass = createGlobalClassReferenceOrError(env, "[B");
@@ -320,14 +355,16 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_runtime_RuntimeJniWrapper_createR
     jclass,
     jstring jBackendType,
     jlong nmmHandle,
+    jlong ntmHandle,
     jbyteArray sessionConf) {
   JNI_METHOD_START
   MemoryManager* memoryManager = jniCastOrThrow<MemoryManager>(nmmHandle);
+  ThreadManager* threadManager = jniCastOrThrow<ThreadManager>(ntmHandle);
   auto safeArray = getByteArrayElementsSafe(env, sessionConf);
   auto sparkConf = parseConfMap(env, safeArray.elems(), safeArray.length());
   auto backendType = jStringToCString(env, jBackendType);
 
-  auto runtime = Runtime::create(backendType, memoryManager, sparkConf);
+  auto runtime = Runtime::create(backendType, memoryManager, threadManager, sparkConf);
   return reinterpret_cast<jlong>(runtime);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -369,6 +406,33 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_memory_NativeMemoryManagerJniWrap
   MemoryManager* mm = MemoryManager::create(backendType, std::move(listener));
   return reinterpret_cast<jlong>(mm);
   JNI_METHOD_END(-1L)
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_threads_NativeThreadManagerJniWrapper_create( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jstring jBackendType,
+    jobject jInitializer) {
+  JNI_METHOD_START
+  JavaVM* vm;
+  if (env->GetJavaVM(&vm) != JNI_OK) {
+    throw GlutenException("Unable to get JavaVM instance");
+  }
+  auto backendType = jStringToCString(env, jBackendType);
+  std::unique_ptr<ThreadInitializer> initializer = std::make_unique<SparkThreadInitializer>(vm, jInitializer);
+  ThreadManager* tm = ThreadManager::create(backendType, std::move(initializer));
+  return reinterpret_cast<jlong>(tm);
+  JNI_METHOD_END(-1L)
+}
+
+JNIEXPORT void JNICALL Java_org_apache_gluten_threads_NativeThreadManagerJniWrapper_release( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong ntmHandle) {
+  JNI_METHOD_START
+  auto* threadManager = jniCastOrThrow<ThreadManager>(ntmHandle);
+  ThreadManager::release(threadManager);
+  JNI_METHOD_END()
 }
 
 JNIEXPORT jbyteArray JNICALL Java_org_apache_gluten_memory_NativeMemoryManagerJniWrapper_collectUsage( // NOLINT
@@ -1310,6 +1374,34 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchSeriali
   JNI_METHOD_END(nullptr)
 }
 
+JNIEXPORT jobject JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_serializeAll( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlongArray handles) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  GLUTEN_CHECK(handles != nullptr, "serializeAll requires non-null handles array");
+  const jsize numBatches = env->GetArrayLength(handles);
+  GLUTEN_CHECK(numBatches > 0, "serializeAll requires at least one batch");
+
+  auto safeArray = getLongArrayElementsSafe(env, handles);
+  auto serializer = ctx->createColumnarBatchSerializer(nullptr);
+  for (int32_t i = 0; i < numBatches; i++) {
+    auto batch = ObjectStore::retrieve<ColumnarBatch>(safeArray.elems()[i]);
+    GLUTEN_DCHECK(
+        batch != nullptr, "Cannot find the ColumnarBatch with handle " + std::to_string(safeArray.elems()[i]));
+    serializer->append(batch);
+  }
+  auto serializedSize = serializer->maxSerializedSize();
+  auto byteBuffer = env->CallStaticObjectMethod(jniUnsafeByteBufferClass, jniUnsafeByteBufferAllocate, serializedSize);
+  auto byteBufferAddress = env->CallLongMethod(byteBuffer, jniUnsafeByteBufferAddress);
+  auto byteBufferSize = env->CallLongMethod(byteBuffer, jniUnsafeByteBufferSize);
+  serializer->serializeTo(reinterpret_cast<uint8_t*>(byteBufferAddress), byteBufferSize);
+
+  return byteBuffer;
+  JNI_METHOD_END(nullptr)
+}
+
 // Framed [magic | statsLen | statsBlob | bytesLen | bytesBlob] entry point. Uses the
 // ColumnarBatchSerializer::framedSerializeWithStats virtual hook; non-Velox backends inherit
 // the default empty-vector return so callers fall back to the legacy serialize() path.
@@ -1327,19 +1419,42 @@ Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_serializeWit
   auto serializer = ctx->createColumnarBatchSerializer(nullptr);
   std::vector<uint8_t> framed = serializer->framedSerializeWithStats(batch);
 
-  // Outer-layer size defense (inner layer = bytesLen <= UINT32_MAX in
-  // framedSerializeWithStats). jsize is signed int32; > INT32_MAX wraps
-  // negative -> NewByteArray would throw NegativeArraySizeException.
-  // Fail fast here so JNI_METHOD_END surfaces it as GlutenException.
-  GLUTEN_CHECK(
-      framed.size() <= static_cast<size_t>(std::numeric_limits<jsize>::max()),
-      "serializeWithStats: framed payload (" + std::to_string(framed.size()) + " bytes) exceeds Java byte[] limit (" +
-          std::to_string(std::numeric_limits<jsize>::max()) + ")");
-  jbyteArray out = env->NewByteArray(static_cast<jsize>(framed.size()));
-  if (!framed.empty()) {
-    env->SetByteArrayRegion(out, 0, static_cast<jsize>(framed.size()), reinterpret_cast<jbyte*>(framed.data()));
+  return toJByteArray(env, framed, "serializeWithStats framed payload");
+  JNI_METHOD_END(nullptr)
+}
+
+JNIEXPORT jbyteArray JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_serializeV3( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong handle) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto batch = ObjectStore::retrieve<ColumnarBatch>(handle);
+  GLUTEN_DCHECK(batch != nullptr, "Cannot find the ColumnarBatch with handle " + std::to_string(handle));
+  auto serializer = ctx->createColumnarBatchSerializer(nullptr);
+  std::vector<uint8_t> framed = serializer->framedSerializeV3(batch);
+  if (framed.empty()) {
+    return nullptr; // Non-Velox backend; caller treats null as "V3 not supported".
   }
-  return out;
+  return toJByteArray(env, framed, "serializeV3 framed payload");
+  JNI_METHOD_END(nullptr)
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_serializeWithStatsV3( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong handle) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto batch = ObjectStore::retrieve<ColumnarBatch>(handle);
+  GLUTEN_DCHECK(batch != nullptr, "Cannot find the ColumnarBatch with handle " + std::to_string(handle));
+  auto serializer = ctx->createColumnarBatchSerializer(nullptr);
+  std::vector<uint8_t> framed = serializer->framedSerializeWithStatsV3(batch);
+  if (framed.empty()) {
+    return nullptr; // Non-Velox backend; caller treats null as "V3 not supported".
+  }
+  return toJByteArray(env, framed, "serializeWithStatsV3 framed payload");
   JNI_METHOD_END(nullptr)
 }
 
@@ -1393,6 +1508,38 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchSerializer
   JNI_METHOD_START
   ObjectStore::release(serializerHandle);
   JNI_METHOD_END()
+}
+
+JNIEXPORT jlong JNICALL
+Java_org_apache_gluten_vectorized_ColumnarBatchSerializerJniWrapper_deserializeWithProjection( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong serializerHandle,
+    jbyteArray data,
+    jintArray requestedCols) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto serializer = ObjectStore::retrieve<ColumnarBatchSerializer>(serializerHandle);
+  GLUTEN_DCHECK(serializer != nullptr, "ColumnarBatchSerializer cannot be null");
+  int32_t size = env->GetArrayLength(data);
+  auto safeData = getByteArrayElementsSafe(env, data);
+  // null requestedCols → all columns (nullopt); non-null (including int[0]) → selection.
+  std::optional<std::vector<int32_t>> requestedOpt;
+  if (requestedCols != nullptr) {
+    jsize nCols = env->GetArrayLength(requestedCols);
+    if (nCols == 0) {
+      // Empty selection (e.g. count(*) zero-column projection). GetIntArrayElements
+      // may return a null pointer for an empty jintArray, so avoid pointer arithmetic
+      // (nullptr + 0 is UB) and construct an empty selection directly.
+      requestedOpt.emplace();
+    } else {
+      auto safeCols = getIntArrayElementsSafe(env, requestedCols);
+      requestedOpt = std::vector<int32_t>(safeCols.elems(), safeCols.elems() + nCols);
+    }
+  }
+  auto batch = serializer->deserializeV3(safeData.elems(), size, requestedOpt);
+  return ctx->saveObject(batch);
+  JNI_METHOD_END(kInvalidObjectHandle)
 }
 
 #ifdef __cplusplus

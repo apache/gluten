@@ -39,11 +39,21 @@ public class ColumnarBatchSerializerJniWrapper implements RuntimeAware {
 
   public native JniUnsafeByteBuffer serialize(long handle);
 
-  // Framed [magic | statsLen | statsBlob | bytesLen | bytesBlob] payload produced by
+  public native JniUnsafeByteBuffer serializeAll(long[] handles);
+
+  // Framed [magic=0x02 | statsLen | statsBlob | bytesLen | bytesBlob] payload (V2) produced by
   // VeloxColumnarBatchSerializer::framedSerializeWithStats. Returns byte[] (not
   // JniUnsafeByteBuffer) because the framed wire is small enough that the simpler return type
   // avoids ByteBuffer lifetime concerns.
   public native byte[] serializeWithStats(long handle);
+
+  // V3 per-column framed payload [magic=0x03 | statsLen=0 | numRows | numCols | per-col].
+  // Returns null when the backend does not support V3 (callers should fall back).
+  public native byte[] serializeV3(long handle);
+
+  // V3 per-column framed payload [magic=0x03 | statsLen | statsBlob | numRows | numCols | per-col].
+  // Returns null when the backend does not support V3 (callers should fall back to V2).
+  public native byte[] serializeWithStatsV3(long handle);
 
   // Return the native ColumnarBatchSerializer handle
   public native long init(long cSchema);
@@ -54,4 +64,9 @@ public class ColumnarBatchSerializerJniWrapper implements RuntimeAware {
   public native long deserializeDirect(long serializerHandle, long offset, int len);
 
   public native void close(long serializerHandle);
+
+  // V3 deserialize with column projection. Returns M-column native batch handle.
+  // requestedColumnIndices: null = all columns; int[0] = zero columns; int[m] = M specified cols.
+  public native long deserializeWithProjection(
+      long serializerHandle, byte[] data, int[] requestedColumnIndices);
 }

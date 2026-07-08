@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
-  "builtin-baseline": "4334d8b4c8916018600212ab4dd4bbdc343065d1",
+  "builtin-baseline": "42a91624b277a024ead2654ef4618cd2932fe705",
   "default-features": ["velox"],
   "features": {
     "velox": {
@@ -17,6 +17,7 @@
         "re2",
         "gflags",
         "glog",
+		"s2geometry",
         "snappy",
         "libdwarf",
         "fmt",
@@ -24,6 +25,8 @@
           "name": "folly",
           "features": ["zstd", "lz4", "lzma", "snappy"]
         },
+	      "fizz",
+        "fbthrift",
         "boost-atomic",
         "boost-context",
         "boost-circular-buffer",
@@ -48,7 +51,6 @@
         "protobuf",
         "benchmark",
         "icu",
-        "thrift",
         "libstemmer",
         "geos",
         "grpc"
@@ -114,7 +116,7 @@
     }
   },
   "overrides": [
-    { "name": "fmt", "version": "10.1.1" },
+    { "name": "fmt", "version": "11.2.0" },
     { "name": "liblzma", "version": "5.6.2" },
     { "name": "xsimd", "version": "10.0.0" },
     { "name": "protobuf", "version": "3.21.8"},
@@ -123,6 +125,9 @@
     { "name": "glog", "version": "0.6.0"},
     { "name": "gflags", "version": "2.2.2"},
     { "name": "azure-identity-cpp", "version": "1.11.0"},
-    { "name": "grpc", "version": "1.51.1"}
+    { "name": "openssl", "version": "3.5.2"},
+    { "name": "fbthrift", "version": "2026.02.23.00"},
+    { "name": "grpc", "version": "1.51.1"},
+    { "name": "s2geometry", "version": "0.11.1" }
   ]
 }

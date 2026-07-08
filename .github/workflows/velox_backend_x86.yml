@@ -99,7 +99,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ "ubuntu:20.04", "ubuntu:22.04" ]
+        os: [ "ubuntu:22.04" ]
         spark: [ "spark-3.3", "spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"  ]
         java: [ "java-8", "java-11", "java-17", "java-21", "java-25" ]
         # Spark supports JDK17 since 3.3.
@@ -124,14 +124,6 @@ jobs:
             java: java-11
           - spark: spark-3.4
             java: java-11
-          - os: ubuntu:20.04
-            java: java-17
-          - os: ubuntu:20.04
-            java: java-11
-          - os: ubuntu:20.04
-            java: java-21
-          - os: ubuntu:20.04
-            java: java-25
           - spark: spark-4.0
             java: java-8
           - spark: spark-4.0
@@ -319,7 +311,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        spark: [ "spark-3.3", "spark-3.4", "spark-3.5" ]
+        spark: [ "spark-3.5" ]
         java: [ "java-8" ]
     runs-on: ubuntu-22.04
     steps:

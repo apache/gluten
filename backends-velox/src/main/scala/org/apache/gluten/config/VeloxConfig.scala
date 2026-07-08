@@ -65,6 +65,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableBroadcastBuildRelationInOffheap: Boolean =
     getConf(VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP)
 
+  def broadcastBuildMergeBatches: Boolean =
+    getConf(VELOX_BROADCAST_BUILD_MERGE_BATCHES)
+
   def enableBroadcastBuildOncePerExecutor: Boolean =
     getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
 
@@ -110,6 +113,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
     getConf(VALUE_STREAM_DYNAMIC_FILTER_ENABLED)
 
   def enableTimestampNtzValidation: Boolean = getConf(ENABLE_TIMESTAMP_NTZ_VALIDATION)
+
+  def enableDriverSideBroadcastHashTableBuild: Boolean =
+    getConf(VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD)
 }
 
 object VeloxConfig extends ConfigRegistry {
@@ -302,7 +308,7 @@ object VeloxConfig extends ConfigRegistry {
       .createWithDefault(10000)
 
   val MAX_TARGET_FILE_SIZE_SESSION =
-    buildConf("spark.gluten.sql.columnar.backend.velox.maxTargetFileSize")
+    buildConf("spark.gluten.sql.columnar.backend.velox.parquetMaxTargetFileSize")
       .doc(
         "The target file size for each output file when writing data. " +
           "0 means no limit on target file size, and the actual file size will be determined by " +
@@ -617,6 +623,26 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val VELOX_BROADCAST_BUILD_MERGE_BATCHES =
+    buildConf("spark.gluten.velox.broadcastBuild.mergeBatches")
+      .doc(
+        "If enabled, all columnar batches in a broadcast build relation will be " +
+          "serialized into a single buffer to reduce the number of addInput calls in " +
+          "HashBuild operator. This can significantly improve BHJ performance when " +
+          "the broadcast table has many small batches, but may increase driver-side " +
+          "peak memory and is not suitable for very large broadcasts.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val COLUMNAR_VELOX_BATCH_SERIALIZER_COMPRESSION =
+    buildConf("spark.gluten.sql.columnar.backend.velox.columnarBatchSerializerCompression")
+      .internal()
+      .doc("which compression for the columnar batch serializer (e.g. broadcast).")
+      .stringConf
+      .transform(_.toLowerCase(Locale.ROOT))
+      .checkValues(Set("none", "zstd", "zlib", "snappy", "lz4", "gzip"))
+      .createWithDefault("none")
+
   val VELOX_HASHMAP_ABANDON_BUILD_DUPHASH_MIN_ROWS =
     buildConf("spark.gluten.velox.abandonDedupHashMap.minRows")
       .experimental()
@@ -658,6 +684,15 @@ object VeloxConfig extends ConfigRegistry {
           "the hash table is rebuilt for each task.")
       .booleanConf
       .createWithDefault(true)
+
+  val VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD =
+    buildConf("spark.gluten.sql.columnar.backend.velox.driverSideBroadcastHashTableBuild")
+      .doc(
+        "Enable driver-side broadcast hash table build. When enabled, the hash table is " +
+          "built and serialized on the driver, then broadcast to executors. When disabled, " +
+          "each executor builds its own hash table from the broadcast data.")
+      .booleanConf
+      .createWithDefault(false)
 
   val QUERY_TRACE_ENABLED = buildConf("spark.gluten.sql.columnar.backend.velox.queryTraceEnabled")
     .doc("Enable query tracing flag.")
@@ -744,6 +779,18 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val CUDF_ALLOW_CPU_FALLBACK =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cudf.allowCpuFallback")
+      .doc("Allow cuDF to fall back to CPU execution for unsupported operators.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val CUDF_CONCURRENT_GPU_TASKS =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cudf.concurrentGpuTasks")
+      .doc("The number of concurrent GPU tasks to run.")
+      .intConf
+      .createWithDefault(1)
+
   val CUDF_BATCH_SIZE =
     buildConf("spark.gluten.sql.columnar.backend.velox.cudf.batchSize")
       .doc("Cudf input batch size after shuffle reader")
@@ -821,12 +868,18 @@ object VeloxConfig extends ConfigRegistry {
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("1MB")
 
+  val PARQUET_DICT_SIZE_BYTES =
+    buildConf("spark.gluten.sql.columnar.backend.velox.parquet.dictionaryPageSizeBytes")
+      .doc("The maximum size in bytes for a Parquet dictionary page")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("2MB")
+
   val ENABLE_TIMESTAMP_NTZ_VALIDATION =
     buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")
       .doc(
-        "Enable validation fallback for TimestampNTZ type. When true (default), any plan " +
-          "containing TimestampNTZ will fall back to Spark execution. Set to false during " +
-          "development/testing of TimestampNTZ support to allow native execution.")
+        "Enable validation fallback for TimestampNTZ type. When true, any plan " +
+          "containing TimestampNTZ will fall back to Spark execution. When false, " +
+          "allows native execution for TimestampNTZ scan.")
       .booleanConf
-      .createWithDefault(true)
+      .createWithDefault(false)
 }

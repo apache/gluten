@@ -20,7 +20,7 @@
 
   <groupId>org.apache.gluten</groupId>
   <artifactId>gluten-it</artifactId>
-  <version>1.7.0-SNAPSHOT</version>
+  <version>1.8.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <modules>
     <module>3rd</module>
@@ -40,7 +40,7 @@
     <delta.version>2.4.0</delta.version>
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
-    <gluten.version>1.7.0-SNAPSHOT</gluten.version>
+    <gluten.version>1.8.0-SNAPSHOT</gluten.version>
     <tpch.version>1.1</tpch.version>
     <tpcds.version>1.4</tpcds.version>
 
