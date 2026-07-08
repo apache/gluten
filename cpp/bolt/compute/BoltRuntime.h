@@ -46,8 +46,7 @@ class BoltRuntime final : public Runtime {
       const std::string& kind,
       BoltMemoryManager* vmm,
       ThreadManager* threadManager,
-      const std::unordered_map<std::string, std::string>& confMap,
-      int64_t taskId);
+      const std::unordered_map<std::string, std::string>& confMap);
 
   void setSparkTaskInfo(SparkTaskInfo taskInfo) override {
     static std::atomic<uint32_t> vtId{0};

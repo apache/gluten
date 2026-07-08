@@ -164,7 +164,7 @@ TEST(TestRuntime, CreateRuntime) {
 
 TEST(TestRuntime, CreateBoltRuntime) {
   BoltBackend::create(AllocationListener::noop(), {{kSparkOffHeapMemory, "7516192768"}});
-  auto mm = MemoryManager::create(kBoltBackendKind, AllocationListener::noop(), "test-bolt-runtime");
+  auto mm = MemoryManager::create(kBoltBackendKind, AllocationListener::noop());
   auto tm = ThreadManager::create(kBoltBackendKind, ThreadInitializer::noop());
   auto runtime = Runtime::create(kBoltBackendKind, mm, tm, {{kSparkOffHeapMemory, "7516192768"}}, 1);
   ASSERT_EQ(typeid(*runtime), typeid(BoltRuntime));

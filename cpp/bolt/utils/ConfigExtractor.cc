@@ -228,20 +228,6 @@ void getAbfsHiveConfig(
 static const std::string kUseIcuRegex = "spark.gluten.sql.columnar.backend.bolt.useICURegex";
 static const std::string kUseIcuRegexDefault = "true";
 
-std::string getConfigValue(
-    const std::unordered_map<std::string, std::string>& confMap,
-    const std::string& key,
-    const std::optional<std::string>& fallbackValue) {
-  auto got = confMap.find(key);
-  if (got == confMap.end()) {
-    if (fallbackValue == std::nullopt) {
-      throw std::runtime_error("No such config key: " + key);
-    }
-    return fallbackValue.value();
-  }
-  return got->second;
-}
-
 std::shared_ptr<bytedance::bolt::config::ConfigBase> getHiveConfig(
     std::shared_ptr<bytedance::bolt::config::ConfigBase> conf,
     FileSystemType fsType) {
