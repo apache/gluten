@@ -1,11 +1,15 @@
+Index: velox/dwio/common/Statistics.h
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
 diff --git a/velox/dwio/common/Statistics.h b/velox/dwio/common/Statistics.h
-index 12483bb4c..1c496416a 100644
---- a/velox/dwio/common/Statistics.h
-+++ b/velox/dwio/common/Statistics.h
-@@ -682,6 +682,13 @@ struct ColumnReaderStatistics {
+--- a/velox/dwio/common/Statistics.h	(revision 3c20437c8aa13004d733bcf497347a7d8cae0c37)
++++ b/velox/dwio/common/Statistics.h	(revision b12f0943c3cf7c4b72e1bcef759c1b85fbb7ef04)
+@@ -682,6 +682,13 @@
    // Total time spent in loading pages, in nanoseconds.
    io::IoCounter pageLoadTimeNs;
- 
+
 +  // Number of pages skipped (only page header read, compressed data never
 +  // fetched or decompressed).
 +  int64_t skippedPages{0};
@@ -16,7 +20,7 @@ index 12483bb4c..1c496416a 100644
    // Per-column decoding statistics. Only populated when decoding stats
    // collection is enabled.
    std::optional<DecodingStatsSet> decodingStatsSet;
-@@ -702,6 +709,8 @@ struct ColumnReaderStatistics {
+@@ -702,6 +709,8 @@
    void mergeFrom(const ColumnReaderStatistics& other) {
      flattenStringDictionaryValues += other.flattenStringDictionaryValues;
      pageLoadTimeNs.merge(other.pageLoadTimeNs);
@@ -25,7 +29,7 @@ index 12483bb4c..1c496416a 100644
      if (other.decodingStatsSet) {
        if (!decodingStatsSet) {
          decodingStatsSet.emplace();
-@@ -728,6 +737,12 @@ struct ColumnReaderStatistics {
+@@ -728,6 +737,12 @@
                pageLoadTimeNs.max(),
                RuntimeCounter::Unit::kNanos));
      }
@@ -38,11 +42,15 @@ index 12483bb4c..1c496416a 100644
      if (decodingStatsSet) {
        decodingStatsSet->toRuntimeMetrics(result);
      }
+Index: velox/dwio/parquet/reader/PageReader.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
 diff --git a/velox/dwio/parquet/reader/PageReader.cpp b/velox/dwio/parquet/reader/PageReader.cpp
-index 3e7065288..edfccb5c3 100644
---- a/velox/dwio/parquet/reader/PageReader.cpp
-+++ b/velox/dwio/parquet/reader/PageReader.cpp
-@@ -73,9 +73,11 @@ void PageReader::seekToPage(int64_t row) {
+--- a/velox/dwio/parquet/reader/PageReader.cpp	(revision 3c20437c8aa13004d733bcf497347a7d8cae0c37)
++++ b/velox/dwio/parquet/reader/PageReader.cpp	(revision 0b73156d3a21fd8bc1e5506170311d227ad21963)
+@@ -73,9 +73,11 @@
                inputStream_.get(),
                bufferStart_,
                bufferEnd_);
@@ -54,43 +62,43 @@ index 3e7065288..edfccb5c3 100644
          continue;
        default:
          break; // ignore INDEX page type and any other custom extensions
-@@ -271,6 +273,7 @@ void PageReader::prepareDataPageV1(const PageHeader& pageHeader, int64_t row) {
+@@ -271,9 +273,11 @@
          bufferStart_,
          bufferEnd_);
- 
+
 +    ++stats_.skippedPages;
      return;
    }
    pageData_ = readBytes(*pageHeader.compressed_page_size(), pageBuffer_);
-@@ -336,6 +339,7 @@ void PageReader::prepareDataPageV1(const PageHeader& pageHeader, int64_t row) {
- 
-   if (row != kRepDefOnly) {
-     makeDecoder();
-+    ++stats_.processedPages;
-   }
- }
- 
-@@ -350,6 +354,7 @@ void PageReader::prepareDataPageV2(const PageHeader& pageHeader, int64_t row) {
++  ++stats_.processedPages;
+   pageData_ = decompressData(
+       pageData_,
+       *pageHeader.compressed_page_size(),
+@@ -350,6 +354,7 @@
          inputStream_.get(),
          bufferStart_,
          bufferEnd_);
 +    ++stats_.skippedPages;
      return;
    }
- 
-@@ -415,6 +420,7 @@ void PageReader::prepareDataPageV2(const PageHeader& pageHeader, int64_t row) {
-   }
-   if (row != kRepDefOnly) {
-     makeDecoder();
-+    ++stats_.processedPages;
-   }
- }
- 
+
+@@ -367,6 +372,7 @@
+       defineLength,
+       bytes);
+   pageData_ = readBytes(bytes, pageBuffer_);
++  ++stats_.processedPages;
+
+   if (repeatLength) {
+     repeatDecoder_ = std::make_unique<RleDecoder>(
+Index: velox/dwio/parquet/reader/ParquetReader.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
 diff --git a/velox/dwio/parquet/reader/ParquetReader.cpp b/velox/dwio/parquet/reader/ParquetReader.cpp
-index 8ece28fed..c78cce994 100644
---- a/velox/dwio/parquet/reader/ParquetReader.cpp
-+++ b/velox/dwio/parquet/reader/ParquetReader.cpp
-@@ -1609,8 +1609,7 @@ class ParquetRowReader::Impl {
+--- a/velox/dwio/parquet/reader/ParquetReader.cpp	(revision 3c20437c8aa13004d733bcf497347a7d8cae0c37)
++++ b/velox/dwio/parquet/reader/ParquetReader.cpp	(revision b12f0943c3cf7c4b72e1bcef759c1b85fbb7ef04)
+@@ -1596,8 +1596,7 @@
      stats.skippedStrides += skippedStrides_;
      stats.processedStrides += rowGroupIds_.size();
      stats.parquetFooterEstimatedBytes += readerBase_->initialThriftSize();
@@ -98,6 +106,77 @@ index 8ece28fed..c78cce994 100644
 -        columnReaderStats_.pageLoadTimeNs);
 +    stats.columnReaderStats.mergeFrom(columnReaderStats_);
    }
- 
-   void resetFilterCaches() {
 
+   void resetFilterCaches() {
+Index: velox/dwio/parquet/tests/reader/ParquetReaderTest.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/velox/dwio/parquet/tests/reader/ParquetReaderTest.cpp b/velox/dwio/parquet/tests/reader/ParquetReaderTest.cpp
+--- a/velox/dwio/parquet/tests/reader/ParquetReaderTest.cpp	(revision 3c20437c8aa13004d733bcf497347a7d8cae0c37)
++++ b/velox/dwio/parquet/tests/reader/ParquetReaderTest.cpp	(revision 3d85c5cebfba7217c5738dea51993d61dfad72dc)
+@@ -22,6 +22,7 @@
+ #include "velox/dwio/parquet/tests/ParquetTestBase.h"
+ #include "velox/dwio/parquet/thrift/ParquetThrift.h"
+ #include "velox/expression/ExprToSubfieldFilter.h"
++#include "velox/type/Filter.h"
+ #include "velox/vector/tests/utils/VectorMaker.h"
+
+ using namespace facebook::velox;
+@@ -2035,3 +2036,55 @@
+
+   EXPECT_EQ(leafPool_->usedBytes(), initialUsage);
+ }
++
++TEST_F(ParquetReaderTest, pageSkipStats) {
++  constexpr int kNumWrittenRows = 100'000;
++  constexpr int kNumResultRows = 200;
++
++  auto rowType = ROW({"a", "b"}, {BIGINT(), BIGINT()});
++
++  auto a = makeFlatVector<int64_t>(kNumWrittenRows, [](auto i) { return i; });
++  auto b = makeFlatVector<int64_t>(
++      kNumWrittenRows, [](auto i) { return (i * 7919) % kNumWrittenRows; });
++  auto data = makeRowVector({"a", "b"}, {a, b});
++
++  auto run = [&](bool useDataPageV2) {
++    ParquetWriterOptions writerOptions;
++    writerOptions.dataPageSize = 256;
++    writerOptions.enableDictionary = false;
++    writerOptions.useParquetDataPageV2 = useDataPageV2;
++
++    auto* sink = write(data, writerOptions);
++    auto reader = createReaderInMemory(*sink);
++
++    FilterMap filters;
++    filters.emplace(
++        "a",
++        std::make_unique<BigintRange>(
++            kNumWrittenRows - kNumResultRows, kNumWrittenRows - 1, false));
++
++    auto scanSpec = makeScanSpec(rowType);
++    for (auto& [col, f] : filters) {
++      scanSpec->getOrCreateChild(Subfield(col))->setFilter(std::move(f));
++    }
++    auto rowReaderOpts = makeRowReaderOpts(rowType);
++    rowReaderOpts.setScanSpec(scanSpec);
++    auto rowReader = reader->createRowReader(rowReaderOpts);
++
++    uint64_t totalRows = 0;
++    VectorPtr result = BaseVector::create(rowType, 0, leafPool_.get());
++    while (rowReader->next(1000, result)) {
++      totalRows += result->size();
++      LazyVector::ensureLoadedRows(result, SelectivityVector(result->size()));
++    }
++    EXPECT_EQ(totalRows, kNumResultRows);
++    RuntimeStatistics stats;
++    rowReader->updateRuntimeStats(stats);
++    EXPECT_GT(stats.columnReaderStats.processedPages, 0);
++    EXPECT_GT(stats.columnReaderStats.skippedPages, 0);
++  };
++
++  for (const auto useDataPageV2 : {false, true}) {
++    run(useDataPageV2);
++  }
++}
