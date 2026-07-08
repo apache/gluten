@@ -203,7 +203,7 @@ jar_spark34:
 	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.4_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
 
 jar_spark35:
-	java -version && mvn -T32 package -Pbackends-bolt -Pspark-3.5 -Phadoop-3.2 -Pceleborn -Piceberg -DskipTests -Denforcer.skip=true && \
+	java -version && mvn -T32 package -Pfast-build -Pbackends-bolt -Pspark-3.5 -Phadoop-3.2 -Pceleborn -Piceberg -DskipTests -Denforcer.skip=true && \
 	mkdir -p output && \
 	rm -rf output/gluten-spark*.jar
 	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.5_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar

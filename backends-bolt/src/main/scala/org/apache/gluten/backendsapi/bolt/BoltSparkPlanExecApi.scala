@@ -45,7 +45,6 @@ import org.apache.spark.sql.catalyst.optimizer.BuildSide
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.{BuildSideRelation, HashedRelationBroadcastMode}
@@ -183,18 +182,6 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
       child: ExpressionTransformer,
       expr: Expression): ExpressionTransformer = {
     GenericExpressionTransformer(substraitExprName, Seq(child), expr)
-  }
-
-  /** Transform sequence to Substrait. */
-  def genSequenceTransformer(
-      substraitExprName: String,
-      children: Seq[ExpressionTransformer],
-      expr: Sequence): ExpressionTransformer = {
-    if (expr.children.exists(_.dataType.isInstanceOf[TimestampType])) {
-      throw new GlutenNotSupportException(
-        "sequence with timestamp input is not supported in bolt backend")
-    }
-    GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
   /** Transform array filter to Substrait. */
@@ -374,13 +361,6 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
       initialInputBufferOffset,
       resultExpressions,
       child)
-
-  /**
-   * Bolt does not need the sort-based aggregate semantic, so a SortAggregateExec is offloaded as a
-   * regular hash aggregate transformer.
-   */
-  def offloadSortAggregate(plan: BaseAggregateExec): HashAggregateExecBaseTransformer =
-    HashAggregateExecBaseTransformer.from(plan)
 
   /** Generate HashAggregateExecPullOutHelper */
   override def genHashAggregateExecPullOutHelper(
@@ -1045,99 +1025,6 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
         rewritten
       case other =>
         throw new IllegalStateException(s"Unsupported fs: $other")
-    }
-  }
-
-  def validatePaimonScanCapabilities(
-      hasPrimaryKeys: Boolean,
-      allSplitsRawConvertible: Boolean,
-      deletionVectorsEnabled: Boolean,
-      changelogProducer: String,
-      mergeEngine: String): ValidationResult = {
-    if (deletionVectorsEnabled) {
-      return ValidationResult.failed(
-        "[Paimon Fallback]: The scan with deletion vector is not supported")
-    }
-
-    if (hasPrimaryKeys && allSplitsRawConvertible) {
-      return ValidationResult.succeeded
-    }
-
-    if (changelogProducer.equalsIgnoreCase("LOOKUP")) {
-      return ValidationResult.failed(
-        "[Paimon Fallback] LOOKUP ChangelogProducer is not supported")
-    }
-
-    if (!hasPrimaryKeys) {
-      return ValidationResult.succeeded
-    }
-
-    val morEnabled =
-      SQLConf.get.getConfString("spark.gluten.paimon.native.mor.source.enabled", "false").toBoolean
-    if (!morEnabled) {
-      return ValidationResult.failed("[Paimon Fallback]: The paimon mor source is not enabled.")
-    }
-
-    val aggregateEngineEnabled = SQLConf.get
-      .getConfString("spark.gluten.paimon.native.mor.aggregate.engine.enabled", "false")
-      .toBoolean
-    val partialUpdateEngineEnabled = SQLConf.get
-      .getConfString("spark.gluten.paimon.native.mor.partial.update.engine.enabled", "false")
-      .toBoolean
-
-    val supported =
-      mergeEngine.equalsIgnoreCase("DEDUPLICATE") ||
-        (mergeEngine.equalsIgnoreCase("AGGREGATE") && aggregateEngineEnabled) ||
-        (mergeEngine.equalsIgnoreCase("PARTIAL_UPDATE") && partialUpdateEngineEnabled)
-
-    if (supported) {
-      ValidationResult.succeeded
-    } else {
-      ValidationResult.failed(
-        s"""
-           |[Paimon Fallback] the configured Paimon merge engine $mergeEngine
-           | is either not supported or does not have its corresponding configuration
-           | flag enabled.""".stripMargin)
-    }
-  }
-
-  def rewritePaimonPushdownFilters(
-      filters: Seq[Expression],
-      primaryKeys: Set[String],
-      metadataColumns: Set[String]): Seq[Expression] = {
-    val isMetadataColumn: Attribute => Boolean = attr => metadataColumns.contains(attr.name)
-    val touchesMetadata: Expression => Boolean =
-      expr => expr.references.exists(attr => metadataColumns.contains(attr.name))
-
-    def isAllowedExpr(expr: Expression): Boolean = expr match {
-      case EqualTo(attr: Attribute, _: Literal) =>
-        primaryKeys.contains(attr.name) && !isMetadataColumn(attr)
-      case EqualTo(_: Literal, attr: Attribute) =>
-        primaryKeys.contains(attr.name) && !isMetadataColumn(attr)
-      case GreaterThan(attr: Attribute, _: Literal) =>
-        primaryKeys.contains(attr.name) && !isMetadataColumn(attr)
-      case GreaterThan(_: Literal, attr: Attribute) =>
-        primaryKeys.contains(attr.name) && !isMetadataColumn(attr)
-      case LessThan(attr: Attribute, _: Literal) =>
-        primaryKeys.contains(attr.name) && !isMetadataColumn(attr)
-      case LessThan(_: Literal, attr: Attribute) =>
-        primaryKeys.contains(attr.name) && !isMetadataColumn(attr)
-      case Like(attr: Attribute, _: Literal, _) =>
-        primaryKeys.contains(attr.name) && !isMetadataColumn(attr)
-      case Like(_: Literal, attr: Attribute, _) =>
-        primaryKeys.contains(attr.name) && !isMetadataColumn(attr)
-      case And(left, right) => isAllowedExpr(left) && isAllowedExpr(right)
-      case Or(left, right) => isAllowedExpr(left) && isAllowedExpr(right)
-      case Not(child) => isAllowedExpr(child)
-      case Alias(child, _) => isAllowedExpr(child)
-      case _ => false
-    }
-
-    val noMetadataFilters = filters.filterNot(touchesMetadata)
-    if (primaryKeys.nonEmpty) {
-      noMetadataFilters.filter(isAllowedExpr)
-    } else {
-      noMetadataFilters
     }
   }
 
