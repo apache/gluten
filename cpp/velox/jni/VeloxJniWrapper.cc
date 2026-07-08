@@ -1204,8 +1204,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_deseri
       static_cast<bool>(joinHasNullKeys));
   auto* cache = facebook::velox::exec::HashTableCache::instance();
   if (!cache->exist(cacheKeyStr)) {
-    cache->add(
-        cacheKeyStr, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+    cache->add(cacheKeyStr, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
   }
   return gluten::getHashTableObjStore()->save(builder);
   JNI_METHOD_END(kInvalidObjectHandle)
