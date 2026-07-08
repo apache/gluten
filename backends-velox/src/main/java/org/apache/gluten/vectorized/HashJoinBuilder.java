@@ -40,7 +40,7 @@ public class HashJoinBuilder implements RuntimeAware {
   public static native long cloneHashTable(String cacheKey, long hashTableData);
 
   public static native long deserializeHashTableDirect(
-      long address, int size, boolean ignoreNullKeys, boolean joinHasNullKeys);
+      String cacheKey, long address, int size, boolean ignoreNullKeys, boolean joinHasNullKeys);
 
   public static native boolean getHashTableIgnoreNullKeys(long hashTableHandle);
 

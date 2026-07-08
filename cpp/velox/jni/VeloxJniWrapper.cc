@@ -1190,16 +1190,23 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_clearHa
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_deserializeHashTableDirect( // NOLINT
     JNIEnv* env,
     jclass,
+    jstring cacheKey,
     jlong address,
     jint size,
     jboolean ignoreNullKeys,
     jboolean joinHasNullKeys) {
   JNI_METHOD_START
+  auto cacheKeyStr = jStringToCString(env, cacheKey);
   auto builder = gluten::deserializeHashTable(
       reinterpret_cast<const uint8_t*>(address),
       static_cast<size_t>(size),
       static_cast<bool>(ignoreNullKeys),
       static_cast<bool>(joinHasNullKeys));
+  auto* cache = facebook::velox::exec::HashTableCache::instance();
+  if (!cache->exist(cacheKeyStr)) {
+    cache->add(
+        cacheKeyStr, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+  }
   return gluten::getHashTableObjStore()->save(builder);
   JNI_METHOD_END(kInvalidObjectHandle)
 }

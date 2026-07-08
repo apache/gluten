@@ -73,8 +73,9 @@ class SerializedBroadcastHashTable(
    * @return
    *   Hash table builder handle
    */
-  def deserialize(): Long = {
+  def deserialize(cacheKey: String): Long = {
     HashJoinBuilder.deserializeHashTableDirect(
+      cacheKey,
       serializedData.address(),
       Math.toIntExact(serializedData.size()),
       ignoreNullKeys,

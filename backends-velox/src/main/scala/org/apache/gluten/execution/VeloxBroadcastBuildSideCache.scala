@@ -198,7 +198,7 @@ object VeloxBroadcastBuildSideCache
       (_: String) => {
         logInfo(s"Deserializing hash table on executor for broadcast ID: $broadcastHashTableId")
         val startTime = System.currentTimeMillis()
-        val hashTableHandle = serialized.deserialize()
+        val hashTableHandle = serialized.deserialize(broadcastHashTableId)
         val timeMs = System.currentTimeMillis() - startTime
         deserializeHashTableTimeMetric.foreach(_ += timeMs)
         BroadcastHashTable(
