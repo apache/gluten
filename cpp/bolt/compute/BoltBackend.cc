@@ -74,11 +74,8 @@ using namespace bytedance;
 namespace gluten {
 
 namespace {
-MemoryManager* boltMemoryManagerFactory(
-    const std::string& kind,
-    std::unique_ptr<AllocationListener> listener,
-    const std::string& name) {
-  return new BoltMemoryManager(kind, std::move(listener), *BoltBackend::get()->getBackendConf(), name);
+MemoryManager* boltMemoryManagerFactory(const std::string& kind, std::unique_ptr<AllocationListener> listener) {
+  return new BoltMemoryManager(kind, std::move(listener), *BoltBackend::get()->getBackendConf(), "");
 }
 
 void boltMemoryManagerReleaser(MemoryManager* memoryManager) {
@@ -110,12 +107,11 @@ Runtime* boltRuntimeFactory(
     const std::string& kind,
     MemoryManager* memoryManager,
     ThreadManager* threadManager,
-    const std::unordered_map<std::string, std::string>& sessionConf,
-    int64_t taskId) {
+    const std::unordered_map<std::string, std::string>& sessionConf) {
   auto* vmm = dynamic_cast<BoltMemoryManager*>(memoryManager);
   GLUTEN_CHECK(vmm != nullptr, "Not a Bolt memory manager");
   // new object every time
-  return new BoltRuntime(kind, vmm, threadManager, sessionConf, taskId);
+  return new BoltRuntime(kind, vmm, threadManager, sessionConf);
 }
 
 void boltRuntimeReleaser(Runtime* runtime) {

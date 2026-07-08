@@ -23,6 +23,7 @@
 #include "BoltBackend.h"
 #include "BoltRuntime.h"
 #include "config/BoltConfig.h"
+#include "jni/TaskContextJniWrapper.h"
 #include "memory/BoltMemoryManager.h"
 #include "memory/BoltGlutenMemoryManager.h"
 #include "bolt/connectors/hive/HiveConfig.h"
@@ -379,8 +380,9 @@ std::shared_ptr<bolt::core::QueryCtx> WholeStageResultIterator::createNewBoltQue
 
   memory::sparksql::BoltMemoryPoolPtr boltPool;
   if (gluten::BoltGlutenMemoryManager::enabled()) {
+    const auto taskAttemptId = gluten::getCurrentSparkTaskAttemptId();
     auto holder = gluten::BoltGlutenMemoryManager::getMemoryManagerHolder(
-        memoryManager_->name(), taskInfo_.taskId, reinterpret_cast<int64_t>(memoryManager_));
+        "", taskAttemptId, reinterpret_cast<int64_t>(memoryManager_));
     auto mm = holder->getManager();
     boltPool = mm->getAggregateMemoryPool();
   } else {
@@ -473,8 +475,9 @@ int64_t WholeStageResultIterator::spillFixedSize(int64_t size) {
   memory::sparksql::BoltMemoryPoolPtr pool;
   memory::sparksql::BoltMemoryManagerPtr manager;
   if (gluten::BoltGlutenMemoryManager::enabled()) {
+    const auto taskAttemptId = gluten::getCurrentSparkTaskAttemptId();
     auto holder = gluten::BoltGlutenMemoryManager::getMemoryManagerHolder(
-        memoryManager_->name(), taskInfo_.taskId, reinterpret_cast<int64_t>(memoryManager_));
+        "", taskAttemptId, reinterpret_cast<int64_t>(memoryManager_));
     manager = holder->getManager();
     pool = manager->getAggregateMemoryPool();
   } else {

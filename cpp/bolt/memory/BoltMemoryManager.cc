@@ -223,7 +223,7 @@ BoltMemoryManager::BoltMemoryManager(
     std::unique_ptr<AllocationListener> listener,
     const bytedance::bolt::config::ConfigBase& backendConf,
     const std::string& name)
-    : MemoryManager(kind, name), listener_(std::move(listener)) {
+    : MemoryManager(kind), listener_(std::move(listener)) {
   auto reservationBlockSize =
       backendConf.get<uint64_t>(kMemoryReservationBlockSize, kMemoryReservationBlockSizeDefault);
   blockListener_ = std::make_unique<BlockAllocationListener>(listener_.get(), reservationBlockSize);
