@@ -1100,18 +1100,10 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSTFunctionsSuite]
   enableSuite[GlutenStringLiteralCoalescingSuite]
   enableSuite[GlutenSubquerySuite]
-    .excludeByPrefix(
-      "SPARK-26893" // Rewrite this test because it checks Spark's physical operators.
-    )
-    // exclude as it checks spark plan
+    // Rewrite as it checks spark plan.
+    .excludeByPrefix("SPARK-26893")
     .exclude("SPARK-36280: Remove redundant aliases after RewritePredicateSubquery")
-    // TODO: fix in Spark-4.0
-    .excludeByPrefix("SPARK-51738")
-    .excludeByPrefix("SPARK-43402")
-    .exclude("non-aggregated correlated scalar subquery")
-    .exclude("SPARK-18504 extra GROUP BY column in correlated scalar subquery is not permitted")
     .exclude("SPARK-43402: FileSourceScanExec supports push down data filter with scalar subquery")
-    .exclude("SPARK-51738: IN subquery with struct type")
   enableSuite[GlutenTypedImperativeAggregateSuite]
   enableSuite[GlutenUnwrapCastInComparisonEndToEndSuite]
   enableSuite[GlutenUnsafeRowChecksumSuite]
