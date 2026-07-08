@@ -115,7 +115,8 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     utils/ConfigResolver.cc
 
     jni/JniError.cc
-    jni/JniCommon.cc)
+    jni/JniCommon.cc
+    jni/TaskContextJniWrapper.cc)
 
 file(MAKE_DIRECTORY ${root_directory}/releases)
 add_library(gluten STATIC ${SPARK_COLUMNAR_PLUGIN_SRCS})
