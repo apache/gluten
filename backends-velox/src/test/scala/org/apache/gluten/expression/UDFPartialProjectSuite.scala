@@ -20,15 +20,30 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{ColumnarPartialProjectExec, WholeStageTransformerSuite}
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.catalyst.FunctionIdentifier
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionInfo, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.functions.udf
+import org.apache.spark.sql.types.{BooleanType, DataType}
 
 import java.io.File
 
 case class MyStruct(a: Long, b: Array[Long])
 
 case class MyStructWithNullValue(a: Option[Long], b: Array[Long])
+
+case class DummyUnmappedExpr(child: Expression) extends UnaryExpression with CodegenFallback {
+  override def dataType: DataType = BooleanType
+
+  override protected def nullSafeEval(input: Any): Any = {
+    input.asInstanceOf[Long] % 2 == 0
+  }
+
+  override protected def withNewChildInternal(newChild: Expression): DummyUnmappedExpr =
+    copy(child = newChild)
+}
 
 class UDFPartialProjectSuite extends WholeStageTransformerSuite {
   disableFallbackCheck
@@ -64,7 +79,20 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
     spark.udf.register("no_argument", noArgument)
     val concat = udf((x: String) => x + "_concat")
     spark.udf.register("concat_concat", concat)
+    spark.sessionState.functionRegistry.registerFunction(
+      FunctionIdentifier("dummy_unmapped"),
+      new ExpressionInfo(classOf[DummyUnmappedExpr].getName, "dummy_unmapped"),
+      (children: Seq[Expression]) => DummyUnmappedExpr(children.head)
+    )
 
+  }
+
+  test("fallback generic unmapped expression via partial project") {
+    runQueryAndCompare(
+      "SELECT sum(cast(dummy_unmapped(cast(l_orderkey as long)) as int)" +
+        " + hash(l_partkey)) from lineitem") {
+      checkGlutenPlan[ColumnarPartialProjectExec]
+    }
   }
 
   ignore("test plus_one") {

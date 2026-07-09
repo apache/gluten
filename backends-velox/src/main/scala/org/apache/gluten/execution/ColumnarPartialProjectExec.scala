@@ -297,6 +297,33 @@ object ColumnarPartialProjectExec {
     HiveUDFTransformer.isHiveUDF(h) && !VeloxHiveUDFTransformer.isSupportedHiveUDF(h)
   }
 
+  /**
+   * A generic Catalyst expression that Gluten/Velox cannot offload to native, i.e. its class is not
+   * registered in [[ExpressionMappings.expressionsMap]]. Such expressions would otherwise reach
+   * expression conversion and fail at runtime. By recognizing them here, partial project can pull
+   * them out to a row-based ArrowProjection alias.
+   *
+   * We only treat an expression as "unmapped" when it is safe to evaluate in row-based projection:
+   *   - deterministic (non-deterministic expressions are not safe to move around)
+   *   - not a [[ScalaUDF]] or Hive UDF (handled by dedicated UDF fallback/offload logic)
+   *   - not [[Unevaluable]] (cannot be evaluated in a row-based projection at all)
+   *   - not a [[LambdaFunction]] (higher-order function body, handled by its parent)
+   * Leaf/structural nodes (Literal / attribute references / NamedExpression such as Alias) are
+   * excluded so that recursion can descend to the real unmapped sub-expression instead of pulling
+   * out the whole wrapper.
+   */
+  private def isUnmappedGlutenExpr(expr: Expression): Boolean = expr match {
+    case _: ScalaUDF => false
+    case _ if HiveUDFTransformer.isHiveUDF(expr) => false
+    case _: Literal | _: AttributeReference | _: BoundReference => false
+    case _: NamedExpression => false
+    case _ =>
+      expr.deterministic &&
+      !expr.isInstanceOf[Unevaluable] &&
+      !expr.isInstanceOf[LambdaFunction] &&
+      !ExpressionMappings.expressionsMap.contains(expr.getClass)
+  }
+
   private def isBlacklistExpression(e: Expression): Boolean = {
     ExpressionMappings.blacklistExpressionMap.contains(e.getClass)
   }
@@ -307,6 +334,7 @@ object ColumnarPartialProjectExec {
       case _: ScalaUDF => true
       case h if containsUnsupportedHiveUDF(h) => true
       case e if isBlacklistExpression(e) => true
+      case e if isUnmappedGlutenExpr(e) => true
       case p => p.children.exists(c => containsUDFOrBlacklistExpression(c))
     }
   }
@@ -338,6 +366,8 @@ object ColumnarPartialProjectExec {
       case h if containsUnsupportedHiveUDF(h) =>
         replaceByAlias(h, replacedAlias)
       case e if isBlacklistExpression(e) =>
+        replaceByAlias(e, replacedAlias)
+      case e if isUnmappedGlutenExpr(e) =>
         replaceByAlias(e, replacedAlias)
       case au @ Alias(_: ScalaUDF, _) =>
         val replaceIndex = replacedAlias.indexWhere(r => r.exprId == au.exprId)
