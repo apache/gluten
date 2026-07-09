@@ -21,7 +21,7 @@ public class RuntimeJniWrapper {
   private RuntimeJniWrapper() {}
 
   public static native long createRuntime(
-      String backendType, long nmm, long ntm, byte[] sessionConf);
+      String backendType, long nmm, long ntm, byte[] sessionConf, long taskAttemptId);
 
   public static native void releaseRuntime(long handle);
 }

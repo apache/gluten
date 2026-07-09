@@ -17,35 +17,36 @@
 
 #include <jni.h>
 
-#include <glog/logging.h>
-#include <jni/JniCommon.h>
 #include <bolt/connectors/hive/PartitionIdGenerator.h>
 #include <bolt/exec/OperatorUtils.h>
 #include <bolt/vector/ComplexVector.h>
+#include <glog/logging.h>
+#include <jni/JniCommon.h>
 
 #include <exception>
+#include "BoltInputIterator.h"
 #include "JniUdf.h"
-#include "compute/Runtime.h"
+#include "bolt/common/base/BloomFilter.h"
+#include "bolt/common/file/FileSystems.h"
 #include "compute/BoltBackend.h"
 #include "compute/BoltRuntime.h"
+#include "compute/Runtime.h"
 #include "config/GlutenConfig.h"
 #include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
 #include "jni/JniWrapper.h"
-#include "memory/BoltMemoryManager.h"
-#include "memory/OnHeapUsageGetter.h"
 #include "memory/BoltColumnarBatch.h"
 #include "memory/BoltGlutenMemoryManager.h"
+#include "memory/BoltMemoryManager.h"
+#include "memory/OnHeapUsageGetter.h"
 #include "shuffle/BoltShuffleReaderWrapper.h"
 #include "shuffle/BoltShuffleWriterWrapper.h"
 #include "shuffle/rss/RssPartitionWriter.h"
 #include "shuffle_reader_info.pb.h"
 #include "shuffle_writer_info.pb.h"
 #include "substrait/SubstraitToBoltPlanValidator.h"
-#include "utils/ObjectStore.h"
 #include "utils/BoltBatchResizer.h"
-#include "bolt/common/base/BloomFilter.h"
-#include "bolt/common/file/FileSystems.h"
+#include "utils/ObjectStore.h"
 
 #ifdef GLUTEN_ENABLE_GPU
 #include "cudf/CudfPlanValidator.h"
@@ -91,6 +92,7 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
 
   initBoltJniFileSystem(env);
   initBoltJniUDF(env);
+  registerBoltInputIteratorFactory();
   gluten::OnHeapMemUsedHookSetter::init(vm);
 
   infoCls = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/validate/NativePlanValidationInfo;");
@@ -375,8 +377,7 @@ Java_org_apache_gluten_utils_BoltBloomFilterJniWrapper_mightContainLongOnSeriali
     BOLT_USER_CHECK_EQ(kBloomFilterV1, version);
     const auto size = stream.read<int32_t>();
     BOLT_USER_CHECK_GT(size, 0);
-    const uint64_t* bloomBits =
-        reinterpret_cast<const uint64_t*>(serializedBloom + stream.offset());
+    const uint64_t* bloomBits = reinterpret_cast<const uint64_t*>(serializedBloom + stream.offset());
     return test(bloomBits, size, value);
   };
 
@@ -435,7 +436,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_utils_BoltBatchResizerJniWrapper_
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
   auto pool = dynamic_cast<BoltMemoryManager*>(ctx->memoryManager())->getLeafMemoryPool();
-  auto iter = makeJniColumnarBatchIterator(env, jIter, ctx, false);
+  auto iter = makeJniColumnarBatchIterator(env, jIter, ctx);
   auto appender = std::make_shared<ResultIterator>(
       std::make_unique<BoltBatchResizer>(pool.get(), minOutputBatchSize, maxOutputBatchSize, std::move(iter)));
   return ctx->saveObject(appender);
@@ -1048,13 +1049,12 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrappe
     jobject wrapper,
     jlong iterHandle,
     jbyteArray shuffleWriterInfoProto,
-  jobject celebornPusher) {
+    jobject celebornPusher) {
   JNI_METHOD_START
   auto ctx = dynamic_cast<BoltRuntime*>(gluten::getRuntime(env, wrapper));
   auto iterator = ObjectStore::retrieve<gluten::ResultIterator>(iterHandle);
   auto wholeStageIterator = dynamic_cast<gluten::WholeStageResultIterator*>(iterator->getInputIter());
   GLUTEN_CHECK(wholeStageIterator != nullptr, "WholeStageResultIterator is null");
-
 
   std::shared_ptr<RssClient> rssClient = nullptr;
   if (celebornPusher != nullptr) {
@@ -1082,7 +1082,8 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrappe
   JNI_METHOD_END()
 }
 
-JNIEXPORT jbyteArray JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrapper_getShuffleWriterResult( // NOLINT
+JNIEXPORT jbyteArray JNICALL
+Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrapper_getShuffleWriterResult( // NOLINT
     JNIEnv* env,
     jobject wrapper) {
   JNI_METHOD_START

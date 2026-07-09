@@ -18,11 +18,9 @@
 #pragma once
 
 #include <glog/logging.h>
-#ifdef GLUTEN_ENABLE_BOLT
-#include <bolt/common/memory/sparksql/NativeMemoryManagerFactory.h>
-#endif
 #include <cstdint>
 #include <memory>
+#include <utility>
 
 #include "compute/ProtobufUtils.h"
 #include "compute/ResultIterator.h"
@@ -67,20 +65,26 @@ struct SplitPayloadBufferView {
   int32_t size;
 };
 
+struct RuntimeOptions {
+  int64_t taskAttemptId{-1};
+};
+
 class Runtime : public std::enable_shared_from_this<Runtime> {
  public:
   using Factory = std::function<Runtime*(
       const std::string& kind,
       MemoryManager* memoryManager,
       ThreadManager* threadManager,
-      const std::unordered_map<std::string, std::string>& sessionConf)>;
+      const std::unordered_map<std::string, std::string>& sessionConf,
+      const RuntimeOptions& options)>;
   using Releaser = std::function<void(Runtime*)>;
   static void registerFactory(const std::string& kind, Factory factory, Releaser releaser);
   static Runtime* create(
       const std::string& kind,
       MemoryManager* memoryManager,
       ThreadManager* threadManager,
-      const std::unordered_map<std::string, std::string>& sessionConf = {});
+      const std::unordered_map<std::string, std::string>& sessionConf = {},
+      RuntimeOptions options = {});
   static void release(Runtime*);
   static std::optional<std::string>* localWriteFilesTempPath();
   static std::optional<std::string>* localWriteFileName();
@@ -89,8 +93,13 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
       const std::string& kind,
       MemoryManager* memoryManager,
       ThreadManager* threadManager,
-      const std::unordered_map<std::string, std::string>& confMap)
-      : kind_(kind), memoryManager_(memoryManager), threadManager_(threadManager), confMap_(confMap) {}
+      const std::unordered_map<std::string, std::string>& confMap,
+      RuntimeOptions options = {})
+      : kind_(kind),
+        memoryManager_(memoryManager),
+        threadManager_(threadManager),
+        confMap_(confMap),
+        options_(std::move(options)) {}
 
   virtual ~Runtime() = default;
 
@@ -199,6 +208,10 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     return objStore_->save(obj);
   }
 
+  const RuntimeOptions& runtimeOptions() const {
+    return options_;
+  }
+
  protected:
   std::string kind_;
   MemoryManager* memoryManager_;
@@ -211,5 +224,6 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
 
   std::optional<SparkTaskInfo> taskInfo_{std::nullopt};
   std::shared_ptr<WholeStageDumper> dumper_{nullptr};
+  RuntimeOptions options_;
 };
 } // namespace gluten

@@ -40,10 +40,10 @@ set_target_properties(glutenlibloader PROPERTIES SUFFIX "${CMAKE_SHARED_LIBRARY_
 install(TARGETS glutenlibloader
         DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/../../build/releases)
 if(TARGET hdfs_client::hdfs_client)
-    include(${hdfs_client_DIR}/hdfs_client-config-extras.cmake OPTIONAL)
-    if(COMMAND install_hdfs_client_libraries)
-        install_hdfs_client_libraries(${CMAKE_CURRENT_SOURCE_DIR}/../../build/releases)
-    endif()
+  include(${hdfs_client_DIR}/hdfs_client-config-extras.cmake OPTIONAL)
+  if(COMMAND install_hdfs_client_libraries)
+    install_hdfs_client_libraries(${CMAKE_CURRENT_SOURCE_DIR}/../../build/releases)
+  endif()
 endif()
 
 endif()

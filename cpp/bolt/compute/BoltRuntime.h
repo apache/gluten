@@ -27,12 +27,12 @@
 #include "operators/serializer/BoltColumnarToRowConverter.h"
 #include "operators/writer/BoltParquetDataSource.h"
 #include "shuffle/ShuffleReader.h"
-#include "shuffle/ShuffleWriter.h"
 #include "shuffle/ShuffleReaderBase.h"
+#include "shuffle/ShuffleWriter.h"
 #include "shuffle/ShuffleWriterBase.h"
+#include "shuffle/rss/RssClient.h"
 #include "shuffle_reader_info.pb.h"
 #include "shuffle_writer_info.pb.h"
-#include "shuffle/rss/RssClient.h"
 
 #ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
 #include "IcebergNestedField.pb.h"
@@ -46,7 +46,8 @@ class BoltRuntime final : public Runtime {
       const std::string& kind,
       BoltMemoryManager* vmm,
       ThreadManager* threadManager,
-      const std::unordered_map<std::string, std::string>& confMap);
+      const std::unordered_map<std::string, std::string>& confMap,
+      RuntimeOptions options);
 
   void setSparkTaskInfo(SparkTaskInfo taskInfo) override {
     static std::atomic<uint32_t> vtId{0};

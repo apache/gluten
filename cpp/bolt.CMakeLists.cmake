@@ -232,8 +232,11 @@ if(ENABLE_ENHANCED_FEATURES)
 endif()
 
 # Subdirectories
+set(GLUTEN_CORE_LIBRARY_TYPE STATIC)
+set(GLUTEN_CORE_RENAME_JNI_ENTRYPOINTS ON)
 add_subdirectory(core)
 
 if(BUILD_BOLT)
   add_subdirectory(bolt)
+  add_subdirectory(bolt/nativeLoader)
 endif()

@@ -280,20 +280,6 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
   return std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
 }
 
-std::string getConfigValue(
-    const std::unordered_map<std::string, std::string>& confMap,
-    const std::string& key,
-    const std::optional<std::string>& fallbackValue) {
-  auto got = confMap.find(key);
-  if (got == confMap.end()) {
-    if (fallbackValue == std::nullopt) {
-      throw std::runtime_error("No such config key: " + key);
-    }
-    return fallbackValue.value();
-  }
-  return got->second;
-}
-
 std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorConfig(
     const std::shared_ptr<facebook::velox::config::ConfigBase>& conf,
     FileSystemType fsType) {

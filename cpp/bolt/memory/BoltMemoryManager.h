@@ -17,12 +17,12 @@
 
 #pragma once
 
+#include "bolt/common/memory/Memory.h"
+#include "bolt/common/memory/MemoryPool.h"
 #include "memory/AllocationListener.h"
 #include "memory/ArrowMemoryPool.h"
 #include "memory/MemoryAllocator.h"
 #include "memory/MemoryManager.h"
-#include "bolt/common/memory/Memory.h"
-#include "bolt/common/memory/MemoryPool.h"
 
 #include <bolt/common/config/Config.h>
 
@@ -91,6 +91,10 @@ class BoltMemoryManager final : public MemoryManager {
   const int64_t shrink(int64_t size) override;
 
   void hold() override;
+
+  void hold(const MemoryManagerLifecycleContext& context) override;
+
+  void beforeRelease(const MemoryManagerLifecycleContext& context) override;
 
   /// Test only
   MemoryAllocator* allocator() const {

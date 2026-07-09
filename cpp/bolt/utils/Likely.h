@@ -14,21 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.memory;
 
-import org.apache.gluten.memory.listener.ReservationListener;
+#pragma once
 
-public class NativeMemoryManagerJniWrapper {
-  private NativeMemoryManagerJniWrapper() {}
-
-  public static native long create(
-      String backendType, ReservationListener listener, byte[] sessionConf, String name);
-
-  public static native byte[] collectUsage(long handle);
-
-  public static native long shrink(long handle, long size);
-
-  public static native void hold(long handle, String name, long taskAttemptId);
-
-  public static native void release(long handle, long taskAttemptId);
-}
+#if defined(__clang__) || defined(__GNUC__)
+#define FLATTEN __attribute__((flatten))
+#else
+#define FLATTEN
+#endif

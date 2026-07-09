@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <mutex>
 #include <unordered_map>
+#include <utility>
 
 #include <folly/ScopeGuard.h>
 
@@ -239,8 +240,9 @@ VeloxRuntime::VeloxRuntime(
     const std::string& kind,
     VeloxMemoryManager* vmm,
     ThreadManager* threadManager,
-    const std::unordered_map<std::string, std::string>& confMap)
-    : Runtime(kind, vmm, threadManager, confMap) {
+    const std::unordered_map<std::string, std::string>& confMap,
+    RuntimeOptions options)
+    : Runtime(kind, vmm, threadManager, confMap, std::move(options)) {
   // Refresh session config.
   veloxCfg_ =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(confMap_));

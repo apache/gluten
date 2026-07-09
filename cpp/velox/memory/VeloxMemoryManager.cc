@@ -221,8 +221,9 @@ ArbitratorFactoryRegister::~ArbitratorFactoryRegister() {
 VeloxMemoryManager::VeloxMemoryManager(
     const std::string& kind,
     std::unique_ptr<AllocationListener> listener,
-    const facebook::velox::config::ConfigBase& backendConf)
-    : MemoryManager(kind), listener_(std::move(listener)) {
+    const facebook::velox::config::ConfigBase& backendConf,
+    const std::string& name)
+    : MemoryManager(kind, MemoryManagerOptions{name}), listener_(std::move(listener)) {
   auto reservationBlockSize =
       backendConf.get<uint64_t>(kMemoryReservationBlockSize, kMemoryReservationBlockSizeDefault);
   blockListener_ = std::make_unique<BlockAllocationListener>(listener_.get(), reservationBlockSize);

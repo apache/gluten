@@ -19,13 +19,13 @@
 
 #include "BoltBackend.h"
 
-#include <folly/executors/IOThreadPoolExecutor.h>
 #include <bolt/common/memory/sparksql/ConfigurationResolver.h>
+#include <folly/executors/IOThreadPoolExecutor.h>
 
+#include "bolt/dwio/orc/reader/RegisterOrcReader.h"
 #include "operators/functions/RegistrationAllFunctions.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "utils/ConfigExtractor.h"
-#include "bolt/dwio/orc/reader/RegisterOrcReader.h"
 
 #ifdef GLUTEN_ENABLE_QAT
 #include "utils/qat/QatCodec.h"
@@ -36,13 +36,6 @@
 #include "bolt/experimental/cudf/exec/ToCudf.h"
 #endif
 
-#include "compute/BoltRuntime.h"
-#include "config/BoltConfig.h"
-#include "jni/JniFileSystem.h"
-#include "memory/BoltGlutenMemoryManager.h"
-#include "operators/functions/SparkExprToSubfieldFilterParser.h"
-#include "udf/UdfLoader.h"
-#include "utils/Exception.h"
 #include "bolt/common/caching/SsdCache.h"
 #include "bolt/common/file/FileSystems.h"
 #include "bolt/connectors/hive/HiveConnector.h"
@@ -56,8 +49,15 @@
 #include "bolt/dwio/parquet/RegisterParquetReader.h"
 #include "bolt/dwio/parquet/RegisterParquetWriter.h"
 #include "bolt/serializers/PrestoSerializer.h"
-#include "bolt/shuffle/sparksql/ShuffleWriterNode.h"
 #include "bolt/shuffle/sparksql/ShuffleReaderNode.h"
+#include "bolt/shuffle/sparksql/ShuffleWriterNode.h"
+#include "compute/BoltRuntime.h"
+#include "config/BoltConfig.h"
+#include "jni/JniFileSystem.h"
+#include "memory/BoltGlutenMemoryManager.h"
+#include "operators/functions/SparkExprToSubfieldFilterParser.h"
+#include "udf/UdfLoader.h"
+#include "utils/Exception.h"
 
 DECLARE_bool(bolt_exception_user_stacktrace_enabled);
 DECLARE_int32(bolt_memory_num_shared_leaf_pools);
@@ -74,8 +74,11 @@ using namespace bytedance;
 namespace gluten {
 
 namespace {
-MemoryManager* boltMemoryManagerFactory(const std::string& kind, std::unique_ptr<AllocationListener> listener) {
-  return new BoltMemoryManager(kind, std::move(listener), *BoltBackend::get()->getBackendConf(), "");
+MemoryManager* boltMemoryManagerFactory(
+    const std::string& kind,
+    std::unique_ptr<AllocationListener> listener,
+    const MemoryManagerOptions& options) {
+  return new BoltMemoryManager(kind, std::move(listener), *BoltBackend::get()->getBackendConf(), options.name);
 }
 
 void boltMemoryManagerReleaser(MemoryManager* memoryManager) {
@@ -107,11 +110,12 @@ Runtime* boltRuntimeFactory(
     const std::string& kind,
     MemoryManager* memoryManager,
     ThreadManager* threadManager,
-    const std::unordered_map<std::string, std::string>& sessionConf) {
+    const std::unordered_map<std::string, std::string>& sessionConf,
+    const RuntimeOptions& options) {
   auto* vmm = dynamic_cast<BoltMemoryManager*>(memoryManager);
   GLUTEN_CHECK(vmm != nullptr, "Not a Bolt memory manager");
   // new object every time
-  return new BoltRuntime(kind, vmm, threadManager, sessionConf);
+  return new BoltRuntime(kind, vmm, threadManager, sessionConf, options);
 }
 
 void boltRuntimeReleaser(Runtime* runtime) {
@@ -314,8 +318,7 @@ std::unique_ptr<bytedance::bolt::cache::SsdCache> BoltBackend::initSsdCache(uint
   int32_t ssdCacheShards = backendConf_->get<int32_t>(kBoltSsdCacheShards, kBoltSsdCacheShardsDefault);
   int32_t ssdCacheIOThreads = backendConf_->get<int32_t>(kBoltSsdCacheIOThreads, kBoltSsdCacheIOThreadsDefault);
   std::string ssdCachePathPrefix = backendConf_->get<std::string>(kBoltSsdCachePath, kBoltSsdCachePathDefault);
-  [[maybe_unused]] uint64_t ssdCheckpointIntervalSize =
-      backendConf_->get<uint64_t>(kBoltSsdCheckpointIntervalBytes, 0);
+  [[maybe_unused]] uint64_t ssdCheckpointIntervalSize = backendConf_->get<uint64_t>(kBoltSsdCheckpointIntervalBytes, 0);
   [[maybe_unused]] bool disableFileCow = backendConf_->get<bool>(kBoltSsdDisableFileCow, false);
   [[maybe_unused]] bool checksumEnabled = backendConf_->get<bool>(kBoltSsdCheckSumEnabled, false);
   [[maybe_unused]] bool checksumReadVerificationEnabled =
@@ -429,7 +432,8 @@ void BoltBackend::initConnector(const std::shared_ptr<bolt::config::ConfigBase>&
   GLUTEN_CHECK(
       ioThreads >= 0,
       kBoltIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
-  auto [_ioThreads, _prefetchRowGroups, _preloadSplitPerDriver, _, __] = getScanPreloadAdaptiveParam(backendConf_, true);
+  auto [_ioThreads, _prefetchRowGroups, _preloadSplitPerDriver, _, __] =
+      getScanPreloadAdaptiveParam(backendConf_, true);
   ioThreads = _ioThreads;
   auto mutableConf = std::make_shared<bytedance::bolt::config::ConfigBase>(hiveConf->rawConfigsCopy(), true);
   mutableConf->set(bolt::connector::hive::HiveConfig::kPrefetchRowGroups, std::to_string(_prefetchRowGroups));
