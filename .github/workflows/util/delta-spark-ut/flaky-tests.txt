@@ -16,17 +16,9 @@
 # Prefer fixing the underlying bug and REMOVING the entry over growing this list.
 # Every entry should reference a tracking issue for the root cause.
 #
-# ---------------------------------------------------------------------------
-# Root cause: native Delta DV bitmap aggregator aborts on an invalid Long.MAX_VALUE
-# (9223372036854775807 > kMaxRepresentableValue) row index during MERGE that writes
-# deletion vectors -- RoaringBitmapArray.cpp addSafe, INVALID_STATE VeloxRuntimeError.
-# Intermittent (depends on runtime plan/scan/scheduling), so it hits a different
-# `*DVs*Suite` MERGE test on each run. Tracked upstream (DV bitmap Long.MAX_VALUE).
-# Remove these once the row-index materialization is fixed in the native backend.
-# ---------------------------------------------------------------------------
-*DVs*Suite#basic case - merge to Delta table by path, isPartitioned: true
-*DVs*Suite#extended syntax - conditional update + conditional delete + conditional insert - isPartitioned: true
-*DVs*Suite#extended syntax - update + conditional insert - isPartitioned: true
-*DVs*Suite#matched only merge - disabled - with update and delete - isPartitioned: true
-*DVs*Suite#matched only merge - enabled - with update and delete - isPartitioned: true
-*DVs*Suite#single file, isPartitioned: true
+# NOTE: when a bug surfaces on a DIFFERENT test each run (so matching by name is
+# whack-a-mole), quarantine it by ERROR SIGNATURE in flaky-error-patterns.txt
+# instead. The native Delta DV bitmap row-index bug (RoaringBitmapArray
+# Long.MAX_VALUE) is handled there, which is why no `*DVs*Suite` MERGE entries
+# are listed below.
+

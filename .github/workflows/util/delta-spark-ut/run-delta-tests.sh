@@ -234,6 +234,7 @@ python3 "$UTIL_DIR/compare-test-results.py" \
   --reports-dir "$GITHUB_WORKSPACE/delta" \
   --known-failures "$UTIL_DIR/known-failures.txt" \
   --flaky-tests "$UTIL_DIR/flaky-tests.txt" \
+  --flaky-error-patterns "$UTIL_DIR/flaky-error-patterns.txt" \
   --failures-out "$GITHUB_WORKSPACE/gate-out/failures-shard-${SHARD_ID}.txt" \
   --ran-out "$GITHUB_WORKSPACE/gate-out/ran-shard-${SHARD_ID}.txt" \
   --fail-on-fixed "${FAIL_ON_FIXED}"

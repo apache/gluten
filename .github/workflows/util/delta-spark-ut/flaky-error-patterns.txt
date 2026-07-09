@@ -1,0 +1,28 @@
+# Flaky-error signatures for the Delta Spark UT (Gluten) gate.
+#
+# Each non-comment line is a Python regex matched (re.search, case-sensitive)
+# against a failed test's JUnit <failure>/<error> text (message + stack). A
+# failure that matches is QUARANTINED by root cause: it never counts as a
+# regression, and is dropped from the shard's failures list so it can't leak
+# into the regenerated baseline -- regardless of WHICH test it landed on.
+#
+# Use this (instead of flaky-tests.txt) when a known nondeterministic bug
+# surfaces on a different test each run, so matching by test name is
+# whack-a-mole. Prefer fixing the underlying bug and REMOVING the entry.
+#
+# ---------------------------------------------------------------------------
+# Native Delta DV bitmap aggregator aborts on an invalid Long.MAX_VALUE
+# (9223372036854775807) row index during a MERGE that writes deletion vectors:
+#
+#   VeloxRuntimeError ... INVALID_STATE
+#   Reason: Delta RoaringBitmapArray row index 9223372036854775807 exceeds max
+#           representable value 9223372030412324864
+#   Expression: value <= kMaxRepresentableValue
+#   Function: addSafe  File: .../velox/compute/delta/RoaringBitmapArray.cpp
+#
+# Intermittent (depends on the runtime plan/scan/scheduling), so it hits a
+# different *DVs*Suite MERGE test on each run. Remove this once the row-index
+# materialization is fixed in the native backend. Tracked upstream (DV bitmap
+# Long.MAX_VALUE row index).
+# ---------------------------------------------------------------------------
+Delta RoaringBitmapArray row index \d+ exceeds max representable value

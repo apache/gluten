@@ -33,7 +33,8 @@ starts failing** (a regression).
 | File | Purpose |
 |---|---|
 | `known-failures.txt` | Committed baseline: the tests currently expected to fail. One `<suite>#<test>` per line. |
-| `flaky-tests.txt` | Quarantine list: tests whose pass/fail is non-deterministic. Ignored by the gate whether they pass or fail. `<suite-glob>#<test>` per line. |
+| `flaky-tests.txt` | Quarantine list by test name: tests whose pass/fail is non-deterministic. Ignored by the gate whether they pass or fail. `<suite-glob>#<test>` per line. |
+| `flaky-error-patterns.txt` | Quarantine list by error signature: regex patterns matched against a failure's text, for bugs that surface on a different test each run (e.g. the native DV bitmap row-index error). |
 | `compare-test-results.py` | Parses the JUnit XML from `sbt spark/test` and gates / seeds / aggregates against the baseline. Standard-library only. |
 | `run-delta-tests.sh` | The shard step's body: runs `sbt spark/test` (tuned JVM/heap flags) under a hang watchdog, prints memory forensics, then gates the results against the baseline via `compare-test-results.py`. |
 | `java-test-args.sh` | Shared JVM flags (`--add-opens` + Netty property) needed to run the suite on JDK 17 with the Gluten bundle. Sourced by `run-delta-tests.sh` and by local runs. |
@@ -124,9 +125,28 @@ and blank lines allowed:
   contain glob metacharacters), so a same-named test in a non-matching suite is
   still gated normally.
 
-Quarantining is an **interim** measure — it hides a real bug from CI. Each entry
-should reference the tracking issue, and be removed once the underlying bug is
-fixed so the test is enforced again.
+### Quarantine by error signature
+
+Some bugs surface on a **different test each run** — for example the native Delta
+DV bitmap row-index error (`RoaringBitmapArray ... exceeds max representable
+value`, a `Long.MAX_VALUE` written during a MERGE that writes deletion vectors)
+lands on a different `*DVs*Suite` MERGE test every time. Chasing those by name is
+whack-a-mole, so quarantine them by **root cause** in **`flaky-error-patterns.txt`**
+instead: each line is a regex matched against a failed test's `<failure>`/`<error>`
+text. Any failure that matches is treated as flaky regardless of which test it hit
+(and is dropped from the shard's failures list so it can't leak into the baseline):
+
+```
+# regex matched against the failure message + stack (enforce mode).
+Delta RoaringBitmapArray row index \d+ exceeds max representable value
+```
+
+This is more precise than a name glob: a *different* real failure in the same
+suite is still caught, because only failures carrying the signature are ignored.
+
+Quarantining (either kind) is an **interim** measure — it hides a real bug from
+CI. Each entry should reference the tracking issue, and be removed once the
+underlying bug is fixed so the test is enforced again.
 
 ## Caveats
 

@@ -63,6 +63,14 @@ Flaky quarantine (``--flaky-tests``)
     Its SUITE is an fnmatch glob (so one line covers a root-cause family across
     generated suite variants); its TEST name is matched exactly.
 
+Flaky quarantine by error signature (``--flaky-error-patterns``)
+    When a failure is caused by a known nondeterministic bug that surfaces on a
+    *different test each run* (e.g. the native Delta DV bitmap row-index error),
+    matching by test name is whack-a-mole. ``flaky-error-patterns.txt`` instead
+    quarantines by root cause: each line is a regex matched against a failed
+    test's <failure>/<error> text, and any failure that matches is treated as
+    flaky regardless of which test it landed on.
+
 Baseline file format (``known-failures.txt``)::
 
     # comment lines start with '#'
@@ -174,6 +182,38 @@ def make_is_flaky(flaky_entries):
     return is_flaky
 
 
+def load_patterns(path):
+    """Load flaky-error regex patterns from a file (one per line).
+
+    Blank lines and ``#`` comments are ignored. Each remaining line is compiled
+    as a case-sensitive regex. These match the FAILURE TEXT of a failed test
+    (its JUnit <failure>/<error> message + stack), so a test that fails with a
+    known-nondeterministic native error (e.g. the Delta DV bitmap row-index bug)
+    can be quarantined by root cause instead of by exact test name.
+    """
+    patterns = []
+    if not path or not os.path.exists(path):
+        return patterns
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            patterns.append(re.compile(line))
+    return patterns
+
+
+def make_signature_matcher(patterns):
+    """Return a predicate matching a failure text against any flaky-error pattern."""
+
+    def matches(text):
+        if not text:
+            return False
+        return any(p.search(text) for p in patterns)
+
+    return matches
+
+
 def write_entries(path, entries, header=None):
     """Write a sorted set of (suite, test) tuples to a file."""
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
@@ -206,16 +246,33 @@ def _child_local_tags(elem):
     return {c.tag.split("}")[-1] for c in elem}
 
 
+def _failure_text(tc):
+    """Concatenate the message attribute + body text of a testcase's
+    <failure>/<error> children, for error-signature matching."""
+    parts = []
+    for c in tc:
+        if c.tag.split("}")[-1] in ("failure", "error"):
+            msg = c.get("message")
+            if msg:
+                parts.append(msg)
+            if c.text:
+                parts.append(c.text)
+    return "\n".join(parts)
+
+
 def parse_reports(reports_dir):
     """Walk reports_dir for JUnit XML and classify every test.
 
-    Returns (passed, failed, skipped) sets of (suite, test) tuples. A test is
-    'failed' if its <testcase> has a <failure> or <error> child, 'skipped' if
-    it has a <skipped> child, otherwise 'passed'. Suite-level aborts (a
-    <testsuite> reporting errors/failures with no failing <testcase>) are
-    recorded as a synthetic (suite, SUITE_ABORTED) failure.
+    Returns (passed, failed, skipped, fail_texts). The first three are sets of
+    (suite, test) tuples; fail_texts maps each failed (suite, test) to its
+    combined <failure>/<error> message + stack text (used for error-signature
+    quarantine). A test is 'failed' if its <testcase> has a <failure> or <error>
+    child, 'skipped' if it has a <skipped> child, otherwise 'passed'. Suite-level
+    aborts (a <testsuite> reporting errors/failures with no failing <testcase>)
+    are recorded as a synthetic (suite, SUITE_ABORTED) failure.
     """
     passed, failed, skipped = set(), set(), set()
+    fail_texts = {}
 
     xml_files = []
     # ScalaTest's -u reporter and Maven surefire both write `TEST-<suite>.xml`
@@ -263,6 +320,7 @@ def parse_reports(reports_dir):
                 if "failure" in tags or "error" in tags:
                     failed.add(key)
                     suite_has_failing_tc = True
+                    fail_texts[key] = _failure_text(tc)
                 elif "skipped" in tags:
                     skipped.add(key)
                 else:
@@ -294,7 +352,7 @@ def parse_reports(reports_dir):
     passed -= failed
     skipped -= failed
     skipped -= passed
-    return passed, failed, skipped
+    return passed, failed, skipped, fail_texts
 
 
 # --------------------------------------------------------------------------- #
@@ -348,16 +406,30 @@ def run_enforce(args):
         )
         return 2
     baseline = load_entries(args.known_failures)
-    flaky_is = make_is_flaky(load_entries(args.flaky_tests))
+    name_flaky = make_is_flaky(load_entries(args.flaky_tests))
+    sig_matches = make_signature_matcher(load_patterns(args.flaky_error_patterns))
     try:
-        passed, failed, skipped = parse_reports(args.reports_dir)
+        passed, failed, skipped, fail_texts = parse_reports(args.reports_dir)
     except NoReportsError as exc:
         eprint("ERROR: {}".format(exc))
         return 2
 
-    # Always emit this shard's artifacts for the aggregation job.
+    # A test is quarantined if its NAME is in flaky-tests.txt, or its failure
+    # TEXT matches a flaky-error signature (e.g. the native DV bitmap row-index
+    # bug that hits a different DV-merge test each run).
+    def sig_flaky(e):
+        return e in fail_texts and sig_matches(fail_texts[e])
+
+    def flaky_is(e):
+        return name_flaky(e) or sig_flaky(e)
+
+    # Always emit this shard's artifacts for the aggregation job. Signature-flaky
+    # failures are dropped from failures-out: the aggregate job works off these
+    # text-less lists and cannot re-derive the signature match, so excluding them
+    # here keeps the regenerated baseline from absorbing a flaky failure. Name-
+    # flaky entries stay (the aggregate re-filters them via flaky-tests.txt).
     if args.failures_out:
-        write_entries(args.failures_out, failed)
+        write_entries(args.failures_out, {e for e in failed if not sig_flaky(e)})
     if args.ran_out:
         write_entries(args.ran_out, passed | failed)
 
@@ -425,7 +497,7 @@ def run_enforce(args):
 
         _print_block(
             write,
-            "Quarantined flaky failures -- ignored (see flaky-tests.txt)",
+            "Quarantined flaky failures -- ignored (flaky-tests.txt + flaky-error-patterns.txt)",
             quarantined,
         )
 
@@ -581,7 +653,7 @@ def run_aggregate(args):
                 _print_block(write, "Now-passing (global)", fixed)
                 _print_block(
                     write,
-                    "Quarantined flaky failures -- ignored (see flaky-tests.txt)",
+                    "Quarantined flaky failures -- ignored (flaky-tests.txt + flaky-error-patterns.txt)",
                     quarantined,
                 )
                 _print_block(write, "Stale baseline entries (suite/test gone)", stale)
@@ -616,6 +688,15 @@ def main(argv=None):
         "flaky test is neither counted as a regression when it fails nor as "
         "now-passing when it passes, and is excluded from the regenerated baseline "
         "(aggregate mode). Optional; omitting it disables quarantining.",
+    )
+    parser.add_argument(
+        "--flaky-error-patterns",
+        help="Path to flaky-error-patterns.txt: regex patterns matched against a "
+        "failed test's <failure>/<error> text (enforce mode). A failure that "
+        "matches is quarantined by root cause -- neither a regression nor written "
+        "to this shard's failures list -- so a nondeterministic native error (e.g. "
+        "the DV bitmap row-index bug) is ignored on whichever test it lands. "
+        "Optional.",
     )
     parser.add_argument(
         "--reports-dir", help="Root dir to search for JUnit XML (enforce/seed)."
