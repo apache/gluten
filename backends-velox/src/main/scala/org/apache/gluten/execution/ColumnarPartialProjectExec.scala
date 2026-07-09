@@ -298,19 +298,8 @@ object ColumnarPartialProjectExec {
   }
 
   /**
-   * A generic Catalyst expression that Gluten/Velox cannot offload to native, i.e. its class is not
-   * registered in [[ExpressionMappings.expressionsMap]]. Such expressions would otherwise reach
-   * expression conversion and fail at runtime. By recognizing them here, partial project can pull
-   * them out to a row-based ArrowProjection alias.
-   *
-   * We only treat an expression as "unmapped" when it is safe to evaluate in row-based projection:
-   *   - deterministic (non-deterministic expressions are not safe to move around)
-   *   - not a [[ScalaUDF]] or Hive UDF (handled by dedicated UDF fallback/offload logic)
-   *   - not [[Unevaluable]] (cannot be evaluated in a row-based projection at all)
-   *   - not a [[LambdaFunction]] (higher-order function body, handled by its parent)
-   * Leaf/structural nodes (Literal / attribute references / NamedExpression such as Alias) are
-   * excluded so that recursion can descend to the real unmapped sub-expression instead of pulling
-   * out the whole wrapper.
+   * Returns true for generic catalyst expressions that Velox cannot offload and should be pulled
+   * into ColumnarPartialProject, excluding ScalaUDF/HiveUDF and non-row-evaluable wrappers.
    */
   private def isUnmappedGlutenExpr(expr: Expression): Boolean = expr match {
     case _: ScalaUDF => false
