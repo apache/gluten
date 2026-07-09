@@ -45,6 +45,7 @@ import org.apache.spark.sql.sources._
 // scalastyle:off line.size.limit
 
 class ClickHouseTestSettings extends BackendTestSettings {
+  import SuiteSettings._
 
   // disable tests that will break the whole UT
   override def shouldRun(suiteName: String, testName: String): Boolean = {
@@ -1881,6 +1882,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeGlutenTest("fallbackSummary with cache")
     .excludeGlutenTest("fallbackSummary with cached data and shuffle")
   enableSuite[GlutenSparkSessionExtensionSuite]
+    .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenHiveSQLQueryCHSuite]
   enableSuite[GlutenPercentileSuite]
 
