@@ -145,7 +145,6 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     shuffle/Spill.cc
     shuffle/Utils.cc
     utils/Compression.cc
-    utils/ConfigResolver.cc
     utils/tac/FForCodec.cc
     utils/tac/TypeAwareCompressCodec.cc
     utils/StringUtil.cc

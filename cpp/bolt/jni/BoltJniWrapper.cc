@@ -47,6 +47,7 @@
 #include "substrait/SubstraitToBoltPlanValidator.h"
 #include "utils/BoltBatchResizer.h"
 #include "utils/ObjectStore.h"
+#include "config/BoltConfig.h"
 
 #ifdef GLUTEN_ENABLE_GPU
 #include "cudf/CudfPlanValidator.h"
@@ -75,6 +76,24 @@ jmethodID blockStripesConstructor;
 
 } // namespace
 
+namespace gluten {
+std::unique_ptr<ColumnarBatchIterator>
+createBoltInputIterator(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime, int32_t iteratorIndex) {
+  const auto& conf = runtime->getConfMap();
+  bool parallelEnabled = getBoolConfigValue(conf, kGlutenEnableParallel, false);
+  LOG(INFO) << "nativeCreateKernelWithIterator parallelEnabled=" << parallelEnabled;
+
+  auto shuffleReaderIter =
+      ShuffleReaderWrapperedIterator::tryFrom(env, jColumnarBatchItr, runtime, parallelEnabled, iteratorIndex);
+  if (shuffleReaderIter != nullptr) {
+    LOG(INFO) << "Wrap ShuffleReaderWrapperedIterator for input iterator " << iteratorIndex;
+    return shuffleReaderIter;
+  }
+  return std::make_unique<BoltJniColumnarBatchIterator>(
+      env, jColumnarBatchItr, runtime, parallelEnabled, iteratorIndex);
+}
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -92,7 +111,6 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
 
   initBoltJniFileSystem(env);
   initBoltJniUDF(env);
-  registerBoltInputIteratorFactory();
   gluten::OnHeapMemUsedHookSetter::init(vm);
 
   infoCls = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/validate/NativePlanValidationInfo;");
@@ -460,6 +478,35 @@ Java_org_apache_gluten_utils_BoltFileSystemValidationJniWrapper_allSupportedByRe
   // }
   return true;
   JNI_METHOD_END(false)
+}
+
+static inline std::vector<std::string> ToStringVector(JNIEnv* env, jobjectArray& str_array) {
+  std::vector<std::string> vector;
+  if (str_array == NULL) {
+    return vector;
+  }
+  int length = env->GetArrayLength(str_array);
+  for (int i = 0; i < length; i++) {
+    auto string = reinterpret_cast<jstring>(env->GetObjectArrayElement(str_array, i));
+    vector.push_back(jStringToCString(env, string));
+  }
+  return vector;
+}
+static inline std::vector<std::string> FromByteArrToStringVector(JNIEnv* env, jobjectArray& str_array) {
+  std::vector<std::string> vector;
+  if (str_array == NULL) {
+    return vector;
+  }
+  int length = env->GetArrayLength(str_array);
+  for (int i = 0; i < length; i++) {
+    jbyteArray byte_array = reinterpret_cast<jbyteArray>(env->GetObjectArrayElement(str_array, i));
+    int bytes_len = env->GetArrayLength(byte_array);
+    signed char array[bytes_len];
+    env->GetByteArrayRegion(byte_array, 0, bytes_len, array);
+    std::string j_string(reinterpret_cast<char*>(array), sizeof(array));
+    vector.push_back(j_string);
+  }
+  return vector;
 }
 
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_datasource_BoltDataSourceJniWrapper_init( // NOLINT

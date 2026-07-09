@@ -155,6 +155,7 @@ set(BOLT_SRCS
     udf/BoltUdf.cc
     utils/Common.cc
     utils/ConfigExtractor.cc
+    utils/ConfigResolver.cc
     utils/BoltArrowUtils.cc
     utils/BoltBatchResizer.cc
     utils/BoltWholeStageDumper.cc
