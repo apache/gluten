@@ -458,8 +458,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   } else if (
       sJoin.has_advanced_extension() &&
       SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isBHJ=")) {
-    const auto& hashTableId = sJoin.hashtableid();
-    const auto joinNodeId = hashTableId.empty() ? nextPlanNodeId() : hashTableId;
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(
         nextPlanNodeId(),

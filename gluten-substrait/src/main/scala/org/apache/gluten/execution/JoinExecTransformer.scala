@@ -31,8 +31,6 @@ import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildRight, BuildSide
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.{ExpandOutputPartitioningShim, ExplainUtils, SparkPlan}
-import org.apache.spark.sql.execution.adaptive.BroadcastQueryStageExec
-import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.joins.{BaseJoinExec, HashedRelationBroadcastMode, HashJoin}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.types._
@@ -105,15 +103,6 @@ trait HashJoinLikeExecTransformer extends BaseJoinExec with TransformSupport {
     (left, right)
   } else {
     (right, left)
-  }
-
-  protected def canonicalBuildHashTableId(plan: SparkPlan): String = plan match {
-    case b: BroadcastQueryStageExec =>
-      canonicalBuildHashTableId(b.plan)
-    case r: ReusedExchangeExec =>
-      canonicalBuildHashTableId(r.child)
-    case other =>
-      other.id.toString
   }
 
   def sameType(from: DataType, to: DataType): Boolean = {
@@ -281,7 +270,7 @@ trait HashJoinLikeExecTransformer extends BaseJoinExec with TransformSupport {
       inputBuildOutput,
       context,
       operatorId,
-      canonicalBuildHashTableId(buildPlan)
+      buildPlan.id.toString
     )
 
     context.registerJoinParam(operatorId, joinParams)
@@ -408,8 +397,7 @@ abstract class BroadcastHashJoinExecTransformerBase(
   override def joinBuildSide: BuildSide = buildSide
   override def hashJoinType: JoinType = joinType
 
-  // Unique ID for builded hash table
-  lazy val buildHashTableId: String = canonicalBuildHashTableId(buildPlan)
+  lazy val buildHashTableId: String = buildPlan.id.toString
 
   override def genJoinParametersInternal(): (Int, Int, String) = {
     (1, if (isNullAwareAntiJoin) 1 else 0, buildHashTableId)
