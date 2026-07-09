@@ -146,8 +146,7 @@ final class GlutenShuffleBlockFetcherIterator(
    * ConcurrentHashMap to support concurrent access from multiple threads while allowing cleanup
    * from any thread.
    */
-  private[this] val currentResults: ConcurrentHashMap[Long, SuccessFetchResult] =
-    new ConcurrentHashMap[Long, SuccessFetchResult]()
+  private[this] val currentResults = ConcurrentHashMap.newKeySet[SuccessFetchResult]()
 
   /**
    * Queue of fetch requests to issue; we'll pull requests off this gradually to make sure that the
@@ -208,17 +207,6 @@ final class GlutenShuffleBlockFetcherIterator(
 
   initialize()
 
-  // Decrements the buffer reference count.
-  // The currentResult is removed from the map to prevent releasing the buffer again on cleanup()
-  private[storage] def releaseCurrentResultBuffer(): Unit = {
-    val threadId = Thread.currentThread().getId
-    // Release the current buffer if necessary
-    val result = currentResults.remove(threadId)
-    if (result != null) {
-      result.buf.release()
-    }
-  }
-
   override def createTempFile(transportConf: TransportConf): DownloadFile = {
     // we never need to do any encryption or decryption here, regardless of configs, because that
     // is handled at another layer in the code.  When encryption is enabled, shuffle data is written
@@ -241,14 +229,9 @@ final class GlutenShuffleBlockFetcherIterator(
       isZombie = true
     }
     // Release all current result buffers from all threads
-    val threadIds = currentResults.keys()
-    while (threadIds.hasMoreElements) {
-      val threadId = threadIds.nextElement()
-      val result = currentResults.remove(threadId)
-      if (result != null) {
-        result.buf.release()
-      }
-    }
+    currentResults.forEach(result => result.buf.release())
+    currentResults.clear()
+
     // Release buffers in the results queue
     val iter = results.iterator()
     while (iter.hasNext) {
@@ -1197,13 +1180,18 @@ final class GlutenShuffleBlockFetcherIterator(
     }
 
     val successResult = result.asInstanceOf[SuccessFetchResult]
-    val threadId = Thread.currentThread().getId
-    currentResults.put(threadId, successResult)
+    currentResults.add(successResult)
     (
       successResult.blockId,
       new GlutenBufferReleasingInputStream(
         input,
         this,
+        () => {
+          val result = successResult
+          if (currentResults.remove(result)) {
+            result.buf.release()
+          }
+        },
         successResult.blockId,
         successResult.mapIndex,
         successResult.address,
@@ -1495,6 +1483,7 @@ class GlutenBufferReleasingInputStream(
     // This is visible for testing
     val delegate: InputStream,
     private val iterator: GlutenShuffleBlockFetcherIterator,
+    private val releaseCallback: () => Unit,
     private val blockId: BlockId,
     private val mapIndex: Int,
     private val address: BlockManagerId,
@@ -1511,7 +1500,7 @@ class GlutenBufferReleasingInputStream(
     if (!closed) {
       try {
         delegate.close()
-        iterator.releaseCurrentResultBuffer()
+        releaseCallback()
       } finally {
         // Unset the flag when a remote request finished and free memory is fairly enough.
         if (isNetworkReqDone) {
