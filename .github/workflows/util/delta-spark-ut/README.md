@@ -128,17 +128,21 @@ and blank lines allowed:
 ### Quarantine by error signature
 
 Some bugs surface on a **different test each run** — for example the native Delta
-DV bitmap row-index error (`RoaringBitmapArray ... exceeds max representable
-value`, a `Long.MAX_VALUE` written during a MERGE that writes deletion vectors)
-lands on a different `*DVs*Suite` MERGE test every time. Chasing those by name is
-whack-a-mole, so quarantine them by **root cause** in **`flaky-error-patterns.txt`**
-instead: each line is a regex matched against a failed test's `<failure>`/`<error>`
-text. Any failure that matches is treated as flaky regardless of which test it hit
-(and is dropped from the shard's failures list so it can't leak into the baseline):
+DV bitmap row-index error (the aggregator gets a garbage row index during a MERGE
+that writes deletion vectors and aborts, e.g. `Delta RoaringBitmapArray row index
+... exceeds max representable value` or `Delta bitmap row index cannot be
+negative: ...`) lands on a different `*DVs*Suite` MERGE test every time. Chasing
+those by name is whack-a-mole, so quarantine them by **root cause** in
+**`flaky-error-patterns.txt`** instead: each line is a regex matched against a
+failed test's `<failure>`/`<error>` text. Any failure that matches is treated as
+flaky regardless of which test it hit (and is dropped from the shard's failures
+list so it can't leak into the baseline):
 
 ```
 # regex matched against the failure message + stack (enforce mode).
+# one explicit pattern per known error, deliberately specific.
 Delta RoaringBitmapArray row index \d+ exceeds max representable value
+Delta bitmap row index cannot be negative: -?\d+
 ```
 
 This is more precise than a name glob: a *different* real failure in the same

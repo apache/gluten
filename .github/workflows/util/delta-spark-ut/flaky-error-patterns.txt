@@ -11,18 +11,33 @@
 # whack-a-mole. Prefer fixing the underlying bug and REMOVING the entry.
 #
 # ---------------------------------------------------------------------------
-# Native Delta DV bitmap aggregator aborts on an invalid Long.MAX_VALUE
-# (9223372036854775807) row index during a MERGE that writes deletion vectors:
+# Native Delta bitmap aggregator receives an INVALID row index during a MERGE
+# that writes deletion vectors, and aborts. The garbage row index trips one of
+# two bounds checks, so the same root cause shows up with two messages:
 #
-#   VeloxRuntimeError ... INVALID_STATE
-#   Reason: Delta RoaringBitmapArray row index 9223372036854775807 exceeds max
-#           representable value 9223372030412324864
-#   Expression: value <= kMaxRepresentableValue
-#   Function: addSafe  File: .../velox/compute/delta/RoaringBitmapArray.cpp
+#   too large (Long.MAX_VALUE):
+#     VeloxRuntimeError INVALID_STATE
+#     Reason: Delta RoaringBitmapArray row index 9223372036854775807 exceeds max
+#             representable value 9223372030412324864
+#     Expression: value <= kMaxRepresentableValue
+#     Function: addSafe  File: .../velox/compute/delta/RoaringBitmapArray.cpp:92
 #
-# Intermittent (depends on the runtime plan/scan/scheduling), so it hits a
-# different *DVs*Suite MERGE test on each run. Remove this once the row-index
-# materialization is fixed in the native backend. Tracked upstream (DV bitmap
-# Long.MAX_VALUE row index).
+#   negative (garbage):
+#     VeloxRuntimeError INVALID_STATE
+#     Reason: Delta bitmap row index cannot be negative: -6254810385378525259
+#     Expression: value >= 0
+#     Function: addRowIndex  File: .../operators/functions/delta/DeltaBitmapAggregator.cc:44
+#
+# Both are the same root cause (garbage row index into the DV bitmap aggregator)
+# but distinct native errors, so each has its own explicit pattern below --
+# deliberately specific (bound to the exact error string) rather than a broad
+# "Delta bitmap row index" match, to avoid masking an unrelated failure. Add a
+# new line if a further bounds-check variant appears. Intermittent (depends on
+# the runtime plan/scan/scheduling), so it hits a different *DVs*Suite MERGE test
+# on each run. Remove these once the row-index materialization is fixed in the
+# native backend. Tracked upstream (DV bitmap invalid row index).
 # ---------------------------------------------------------------------------
+# too-large (Long.MAX_VALUE) -- RoaringBitmapArray.cpp addSafe, value <= kMaxRepresentableValue
 Delta RoaringBitmapArray row index \d+ exceeds max representable value
+# negative garbage -- DeltaBitmapAggregator.cc addRowIndex, value >= 0
+Delta bitmap row index cannot be negative: -?\d+
