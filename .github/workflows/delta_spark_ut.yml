@@ -346,49 +346,9 @@ jobs:
           # Required by Delta to enable testing-only code paths
           # (see delta build.sbt: "Test / envVars += DELTA_TESTING -> 1").
           DELTA_TESTING: '1'
-          # JDK 17 + Gluten/Arrow/Netty requires extra --add-opens and the
-          # `io.netty.tryReflectionSetAccessible` system property; otherwise
-          # the forked test JVM fails with
-          #   java.lang.UnsupportedOperationException: sun.misc.Unsafe or
-          #   java.nio.DirectByteBuffer.<init>(long, int) not available
-          # as soon as Gluten's bundled Arrow allocator initializes Netty
-          # direct buffers. Delta's own `Test / javaOptions` (see
-          # project/CrossSparkVersions.scala `java17TestSettings`) sets the
-          # base add-opens but NOT the Netty property -- Delta's own tests
-          # don't load Arrow/Netty buffers in a way that triggers it.
-          #
-          # Use JAVA_TOOL_OPTIONS so the flags propagate to BOTH the sbt
-          # launcher JVM and the forked test JVM (sbt forks tests and the
-          # child inherits the parent's env). The set below mirrors
-          # `extraJavaTestArgs` from Gluten's own root pom.xml (the
-          # canonical Gluten test JVM flag set).
-          #
-          # NOTE: we deliberately do NOT put `-Xmx` here. JAVA_TOOL_OPTIONS
-          # is processed BEFORE the JVM command line, so Delta's explicit
-          # `-Xmx1024m` (set in build.sbt `Test / javaOptions`) would still
-          # win (last `-Xmx` wins). The forked-test-JVM heap is bumped via
-          # an sbt `set spark / Test / javaOptions ++= ...` command below,
-          # which APPENDS to Delta's own seq -- so our `-Xmx` lands AFTER
-          # `-Xmx1024m` and wins.
-          JAVA_TOOL_OPTIONS: >-
-            -XX:+IgnoreUnrecognizedVMOptions
-            --add-opens=java.base/java.lang=ALL-UNNAMED
-            --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
-            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
-            --add-opens=java.base/java.io=ALL-UNNAMED
-            --add-opens=java.base/java.net=ALL-UNNAMED
-            --add-opens=java.base/java.nio=ALL-UNNAMED
-            --add-opens=java.base/java.util=ALL-UNNAMED
-            --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
-            --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
-            --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
-            --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
-            --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
-            --add-opens=java.base/sun.security.action=ALL-UNNAMED
-            --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
-            -Djdk.reflect.useDirectMethodHandle=false
-            -Dio.netty.tryReflectionSetAccessible=true
-            -Dfile.encoding=UTF-8
+          # NOTE: the Gluten/JDK17 test JVM flags (JAVA_TOOL_OPTIONS) live in
+          # util/delta-spark-ut/java-test-args.sh, which run-delta-tests.sh sources,
+          # so CI and local dev runs share one definition.
         run: |
           set -euo pipefail
           # Run the shard's Delta tests + hang watchdog + memory forensics, then

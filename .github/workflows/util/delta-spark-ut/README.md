@@ -36,6 +36,7 @@ starts failing** (a regression).
 | `flaky-tests.txt` | Quarantine list: tests whose pass/fail is non-deterministic. Ignored by the gate whether they pass or fail. `<suite-glob>#<test>` per line. |
 | `compare-test-results.py` | Parses the JUnit XML from `sbt spark/test` and gates / seeds / aggregates against the baseline. Standard-library only. |
 | `run-delta-tests.sh` | The shard step's body: runs `sbt spark/test` (tuned JVM/heap flags) under a hang watchdog, prints memory forensics, then gates the results against the baseline via `compare-test-results.py`. |
+| `java-test-args.sh` | Shared JVM flags (`--add-opens` + Netty property) needed to run the suite on JDK 17 with the Gluten bundle. Sourced by `run-delta-tests.sh` and by local runs. |
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and patches `DeltaSQLCommandTest`. |
 
 ## How the gate works
@@ -144,3 +145,19 @@ python3 .github/workflows/util/delta-spark-ut/compare-test-results.py \
   --flaky-tests .github/workflows/util/delta-spark-ut/flaky-tests.txt \
   --failures-out /tmp/failures.txt --ran-out /tmp/ran.txt
 ```
+
+## Running the suite locally
+
+`sbt spark/test` needs extra JDK-17 JVM flags to run the Delta suite against the
+Gluten bundle (`--add-opens` + the Netty reflection property). CI and local runs
+share one definition in `java-test-args.sh` — `source` it before invoking sbt so
+the flags reach the sbt launcher and the forked test JVM:
+
+```bash
+# from the Delta clone prepared by setup-delta.sh (which has the Gluten bundle):
+source <gluten>/.github/workflows/util/delta-spark-ut/java-test-args.sh
+./build/sbt "++ 2.13.16" spark/test        # or a single suite via testOnly
+```
+
+`run-delta-tests.sh` sources the same file, so CI and local runs use identical
+flags.

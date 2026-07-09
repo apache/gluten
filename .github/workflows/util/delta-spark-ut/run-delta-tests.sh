@@ -27,14 +27,19 @@
 #   SPARK_VERSION     - Delta -DsparkVersion value
 #   UPDATE_BASELINE   - 'true' -> gate seed mode; else enforce
 #   FAIL_ON_FIXED     - passed through to the gate
-#   DELTA_SCALA_VERSION, NUM_SHARDS, TEST_PARALLELISM_COUNT, DELTA_TESTING,
-#   JAVA_TOOL_OPTIONS - test env (see the workflow step's `env:` block)
+#   DELTA_SCALA_VERSION, NUM_SHARDS, TEST_PARALLELISM_COUNT, DELTA_TESTING
+#                     - test env (see the workflow step's `env:` block)
 #   GITHUB_WORKSPACE  - repo root (holds the Delta clone + util scripts)
 #
+# JAVA_TOOL_OPTIONS is set by sourcing java-test-args.sh (below), not the caller.
 
 set -euo pipefail
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 export PATH=$JAVA_HOME/bin:$PATH
+# Gluten/JDK17 test JVM flags (--add-opens + Netty property), shared with local
+# dev runs. Sets JAVA_TOOL_OPTIONS so it reaches the sbt launcher + forked JVMs.
+# shellcheck source=./java-test-args.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/java-test-args.sh"
 cd "$GITHUB_WORKSPACE/delta"
 chmod +x build/sbt
 # Only run the unified `spark` sbt project, NOT `sparkGroup/test` --
