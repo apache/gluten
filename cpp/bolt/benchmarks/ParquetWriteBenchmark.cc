@@ -18,8 +18,8 @@
 #include <benchmark/benchmark.h>
 
 #include "benchmarks/common/BenchmarkUtils.h"
-#include "compute/Runtime.h"
 #include "compute/BoltBackend.h"
+#include "compute/Runtime.h"
 #include "memory/BoltMemoryManager.h"
 #include "operators/reader/ParquetReaderIterator.h"
 #include "operators/writer/BoltParquetDataSource.h"
@@ -52,7 +52,7 @@ class GoogleBenchmarkBoltParquetWriteCacheScanBenchmark {
     // reuse the ParquetWriteConverter for batches caused system % increase a lot
 
     auto memoryManager = getDefaultMemoryManager();
-    auto runtime = Runtime::create(kBoltBackendKind, memoryManager, 1);
+    auto runtime = Runtime::create(kBoltBackendKind, memoryManager, nullptr, {}, RuntimeOptions{1});
     auto boltPool = memoryManager->getAggregateMemoryPool();
 
     for (auto _ : state) {

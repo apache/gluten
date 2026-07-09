@@ -19,10 +19,10 @@
 
 #include <mutex>
 
-#include "shuffle/ShuffleReaderBase.h"
 #include "bolt/shuffle/sparksql/ReaderStreamIterator.h"
-#include "jni/JniCommon.h"
 #include "compute/ResultIterator.h"
+#include "jni/BoltInputIterator.h"
+#include "shuffle/ShuffleReaderBase.h"
 
 namespace gluten {
 

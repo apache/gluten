@@ -59,7 +59,8 @@ class VeloxMemoryManager final : public MemoryManager {
   VeloxMemoryManager(
       const std::string& kind,
       std::unique_ptr<AllocationListener> listener,
-      const facebook::velox::config::ConfigBase& backendConf);
+      const facebook::velox::config::ConfigBase& backendConf,
+      const std::string& name = "");
 
   ~VeloxMemoryManager() override;
   VeloxMemoryManager(const VeloxMemoryManager&) = delete;

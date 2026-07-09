@@ -78,8 +78,11 @@ using namespace facebook;
 namespace gluten {
 
 namespace {
-MemoryManager* veloxMemoryManagerFactory(const std::string& kind, std::unique_ptr<AllocationListener> listener) {
-  return new VeloxMemoryManager(kind, std::move(listener), *VeloxBackend::get()->getBackendConf());
+MemoryManager* veloxMemoryManagerFactory(
+    const std::string& kind,
+    std::unique_ptr<AllocationListener> listener,
+    const MemoryManagerOptions& options) {
+  return new VeloxMemoryManager(kind, std::move(listener), *VeloxBackend::get()->getBackendConf(), options.name);
 }
 
 void veloxMemoryManagerReleaser(MemoryManager* memoryManager) {
@@ -90,10 +93,11 @@ Runtime* veloxRuntimeFactory(
     const std::string& kind,
     MemoryManager* memoryManager,
     ThreadManager* threadManager,
-    const std::unordered_map<std::string, std::string>& sessionConf) {
+    const std::unordered_map<std::string, std::string>& sessionConf,
+    const RuntimeOptions& options) {
   auto* vmm = dynamic_cast<VeloxMemoryManager*>(memoryManager);
   GLUTEN_CHECK(vmm != nullptr, "Not a Velox memory manager");
-  return new VeloxRuntime(kind, vmm, threadManager, sessionConf);
+  return new VeloxRuntime(kind, vmm, threadManager, sessionConf, options);
 }
 
 void veloxRuntimeReleaser(Runtime* runtime) {

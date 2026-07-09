@@ -19,6 +19,8 @@
 #include "config/GlutenConfig.h"
 
 #include <gtest/gtest.h>
+#include <utility>
+
 #include "compute/BoltBackend.h"
 #include "memory.pb.h"
 #include "threads/ThreadInitializer.h"
@@ -27,7 +29,7 @@ namespace gluten {
 
 class DummyMemoryManager final : public MemoryManager {
  public:
-  DummyMemoryManager(const std::string& kind) : MemoryManager(kind, "dummy-memory-manager"){};
+  DummyMemoryManager(const std::string& kind) : MemoryManager(kind, MemoryManagerOptions{"dummy-memory-manager"}){};
 
   arrow::MemoryPool* defaultArrowMemoryPool() override {
     throw GlutenException("Not yet implemented");
@@ -67,8 +69,8 @@ class DummyRuntime final : public Runtime {
       DummyMemoryManager* mm,
       ThreadManager* tm,
       const std::unordered_map<std::string, std::string>& conf,
-      int64_t taskId)
-      : Runtime(kind, mm, tm, conf, taskId) {}
+      RuntimeOptions options)
+      : Runtime(kind, mm, tm, conf, std::move(options)) {}
 
   void parsePlan(const uint8_t* data, int32_t size) override {}
 
@@ -145,8 +147,8 @@ static Runtime* dummyRuntimeFactory(
     MemoryManager* mm,
     ThreadManager* tm,
     const std::unordered_map<std::string, std::string>& conf,
-    int64_t taskId) {
-  return new DummyRuntime(kind, dynamic_cast<DummyMemoryManager*>(mm), tm, conf, taskId);
+    const RuntimeOptions& options) {
+  return new DummyRuntime(kind, dynamic_cast<DummyMemoryManager*>(mm), tm, conf, options);
 }
 
 static void dummyRuntimeReleaser(Runtime* runtime) {
@@ -157,16 +159,17 @@ TEST(TestRuntime, CreateRuntime) {
   Runtime::registerFactory(kDummyBackendKind, dummyRuntimeFactory, dummyRuntimeReleaser);
   DummyMemoryManager mm(kDummyBackendKind);
   DummyThreadManager tm(kDummyBackendKind);
-  auto runtime = Runtime::create(kDummyBackendKind, &mm, &tm, {}, 1);
+  auto runtime = Runtime::create(kDummyBackendKind, &mm, &tm, {}, RuntimeOptions{1});
   ASSERT_EQ(typeid(*runtime), typeid(DummyRuntime));
   Runtime::release(runtime);
 }
 
 TEST(TestRuntime, CreateBoltRuntime) {
   BoltBackend::create(AllocationListener::noop(), {{kSparkOffHeapMemory, "7516192768"}});
-  auto mm = MemoryManager::create(kBoltBackendKind, AllocationListener::noop());
+  auto mm =
+      MemoryManager::create(kBoltBackendKind, AllocationListener::noop(), MemoryManagerOptions{"test-bolt-runtime"});
   auto tm = ThreadManager::create(kBoltBackendKind, ThreadInitializer::noop());
-  auto runtime = Runtime::create(kBoltBackendKind, mm, tm, {{kSparkOffHeapMemory, "7516192768"}}, 1);
+  auto runtime = Runtime::create(kBoltBackendKind, mm, tm, {{kSparkOffHeapMemory, "7516192768"}}, RuntimeOptions{1});
   ASSERT_EQ(typeid(*runtime), typeid(BoltRuntime));
   Runtime::release(runtime);
   ThreadManager::release(tm);
@@ -175,8 +178,8 @@ TEST(TestRuntime, CreateBoltRuntime) {
 TEST(TestRuntime, GetResultIterator) {
   DummyMemoryManager mm(kDummyBackendKind);
   DummyThreadManager tm(kDummyBackendKind);
-  auto runtime =
-      std::make_shared<DummyRuntime>(kDummyBackendKind, &mm, &tm, std::unordered_map<std::string, std::string>(), 1);
+  auto runtime = std::make_shared<DummyRuntime>(
+      kDummyBackendKind, &mm, &tm, std::unordered_map<std::string, std::string>(), RuntimeOptions{1});
   auto iter = runtime->createResultIterator("/tmp/test-spill", {});
   runtime->noMoreSplits(iter.get());
   ASSERT_TRUE(iter->hasNext());

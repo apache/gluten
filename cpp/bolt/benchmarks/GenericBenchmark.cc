@@ -26,23 +26,23 @@
 #include <gflags/gflags.h>
 
 #include "benchmarks/common/BenchmarkUtils.h"
+#include "bolt/exec/PlanNodeStats.h"
 #include "compute/BoltBackend.h"
 #include "compute/BoltRuntime.h"
-#include "config/GlutenConfig.h"
 #include "config/BoltConfig.h"
+#include "config/GlutenConfig.h"
 #include "operators/reader/FileReaderIterator.h"
 #include "operators/writer/BoltColumnarBatchWriter.h"
-#include "shuffle/LocalPartitionWriter.h"
 #include "shuffle/BoltShuffleWriter.h"
+#include "shuffle/LocalPartitionWriter.h"
 #include "shuffle/rss/RssPartitionWriter.h"
 #include "tests/utils/LocalRssClient.h"
 #include "tests/utils/TestAllocationListener.h"
 #include "tests/utils/TestStreamReader.h"
+#include "utils/BoltArrowUtils.h"
 #include "utils/Exception.h"
 #include "utils/StringUtil.h"
 #include "utils/Timer.h"
-#include "utils/BoltArrowUtils.h"
-#include "bolt/exec/PlanNodeStats.h"
 
 using namespace gluten;
 
@@ -397,7 +397,8 @@ auto BM_Generic = [](::benchmark::State& state,
   listener->updateLimit(FLAGS_memory_limit);
 
   auto* listenerPtr = listener.get();
-  auto* memoryManager = MemoryManager::create(kBoltBackendKind, std::move(listener));
+  auto* memoryManager =
+      MemoryManager::create(kBoltBackendKind, std::move(listener), MemoryManagerOptions{"bm-generic"});
   auto runtime = runtimeFactory(memoryManager);
 
   auto plan = getPlanFromFile("Plan", planFile);
@@ -518,7 +519,8 @@ auto BM_ShuffleWriteRead = [](::benchmark::State& state,
   listener->updateLimit(FLAGS_memory_limit);
 
   auto* listenerPtr = listener.get();
-  auto* memoryManager = MemoryManager::create(kBoltBackendKind, std::move(listener));
+  auto* memoryManager =
+      MemoryManager::create(kBoltBackendKind, std::move(listener), MemoryManagerOptions{"bm-shuffle-write-read"});
   auto runtime = runtimeFactory(memoryManager);
 
   const size_t dirIndex = std::hash<std::thread::id>{}(std::this_thread::get_id()) % localDirs.size();
@@ -707,7 +709,8 @@ int main(int argc, char** argv) {
   }
 
   RuntimeFactory runtimeFactory = [=](MemoryManager* memoryManager) {
-    return dynamic_cast<BoltRuntime*>(Runtime::create(kBoltBackendKind, memoryManager, 1, sessionConf));
+    return dynamic_cast<BoltRuntime*>(
+        Runtime::create(kBoltBackendKind, memoryManager, nullptr, sessionConf, RuntimeOptions{1}));
   };
 
   const auto localDirs = createLocalDirs();

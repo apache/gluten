@@ -23,6 +23,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "utils/ConfigResolver.h"
 #include "velox/common/config/Config.h"
 
 namespace gluten {
@@ -32,11 +33,6 @@ enum class FileSystemType : uint8_t { kHdfs, kS3, kAbfs, kGcs, kAll };
 /// Create hive connector session config.
 std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionConfig(
     const std::shared_ptr<facebook::velox::config::ConfigBase>& conf);
-
-std::string getConfigValue(
-    const std::unordered_map<std::string, std::string>& confMap,
-    const std::string& key,
-    const std::optional<std::string>& fallbackValue);
 
 /// Create hive connector config.
 std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorConfig(

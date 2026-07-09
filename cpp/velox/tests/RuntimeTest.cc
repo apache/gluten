@@ -142,7 +142,8 @@ static Runtime* dummyRuntimeFactory(
     const std::string& kind,
     MemoryManager* mm,
     ThreadManager* tm,
-    const std::unordered_map<std::string, std::string> conf) {
+    const std::unordered_map<std::string, std::string>& conf,
+    const RuntimeOptions&) {
   return new DummyRuntime(kind, dynamic_cast<DummyMemoryManager*>(mm), tm, conf);
 }
 

@@ -35,9 +35,12 @@ void MemoryManager::registerFactory(const std::string& kind, MemoryManager::Fact
   memoryManagerReleasers().registerObj(kind, std::move(releaser));
 }
 
-MemoryManager* MemoryManager::create(const std::string& kind, std::unique_ptr<AllocationListener> listener) {
+MemoryManager* MemoryManager::create(
+    const std::string& kind,
+    std::unique_ptr<AllocationListener> listener,
+    MemoryManagerOptions options) {
   auto& factory = memoryManagerFactories().get(kind);
-  return factory(kind, std::move(listener));
+  return factory(kind, std::move(listener), options);
 }
 
 void MemoryManager::release(MemoryManager* memoryManager) {

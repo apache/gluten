@@ -17,10 +17,11 @@
 
 #pragma once
 
-#include "memory/ColumnarBatch.h"
-#include "memory/BoltMemoryManager.h"
 #include "bolt/vector/ComplexVector.h"
 #include "bolt/vector/arrow/Bridge.h"
+#include "memory/BoltMemoryManager.h"
+#include "memory/ColumnarBatch.h"
+#include "utils/Likely.h"
 
 namespace gluten {
 

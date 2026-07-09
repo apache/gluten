@@ -17,27 +17,27 @@
 
 #include <gflags/gflags.h>
 
-#include "BoltRuntime.h"
 #include <bolt/common/memory/sparksql/MemoryTarget.h>
+#include "BoltRuntime.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <utility>
 
 #include "BoltBackend.h"
+#include "compute/BoltPlanConverter.h"
 #include "compute/ResultIterator.h"
 #include "compute/Runtime.h"
-#include "compute/BoltPlanConverter.h"
 #include "config/BoltConfig.h"
 #include "config/GlutenConfig.h"
-#include "jni/TaskContextJniWrapper.h"
 #include "memory/BoltGlutenMemoryManager.h"
 #include "operators/serializer/BoltRowToColumnarConverter.h"
-#include "utils/ConfigExtractor.h"
+#include "shuffle/BoltShuffleReaderWrapper.h"
+#include "shuffle/BoltShuffleWriterWrapper.h"
 #include "utils/BoltArrowUtils.h"
 #include "utils/BoltWholeStageDumper.h"
-#include "shuffle/BoltShuffleWriterWrapper.h"
-#include "shuffle/BoltShuffleReaderWrapper.h"
+#include "utils/ConfigExtractor.h"
 
 DECLARE_bool(bolt_exception_user_stacktrace_enabled);
 DECLARE_bool(bolt_memory_use_hugepages);
@@ -67,8 +67,9 @@ BoltRuntime::BoltRuntime(
     const std::string& kind,
     BoltMemoryManager* vmm,
     ThreadManager* threadManager,
-    const std::unordered_map<std::string, std::string>& confMap)
-    : Runtime(kind, vmm, threadManager, confMap) {
+    const std::unordered_map<std::string, std::string>& confMap,
+    RuntimeOptions options)
+    : Runtime(kind, vmm, threadManager, confMap, std::move(options)) {
   // Refresh session config.
   boltCfg_ =
       std::make_shared<bytedance::bolt::config::ConfigBase>(std::unordered_map<std::string, std::string>(confMap_));
@@ -76,9 +77,8 @@ BoltRuntime::BoltRuntime(
   gluten::BoltGlutenMemoryManager::init(BoltBackend::getCombinedConf(boltCfg_)->rawConfigs());
 
   if (gluten::BoltGlutenMemoryManager::enabled()) {
-    const auto taskAttemptId = gluten::getCurrentSparkTaskAttemptId();
     auto holder = gluten::BoltGlutenMemoryManager::getMemoryManagerHolder(
-        "", taskAttemptId, reinterpret_cast<int64_t>(memoryManager()));
+        memoryManager()->name(), runtimeOptions().taskAttemptId, reinterpret_cast<int64_t>(memoryManager()));
     auto mm = holder->getManager();
     leafPool_ = mm->getLeafMemoryPool();
     aggregatePool_ = mm->getAggregateMemoryPool();
@@ -168,8 +168,7 @@ void BoltRuntime::getInfoAndIds(
 std::string BoltRuntime::planString(bool details, const std::unordered_map<std::string, std::string>& sessionConf) {
   std::vector<std::shared_ptr<ResultIterator>> inputs;
   auto boltMemoryPool = gluten::defaultLeafBoltMemoryPool();
-  BoltPlanConverter boltPlanConverter(
-      inputs, boltMemoryPool.get(), boltCfg_.get(), std::nullopt, std::nullopt, true);
+  BoltPlanConverter boltPlanConverter(inputs, boltMemoryPool.get(), boltCfg_.get(), std::nullopt, std::nullopt, true);
   auto boltPlan = boltPlanConverter.toBoltPlan(substraitPlan_, localFiles_);
   return boltPlan->toString(details, true);
 }
@@ -186,11 +185,7 @@ std::shared_ptr<ResultIterator> BoltRuntime::createResultIterator(
   LOG_IF(INFO, debugModeEnabled_) << "BoltRuntime session config:" << printConfig(confMap_);
 
   BoltPlanConverter boltPlanConverter(
-      inputs,
-      leafPool_.get(),
-      boltCfg_.get(),
-      *localWriteFilesTempPath(),
-      *localWriteFileName());
+      inputs, leafPool_.get(), boltCfg_.get(), *localWriteFilesTempPath(), *localWriteFileName());
   boltPlan_ = boltPlanConverter.toBoltPlan(substraitPlan_, std::move(localFiles_));
   LOG_IF(INFO, debugModeEnabled_ && taskInfo_.has_value())
       << "############### Bolt plan for task " << taskInfo_.value() << " ###############" << std::endl
@@ -218,9 +213,8 @@ std::shared_ptr<ResultIterator> BoltRuntime::createResultIterator(
     std::weak_ptr<ResultIterator> weakAns = ans;
     auto spiller = std::make_shared<OperatorSpiller>(weakAns);
     auto genericSpiller = std::dynamic_pointer_cast<bytedance::bolt::memory::sparksql::Spiller>(spiller);
-    const auto taskAttemptId = gluten::getCurrentSparkTaskAttemptId();
     auto holder = gluten::BoltGlutenMemoryManager::getMemoryManagerHolder(
-        "", taskAttemptId, reinterpret_cast<int64_t>(memoryManager()));
+        memoryManager()->name(), runtimeOptions().taskAttemptId, reinterpret_cast<int64_t>(memoryManager()));
     holder->appendSpiller(genericSpiller);
   }
 
@@ -279,7 +273,15 @@ std::shared_ptr<IcebergWriter> BoltRuntime::createIcebergWriter(
     const gluten::IcebergNestedField& protoField,
     const std::unordered_map<std::string, std::string>& sparkConfs) {
   return std::make_shared<IcebergWriter>(
-      rowType, format, outputDirectory, compressionKind, spec, protoField, sparkConfs, leafPool_.get(), aggregatePool_.get());
+      rowType,
+      format,
+      outputDirectory,
+      compressionKind,
+      spec,
+      protoField,
+      sparkConfs,
+      leafPool_.get(),
+      aggregatePool_.get());
 }
 #endif
 
@@ -336,10 +338,7 @@ void BoltRuntime::enableDumping() {
   GLUTEN_CHECK(taskInfo.has_value(), "Task info is not set. Please set task info before enabling dumping.");
 
   dumper_ = std::make_shared<BoltWholeStageDumper>(
-      taskInfo.value(),
-      saveDir.value(),
-      boltCfg_->get<int64_t>(kSparkBatchSize, 4096),
-      aggregatePool_.get());
+      taskInfo.value(), saveDir.value(), boltCfg_->get<int64_t>(kSparkBatchSize, 4096), aggregatePool_.get());
 
   dumper_->dumpConf(getConfMap());
 }
@@ -370,14 +369,12 @@ std::shared_ptr<ShuffleWriterBase> BoltRuntime::createShuffleWriter(
     auto weakShuffleWriter = std::weak_ptr<ShuffleWriterBase>(shuffleWriter);
     auto spiller = std::make_shared<ShuffleSpiller>(weakShuffleWriter);
     auto genericSpiller = std::dynamic_pointer_cast<bytedance::bolt::memory::sparksql::Spiller>(spiller);
-    const auto taskAttemptId = gluten::getCurrentSparkTaskAttemptId();
     auto holder = gluten::BoltGlutenMemoryManager::getMemoryManagerHolder(
-        "", taskAttemptId, reinterpret_cast<int64_t>(memoryManager()));
+        memoryManager()->name(), runtimeOptions().taskAttemptId, reinterpret_cast<int64_t>(memoryManager()));
     holder->appendSpiller(genericSpiller);
   }
   return shuffleWriter;
 }
-
 
 std::shared_ptr<ShuffleReaderBase> BoltRuntime::createShuffleReader(
     std::shared_ptr<arrow::Schema> schema,

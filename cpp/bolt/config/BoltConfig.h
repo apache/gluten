@@ -39,8 +39,7 @@ const std::string kHashAggregationCompositeOutputAccumulatorRatio =
 const std::string kHashAggregationUniqueRowOpt =
     "spark.gluten.sql.columnar.backend.bolt.hashAggregationUniqueRowOptEnabled";
 // testing only
-const std::string kTestingSpillPct =
-    "spark.gluten.sql.columnar.backend.bolt.testingSpillPct";
+const std::string kTestingSpillPct = "spark.gluten.sql.columnar.backend.bolt.testingSpillPct";
 
 // spill config
 const std::string kMaxSpillLevel = "spark.gluten.sql.columnar.backend.bolt.maxSpillLevel";
@@ -71,10 +70,12 @@ const std::string kAbandonPartialAggregationMinRows =
     "spark.gluten.sql.columnar.backend.bolt.abandonPartialAggregationMinRows";
 
 // hashmap build
-const std::string kAbandonBuildNoDupHashMinRows = "spark.gluten.sql.columnar.backend.bolt.abandonbuild.noduphashminrows";
+const std::string kAbandonBuildNoDupHashMinRows =
+    "spark.gluten.sql.columnar.backend.bolt.abandonbuild.noduphashminrows";
 const std::string kAbandonBuildNoDupHashMinPct = "spark.gluten.sql.columnar.backend.bolt.abandonbuild.noduphashminpct";
 
 // execution
+const std::string kGlutenEnableParallel = "spark.gluten.parallel.enabled";
 const std::string kBloomFilterExpectedNumItems = "spark.gluten.sql.columnar.backend.bolt.bloomFilter.expectedNumItems";
 const std::string kBloomFilterNumBits = "spark.gluten.sql.columnar.backend.bolt.bloomFilter.numBits";
 const std::string kBloomFilterMaxNumBits = "spark.gluten.sql.columnar.backend.bolt.bloomFilter.maxNumBits";
@@ -123,8 +124,7 @@ const uint32_t kBoltSsdCacheShardsDefault = 1;
 const std::string kBoltSsdCacheIOThreads = "spark.gluten.sql.columnar.backend.bolt.ssdCacheIOThreads";
 const uint32_t kBoltSsdCacheIOThreadsDefault = 1;
 const std::string kBoltSsdODirectEnabled = "spark.gluten.sql.columnar.backend.bolt.ssdODirect";
-const std::string kBoltSsdCheckpointIntervalBytes =
-    "spark.gluten.sql.columnar.backend.bolt.ssdCheckpointIntervalBytes";
+const std::string kBoltSsdCheckpointIntervalBytes = "spark.gluten.sql.columnar.backend.bolt.ssdCheckpointIntervalBytes";
 const std::string kBoltSsdDisableFileCow = "spark.gluten.sql.columnar.backend.bolt.ssdDisableFileCow";
 const std::string kBoltSsdCheckSumEnabled = "spark.gluten.sql.columnar.backend.bolt.ssdChecksumEnabled";
 const std::string kBoltSsdCheckSumReadVerificationEnabled =
@@ -133,8 +133,7 @@ const std::string kBoltSsdCheckSumReadVerificationEnabled =
 // async
 const std::string kBoltIOThreads = "spark.gluten.sql.columnar.backend.bolt.IOThreads";
 const uint32_t kBoltIOThreadsDefault = 16;
-const std::string kBoltAsyncTimeoutOnTaskStopping =
-    "spark.gluten.sql.columnar.backend.bolt.asyncTimeoutOnTaskStopping";
+const std::string kBoltAsyncTimeoutOnTaskStopping = "spark.gluten.sql.columnar.backend.bolt.asyncTimeoutOnTaskStopping";
 const int32_t kBoltAsyncTimeoutOnTaskStoppingDefault = 30000; // 30s
 
 // 0 for disable, 1 for adaptive enable, -1 for force enable
@@ -187,8 +186,7 @@ const std::string kQueryTraceTaskRegExp = "spark.gluten.sql.columnar.backend.bol
 /// Config used to create operator trace directory. This config is provided to
 /// underlying file system and the config is free form. The form should be
 /// defined by the underlying file system.
-const std::string kOpTraceDirectoryCreateConfig =
-    "spark.gluten.sql.columnar.backend.bolt.opTraceDirectoryCreateConfig";
+const std::string kOpTraceDirectoryCreateConfig = "spark.gluten.sql.columnar.backend.bolt.opTraceDirectoryCreateConfig";
 
 // Cudf config.
 // GPU RMM memory resource
@@ -217,29 +215,40 @@ const std::string kBoltTaskSchedulingEnabled = "spark.gluten.sql.columnar.backen
 const std::string kDynamicConcurrency = "dynamicConcurrency";
 
 const std::string kBoltJitEnabled = "spark.gluten.sql.columnar.backend.bolt.jit.enabled";
-const std::string kThrowExceptionWhenEncounterBadTimestamp = "spark.gluten.sql.columnar.backend.bolt.timestamp.throwExceptionWhenEncounterBadTimestamp";
-const std::string kRegexMatchDanglingRightBrackets = "spark.gluten.sql.columnar.backend.bolt.regex.regexMatchDanglingRightBrackets";
+const std::string kThrowExceptionWhenEncounterBadTimestamp =
+    "spark.gluten.sql.columnar.backend.bolt.timestamp.throwExceptionWhenEncounterBadTimestamp";
+const std::string kRegexMatchDanglingRightBrackets =
+    "spark.gluten.sql.columnar.backend.bolt.regex.regexMatchDanglingRightBrackets";
 
-const std::string kEstimateRowSizeBasedOnSampleEnabled = "spark.gluten.sql.columnar.backend.bolt.estimateRowSizeBasedOnSample";
-const std::string kAbandonPartialAggregationMinFinalPct = "spark.gluten.sql.columnar.backend.bolt.abandonPartialAggregationMinFinalPct";
-const std::string kPartialAggregationSpillMaxPct = "spark.gluten.sql.columnar.backend.bolt.partialAggregationSpillMaxPct";
-const std::string kPreferPartialAggregationSpill = "spark.gluten.sql.columnar.backend.bolt.preferPartialAggregationSpill";
-const std::string kAdaptiveSkippedDataSizeThreshold = "spark.gluten.sql.columnar.backend.bolt.partialAggregationAdaptiveSkippedSize";
+const std::string kEstimateRowSizeBasedOnSampleEnabled =
+    "spark.gluten.sql.columnar.backend.bolt.estimateRowSizeBasedOnSample";
+const std::string kAbandonPartialAggregationMinFinalPct =
+    "spark.gluten.sql.columnar.backend.bolt.abandonPartialAggregationMinFinalPct";
+const std::string kPartialAggregationSpillMaxPct =
+    "spark.gluten.sql.columnar.backend.bolt.partialAggregationSpillMaxPct";
+const std::string kPreferPartialAggregationSpill =
+    "spark.gluten.sql.columnar.backend.bolt.preferPartialAggregationSpill";
+const std::string kAdaptiveSkippedDataSizeThreshold =
+    "spark.gluten.sql.columnar.backend.bolt.partialAggregationAdaptiveSkippedSize";
 const std::string kMaxHashTableSize = "spark.gluten.sql.columnar.backend.bolt.hashTableMaxSize";
 
 // spill related config
 const std::string kRowBasedSpillMode = "spark.gluten.sql.columnar.backend.bolt.rowBasedSpillMode";
 const std::string kSpillUringEnabled = "spark.gluten.sql.columnar.backend.bolt.spillUringEnabled";
-const std::string kSpilledAggregationBypassHTRatio = "spark.gluten.sql.columnar.backend.bolt.spilledAggregationBypassHashTableRatio";
+const std::string kSpilledAggregationBypassHTRatio =
+    "spark.gluten.sql.columnar.backend.bolt.spilledAggregationBypassHashTableRatio";
 const std::string kParquetDecodeRepDefPageCount = "spark.gluten.sql.columnar.backend.bolt.parquetDecodeRepDefPageCount";
 const std::string kParquetRepDefMemoryRatio = "spark.gluten.sql.columnar.backend.bolt.parquetRepDefMemoryRatio";
 
 // json related config
 const std::string kUseSonicJson = "spark.gluten.sql.columnar.backend.bolt.json.useSonicJson";
-const std::string kThrowExceptionWhenEncounterBadJson = "spark.gluten.sql.columnar.backend.bolt.json.throwExceptionWhenEncounterBadJson";
-const std::string kOrderBySpillInOutputStageEnabled = "spark.gluten.sql.columnar.backend.bolt.orderBySpillInOutputStageEnabled";
-const std::string kUseDOMParserInGetJsonObject = "spark.gluten.sql.columnar.backend.bolt.json.useDOMParserInGetJsonObject";
-const std::string kEnableSonicIsJsonScalar =  "spark.gluten.sql.columnar.backend.bolt.sonic.is_json_scalar";
+const std::string kThrowExceptionWhenEncounterBadJson =
+    "spark.gluten.sql.columnar.backend.bolt.json.throwExceptionWhenEncounterBadJson";
+const std::string kOrderBySpillInOutputStageEnabled =
+    "spark.gluten.sql.columnar.backend.bolt.orderBySpillInOutputStageEnabled";
+const std::string kUseDOMParserInGetJsonObject =
+    "spark.gluten.sql.columnar.backend.bolt.json.useDOMParserInGetJsonObject";
+const std::string kEnableSonicIsJsonScalar = "spark.gluten.sql.columnar.backend.bolt.sonic.is_json_scalar";
 const std::string kEnableSonicJsonArrayContains = "spark.gluten.sql.columnar.backend.bolt.sonic.json_array_contains";
 const std::string kEnableSonicJsonArrayLength = "spark.gluten.sql.columnar.backend.bolt.sonic.json_array_length";
 const std::string kEnableSonicJsonExtractScalar = "spark.gluten.sql.columnar.backend.bolt.sonic.json_extract_scalar";
