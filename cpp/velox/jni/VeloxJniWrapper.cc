@@ -90,6 +90,11 @@ auto makePartitionIdGenerator(
 }
 } // namespace
 
+std::unique_ptr<gluten::ColumnarBatchIterator>
+gluten::createInputIterator(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime, int32_t iteratorIndex) {
+  return makeJniColumnarBatchIterator(env, jColumnarBatchItr, runtime);
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -372,19 +372,8 @@ class JniColumnarBatchIterator : public ColumnarBatchIterator {
   std::shared_ptr<ColumnarBatchIterator> dumpedIteratorReader_{nullptr};
 };
 
-using InputIteratorFactory = std::function<std::unique_ptr<
-    ColumnarBatchIterator>(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime, int32_t iteratorIndex)>;
-
-void registerInputIteratorFactory(const std::string& kind, InputIteratorFactory factory);
-
-std::unique_ptr<ColumnarBatchIterator>
-createInputIterator(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime, int32_t iteratorIndex);
-
-std::unique_ptr<JniColumnarBatchIterator> makeJniColumnarBatchIterator(
-    JNIEnv* env,
-    jobject jColumnarBatchItr,
-    Runtime* runtime,
-    std::optional<int32_t> iteratorIndex = std::nullopt);
+std::unique_ptr<JniColumnarBatchIterator>
+makeJniColumnarBatchIterator(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime);
 } // namespace gluten
 
 // TODO: Move the static functions to namespace gluten
@@ -397,35 +386,6 @@ static inline void backtrace() {
     LOG(INFO) << strings[i];
   }
   free(strings);
-}
-
-static inline std::vector<std::string> ToStringVector(JNIEnv* env, jobjectArray& str_array) {
-  std::vector<std::string> vector;
-  if (str_array == NULL) {
-    return vector;
-  }
-  int length = env->GetArrayLength(str_array);
-  for (int i = 0; i < length; i++) {
-    auto string = reinterpret_cast<jstring>(env->GetObjectArrayElement(str_array, i));
-    vector.push_back(jStringToCString(env, string));
-  }
-  return vector;
-}
-static inline std::vector<std::string> FromByteArrToStringVector(JNIEnv* env, jobjectArray& str_array) {
-  std::vector<std::string> vector;
-  if (str_array == NULL) {
-    return vector;
-  }
-  int length = env->GetArrayLength(str_array);
-  for (int i = 0; i < length; i++) {
-    jbyteArray byte_array = reinterpret_cast<jbyteArray>(env->GetObjectArrayElement(str_array, i));
-    int bytes_len = env->GetArrayLength(byte_array);
-    signed char array[bytes_len];
-    env->GetByteArrayRegion(byte_array, 0, bytes_len, array);
-    std::string j_string(reinterpret_cast<char*>(array), sizeof(array));
-    vector.push_back(j_string);
-  }
-  return vector;
 }
 
 static inline arrow::Compression::type getCompressionType(JNIEnv* env, jstring codecJstr) {

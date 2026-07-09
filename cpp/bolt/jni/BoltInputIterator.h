@@ -98,7 +98,4 @@ class ShuffleReaderWrapperedIterator : public BoltJniColumnarBatchIterator {
   jmethodID getReaderInfoMethod_{nullptr};
   std::shared_ptr<StreamReader> streamReader_{nullptr};
 };
-
-void registerBoltInputIteratorFactory();
-
 } // namespace gluten

@@ -344,26 +344,4 @@ ShuffleReaderWrapperedIterator::ShuffleReaderHandles ShuffleReaderWrapperedItera
   return ShuffleReaderHandles{wrapper, streamReader};
 }
 
-namespace {
-std::unique_ptr<ColumnarBatchIterator>
-createBoltInputIterator(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime, int32_t iteratorIndex) {
-  const auto& conf = runtime->getConfMap();
-  bool parallelEnabled = getBoolConfigValue(conf, kGlutenEnableParallel, false);
-  LOG(INFO) << "nativeCreateKernelWithIterator parallelEnabled=" << parallelEnabled;
-
-  auto shuffleReaderIter =
-      ShuffleReaderWrapperedIterator::tryFrom(env, jColumnarBatchItr, runtime, parallelEnabled, iteratorIndex);
-  if (shuffleReaderIter != nullptr) {
-    LOG(INFO) << "Wrap ShuffleReaderWrapperedIterator for input iterator " << iteratorIndex;
-    return shuffleReaderIter;
-  }
-  return std::make_unique<BoltJniColumnarBatchIterator>(
-      env, jColumnarBatchItr, runtime, parallelEnabled, iteratorIndex);
-}
-} // namespace
-
-void registerBoltInputIteratorFactory() {
-  registerInputIteratorFactory(kBoltBackendKind, createBoltInputIterator);
-}
-
 } // namespace gluten

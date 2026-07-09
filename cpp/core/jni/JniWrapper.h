@@ -24,5 +24,10 @@ jint JNI_OnLoad_Base(JavaVM* vm, void* reserved);
 void JNI_OnUnload_Base(JavaVM * vm, void* reserved);
 #ifdef __cplusplus
 }
-#endif
 
+namespace gluten {
+extern std::unique_ptr<ColumnarBatchIterator>
+createInputIterator(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime, int32_t iteratorIndex);
+}
+
+#endif
