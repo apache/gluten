@@ -471,8 +471,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         getJoinOutputType(leftNode, rightNode, joinType),
         true,
         false,
-        false,
-        nullptr,
         sJoin.hashtableid());
   } else {
     // Create HashJoinNode node
