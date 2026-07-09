@@ -207,11 +207,7 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     super(capacity, dataType);
     vectorCount.getAndIncrement();
     refCnt.getAndIncrement();
-    String timeZoneId = SparkSchemaUtil.getLocalTimezoneID();
-    boolean useLargeVarTypes = SparkSchemaUtil.enableLargeVarTypes();
-    List<Field> fields =
-        Arrays.asList(
-            SparkArrowUtil.toArrowField("col", dataType, true, timeZoneId, useLargeVarTypes));
+    List<Field> fields = Arrays.asList(SparkSchemaUtil.toArrowField("col", dataType, true));
     Schema arrowSchema = new Schema(fields);
     VectorSchemaRoot root =
         VectorSchemaRoot.create(arrowSchema, ArrowBufferAllocators.contextInstance());

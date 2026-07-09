@@ -31,7 +31,7 @@ import scala.collection.JavaConverters._
 object SparkArrowUtil {
 
   /** Maps data type from Spark to Arrow. NOTE: timeZoneId required for TimestampTypes */
-  def toArrowType(
+  private[utils] def toArrowType(
       dt: DataType,
       timeZoneId: String,
       largeVarTypes: Boolean = false): ArrowType = dt match {
@@ -100,7 +100,7 @@ object SparkArrowUtil {
   }
 
   /** Maps field from Spark to Arrow. NOTE: timeZoneId required for TimestampType */
-  def toArrowField(
+  private[utils] def toArrowField(
       name: String,
       dt: DataType,
       nullable: Boolean,
@@ -179,7 +179,7 @@ object SparkArrowUtil {
   }
 
   /** Maps schema from Spark to Arrow. NOTE: timeZoneId required for TimestampType in StructType */
-  def toArrowSchema(
+  private[utils] def toArrowSchema(
       schema: StructType,
       timeZoneId: String,
       largeVarTypes: Boolean = false): Schema = {
