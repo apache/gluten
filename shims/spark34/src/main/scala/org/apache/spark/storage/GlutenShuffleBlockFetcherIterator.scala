@@ -229,8 +229,14 @@ final class GlutenShuffleBlockFetcherIterator(
       isZombie = true
     }
     // Release all current result buffers from all threads
-    currentResults.forEach(result => result.buf.release())
-    currentResults.clear()
+    while (!currentResults.isEmpty) {
+      currentResults.toArray(new Array[SuccessFetchResult](0)).foreach {
+        result =>
+          if (currentResults.remove(result)) {
+            result.buf.release()
+          }
+      }
+    }
 
     // Release buffers in the results queue
     val iter = results.iterator()
