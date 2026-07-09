@@ -35,6 +35,7 @@ starts failing** (a regression).
 | `known-failures.txt` | Committed baseline: the tests currently expected to fail. One `<suite>#<test>` per line. |
 | `flaky-tests.txt` | Quarantine list: tests whose pass/fail is non-deterministic. Ignored by the gate whether they pass or fail. `<suite-glob>#<test>` per line. |
 | `compare-test-results.py` | Parses the JUnit XML from `sbt spark/test` and gates / seeds / aggregates against the baseline. Standard-library only. |
+| `run-delta-tests.sh` | The shard step's body: runs `sbt spark/test` (tuned JVM/heap flags) under a hang watchdog, prints memory forensics, then gates the results against the baseline via `compare-test-results.py`. |
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and patches `DeltaSQLCommandTest`. |
 
 ## How the gate works
