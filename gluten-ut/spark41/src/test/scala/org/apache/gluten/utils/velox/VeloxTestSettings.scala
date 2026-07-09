@@ -219,7 +219,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("random")
     .exclude("SPARK-9127 codegen with long seed")
   enableSuite[GlutenRegexpExpressionsSuite]
-    // TODO: fix on Spark-4.1 introduced by https://github.com/apache/spark/pull/48470
+    // TODO: fix after https://github.com/facebookincubator/velox/pull/17327
     .exclude("SPLIT")
   enableSuite[GlutenSortShuffleSuite]
   enableSuite[GlutenSortOrderExpressionsSuite]
@@ -240,11 +240,12 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenCodeGenerationSuite]
   enableSuite[GlutenCodeGeneratorWithInterpretedFallbackSuite]
   enableSuite[GlutenCollationExpressionSuite]
-  // TODO: 4.x enableSuite[GlutenCollationRegexpExpressionsSuite]  // 1 failure
+  // TODO: 4.x enableSuite[GlutenCollationRegexpExpressionsSuite]  // fix after https://github.com/facebookincubator/velox/pull/17327
   enableSuite[GlutenCsvExpressionsSuite]
   enableSuite[GlutenDynamicPruningSubquerySuite]
   enableSuite[GlutenExprIdSuite]
-  // TODO: 4.x enableSuite[GlutenExpressionEvalHelperSuite]  // 2 failures
+  // GlutenExpressionEvalHelperSuite is not enabled: it validates Spark's ExpressionEvalHelper
+  // contract, while Gluten overrides checkEvaluation/checkExceptionInExpression.
   enableSuite[GlutenExpressionImplUtilsSuite]
   enableSuite[GlutenExpressionSQLBuilderSuite]
   enableSuite[GlutenExpressionSetSuite]
@@ -252,9 +253,11 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHexSuite]
   enableSuite[GlutenMutableProjectionSuite]
   enableSuite[GlutenNamedExpressionSuite]
-  // TODO: 4.x enableSuite[GlutenObjectExpressionsSuite]  // 7 failures
-  // TODO: 4.x enableSuite[GlutenOrderingSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenScalaUDFSuite]  // 1 failure
+  // GlutenObjectExpressionsSuite is not enabled: object/encoder interpreted execution is
+  // JVM-side coverage and currently fails under Gluten's expression evaluation harness.
+  enableSuite[GlutenOrderingSuite]
+  // GlutenScalaUDFSuite is not enabled: ScalaUDF executes on the JVM/fallback path, so
+  // this parent suite has limited Velox coverage value and still has one inherited failure.
   enableSuite[GlutenSchemaPruningSuite]
   enableSuite[GlutenSelectedFieldSuite]
   // GlutenSubExprEvaluationRuntimeSuite is removed because SubExprEvaluationRuntimeSuite
@@ -699,7 +702,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenGlobalTempViewSuite]
   enableSuite[GlutenGlobalTempViewTestSuite]
   enableSuite[GlutenGroupedIteratorSuite]
-  // TODO: 4.x enableSuite[GlutenHiveResultSuite]  // 1 failure
+  enableSuite[GlutenHiveResultSuite]
   enableSuite[GlutenInsertSortForLimitAndOffsetSuite]
     .exclude("root LIMIT preserves data ordering with top-K sort")
     .exclude("middle LIMIT preserves data ordering with top-K sort")

@@ -234,7 +234,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenCsvExpressionsSuite]
   enableSuite[GlutenDynamicPruningSubquerySuite]
   enableSuite[GlutenExprIdSuite]
-  // TODO: 4.x enableSuite[GlutenExpressionEvalHelperSuite]  // 2 failures
+  // GlutenExpressionEvalHelperSuite is not enabled: it validates Spark's ExpressionEvalHelper
+  // contract, while Gluten overrides checkEvaluation/checkExceptionInExpression.
   enableSuite[GlutenExpressionImplUtilsSuite]
   enableSuite[GlutenExpressionSQLBuilderSuite]
   enableSuite[GlutenExpressionSetSuite]
@@ -242,9 +243,11 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHexSuite]
   enableSuite[GlutenMutableProjectionSuite]
   enableSuite[GlutenNamedExpressionSuite]
-  // TODO: 4.x enableSuite[GlutenObjectExpressionsSuite]  // 7 failures
+  // GlutenObjectExpressionsSuite is not enabled: object/encoder interpreted execution is
+  // JVM-side coverage and currently fails under Gluten's expression evaluation harness.
   enableSuite[GlutenOrderingSuite]
-  // TODO: 4.x enableSuite[GlutenScalaUDFSuite]  // 1 failure
+  // GlutenScalaUDFSuite is not enabled: ScalaUDF executes on the JVM/fallback path, so
+  // this parent suite has limited Velox coverage value and still has one inherited failure.
   enableSuite[GlutenSchemaPruningSuite]
   enableSuite[GlutenSelectedFieldSuite]
   // GlutenSubExprEvaluationRuntimeSuite is removed because SubExprEvaluationRuntimeSuite
