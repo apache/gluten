@@ -237,9 +237,8 @@ class UnsafeColumnarBuildSideRelation(
         val serializeHandle: Long = {
           val allocator = ArrowBufferAllocators.globalInstance()
           val cSchema = ArrowSchema.allocateNew(allocator)
-          val arrowSchema = SparkArrowUtil.toArrowSchema(
-            SparkShimLoader.getSparkShims.structFromAttributes(output),
-            SQLConf.get.sessionLocalTimeZone)
+          val arrowSchema = SparkSchemaUtil.toArrowSchema(
+            SparkShimLoader.getSparkShims.structFromAttributes(output))
           ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
           val handle = jniWrapper
             .init(cSchema.memoryAddress())
