@@ -232,7 +232,7 @@ ShuffleReaderWrapperedIterator::ShuffleReaderWrapperedIterator(
   jclass shuffleReaderIteratorWrapperClass = env->GetObjectClass(handles.wrapper);
   GLUTEN_CHECK(shuffleReaderIteratorWrapperClass != nullptr, "Failed to get ShuffleReaderIteratorWrapper class");
   markAsOffloadedMethod_ = getMethodIdOrError(env, shuffleReaderIteratorWrapperClass, "markAsOffloaded", "()V");
-  updateMetricsMethod_ = getMethodIdOrError(env, shuffleReaderIteratorWrapperClass, "updateMetrics", "(JJJJJ)V");
+  updateMetricsMethod_ = getMethodIdOrError(env, shuffleReaderIteratorWrapperClass, "updateMetrics", "(JJJJJJJJ)V");
   getReaderInfoMethod_ = getMethodIdOrError(env, shuffleReaderIteratorWrapperClass, "getReaderInfo", "()[B");
 
   jShuffleReaderIteratorWrapper_ = env->NewGlobalRef(handles.wrapper);
@@ -260,6 +260,9 @@ void ShuffleReaderWrapperedIterator::updateMetrics(
     int64_t numBatchesTotal,
     int64_t decompressTime,
     int64_t deserializeTime,
+    int64_t deserializerCreateTime,
+    int64_t deserializerDestroyTime,
+    int64_t mergeTime,
     int64_t totalReadTime) {
   JNIEnv* env = nullptr;
   attachCurrentThreadAsDaemonOrThrow(shuffleVm_, &env);
@@ -270,6 +273,9 @@ void ShuffleReaderWrapperedIterator::updateMetrics(
       static_cast<jlong>(numBatchesTotal),
       static_cast<jlong>(decompressTime),
       static_cast<jlong>(deserializeTime),
+      static_cast<jlong>(deserializerCreateTime),
+      static_cast<jlong>(deserializerDestroyTime),
+      static_cast<jlong>(mergeTime),
       static_cast<jlong>(totalReadTime));
   checkException(env);
 }

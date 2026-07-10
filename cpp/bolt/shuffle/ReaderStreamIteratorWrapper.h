@@ -53,9 +53,20 @@ class ReaderStreamIteratorWrapper : public bytedance::bolt::shuffle::sparksql::R
       int64_t numBatches,
       int64_t decompressTime,
       int64_t deserializeTime,
+      int64_t deserializerCreateTime,
+      int64_t deserializerDestroyTime,
+      int64_t mergeTime,
       int64_t totalReadTime) override {
     std::lock_guard<std::mutex> lock{mutex_};
-    readerWrapper_->updateMetrics(numRows, numBatches, decompressTime, deserializeTime, totalReadTime);
+    readerWrapper_->updateMetrics(
+        numRows,
+        numBatches,
+        decompressTime,
+        deserializeTime,
+        deserializerCreateTime,
+        deserializerDestroyTime,
+        mergeTime,
+        totalReadTime);
   }
 
  private:

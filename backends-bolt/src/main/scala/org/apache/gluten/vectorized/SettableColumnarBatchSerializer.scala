@@ -24,7 +24,11 @@ abstract class SettableColumnarBatchSerializer(
     val numOutputRows: SQLMetric,
     val decompressTime: SQLMetric,
     val deserializeTime: SQLMetric,
-    val totalReadTime: SQLMetric)
+    val deserializerCreatTime: SQLMetric,
+    val deserializerDestroyTime: SQLMetric,
+    val mergeTime: SQLMetric,
+    val totalReadTime: SQLMetric,
+    val shuffleWallTime: SQLMetric)
   extends Serializer
   with Serializable {
 
