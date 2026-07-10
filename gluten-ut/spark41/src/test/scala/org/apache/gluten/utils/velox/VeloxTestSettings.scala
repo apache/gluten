@@ -272,7 +272,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataSourceV2MetricsSuite]
   enableSuite[GlutenDataSourceV2OptionSuite]
   enableSuite[GlutenDataSourceV2UtilsSuite]
-  // TODO: 4.x enableSuite[GlutenGroupBasedUpdateTableSuite]  // 1 failure
+  enableSuite[GlutenGroupBasedUpdateTableSuite]
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("update with NOT NULL checks")
   enableSuite[GlutenMergeIntoDataFrameSuite]
   enableSuite[GlutenProcedureSuite]
   enableSuite[GlutenPushablePredicateSuite]
