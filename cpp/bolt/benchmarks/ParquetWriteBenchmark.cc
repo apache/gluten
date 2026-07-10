@@ -52,7 +52,7 @@ class GoogleBenchmarkBoltParquetWriteCacheScanBenchmark {
     // reuse the ParquetWriteConverter for batches caused system % increase a lot
 
     auto memoryManager = getDefaultMemoryManager();
-    auto runtime = Runtime::create(kBoltBackendKind, memoryManager, nullptr, {}, RuntimeOptions{1});
+    auto runtime = Runtime::create(kBoltBackendKind, memoryManager, nullptr);
     auto boltPool = memoryManager->getAggregateMemoryPool();
 
     for (auto _ : state) {

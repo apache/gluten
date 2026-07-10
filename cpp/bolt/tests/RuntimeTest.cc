@@ -68,9 +68,8 @@ class DummyRuntime final : public Runtime {
       const std::string& kind,
       DummyMemoryManager* mm,
       ThreadManager* tm,
-      const std::unordered_map<std::string, std::string>& conf,
-      RuntimeOptions options)
-      : Runtime(kind, mm, tm, conf, std::move(options)) {}
+      const std::unordered_map<std::string, std::string>& conf)
+      : Runtime(kind, mm, tm, conf) {}
 
   void parsePlan(const uint8_t* data, int32_t size) override {}
 
@@ -146,9 +145,8 @@ static Runtime* dummyRuntimeFactory(
     const std::string& kind,
     MemoryManager* mm,
     ThreadManager* tm,
-    const std::unordered_map<std::string, std::string>& conf,
-    const RuntimeOptions& options) {
-  return new DummyRuntime(kind, dynamic_cast<DummyMemoryManager*>(mm), tm, conf, options);
+    const std::unordered_map<std::string, std::string>& conf) {
+  return new DummyRuntime(kind, dynamic_cast<DummyMemoryManager*>(mm), tm, conf);
 }
 
 static void dummyRuntimeReleaser(Runtime* runtime) {
@@ -159,7 +157,7 @@ TEST(TestRuntime, CreateRuntime) {
   Runtime::registerFactory(kDummyBackendKind, dummyRuntimeFactory, dummyRuntimeReleaser);
   DummyMemoryManager mm(kDummyBackendKind);
   DummyThreadManager tm(kDummyBackendKind);
-  auto runtime = Runtime::create(kDummyBackendKind, &mm, &tm, {}, RuntimeOptions{1});
+  auto runtime = Runtime::create(kDummyBackendKind, &mm, &tm);
   ASSERT_EQ(typeid(*runtime), typeid(DummyRuntime));
   Runtime::release(runtime);
 }
@@ -169,7 +167,7 @@ TEST(TestRuntime, CreateBoltRuntime) {
   auto mm =
       MemoryManager::create(kBoltBackendKind, AllocationListener::noop(), MemoryManagerOptions{"test-bolt-runtime"});
   auto tm = ThreadManager::create(kBoltBackendKind, ThreadInitializer::noop());
-  auto runtime = Runtime::create(kBoltBackendKind, mm, tm, {{kSparkOffHeapMemory, "7516192768"}}, RuntimeOptions{1});
+  auto runtime = Runtime::create(kBoltBackendKind, mm, tm, {{kSparkOffHeapMemory, "7516192768"}});
   ASSERT_EQ(typeid(*runtime), typeid(BoltRuntime));
   Runtime::release(runtime);
   ThreadManager::release(tm);
@@ -178,8 +176,8 @@ TEST(TestRuntime, CreateBoltRuntime) {
 TEST(TestRuntime, GetResultIterator) {
   DummyMemoryManager mm(kDummyBackendKind);
   DummyThreadManager tm(kDummyBackendKind);
-  auto runtime = std::make_shared<DummyRuntime>(
-      kDummyBackendKind, &mm, &tm, std::unordered_map<std::string, std::string>(), RuntimeOptions{1});
+  auto runtime =
+      std::make_shared<DummyRuntime>(kDummyBackendKind, &mm, &tm, std::unordered_map<std::string, std::string>());
   auto iter = runtime->createResultIterator("/tmp/test-spill", {});
   runtime->noMoreSplits(iter.get());
   ASSERT_TRUE(iter->hasNext());

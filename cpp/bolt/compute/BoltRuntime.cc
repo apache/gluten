@@ -31,6 +31,7 @@
 #include "compute/Runtime.h"
 #include "config/BoltConfig.h"
 #include "config/GlutenConfig.h"
+#include "jni/TaskContextJniWrapper.h"
 #include "memory/BoltGlutenMemoryManager.h"
 #include "operators/serializer/BoltRowToColumnarConverter.h"
 #include "shuffle/BoltShuffleReaderWrapper.h"
@@ -67,9 +68,8 @@ BoltRuntime::BoltRuntime(
     const std::string& kind,
     BoltMemoryManager* vmm,
     ThreadManager* threadManager,
-    const std::unordered_map<std::string, std::string>& confMap,
-    RuntimeOptions options)
-    : Runtime(kind, vmm, threadManager, confMap, std::move(options)) {
+    const std::unordered_map<std::string, std::string>& confMap)
+    : Runtime(kind, vmm, threadManager, confMap) {
   // Refresh session config.
   boltCfg_ =
       std::make_shared<bytedance::bolt::config::ConfigBase>(std::unordered_map<std::string, std::string>(confMap_));
@@ -77,8 +77,10 @@ BoltRuntime::BoltRuntime(
   gluten::BoltGlutenMemoryManager::init(BoltBackend::getCombinedConf(boltCfg_)->rawConfigs());
 
   if (gluten::BoltGlutenMemoryManager::enabled()) {
+    taskAttemptId_ = gluten::getCurrentSparkTaskAttemptId();
+    vmm->setTaskAttemptId(taskAttemptId_);
     auto holder = gluten::BoltGlutenMemoryManager::getMemoryManagerHolder(
-        memoryManager()->name(), runtimeOptions().taskAttemptId, reinterpret_cast<int64_t>(memoryManager()));
+        memoryManager()->name(), taskAttemptId_, reinterpret_cast<int64_t>(memoryManager()));
     auto mm = holder->getManager();
     leafPool_ = mm->getLeafMemoryPool();
     aggregatePool_ = mm->getAggregateMemoryPool();
@@ -214,7 +216,7 @@ std::shared_ptr<ResultIterator> BoltRuntime::createResultIterator(
     auto spiller = std::make_shared<OperatorSpiller>(weakAns);
     auto genericSpiller = std::dynamic_pointer_cast<bytedance::bolt::memory::sparksql::Spiller>(spiller);
     auto holder = gluten::BoltGlutenMemoryManager::getMemoryManagerHolder(
-        memoryManager()->name(), runtimeOptions().taskAttemptId, reinterpret_cast<int64_t>(memoryManager()));
+        memoryManager()->name(), taskAttemptId_, reinterpret_cast<int64_t>(memoryManager()));
     holder->appendSpiller(genericSpiller);
   }
 
@@ -370,7 +372,7 @@ std::shared_ptr<ShuffleWriterBase> BoltRuntime::createShuffleWriter(
     auto spiller = std::make_shared<ShuffleSpiller>(weakShuffleWriter);
     auto genericSpiller = std::dynamic_pointer_cast<bytedance::bolt::memory::sparksql::Spiller>(spiller);
     auto holder = gluten::BoltGlutenMemoryManager::getMemoryManagerHolder(
-        memoryManager()->name(), runtimeOptions().taskAttemptId, reinterpret_cast<int64_t>(memoryManager()));
+        memoryManager()->name(), taskAttemptId_, reinterpret_cast<int64_t>(memoryManager()));
     holder->appendSpiller(genericSpiller);
   }
   return shuffleWriter;

@@ -92,9 +92,7 @@ class BoltMemoryManager final : public MemoryManager {
 
   void hold() override;
 
-  void hold(const MemoryManagerLifecycleContext& context) override;
-
-  void beforeRelease(const MemoryManagerLifecycleContext& context) override;
+  void setTaskAttemptId(int64_t taskAttemptId);
 
   /// Test only
   MemoryAllocator* allocator() const {
@@ -106,6 +104,8 @@ class BoltMemoryManager final : public MemoryManager {
   }
 
  private:
+  void releaseMemoryManagerHolder();
+
   bool tryDestructSafe();
 
   std::unique_ptr<AllocationListener> listener_;
@@ -118,6 +118,7 @@ class BoltMemoryManager final : public MemoryManager {
   std::shared_ptr<bytedance::bolt::memory::MemoryPool> boltAggregatePool_;
   std::shared_ptr<bytedance::bolt::memory::MemoryPool> boltLeafPool_;
   std::vector<std::shared_ptr<bytedance::bolt::memory::MemoryPool>> heldBoltPools_;
+  int64_t taskAttemptId_{-1};
 
   std::mutex mutex_;
 };

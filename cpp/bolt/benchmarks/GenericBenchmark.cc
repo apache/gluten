@@ -709,8 +709,7 @@ int main(int argc, char** argv) {
   }
 
   RuntimeFactory runtimeFactory = [=](MemoryManager* memoryManager) {
-    return dynamic_cast<BoltRuntime*>(
-        Runtime::create(kBoltBackendKind, memoryManager, nullptr, sessionConf, RuntimeOptions{1}));
+    return dynamic_cast<BoltRuntime*>(Runtime::create(kBoltBackendKind, memoryManager, nullptr, sessionConf));
   };
 
   const auto localDirs = createLocalDirs();

@@ -22,7 +22,6 @@ import org.apache.gluten.memory.NativeMemoryManager
 import org.apache.gluten.threads.{NativeThreadManager, TaskChildThreadInitializer}
 import org.apache.gluten.utils.ConfigUtil
 
-import org.apache.spark.TaskContext
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
 import org.apache.spark.task.{TaskResource, TaskResources}
 
@@ -65,8 +64,7 @@ object Runtime {
         (GlutenConfig
           .getNativeSessionConf(
             backendName,
-            GlutenConfigUtil.parseConfig(SQLConf.get.getAllConfs)) ++ extraConf.asScala).asJava),
-      TaskContext.get().taskAttemptId()
+            GlutenConfigUtil.parseConfig(SQLConf.get.getAllConfs)) ++ extraConf.asScala).asJava)
     )
 
     private val released: AtomicBoolean = new AtomicBoolean(false)

@@ -28,6 +28,7 @@
 #include "bolt/exec/MemoryReclaimer.h"
 
 #include "config/BoltConfig.h"
+#include "jni/TaskContextJniWrapper.h"
 #include "memory/ArrowMemoryPool.h"
 #include "memory/BoltGlutenMemoryManager.h"
 #include "utils/Exception.h"
@@ -368,20 +369,22 @@ void holdInternal(
 
 void BoltMemoryManager::hold() {
   holdInternal(heldBoltPools_, boltAggregatePool_.get());
-}
-
-void BoltMemoryManager::hold(const MemoryManagerLifecycleContext& context) {
-  hold();
   if (BoltGlutenMemoryManager::enabled()) {
+    setTaskAttemptId(gluten::getCurrentSparkTaskAttemptId());
     auto holder = BoltGlutenMemoryManager::getMemoryManagerHolder(
-        context.name.empty() ? name() : context.name, context.taskAttemptId, reinterpret_cast<int64_t>(this));
+        name(), taskAttemptId_, reinterpret_cast<int64_t>(this));
     holder->hold();
   }
 }
 
-void BoltMemoryManager::beforeRelease(const MemoryManagerLifecycleContext& context) {
-  if (BoltGlutenMemoryManager::enabled()) {
-    BoltGlutenMemoryManager::destroy(context.taskAttemptId, reinterpret_cast<int64_t>(this));
+void BoltMemoryManager::setTaskAttemptId(int64_t taskAttemptId) {
+  taskAttemptId_ = taskAttemptId;
+}
+
+void BoltMemoryManager::releaseMemoryManagerHolder() {
+  if (BoltGlutenMemoryManager::enabled() && taskAttemptId_ >= 0) {
+    BoltGlutenMemoryManager::destroy(taskAttemptId_, reinterpret_cast<int64_t>(this));
+    taskAttemptId_ = -1;
   }
 }
 
@@ -454,6 +457,8 @@ bool BoltMemoryManager::tryDestructSafe() {
 }
 
 BoltMemoryManager::~BoltMemoryManager() {
+  releaseMemoryManagerHolder();
+
   static const uint32_t kWaitTimeoutMs = FLAGS_gluten_bolt_async_timeout_on_task_stopping; // 30s by default
   uint32_t accumulatedWaitMs = 0UL;
   bool destructed = false;
