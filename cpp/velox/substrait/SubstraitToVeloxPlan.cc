@@ -488,7 +488,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         false,
         false,
         nullptr,
-        hashTableId);
+        useHashTableCache ? hashTableId : std::string());
   } else {
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(
