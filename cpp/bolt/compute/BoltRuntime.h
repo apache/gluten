@@ -46,8 +46,7 @@ class BoltRuntime final : public Runtime {
       const std::string& kind,
       BoltMemoryManager* vmm,
       ThreadManager* threadManager,
-      const std::unordered_map<std::string, std::string>& confMap,
-      RuntimeOptions options);
+      const std::unordered_map<std::string, std::string>& confMap);
 
   void setSparkTaskInfo(SparkTaskInfo taskInfo) override {
     static std::atomic<uint32_t> vtId{0};
@@ -142,6 +141,7 @@ class BoltRuntime final : public Runtime {
   std::shared_ptr<const bytedance::bolt::core::PlanNode> boltPlan_;
   std::shared_ptr<bytedance::bolt::config::ConfigBase> boltCfg_;
   bool debugModeEnabled_{false};
+  int64_t taskAttemptId_{-1};
   // save shuffle result, include metrics and partition length info
   std::optional<ShuffleWriterResult> shuffleWriterResult_;
 

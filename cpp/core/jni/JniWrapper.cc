@@ -118,9 +118,8 @@ class InternalRuntime : public Runtime {
       const std::string& kind,
       MemoryManager* memoryManager,
       ThreadManager* threadManager,
-      const std::unordered_map<std::string, std::string>& confMap,
-      RuntimeOptions options)
-      : Runtime(kind, memoryManager, threadManager, confMap, std::move(options)) {}
+      const std::unordered_map<std::string, std::string>& confMap)
+      : Runtime(kind, memoryManager, threadManager, confMap) {}
 };
 
 MemoryManager* internalMemoryManagerFactory(
@@ -159,9 +158,8 @@ Runtime* internalRuntimeFactory(
     const std::string& kind,
     MemoryManager* memoryManager,
     ThreadManager* threadManager,
-    const std::unordered_map<std::string, std::string>& sessionConf,
-    const RuntimeOptions& options) {
-  return new InternalRuntime(kind, memoryManager, threadManager, sessionConf, options);
+    const std::unordered_map<std::string, std::string>& sessionConf) {
+  return new InternalRuntime(kind, memoryManager, threadManager, sessionConf);
 }
 
 void internalRuntimeReleaser(Runtime* runtime) {
@@ -247,8 +245,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_runtime_RuntimeJniWrapper_createR
     jstring jBackendType,
     jlong nmmHandle,
     jlong ntmHandle,
-    jbyteArray sessionConf,
-    jlong taskAttemptId) {
+    jbyteArray sessionConf) {
   JNI_METHOD_START
   MemoryManager* memoryManager = jniCastOrThrow<MemoryManager>(nmmHandle);
   ThreadManager* threadManager = jniCastOrThrow<ThreadManager>(ntmHandle);
@@ -256,8 +253,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_runtime_RuntimeJniWrapper_createR
   auto sparkConf = parseConfMap(env, safeArray.elems(), safeArray.length());
   auto backendType = jStringToCString(env, jBackendType);
 
-  auto runtime = Runtime::create(
-      backendType, memoryManager, threadManager, sparkConf, RuntimeOptions{static_cast<int64_t>(taskAttemptId)});
+  auto runtime = Runtime::create(backendType, memoryManager, threadManager, sparkConf);
 
   return reinterpret_cast<jlong>(runtime);
   JNI_METHOD_END(kInvalidObjectHandle)
@@ -364,24 +360,19 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_memory_NativeMemoryManagerJniWrap
 JNIEXPORT void JNICALL Java_org_apache_gluten_memory_NativeMemoryManagerJniWrapper_hold( // NOLINT
     JNIEnv* env,
     jclass,
-    jlong nmmHandle,
-    jstring jName,
-    jlong taskAttemptId) {
+    jlong nmmHandle) {
   JNI_METHOD_START
   auto* memoryManager = jniCastOrThrow<MemoryManager>(nmmHandle);
-  auto memoryManagerName = jStringToCString(env, jName);
-  memoryManager->hold(MemoryManagerLifecycleContext{memoryManagerName, static_cast<int64_t>(taskAttemptId)});
+  memoryManager->hold();
   JNI_METHOD_END()
 }
 
 JNIEXPORT void JNICALL Java_org_apache_gluten_memory_NativeMemoryManagerJniWrapper_release( // NOLINT
     JNIEnv* env,
     jclass,
-    jlong nmmHandle,
-    jlong taskAttemptId) {
+    jlong nmmHandle) {
   JNI_METHOD_START
   auto* memoryManager = jniCastOrThrow<MemoryManager>(nmmHandle);
-  memoryManager->beforeRelease(MemoryManagerLifecycleContext{"", static_cast<int64_t>(taskAttemptId)});
   MemoryManager::release(memoryManager);
   JNI_METHOD_END()
 }

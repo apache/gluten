@@ -23,7 +23,6 @@ import org.apache.gluten.memory.memtarget.{KnownNameAndStats, MemoryTarget, Spil
 import org.apache.gluten.proto.MemoryUsageStats
 import org.apache.gluten.utils.ConfigUtil
 
-import org.apache.spark.TaskContext
 import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
 
@@ -85,7 +84,7 @@ object NativeMemoryManager {
         throw new GlutenException(
           s"Cannot hold memory manager instance that has already been released: $handle")
       }
-      NativeMemoryManagerJniWrapper.hold(handle, name, TaskContext.get().taskAttemptId())
+      NativeMemoryManagerJniWrapper.hold(handle)
     }
     override def getHandle(): Long = handle
     override def release(): Unit = {
@@ -107,7 +106,7 @@ object NativeMemoryManager {
         LOGGER.debug("About to release memory manager, " + dump())
       }
 
-      NativeMemoryManagerJniWrapper.release(handle, TaskContext.get().taskAttemptId())
+      NativeMemoryManagerJniWrapper.release(handle)
 
       if (rl.getUsedBytes != 0) {
         LOGGER.warn(

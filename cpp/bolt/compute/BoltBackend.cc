@@ -110,12 +110,11 @@ Runtime* boltRuntimeFactory(
     const std::string& kind,
     MemoryManager* memoryManager,
     ThreadManager* threadManager,
-    const std::unordered_map<std::string, std::string>& sessionConf,
-    const RuntimeOptions& options) {
+    const std::unordered_map<std::string, std::string>& sessionConf) {
   auto* vmm = dynamic_cast<BoltMemoryManager*>(memoryManager);
   GLUTEN_CHECK(vmm != nullptr, "Not a Bolt memory manager");
   // new object every time
-  return new BoltRuntime(kind, vmm, threadManager, sessionConf, options);
+  return new BoltRuntime(kind, vmm, threadManager, sessionConf);
 }
 
 void boltRuntimeReleaser(Runtime* runtime) {

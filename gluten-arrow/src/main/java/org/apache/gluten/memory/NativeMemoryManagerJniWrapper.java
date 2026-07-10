@@ -28,7 +28,7 @@ public class NativeMemoryManagerJniWrapper {
 
   public static native long shrink(long handle, long size);
 
-  public static native void hold(long handle, String name, long taskAttemptId);
+  public static native void hold(long handle);
 
-  public static native void release(long handle, long taskAttemptId);
+  public static native void release(long handle);
 }
