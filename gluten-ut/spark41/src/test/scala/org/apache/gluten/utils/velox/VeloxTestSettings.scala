@@ -715,7 +715,9 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenProjectedOrderingAndPartitioningSuite]  // 6 failures
   enableSuite[GlutenQueryPlanningTrackerEndToEndSuite]
   // TODO: 4.x enableSuite[GlutenRemoveRedundantProjectsSuite]  // 14 failures
-  // TODO: 4.x enableSuite[GlutenRemoveRedundantSortsSuite]  // 1 failure
+  enableSuite[GlutenRemoveRedundantSortsSuite]
+    // Rewrite as it check spark SortExec.
+    .includeAllGlutenTests()
   enableSuite[GlutenRowToColumnConverterSuite]
   enableSuite[GlutenSQLExecutionSuite]
   enableSuite[GlutenSQLFunctionSuite]
