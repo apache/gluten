@@ -65,11 +65,19 @@ class ShuffleReaderIteratorWrapper(
       numBatchesTotal: Long,
       decompressTimeInMs: Long,
       deserializeTimeInMs: Long,
+      deserializerCreateTime: Long,
+      deserializerDestroyTime: Long,
+      mergeTime: Long,
       totalReadTimeInMs: Long): Unit = {
     serializer.numOutputRows.add(numRows)
     serializer.decompressTime.add(decompressTimeInMs)
     serializer.deserializeTime.add(deserializeTimeInMs)
     serializer.totalReadTime.add(totalReadTimeInMs)
+    serializer.deserializerCreatTime.add(deserializerCreateTime)
+    serializer.deserializerDestroyTime.add(deserializerDestroyTime)
+    serializer.mergeTime.add(mergeTime)
+    // when shuffle read as an operator shuffle wall time is equal to total read time
+    serializer.shuffleWallTime.add(totalReadTimeInMs)
     serializer.readBatchNumRows.set(if (numBatchesTotal == 0) 0 else numRows / numBatchesTotal)
   }
   def getStreamReader: ShuffleStreamReader = new ShuffleStreamReader(inner)

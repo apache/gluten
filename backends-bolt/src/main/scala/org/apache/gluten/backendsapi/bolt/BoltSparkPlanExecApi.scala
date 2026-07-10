@@ -653,7 +653,11 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
     val deserializeTime = metrics("deserializeTime")
     val readBatchNumRows = metrics("avgReadBatchNumRows")
     val decompressTime = metrics("decompressTime")
+    val deserializerCreatTime = metrics("deserializerCreatTime")
+    val deserializerDestroyTime = metrics("deserializerDestroyTime")
+    val mergeTime = metrics("mergeTime")
     val totalReadTime = metrics("totalReadTime")
+    val shuffleWallTime = metrics("shuffleWallTime")
     SparkEnv.get.shuffleManager match {
       case serializer: NeedCustomColumnarBatchSerializer =>
         val className = serializer.columnarBatchSerializerClass()
@@ -664,24 +668,40 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
             classOf[SQLMetric],
             classOf[SQLMetric],
             classOf[SQLMetric],
-            classOf[SQLMetric])
+            classOf[SQLMetric],
+            classOf[SQLMetric],
+            classOf[SQLMetric],
+            classOf[SQLMetric],
+            classOf[SQLMetric],
+            classOf[SQLMetric]
+          )
         constructor
           .newInstance(
             schema,
             readBatchNumRows,
             numOutputRows,
-            deserializeTime,
             decompressTime,
-            totalReadTime)
+            deserializeTime,
+            deserializerCreatTime,
+            deserializerDestroyTime,
+            mergeTime,
+            totalReadTime,
+            shuffleWallTime
+          )
           .asInstanceOf[Serializer]
       case _ =>
         new ColumnarBatchSerializer(
           schema,
           readBatchNumRows,
           numOutputRows,
-          deserializeTime,
           decompressTime,
-          totalReadTime)
+          deserializeTime,
+          deserializerCreatTime,
+          deserializerDestroyTime,
+          mergeTime,
+          totalReadTime,
+          shuffleWallTime
+        )
     }
   }
 

@@ -53,13 +53,21 @@ class CelebornColumnarBatchSerializer(
     numOutputRows: SQLMetric,
     decompressTime: SQLMetric,
     deserializeTime: SQLMetric,
-    totalReadTime: SQLMetric)
+    deserializerCreatTime: SQLMetric,
+    deserializerDestroyTime: SQLMetric,
+    mergeTime: SQLMetric,
+    totalReadTime: SQLMetric,
+    shuffleWallTime: SQLMetric)
   extends SettableColumnarBatchSerializer(
     readBatchNumRows,
     numOutputRows,
     decompressTime,
     deserializeTime,
-    totalReadTime)
+    deserializerCreatTime,
+    deserializerDestroyTime,
+    mergeTime,
+    totalReadTime,
+    shuffleWallTime)
   with Serializable {
 
   /** Creates a new [[SerializerInstance]]. */

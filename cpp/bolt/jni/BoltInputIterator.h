@@ -77,6 +77,9 @@ class ShuffleReaderWrapperedIterator : public BoltJniColumnarBatchIterator {
       int64_t numBatchesTotal,
       int64_t decompressTime,
       int64_t deserializeTime,
+      int64_t deserializerCreateTime,
+      int64_t deserializerDestroyTime,
+      int64_t mergeTime,
       int64_t totalReadTime);
 
   std::string getRawReaderInfo();

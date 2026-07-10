@@ -360,7 +360,14 @@ class BoltMetricsApi extends MetricsApi with Logging {
       "compressTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to compress"),
       "decompressTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to decompress"),
       "deserializeTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to deserialize"),
+      "deserializerDestroyTime" -> SQLMetrics.createNanoTimingMetric(
+        sparkContext,
+        "release stream time"),
+      "deserializerCreatTime" -> SQLMetrics.createNanoTimingMetric(
+        sparkContext,
+        "create stream time"),
       "totalReadTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "totaltime read"),
+      "mergeTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "merge time"),
       "shuffleWallTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "shuffle wall time"),
       // For hash shuffle writer, the peak bytes represents the maximum split buffer size.
       // For sort shuffle writer, the peak bytes represents the maximum
