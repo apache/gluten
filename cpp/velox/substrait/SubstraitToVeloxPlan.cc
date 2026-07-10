@@ -473,6 +473,19 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       }
     }
 
+    if (!useHashTableCache) {
+      return std::make_shared<core::HashJoinNode>(
+          nextPlanNodeId(),
+          joinType,
+          isNullAwareAntiJoin,
+          leftKeys,
+          rightKeys,
+          filter,
+          leftNode,
+          rightNode,
+          getJoinOutputType(leftNode, rightNode, joinType));
+    }
+
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(
         nextPlanNodeId(),
@@ -488,7 +501,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         false,
         false,
         nullptr,
-        useHashTableCache ? hashTableId : std::string());
+        hashTableId);
   } else {
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(
