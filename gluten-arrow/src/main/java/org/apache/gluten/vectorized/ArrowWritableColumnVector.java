@@ -237,8 +237,13 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
       IntVector index = (IntVector) vector;
       if (dictionary instanceof VarBinaryVector) {
         accessor = new DictionaryEncodedBinaryAccessor(index, (VarBinaryVector) dictionary);
+      } else if (dictionary instanceof LargeVarBinaryVector) {
+        accessor =
+            new DictionaryEncodedLargeBinaryAccessor(index, (LargeVarBinaryVector) dictionary);
       } else if (dictionary instanceof VarCharVector) {
         accessor = new DictionaryEncodedStringAccessor(index, (VarCharVector) dictionary);
+      } else if (dictionary instanceof LargeVarCharVector) {
+        accessor = new DictionaryEncodedLargeStringAccessor(index, (LargeVarCharVector) dictionary);
       } else {
         throw new IllegalArgumentException(
             "Unrecognized index value type: " + dictionary.getMinorType());
@@ -1134,6 +1139,31 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     }
   }
 
+  private static class DictionaryEncodedLargeStringAccessor extends ArrowVectorAccessor {
+    private final IntVector index;
+    private final LargeVarCharVector dictionary;
+    private final NullableLargeVarCharHolder stringResult = new NullableLargeVarCharHolder();
+
+    DictionaryEncodedLargeStringAccessor(IntVector index, LargeVarCharVector dictionary) {
+      super(index);
+      this.index = index;
+      this.dictionary = dictionary;
+    }
+
+    @Override
+    final UTF8String getUTF8String(int rowId) {
+      dictionary.get(index.get(rowId), stringResult);
+      if (stringResult.isSet == 0) {
+        return null;
+      }
+      return UTF8String.fromAddress(
+          null,
+          stringResult.buffer.memoryAddress() + stringResult.start,
+          // A single string cannot be larger than the max integer size, so the conversion is safe
+          (int) (stringResult.end - stringResult.start));
+    }
+  }
+
   private static class BinaryAccessor extends ArrowVectorAccessor {
     private final VarBinaryVector accessor;
     private final NullableVarBinaryHolder stringResult = new NullableVarBinaryHolder();
@@ -1205,6 +1235,22 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     final byte[] getBinary(int rowId) {
       int idx = index.get(rowId);
       return dictionary.getObject(idx);
+    }
+  }
+
+  private static class DictionaryEncodedLargeBinaryAccessor extends ArrowVectorAccessor {
+    private final IntVector index;
+    private final LargeVarBinaryVector dictionary;
+
+    DictionaryEncodedLargeBinaryAccessor(IntVector index, LargeVarBinaryVector dictionary) {
+      super(index);
+      this.index = index;
+      this.dictionary = dictionary;
+    }
+
+    @Override
+    final byte[] getBinary(int rowId) {
+      return dictionary.getObject(index.get(rowId));
     }
   }
 
