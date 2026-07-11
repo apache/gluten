@@ -234,6 +234,11 @@ const std::string kCudfHiveConnectorId = "cudf-hive";
 const std::string kCudfShuffleMaxPrefetchBytes = "spark.gluten.sql.columnar.backend.velox.cudf.shuffleMaxPrefetchBytes";
 const int64_t kCudfShuffleMaxPrefetchBytesDefault = 1028L * 1024 * 1024; // 1028MB
 
+/// gpu shuffle
+const std::string kGpuAsyncShuffleReaderThreads =
+    "spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.threadPoolSize";
+const int32_t kGpuAsyncShuffleReaderThreadsDefault = 1;
+
 const std::string kStaticBackendConfPrefix = "spark.gluten.velox.";
 const std::string kDynamicBackendConfPrefix = "spark.gluten.sql.columnar.backend.velox.";
 

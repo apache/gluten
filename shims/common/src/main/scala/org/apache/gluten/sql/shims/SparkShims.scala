@@ -42,6 +42,7 @@ import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleEx
 import org.apache.spark.sql.execution.window.WindowGroupLimitExecShim
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DecimalType, StringType, StructType}
+import org.apache.spark.storage.{GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 import org.apache.spark.util.SparkShimVersionUtil
 
 import org.apache.hadoop.fs.{FileStatus, Path}
@@ -314,4 +315,7 @@ trait SparkShims {
    * degrades silently to "accept any collation".
    */
   def isBinaryCollationString(dt: StringType): Boolean = true
+
+  def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
+      : GlutenShuffleBlockFetcherIteratorBase
 }

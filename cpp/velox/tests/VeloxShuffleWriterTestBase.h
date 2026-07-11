@@ -24,6 +24,7 @@
 #include <compute/VeloxBackend.h>
 #include "../utils/VeloxArrowUtils.h"
 #include "config/GlutenConfig.h"
+#include "config/VeloxConfig.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "shuffle/LocalPartitionWriter.h"
 #include "shuffle/PartitionWriter.h"
@@ -62,7 +63,8 @@ class VeloxShuffleWriterTestBase : public facebook::velox::test::VectorTestBase 
     auto listener = std::make_unique<TestAllocationListener>();
     listener_ = listener.get();
 
-    std::unordered_map<std::string, std::string> conf{{kMemoryReservationBlockSize, "1"}, {kDebugModeEnabled, "true"}};
+    std::unordered_map<std::string, std::string> conf{
+        {kMemoryReservationBlockSize, "1"}, {kDebugModeEnabled, "true"}, {kGpuAsyncShuffleReaderThreads, "2"}};
 
     VeloxBackend::create(std::move(listener), conf);
   }

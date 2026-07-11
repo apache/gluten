@@ -16,13 +16,14 @@
  */
 package org.apache.spark.shuffle
 
+import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.vectorized.ColumnarBatchSerializerInstance
 
 import org.apache.spark._
 import org.apache.spark.internal.{config, Logging}
 import org.apache.spark.io.CompressionCodec
 import org.apache.spark.serializer.SerializerManager
-import org.apache.spark.storage.{BlockId, BlockManager, BlockManagerId, ShuffleBlockFetcherIterator}
+import org.apache.spark.storage.{BlockId, BlockManager, BlockManagerId, ShuffleBlockFetcherIterator, ShuffleBlockFetcherIteratorParams}
 import org.apache.spark.util.CompletionIterator
 
 /**
@@ -70,37 +71,62 @@ class ColumnarShuffleReader[K, C](
 
   /** Read the combined key-values for this reduce task */
   override def read(): Iterator[Product2[K, C]] = {
-    val wrappedStreams = new ShuffleBlockFetcherIterator(
-      context,
-      blockManager.blockStoreClient,
-      blockManager,
-      mapOutputTracker,
-      blocksByAddress,
-      serializerManager.wrapStream,
-      // Note: we use getSizeAsMb when no suffix is provided for backwards compatibility
-      SparkEnv.get.conf.get(config.REDUCER_MAX_SIZE_IN_FLIGHT) * 1024 * 1024,
-      SparkEnv.get.conf.get(config.REDUCER_MAX_REQS_IN_FLIGHT),
-      SparkEnv.get.conf.get(config.REDUCER_MAX_BLOCKS_IN_FLIGHT_PER_ADDRESS),
-      SparkEnv.get.conf.get(config.MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM),
-      SparkEnv.get.conf.get(config.SHUFFLE_MAX_ATTEMPTS_ON_NETTY_OOM),
-      SparkEnv.get.conf.get(config.SHUFFLE_DETECT_CORRUPT),
-      SparkEnv.get.conf.get(config.SHUFFLE_DETECT_CORRUPT_MEMORY),
-      SparkEnv.get.conf.get(config.SHUFFLE_CHECKSUM_ENABLED),
-      SparkEnv.get.conf.get(config.SHUFFLE_CHECKSUM_ALGORITHM),
-      readMetrics,
-      fetchContinuousBlocksInBatch
-    ).toCompletionIterator
-
     val recordIter = dep match {
+      // If the dependency is a ColumnarShuffleDependency, we use the columnar serializer.
       case columnarDep: ColumnarShuffleDependency[K, _, C] =>
-        // If the dependency is a ColumnarShuffleDependency, we use the columnar serializer.
+        val shuffleBlockFetcherIterator =
+          SparkShimLoader.getSparkShims.getShuffleBlockFetcherIterator(
+            ShuffleBlockFetcherIteratorParams(
+              context,
+              blockManager.blockStoreClient,
+              blockManager,
+              mapOutputTracker,
+              blocksByAddress,
+              serializerManager.wrapStream,
+              // Note: we use getSizeAsMb when no suffix is provided for backwards compatibility
+              SparkEnv.get.conf.get(config.REDUCER_MAX_SIZE_IN_FLIGHT) * 1024 * 1024,
+              SparkEnv.get.conf.get(config.REDUCER_MAX_REQS_IN_FLIGHT),
+              SparkEnv.get.conf.get(config.REDUCER_MAX_BLOCKS_IN_FLIGHT_PER_ADDRESS),
+              SparkEnv.get.conf.get(config.MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM),
+              SparkEnv.get.conf.get(config.SHUFFLE_MAX_ATTEMPTS_ON_NETTY_OOM),
+              SparkEnv.get.conf.get(config.SHUFFLE_DETECT_CORRUPT),
+              SparkEnv.get.conf.get(config.SHUFFLE_DETECT_CORRUPT_MEMORY),
+              SparkEnv.get.conf.get(config.SHUFFLE_CHECKSUM_ENABLED),
+              SparkEnv.get.conf.get(config.SHUFFLE_CHECKSUM_ALGORITHM),
+              readMetrics,
+              fetchContinuousBlocksInBatch
+            ))
         columnarDep.serializer
           .newInstance()
           .asInstanceOf[ColumnarBatchSerializerInstance]
-          .deserializeStreams(wrappedStreams)
+          .deserializeStreams(
+            shuffleBlockFetcherIterator,
+            shuffleBlockFetcherIterator.onComplete)
           .asKeyValueIterator
       case _ =>
+        val wrappedStreams = new ShuffleBlockFetcherIterator(
+          context,
+          blockManager.blockStoreClient,
+          blockManager,
+          mapOutputTracker,
+          blocksByAddress,
+          serializerManager.wrapStream,
+          // Note: we use getSizeAsMb when no suffix is provided for backwards compatibility
+          SparkEnv.get.conf.get(config.REDUCER_MAX_SIZE_IN_FLIGHT) * 1024 * 1024,
+          SparkEnv.get.conf.get(config.REDUCER_MAX_REQS_IN_FLIGHT),
+          SparkEnv.get.conf.get(config.REDUCER_MAX_BLOCKS_IN_FLIGHT_PER_ADDRESS),
+          SparkEnv.get.conf.get(config.MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM),
+          SparkEnv.get.conf.get(config.SHUFFLE_MAX_ATTEMPTS_ON_NETTY_OOM),
+          SparkEnv.get.conf.get(config.SHUFFLE_DETECT_CORRUPT),
+          SparkEnv.get.conf.get(config.SHUFFLE_DETECT_CORRUPT_MEMORY),
+          SparkEnv.get.conf.get(config.SHUFFLE_CHECKSUM_ENABLED),
+          SparkEnv.get.conf.get(config.SHUFFLE_CHECKSUM_ALGORITHM),
+          readMetrics,
+          fetchContinuousBlocksInBatch
+        ).toCompletionIterator
+
         val serializerInstance = dep.serializer.newInstance()
+
         // Create a key/value iterator for each stream
         wrappedStreams.flatMap {
           case (blockId, wrappedStream) =>

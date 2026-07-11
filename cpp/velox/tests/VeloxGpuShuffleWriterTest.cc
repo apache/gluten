@@ -67,6 +67,8 @@ struct GpuShuffleTestParams {
   bool enableDictionary{false};
   int64_t deserializerBufferSize{0};
 
+  bool enableGpuAsyncReader{false};
+
   std::string toString() const {
     std::ostringstream out;
     out << "shuffleWriterType = " << ShuffleWriter::typeToString(shuffleWriterType)
@@ -74,7 +76,8 @@ struct GpuShuffleTestParams {
         << ", compressionType = " << arrow::util::Codec::GetCodecAsString(compressionType)
         << ", compressionThreshold = " << compressionThreshold << ", mergeBufferSize = " << mergeBufferSize
         << ", compressionBufferSize = " << diskWriteBufferSize
-        << ", deserializerBufferSize = " << deserializerBufferSize;
+        << ", deserializerBufferSize = " << deserializerBufferSize
+        << ", enableGpuAsyncReader = " << enableGpuAsyncReader;
     return out.str();
   }
 };
@@ -148,12 +151,15 @@ std::vector<GpuShuffleTestParams> getTestParams() {
     for (const auto compressionThreshold : compressionThresholds) {
       // Local.
       for (const auto mergeBufferSize : mergeBufferSizes) {
-        params.push_back(GpuShuffleTestParams{
-            .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
-            .partitionWriterType = PartitionWriterType::kLocal,
-            .compressionType = compression,
-            .compressionThreshold = compressionThreshold,
-            .mergeBufferSize = mergeBufferSize});
+        for (const auto enableGpuAsyncReader : {false, true}) {
+          params.push_back(GpuShuffleTestParams{
+              .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+              .partitionWriterType = PartitionWriterType::kLocal,
+              .compressionType = compression,
+              .compressionThreshold = compressionThreshold,
+              .mergeBufferSize = mergeBufferSize,
+              .enableGpuAsyncReader = enableGpuAsyncReader});
+        }
       }
 
       // Rss.
@@ -297,22 +303,17 @@ class GpuVeloxShuffleWriterTest : public ::testing::TestWithParam<GpuShuffleTest
       const RowTypePtr& rowType,
       std::vector<std::shared_ptr<GpuBufferColumnarBatch>>& bufferBatches,
       std::shared_ptr<arrow::io::InputStream> in) {
-    const auto veloxCompressionType = arrowCompressionTypeToVelox(compressionType);
     const auto schema = toArrowSchema(rowType, getDefaultMemoryManager()->getLeafMemoryPool().get());
-    auto codec = createCompressionCodec(compressionType, CodecBackend::NONE);
+    const auto options = std::make_shared<ShuffleReaderOptions>();
+    options->compressionType = compressionType;
+    options->batchSize = kDefaultBatchSize;
+    options->readerBufferSize = kDefaultReadBufferSize;
+    options->deserializerBufferSize = GetParam().deserializerBufferSize;
+    options->shuffleWriterType = GetParam().shuffleWriterType;
+    options->enableGpuAsyncReader = GetParam().enableGpuAsyncReader;
 
-    auto deserializerFactory = std::make_unique<gluten::VeloxShuffleReaderDeserializerFactory>(
-        schema,
-        std::move(codec),
-        veloxCompressionType,
-        rowType,
-        kDefaultBatchSize,
-        kDefaultReadBufferSize,
-        GetParam().deserializerBufferSize,
-        getDefaultMemoryManager(),
-        GetParam().shuffleWriterType);
+    const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
-    const auto reader = std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
     const auto iter = reader->read(std::make_shared<TestStreamReader>(std::move(in)));
 
     while (iter->hasNext()) {

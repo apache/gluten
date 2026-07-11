@@ -35,19 +35,47 @@ public class ShuffleReaderJniWrapper implements RuntimeAware {
     return runtime.getHandle();
   }
 
-  public native long make(
+  public long make(
+      String shuffleWriterType,
       long cSchema,
       String compressionType,
       String compressionCodecBackend,
       int batchSize,
       long readerBufferSize,
       long deserializerBufferSize,
+      boolean enableHashShuffleReaderStreamMerge) {
+    return make(
+        shuffleWriterType,
+        cSchema,
+        compressionType,
+        compressionCodecBackend,
+        batchSize,
+        readerBufferSize,
+        deserializerBufferSize,
+        enableHashShuffleReaderStreamMerge,
+        false,
+        0L);
+  }
+
+  public native long make(
       String shuffleWriterType,
-      boolean enableHashShuffleReaderStreamMerge);
+      long cSchema,
+      String compressionType,
+      String compressionCodecBackend,
+      int batchSize,
+      long readerBufferSize,
+      long deserializerBufferSize,
+      boolean enableHashShuffleReaderStreamMerge,
+      boolean enableGpuAsyncReader,
+      long gpuAsyncReaderMaxPrefetchBytes);
 
   public native long read(long shuffleReaderHandle, ShuffleStreamReader streamReader);
 
   public native void populateMetrics(long shuffleReaderHandle, ShuffleReaderMetrics metrics);
+
+  // Stop the native shuffle reader from reading and deserializing streams
+  // when the deserializer is closed.
+  public native void stop(long shuffleReaderHandle);
 
   public native void close(long shuffleReaderHandle);
 }
