@@ -49,6 +49,7 @@ import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleEx
 import org.apache.spark.sql.execution.window.{Final, Partial, _}
 import org.apache.spark.sql.internal.{LegacyBehaviorPolicy, SQLConf}
 import org.apache.spark.sql.types._
+import org.apache.spark.storage.{GlutenShuffleBlockFetcherIterator, GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.parquet.hadoop.metadata.{CompressionCodecName, ParquetMetadata}
@@ -678,4 +679,28 @@ class Spark41Shims extends SparkShims {
 
   override def isBinaryCollationString(dt: StringType): Boolean =
     dt.collationId == CollationFactory.UTF8_BINARY_COLLATION_ID
+
+  override def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
+      : GlutenShuffleBlockFetcherIteratorBase = {
+    new GlutenShuffleBlockFetcherIterator(
+      params.context,
+      params.shuffleClient,
+      params.blockManager,
+      params.mapOutputTracker,
+      params.blocksByAddress,
+      params.streamWrapper,
+      params.maxBytesInFlight,
+      params.maxReqsInFlight,
+      params.maxBlocksInFlightPerAddress,
+      params.maxReqSizeShuffleToMem,
+      params.maxAttemptsOnNettyOOM,
+      params.detectCorrupt,
+      params.detectCorruptUseExtraMemory,
+      params.checksumEnabled,
+      params.checksumAlgorithm,
+      params.shuffleMetrics,
+      params.doBatchFetch,
+      params.clock
+    )
+  }
 }

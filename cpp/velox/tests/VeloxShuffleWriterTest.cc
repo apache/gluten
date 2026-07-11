@@ -318,24 +318,16 @@ class VeloxShuffleWriterTest : public ::testing::TestWithParam<ShuffleTestParams
       const RowTypePtr& rowType,
       std::vector<facebook::velox::RowVectorPtr>& vectors,
       std::shared_ptr<arrow::io::InputStream> in) {
-    const auto veloxCompressionType = arrowCompressionTypeToVelox(compressionType);
     const auto schema = toArrowSchema(rowType, getDefaultMemoryManager()->getLeafMemoryPool().get());
-
-    auto codec = createCompressionCodec(compressionType, CodecBackend::NONE);
-
+    const auto options = std::make_shared<ShuffleReaderOptions>();
+    options->compressionType = compressionType;
     // Set batchSize to a large value to make all batches are merged by reader.
-    auto deserializerFactory = std::make_unique<gluten::VeloxShuffleReaderDeserializerFactory>(
-        schema,
-        std::move(codec),
-        veloxCompressionType,
-        rowType,
-        kDefaultBatchSize,
-        kDefaultReadBufferSize,
-        GetParam().deserializerBufferSize,
-        getDefaultMemoryManager(),
-        GetParam().shuffleWriterType);
+    options->batchSize = kDefaultBatchSize;
+    options->readerBufferSize = kDefaultReadBufferSize;
+    options->deserializerBufferSize = GetParam().deserializerBufferSize;
+    options->shuffleWriterType = GetParam().shuffleWriterType;
 
-    const auto reader = std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
+    const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
     const auto iter = reader->read(std::make_shared<TestStreamReader>(std::move(in)));
     while (iter->hasNext()) {
@@ -541,35 +533,16 @@ class VeloxShuffleReaderStreamMergeTest : public ::testing::Test, public VeloxSh
       std::vector<std::shared_ptr<arrow::io::InputStream>> streams,
       std::optional<bool> enableStreamMerge = std::nullopt) {
     const auto schema = toArrowSchema(rowType, getDefaultMemoryManager()->getLeafMemoryPool().get());
-    std::shared_ptr<arrow::util::Codec> codec =
-        createCompressionCodec(arrow::Compression::UNCOMPRESSED, CodecBackend::NONE);
-    std::unique_ptr<VeloxShuffleReaderDeserializerFactory> deserializerFactory;
-    if (enableStreamMerge.has_value()) {
-      deserializerFactory = std::make_unique<VeloxShuffleReaderDeserializerFactory>(
-          schema,
-          codec,
-          arrowCompressionTypeToVelox(arrow::Compression::UNCOMPRESSED),
-          rowType,
-          batchSize,
-          kDefaultReadBufferSize,
-          kDefaultDeserializerBufferSize,
-          getDefaultMemoryManager(),
-          ShuffleWriterType::kHashShuffle,
-          enableStreamMerge.value());
-    } else {
-      deserializerFactory = std::make_unique<VeloxShuffleReaderDeserializerFactory>(
-          schema,
-          codec,
-          arrowCompressionTypeToVelox(arrow::Compression::UNCOMPRESSED),
-          rowType,
-          batchSize,
-          kDefaultReadBufferSize,
-          kDefaultDeserializerBufferSize,
-          getDefaultMemoryManager(),
-          ShuffleWriterType::kHashShuffle);
-    }
+    const auto options = std::make_shared<ShuffleReaderOptions>();
+    options->compressionType = arrow::Compression::UNCOMPRESSED;
+    options->batchSize = batchSize;
+    options->readerBufferSize = kDefaultReadBufferSize;
+    options->deserializerBufferSize = kDefaultDeserializerBufferSize;
+    options->shuffleWriterType = ShuffleWriterType::kHashShuffle;
+    options->enableHashShuffleReaderStreamMerge = enableStreamMerge.has_value() ? enableStreamMerge.value() : false;
 
-    auto reader = std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
+    const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
+
     const auto iter = reader->read(std::make_shared<MultiStreamReader>(std::move(streams)));
 
     std::vector<RowVectorPtr> output;
@@ -741,20 +714,15 @@ TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderDoesNotReuseDictionaryAcross
 
   const auto rowType = facebook::velox::asRowType(dictionaryInput->type());
   const auto schema = toArrowSchema(rowType, getDefaultMemoryManager()->getLeafMemoryPool().get());
-  std::shared_ptr<arrow::util::Codec> codec =
-      createCompressionCodec(arrow::Compression::UNCOMPRESSED, CodecBackend::NONE);
-  auto deserializerFactory = std::make_unique<VeloxShuffleReaderDeserializerFactory>(
-      schema,
-      codec,
-      arrowCompressionTypeToVelox(arrow::Compression::UNCOMPRESSED),
-      rowType,
-      kDefaultBatchSize,
-      kDefaultReadBufferSize,
-      kDefaultDeserializerBufferSize,
-      getDefaultMemoryManager(),
-      ShuffleWriterType::kHashShuffle);
+  const auto options = std::make_shared<ShuffleReaderOptions>();
+  options->compressionType = arrow::Compression::UNCOMPRESSED;
+  options->batchSize = kDefaultBatchSize;
+  options->readerBufferSize = kDefaultReadBufferSize;
+  options->deserializerBufferSize = kDefaultDeserializerBufferSize;
+  options->shuffleWriterType = ShuffleWriterType::kHashShuffle;
 
-  auto reader = std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
+  const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
+
   const auto iter = reader->read(std::make_shared<MultiStreamReader>(std::move(streams)));
 
   ASSERT_TRUE(iter->hasNext());

@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.substrait.rel;
 
-import com.google.protobuf.ByteString;
+import com.google.protobuf.UnsafeByteOperations;
 import io.substrait.proto.ReadRel;
 
 import java.io.Serializable;
@@ -53,7 +53,8 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     if (options.hasDeletionVector()) {
       deltaBuilder
           .setDeletionVectorCardinality(options.deletionVectorCardinality())
-          .setSerializedDeletionVector(ByteString.copyFrom(options.serializedDeletionVector()));
+          .setSerializedDeletionVector(
+              UnsafeByteOperations.unsafeWrap(options.serializedDeletionVector()));
     }
 
     fileBuilder.setDelta(deltaBuilder.build());

@@ -189,6 +189,7 @@ set(VELOX_SRCS
     operators/writer/VeloxColumnarBatchWriter.cc
     operators/writer/VeloxParquetDataSource.cc
     shuffle/ArrowShuffleDictionaryWriter.cc
+    shuffle/ReaderThreadPool.cc
     shuffle/VeloxHashShuffleWriter.cc
     shuffle/VeloxRssSortShuffleWriter.cc
     shuffle/VeloxShuffleReader.cc
@@ -224,6 +225,7 @@ if(ENABLE_GPU)
     cudf/CudfPlanValidator.cc
     cudf/GpuLock.cc
     operators/plannodes/CudfVectorStream.cc
+    shuffle/VeloxGpuAsyncShuffleReader.cc
     shuffle/VeloxGpuShuffleReader.cc
     shuffle/VeloxGpuShuffleWriter.cc
     operators/serializer/VeloxGpuColumnarBatchSerializer.cc

@@ -162,7 +162,7 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
 
   virtual std::shared_ptr<ShuffleReader> createShuffleReader(
       std::shared_ptr<arrow::Schema> schema,
-      ShuffleReaderOptions options) {
+      const std::shared_ptr<ShuffleReaderOptions>& options) {
     throw GlutenException("Not implemented");
   }
 
