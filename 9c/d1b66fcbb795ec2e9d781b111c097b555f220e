@@ -1,0 +1,20 @@
+gluten-flink/ut/pom.xml
+  s_23651fc93834ee::t_0188e725ea0b5e 291
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "9cd1b66fcbb795ec2e9d781b111c097b555f220e",
+  "prompts": {},
+  "logical_commit_id": "33425062a7d66f3674cd33d2000b3293b65f9d38",
+  "sessions": {
+    "s_23651fc93834ee": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0d944f4e6ffeWmKFgw1SHWXBka",
+        "model": "glm-5.2"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}

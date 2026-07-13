@@ -1,0 +1,22 @@
+gluten-flink/ut/src/test/java/org/apache/gluten/streaming/api/operators/GlutenStreamTwoInputWatermarkStatusTest.java
+  s_23651fc93834ee::t_0b23529776bf2f 104
+  s_23651fc93834ee::t_a0872fe4dc21f3 83-103,105-108
+  s_23651fc93834ee::t_d2ec00fb104d41 82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "c8d9460f7888b4b8afef7a253cbcddfd54f78886",
+  "prompts": {},
+  "logical_commit_id": "170a94ebff18bf8b5ca9d4fcdee0954232c415d3",
+  "sessions": {
+    "s_23651fc93834ee": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0d944f4e6ffeWmKFgw1SHWXBka",
+        "model": "glm-5.2"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}

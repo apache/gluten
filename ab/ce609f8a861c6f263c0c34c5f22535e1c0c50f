@@ -1,0 +1,23 @@
+gluten-flink/runtime/src/main/java/org/apache/gluten/table/runtime/operators/GlutenSourceFunction.java
+  s_23651fc93834ee::t_6f26eceae63755 34
+  s_23651fc93834ee::t_f230e7b3a8a2cc 175-182,184
+  s_23651fc93834ee::t_4dda7346c9b787 136-137,139
+  s_23651fc93834ee::t_a6462aa153d4b5 183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "abce609f8a861c6f263c0c34c5f22535e1c0c50f",
+  "prompts": {},
+  "logical_commit_id": "8aa92c97e2194c651df11515a6e9bab4a5125e1f",
+  "sessions": {
+    "s_23651fc93834ee": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0d944f4e6ffeWmKFgw1SHWXBka",
+        "model": "glm-5.2"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}

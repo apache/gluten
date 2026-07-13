@@ -1,0 +1,23 @@
+gluten-flink/ut/src/test/java/org/apache/gluten/table/runtime/operators/GlutenSourceFunctionWatermarkStatusTest.java
+  s_23651fc93834ee::t_707b3156ffedd8 51-52
+  s_23651fc93834ee::t_4ace2380b84847 100
+  s_23651fc93834ee::t_d9f25f25677b77 1-34,36-50,53-99,101-202
+  s_23651fc93834ee::t_6fd0cabb81a532 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "3bcf527e74ccde428d8f75da8789213d5f200020",
+  "prompts": {},
+  "logical_commit_id": "7ab1cb8a6404580067b12f96113e33a15f15be1d",
+  "sessions": {
+    "s_23651fc93834ee": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0d944f4e6ffeWmKFgw1SHWXBka",
+        "model": "glm-5.2"
+      },
+      "human_author": "lgbo-ustc <lgbo.ustc@gmail.com>"
+    }
+  }
+}
