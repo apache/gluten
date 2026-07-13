@@ -603,6 +603,8 @@ TEST_P(GpuRoundRobinPartitioningShuffleWriterTest, preAllocForceRealloc) {
       makeNullableFlatVector<int64_t>({0, 1}),
       makeNullableFlatVector<float>({0, 0.142857}),
       makeNullableFlatVector<bool>({false, true}),
+      makeNullableFlatVector<facebook::velox::Timestamp>(
+          {facebook::velox::Timestamp(5, 0), facebook::velox::Timestamp(4, 0)}),
       makeNullableFlatVector<StringView>({"", "alice"}),
       makeNullableFlatVector<StringView>({"alice", ""}),
   };
@@ -663,6 +665,8 @@ TEST_P(GpuRoundRobinPartitioningShuffleWriterTest, preAllocForceReuse) {
       makeNullableFlatVector<int64_t>({0, 1}),
       makeNullableFlatVector<float>({0, 0.142857}),
       makeNullableFlatVector<bool>({false, true}),
+      makeNullableFlatVector<facebook::velox::Timestamp>(
+          {facebook::velox::Timestamp(5, 0), facebook::velox::Timestamp(4, 0)}),
       makeNullableFlatVector<StringView>({std::nullopt, std::nullopt}),
       makeNullableFlatVector<StringView>({std::nullopt, std::nullopt}),
   };
