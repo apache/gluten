@@ -721,7 +721,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSQLFunctionSuite]
   enableSuite[GlutenSQLJsonProtocolSuite]
   enableSuite[GlutenShufflePartitionsUtilSuite]
-  // TODO: 4.x enableSuite[GlutenSimpleSQLViewSuite]  // 1 failure remains after GLUTEN-11917 fix
+  enableSuite[GlutenSimpleSQLViewSuite]
+    // Velox returns a native FILE_NOT_FOUND error instead of Spark's structured error condition.
+    .exclude("alter temporary view should follow current storeAnalyzedPlanForView config")
   enableSuite[GlutenSparkPlanSuite]
     .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
