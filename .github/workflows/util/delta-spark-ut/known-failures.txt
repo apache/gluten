@@ -51,25 +51,9 @@ org.apache.spark.sql.delta.AutoCompactExecutionSuite#auto-compact-enabled-proper
 org.apache.spark.sql.delta.AutoCompactExecutionSuite#auto-compact-enabled-property: auto compact should not kick in when session config is off
 org.apache.spark.sql.delta.AutoCompactExecutionSuite#variant auto compact kicks in when enabled - session config
 org.apache.spark.sql.delta.AutoCompactExecutionSuite#variant auto compact kicks in when enabled - table config
-org.apache.spark.sql.delta.CheckpointsSuite#DML with DVs corrupts variant stats when collectVariantDataSkippingStats is disabled
-org.apache.spark.sql.delta.CheckpointsSuite#DML with DVs preserves nested variant stats when collectVariantDataSkippingStats is enabled
-org.apache.spark.sql.delta.CheckpointsSuite#DML with DVs preserves variant and struct stats when collectVariantDataSkippingStats is enabled
-org.apache.spark.sql.delta.CheckpointsSuite#DML with DVs preserves variant stats when collectVariantDataSkippingStats is enabled
 org.apache.spark.sql.delta.CheckpointsSuite#SC-86940: writing a GCS checkpoint should happen in a new thread
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch100Suite#DML with DVs corrupts variant stats when collectVariantDataSkippingStats is disabled
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch100Suite#DML with DVs preserves nested variant stats when collectVariantDataSkippingStats is enabled
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch100Suite#DML with DVs preserves variant and struct stats when collectVariantDataSkippingStats is enabled
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch100Suite#DML with DVs preserves variant stats when collectVariantDataSkippingStats is enabled
 org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch100Suite#SC-86940: writing a GCS checkpoint should happen in a new thread
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch1Suite#DML with DVs corrupts variant stats when collectVariantDataSkippingStats is disabled
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch1Suite#DML with DVs preserves nested variant stats when collectVariantDataSkippingStats is enabled
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch1Suite#DML with DVs preserves variant and struct stats when collectVariantDataSkippingStats is enabled
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch1Suite#DML with DVs preserves variant stats when collectVariantDataSkippingStats is enabled
 org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch1Suite#SC-86940: writing a GCS checkpoint should happen in a new thread
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch2Suite#DML with DVs corrupts variant stats when collectVariantDataSkippingStats is disabled
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch2Suite#DML with DVs preserves nested variant stats when collectVariantDataSkippingStats is enabled
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch2Suite#DML with DVs preserves variant and struct stats when collectVariantDataSkippingStats is enabled
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch2Suite#DML with DVs preserves variant stats when collectVariantDataSkippingStats is enabled
 org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch2Suite#SC-86940: writing a GCS checkpoint should happen in a new thread
 org.apache.spark.sql.delta.CloneTableSQLSuite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch100Suite#shallow clone across file systems
@@ -156,27 +140,6 @@ org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#convert to delta with partiti
 org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#partitioned convert to delta with schema change
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - update/merge
-org.apache.spark.sql.delta.DeltaVariantShreddingSuite#Infer schema for Delta table
-org.apache.spark.sql.delta.DeltaVariantSuite#DISABLE_VARIANT_TABLE_FEATURE_FOR_SPARK_40 - config disabled does not block
-org.apache.spark.sql.delta.DeltaVariantSuite#DISABLE_VARIANT_TABLE_FEATURE_FOR_SPARK_40 - no-op on Spark 4.1+
-org.apache.spark.sql.delta.DeltaVariantSuite#Existing table with variant type can enable CDF
-org.apache.spark.sql.delta.DeltaVariantSuite#Table with variant type can use CDF
-org.apache.spark.sql.delta.DeltaVariantSuite#Variant can be used as a source for generated columns
-org.apache.spark.sql.delta.DeltaVariantSuite#Variant can have default value set
-org.apache.spark.sql.delta.DeltaVariantSuite#Variant cannot be created as a generated column
-org.apache.spark.sql.delta.DeltaVariantSuite#Variant respects Delta table CHECK constraints
-org.apache.spark.sql.delta.DeltaVariantSuite#Variant respects Delta table IS NOT NULL constraints
-org.apache.spark.sql.delta.DeltaVariantSuite#Zorder is not supported for Variant
-org.apache.spark.sql.delta.DeltaVariantSuite#column mapping works - id - false
-org.apache.spark.sql.delta.DeltaVariantSuite#column mapping works - id - true
-org.apache.spark.sql.delta.DeltaVariantSuite#column mapping works - name - false
-org.apache.spark.sql.delta.DeltaVariantSuite#column mapping works - name - true
-org.apache.spark.sql.delta.DeltaVariantSuite#optimize variant
-org.apache.spark.sql.delta.DeltaVariantSuite#shallow cloning table with variant
-org.apache.spark.sql.delta.DeltaVariantSuite#streaming variant delta table
-org.apache.spark.sql.delta.DeltaVariantSuite#time travel with variant column works
-org.apache.spark.sql.delta.DeltaVariantSuite#variant works with schema evolution for INSERT
-org.apache.spark.sql.delta.DeltaVariantSuite#variant works with schema evolution for MERGE
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skip deleted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#deleted files cause failure by default
@@ -495,16 +458,8 @@ org.apache.spark.sql.delta.coordinatedcommits.CoordinatedCommitsSuite#Incomplete
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#DELETE with DVs with column mapping mode=id
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: delete a small number of rows from tables of 2B rows with DVs
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: read from tables of 2B rows with existing DV of many zeros
-org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#variant types DELETE with DVs with column mapping mode=id
-org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#variant types DELETE with DVs with column mapping mode=name
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#(It is not a test it is a sbt.testing.SuiteSelector)
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#<suite aborted>
-org.apache.spark.sql.delta.generatedsuites.DeleteBaseSQLNameBasedSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.DeleteBaseSQLPathBasedCDCOnSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.DeleteBaseSQLPathBasedDVPredPushOffSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.DeleteBaseSQLPathBasedDVPredPushOnSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.DeleteBaseSQLPathBasedSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.DeleteBaseScalaSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLNameBasedSuite#test delete on temp view - nontrivial projection - Dataset TempView
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLNameBasedSuite#test delete on temp view - nontrivial projection - SQL TempView
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLPathBasedCDCOnSuite#test delete on temp view - nontrivial projection - Dataset TempView
@@ -611,53 +566,26 @@ org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumn
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLPathBasedCDCOnSuite#schema evolution - extra nested column in source - update - single target partition
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLPathBasedSuite#schema evolution - extra nested column in source - update - single target partition
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnScalaSuite#schema evolution - extra nested column in source - update - single target partition
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#UDT Data Types - simple and nested
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#merge with repartition - insert only merge
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#UDT Data Types - simple and nested
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#merge with repartition - partition on multiple columns
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#UDT Data Types - simple and nested
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#merge with repartition - partition on multiple columns
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#UDT Data Types - simple and nested
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#merge with repartition - insert only merge
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#UDT Data Types - simple and nested
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#merge with repartition - partition on multiple columns
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#UDT Data Types - simple and nested
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#merge with repartition - partition on multiple columns
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#UDT Data Types - simple and nested
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#merge with repartition - insert only merge
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#UDT Data Types - simple and nested
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#merge with repartition - insert only merge
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLNameBasedSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedCDCOnDVSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedCDCOnRowTrackingOffSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedCDCOnRowTrackingOnSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedCDCOnSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedDVPredPushOffSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedDVPredPushOnSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedRowTrackingOffSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedRowTrackingOnSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscSQLPathBasedSuite#Variant type
-org.apache.spark.sql.delta.generatedsuites.UpdateBaseMiscScalaSuite#Variant type
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseTempViewSQLNameBasedSuite#test update on temp view - nontrivial projection - Dataset TempView
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseTempViewSQLNameBasedSuite#test update on temp view - nontrivial projection - SQL TempView
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseTempViewSQLPathBasedCDCOnDVSuite#test update on temp view - nontrivial projection - Dataset TempView
@@ -801,14 +729,12 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.PartitionLikeDataSkippingColumnMappingSuite#partition-like data skipping for expression COALESCE: COALESCE(TO_DATE(S.b), c) = '1976-07-03' - column mapping id mode
 org.apache.spark.sql.delta.stats.StatsCollectionSuite#recompute stats multiple columns and files
-org.apache.spark.sql.delta.stats.StatsCollectionSuite#recompute variant stats
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening BIGINT -> DECIMAL(20,0), partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DATE -> TIMESTAMP_NTZ, partitioned=false
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DATE -> TIMESTAMP_NTZ, partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DECIMAL(9,2) -> DECIMAL(19,3), partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening FLOAT -> DOUBLE, partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening INT -> DOUBLE, partitioned=true
-org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening with user-defined type in table
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#unsupported type changes DOUBLE -> FLOAT, partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#unsupported type changes TIMESTAMP_NTZ -> DATE, partitioned=false
 org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - always automatic type widening DATE -> TIMESTAMP_NTZ
