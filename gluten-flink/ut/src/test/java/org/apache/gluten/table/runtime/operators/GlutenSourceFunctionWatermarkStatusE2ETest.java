@@ -33,6 +33,7 @@ import io.github.zhztheplayer.velox4j.type.RowType;
 import io.github.zhztheplayer.velox4j.type.VarCharType;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
@@ -56,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -94,13 +96,12 @@ class GlutenSourceFunctionWatermarkStatusE2ETest {
   }
 
   @AfterEach
-  void ensureJobCancelled() {
-    if (jobThread != null && jobThread.isAlive()) {
-      jobThread.interrupt();
-    }
+  void ensureJobCancelled() throws Exception {
+    cancelJob();
   }
 
-  private Thread jobThread;
+  private JobClient jobClient;
+  private GlutenSourceFunction<StatefulRecord> sourceFunction;
 
   @Test
   void testIdleDetectionAfterStopWritingToKafka() throws Exception {
@@ -121,40 +122,55 @@ class GlutenSourceFunctionWatermarkStatusE2ETest {
 
     DataStreamSource<StatefulRecord> source = addSourceToEnv(env, topic);
     source
-        .transform("capture", TypeInformation.of(StatefulRecord.class), new StatusCaptureOp())
+        .transform(
+            "capture",
+            TypeInformation.of(Object.class),
+            (OneInputStreamOperator) new StatusCaptureOp())
         .setParallelism(1);
 
-    // Run job in background thread
-    jobThread =
-        new Thread(
-            () -> {
-              try {
-                env.execute("IdleDetectionE2ETest");
-              } catch (Exception e) {
-                // ignore cancellation
-              }
-            },
-            "job-runner");
-    jobThread.start();
-
-    // Wait for initial records to be consumed
-    Thread.sleep(WATERMARK_INTERVAL_MS * 4);
-
-    // Wait for idle timeout
-    Thread.sleep(IDLE_TIMEOUT_MS + 3000);
-
-    // Cancel the job
-    jobThread.interrupt();
-
-    // Verify idle was detected
-    assertThat(capturedStatuses)
-        .as("Should have received WatermarkStatus.IDLE after idle timeout")
-        .contains(WatermarkStatus.IDLE);
+    jobClient = env.executeAsync("IdleDetectionE2ETest");
+    try {
+      waitForIdleStatus();
+      assertThat(capturedStatuses)
+          .as("Should have received WatermarkStatus.IDLE after idle timeout")
+          .contains(WatermarkStatus.IDLE);
+    } finally {
+      cancelJob();
+    }
   }
 
   // -- helpers --
 
-  private static DataStreamSource<StatefulRecord> addSourceToEnv(
+  private void waitForIdleStatus() throws InterruptedException {
+    long deadline = System.currentTimeMillis() + IDLE_TIMEOUT_MS + 10000;
+    while (System.currentTimeMillis() < deadline) {
+      if (capturedStatuses.contains(WatermarkStatus.IDLE)) {
+        return;
+      }
+      Thread.sleep(WATERMARK_INTERVAL_MS);
+    }
+  }
+
+  private void cancelJob() throws Exception {
+    try {
+      if (jobClient != null) {
+        JobClient client = jobClient;
+        jobClient = null;
+        try {
+          client.cancel().get(30, TimeUnit.SECONDS);
+          client.getJobExecutionResult().get(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
+        }
+      }
+    } finally {
+      if (sourceFunction != null) {
+        sourceFunction.close();
+        sourceFunction = null;
+      }
+    }
+  }
+
+  private DataStreamSource<StatefulRecord> addSourceToEnv(
       StreamExecutionEnvironment env, String topic) {
     RowType veloxRowType =
         new RowType(List.of("id", "name"), List.of(new BigIntType(), new VarCharType()));
@@ -194,16 +210,16 @@ class GlutenSourceFunctionWatermarkStatusE2ETest {
             "earliest-offset",
             List.of(new KafkaConnectorSplit.TopicPartitionOffset(topic, 0, -1L)));
 
-    GlutenSourceFunction<StatefulRecord> sourceFn =
+    sourceFunction =
         new GlutenSourceFunction<>(
             new StatefulPlanNode(scanNode.getId(), scanNode),
             Map.of(scanNode.getId(), veloxRowType),
             scanNode.getId(),
             connectorSplit,
             StatefulRecord.class);
-    sourceFn.setShouldCallNoMoreSplits(false);
+    sourceFunction.setShouldCallNoMoreSplits(false);
 
-    GlutenStreamSource sourceOp = new GlutenStreamSource(sourceFn, "KafkaSource");
+    GlutenStreamSource sourceOp = new GlutenStreamSource(sourceFunction, "KafkaSource");
     return new DataStreamSource<StatefulRecord>(
         env, TypeInformation.of(StatefulRecord.class), sourceOp, false, "KafkaSource");
   }
@@ -214,12 +230,15 @@ class GlutenSourceFunctionWatermarkStatusE2ETest {
 
   // -- Capture operator --
 
-  private static class StatusCaptureOp extends AbstractStreamOperator<StatefulRecord>
-      implements OneInputStreamOperator<StatefulRecord, StatefulRecord> {
+  private static class StatusCaptureOp extends AbstractStreamOperator<Object>
+      implements OneInputStreamOperator<Object, Object> {
 
     @Override
-    public void processElement(StreamRecord<StatefulRecord> element) throws Exception {
-      output.collect(element);
+    public void processElement(StreamRecord<Object> element) throws Exception {
+      Object value = element.getValue();
+      if (value instanceof StatefulRecord) {
+        ((StatefulRecord) value).close();
+      }
     }
 
     @Override
