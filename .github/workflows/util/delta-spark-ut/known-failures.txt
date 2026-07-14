@@ -90,7 +90,6 @@ org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: read/write
 org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#all operations should propagate Hadoop file system options
 org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#operations without Hadoop options should fail for fake:// filesystem
 org.apache.spark.sql.delta.DeltaFastDropFeatureSuite#Vacuum does not delete deletion vector files.generateDVTombstones: false
-org.apache.spark.sql.delta.DeltaFastDropFeatureSuite#We do not create redundant DV tombstones after cloning isShallowClone: true
 org.apache.spark.sql.delta.DeltaGenerateSymlinkManifestSuite#incremental manifest: failure to generate manifest throws exception
 org.apache.spark.sql.delta.DeltaGenerateSymlinkManifestSuite#special partition column values
 org.apache.spark.sql.delta.DeltaHistoryManagerSuite#data skipping still works with time travel
