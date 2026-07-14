@@ -316,9 +316,12 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
 
   testGluten("SPARK-16484: hll_*_agg + hll_union negative tests") {
     val df1 = Seq(
-      (1, "a"), (1, "a"), (1, "a"),
+      (1, "a"),
+      (1, "a"),
+      (1, "a"),
       (1, "b"),
-      (1, "c"), (1, "c"),
+      (1, "c"),
+      (1, "c"),
       (1, "d")
     ).toDF("id", "value")
     df1.createOrReplaceTempView("df1")
@@ -326,8 +329,11 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
     val df2 = Seq(
       (1, "a"),
       (1, "c"),
-      (1, "d"), (1, "d"), (1, "d"),
-      (1, "e"), (1, "e"),
+      (1, "d"),
+      (1, "d"),
+      (1, "d"),
+      (1, "e"),
+      (1, "e"),
       (1, "f")
     ).toDF("id", "value")
     df2.createOrReplaceTempView("df2")
