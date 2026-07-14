@@ -49,7 +49,7 @@ case class ColumnarShuffleExchangeExec(
   extends ShuffleExchangeLike
   with ValidatablePlan {
 
-  override def nodeName: String = "ColumnarShuffleExchange" + {
+  override def nodeName: String = "ColumnarExchange" + {
     if (mapperStageMode.isDefined) {
       if (conf.adaptiveExecutionEnabled) {
         // In AQE, the reducer stage mode is set in the downstream query stage.
