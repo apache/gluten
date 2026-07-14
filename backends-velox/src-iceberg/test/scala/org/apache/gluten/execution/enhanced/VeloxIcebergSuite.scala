@@ -655,7 +655,7 @@ class VeloxIcebergSuite extends IcebergSuite {
   }
 
   // Ignored due to velox parquet row-group flush semantics change after velox#16998.
-  ignore("iceberg parquet writer default row group size test") {
+  test("iceberg parquet writer default row group size test") {
     val table = "iceberg_default_row_group_size"
     val defaultRowGroupBytes = 128L * 1024 * 1024
 
@@ -743,19 +743,35 @@ class VeloxIcebergSuite extends IcebergSuite {
         checkAnswer(
           spark.sql(s"SELECT count(*) FROM $table"),
           Seq(Row(90000L)))
-        val rowGroups = collectRowGroups(table)
+        val rowGroups =
+          collectRowGroups(table).sortBy(info => (info.file, info.ordinal))
+
+        assert(
+          rowGroups.map(_.file).distinct.size == 1,
+          s"Expected one Parquet file, found: ${rowGroups.map(_.file).distinct}")
 
         assert(
           rowGroups.size == 2,
-          "Expected 2 row groups")
+          s"Expected 2 row groups, found ${rowGroups.size}: $rowGroups")
 
         assert(
-          rowGroups.head.totalByteSize < defaultRowGroupBytes,
-          "Expected row group to contain less than default value")
+          rowGroups.map(_.rowCount).sum == 90000L,
+          s"Expected 90000 rows across all row groups: $rowGroups")
+
+        val firstRowGroup = rowGroups.head
+        val finalRowGroup = rowGroups.last
 
         assert(
-          rowGroups(1).totalByteSize < defaultRowGroupBytes,
-          "Expected row group to contain less than default value")
+          firstRowGroup.compressedSize >= defaultRowGroupBytes,
+          s"Expected the first row group to reach the default row-group size " +
+            s"$defaultRowGroupBytes, but found ${firstRowGroup.compressedSize}"
+        )
+
+        assert(
+          finalRowGroup.compressedSize < defaultRowGroupBytes,
+          s"Expected the final row group to be smaller than the default row-group " +
+            s"size $defaultRowGroupBytes, but found ${finalRowGroup.compressedSize}"
+        )
       }
     }
   }
