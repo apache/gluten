@@ -78,7 +78,7 @@ jmethodID blockStripesConstructor;
 
 namespace gluten {
 std::unique_ptr<ColumnarBatchIterator>
-createBoltInputIterator(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime, int32_t iteratorIndex) {
+createInputIterator(JNIEnv* env, jobject jColumnarBatchItr, Runtime* runtime, int32_t iteratorIndex) {
   const auto& conf = runtime->getConfMap();
   bool parallelEnabled = getBoolConfigValue(conf, kGlutenEnableParallel, false);
   LOG(INFO) << "nativeCreateKernelWithIterator parallelEnabled=" << parallelEnabled;
