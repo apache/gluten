@@ -25,8 +25,13 @@ import org.apache.flink.table.data.RowData;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 
 public class HiveSourceSinkFactory extends FileSystemSinkFactory {
+  private static final String COMPRESSION_KIND = "sink.file.compression";
+  private static final String[] TABLE_COMPRESSION_KEYS = {
+    "orc.compress", "parquet.compression", "parquet.compression.codec", "parquet.compression-codec"
+  };
 
   @Override
   public boolean match(Transformation<RowData> transformation) {
@@ -44,6 +49,7 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
     tableParams.put("path", getLocationPath(partitionCommitter, fileWriterOperator));
     tableParams.putIfAbsent("format", resolveWriteFormat(fileWriterOperator));
     tableParams.put("connector", "hive");
+    addHiveCompressionParams(fileWriterOperator, tableParams);
     return tableParams;
   }
 
@@ -95,5 +101,95 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
         (Class<?>)
             ReflectUtils.getObjectField(factoryClass, hiveWriterFactory, "hiveOutputFormatClz");
     return inferFormatFromClassName(outputFormatClz.getName());
+  }
+
+  private void addHiveCompressionParams(
+      OneInputStreamOperator<?, ?> fileWriterOperator, Map<String, String> tableParams) {
+    Object hiveWriterFactory = getHiveWriterFactory(fileWriterOperator);
+    if (hiveWriterFactory == null) {
+      return;
+    }
+    Properties tableProperties =
+        (Properties) ReflectUtils.tryGetObjectField(hiveWriterFactory, "tableProperties");
+    addCompressionParamsFromTableProperties(tableProperties, tableParams);
+  }
+
+  private Object getHiveWriterFactory(OneInputStreamOperator<?, ?> fileWriterOperator) {
+    Object bucketsBuilder =
+        ReflectUtils.getObjectField(
+            ABSTRACT_STREAMING_WRITER_CLASS, fileWriterOperator, "bucketsBuilder");
+    Object writerFactory = ReflectUtils.tryGetObjectField(bucketsBuilder, "writerFactory");
+    if (writerFactory == null
+        || !writerFactory.getClass().getName().contains("HiveBulkWriterFactory")) {
+      return null;
+    }
+    return ReflectUtils.getObjectField(writerFactory.getClass(), writerFactory, "factory");
+  }
+
+  static void addCompressionParamsFromTableProperties(
+      Properties tableProperties, Map<String, String> tableParams) {
+    if (tableProperties == null) {
+      return;
+    }
+    for (String key : tableProperties.stringPropertyNames()) {
+      String value = tableProperties.getProperty(key);
+      if (isCompressionProperty(key, value)) {
+        tableParams.putIfAbsent(key, value);
+      }
+    }
+
+    String compressionKind = resolveCompressionKind(tableProperties);
+    if (compressionKind != null) {
+      tableParams.put(COMPRESSION_KIND, compressionKind);
+    }
+  }
+
+  private static String resolveCompressionKind(Properties tableProperties) {
+    for (String key : TABLE_COMPRESSION_KEYS) {
+      String compressionKind = normalizeCompressionKind(tableProperties.getProperty(key));
+      if (compressionKind != null) {
+        return compressionKind;
+      }
+    }
+    return null;
+  }
+
+  private static boolean isCompressionProperty(String key, String value) {
+    return key != null
+        && value != null
+        && (key.toLowerCase().contains("compress") || key.toLowerCase().contains("codec"));
+  }
+
+  static String normalizeCompressionKind(String compression) {
+    if (compression == null) {
+      return null;
+    }
+    String normalized = compression.trim().toLowerCase();
+    if (normalized.isEmpty()
+        || "none".equals(normalized)
+        || "no".equals(normalized)
+        || "false".equals(normalized)
+        || "uncompressed".equals(normalized)) {
+      return null;
+    }
+    if (normalized.contains("snappy")) {
+      return "snappy";
+    }
+    if (normalized.contains("gzip")) {
+      return "gzip";
+    }
+    if (normalized.contains("zstd") || normalized.contains("zstandard")) {
+      return "zstd";
+    }
+    if (normalized.contains("lz4")) {
+      return "lz4";
+    }
+    if (normalized.contains("lzo")) {
+      return "lzo";
+    }
+    if (normalized.contains("zlib") || normalized.contains("deflate")) {
+      return "zlib";
+    }
+    return normalized;
   }
 }
