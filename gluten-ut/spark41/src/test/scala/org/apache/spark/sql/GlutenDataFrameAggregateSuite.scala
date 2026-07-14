@@ -339,21 +339,20 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
     df2.createOrReplaceTempView("df2")
 
     def assertWrappedSparkThrowable(
-        e: SparkThrowable,
+        e: Throwable,
         errorClass: String,
         messageFragments: Seq[String]): Unit = {
-      val combinedMessage = e match {
-        case se: SparkException =>
-          Option(se.getMessage).getOrElse("") + "\n" + Option(se.getCause).map(_.toString)
-            .getOrElse("")
-        case _ =>
-          Option(e.getMessage).getOrElse("")
+      val sparkThrowable = e match {
+        case st: SparkThrowable => st
+        case _ => fail(s"Expected SparkThrowable but got ${e.getClass.getName}: ${e.getMessage}", e)
       }
-      assert(combinedMessage.contains(errorClass))
+      val combinedMessage =
+        Option(e.getMessage).getOrElse("") + "\n" + Option(e.getCause).map(_.toString).getOrElse("")
+      assert(sparkThrowable.getCondition == errorClass || combinedMessage.contains(errorClass))
       messageFragments.foreach(fragment => assert(combinedMessage.contains(fragment)))
     }
 
-    val invalidLow = intercept[SparkThrowable] {
+    val invalidLow = intercept[Throwable] {
       val res = df1.groupBy("id")
         .agg(
           hll_sketch_agg("value", 1).as("hllsketch")
@@ -367,7 +366,7 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
       "HLL_INVALID_LG_K",
       Seq("`hll_sketch_agg`", "1"))
 
-    val invalidHigh = intercept[SparkThrowable] {
+    val invalidHigh = intercept[Throwable] {
       val res = df1.groupBy("id")
         .agg(
           hll_sketch_agg("value", 25).as("hllsketch")
@@ -381,7 +380,7 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
       "HLL_INVALID_LG_K",
       Seq("`hll_sketch_agg`", "25"))
 
-    val unionError = intercept[SparkThrowable] {
+    val unionError = intercept[Throwable] {
       val i1 = df1.groupBy("id")
         .agg(
           hll_sketch_agg("value").as("hllsketch_left")
@@ -400,7 +399,7 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
       "HLL_UNION_DIFFERENT_LG_K",
       Seq("`hll_union`", "12", "20"))
 
-    val unionAggError = intercept[SparkThrowable] {
+    val unionAggError = intercept[Throwable] {
       val i1 = df1.groupBy("id")
         .agg(
           hll_sketch_agg("value").as("hllsketch")
