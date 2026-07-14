@@ -18,12 +18,13 @@ package org.apache.gluten.extension
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.cudf.VeloxCudfPlanValidatorJniWrapper
-import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution._
-import org.apache.gluten.extension.CudfNodeValidationRule.{createGPUColumnarExchange, setTagForWholeStageTransformer}
+import org.apache.gluten.extension.CudfNodeValidationRule.{setStageExecutionModeForShuffle, setTagForWholeStageTransformer}
 
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, GPUColumnarShuffleExchangeExec, SparkPlan}
+import org.apache.spark.sql.execution._
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.util.SparkTestUtil
 
 // Add the node name prefix 'Cudf' to GlutenPlan when can offload to cudf
 case class CudfNodeValidationRule(glutenConf: GlutenConfig) extends Rule[SparkPlan] {
@@ -32,23 +33,19 @@ case class CudfNodeValidationRule(glutenConf: GlutenConfig) extends Rule[SparkPl
     if (!glutenConf.enableColumnarCudf) {
       return plan
     }
-    val transformedPlan = plan.transformUp {
-      case shuffle @ ColumnarShuffleExchangeExec(
-            _,
-            VeloxResizeBatchesExec(w: WholeStageTransformer, _, _, _),
-            _,
-            _,
-            _) =>
-        setTagForWholeStageTransformer(w)
-        createGPUColumnarExchange(shuffle)
-      case shuffle @ ColumnarShuffleExchangeExec(_, w: WholeStageTransformer, _, _, _) =>
-        setTagForWholeStageTransformer(w)
-        createGPUColumnarExchange(shuffle)
+    val taggedPlan = plan.transformUp {
       case transformer: WholeStageTransformer =>
         setTagForWholeStageTransformer(transformer)
         transformer
     }
-    transformedPlan
+
+    if (!SQLConf.get.adaptiveExecutionEnabled) {
+      // Set mapper and reducer stage execution mode for Shuffle.
+      setStageExecutionModeForShuffle(taggedPlan, supportsCudf = false)._1
+    } else {
+      // Will be handled by AdjustStageExecutionMode rule.
+      taggedPlan
+    }
   }
 }
 
@@ -80,17 +77,67 @@ object CudfNodeValidationRule {
     }
   }
 
-  def createGPUColumnarExchange(shuffle: ColumnarShuffleExchangeExec): SparkPlan = {
-    val exec = GPUColumnarShuffleExchangeExec(
-      shuffle.outputPartitioning,
-      shuffle.child,
-      shuffle.shuffleOrigin,
-      shuffle.projectOutputAttributes,
-      shuffle.advisoryPartitionSize)
-    val res = exec.doValidate()
-    if (!res.ok()) {
-      throw new GlutenNotSupportException(res.reason())
+  // supportsCudf is the first parent WholeStageTransformer's `isCudf` for plan.
+  // For WholeStageTransformer, it calls the child's setStageExecutionModeForShuffle with its
+  // `isCudf` for the child shuffle reader,
+  // and returns its `isCudf` for the parent shuffle writer.
+  def setStageExecutionModeForShuffle(
+      plan: SparkPlan,
+      supportsCudf: Boolean): (SparkPlan, Boolean) = {
+    def getStageExecutionMode(supportsCudf: Boolean): StageExecutionMode = {
+      if (supportsCudf) {
+        if (SparkTestUtil.isTesting) {
+          MockGPUStageMode
+        } else {
+          GPUStageMode
+        }
+      } else {
+        CPUStageMode
+      }
     }
-    exec
+
+    plan match {
+      case shuffle @ ColumnarShuffleExchangeExec(
+            _,
+            VeloxResizeBatchesExec(child, _),
+            _,
+            _,
+            _,
+            _,
+            _) =>
+        // `supportsCudf` is not decided yet for shuffle writer.
+        val (newChild, mapperStageSupportsCudf) =
+          setStageExecutionModeForShuffle(child, false)
+        val mapperStageMode = getStageExecutionMode(mapperStageSupportsCudf)
+        val reducerStageMode = getStageExecutionMode(supportsCudf)
+        (
+          shuffle.copy(
+            child = VeloxResizeBatchesExec(newChild, Some(mapperStageMode)),
+            mapperStageMode = Some(mapperStageMode),
+            reducerStageMode = Some(reducerStageMode)),
+          supportsCudf)
+      case shuffle: ColumnarShuffleExchangeExec =>
+        val (newChild, mapperStageSupportsCudf) =
+          setStageExecutionModeForShuffle(shuffle.child, false)
+        val mapperStageMode = getStageExecutionMode(mapperStageSupportsCudf)
+        val reducerStageMode = getStageExecutionMode(supportsCudf)
+        (
+          shuffle.copy(
+            child = newChild,
+            mapperStageMode = Some(mapperStageMode),
+            reducerStageMode = Some(reducerStageMode)),
+          supportsCudf)
+      case resizeBatches: VeloxResizeBatchesExec =>
+        val (newChild, _) =
+          setStageExecutionModeForShuffle(resizeBatches.child, supportsCudf)
+        (VeloxResizeBatchesExec(newChild, Some(getStageExecutionMode(supportsCudf))), supportsCudf)
+      case wst: WholeStageTransformer =>
+        val (newChild, _) = setStageExecutionModeForShuffle(wst.child, wst.isCudf)
+        (wst.withNewChildren(Seq(newChild)), wst.isCudf)
+      case other =>
+        val newChildren =
+          other.children.map(child => setStageExecutionModeForShuffle(child, supportsCudf)._1)
+        (other.withNewChildren(newChildren), supportsCudf)
+    }
   }
 }

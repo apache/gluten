@@ -102,7 +102,9 @@ abstract class ColumnarCollectLimitBaseExec(
         metrics,
         shuffleWriterType
       ),
-      readMetrics
+      readMetrics,
+      // FIXME: pass proper StageExecutionMode
+      CPUStageMode
     )
   }
 

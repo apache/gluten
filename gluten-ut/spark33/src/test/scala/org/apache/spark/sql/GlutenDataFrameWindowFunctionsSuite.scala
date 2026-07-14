@@ -174,7 +174,7 @@ class GlutenDataFrameWindowFunctionsSuite
     def isShuffleExecByRequirement(
         plan: ColumnarShuffleExchangeExec,
         desiredClusterColumns: Seq[String]): Boolean = plan match {
-      case ColumnarShuffleExchangeExec(op: HashPartitioning, _, ENSURE_REQUIREMENTS, _, _) =>
+      case ColumnarShuffleExchangeExec(op: HashPartitioning, _, ENSURE_REQUIREMENTS, _, _, _, _) =>
         partitionExpressionsColumns(op.expressions) === desiredClusterColumns
       case _ => false
     }

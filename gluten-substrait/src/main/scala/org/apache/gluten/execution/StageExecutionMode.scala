@@ -14,19 +14,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.shuffle
+package org.apache.gluten.execution
 
-import org.apache.gluten.execution.StageExecutionMode
+trait StageExecutionMode {
+  def name: String = this.getClass.getSimpleName.replaceAll("\\$", "")
+  def id: Int
+}
 
-import org.apache.spark.TaskContext
-import org.apache.spark.storage.{BlockId, BlockManagerId}
+case object CPUStageMode extends StageExecutionMode {
+  override def id: Int = 0
+}
+case object GPUStageMode extends StageExecutionMode {
+  override def id: Int = 1
+}
+case object MockGPUStageMode extends StageExecutionMode {
+  override def id: Int = 0
+}
 
-case class GlutenShuffleReaderWrapper[K, C](shuffleReader: ShuffleReader[K, C])
-
-case class GenShuffleReaderParameters[K, C](
-    handle: BaseShuffleHandle[K, _, C],
-    blocksByAddress: Iterator[(BlockManagerId, collection.Seq[(BlockId, Long, Int)])],
-    context: TaskContext,
-    readMetrics: ShuffleReadMetricsReporter,
-    shouldBatchFetch: Boolean = false,
-    executionMode: StageExecutionMode)
+object StageExecutionMode {
+  def fromId(id: Int): StageExecutionMode = id match {
+    case 0 => CPUStageMode
+    case 1 => GPUStageMode
+    case _ => throw new IllegalArgumentException(s"Unknown StageExecutionMode id: $id")
+  }
+}

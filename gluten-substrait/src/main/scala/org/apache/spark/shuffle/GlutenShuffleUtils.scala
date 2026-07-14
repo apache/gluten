@@ -18,6 +18,7 @@ package org.apache.spark.shuffle
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.execution.StageExecutionMode
 import org.apache.gluten.vectorized.NativePartitioning
 
 import org.apache.spark.{ShuffleUtils, SparkConf, TaskContext}
@@ -74,14 +75,10 @@ object GlutenShuffleUtils {
           conf
             .get(sparkCodecKey, IO_COMPRESSION_CODEC.defaultValueString)
             .toLowerCase(Locale.ROOT)
-        val supportedCodecs = BackendsApiManager.getSettings.shuffleSupportedCodec()
-        if (!supportedCodecs.contains(codec)) {
-          throw new IllegalArgumentException(
-            s"Gluten shuffle does not support codec '$codec'. " +
-              s"To disable shuffle compression, set spark.shuffle.compress=false. " +
-              s"To use a supported codec, set ${GlutenConfig.COLUMNAR_SHUFFLE_CODEC.key} " +
-              s"to ${supportedCodecs.mkString(" or ")}.")
-        }
+        checkCodecValues(
+          sparkCodecKey,
+          codec,
+          BackendsApiManager.getSettings.shuffleSupportedCodec())
         codec
     }
   }
@@ -157,7 +154,8 @@ object GlutenShuffleUtils {
       startPartition: Int,
       endPartition: Int,
       context: TaskContext,
-      metrics: ShuffleReadMetricsReporter): ShuffleReader[K, C] = {
+      metrics: ShuffleReadMetricsReporter,
+      executionMode: StageExecutionMode): ShuffleReader[K, C] = {
     val (blocksByAddress, canEnableBatchFetch) = {
       getReaderParam(handle, startMapIndex, endMapIndex, startPartition, endPartition)
     }
@@ -171,7 +169,8 @@ object GlutenShuffleUtils {
           blocksByAddress,
           context,
           metrics,
-          shouldBatchFetch))
+          shouldBatchFetch,
+          executionMode))
       .shuffleReader
   }
 }
