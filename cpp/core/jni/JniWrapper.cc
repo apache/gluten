@@ -279,15 +279,13 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_memory_NativeMemoryManagerJniWrap
     jclass,
     jstring jBackendType,
     jobject jListener,
-    jbyteArray sessionConf,
-    jstring jName) {
+    jbyteArray sessionConf) {
   JNI_METHOD_START
   JavaVM* vm;
   if (env->GetJavaVM(&vm) != JNI_OK) {
     throw GlutenException("Unable to get JavaVM instance");
   }
   auto backendType = jStringToCString(env, jBackendType);
-  auto name = jStringToCString(env, jName);
   auto safeArray = getByteArrayElementsSafe(env, sessionConf);
   auto sparkConf = parseConfMap(env, safeArray.elems(), safeArray.length());
   std::unique_ptr<AllocationListener> listener = std::make_unique<SparkAllocationListener>(vm, jListener);
@@ -295,7 +293,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_memory_NativeMemoryManagerJniWrap
   if (backtrace) {
     listener = std::make_unique<BacktraceAllocationListener>(std::move(listener));
   }
-  MemoryManager* mm = MemoryManager::create(backendType, std::move(listener), MemoryManagerOptions{name});
+  MemoryManager* mm = MemoryManager::create(backendType, std::move(listener), MemoryManagerOptions{""});
   return reinterpret_cast<jlong>(mm);
   JNI_METHOD_END(-1L)
 }
