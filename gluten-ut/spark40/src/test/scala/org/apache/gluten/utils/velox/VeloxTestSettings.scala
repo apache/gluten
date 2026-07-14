@@ -739,6 +739,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // output ordering and partitioning metadata.
   enableSuite[GlutenQueryPlanningTrackerEndToEndSuite]
   enableSuite[GlutenRemoveRedundantProjectsSuite]
+    // Rewrite as result checks because Gluten transforms and may pull out additional projects.
     .exclude("project with filter")
     .exclude("project with specific column ordering")
     .exclude("project with extra columns")
