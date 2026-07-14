@@ -734,10 +734,25 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenLogicalPlanTagInSparkPlanSuite]
   enableSuite[GlutenOptimizeMetadataOnlyQuerySuite]
   enableSuite[GlutenPersistedViewTestSuite]
-  // TODO: 4.x enableSuite[GlutenPlannerSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenProjectedOrderingAndPartitioningSuite]  // 6 failures
+  // GlutenPlannerSuite is not enabled: it validates Spark planner implementation details.
+  // GlutenProjectedOrderingAndPartitioningSuite is not enabled: it validates Spark planner
+  // output ordering and partitioning metadata.
   enableSuite[GlutenQueryPlanningTrackerEndToEndSuite]
-  // TODO: 4.x enableSuite[GlutenRemoveRedundantProjectsSuite]  // 14 failures
+  enableSuite[GlutenRemoveRedundantProjectsSuite]
+    .exclude("project with filter")
+    .exclude("project with specific column ordering")
+    .exclude("project with extra columns")
+    .exclude("project with fewer columns")
+    .exclude("aggregate without ordering requirement")
+    .exclude("aggregate with ordering requirement")
+    .exclude("join without ordering requirement")
+    .exclude("join with ordering requirement")
+    .exclude("window function")
+    .exclude("generate should require column ordering")
+    .exclude("subquery")
+    .exclude("SPARK-33697: UnionExec should require column ordering")
+    .exclude("SPARK-33697: remove redundant projects under expand")
+    .exclude("SPARK-36020: Project should not be removed when child's logical link is different")
   enableSuite[GlutenRemoveRedundantSortsSuite]
     // Rewrite as it check spark SortExec.
     .includeAllGlutenTests()
