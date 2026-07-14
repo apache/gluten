@@ -60,7 +60,7 @@ class BoltMemoryManager final : public MemoryManager {
       const std::string& kind,
       std::unique_ptr<AllocationListener> listener,
       const bytedance::bolt::config::ConfigBase& backendConf,
-      const std::string& name);
+      const std::string& name = "");
 
   ~BoltMemoryManager() override;
   BoltMemoryManager(const BoltMemoryManager&) = delete;
