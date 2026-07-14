@@ -19,7 +19,7 @@ package org.apache.spark.sql
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{HashAggregateExecBaseTransformer, HashAggregateExecTransformer}
 
-import org.apache.spark.SparkException
+import org.apache.spark.{SparkException, SparkRuntimeException, SparkThrowable}
 import org.apache.spark.sql.execution.WholeStageCodegenExec
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
@@ -339,40 +339,49 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
     df2.createOrReplaceTempView("df2")
 
     def assertWrappedSparkThrowable(
-        e: SparkException,
+        e: SparkThrowable,
         errorClass: String,
         messageFragments: Seq[String]): Unit = {
-      val combinedMessage =
-        Option(e.getMessage).getOrElse("") + "\n" + Option(e.getCause).map(_.toString).getOrElse("")
+      val combinedMessage = e match {
+        case se: SparkException =>
+          Option(se.getMessage).getOrElse("") + "\n" + Option(se.getCause).map(_.toString)
+            .getOrElse("")
+        case _ =>
+          Option(e.getMessage).getOrElse("")
+      }
       assert(combinedMessage.contains(errorClass))
       messageFragments.foreach(fragment => assert(combinedMessage.contains(fragment)))
     }
 
-    val invalidLow = intercept[SparkException] {
+    val invalidLow = intercept[SparkThrowable] {
       val res = df1.groupBy("id")
         .agg(
           hll_sketch_agg("value", 1).as("hllsketch")
         )
       checkAnswer(res, Nil)
     }
+    assert(
+      invalidLow.isInstanceOf[SparkRuntimeException] || invalidLow.isInstanceOf[SparkException])
     assertWrappedSparkThrowable(
       invalidLow,
       "HLL_INVALID_LG_K",
       Seq("`hll_sketch_agg`", "1"))
 
-    val invalidHigh = intercept[SparkException] {
+    val invalidHigh = intercept[SparkThrowable] {
       val res = df1.groupBy("id")
         .agg(
           hll_sketch_agg("value", 25).as("hllsketch")
         )
       checkAnswer(res, Nil)
     }
+    assert(
+      invalidHigh.isInstanceOf[SparkRuntimeException] || invalidHigh.isInstanceOf[SparkException])
     assertWrappedSparkThrowable(
       invalidHigh,
       "HLL_INVALID_LG_K",
       Seq("`hll_sketch_agg`", "25"))
 
-    val unionError = intercept[SparkException] {
+    val unionError = intercept[SparkThrowable] {
       val i1 = df1.groupBy("id")
         .agg(
           hll_sketch_agg("value").as("hllsketch_left")
@@ -384,12 +393,14 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
       val res = i1.join(i2).withColumn("union", hll_union("hllsketch_left", "hllsketch_right"))
       checkAnswer(res, Nil)
     }
+    assert(
+      unionError.isInstanceOf[SparkRuntimeException] || unionError.isInstanceOf[SparkException])
     assertWrappedSparkThrowable(
       unionError,
       "HLL_UNION_DIFFERENT_LG_K",
       Seq("`hll_union`", "12", "20"))
 
-    val unionAggError = intercept[SparkException] {
+    val unionAggError = intercept[SparkThrowable] {
       val i1 = df1.groupBy("id")
         .agg(
           hll_sketch_agg("value").as("hllsketch")
@@ -404,6 +415,9 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
         )
       checkAnswer(res, Nil)
     }
+    assert(
+      unionAggError.isInstanceOf[SparkRuntimeException] ||
+        unionAggError.isInstanceOf[SparkException])
     assertWrappedSparkThrowable(
       unionAggError,
       "HLL_UNION_DIFFERENT_LG_K",
