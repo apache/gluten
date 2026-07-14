@@ -108,7 +108,7 @@ std::shared_ptr<GpuBufferColumnarBatch> GpuBufferColumnarBatch::compose(
 
       if (bufferTypes[i] == BufferType::kTimestampValue) {
         // Velox Timestamp value is 16 bytes. CUDF Timestamp value is 8 bytes.
-        bufferSizes[i] += buffer->size() >> 1;
+        bufferSizes[i] += static_cast<size_t>(batch->numRows()) * sizeof(int64_t);
       } else if (bufferTypes[i] == BufferType::kBooleanValue) {
         // Velox Boolean value is 1 bit. CUDF Boolean value is 1 byte.
         bufferSizes[i] += batch->numRows();
