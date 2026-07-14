@@ -194,8 +194,6 @@ public class OffloadedJobGraphGenerator {
               sourceOperator.getId(),
               ((GlutenStreamSource) sourceOperator).getConnectorSplit(),
               outClass);
-      newFn.setShouldCallNoMoreSplits(
-          ((GlutenStreamSource) sourceOperator).isShouldCallNoMoreSplits());
       GlutenStreamSource newSourceOp = new GlutenStreamSource(newFn);
       offloadedOpConfig.setStreamOperator(newSourceOp);
       if (supportsVectorOutput) {

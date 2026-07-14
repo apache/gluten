@@ -217,7 +217,6 @@ class GlutenSourceFunctionWatermarkStatusE2ETest {
             scanNode.getId(),
             connectorSplit,
             StatefulRecord.class);
-    sourceFunction.setShouldCallNoMoreSplits(false);
 
     GlutenStreamSource sourceOp = new GlutenStreamSource(sourceFunction, "KafkaSource");
     return new DataStreamSource<StatefulRecord>(

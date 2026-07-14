@@ -65,13 +65,6 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
   private final ConnectorSplit split;
   private volatile boolean isRunning = true;
 
-  /**
-   * If true, {@code noMoreSplits()} is called after adding the initial split in {@link
-   * #initSession()}. Set to false for unbounded streaming test scenarios where the task should stay
-   * alive to detect idleness.
-   */
-  private boolean shouldCallNoMoreSplits = true;
-
   private GlutenSessionResource sessionResource;
   private Query query;
   private SerialTask task;
@@ -91,16 +84,6 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
     this.id = id;
     this.split = split;
     this.outClass = outClass;
-  }
-
-  /** Sets whether noMoreSplits() should be called after adding the initial split. */
-  public void setShouldCallNoMoreSplits(boolean value) {
-    this.shouldCallNoMoreSplits = value;
-  }
-
-  /** Returns whether noMoreSplits() should be called after adding the initial split. */
-  public boolean isShouldCallNoMoreSplits() {
-    return shouldCallNoMoreSplits;
   }
 
   public StatefulPlanNode getPlanNode() {
@@ -300,9 +283,7 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
             VeloxConnectorConfig.getConfig(getRuntimeContext()));
     task = session.queryOps().execute(query);
     task.addSplit(id, activeSplit);
-    if (shouldCallNoMoreSplits) {
-      task.noMoreSplits(id);
-    }
+    task.noMoreSplits(id);
     metrics = new SourceOperatorMetrics(getRuntimeContext().getMetricGroup());
   }
 }

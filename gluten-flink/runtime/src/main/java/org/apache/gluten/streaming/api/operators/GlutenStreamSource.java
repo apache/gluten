@@ -79,10 +79,6 @@ public class GlutenStreamSource extends StreamSource implements GlutenOperator {
     return sourceFunction.getConnectorSplit();
   }
 
-  public boolean isShouldCallNoMoreSplits() {
-    return sourceFunction.isShouldCallNoMoreSplits();
-  }
-
   @SuppressWarnings("rawtypes")
   private SourceFunction.SourceContext getSourceContext() {
     return (SourceFunction.SourceContext)
