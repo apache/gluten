@@ -88,7 +88,7 @@ jobs:
           export fmt_SOURCE=BUNDLED
           export folly_SOURCE=BUNDLED
           git clone -b feature/idle-source-handling https://github.com/bigo-sg/velox4j.git
-          cd velox4j && git reset --hard a9abcddc56295e78a577c6a8c8b008b5b700e20e
+          cd velox4j && git reset --hard fed996f848811cd50dfdd4171808be3b1f631337
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..
