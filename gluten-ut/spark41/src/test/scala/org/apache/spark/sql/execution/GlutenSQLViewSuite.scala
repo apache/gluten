@@ -16,45 +16,25 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.SparkException
-import org.apache.spark.sql.{GlutenSQLTestsTrait, Row}
-import org.apache.spark.sql.internal.SQLConf.STORE_ANALYZED_PLAN_FOR_VIEW
+import org.apache.spark.SparkThrowable
+import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenSimpleSQLViewSuite extends SimpleSQLViewSuite with GlutenSQLTestsTrait {
-  import testImplicits._
 
-  private def assertMissingFileError(f: => Unit): Unit = {
-    val exception = intercept[SparkException](f)
-    val messages = Iterator
-      .iterate[Throwable](exception)(_.getCause)
-      .takeWhile(_ != null)
-      .flatMap(e => Option(e.getMessage))
+  // Velox returns a native FILE_NOT_FOUND error instead of Spark's structured error condition.
+  override def checkErrorMatchPVals(
+      exception: SparkThrowable,
+      condition: String,
+      parameters: Map[String, String]): Unit = {
+    if (condition == "FAILED_READ_FILE.FILE_NOT_EXIST") {
+      val messages = Iterator
+        .iterate[Throwable](exception.asInstanceOf[Throwable])(_.getCause)
+        .takeWhile(_ != null)
+        .flatMap(error => Option(error.getMessage))
 
-    assert(messages.exists(_.contains("FILE_NOT_FOUND")))
-  }
-
-  testGluten("alter temporary view should follow current storeAnalyzedPlanForView config") {
-    withTable("t") {
-      Seq(2, 3, 1).toDF("c1").write.format("parquet").saveAsTable("t")
-      withView("v1") {
-        withSQLConf(STORE_ANALYZED_PLAN_FOR_VIEW.key -> "true") {
-          sql("CREATE TEMPORARY VIEW v1 AS SELECT * FROM t")
-          Seq(4, 6, 5).toDF("c1").write.mode("overwrite").format("parquet").saveAsTable("t")
-          assertMissingFileError(sql("SELECT * FROM v1").collect())
-        }
-
-        withSQLConf(STORE_ANALYZED_PLAN_FOR_VIEW.key -> "false") {
-          sql("ALTER VIEW v1 AS SELECT * FROM t")
-          Seq(1, 3, 5).toDF("c1").write.mode("overwrite").format("parquet").saveAsTable("t")
-          checkAnswer(sql("SELECT * FROM v1"), Seq(Row(1), Row(3), Row(5)))
-        }
-
-        withSQLConf(STORE_ANALYZED_PLAN_FOR_VIEW.key -> "true") {
-          sql("ALTER VIEW v1 AS SELECT * FROM t")
-          Seq(2, 4, 6).toDF("c1").write.mode("overwrite").format("parquet").saveAsTable("t")
-          assertMissingFileError(sql("SELECT * FROM v1").collect())
-        }
-      }
+      assert(messages.exists(_.contains("FILE_NOT_FOUND")))
+    } else {
+      super.checkErrorMatchPVals(exception, condition, parameters)
     }
   }
 }
