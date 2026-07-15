@@ -734,9 +734,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenLogicalPlanTagInSparkPlanSuite]
   enableSuite[GlutenOptimizeMetadataOnlyQuerySuite]
   enableSuite[GlutenPersistedViewTestSuite]
-  // GlutenPlannerSuite is not enabled: it validates Spark planner implementation details.
-  // GlutenProjectedOrderingAndPartitioningSuite is not enabled: it validates Spark planner
-  // output ordering and partitioning metadata.
+  // TODO: 4.x enableSuite[GlutenPlannerSuite]  // 1 failure
+  // TODO: 4.x enableSuite[GlutenProjectedOrderingAndPartitioningSuite]  // 6 failures
   enableSuite[GlutenQueryPlanningTrackerEndToEndSuite]
   enableSuite[GlutenRemoveRedundantProjectsSuite]
     // Rewrite as result checks because Gluten transforms and may pull out additional projects.
