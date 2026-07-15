@@ -98,6 +98,9 @@ object VeloxBroadcastBuildSideCache
               unsafe.buildHashTable(broadcastContext)
           }
 
+          broadcastContext.hashTableMemorySizeMetric.foreach(
+            _ += HashJoinBuilder.getHashTableMemoryUsage(pointer))
+
           BroadcastHashTable(pointer, relation, droppedDuplicates)
         }
       )

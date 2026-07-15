@@ -75,6 +75,14 @@ class HashTableBuilder {
     return noMoreInput_;
   }
 
+  void setHashTableMemoryUsage(int64_t hashTableMemoryUsage) {
+    hashTableMemoryUsage_ = hashTableMemoryUsage;
+  }
+
+  int64_t hashTableMemoryUsage() const {
+    return hashTableMemoryUsage_;
+  }
+
   uint32_t joinBuildVectorHasherMaxNumDistinct() const {
     return joinBuildVectorHasherMaxNumDistinct_;
   }
@@ -150,6 +158,7 @@ class HashTableBuilder {
   uint32_t abandonHashBuildDedupMinRows_{100'000};
   uint32_t abandonHashBuildDedupMinPct_{0};
   bool filterPropagatesNulls_{false};
+  int64_t hashTableMemoryUsage_{0};
 };
 
 } // namespace gluten

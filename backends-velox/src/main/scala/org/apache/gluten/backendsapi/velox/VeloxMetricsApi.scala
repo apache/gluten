@@ -727,7 +727,10 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "time to build hash table"),
       "deserializeHashTableTime" -> SQLMetrics.createTimingMetric(
         sparkContext,
-        "time to deserialize hash table")
+        "time to deserialize hash table"),
+      "hashTableMemorySize" -> SQLMetrics.createSizeMetric(
+        sparkContext,
+        "hash table memory size")
     )
 
   override def genHashJoinTransformerMetricsUpdater(
