@@ -88,7 +88,7 @@ jobs:
           export fmt_SOURCE=BUNDLED
           export folly_SOURCE=BUNDLED
           git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
-          cd velox4j && git reset --hard 3ccc4e61dec4d569dc3dd9408b78ee1d4facf3ba
+          cd velox4j && git reset --hard b3987293d08c8b4b13a37162ba7238b45df7feb0
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..
