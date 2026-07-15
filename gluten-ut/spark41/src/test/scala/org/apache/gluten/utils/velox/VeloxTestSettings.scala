@@ -716,8 +716,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenLogicalPlanTagInSparkPlanSuite]
   enableSuite[GlutenOptimizeMetadataOnlyQuerySuite]
   enableSuite[GlutenPersistedViewTestSuite]
-  // TODO: 4.x enableSuite[GlutenPlannerSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenProjectedOrderingAndPartitioningSuite]  // 6 failures
+  disableSuite[GlutenPlannerSuite]("Validates Spark planner implementation details")
+  disableSuite[GlutenProjectedOrderingAndPartitioningSuite](
+    "Validates Spark planner output ordering and partitioning metadata")
   enableSuite[GlutenQueryPlanningTrackerEndToEndSuite]
   // TODO: 4.x enableSuite[GlutenRemoveRedundantProjectsSuite]  // 14 failures
   enableSuite[GlutenRemoveRedundantSortsSuite]
@@ -741,7 +742,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
   enableSuite[GlutenUnsafeKVExternalSorterSuite]
   enableSuite[GlutenUnsafeRowSerializerSuite]
-  // TODO: 4.x enableSuite[GlutenWholeStageCodegenSparkSubmitSuite]  // 1 failure
+  disableSuite[GlutenWholeStageCodegenSparkSubmitSuite](
+    "The SparkSubmit test launches Spark's main class without the Gluten plugin")
   enableSuite[GlutenWholeStageCodegenSuite]
     // Rewrite with Gluten-aware native whole-stage plan assertions.
     .exclude("range/filter should be combined")
