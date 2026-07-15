@@ -28,12 +28,16 @@ import scala.reflect.ClassTag
 abstract class BackendTestSettings {
 
   private val enabledSuites: java.util.Map[String, SuiteSettings] = new util.HashMap()
+  private val disabledSuites: java.util.Map[String, String] = new util.HashMap()
 
   protected def enableSuite[T: ClassTag]: SuiteSettings = {
     enableSuite(implicitly[ClassTag[T]].runtimeClass.getCanonicalName)
   }
 
   protected def enableSuite(suiteName: String): SuiteSettings = {
+    if (disabledSuites.containsKey(suiteName)) {
+      throw new IllegalArgumentException("Suite is already disabled: " + suiteName)
+    }
     if (enabledSuites.containsKey(suiteName)) {
       throw new IllegalArgumentException("Duplicated suite name: " + suiteName)
     }
@@ -42,8 +46,23 @@ abstract class BackendTestSettings {
     suiteSettings
   }
 
+  protected def disableSuite[T: ClassTag](reason: String): Unit = {
+    disableSuite(implicitly[ClassTag[T]].runtimeClass.getCanonicalName, reason)
+  }
+
+  protected def disableSuite(suiteName: String, reason: String): Unit = {
+    require(reason.nonEmpty, "Disable reason must not be empty")
+    if (enabledSuites.containsKey(suiteName)) {
+      throw new IllegalArgumentException("Suite is already enabled: " + suiteName)
+    }
+    if (disabledSuites.containsKey(suiteName)) {
+      throw new IllegalArgumentException("Duplicated disabled suite: " + suiteName)
+    }
+    disabledSuites.put(suiteName, reason)
+  }
+
   private[utils] def shouldRun(suiteName: String, testName: String): Boolean = {
-    if (!enabledSuites.containsKey(suiteName)) {
+    if (disabledSuites.containsKey(suiteName) || !enabledSuites.containsKey(suiteName)) {
       return false
     }
 

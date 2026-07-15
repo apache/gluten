@@ -243,8 +243,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenCsvExpressionsSuite]
   enableSuite[GlutenDynamicPruningSubquerySuite]
   enableSuite[GlutenExprIdSuite]
-  // GlutenExpressionEvalHelperSuite is not enabled: it validates Spark's ExpressionEvalHelper
-  // contract, while Gluten overrides checkEvaluation/checkExceptionInExpression.
+  disableSuite[GlutenExpressionEvalHelperSuite](
+    "Validates Spark's ExpressionEvalHelper contract, while Gluten overrides " +
+      "checkEvaluation/checkExceptionInExpression")
   enableSuite[GlutenExpressionImplUtilsSuite]
   enableSuite[GlutenExpressionSQLBuilderSuite]
   enableSuite[GlutenExpressionSetSuite]
@@ -252,15 +253,17 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHexSuite]
   enableSuite[GlutenMutableProjectionSuite]
   enableSuite[GlutenNamedExpressionSuite]
-  // GlutenObjectExpressionsSuite is not enabled: object/encoder interpreted execution is
-  // JVM-side coverage and currently fails under Gluten's expression evaluation harness.
+  disableSuite[GlutenObjectExpressionsSuite](
+    "Object/encoder interpreted execution is JVM-side coverage and currently fails under " +
+      "Gluten's expression evaluation harness")
   enableSuite[GlutenOrderingSuite]
-  // GlutenScalaUDFSuite is not enabled: ScalaUDF executes on the JVM/fallback path, so
-  // this parent suite has limited Velox coverage value and still has one inherited failure.
+  disableSuite[GlutenScalaUDFSuite](
+    "ScalaUDF executes on the JVM/fallback path, so this parent suite has limited Velox " +
+      "coverage value and still has one inherited failure")
   enableSuite[GlutenSchemaPruningSuite]
   enableSuite[GlutenSelectedFieldSuite]
-  // GlutenSubExprEvaluationRuntimeSuite is removed because SubExprEvaluationRuntimeSuite
-  // is in test-jar without shaded Guava, while SubExprEvaluationRuntime is shaded.
+  disableSuite[GlutenSubExprEvaluationRuntimeSuite](
+    "Spark's test JAR uses unshaded Guava, while SubExprEvaluationRuntime uses shaded Guava")
   enableSuite[GlutenSubexpressionEliminationSuite]
   enableSuite[GlutenTimeWindowSuite]
   enableSuite[GlutenToPrettyStringSuite]
