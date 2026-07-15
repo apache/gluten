@@ -20,12 +20,13 @@ import org.apache.gluten.backendsapi.bolt.BoltBackendSettings
 import org.apache.gluten.execution.ProjectExecTransformer
 import org.apache.gluten.tags.{SkipTest, UDFTest}
 
-import org.junit.Ignore
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.plans.SQLHelper
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.expression.UDFResolver
+
+import org.junit.Ignore
 
 import java.nio.file.Paths
 
