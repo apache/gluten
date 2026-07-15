@@ -95,8 +95,9 @@ public class JniLibLoader {
 
   /**
    * Same contract as {@link #load(String)}, with the addition of creating a symbolic link named
-   * {@code linkName} in {@code workDir} pointing at the extracted library. Passing a null {@code
-   * linkName} skips the link creation.
+   * {@code linkName} in {@code workDir} pointing at the extracted library. Returns immediately if
+   * {@code libPath} was already loaded by this instance. Passing a null {@code linkName} skips the
+   * link creation.
    */
   public synchronized void loadAndCreateLink(String libPath, String linkName) {
     try {
