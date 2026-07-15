@@ -82,7 +82,7 @@ object AdjustStageExecutionMode extends Logging {
   def adjustExecutionMode(plan: SparkPlan, stageExecutionMode: StageExecutionMode): SparkPlan = {
     plan match {
       case aqeReader: AQEShuffleReadExec =>
-        logWarning(s"Adjust AQE shuffle read to ${stageExecutionMode.name}.")
+        logInfo(s"Adjust AQE shuffle read to ${stageExecutionMode.name}.")
         ColumnarAQEShuffleReadExec(
           aqeReader.child,
           aqeReader.partitionSpecs,

@@ -25,7 +25,7 @@ import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.expressions.{Expression, PlanExpression}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.execution.ColumnarWriteFilesExec.NoopLeaf
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AdaptiveSparkPlanHelper, AQEShuffleReadExec, QueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AdaptiveSparkPlanHelper, AQEShuffleReadExec, ColumnarAQEShuffleReadExec, QueryStageExec}
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.execution.command.{DataWritingCommandExec, ExecutedCommandExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -142,6 +142,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
             onFallback(i, "Columnar table cache is disabled")
           }
         case _: AQEShuffleReadExec => // Ignore
+        case _: ColumnarAQEShuffleReadExec => // Ignore
         case p: SparkPlan =>
           onFallback(p, fallbackReason(p))
           p.innerChildren.foreach(visit)

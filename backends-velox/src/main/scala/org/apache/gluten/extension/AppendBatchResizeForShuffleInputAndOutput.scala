@@ -30,10 +30,6 @@ import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, ShuffleQuery
 case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
   extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = {
-    if (VeloxConfig.get.enableColumnarCudf) {
-      return plan
-    }
-
     val resizeBatchesShuffleInputEnabled = VeloxConfig.get.veloxResizeBatchesShuffleInput
     val resizeBatchesShuffleOutputEnabled = VeloxConfig.get.veloxResizeBatchesShuffleOutput
     if (!resizeBatchesShuffleInputEnabled && !resizeBatchesShuffleOutputEnabled) {

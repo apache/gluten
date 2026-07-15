@@ -963,51 +963,55 @@ VeloxShuffleReader::VeloxShuffleReader(
   initFromSchema();
 }
 
-void VeloxShuffleReader::createDeserializer(const std::shared_ptr<StreamReader>& streamReader) {
+void VeloxShuffleReader::createDeserializer(
+    const std::shared_ptr<StreamReader>& streamReader,
+    const OutputType& outputType) {
   switch (options_->shuffleWriterType) {
+    case ShuffleWriterType::kHashShuffle:
     case ShuffleWriterType::kGpuHashShuffle: {
+      if (outputType == OutputType::kCudfTable) {
 #ifdef GLUTEN_ENABLE_GPU
-      VELOX_CHECK(!hasComplexType_);
-      if (options_->enableGpuAsyncReader) {
-        deserializer_ = std::make_unique<VeloxGpuAsyncHashShuffleReaderDeserializer>(
-            streamReader,
-            schema_,
-            codec_,
-            rowType_,
-            options_->readerBufferSize,
-            options_->gpuAsyncReaderMaxPrefetchBytes,
-            memoryManager_,
-            deserializeTime_,
-            decompressTime_);
+        VELOX_CHECK(!hasComplexType_);
+        if (options_->enableGpuAsyncReader) {
+          deserializer_ = std::make_unique<VeloxGpuAsyncHashShuffleReaderDeserializer>(
+              streamReader,
+              schema_,
+              codec_,
+              rowType_,
+              options_->readerBufferSize,
+              options_->gpuAsyncReaderMaxPrefetchBytes,
+              memoryManager_,
+              deserializeTime_,
+              decompressTime_);
+        } else {
+          deserializer_ = std::make_unique<VeloxGpuHashShuffleReaderDeserializer>(
+              streamReader,
+              schema_,
+              codec_,
+              rowType_,
+              options_->readerBufferSize,
+              memoryManager_,
+              deserializeTime_,
+              decompressTime_);
+        }
+#else
+        throw GlutenException("GLUTEN_ENABLE_GPU is not set. GPU shuffle reader deserializer is not supported.");
+#endif
       } else {
-        deserializer_ = std::make_unique<VeloxGpuHashShuffleReaderDeserializer>(
+        deserializer_ = std::make_unique<VeloxHashShuffleReaderDeserializer>(
             streamReader,
             schema_,
             codec_,
             rowType_,
+            options_->batchSize,
             options_->readerBufferSize,
             memoryManager_,
+            isValidityBuffer_,
+            hasComplexType_,
+            options_->enableHashShuffleReaderStreamMerge,
             deserializeTime_,
             decompressTime_);
       }
-#else
-      throw GlutenException("GLUTEN_ENABLE_GPU is not set. GPU shuffle reader deserializer is not supported.");
-#endif
-    } break;
-    case ShuffleWriterType::kHashShuffle: {
-      deserializer_ = std::make_unique<VeloxHashShuffleReaderDeserializer>(
-          streamReader,
-          schema_,
-          codec_,
-          rowType_,
-          options_->batchSize,
-          options_->readerBufferSize,
-          memoryManager_,
-          isValidityBuffer_,
-          hasComplexType_,
-          options_->enableHashShuffleReaderStreamMerge,
-          deserializeTime_,
-          decompressTime_);
     } break;
     case ShuffleWriterType::kSortShuffle:
       deserializer_ = std::make_unique<VeloxSortShuffleReaderDeserializer>(
@@ -1061,9 +1065,11 @@ void VeloxShuffleReader::initFromSchema() {
   }
 }
 
-std::shared_ptr<ResultIterator> VeloxShuffleReader::read(const std::shared_ptr<StreamReader>& streamReader) {
+std::shared_ptr<ResultIterator> VeloxShuffleReader::read(
+    const std::shared_ptr<StreamReader>& streamReader,
+    const OutputType& outputType) {
   // TODO: Support reader priority for async reader.
-  createDeserializer(streamReader);
+  createDeserializer(streamReader, outputType);
   return std::make_shared<ResultIterator>(deserializer_->deserializeStreams());
 }
 

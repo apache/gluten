@@ -115,23 +115,25 @@ std::vector<ShuffleTestParams> getTestParams() {
       for (const auto diskWriteBufferSize : {4, 56, 32 * 1024}) {
         for (const bool useRadixSort : {true, false}) {
           for (const auto deserializerBufferSize : {static_cast<int64_t>(1L), kDefaultDeserializerBufferSize}) {
-            params.push_back(ShuffleTestParams{
-                .shuffleWriterType = ShuffleWriterType::kSortShuffle,
-                .partitionWriterType = partitionWriterType,
-                .compressionType = compression,
-                .diskWriteBufferSize = diskWriteBufferSize,
-                .useRadixSort = useRadixSort,
-                .deserializerBufferSize = deserializerBufferSize});
+            params.push_back(
+                ShuffleTestParams{
+                    .shuffleWriterType = ShuffleWriterType::kSortShuffle,
+                    .partitionWriterType = partitionWriterType,
+                    .compressionType = compression,
+                    .diskWriteBufferSize = diskWriteBufferSize,
+                    .useRadixSort = useRadixSort,
+                    .deserializerBufferSize = deserializerBufferSize});
           }
         }
       }
     }
 
     // Rss sort-based shuffle.
-    params.push_back(ShuffleTestParams{
-        .shuffleWriterType = ShuffleWriterType::kRssSortShuffle,
-        .partitionWriterType = PartitionWriterType::kRss,
-        .compressionType = compression});
+    params.push_back(
+        ShuffleTestParams{
+            .shuffleWriterType = ShuffleWriterType::kRssSortShuffle,
+            .partitionWriterType = PartitionWriterType::kRss,
+            .compressionType = compression});
 
     // Hash-based shuffle.
     for (const auto compressionThreshold : compressionThresholds) {
@@ -139,24 +141,26 @@ std::vector<ShuffleTestParams> getTestParams() {
       for (const auto mergeBufferSize : mergeBufferSizes) {
         for (const bool enableDictionary : {true, false}) {
           for (const bool enableTypeAwareCompress : {true, false}) {
-            params.push_back(ShuffleTestParams{
-                .shuffleWriterType = ShuffleWriterType::kHashShuffle,
-                .partitionWriterType = PartitionWriterType::kLocal,
-                .compressionType = compression,
-                .compressionThreshold = compressionThreshold,
-                .mergeBufferSize = mergeBufferSize,
-                .enableDictionary = enableDictionary,
-                .enableTypeAwareCompress = enableTypeAwareCompress});
+            params.push_back(
+                ShuffleTestParams{
+                    .shuffleWriterType = ShuffleWriterType::kHashShuffle,
+                    .partitionWriterType = PartitionWriterType::kLocal,
+                    .compressionType = compression,
+                    .compressionThreshold = compressionThreshold,
+                    .mergeBufferSize = mergeBufferSize,
+                    .enableDictionary = enableDictionary,
+                    .enableTypeAwareCompress = enableTypeAwareCompress});
           }
         }
       }
 
       // Rss.
-      params.push_back(ShuffleTestParams{
-          .shuffleWriterType = ShuffleWriterType::kHashShuffle,
-          .partitionWriterType = PartitionWriterType::kRss,
-          .compressionType = compression,
-          .compressionThreshold = compressionThreshold});
+      params.push_back(
+          ShuffleTestParams{
+              .shuffleWriterType = ShuffleWriterType::kHashShuffle,
+              .partitionWriterType = PartitionWriterType::kRss,
+              .compressionType = compression,
+              .compressionThreshold = compressionThreshold});
     }
   }
 
@@ -329,7 +333,8 @@ class VeloxShuffleWriterTest : public ::testing::TestWithParam<ShuffleTestParams
 
     const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
-    const auto iter = reader->read(std::make_shared<TestStreamReader>(std::move(in)));
+    const auto iter =
+        reader->read(std::make_shared<TestStreamReader>(std::move(in)), ShuffleReader::OutputType::kRowVector);
     while (iter->hasNext()) {
       auto vector = std::dynamic_pointer_cast<VeloxColumnarBatch>(iter->next())->getRowVector();
       vectors.emplace_back(vector);
@@ -543,7 +548,8 @@ class VeloxShuffleReaderStreamMergeTest : public ::testing::Test, public VeloxSh
 
     const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
-    const auto iter = reader->read(std::make_shared<MultiStreamReader>(std::move(streams)));
+    const auto iter =
+        reader->read(std::make_shared<MultiStreamReader>(std::move(streams)), ShuffleReader::OutputType::kRowVector);
 
     std::vector<RowVectorPtr> output;
     while (iter->hasNext()) {
@@ -723,7 +729,8 @@ TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderDoesNotReuseDictionaryAcross
 
   const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
-  const auto iter = reader->read(std::make_shared<MultiStreamReader>(std::move(streams)));
+  const auto iter =
+      reader->read(std::make_shared<MultiStreamReader>(std::move(streams)), ShuffleReader::OutputType::kRowVector);
 
   ASSERT_TRUE(iter->hasNext());
   facebook::velox::test::assertEqualVectors(
@@ -798,12 +805,7 @@ TEST_P(HashPartitioningShuffleWriterTest, hashPart1Vector) {
         makeFlatVector<int128_t>({232, 34567235, 1212, 4567}, DECIMAL(20, 4)),
         makeFlatVector<int32_t>(
             4, [](vector_size_t row) { return row % 2; }, nullEvery(5), DATE()),
-        makeFlatVector<Timestamp>(
-            4,
-            [](vector_size_t row) {
-              return Timestamp{row % 2, 0};
-            },
-            nullEvery(5))};
+        makeFlatVector<Timestamp>(4, [](vector_size_t row) { return Timestamp{row % 2, 0}; }, nullEvery(5))};
 
     const auto vector = makeRowVector(data);
 
