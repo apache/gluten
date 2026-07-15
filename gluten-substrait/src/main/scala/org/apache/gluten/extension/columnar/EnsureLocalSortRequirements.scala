@@ -17,10 +17,12 @@
 package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
+import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{SortExec, SparkPlan}
+import org.apache.spark.sql.execution.{ColumnarWriteFilesExec, SortExec, SparkPlan}
+import org.apache.spark.sql.execution.datasources.WriteFilesExec
 
 /**
  * This rule is similar with `EnsureRequirements` but only handle local `SortExec`.
@@ -33,6 +35,24 @@ import org.apache.spark.sql.execution.{SortExec, SparkPlan}
 object EnsureLocalSortRequirements extends Rule[SparkPlan] {
   private lazy val transform: HeuristicTransform = HeuristicTransform.static()
 
+  private def requiredChildOrdering(plan: SparkPlan): Seq[Seq[SortOrder]] = {
+    plan match {
+      // V1Writes assumes that the logical ordering it prepared is preserved in the physical plan,
+      // so WriteFilesExec does not expose requiredChildOrdering itself. Gluten may invalidate that
+      // ordering when it replaces a SortAggregateExec with a hash aggregate.
+      case writeFiles: WriteFilesExec
+          if ColumnarWriteFilesExec.OnNoopLeafPath.unapply(writeFiles).isEmpty =>
+        Seq(
+          SparkShimLoader.getSparkShims.getV1WriteRequiredOrdering(
+            writeFiles.child.output,
+            writeFiles.partitionColumns,
+            writeFiles.bucketSpec,
+            writeFiles.options,
+            writeFiles.staticPartitions.size))
+      case _ => plan.requiredChildOrdering
+    }
+  }
+
   private def addLocalSort(
       originalChild: SparkPlan,
       requiredOrdering: Seq[SortOrder]): SparkPlan = {
@@ -44,7 +64,7 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = {
     plan.transformUp {
       case p =>
-        val newChildren = p.children.zip(p.requiredChildOrdering).map {
+        val newChildren = p.children.zip(requiredChildOrdering(p)).map {
           case (child, requiredOrdering) =>
             // If child.outputOrdering already satisfies the requiredOrdering,
             // we do not need to sort.
