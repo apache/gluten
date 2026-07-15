@@ -759,8 +759,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
   enableSuite[GlutenUnsafeKVExternalSorterSuite]
   enableSuite[GlutenUnsafeRowSerializerSuite]
-  // WholeStageCodegenSparkSubmitSuite is not enabled: the SparkSubmit test launches Spark's
-  // main class without the Gluten plugin.
+  // TODO: 4.x enableSuite[GlutenWholeStageCodegenSparkSubmitSuite]  // 1 failure
   enableSuite[GlutenWholeStageCodegenSuite]
     // Rewrite with Gluten-aware native whole-stage plan assertions.
     .exclude("range/filter should be combined")
