@@ -42,8 +42,7 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
     val resolver = SQLConf.get.resolver
     val staticPartitionNames = writeFiles.staticPartitions.keys
     writeFiles.partitionColumns.takeWhile {
-      partitionColumn =>
-        staticPartitionNames.exists(resolver(_, partitionColumn.name))
+      partitionColumn => staticPartitionNames.exists(resolver(_, partitionColumn.name))
     }.size
   }
 
