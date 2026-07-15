@@ -20,8 +20,7 @@
 
 #include "config/GlutenConfig.h"
 #include "memory/GpuBufferColumnarBatch.h"
-#include "shuffle/VeloxGpuShuffleWriter.h"
-#include "shuffle/VeloxHashShuffleWriter.h"
+#include "shuffle/VeloxShuffleWriter.h"
 #include "tests/VeloxShuffleWriterTestBase.h"
 #include "tests/utils/TestAllocationListener.h"
 #include "tests/utils/TestStreamReader.h"
@@ -227,7 +226,7 @@ class GpuVeloxShuffleWriterTest : public ::testing::TestWithParam<GpuShuffleTest
     const auto& params = GetParam();
     switch (params.shuffleWriterType) {
       case ShuffleWriterType::kGpuHashShuffle: {
-        auto hashOptions = std::make_shared<GpuHashShuffleWriterOptions>();
+        auto hashOptions = std::make_shared<HashShuffleWriterOptions>();
         hashOptions->splitBufferSize = splitBufferSize;
         options = hashOptions;
       } break;
