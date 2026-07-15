@@ -68,11 +68,6 @@ abstract class BackendTestSettings {
 
     val suiteSettings = enabledSuites.get(suiteName)
 
-    suiteSettings.disableReason match {
-      case Some(_) => return false
-      case _ => // continue
-    }
-
     val inclusion = suiteSettings.inclusion.asScala
     val exclusion = suiteSettings.exclusion.asScala
 
@@ -107,8 +102,6 @@ abstract class BackendTestSettings {
     private[utils] val inclusion: util.List[IncludeBase] = new util.ArrayList()
     private[utils] val exclusion: util.List[ExcludeBase] = new util.ArrayList()
 
-    private[utils] var disableReason: Option[String] = None
-
     def include(testNames: String*): SuiteSettings = {
       inclusion.add(Include(testNames: _*))
       this
@@ -133,13 +126,6 @@ abstract class BackendTestSettings {
       this
     }
 
-    def disable(reason: String): SuiteSettings = {
-      disableReason = disableReason match {
-        case Some(r) => throw new IllegalArgumentException("Disable reason already set: " + r)
-        case None => Some(reason)
-      }
-      this
-    }
   }
 
   object SuiteSettings {
