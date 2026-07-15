@@ -259,27 +259,32 @@ object MetricsUtil extends Logging {
 
     mutNode.updater match {
       case smj: SortMergeJoinMetricsUpdater =>
-        smj.updateJoinMetrics(
-          operatorMetrics,
-          metrics.getSingleMetrics,
-          joinParamsMap.get(operatorIdx))
+        val joinParams = Option(joinParamsMap.get(operatorIdx)).getOrElse {
+          val p = JoinParams()
+          p.postProjectionNeeded = false
+          p
+        }
+        smj.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
       case ju: JoinMetricsUpdaterBase =>
         // JoinRel and CrossRel output two suites of metrics respectively for build and probe.
         // Therefore, fetch one more suite of metrics here.
         operatorMetrics.add(metrics.getOperatorMetrics(curMetricsIdx))
         curMetricsIdx -= 1
-        ju.updateJoinMetrics(
-          operatorMetrics,
-          metrics.getSingleMetrics,
-          joinParamsMap.get(operatorIdx))
+        val joinParams = Option(joinParamsMap.get(operatorIdx)).getOrElse {
+          val p = JoinParams()
+          p.postProjectionNeeded = false
+          p
+        }
+        ju.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
       case u: UnionMetricsUpdater =>
-        // JoinRel outputs two suites of metrics respectively for hash build and hash probe.
+        // Union outputs two suites of metrics respectively.
         // Therefore, fetch one more suite of metrics here.
         operatorMetrics.add(metrics.getOperatorMetrics(curMetricsIdx))
         curMetricsIdx -= 1
         u.updateUnionMetrics(operatorMetrics)
       case hau: HashAggregateMetricsUpdater =>
-        hau.updateAggregationMetrics(operatorMetrics, aggParamsMap.get(operatorIdx))
+        val aggParams = Option(aggParamsMap.get(operatorIdx)).getOrElse(AggregationParams())
+        hau.updateAggregationMetrics(operatorMetrics, aggParams)
       case lu: LimitMetricsUpdater =>
         // Limit over Sort is converted to TopN node in Bolt, so there is only one suite of metrics
         // for the two transformers. We do not update metrics for limit and leave it for sort.
@@ -348,30 +353,24 @@ object MetricsUtil extends Logging {
       aggParamsMap: JMap[JLong, AggregationParams],
       taskStatsAccumulator: TaskStatsAccumulator): IMetrics => Unit = {
     imetrics =>
-      try {
-        val metrics = imetrics.asInstanceOf[Metrics]
-        val numNativeMetrics = metrics.inputRows.length
-        if (numNativeMetrics == 0) {
-          ()
-        } else {
-          updateTransformerMetricsInternal(
-            mutNode,
-            relMap,
-            operatorIdx,
-            metrics,
-            numNativeMetrics - 1,
-            joinParamsMap,
-            aggParamsMap)
+      val metrics = imetrics.asInstanceOf[Metrics]
+      val numNativeMetrics = metrics.inputRows.length
+      if (numNativeMetrics == 0) {
+        ()
+      } else {
+        updateTransformerMetricsInternal(
+          mutNode,
+          relMap,
+          operatorIdx,
+          metrics,
+          numNativeMetrics - 1,
+          joinParamsMap,
+          aggParamsMap)
 
-          // Update the task stats accumulator with the metrics.
-          if (metrics.taskStats != null) {
-            taskStatsAccumulator.add(metrics.taskStats)
-          }
+        // Update the task stats accumulator with the metrics.
+        if (metrics.taskStats != null) {
+          taskStatsAccumulator.add(metrics.taskStats)
         }
-      } catch {
-        case e: Exception =>
-          logWarning(s"Updating native metrics failed due to ${e.getCause}.")
-          ()
       }
   }
 }

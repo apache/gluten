@@ -46,13 +46,14 @@ abstract class JoinMetricsUpdaterBase(val metrics: Map[String, SQLMetric])
       joinMetrics: util.ArrayList[OperatorMetrics],
       singleMetrics: SingleMetric,
       joinParams: JoinParams): Unit = {
-    assert(joinParams.postProjectionNeeded)
-    val postProjectMetrics = joinMetrics.remove(0)
-    postProjectionCpuCount += postProjectMetrics.cpuCount
-    postProjectionWallNanos += postProjectMetrics.wallNanos
-    numOutputRows += postProjectMetrics.outputRows
-    numOutputVectors += postProjectMetrics.outputVectors
-    numOutputBytes += postProjectMetrics.outputBytes
+    if (joinParams.postProjectionNeeded) {
+      val postProjectMetrics = joinMetrics.remove(0)
+      postProjectionCpuCount += postProjectMetrics.cpuCount
+      postProjectionWallNanos += postProjectMetrics.wallNanos
+      numOutputRows += postProjectMetrics.outputRows
+      numOutputVectors += postProjectMetrics.outputVectors
+      numOutputBytes += postProjectMetrics.outputBytes
+    }
 
     updateJoinMetricsInternal(joinMetrics, joinParams)
   }
