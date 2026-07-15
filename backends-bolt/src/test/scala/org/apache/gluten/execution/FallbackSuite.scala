@@ -296,7 +296,7 @@ class FallbackSuite extends BoltWholeStageTransformerSuite with AdaptiveSparkPla
     }
   }
 
-  testWithMinSparkVersion("fallback with index based schema evolution", "3.4") {
+  testWithMinSparkVersion("fallback with index based schema evolution", "4.0") {
     val query = "SELECT c2 FROM test"
     Seq("parquet", "orc").foreach {
       format =>

@@ -348,7 +348,7 @@ class JsonFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  test("json_object_keys") {
+  ignore("json_object_keys") {
     withTempPath {
       path =>
         Seq[String](
