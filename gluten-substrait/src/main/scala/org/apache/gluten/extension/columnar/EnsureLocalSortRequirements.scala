@@ -23,6 +23,7 @@ import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{ColumnarWriteFilesExec, SortExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * This rule is similar with `EnsureRequirements` but only handle local `SortExec`.
@@ -34,6 +35,17 @@ import org.apache.spark.sql.execution.datasources.WriteFilesExec
  */
 object EnsureLocalSortRequirements extends Rule[SparkPlan] {
   private lazy val transform: HeuristicTransform = HeuristicTransform.static()
+
+  private def numStaticPartitionCols(writeFiles: WriteFilesExec): Int = {
+    // HadoopFs writes include static partition columns in partitionColumns, while Hive writes may
+    // only include the partition columns that are present in the write query.
+    val resolver = SQLConf.get.resolver
+    val staticPartitionNames = writeFiles.staticPartitions.keys
+    writeFiles.partitionColumns.takeWhile {
+      partitionColumn =>
+        staticPartitionNames.exists(resolver(_, partitionColumn.name))
+    }.size
+  }
 
   private def requiredChildOrdering(plan: SparkPlan): Seq[Seq[SortOrder]] = {
     plan match {
@@ -48,7 +60,7 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
             writeFiles.partitionColumns,
             writeFiles.bucketSpec,
             writeFiles.options,
-            writeFiles.staticPartitions.size))
+            numStaticPartitionCols(writeFiles)))
       case _ => plan.requiredChildOrdering
     }
   }
