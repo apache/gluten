@@ -227,7 +227,6 @@ if(ENABLE_GPU)
     operators/plannodes/CudfVectorStream.cc
     shuffle/VeloxGpuAsyncShuffleReader.cc
     shuffle/VeloxGpuShuffleReader.cc
-    shuffle/VeloxGpuShuffleWriter.cc
     operators/serializer/VeloxGpuColumnarBatchSerializer.cc
     utils/GpuBufferBatchResizer.cc
     memory/GpuBufferColumnarBatch.cc)

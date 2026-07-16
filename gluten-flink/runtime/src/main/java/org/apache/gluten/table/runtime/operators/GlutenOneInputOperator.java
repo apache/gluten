@@ -331,20 +331,27 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
 
   @Override
   public void snapshotState(StateSnapshotContext context) throws Exception {
-    // TODO: implement it
-    task.snapshotState(context.getCheckpointId());
+    snapshotNativeState(context);
     super.snapshotState(context);
+  }
+
+  protected void snapshotNativeState(StateSnapshotContext context) throws Exception {
+    task.snapshotState(context.getCheckpointId());
   }
 
   @Override
   public void initializeState(StateInitializationContext context) throws Exception {
+    initializeNativeState(context);
+    super.initializeState(context);
+  }
+
+  protected void initializeNativeState(StateInitializationContext context) throws Exception {
     if (task == null) {
       initSession();
     }
     if (!(getKeyedStateBackend() instanceof RocksDBKeyedStateBackend)) {
       task.initializeState(0, null);
     }
-    super.initializeState(context);
   }
 
   @Override

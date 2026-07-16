@@ -265,7 +265,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataSourceV2MetricsSuite]
   enableSuite[GlutenDataSourceV2OptionSuite]
   enableSuite[GlutenDataSourceV2UtilsSuite]
-  // TODO: 4.x enableSuite[GlutenGroupBasedUpdateTableSuite]  // 1 failure
+  enableSuite[GlutenGroupBasedUpdateTableSuite]
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("update with NOT NULL checks")
   enableSuite[GlutenMergeIntoDataFrameSuite]
   enableSuite[GlutenProcedureSuite]
   enableSuite[GlutenPushablePredicateSuite]
@@ -736,13 +738,15 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenProjectedOrderingAndPartitioningSuite]  // 6 failures
   enableSuite[GlutenQueryPlanningTrackerEndToEndSuite]
   // TODO: 4.x enableSuite[GlutenRemoveRedundantProjectsSuite]  // 14 failures
-  // TODO: 4.x enableSuite[GlutenRemoveRedundantSortsSuite]  // 1 failure
+  enableSuite[GlutenRemoveRedundantSortsSuite]
+    // Rewrite as it check spark SortExec.
+    .includeAllGlutenTests()
   enableSuite[GlutenRowToColumnConverterSuite]
   enableSuite[GlutenSQLExecutionSuite]
   enableSuite[GlutenSQLFunctionSuite]
   enableSuite[GlutenSQLJsonProtocolSuite]
   enableSuite[GlutenShufflePartitionsUtilSuite]
-  // TODO: 4.x enableSuite[GlutenSimpleSQLViewSuite]  // 1 failure
+  enableSuite[GlutenSimpleSQLViewSuite]
   enableSuite[GlutenSparkPlanSuite]
     .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
@@ -756,7 +760,34 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenUnsafeKVExternalSorterSuite]
   enableSuite[GlutenUnsafeRowSerializerSuite]
   // TODO: 4.x enableSuite[GlutenWholeStageCodegenSparkSubmitSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenWholeStageCodegenSuite]  // 24 failures
+  enableSuite[GlutenWholeStageCodegenSuite]
+    // Rewrite with Gluten-aware native whole-stage plan assertions.
+    .exclude("range/filter should be combined")
+    .exclude("HashAggregate should be included in WholeStageCodegen")
+    .exclude("SortAggregate should be included in WholeStageCodegen")
+    .exclude("GenerateExec should be included in WholeStageCodegen (whole-stage-codegen on)")
+    .exclude("HashAggregate with grouping keys should be included in WholeStageCodegen")
+    .exclude("BroadcastHashJoin should be included in WholeStageCodegen")
+    .exclude("Inner ShuffledHashJoin should be included in WholeStageCodegen")
+    .exclude(
+      "Full Outer ShuffledHashJoin and SortMergeJoin should be included in WholeStageCodegen")
+    .exclude("SPARK-44060 Code-gen for build side outer shuffled hash join")
+    .exclude("Left/Right Outer SortMergeJoin should be included in WholeStageCodegen")
+    .exclude("Left Semi SortMergeJoin should be included in WholeStageCodegen")
+    .exclude("Left Anti SortMergeJoin should be included in WholeStageCodegen")
+    .exclude("Inner/Cross BroadcastNestedLoopJoinExec should be included in WholeStageCodegen")
+    .exclude("Left/Right outer BroadcastNestedLoopJoinExec should be included in WholeStageCodegen")
+    .exclude("Left semi/anti BroadcastNestedLoopJoinExec should be included in WholeStageCodegen")
+    .exclude("Sort should be included in WholeStageCodegen")
+    .exclude("Control splitting consume function by operators with config")
+    .exclude("Skip splitting consume function when parameter number exceeds JVM limit")
+    .exclude(
+      "including codegen stage ID in generated class name should not regress codegen caching")
+    .exclude("SPARK-26572: evaluate non-deterministic expressions for aggregate results")
+    .exclude("SPARK-28520: WholeStageCodegen does not work properly for LocalTableScanExec")
+    .exclude("Give up splitting aggregate code if a parameter length goes over the limit")
+    .exclude("Give up splitting subexpression code if a parameter length goes over the limit")
+    .exclude("SPARK-47238: Test broadcast threshold for generated code")
   enableSuite[GlutenBroadcastExchangeSuite]
   enableSuite[GlutenLocalBroadcastExchangeSuite]
   enableSuite[GlutenCoalesceShufflePartitionsSuite]

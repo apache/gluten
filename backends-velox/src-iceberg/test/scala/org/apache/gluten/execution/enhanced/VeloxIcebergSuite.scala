@@ -653,7 +653,9 @@ class VeloxIcebergSuite extends IcebergSuite {
       }
     }
   }
-  test("iceberg parquet writer default row group size test") {
+
+  // Ignored due to velox parquet row-group flush semantics change after velox#16998.
+  ignore("iceberg parquet writer default row group size test") {
     val table = "iceberg_default_row_group_size"
     val defaultRowGroupBytes = 128L * 1024 * 1024
 

@@ -106,6 +106,17 @@ class VeloxShuffleWriterTestBase : public facebook::velox::test::VectorTestBase 
              std::nullopt}),
         makeNullableFlatVector<bool>(
             {std::nullopt, true, false, std::nullopt, true, true, false, true, std::nullopt, std::nullopt}),
+        makeNullableFlatVector<facebook::velox::Timestamp>(
+            {std::nullopt,
+             facebook::velox::Timestamp(5, 0),
+             std::nullopt,
+             std::nullopt,
+             facebook::velox::Timestamp(4, 0),
+             std::nullopt,
+             facebook::velox::Timestamp(2, 0),
+             facebook::velox::Timestamp(1, 0),
+             facebook::velox::Timestamp(0, 0),
+             std::nullopt}),
         makeFlatVector<facebook::velox::StringView>(
             {"a",
              "bobbobbobooooooooooooooooooooooooooooob1",
@@ -137,6 +148,7 @@ class VeloxShuffleWriterTestBase : public facebook::velox::test::VectorTestBase 
         makeFlatVector<int64_t>({1, 1}),
         makeFlatVector<float>({0.142857, -0.142857}),
         makeFlatVector<bool>({true, false}),
+        makeNullableFlatVector<facebook::velox::Timestamp>({std::nullopt, facebook::velox::Timestamp(5, 0)}),
         makeFlatVector<facebook::velox::StringView>(
             {"bob",
              "alicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealicealice"}),
@@ -150,9 +162,37 @@ class VeloxShuffleWriterTestBase : public facebook::velox::test::VectorTestBase 
         makeFlatVector<int64_t>({0, 1}),
         makeFlatVector<float>({0, 0.142857}),
         makeFlatVector<bool>({false, true}),
+        makeFlatVector<facebook::velox::Timestamp>(
+            {facebook::velox::Timestamp(5, 0), facebook::velox::Timestamp(0, 0)}),
         makeFlatVector<facebook::velox::StringView>({"", "alice"}),
         makeFlatVector<facebook::velox::StringView>({"alice", ""}),
-    };
+        facebook::velox::BaseVector::create(facebook::velox::UNKNOWN(), 2, pool())};
+
+    childrenIntHasNull_ = {
+        makeNullableFlatVector<int8_t>({std::nullopt, 1}),
+        makeNullableFlatVector<int8_t>({std::nullopt, -1}),
+        makeNullableFlatVector<int32_t>({std::nullopt, 100}),
+        makeNullableFlatVector<int64_t>({0, 1}),
+        makeNullableFlatVector<float>({0, 0.142857}),
+        makeNullableFlatVector<bool>({false, true}),
+        makeNullableFlatVector<facebook::velox::Timestamp>(
+            {facebook::velox::Timestamp(5, 0), facebook::velox::Timestamp(4, 0)}),
+        makeNullableFlatVector<facebook::velox::StringView>({"", "alice"}),
+        makeNullableFlatVector<facebook::velox::StringView>({"alice", ""}),
+        facebook::velox::BaseVector::create(facebook::velox::UNKNOWN(), 2, pool())};
+
+    childrenStringHasNull_ = {
+        makeNullableFlatVector<int8_t>({0, 1}),
+        makeNullableFlatVector<int8_t>({0, -1}),
+        makeNullableFlatVector<int32_t>({0, 100}),
+        makeNullableFlatVector<int64_t>({0, 1}),
+        makeNullableFlatVector<float>({0, 0.142857}),
+        makeNullableFlatVector<bool>({false, true}),
+        makeNullableFlatVector<facebook::velox::Timestamp>(
+            {facebook::velox::Timestamp(5, 0), facebook::velox::Timestamp(4, 0)}),
+        makeNullableFlatVector<facebook::velox::StringView>({std::nullopt, std::nullopt}),
+        makeNullableFlatVector<facebook::velox::StringView>({std::nullopt, std::nullopt}),
+        facebook::velox::BaseVector::create(facebook::velox::UNKNOWN(), 2, pool())};
 
     largeString1_ = makeString(1024);
     int32_t numRows = 1024;
@@ -163,26 +203,30 @@ class VeloxShuffleWriterTestBase : public facebook::velox::test::VectorTestBase 
         makeFlatVector<int64_t>(std::vector<int64_t>(numRows, 0)),
         makeFlatVector<float>(std::vector<float>(numRows, 0)),
         makeFlatVector<bool>(std::vector<bool>(numRows, true)),
+        makeFlatVector<facebook::velox::Timestamp>(
+            std::vector<facebook::velox::Timestamp>(numRows, facebook::velox::Timestamp(5, 0))),
         makeNullableFlatVector<facebook::velox::StringView>(
             std::vector<std::optional<facebook::velox::StringView>>(numRows, largeString1_.c_str())),
         makeNullableFlatVector<facebook::velox::StringView>(
             std::vector<std::optional<facebook::velox::StringView>>(numRows, std::nullopt)),
-    };
+        facebook::velox::BaseVector::create(facebook::velox::UNKNOWN(), numRows, pool())};
 
     largeString2_ = makeString(4096);
     numRows = 2048;
-    auto vectorToSpill = childrenLargeBinary2_ = {
+    childrenLargeBinary2_ = {
         makeFlatVector<int8_t>(std::vector<int8_t>(numRows, 0)),
         makeFlatVector<int8_t>(std::vector<int8_t>(numRows, 0)),
         makeFlatVector<int32_t>(std::vector<int32_t>(numRows, 0)),
         makeFlatVector<int64_t>(std::vector<int64_t>(numRows, 0)),
         makeFlatVector<float>(std::vector<float>(numRows, 0)),
         makeFlatVector<bool>(std::vector<bool>(numRows, true)),
+        makeFlatVector<facebook::velox::Timestamp>(
+            std::vector<facebook::velox::Timestamp>(numRows, facebook::velox::Timestamp(5, 0))),
         makeNullableFlatVector<facebook::velox::StringView>(
             std::vector<std::optional<facebook::velox::StringView>>(numRows, largeString2_.c_str())),
         makeNullableFlatVector<facebook::velox::StringView>(
             std::vector<std::optional<facebook::velox::StringView>>(numRows, std::nullopt)),
-    };
+        facebook::velox::BaseVector::create(facebook::velox::UNKNOWN(), numRows, pool())};
 
     childrenComplex_ = {
         makeNullableFlatVector<int32_t>({std::nullopt, 1}),
@@ -202,6 +246,8 @@ class VeloxShuffleWriterTestBase : public facebook::velox::test::VectorTestBase 
     inputVector1_ = makeRowVector(children1_);
     inputVector2_ = makeRowVector(children2_);
     inputVectorNoNull_ = makeRowVector(childrenNoNull_);
+    inputVectorIntHasNull_ = makeRowVector(childrenIntHasNull_);
+    inputVectorStringHasNull_ = makeRowVector(childrenStringHasNull_);
     inputVectorLargeBinary1_ = makeRowVector(childrenLargeBinary1_);
     inputVectorLargeBinary2_ = makeRowVector(childrenLargeBinary2_);
     inputVectorComplex_ = makeRowVector(childrenComplex_);
@@ -242,6 +288,8 @@ class VeloxShuffleWriterTestBase : public facebook::velox::test::VectorTestBase 
   std::vector<facebook::velox::VectorPtr> children1_;
   std::vector<facebook::velox::VectorPtr> children2_;
   std::vector<facebook::velox::VectorPtr> childrenNoNull_;
+  std::vector<facebook::velox::VectorPtr> childrenIntHasNull_;
+  std::vector<facebook::velox::VectorPtr> childrenStringHasNull_;
   std::vector<facebook::velox::VectorPtr> childrenLargeBinary1_;
   std::vector<facebook::velox::VectorPtr> childrenLargeBinary2_;
   std::vector<facebook::velox::VectorPtr> childrenComplex_;
@@ -249,6 +297,8 @@ class VeloxShuffleWriterTestBase : public facebook::velox::test::VectorTestBase 
   facebook::velox::RowVectorPtr inputVector1_;
   facebook::velox::RowVectorPtr inputVector2_;
   facebook::velox::RowVectorPtr inputVectorNoNull_;
+  facebook::velox::RowVectorPtr inputVectorIntHasNull_;
+  facebook::velox::RowVectorPtr inputVectorStringHasNull_;
   std::string largeString1_;
   std::string largeString2_;
   facebook::velox::RowVectorPtr inputVectorLargeBinary1_;

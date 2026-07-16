@@ -219,6 +219,8 @@ arrow::Status VeloxRssSortShuffleWriter::initFromRowVector(const facebook::velox
     serdeOptions_ = {false, compressionKind_};
     batch_ = std::make_unique<facebook::velox::VectorStreamGroup>(veloxPool_.get(), serde_.get());
     batch_->createStreamTree(rowType_, splitBufferSize_, &serdeOptions_);
+  } else {
+    VELOX_CHECK(rowType_->equivalent(*rv.rowType()));
   }
   return arrow::Status::OK();
 }
