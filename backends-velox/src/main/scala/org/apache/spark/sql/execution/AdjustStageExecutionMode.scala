@@ -84,22 +84,15 @@ object AdjustStageExecutionMode extends Logging {
       case aqeReader: AQEShuffleReadExec =>
         logInfo(s"Adjust AQE shuffle read to ${stageExecutionMode.name}.")
         ColumnarAQEShuffleReadExec(
-          aqeReader.child,
-          aqeReader.partitionSpecs,
-          stageExecutionMode,
-          isWrapper = false)
+          Left(aqeReader),
+          stageExecutionMode)
       case queryStageExec: ShuffleQueryStageExec =>
         // If no AQEShuffleReadExec is created for the shuffle query stage,
-        // create ColumnarAQEShuffleReadExec here with default partition specs and set the stage
-        // execution mode.
-        val partitionSpecs =
-          Array.tabulate(queryStageExec.shuffle.numPartitions)(
-            i => CoalescedPartitionSpec(i, i + 1))
+        // create ColumnarAQEShuffleReadExec here with partition specs wrapping the
+        // original partitions.
         ColumnarAQEShuffleReadExec(
-          queryStageExec,
-          partitionSpecs,
-          stageExecutionMode,
-          isWrapper = true)
+          Right(queryStageExec),
+          stageExecutionMode)
       case shuffle: ColumnarShuffleExchangeExec =>
         logInfo(s"Adjust shuffle exchange to ${stageExecutionMode.name}.")
         shuffle

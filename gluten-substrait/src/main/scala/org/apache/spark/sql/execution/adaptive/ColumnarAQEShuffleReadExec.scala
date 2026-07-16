@@ -18,155 +18,63 @@ package org.apache.spark.sql.execution.adaptive
 
 import org.apache.gluten.execution.StageExecutionMode
 
-import org.apache.spark.SparkException
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
-import org.apache.spark.sql.catalyst.plans.physical.{CoalescedBoundary, CoalescedHashPartitioning, HashPartitioning, Partitioning, RangePartitioning, RoundRobinPartitioning, SinglePartition, UnknownPartitioning}
-import org.apache.spark.sql.catalyst.trees.CurrentOrigin
+import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.exchange.{ReusedExchangeExec, ShuffleExchangeLike}
-import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
+import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import scala.collection.mutable.ArrayBuffer
 
 /**
- * A wrapper of shuffle query stage, which follows the given partition arrangement.
+ * A wrapper of AQEShuffleReadExec. It is used to wrap the AQEShuffleReadExec or
+ * ShuffleQueryStageExec if executionMode is set by the planner.
  *
- * @param child
- *   It is usually `ShuffleQueryStageExec`, but can be the shuffle exchange node during
- *   canonicalization.
- * @param partitionSpecs
- *   The partition specs that defines the arrangement, requires at least one partition.
+ * @param delegate
+ *   The AQEShuffleReadExec or ShuffleQueryStageExec.
+ * @param executionMode
+ *   The execution mode of the current AQE stage.
  */
-case class ColumnarAQEShuffleReadExec private (
-    child: SparkPlan,
-    partitionSpecs: Seq[ShufflePartitionSpec],
-    executionMode: StageExecutionMode,
-    isWrapper: Boolean)
-  extends UnaryExecNode {
-  assert(partitionSpecs.nonEmpty, s"${getClass.getSimpleName} requires at least one partition")
+case class ColumnarAQEShuffleReadExec(
+    delegate: Either[AQEShuffleReadExec, ShuffleQueryStageExec],
+    executionMode: StageExecutionMode) extends UnaryExecNode {
 
-  // If this is to read shuffle files locally, then all partition specs should be
-  // `PartialMapperPartitionSpec`.
-  if (partitionSpecs.exists(_.isInstanceOf[PartialMapperPartitionSpec])) {
-    assert(partitionSpecs.forall(_.isInstanceOf[PartialMapperPartitionSpec]))
+  private val isAQEShuffleRead = delegate.isLeft
+
+  private val aqeReader: AQEShuffleReadExec = {
+    if (isAQEShuffleRead) {
+      delegate.left.get
+    } else {
+      ColumnarAQEShuffleReadExec.wrapQueryStageWithDummyPartitionSpecs(
+        delegate.right.get)
+    }
   }
 
-  override def nodeName: String = super.nodeName + s"(${executionMode.name})"
-
-  override def supportsColumnar: Boolean = child.supportsColumnar
+  override def child: SparkPlan = aqeReader.child
 
   override def output: Seq[Attribute] = child.output
 
-  override lazy val outputPartitioning: Partitioning = {
-    // If it is a local shuffle read with one mapper per task, then the output partitioning is
-    // the same as the plan before shuffle.
-    // TODO this check is based on assumptions of callers' behavior but is sufficient for now.
-    if (
-      partitionSpecs.forall(_.isInstanceOf[PartialMapperPartitionSpec]) &&
-      partitionSpecs.map(_.asInstanceOf[PartialMapperPartitionSpec].mapIndex).toSet.size ==
-        partitionSpecs.length
-    ) {
-      child match {
-        case ShuffleQueryStageExec(_, s: ShuffleExchangeLike, _) =>
-          s.child.outputPartitioning
-        case ShuffleQueryStageExec(_, r @ ReusedExchangeExec(_, s: ShuffleExchangeLike), _) =>
-          s.child.outputPartitioning match {
-            case e: Expression => r.updateAttr(e).asInstanceOf[Partitioning]
-            case other => other
-          }
-        case _ =>
-          throw new IllegalStateException("operating on canonicalization plan")
-      }
-    } else if (isCoalescedRead) {
-      // For coalesced shuffle read, the data distribution is not changed, only the number of
-      // partitions is changed.
-      child.outputPartitioning match {
-        case h: HashPartitioning =>
-          val partitions = partitionSpecs.map {
-            case CoalescedPartitionSpec(start, end, _) => CoalescedBoundary(start, end)
-            // Can not happend due to isCoalescedRead
-            case unexpected =>
-              throw SparkException.internalError(s"Unexpected ShufflePartitionSpec: $unexpected")
-          }
-          CurrentOrigin.withOrigin(h.origin)(CoalescedHashPartitioning(h, partitions))
-        case r: RangePartitioning =>
-          CurrentOrigin.withOrigin(r.origin)(r.copy(numPartitions = partitionSpecs.length))
-        // This can only happen for `REBALANCE_PARTITIONS_BY_NONE`, which uses
-        // `RoundRobinPartitioning` but we don't need to retain the number of partitions.
-        case r: RoundRobinPartitioning =>
-          r.copy(numPartitions = partitionSpecs.length)
-        case other @ SinglePartition =>
-          throw new IllegalStateException(
-            "Unexpected partitioning for coalesced shuffle read: " + other)
-        case _ =>
-          // Spark plugins may have custom partitioning and may replace this operator
-          // during the postStageOptimization phase, so return UnknownPartitioning here
-          // rather than throw an exception
-          UnknownPartitioning(partitionSpecs.length)
-      }
-    } else {
-      UnknownPartitioning(partitionSpecs.length)
-    }
+  private def shuffleStage = {
+    val method = classOf[AQEShuffleReadExec].getDeclaredMethod("shuffleStage")
+    method.setAccessible(true)
+    method.invoke(aqeReader).asInstanceOf[Option[ShuffleQueryStageExec]]
   }
 
-  override def stringArgs: Iterator[Any] = {
-    val desc = if (isLocalRead) {
-      "local"
-    } else if (hasCoalescedPartition && hasSkewedPartition) {
-      "coalesced and skewed"
-    } else if (hasCoalescedPartition) {
-      "coalesced"
-    } else if (hasSkewedPartition) {
-      "skewed"
-    } else {
-      ""
-    }
-    Iterator(desc)
-  }
-
-  /** Returns true iff some partitions were actually combined */
-  private def isCoalescedSpec(spec: ShufflePartitionSpec) = spec match {
-    case CoalescedPartitionSpec(0, 0, _) => true
-    case s: CoalescedPartitionSpec => s.endReducerIndex - s.startReducerIndex > 1
-    case _ => false
-  }
-
-  /** Returns true iff some non-empty partitions were combined */
-  def hasCoalescedPartition: Boolean = {
-    partitionSpecs.exists(isCoalescedSpec)
-  }
-
-  def hasSkewedPartition: Boolean =
-    partitionSpecs.exists(_.isInstanceOf[PartialReducerPartitionSpec])
-
-  def isLocalRead: Boolean =
-    partitionSpecs.exists(_.isInstanceOf[PartialMapperPartitionSpec]) ||
-      partitionSpecs.exists(_.isInstanceOf[CoalescedMapperPartitionSpec])
-
-  def isCoalescedRead: Boolean = {
-    partitionSpecs.sliding(2).forall {
-      // A single partition spec which is `CoalescedPartitionSpec` also means coalesced read.
-      case Seq(_: CoalescedPartitionSpec) => true
-      case Seq(l: CoalescedPartitionSpec, r: CoalescedPartitionSpec) =>
-        l.endReducerIndex <= r.startReducerIndex
-      case _ => false
-    }
-  }
-
-  private def shuffleStage = child match {
-    case stage: ShuffleQueryStageExec => Some(stage)
-    case _ => None
+  private def isCoalescedSpec(spec: ShufflePartitionSpec) = {
+    val method = classOf[AQEShuffleReadExec].getDeclaredMethod("isCoalescedSpec")
+    method.setAccessible(true)
+    method.invoke(aqeReader, spec).asInstanceOf[Boolean]
   }
 
   @transient private lazy val partitionDataSizes: Option[Seq[Long]] = {
     val mapStats = shuffleStage.get.mapStats
-    if (!isLocalRead && mapStats.isDefined) {
-      Some(partitionSpecs.zipWithIndex.map {
+    if (!aqeReader.isLocalRead && mapStats.isDefined) {
+      Some(aqeReader.partitionSpecs.zipWithIndex.map {
         case (p: CoalescedPartitionSpec, partition) =>
-          if (isWrapper) {
+          if (!isAQEShuffleRead) {
+            // The partition specs are dummy and `p.datasSize` is not set.
+            // Get the data size from mapStats.
             mapStats.get.bytesByPartitionId(partition)
           } else {
             assert(p.dataSize.isDefined)
@@ -185,11 +93,12 @@ case class ColumnarAQEShuffleReadExec private (
     val driverAccumUpdates = ArrayBuffer.empty[(Long, Long)]
 
     val numPartitionsMetric = metrics("numPartitions")
-    numPartitionsMetric.set(partitionSpecs.length)
-    driverAccumUpdates += (numPartitionsMetric.id -> partitionSpecs.length.toLong)
+    numPartitionsMetric.set(aqeReader.partitionSpecs.length)
+    driverAccumUpdates += (numPartitionsMetric.id -> aqeReader.partitionSpecs.length.toLong)
 
-    if (hasSkewedPartition) {
-      val skewedSpecs = partitionSpecs.collect { case p: PartialReducerPartitionSpec => p }
+    if (aqeReader.hasSkewedPartition) {
+      val skewedSpecs =
+        aqeReader.partitionSpecs.collect { case p: PartialReducerPartitionSpec => p }
 
       val skewedPartitions = metrics("numSkewedPartitions")
       val skewedSplits = metrics("numSkewedSplits")
@@ -204,9 +113,9 @@ case class ColumnarAQEShuffleReadExec private (
       driverAccumUpdates += (skewedSplits.id -> numSplits)
     }
 
-    if (hasCoalescedPartition) {
+    if (aqeReader.hasCoalescedPartition) {
       val numCoalescedPartitionsMetric = metrics("numCoalescedPartitions")
-      val x = partitionSpecs.count(isCoalescedSpec)
+      val x = aqeReader.partitionSpecs.count(isCoalescedSpec)
       numCoalescedPartitionsMetric.set(x)
       driverAccumUpdates += numCoalescedPartitionsMetric.id -> x
     }
@@ -222,53 +131,15 @@ case class ColumnarAQEShuffleReadExec private (
     SQLMetrics.postDriverMetricsUpdatedByValue(sparkContext, executionId, driverAccumUpdates.toSeq)
   }
 
-  @transient override lazy val metrics: Map[String, SQLMetric] = {
-    if (shuffleStage.isDefined) {
-      Map("numPartitions" -> SQLMetrics.createMetric(sparkContext, "number of partitions")) ++ {
-        if (isLocalRead) {
-          // We split the mapper partition evenly when creating local shuffle read, so no
-          // data size info is available.
-          Map.empty
-        } else {
-          Map(
-            "partitionDataSize" ->
-              SQLMetrics.createSizeMetric(sparkContext, "partition data size"))
-        }
-      } ++ {
-        if (hasSkewedPartition) {
-          Map(
-            "numSkewedPartitions" ->
-              SQLMetrics.createMetric(sparkContext, "number of skewed partitions"),
-            "numSkewedSplits" ->
-              SQLMetrics.createMetric(sparkContext, "number of skewed partition splits")
-          )
-        } else {
-          Map.empty
-        }
-      } ++ {
-        if (hasCoalescedPartition) {
-          Map(
-            "numCoalescedPartitions" ->
-              SQLMetrics.createMetric(sparkContext, "number of coalesced partitions"))
-        } else {
-          Map.empty
-        }
-      }
-    } else {
-      // It's a canonicalized plan, no need to report metrics.
-      Map.empty
-    }
-  }
-
   private lazy val shuffleRDD: RDD[_] = {
     shuffleStage match {
       case Some(stage) =>
         sendDriverMetrics()
         stage.shuffle match {
           case columnarShuffle: ColumnarShuffleExchangeExec =>
-            columnarShuffle.getShuffleRDD(partitionSpecs.toArray, executionMode)
+            columnarShuffle.getShuffleRDD(aqeReader.partitionSpecs.toArray, executionMode)
           case _ =>
-            stage.shuffle.getShuffleRDD(partitionSpecs.toArray)
+            stage.shuffle.getShuffleRDD(aqeReader.partitionSpecs.toArray)
         }
       case _ =>
         throw new IllegalStateException("operating on canonicalized plan")
@@ -283,6 +154,25 @@ case class ColumnarAQEShuffleReadExec private (
     shuffleRDD.asInstanceOf[RDD[ColumnarBatch]]
   }
 
-  override protected def withNewChildInternal(newChild: SparkPlan): ColumnarAQEShuffleReadExec =
-    copy(child = newChild)
+  override protected def withNewChildInternal(newChild: SparkPlan): ColumnarAQEShuffleReadExec = {
+    if (isAQEShuffleRead) {
+      copy(delegate =
+        Left(delegate.left.get.withNewChildren(Seq(newChild)).asInstanceOf[AQEShuffleReadExec]))
+    } else {
+      copy(delegate =
+        Right(
+          delegate.right.get.withNewChildren(Seq(newChild)).asInstanceOf[ShuffleQueryStageExec]))
+    }
+  }
+}
+
+object ColumnarAQEShuffleReadExec {
+  private def wrapQueryStageWithDummyPartitionSpecs(
+      queryStageExec: ShuffleQueryStageExec)
+      : AQEShuffleReadExec = {
+    // Create CoalescedPartitionSpec for each partition.
+    val partitionSpecs =
+      Array.tabulate(queryStageExec.shuffle.numPartitions)(i => CoalescedPartitionSpec(i, i + 1))
+    AQEShuffleReadExec(queryStageExec, partitionSpecs)
+  }
 }
