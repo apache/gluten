@@ -207,7 +207,10 @@ class JniCommonState {
   std::mutex mtx_;
 };
 
-JniCommonState* getJniCommonState();
+inline JniCommonState* getJniCommonState() {
+  static JniCommonState jniCommonState;
+  return &jniCommonState;
+}
 
 Runtime* getRuntime(JNIEnv* env, jobject runtimeAware);
 

@@ -70,6 +70,9 @@ class JniErrorState {
   std::mutex mtx_;
 };
 
-JniErrorState* getJniErrorState();
+inline JniErrorState* getJniErrorState() {
+  static JniErrorState jniErrorState;
+  return &jniErrorState;
+}
 
 } // namespace gluten
