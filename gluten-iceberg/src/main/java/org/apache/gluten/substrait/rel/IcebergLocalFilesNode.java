@@ -16,6 +16,10 @@
  */
 package org.apache.gluten.substrait.rel;
 
+import org.apache.gluten.backendsapi.BackendsApiManager;
+
+import com.google.protobuf.Any;
+import io.substrait.proto.AdvancedExtension;
 import io.substrait.proto.ReadRel;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
@@ -25,6 +29,8 @@ import java.util.*;
 
 public class IcebergLocalFilesNode extends LocalFilesNode {
   private final List<List<DeleteFile>> deleteFilesList;
+  private final Map<String, Integer> fieldIds;
+  private final Map<String, String> initialDefaults;
 
   IcebergLocalFilesNode(
       Integer index,
@@ -35,7 +41,9 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
       ReadFileFormat fileFormat,
       List<String> preferredLocations,
       List<List<DeleteFile>> deleteFilesList,
-      List<Map<String, String>> metadataColumns) {
+      List<Map<String, String>> metadataColumns,
+      Map<String, Integer> fieldIds,
+      Map<String, String> initialDefaults) {
     super(
         index,
         paths,
@@ -50,6 +58,25 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
         new HashMap<>(),
         new ArrayList<>());
     this.deleteFilesList = deleteFilesList;
+    this.fieldIds = fieldIds;
+    this.initialDefaults = initialDefaults;
+  }
+
+  @Override
+  public ReadRel.LocalFiles toProtobuf() {
+    ReadRel.LocalFiles localFiles = super.toProtobuf();
+    if (initialDefaults.isEmpty()) {
+      return localFiles;
+    }
+
+    Any extension =
+        BackendsApiManager.getTransformerApiInstance()
+            .packIcebergReadExtension(fieldIds, initialDefaults);
+
+    return localFiles
+        .toBuilder()
+        .setAdvancedExtension(AdvancedExtension.newBuilder().setEnhancement(extension))
+        .build();
   }
 
   @Override

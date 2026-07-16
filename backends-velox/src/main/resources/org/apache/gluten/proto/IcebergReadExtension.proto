@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package gluten;
+
+option java_package = "org.apache.gluten.proto";
+option java_multiple_files = true;
+
+// Iceberg-specific metadata carried in LocalFiles.advanced_extension.
+message IcebergReadExtension {
+  message ColumnFieldId {
+    string name = 1;
+    int32 field_id = 2;
+  }
+
+  message ColumnDefault {
+    string name = 1;
+    int32 field_id = 2;
+    string initial_default = 3;
+  }
+
+  repeated ColumnDefault column_defaults = 1;
+  repeated ColumnFieldId column_field_ids = 2;
+}

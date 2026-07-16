@@ -26,6 +26,7 @@
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "velox/connectors/hive/HiveDataSink.h"
+#include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
 #include "velox/exec/TableWriter.h"
 #include "velox/type/Type.h"
 
@@ -1609,11 +1610,41 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   std::vector<std::string> outNames;
   outNames.reserve(colNameList.size());
   connector::ColumnHandleMap assignments;
+  const auto icebergSplitInfo = std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo);
   for (int idx = 0; idx < colNameList.size(); idx++) {
     auto outName = SubstraitParser::makeNodeName(planNodeId_, idx);
     auto columnType = columnTypes[idx];
-    assignments[outName] = std::make_shared<connector::hive::HiveColumnHandle>(
-        colNameList[idx], columnType, veloxTypeList[idx], veloxTypeList[idx]);
+    const IcebergColumnInfo* icebergColumn = nullptr;
+    if (icebergSplitInfo) {
+      auto columnIt = icebergSplitInfo->columns.find(colNameList[idx]);
+      if (columnIt != icebergSplitInfo->columns.end()) {
+        icebergColumn = &columnIt->second;
+      } else if (asLowerCase) {
+        for (const auto& [name, column] : icebergSplitInfo->columns) {
+          auto normalizedName = name;
+          folly::toLowerAscii(normalizedName);
+          if (normalizedName == colNameList[idx]) {
+            icebergColumn = &column;
+            break;
+          }
+        }
+      }
+    }
+    // Gluten serializes Iceberg partition dates as ISO strings. Use Iceberg
+    // handles only for regular columns so all data columns are mapped by field
+    // ID together, while partition columns keep the existing Hive conversion.
+    if (icebergColumn && columnType == ColumnType::kRegular) {
+      assignments[outName] = std::make_shared<connector::hive::iceberg::IcebergColumnHandle>(
+          colNameList[idx],
+          columnType,
+          veloxTypeList[idx],
+          facebook::velox::parquet::ParquetFieldId(icebergColumn->fieldId),
+          std::vector<common::Subfield>{},
+          icebergColumn->initialDefault);
+    } else {
+      assignments[outName] = std::make_shared<connector::hive::HiveColumnHandle>(
+          colNameList[idx], columnType, veloxTypeList[idx], veloxTypeList[idx]);
+    }
     outNames.emplace_back(outName);
   }
   auto outputType = ROW(std::move(outNames), std::move(veloxTypeList));
