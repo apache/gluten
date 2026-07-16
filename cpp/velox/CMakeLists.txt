@@ -323,12 +323,14 @@ if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
   set(GLUTEN_VELOX_LINK_SCOPE PRIVATE)
 endif()
 
-if(BUILD_TESTS)
-  add_duckdb()
-
+if(BUILD_TESTS OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
   import_library(facebook::velox::dbgen
                  ${VELOX_BUILD_PATH}/velox/tpch/gen/dbgen/libdbgen.a)
   target_link_libraries(facebook::velox INTERFACE facebook::velox::dbgen)
+endif()
+
+if(BUILD_TESTS)
+  add_duckdb()
 
   import_library(
     facebook::velox::vector_test_lib
