@@ -230,19 +230,11 @@ if(BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-if(DEFINED ENV{HADOOP_HOME})
-  set(LIBHDFS3_DESTINATION $ENV{HADOOP_HOME}/lib/native)
-else()
-  set(LIBHDFS3_DESTINATION ${CMAKE_INSTALL_LIBDIR})
-endif()
-
 target_link_libraries(gluten PUBLIC Arrow::arrow
                                     Arrow::arrow_bundled_dependencies)
 target_link_libraries(gluten PRIVATE google::glog)
 
 install(TARGETS gluten DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/resources/libhdfs.so
-        DESTINATION ${LIBHDFS3_DESTINATION})
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
   add_custom_command(
