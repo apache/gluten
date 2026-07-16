@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_07_03
-VELOX_ENHANCED_BRANCH=ibm-2026_07_03
+VELOX_BRANCH=dft-2026_07_10
+VELOX_ENHANCED_BRANCH=ibm-2026_07_10
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
@@ -89,17 +89,12 @@ function process_setup_tencentos32 {
   sed -i "/^[[:space:]]*#/!s/.*dnf config-manager --set-enabled powertools/#&/" ${CURRENT_DIR}/setup-centos8.sh
 }
 
-# Keep macOS dependency builds on INSTALL_PREFIX even when /usr/local is present.
-# Apple clang injects /usr/local/include as a normal include path before CMake's
-# imported system includes, which can mix /usr/local headers with INSTALL_PREFIX
-# libraries. Demote it to system include order. Folly also enables jemalloc from
-# Homebrew headers but does not link libjemalloc, so keep Folly's Linux-equivalent
-# no-jemalloc behavior here; Gluten's own jemalloc build is independent of this.
+# Folly enables jemalloc when Homebrew headers are visible but does not link
+# libjemalloc, leaving _mallocx/_nallocx undefined for downstream links. Keep
+# Folly's Linux-equivalent no-jemalloc behavior; Gluten's own jemalloc build is
+# independent of this. Header-search isolation from /usr/local is handled by
+# SDKROOT exported in builddeps-veloxbe.sh / build-velox.sh.
 function process_setup_macos {
-  if [[ "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]] &&
-      ! grep -Fq '/usr/local/include' scripts/setup-macos.sh; then
-    sed -i '' 's|OS_CXXFLAGS=" -isystem $(brew --prefix)/include "|OS_CXXFLAGS=" -isystem $(brew --prefix)/include -isystem /usr/local/include "|' scripts/setup-macos.sh
-  fi
   if ! grep -Fq 'FOLLY_USE_JEMALLOC=OFF' scripts/setup-common.sh; then
     sed -i '' 's/local FOLLY_FLAGS=(/local FOLLY_FLAGS=(-DFOLLY_USE_JEMALLOC=OFF /' scripts/setup-common.sh
   fi

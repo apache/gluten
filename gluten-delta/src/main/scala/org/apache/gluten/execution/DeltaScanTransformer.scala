@@ -80,7 +80,7 @@ case class DeltaScanTransformer(
   // fields stay logical vs. become physical, and the longer-term cleanup direction (do all
   // physical translation at substrait emission time so this override and the alias-back
   // ProjectExec both go away).
-  override def scanFilters: Seq[Expression] = relation.fileFormat match {
+  override lazy val scanFilters: Seq[Expression] = relation.fileFormat match {
     case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
       val physicalByExprId = output.collect { case ar: AttributeReference => ar.exprId -> ar }.toMap
       dataFilters.map(_.transformDown {

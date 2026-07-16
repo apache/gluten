@@ -64,6 +64,9 @@ public class OperatorMetrics implements IOperatorMetrics {
 
   public long loadLazyVectorTime;
 
+  /** Create an empty instance for operator metrics. */
+  public OperatorMetrics() {}
+
   /** Create an instance for operator metrics. */
   public OperatorMetrics(
       long inputRows,

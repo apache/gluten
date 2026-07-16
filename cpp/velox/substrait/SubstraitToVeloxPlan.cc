@@ -458,24 +458,32 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   } else if (
       sJoin.has_advanced_extension() &&
       SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isBHJ=")) {
-    std::string hashTableId = sJoin.hashtableid();
+    const std::string hashTableId = sJoin.hashtableid();
+    bool useHashTableCache = false;
+    if (!hashTableId.empty()) {
+      try {
+        const auto handle = getJoin(hashTableId);
+        if (handle != 0) {
+          auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(handle);
+          useHashTableCache = (hashTableBuilder != nullptr);
+        }
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to retrieve pre-built HashTableBuilder for cache key: " << hashTableId
+                     << ", error: " << e.what() << ". Disable hash table cache and build a new table.";
+      }
+    }
 
-    std::shared_ptr<core::OpaqueHashTable> opaqueSharedHashTable = nullptr;
-    bool joinHasNullKeys = false;
-
-    try {
-      auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(getJoin(hashTableId));
-      joinHasNullKeys = hashTableBuilder->joinHasNullKeys();
-      auto originalShared = hashTableBuilder->hashTable();
-      opaqueSharedHashTable = std::shared_ptr<core::OpaqueHashTable>(
-          originalShared, reinterpret_cast<core::OpaqueHashTable*>(originalShared.get()));
-
-      LOG(INFO) << "Successfully retrieved and aliased HashTable for reuse. ID: " << hashTableId;
-    } catch (const std::exception& e) {
-      LOG(WARNING)
-          << "Error retrieving HashTable from ObjectStore: " << e.what()
-          << ". Falling back to building new table. To ensure correct results, please verify that spark.gluten.velox.buildHashTableOncePerExecutor.enabled is set to false.";
-      opaqueSharedHashTable = nullptr;
+    if (!useHashTableCache) {
+      return std::make_shared<core::HashJoinNode>(
+          nextPlanNodeId(),
+          joinType,
+          isNullAwareAntiJoin,
+          leftKeys,
+          rightKeys,
+          filter,
+          leftNode,
+          rightNode,
+          getJoinOutputType(leftNode, rightNode, joinType));
     }
 
     // Create HashJoinNode node
@@ -489,10 +497,9 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         leftNode,
         rightNode,
         getJoinOutputType(leftNode, rightNode, joinType),
+        useHashTableCache,
         false,
-        false,
-        joinHasNullKeys,
-        opaqueSharedHashTable);
+        sJoin.hashtableid());
   } else {
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(

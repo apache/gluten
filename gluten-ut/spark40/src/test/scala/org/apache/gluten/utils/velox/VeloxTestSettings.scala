@@ -49,6 +49,7 @@ import org.apache.spark.sql.streaming._
 // scalastyle:off line.size.limit
 
 class VeloxTestSettings extends BackendTestSettings {
+  import SuiteSettings._
   private val ansiNoFallback: Boolean =
     sys.props.get(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key).contains("false")
   enableSuite[GlutenStringFunctionsSuite]
@@ -233,7 +234,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenCsvExpressionsSuite]
   enableSuite[GlutenDynamicPruningSubquerySuite]
   enableSuite[GlutenExprIdSuite]
-  // TODO: 4.x enableSuite[GlutenExpressionEvalHelperSuite]  // 2 failures
+  disableSuite[GlutenExpressionEvalHelperSuite](
+    "Validates Spark's ExpressionEvalHelper contract, while Gluten overrides " +
+      "checkEvaluation/checkExceptionInExpression")
   enableSuite[GlutenExpressionImplUtilsSuite]
   enableSuite[GlutenExpressionSQLBuilderSuite]
   enableSuite[GlutenExpressionSetSuite]
@@ -241,13 +244,17 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHexSuite]
   enableSuite[GlutenMutableProjectionSuite]
   enableSuite[GlutenNamedExpressionSuite]
-  // TODO: 4.x enableSuite[GlutenObjectExpressionsSuite]  // 7 failures
+  disableSuite[GlutenObjectExpressionsSuite](
+    "Object/encoder interpreted execution is JVM-side coverage and currently fails under " +
+      "Gluten's expression evaluation harness")
   enableSuite[GlutenOrderingSuite]
-  // TODO: 4.x enableSuite[GlutenScalaUDFSuite]  // 1 failure
+  disableSuite[GlutenScalaUDFSuite](
+    "ScalaUDF executes on the JVM/fallback path, so this parent suite has limited Velox " +
+      "coverage value and still has one inherited failure")
   enableSuite[GlutenSchemaPruningSuite]
   enableSuite[GlutenSelectedFieldSuite]
-  // GlutenSubExprEvaluationRuntimeSuite is removed because SubExprEvaluationRuntimeSuite
-  // is in test-jar without shaded Guava, while SubExprEvaluationRuntime is shaded.
+  disableSuite[GlutenSubExprEvaluationRuntimeSuite](
+    "Spark's test JAR uses unshaded Guava, while SubExprEvaluationRuntime uses shaded Guava")
   enableSuite[GlutenSubexpressionEliminationSuite]
   enableSuite[GlutenTimeWindowSuite]
   enableSuite[GlutenToPrettyStringSuite]
@@ -261,7 +268,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataSourceV2MetricsSuite]
   enableSuite[GlutenDataSourceV2OptionSuite]
   enableSuite[GlutenDataSourceV2UtilsSuite]
-  // TODO: 4.x enableSuite[GlutenGroupBasedUpdateTableSuite]  // 1 failure
+  enableSuite[GlutenGroupBasedUpdateTableSuite]
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
+    .exclude("update with NOT NULL checks")
   enableSuite[GlutenMergeIntoDataFrameSuite]
   enableSuite[GlutenProcedureSuite]
   enableSuite[GlutenPushablePredicateSuite]
@@ -728,17 +737,35 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenLogicalPlanTagInSparkPlanSuite]
   enableSuite[GlutenOptimizeMetadataOnlyQuerySuite]
   enableSuite[GlutenPersistedViewTestSuite]
-  // TODO: 4.x enableSuite[GlutenPlannerSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenProjectedOrderingAndPartitioningSuite]  // 6 failures
+  disableSuite[GlutenPlannerSuite]("Validates Spark planner implementation details")
+  disableSuite[GlutenProjectedOrderingAndPartitioningSuite](
+    "Validates Spark planner output ordering and partitioning metadata")
   enableSuite[GlutenQueryPlanningTrackerEndToEndSuite]
-  // TODO: 4.x enableSuite[GlutenRemoveRedundantProjectsSuite]  // 14 failures
-  // TODO: 4.x enableSuite[GlutenRemoveRedundantSortsSuite]  // 1 failure
+  enableSuite[GlutenRemoveRedundantProjectsSuite]
+    // Rewrite as result checks because Gluten transforms and may pull out additional projects.
+    .exclude("project with filter")
+    .exclude("project with specific column ordering")
+    .exclude("project with extra columns")
+    .exclude("project with fewer columns")
+    .exclude("aggregate without ordering requirement")
+    .exclude("aggregate with ordering requirement")
+    .exclude("join without ordering requirement")
+    .exclude("join with ordering requirement")
+    .exclude("window function")
+    .exclude("generate should require column ordering")
+    .exclude("subquery")
+    .exclude("SPARK-33697: UnionExec should require column ordering")
+    .exclude("SPARK-33697: remove redundant projects under expand")
+    .exclude("SPARK-36020: Project should not be removed when child's logical link is different")
+  enableSuite[GlutenRemoveRedundantSortsSuite]
+    // Rewrite as it check spark SortExec.
+    .includeAllGlutenTests()
   enableSuite[GlutenRowToColumnConverterSuite]
   enableSuite[GlutenSQLExecutionSuite]
   enableSuite[GlutenSQLFunctionSuite]
   enableSuite[GlutenSQLJsonProtocolSuite]
   enableSuite[GlutenShufflePartitionsUtilSuite]
-  // TODO: 4.x enableSuite[GlutenSimpleSQLViewSuite]  // 1 failure
+  enableSuite[GlutenSimpleSQLViewSuite]
   enableSuite[GlutenSparkPlanSuite]
     .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
@@ -751,8 +778,36 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
   enableSuite[GlutenUnsafeKVExternalSorterSuite]
   enableSuite[GlutenUnsafeRowSerializerSuite]
-  // TODO: 4.x enableSuite[GlutenWholeStageCodegenSparkSubmitSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenWholeStageCodegenSuite]  // 24 failures
+  disableSuite[GlutenWholeStageCodegenSparkSubmitSuite](
+    "The SparkSubmit test launches Spark's main class without the Gluten plugin")
+  enableSuite[GlutenWholeStageCodegenSuite]
+    // Rewrite with Gluten-aware native whole-stage plan assertions.
+    .exclude("range/filter should be combined")
+    .exclude("HashAggregate should be included in WholeStageCodegen")
+    .exclude("SortAggregate should be included in WholeStageCodegen")
+    .exclude("GenerateExec should be included in WholeStageCodegen (whole-stage-codegen on)")
+    .exclude("HashAggregate with grouping keys should be included in WholeStageCodegen")
+    .exclude("BroadcastHashJoin should be included in WholeStageCodegen")
+    .exclude("Inner ShuffledHashJoin should be included in WholeStageCodegen")
+    .exclude(
+      "Full Outer ShuffledHashJoin and SortMergeJoin should be included in WholeStageCodegen")
+    .exclude("SPARK-44060 Code-gen for build side outer shuffled hash join")
+    .exclude("Left/Right Outer SortMergeJoin should be included in WholeStageCodegen")
+    .exclude("Left Semi SortMergeJoin should be included in WholeStageCodegen")
+    .exclude("Left Anti SortMergeJoin should be included in WholeStageCodegen")
+    .exclude("Inner/Cross BroadcastNestedLoopJoinExec should be included in WholeStageCodegen")
+    .exclude("Left/Right outer BroadcastNestedLoopJoinExec should be included in WholeStageCodegen")
+    .exclude("Left semi/anti BroadcastNestedLoopJoinExec should be included in WholeStageCodegen")
+    .exclude("Sort should be included in WholeStageCodegen")
+    .exclude("Control splitting consume function by operators with config")
+    .exclude("Skip splitting consume function when parameter number exceeds JVM limit")
+    .exclude(
+      "including codegen stage ID in generated class name should not regress codegen caching")
+    .exclude("SPARK-26572: evaluate non-deterministic expressions for aggregate results")
+    .exclude("SPARK-28520: WholeStageCodegen does not work properly for LocalTableScanExec")
+    .exclude("Give up splitting aggregate code if a parameter length goes over the limit")
+    .exclude("Give up splitting subexpression code if a parameter length goes over the limit")
+    .exclude("SPARK-47238: Test broadcast threshold for generated code")
   enableSuite[GlutenBroadcastExchangeSuite]
   enableSuite[GlutenLocalBroadcastExchangeSuite]
   enableSuite[GlutenCoalesceShufflePartitionsSuite]
@@ -804,9 +859,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
     .exclude("create a table, drop it and create another one with the same name")
   enableSuite[GlutenDDLSourceLoadSuite]
-  enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite]
-    .disable(
-      "DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type")
+  disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
+    "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
   enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuiteAE]
   enableSuite[GlutenExternalCommandRunnerSuite]
   enableSuite[GlutenFilteredScanSuite]
@@ -1144,7 +1198,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSQLQuerySuiteAE]
   enableSuite[GlutenWindowQuerySuite]
   enableSuite[GlutenCollapseProjectExecTransformerSuite]
-  // TODO: 4.x enableSuite[GlutenSparkSessionExtensionSuite]  // 1 failure
+  enableSuite[GlutenSparkSessionExtensionSuite]
+    .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenGroupBasedDeleteFromTableSuite]
   enableSuite[GlutenDeltaBasedDeleteFromTableSuite]
   enableSuite[GlutenDataFrameToSchemaSuite]

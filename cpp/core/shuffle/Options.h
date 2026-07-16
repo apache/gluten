@@ -23,6 +23,7 @@
 
 #include <arrow/ipc/options.h>
 #include <arrow/util/compression.h>
+#include <thread>
 
 namespace gluten {
 
@@ -68,6 +69,10 @@ struct ShuffleReaderOptions {
   // Whether to enable the reader-side raw payload merge fast path for plain hash shuffle payloads within one input
   // stream.
   bool enableHashShuffleReaderStreamMerge = false;
+
+  // GPU shuffle reader.
+  bool enableGpuAsyncReader = false;
+  int64_t gpuAsyncReaderMaxPrefetchBytes = 1 << 30;
 };
 
 struct ShuffleWriterOptions {

@@ -459,7 +459,7 @@ can_skip_maven() {
        -o -path "*/.profiler" -o -path "*/.mvn" \) -prune -o \
     -newer "$BUILD_SENTINEL" \( \
       -name "pom.xml" -o \
-      \( -path "*/src/*" \( -name "*.scala" -o -name "*.java" \) \) \
+      \( -path "*/src*/*" \( -name "*.scala" -o -name "*.java" \) \) \
     \) -print 2>/dev/null | head -1)
 
   [[ -z "$changed" ]]

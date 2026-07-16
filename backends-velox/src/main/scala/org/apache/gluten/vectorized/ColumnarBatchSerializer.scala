@@ -25,7 +25,7 @@ import org.apache.gluten.utils.ArrowAbiUtil
 
 import org.apache.spark.SparkEnv
 import org.apache.spark.internal.Logging
-import org.apache.spark.serializer.{DeserializationStream, SerializationStream, Serializer, SerializerInstance}
+import org.apache.spark.serializer.{DeserializationStream, Serializer, SerializerInstance}
 import org.apache.spark.shuffle.GlutenShuffleUtils
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.SQLConf
@@ -39,7 +39,6 @@ import org.apache.arrow.c.ArrowSchema
 import org.apache.arrow.memory.BufferAllocator
 
 import java.io._
-import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -92,7 +91,10 @@ private class ColumnarBatchSerializerInstanceImpl(
       SparkSchemaUtil.toArrowSchema(schema, SQLConf.get.sessionLocalTimeZone)
     val cSchema = ArrowSchema.allocateNew(allocator)
     ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
+
     val conf = SparkEnv.get.conf
+    val glutenConfig = GlutenConfig.get
+    val veloxConfig = VeloxConfig.get
     val compressionCodec =
       if (conf.getBoolean("spark.shuffle.compress", true)) {
         GlutenShuffleUtils.getCompressionCodec(conf)
@@ -100,20 +102,18 @@ private class ColumnarBatchSerializerInstanceImpl(
         null // uncompressed
       }
     val compressionCodecBackend =
-      GlutenConfig.get.columnarShuffleCodecBackend.orNull
-    val batchSize = GlutenConfig.get.maxBatchSize
-    val readerBufferSize = GlutenConfig.get.columnarShuffleReaderBufferSize
-    val deserializerBufferSize = GlutenConfig.get.columnarSortShuffleDeserializerBufferSize
-    val enableHashShuffleReaderStreamMerge = VeloxConfig.get.enableHashShuffleReaderStreamMerge
+      glutenConfig.columnarShuffleCodecBackend.orNull
     val shuffleReaderHandle = jniWrapper.make(
+      shuffleWriterType.name,
       cSchema.memoryAddress(),
       compressionCodec,
       compressionCodecBackend,
-      batchSize,
-      readerBufferSize,
-      deserializerBufferSize,
-      shuffleWriterType.name,
-      enableHashShuffleReaderStreamMerge
+      glutenConfig.maxBatchSize,
+      glutenConfig.columnarShuffleReaderBufferSize,
+      glutenConfig.columnarSortShuffleDeserializerBufferSize,
+      veloxConfig.enableHashShuffleReaderStreamMerge,
+      veloxConfig.enableGpuAsyncShuffleReader,
+      veloxConfig.gpuAsyncReaderMaxPrefetchBytes
     )
     // Close shuffle reader instance as lately as the end of task processing,
     // since the native reader could hold a reference to memory pool that
@@ -134,16 +134,20 @@ private class ColumnarBatchSerializerInstanceImpl(
     shuffleReaderHandle
   }
 
+  // `deserializeStream` is currently still used by uniffle shuffle reader.
   override def deserializeStream(in: InputStream): DeserializationStream = {
     new TaskDeserializationStream(Iterator((null, in)))
   }
 
   override def deserializeStreams(
-      streams: Iterator[(BlockId, InputStream)]): DeserializationStream = {
-    new TaskDeserializationStream(streams)
+      streams: Iterator[(BlockId, InputStream)],
+      onComplete: () => Unit): DeserializationStream = {
+    new TaskDeserializationStream(streams, Some(onComplete))
   }
 
-  private class TaskDeserializationStream(streams: Iterator[(BlockId, InputStream)])
+  private class TaskDeserializationStream(
+      streams: Iterator[(BlockId, InputStream)],
+      onComplete: Option[() => Unit] = None)
     extends DeserializationStream
     with TaskResource {
     private val streamReader = ShuffleStreamReader(streams)
@@ -237,12 +241,15 @@ private class ColumnarBatchSerializerInstanceImpl(
     }
 
     private def close0(): Unit = {
+      // Stop the native reader from reading more streams.
+      jniWrapper.stop(shuffleReaderHandle)
+      onComplete.foreach(_())
+
       if (numBatchesTotal > 0) {
         readBatchNumRows.set(numRowsTotal.toDouble / numBatchesTotal)
       }
       numOutputRows += numRowsTotal
       wrappedOut.close()
-      streamReader.close()
       if (cb != null) {
         cb.close()
       }
@@ -250,17 +257,4 @@ private class ColumnarBatchSerializerInstanceImpl(
 
     override def resourceName(): String = getClass.getName
   }
-
-  // Columnar shuffle write process don't need this.
-  override def serializeStream(s: OutputStream): SerializationStream =
-    throw new UnsupportedOperationException
-
-  // These methods are never called by shuffle code.
-  override def serialize[T: ClassTag](t: T): ByteBuffer = throw new UnsupportedOperationException
-
-  override def deserialize[T: ClassTag](bytes: ByteBuffer): T =
-    throw new UnsupportedOperationException
-
-  override def deserialize[T: ClassTag](bytes: ByteBuffer, loader: ClassLoader): T =
-    throw new UnsupportedOperationException
 }

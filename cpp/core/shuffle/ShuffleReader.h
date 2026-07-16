@@ -38,6 +38,8 @@ class ShuffleReader {
   virtual int64_t getDecompressTime() const = 0;
 
   virtual int64_t getDeserializeTime() const = 0;
+
+  virtual void stop() = 0;
 };
 
 } // namespace gluten

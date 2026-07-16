@@ -18,7 +18,9 @@ package org.apache.spark.sql
 
 import org.apache.gluten.config.GlutenConfig
 
-class GlutenSparkSessionExtensionSuite extends SparkSessionExtensionSuite with GlutenTestsTrait {
+class GlutenSparkSessionExtensionSuite
+  extends SparkSessionExtensionSuite
+  with GlutenTestsCommonTrait {
 
   testGluten("customColumnarOp") {
     val extensions = DummyFilterColmnarHelper.create {

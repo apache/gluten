@@ -406,7 +406,7 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
                  |USING clickhouse
                  |PARTITIONED BY (l_returnflag)
                  |CLUSTERED BY (l_orderkey)
-                 |${if (spark32) "" else "SORTED BY (l_partkey)"} INTO 4 BUCKETS
+                 |SORTED BY (l_partkey) INTO 4 BUCKETS
                  |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_bucket_s3'
                  |TBLPROPERTIES (storage_policy='__s3_main')
                  |""".stripMargin)
@@ -429,17 +429,10 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
         val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
         assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
         assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isDefined)
-        if (spark32) {
-          assert(
-            ClickHouseTableV2
-              .getTable(fileIndex.deltaLog)
-              .orderByKey === StorageMeta.DEFAULT_ORDER_BY_KEY)
-        } else {
-          assertResult("l_partkey")(
-            ClickHouseTableV2
-              .getTable(fileIndex.deltaLog)
-              .orderByKey)
-        }
+        assertResult("l_partkey")(
+          ClickHouseTableV2
+            .getTable(fileIndex.deltaLog)
+            .orderByKey)
         assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).primaryKey.isEmpty)
         assertResult(1)(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.size)
         assertResult("l_returnflag")(
@@ -624,7 +617,7 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
                  |USING clickhouse
                  |PARTITIONED BY (l_returnflag)
                  |CLUSTERED BY (l_orderkey)
-                 |${if (spark32) "" else "SORTED BY (l_partkey)"} INTO 4 BUCKETS
+                 |SORTED BY (l_partkey) INTO 4 BUCKETS
                  |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_bucket_s3'
                  |TBLPROPERTIES (storage_policy='__s3_main')
                  |""".stripMargin)

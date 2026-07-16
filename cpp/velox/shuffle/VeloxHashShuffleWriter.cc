@@ -873,10 +873,13 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
 }
 
 arrow::Status VeloxHashShuffleWriter::initFromRowVector(const facebook::velox::RowVector& rv) {
-  if (veloxColumnTypes_.empty()) {
+  if (!rowType_) {
     RETURN_NOT_OK(initColumnTypes(rv));
     RETURN_NOT_OK(initPartitions());
     calculateSimpleColumnBytes();
+    rowType_ = rv.rowType();
+  } else {
+    VELOX_CHECK(rowType_->equivalent(*rv.rowType()));
   }
   return arrow::Status::OK();
 }

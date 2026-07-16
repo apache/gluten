@@ -73,8 +73,9 @@ class SerializedBroadcastHashTable(
    * @return
    *   Hash table builder handle
    */
-  def deserialize(): Long = {
+  def deserialize(cacheKey: String): Long = {
     HashJoinBuilder.deserializeHashTableDirect(
+      cacheKey,
       serializedData.address(),
       Math.toIntExact(serializedData.size()),
       ignoreNullKeys,
@@ -117,6 +118,7 @@ object SerializedBroadcastHashTable {
    */
   def fromHashTable(
       hashTableHandle: Long,
+      cacheKey: String,
       buildSideRelation: BuildSideRelation,
       droppedDuplicates: Boolean,
       numRows: Long): SerializedBroadcastHashTable = {
@@ -148,7 +150,7 @@ object SerializedBroadcastHashTable {
         buildSideRelation)
     } finally {
       synchronized {
-        HashJoinBuilder.clearHashTable(hashTableHandle)
+        HashJoinBuilder.clearHashTable(cacheKey, hashTableHandle)
       }
     }
   }

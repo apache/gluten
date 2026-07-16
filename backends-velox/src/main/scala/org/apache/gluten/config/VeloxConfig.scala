@@ -116,6 +116,10 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def enableDriverSideBroadcastHashTableBuild: Boolean =
     getConf(VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD)
+
+  def enableGpuAsyncShuffleReader: Boolean = getConf(ENABLE_GPU_ASYNC_SHUFFLE_READER)
+
+  def gpuAsyncReaderMaxPrefetchBytes: Long = getConf(GPU_ASYNC_SHUFFLE_READER_MAX_PREFETCH_BYTES)
 }
 
 object VeloxConfig extends ConfigRegistry {
@@ -902,4 +906,32 @@ object VeloxConfig extends ConfigRegistry {
           "allows native execution for TimestampNTZ scan.")
       .booleanConf
       .createWithDefault(false)
+
+  val ENABLE_GPU_ASYNC_SHUFFLE_READER =
+    buildConf("spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.enabled")
+      .doc(
+        "Experimental: Enable GPU async shuffle reader. " +
+          "When true, the gpu shuffle reader will use a thread pool " +
+          "to read and deserialize the input streams. " +
+          "When false, the shuffle reader will execute in the current thread.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val GPU_ASYNC_SHUFFLE_READER_THREAD_POOL_SIZE =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.threadPoolSize")
+      .doc(
+        "The number of threads used by GPU async shuffle reader for decompressing " +
+          "and deserializing input streams.")
+      .intConf
+      .checkValue(_ > 0, "The thread pool size must be greater than 0.")
+      .createWithDefault(1)
+
+  val GPU_ASYNC_SHUFFLE_READER_MAX_PREFETCH_BYTES =
+    buildConf(
+      "spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.maxPrefetchBytes")
+      .doc(
+        "The maximum number of bytes to prefetch in CPU memory during GPU async shuffle read.")
+      .bytesConf(ByteUnit.BYTE)
+      .checkValue(_ > 0, "The max prefetch bytes must be greater than 0.")
+      .createWithDefaultString("1GB")
 }

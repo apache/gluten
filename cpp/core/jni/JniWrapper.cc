@@ -15,21 +15,10 @@
  * limitations under the License.
  */
 
-#include <jni.h>
-#include <algorithm>
-#include <cstdint>
-#include <filesystem>
-#include <limits>
-
 #include "compute/Runtime.h"
 #include "config/GlutenConfig.h"
 #include "jni/JniCommon.h"
 #include "jni/JniError.h"
-
-#include <arrow/c/bridge.h>
-#include <google/protobuf/stubs/common.h>
-#include <optional>
-#include <string>
 #include "memory/AllocationListener.h"
 #include "memory/SplitAwareColumnarBatchIterator.h"
 #include "operators/serializer/ColumnarBatchSerializer.h"
@@ -40,6 +29,16 @@
 #include "shuffle/Utils.h"
 #include "utils/ArrowStatus.h"
 #include "utils/StringUtil.h"
+
+#include <arrow/c/bridge.h>
+#include <google/protobuf/stubs/common.h>
+#include <jni.h>
+#include <algorithm>
+#include <cstdint>
+#include <filesystem>
+#include <limits>
+#include <optional>
+#include <string>
 
 using namespace gluten;
 
@@ -309,11 +308,8 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
 
   metricsBuilderClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/Metrics;");
 
-  metricsBuilderConstructor = getMethodIdOrError(
-      env,
-      metricsBuilderClass,
-      "<init>",
-      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
+  metricsBuilderConstructor =
+      getMethodIdOrError(env, metricsBuilderClass, "<init>", "(Ljava/lang/String;IJLjava/lang/String;)V");
 
   nativeColumnarToRowInfoClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/NativeColumnarToRowInfo;");
@@ -341,6 +337,7 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
   env->DeleteGlobalRef(splitResultClass);
   env->DeleteGlobalRef(nativeColumnarToRowInfoClass);
   env->DeleteGlobalRef(byteArrayClass);
+  env->DeleteGlobalRef(metricsBuilderClass);
   env->DeleteGlobalRef(jniUnsafeByteBufferClass);
   env->DeleteGlobalRef(shuffleReaderMetricsClass);
 
@@ -626,63 +623,15 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
     numMetrics = metrics->numMetrics;
   }
 
-  jlongArray longArray[Metrics::kNum];
-  for (auto i = static_cast<int>(Metrics::kBegin); i != static_cast<int>(Metrics::kEnd); ++i) {
-    longArray[i] = env->NewLongArray(numMetrics);
-    if (metrics) {
-      env->SetLongArrayRegion(longArray[i], 0, numMetrics, metrics->get((Metrics::TYPE)i));
-    }
-  }
-
+  jstring metricsJson = env->NewStringUTF(metrics ? metrics->json.c_str() : "");
+  jstring taskStats = metrics && metrics->stats.has_value() ? env->NewStringUTF(metrics->stats->c_str()) : nullptr;
   return env->NewObject(
       metricsBuilderClass,
       metricsBuilderConstructor,
-      longArray[Metrics::kInputRows],
-      longArray[Metrics::kInputVectors],
-      longArray[Metrics::kInputBytes],
-      longArray[Metrics::kRawInputRows],
-      longArray[Metrics::kRawInputBytes],
-      longArray[Metrics::kOutputRows],
-      longArray[Metrics::kOutputVectors],
-      longArray[Metrics::kOutputBytes],
-      longArray[Metrics::kCpuCount],
-      longArray[Metrics::kWallNanos],
+      metricsJson,
+      static_cast<jint>(numMetrics),
       metrics ? metrics->veloxToArrow : -1,
-      longArray[Metrics::kPeakMemoryBytes],
-      longArray[Metrics::kNumMemoryAllocations],
-      longArray[Metrics::kSpilledInputBytes],
-      longArray[Metrics::kSpilledBytes],
-      longArray[Metrics::kSpilledRows],
-      longArray[Metrics::kSpilledPartitions],
-      longArray[Metrics::kSpilledFiles],
-      longArray[Metrics::kNumDynamicFiltersProduced],
-      longArray[Metrics::kNumDynamicFiltersAccepted],
-      longArray[Metrics::kNumReplacedWithDynamicFilterRows],
-      longArray[Metrics::kNumDynamicFilterInputRows],
-      longArray[Metrics::kFlushRowCount],
-      longArray[Metrics::kAbandonedPartialAggregationRows],
-      longArray[Metrics::kLoadedToValueHook],
-      longArray[Metrics::kBloomFilterBlocksByteSize],
-      longArray[Metrics::kScanTime],
-      longArray[Metrics::kSkippedSplits],
-      longArray[Metrics::kProcessedSplits],
-      longArray[Metrics::kSkippedStrides],
-      longArray[Metrics::kProcessedStrides],
-      longArray[Metrics::kRemainingFilterTime],
-      longArray[Metrics::kIoWaitTime],
-      longArray[Metrics::kStorageReadBytes],
-      longArray[Metrics::kStorageReads],
-      longArray[Metrics::kLocalReadBytes],
-      longArray[Metrics::kRamReadBytes],
-      longArray[Metrics::kPreloadSplits],
-      longArray[Metrics::kPageLoadTime],
-      longArray[Metrics::kDataSourceAddSplitWallNanos],
-      longArray[Metrics::kDataSourceReadWallNanos],
-      longArray[Metrics::kPhysicalWrittenBytes],
-      longArray[Metrics::kWriteIOTime],
-      longArray[Metrics::kNumWrittenFiles],
-      longArray[Metrics::kLoadLazyVectorTime],
-      metrics && metrics->stats.has_value() ? env->NewStringUTF(metrics->stats->c_str()) : nullptr);
+      taskStats);
 
   JNI_METHOD_END(nullptr)
 }
@@ -1099,7 +1048,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
   }
   ObjectStore::release(partitionWriterHandle);
 
-  auto shuffleWriterOptions = std::make_shared<GpuHashShuffleWriterOptions>(
+  auto shuffleWriterOptions = std::make_shared<HashShuffleWriterOptions>(
       toPartitioning(jStringToCString(env, partitioningNameJstr)),
       startPartitionId,
       splitBufferSize,
@@ -1283,28 +1232,36 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_OnHeapJniByteInputStrea
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrapper_make( // NOLINT
     JNIEnv* env,
     jobject wrapper,
+    jstring shuffleWriterType,
     jlong cSchema,
     jstring compressionType,
     jstring compressionBackend,
     jint batchSize,
     jlong readerBufferSize,
     jlong deserializerBufferSize,
-    jstring shuffleWriterType,
-    jboolean enableHashShuffleReaderStreamMerge) {
+    jboolean enableHashShuffleReaderStreamMerge,
+    jboolean enableAsyncReader,
+    jlong gpuAsyncReaderMaxPrefetchBytes) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
 
-  ShuffleReaderOptions options = ShuffleReaderOptions{};
-  options.compressionType = getCompressionType(env, compressionType);
-  if (compressionType != nullptr) {
-    options.codecBackend = getCodecBackend(env, compressionBackend);
-  }
-  options.batchSize = batchSize;
-  options.readerBufferSize = readerBufferSize;
-  options.deserializerBufferSize = deserializerBufferSize;
-  options.enableHashShuffleReaderStreamMerge = enableHashShuffleReaderStreamMerge;
+  auto options = std::make_shared<ShuffleReaderOptions>();
+  options->shuffleWriterType = ShuffleWriter::stringToType(jStringToCString(env, shuffleWriterType));
 
-  options.shuffleWriterType = ShuffleWriter::stringToType(jStringToCString(env, shuffleWriterType));
+  options->compressionType = getCompressionType(env, compressionType);
+  if (compressionType != nullptr) {
+    options->codecBackend = getCodecBackend(env, compressionBackend);
+  }
+  options->batchSize = batchSize;
+  options->readerBufferSize = readerBufferSize;
+  options->deserializerBufferSize = deserializerBufferSize;
+  options->enableHashShuffleReaderStreamMerge = enableHashShuffleReaderStreamMerge;
+
+#ifdef GLUTEN_ENABLE_GPU
+  options->enableGpuAsyncReader = enableAsyncReader;
+  options->gpuAsyncReaderMaxPrefetchBytes = gpuAsyncReaderMaxPrefetchBytes;
+#endif
+
   std::shared_ptr<arrow::Schema> schema =
       arrowGetOrThrow(arrow::ImportSchema(reinterpret_cast<struct ArrowSchema*>(cSchema)));
 
@@ -1339,6 +1296,16 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrapper
   env->CallVoidMethod(metrics, shuffleReaderMetricsSetDeserializeTime, reader->getDeserializeTime());
 
   checkException(env);
+  JNI_METHOD_END()
+}
+
+JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrapper_stop( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong shuffleReaderHandle) {
+  JNI_METHOD_START
+  auto reader = ObjectStore::retrieve<ShuffleReader>(shuffleReaderHandle);
+  reader->stop();
   JNI_METHOD_END()
 }
 

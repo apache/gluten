@@ -23,30 +23,16 @@ import java.io.InputStream
 case class ShuffleStreamReader(streams: Iterator[(BlockId, InputStream)]) {
   private val jniStreams = streams.map {
     case (blockId, in) =>
-      (blockId, JniByteInputStreams.create(in))
+      JniByteInputStreams.create(in)
   }
 
-  private var currentStream: JniByteInputStream = _
-
-  // Called from native side to get the next stream.
+  // Called from native side to get the next stream. The native caller should make sure
+  // the streams are properly closed.
   def nextStream(): JniByteInputStream = {
-    if (currentStream != null) {
-      currentStream.close()
-    }
-    if (!jniStreams.hasNext) {
-      currentStream = null
+    if (jniStreams.hasNext) {
+      jniStreams.next
     } else {
-      currentStream = jniStreams.next._2
-    }
-    currentStream
-  }
-
-  def close(): Unit = {
-    // The reader may not attempt to read all streams from `nextStream`, so we need to close the
-    // current stream if it's not null.
-    if (currentStream != null) {
-      currentStream.close()
-      currentStream = null
+      null
     }
   }
 }
