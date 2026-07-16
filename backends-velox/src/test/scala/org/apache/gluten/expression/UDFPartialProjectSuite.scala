@@ -17,7 +17,7 @@
 package org.apache.gluten.expression
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{ColumnarPartialProjectExec, WholeStageTransformerSuite}
+import org.apache.gluten.execution.{ColumnarPartialProjectExec, ProjectExecTransformer, WholeStageTransformerSuite}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.FunctionIdentifier
@@ -91,6 +91,40 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
     runQueryAndCompare(
       "SELECT sum(cast(dummy_unmapped(cast(l_orderkey as long)) as int)" +
         " + hash(l_partkey)) from lineitem") {
+      checkGlutenPlan[ColumnarPartialProjectExec]
+    }
+  }
+
+  test("fallback unsupported built-in function via partial project") {
+    runQueryAndCompare(
+      """
+        |SELECT map_from_arrays(array(l_comment), array(l_orderkey)), hash(l_partkey)
+        |FROM lineitem
+        |WHERE l_orderkey < 3
+        |""".stripMargin) {
+      checkGlutenPlan[ColumnarPartialProjectExec]
+    }
+  }
+
+  test("fallback partial unsupported built-in function via partial project") {
+    runQueryAndCompare(
+      """
+        |SELECT regexp_replace(l_comment, '([a-z])', '1'), hash(l_partkey)
+        |FROM lineitem
+        |WHERE l_orderkey < 3
+        |""".stripMargin) {
+      df =>
+        checkGlutenPlan[ProjectExecTransformer](df)
+        assert(
+          df.queryExecution.executedPlan.find(_.isInstanceOf[ColumnarPartialProjectExec]).isEmpty)
+    }
+
+    runQueryAndCompare(
+      """
+        |SELECT regexp_replace(l_returnflag, '(?=N)', 'Y'), hash(l_partkey)
+        |FROM lineitem
+        |WHERE l_orderkey < 3
+        |""".stripMargin) {
       checkGlutenPlan[ColumnarPartialProjectExec]
     }
   }
