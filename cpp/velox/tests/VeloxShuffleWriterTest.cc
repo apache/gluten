@@ -908,20 +908,9 @@ TEST_P(RoundRobinPartitioningShuffleWriterTest, preAllocForceRealloc) {
 
   // First spilt no null.
   auto inputNoNull = inputVectorNoNull_;
-
   // Second split has null. Continue filling current partition buffers.
-  std::vector<VectorPtr> intHasNull = {
-      makeNullableFlatVector<int8_t>({std::nullopt, 1}),
-      makeNullableFlatVector<int8_t>({std::nullopt, -1}),
-      makeNullableFlatVector<int32_t>({std::nullopt, 100}),
-      makeNullableFlatVector<int64_t>({0, 1}),
-      makeNullableFlatVector<float>({0, 0.142857}),
-      makeNullableFlatVector<bool>({false, true}),
-      makeNullableFlatVector<StringView>({"", "alice"}),
-      makeNullableFlatVector<StringView>({"alice", ""}),
-  };
+  auto inputHasNull = inputVectorIntHasNull_;
 
-  auto inputHasNull = makeRowVector(intHasNull);
   // Split first input no null.
   ASSERT_NOT_OK(splitRowVector(*shuffleWriter, inputNoNull));
   // Split second input, continue filling but update null.
@@ -970,17 +959,7 @@ TEST_P(RoundRobinPartitioningShuffleWriterTest, preAllocForceReuse) {
   // Second split has null int, null string and non-null string,
   auto inputFixedWidthHasNull = inputVector1_;
   // Third split has null string.
-  std::vector<VectorPtr> stringHasNull = {
-      makeNullableFlatVector<int8_t>({0, 1}),
-      makeNullableFlatVector<int8_t>({0, -1}),
-      makeNullableFlatVector<int32_t>({0, 100}),
-      makeNullableFlatVector<int64_t>({0, 1}),
-      makeNullableFlatVector<float>({0, 0.142857}),
-      makeNullableFlatVector<bool>({false, true}),
-      makeNullableFlatVector<StringView>({std::nullopt, std::nullopt}),
-      makeNullableFlatVector<StringView>({std::nullopt, std::nullopt}),
-  };
-  auto inputStringHasNull = makeRowVector(stringHasNull);
+  auto inputStringHasNull = inputVectorStringHasNull_;
 
   ASSERT_NOT_OK(splitRowVector(*shuffleWriter, inputNoNull));
   // Split more data with null. Already filled + to be filled > buffer size, Buffer is resized larger.

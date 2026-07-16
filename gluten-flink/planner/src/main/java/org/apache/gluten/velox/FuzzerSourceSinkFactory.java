@@ -139,8 +139,7 @@ public class FuzzerSourceSinkFactory implements VeloxSourceSinkFactory {
                 RowData.class,
                 "FuzzerSink"));
     DataStream<RowData> newInputStream =
-        sinkTransformation
-            .getInputStream()
+        GlutenRowtimeInserterHelper.process(sinkTransformation.getInputStream(), false)
             .transform("Writer", CommittableMessageTypeInfo.noOutput(), operatorFactory);
     return new SinkTransformation<RowData, RowData>(
         newInputStream,

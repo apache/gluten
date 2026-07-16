@@ -14,18 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.sql.delta
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
-import org.apache.spark.sql.delta.stats.DeltaScan
+package org.apache.spark.sql.catalyst.expressions
 
-object DeltaAdapter extends DeltaAdapterTrait {
-  override def snapshot(deltaLog: DeltaLog): Snapshot = deltaLog.snapshot
+import org.apache.spark.sql.shim.GlutenTestsTrait
 
-  override def snapshotFilesForScan(
-      snapshot: Snapshot,
-      projection: Seq[Attribute],
-      filters: Seq[Expression],
-      keepNumRecords: Boolean): DeltaScan = {
-    snapshot.filesForScan(projection, filters, keepNumRecords)
-  }
-}
+class GlutenSubExprEvaluationRuntimeSuite
+  extends SubExprEvaluationRuntimeSuite
+  with GlutenTestsTrait {}

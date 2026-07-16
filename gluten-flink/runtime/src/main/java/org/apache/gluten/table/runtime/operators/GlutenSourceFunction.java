@@ -31,6 +31,7 @@ import io.github.zhztheplayer.velox4j.session.Session;
 import io.github.zhztheplayer.velox4j.stateful.StatefulElement;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
+import io.github.zhztheplayer.velox4j.stateful.StatefulWatermarkStatus;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
 import org.apache.flink.api.common.state.ListState;
@@ -132,8 +133,10 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
         processRecord(sourceContext, element.asRecord());
       } else if (element.isWatermark()) {
         processWatermark(sourceContext, element.asWatermark());
+      } else if (element.isWatermarkStatus()) {
+        processWatermarkStatus(sourceContext, element.asWatermarkStatus());
       } else {
-        LOG.debug("Ignoring element that is neither record nor watermark");
+        LOG.debug("Ignoring element that is neither record, watermark, nor watermark status");
       }
     } finally {
       element.close();
@@ -167,6 +170,16 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
   /** Processes a watermark and emits it to the source context. */
   private void processWatermark(SourceContext<OUT> sourceContext, StatefulWatermark watermark) {
     sourceContext.emitWatermark(new Watermark(watermark.getTimestamp()));
+  }
+
+  /** Processes a watermark status and notifies the source context about idleness. */
+  private void processWatermarkStatus(
+      SourceContext<OUT> sourceContext, StatefulWatermarkStatus status) {
+    if (status.isIdle()) {
+      sourceContext.markAsTemporarilyIdle();
+    }
+    // ACTIVE: no explicit action needed; the source context will resume
+    // activity tracking when the next record or watermark is emitted.
   }
 
   /** Collects a StatefulRecord as RowData by converting the RowVector. */

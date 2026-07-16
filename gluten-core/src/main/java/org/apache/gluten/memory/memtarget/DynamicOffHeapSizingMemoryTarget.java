@@ -105,6 +105,18 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
     ORIGINAL_MIN_HEAP_FREE_RATIO = originalMinHeapFreeRatio;
     ORIGINAL_MAX_HEAP_FREE_RATIO = originalMaxHeapFreeRatio;
 
+    long maxMem = Runtime.getRuntime().maxMemory();
+    long initTotalMem = Runtime.getRuntime().totalMemory();
+    if (initTotalMem >= maxMem * 0.95) {
+      LOG.error(
+          "JVM heap appears fixed or nearly fixed (totalMemory={}, maxMemory={}). "
+              + "This typically means -Xms is equal or close to -Xmx. "
+              + "Explicit JVM shrinking will not be effective because the JVM "
+              + "cannot return committed heap to the OS.",
+          initTotalMem,
+          maxMem);
+    }
+
     if (!isJava9OrLater()) {
       // For JDK 8, we cannot change MaxHeapFreeRatio programmatically at runtime.
       LOG.error("Dynamic off-heap sizing is not supported before JDK 9.");

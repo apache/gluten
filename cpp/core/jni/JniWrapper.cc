@@ -1048,7 +1048,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
   }
   ObjectStore::release(partitionWriterHandle);
 
-  auto shuffleWriterOptions = std::make_shared<GpuHashShuffleWriterOptions>(
+  auto shuffleWriterOptions = std::make_shared<HashShuffleWriterOptions>(
       toPartitioning(jStringToCString(env, partitioningNameJstr)),
       startPartitionId,
       splitBufferSize,

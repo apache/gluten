@@ -752,9 +752,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .includeCH("update char/varchar columns")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
   enableSuite[GlutenDeprecatedAPISuite]
-  enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite]
-    .disable(
-      "DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type")
+  disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
+    "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
   enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuiteAE]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOff]
     .excludeGlutenTest("Subquery reuse across the whole plan")
