@@ -183,7 +183,6 @@ Arguments: false
 
 (28) VeloxResizeBatches
 Input [3]: [hash_partition_key#18, s_state#13, sum#17]
-Arguments: 1024, 2147483647, 10485760
 
 (29) ColumnarExchange
 Input [3]: [hash_partition_key#18, s_state#13, sum#17]
@@ -295,7 +294,6 @@ Arguments: false
 
 (55) VeloxResizeBatches
 Input [5]: [hash_partition_key#28, s_state#22, s_county#23, spark_grouping_id#24, sum#27]
-Arguments: 1024, 2147483647, 10485760
 
 (56) ColumnarExchange
 Input [5]: [hash_partition_key#28, s_state#22, s_county#23, spark_grouping_id#24, sum#27]
@@ -328,7 +326,6 @@ Arguments: false
 
 (63) VeloxResizeBatches
 Input [8]: [hash_partition_key#35, total_sum#30, s_state#22, s_county#23, lochierarchy#31, _w0#32, _w1#33, _w2#34]
-Arguments: 1024, 2147483647, 10485760
 
 (64) ColumnarExchange
 Input [8]: [hash_partition_key#35, total_sum#30, s_state#22, s_county#23, lochierarchy#31, _w0#32, _w1#33, _w2#34]

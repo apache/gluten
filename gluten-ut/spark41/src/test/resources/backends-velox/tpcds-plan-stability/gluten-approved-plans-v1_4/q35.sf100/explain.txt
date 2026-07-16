@@ -88,7 +88,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [4]: [hash_partition_key#6, c_customer_sk#3, c_current_cdemo_sk#4, c_current_addr_sk#5]
-Arguments: 1024, 2147483647, 10485760
 
 (6) ColumnarExchange
 Input [4]: [hash_partition_key#6, c_customer_sk#3, c_current_cdemo_sk#4, c_current_addr_sk#5]
@@ -132,7 +131,6 @@ Arguments: false
 
 (16) VeloxResizeBatches
 Input [2]: [hash_partition_key#11, ss_customer_sk#7]
-Arguments: 1024, 2147483647, 10485760
 
 (17) ColumnarExchange
 Input [2]: [hash_partition_key#11, ss_customer_sk#7]
@@ -182,7 +180,6 @@ Arguments: false
 
 (28) VeloxResizeBatches
 Input [2]: [hash_partition_key#15, ws_bill_customer_sk#12]
-Arguments: 1024, 2147483647, 10485760
 
 (29) ColumnarExchange
 Input [2]: [hash_partition_key#15, ws_bill_customer_sk#12]
@@ -232,7 +229,6 @@ Arguments: false
 
 (40) VeloxResizeBatches
 Input [2]: [hash_partition_key#19, cs_ship_customer_sk#16]
-Arguments: 1024, 2147483647, 10485760
 
 (41) ColumnarExchange
 Input [2]: [hash_partition_key#19, cs_ship_customer_sk#16]
@@ -264,7 +260,6 @@ Arguments: false
 
 (48) VeloxResizeBatches
 Input [3]: [hash_partition_key#20, c_current_cdemo_sk#4, c_current_addr_sk#5]
-Arguments: 1024, 2147483647, 10485760
 
 (49) ColumnarExchange
 Input [3]: [hash_partition_key#20, c_current_cdemo_sk#4, c_current_addr_sk#5]
@@ -297,7 +292,6 @@ Arguments: false
 
 (56) VeloxResizeBatches
 Input [3]: [hash_partition_key#23, ca_address_sk#21, ca_state#22]
-Arguments: 1024, 2147483647, 10485760
 
 (57) ColumnarExchange
 Input [3]: [hash_partition_key#23, ca_address_sk#21, ca_state#22]
@@ -325,7 +319,6 @@ Arguments: false
 
 (63) VeloxResizeBatches
 Input [3]: [hash_partition_key#24, c_current_cdemo_sk#4, ca_state#22]
-Arguments: 1024, 2147483647, 10485760
 
 (64) ColumnarExchange
 Input [3]: [hash_partition_key#24, c_current_cdemo_sk#4, ca_state#22]
@@ -358,7 +351,6 @@ Arguments: false
 
 (71) VeloxResizeBatches
 Input [7]: [hash_partition_key#31, cd_demo_sk#25, cd_gender#26, cd_marital_status#27, cd_dep_count#28, cd_dep_employed_count#29, cd_dep_college_count#30]
-Arguments: 1024, 2147483647, 10485760
 
 (72) ColumnarExchange
 Input [7]: [hash_partition_key#31, cd_demo_sk#25, cd_gender#26, cd_marital_status#27, cd_dep_count#28, cd_dep_employed_count#29, cd_dep_college_count#30]
@@ -397,7 +389,6 @@ Arguments: false
 
 (80) VeloxResizeBatches
 Input [20]: [hash_partition_key#58, ca_state#22, cd_gender#26, cd_marital_status#27, cd_dep_count#28, cd_dep_employed_count#29, cd_dep_college_count#30, count#45, min#46, max#47, sum#48, count#49, min#50, max#51, sum#52, count#53, min#54, max#55, sum#56, count#57]
-Arguments: 1024, 2147483647, 10485760
 
 (81) ColumnarExchange
 Input [20]: [hash_partition_key#58, ca_state#22, cd_gender#26, cd_marital_status#27, cd_dep_count#28, cd_dep_employed_count#29, cd_dep_college_count#30, count#45, min#46, max#47, sum#48, count#49, min#50, max#51, sum#52, count#53, min#54, max#55, sum#56, count#57]

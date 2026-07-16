@@ -80,7 +80,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [7]: [hash_partition_key#11, ws_ship_date_sk#1, ws_ship_addr_sk#2, ws_web_site_sk#3, ws_order_number#4, ws_ext_ship_cost#5, ws_net_profit#6]
-Arguments: 1024, 2147483647, 10485760
 
 (6) ColumnarExchange
 Input [7]: [hash_partition_key#11, ws_ship_date_sk#1, ws_ship_addr_sk#2, ws_web_site_sk#3, ws_order_number#4, ws_ext_ship_cost#5, ws_net_profit#6]
@@ -113,7 +112,6 @@ Arguments: false
 
 (13) VeloxResizeBatches
 Input [3]: [hash_partition_key#15, ws_warehouse_sk#12, ws_order_number#13]
-Arguments: 1024, 2147483647, 10485760
 
 (14) ColumnarExchange
 Input [3]: [hash_partition_key#15, ws_warehouse_sk#12, ws_order_number#13]
@@ -171,7 +169,6 @@ Arguments: false
 
 (27) VeloxResizeBatches
 Input [2]: [hash_partition_key#20, wr_order_number#18]
-Arguments: 1024, 2147483647, 10485760
 
 (28) ColumnarExchange
 Input [2]: [hash_partition_key#20, wr_order_number#18]
@@ -421,7 +418,6 @@ Arguments: false
 
 (80) VeloxResizeBatches
 Input [1]: [buf#44]
-Arguments: 1024, 2147483647, 10485760
 
 (81) ColumnarExchange
 Input [1]: [buf#44]
@@ -487,7 +483,6 @@ Arguments: false
 
 (92) VeloxResizeBatches
 Input [1]: [buf#49]
-Arguments: 1024, 2147483647, 10485760
 
 (93) ColumnarExchange
 Input [1]: [buf#49]
@@ -553,7 +548,6 @@ Arguments: false
 
 (104) VeloxResizeBatches
 Input [1]: [buf#54]
-Arguments: 1024, 2147483647, 10485760
 
 (105) ColumnarExchange
 Input [1]: [buf#54]
