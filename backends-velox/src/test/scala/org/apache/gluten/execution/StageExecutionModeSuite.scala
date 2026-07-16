@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.execution.ColumnarShuffleExchangeExec
@@ -34,6 +34,7 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
       SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
       SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
       GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> "true",
+      VeloxConfig.CUDF_ENABLE_VALIDATION.key -> "false",
       "spark.sql.shuffle.partitions" -> "2"
     ) {
 

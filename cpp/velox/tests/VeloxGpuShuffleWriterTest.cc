@@ -151,24 +151,22 @@ std::vector<GpuShuffleTestParams> getTestParams() {
       // Local.
       for (const auto mergeBufferSize : mergeBufferSizes) {
         for (const auto enableGpuAsyncReader : {false, true}) {
-          params.push_back(
-              GpuShuffleTestParams{
-                  .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
-                  .partitionWriterType = PartitionWriterType::kLocal,
-                  .compressionType = compression,
-                  .compressionThreshold = compressionThreshold,
-                  .mergeBufferSize = mergeBufferSize,
-                  .enableGpuAsyncReader = enableGpuAsyncReader});
+          params.push_back(GpuShuffleTestParams{
+              .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+              .partitionWriterType = PartitionWriterType::kLocal,
+              .compressionType = compression,
+              .compressionThreshold = compressionThreshold,
+              .mergeBufferSize = mergeBufferSize,
+              .enableGpuAsyncReader = enableGpuAsyncReader});
         }
       }
 
       // Rss.
-      params.push_back(
-          GpuShuffleTestParams{
-              .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
-              .partitionWriterType = PartitionWriterType::kRss,
-              .compressionType = compression,
-              .compressionThreshold = compressionThreshold});
+      params.push_back(GpuShuffleTestParams{
+          .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+          .partitionWriterType = PartitionWriterType::kRss,
+          .compressionType = compression,
+          .compressionThreshold = compressionThreshold});
     }
   }
 
@@ -497,7 +495,12 @@ TEST_P(GpuHashPartitioningShuffleWriterTest, hashPart1Vector) {
         makeFlatVector<int32_t>({232, 34567235, 1212, 4567}),
         makeFlatVector<int32_t>(
             4, [](vector_size_t row) { return row % 2; }, nullEvery(5), DATE()),
-        makeFlatVector<Timestamp>(4, [](vector_size_t row) { return Timestamp{row % 2, 0}; }, nullEvery(5))};
+        makeFlatVector<Timestamp>(
+            4,
+            [](vector_size_t row) {
+              return Timestamp{row % 2, 0};
+            },
+            nullEvery(5))};
 
     const auto vector = makeRowVector(data);
 
