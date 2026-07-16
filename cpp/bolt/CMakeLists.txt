@@ -183,8 +183,19 @@ if(BUILD_TEST_UTILS)
   list(APPEND BOLT_SRCS tests/utils/TestAllocationListener.cc)
 endif()
 
-add_library(${PROJECT_NAME} ${BOLT_SRCS})
+add_library(${PROJECT_NAME} SHARED ${BOLT_SRCS})
 target_compile_options(${PROJECT_NAME} PUBLIC -fPIC)
+
+if(APPLE)
+  set(BOLT_RELATIVE_LIBRARY_RPATH "@loader_path")
+else()
+  set(BOLT_RELATIVE_LIBRARY_RPATH "$ORIGIN")
+endif()
+set_target_properties(
+  ${PROJECT_NAME}
+  PROPERTIES BUILD_RPATH "${BOLT_RELATIVE_LIBRARY_RPATH}"
+             BUILD_WITH_INSTALL_RPATH TRUE
+             INSTALL_RPATH "${BOLT_RELATIVE_LIBRARY_RPATH}")
 
 if (BUILD_STATIC)
   add_library(${PROJECT_NAME}_static STATIC ${BOLT_SRCS})
@@ -192,7 +203,8 @@ endif()
 
 get_target_property(target_type ${PROJECT_NAME} TYPE)
 
-if (${target_type} STREQUAL "SHARED_LIBRARY")
+if (${target_type} STREQUAL "SHARED_LIBRARY"
+    AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
   target_link_options(${PROJECT_NAME} PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/symbols.map)
 endif()
 
@@ -299,7 +311,6 @@ endif()
 
 find_package(re2 CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PUBLIC ${RE2_LIBRARY})
-find_package(Arrow CONFIG REQUIRED)
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" BUILD_TYPE_UPPER)
 set(ARROW_PATH ${arrow_arrow_dataset_LIB_DIRS_${BUILD_TYPE_UPPER}})

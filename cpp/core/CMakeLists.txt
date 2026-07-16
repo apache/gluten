@@ -154,10 +154,7 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     jni/TaskContextJniWrapper.cc)
 
 file(MAKE_DIRECTORY ${root_directory}/releases)
-if(NOT DEFINED GLUTEN_CORE_LIBRARY_TYPE)
-  set(GLUTEN_CORE_LIBRARY_TYPE SHARED)
-endif()
-add_library(gluten ${GLUTEN_CORE_LIBRARY_TYPE} ${SPARK_COLUMNAR_PLUGIN_SRCS})
+add_library(gluten SHARED ${SPARK_COLUMNAR_PLUGIN_SRCS})
 add_dependencies(gluten jni_proto)
 
 # Hide symbols of some static dependencies. Otherwise, if such dependencies are
@@ -204,12 +201,8 @@ if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
   endif()
 endif()
 
-if(COMMAND find_arrow_lib)
-  find_arrow_lib(${ARROW_LIB_NAME})
-  find_arrow_lib(${ARROW_BUNDLED_DEPS})
-else()
-  find_package(Arrow CONFIG REQUIRED)
-endif()
+find_arrow_lib(${ARROW_LIB_NAME})
+find_arrow_lib(${ARROW_BUNDLED_DEPS})
 
 if(ENABLE_QAT)
   include(BuildQATzip)
@@ -258,46 +251,19 @@ if(BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-if(GLUTEN_CORE_RENAME_JNI_ENTRYPOINTS)
-  target_compile_definitions(gluten PRIVATE JNI_OnLoad=JNI_OnLoad_Base JNI_OnUnload=JNI_OnUnload_Base)
-endif()
-
-
 if(DEFINED ENV{HADOOP_HOME})
   set(LIBHDFS3_DESTINATION $ENV{HADOOP_HOME}/lib/native)
 else()
   set(LIBHDFS3_DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
 
-set(GLUTEN_ARROW_LIBRARIES)
-if(TARGET Arrow::arrow)
-  list(APPEND GLUTEN_ARROW_LIBRARIES Arrow::arrow)
-elseif(TARGET arrow::arrow)
-  list(APPEND GLUTEN_ARROW_LIBRARIES arrow::arrow)
-else()
-  message(FATAL_ERROR "Arrow target not found")
-endif()
-
-if(TARGET Arrow::arrow_bundled_dependencies)
-  list(APPEND GLUTEN_ARROW_LIBRARIES Arrow::arrow_bundled_dependencies)
-elseif(TARGET arrow::arrow_bundled_dependencies)
-  list(APPEND GLUTEN_ARROW_LIBRARIES arrow::arrow_bundled_dependencies)
-endif()
-
-target_link_libraries(gluten PUBLIC ${GLUTEN_ARROW_LIBRARIES})
-if(TARGET google::glog)
-  target_link_libraries(gluten PRIVATE google::glog)
-elseif(TARGET glog::glog)
-  target_link_libraries(gluten PRIVATE glog::glog)
-else()
-  message(FATAL_ERROR "glog target not found")
-endif()
+target_link_libraries(gluten PUBLIC Arrow::arrow
+                                    Arrow::arrow_bundled_dependencies)
+target_link_libraries(gluten PRIVATE google::glog)
 
 install(TARGETS gluten DESTINATION ${CMAKE_INSTALL_LIBDIR})
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/resources/libhdfs.so)
-  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/resources/libhdfs.so
-          DESTINATION ${LIBHDFS3_DESTINATION})
-endif()
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/resources/libhdfs.so
+        DESTINATION ${LIBHDFS3_DESTINATION})
 
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
   add_custom_command(

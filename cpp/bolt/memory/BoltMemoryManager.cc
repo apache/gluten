@@ -222,9 +222,8 @@ ArbitratorFactoryRegister::~ArbitratorFactoryRegister() {
 BoltMemoryManager::BoltMemoryManager(
     const std::string& kind,
     std::unique_ptr<AllocationListener> listener,
-    const bytedance::bolt::config::ConfigBase& backendConf,
-    const std::string& name)
-    : MemoryManager(kind, MemoryManagerOptions{name}), listener_(std::move(listener)) {
+    const bytedance::bolt::config::ConfigBase& backendConf)
+    : MemoryManager(kind), listener_(std::move(listener)) {
   auto reservationBlockSize =
       backendConf.get<uint64_t>(kMemoryReservationBlockSize, kMemoryReservationBlockSizeDefault);
   blockListener_ = std::make_unique<BlockAllocationListener>(listener_.get(), reservationBlockSize);
@@ -371,8 +370,7 @@ void BoltMemoryManager::hold() {
   holdInternal(heldBoltPools_, boltAggregatePool_.get());
   if (BoltGlutenMemoryManager::enabled()) {
     setTaskAttemptId(gluten::getCurrentSparkTaskAttemptId());
-    auto holder = BoltGlutenMemoryManager::getMemoryManagerHolder(
-        name(), taskAttemptId_, reinterpret_cast<int64_t>(this));
+    auto holder = BoltGlutenMemoryManager::getMemoryManagerHolder(taskAttemptId_, reinterpret_cast<int64_t>(this));
     holder->hold();
   }
 }

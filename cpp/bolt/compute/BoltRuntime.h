@@ -65,6 +65,9 @@ class BoltRuntime final : public Runtime {
       const std::string& spillDir,
       const std::vector<std::shared_ptr<ResultIterator>>& inputs = {}) override;
 
+  std::unique_ptr<ColumnarBatchIterator> createJniInputIterator(
+      const JniInputIteratorContext& context) override;
+
   void noMoreSplits(ResultIterator* iter) override;
 
   void requestBarrier(ResultIterator* iter) override;

@@ -23,7 +23,6 @@
 #include <string>
 #include <unordered_map>
 
-#include "utils/ConfigResolver.h"
 #include "velox/common/config/Config.h"
 
 namespace gluten {

@@ -264,6 +264,9 @@ endif()
 
 # Subdirectories
 add_subdirectory(core)
+if(GLUTEN_PREFIX_INCLUDE_DIRS)
+  target_include_directories(gluten BEFORE PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
+endif()
 
 if(BUILD_VELOX_BACKEND)
   add_subdirectory(velox)

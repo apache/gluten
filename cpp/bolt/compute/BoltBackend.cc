@@ -74,11 +74,8 @@ using namespace bytedance;
 namespace gluten {
 
 namespace {
-MemoryManager* boltMemoryManagerFactory(
-    const std::string& kind,
-    std::unique_ptr<AllocationListener> listener,
-    const MemoryManagerOptions& options) {
-  return new BoltMemoryManager(kind, std::move(listener), *BoltBackend::get()->getBackendConf(), options.name);
+MemoryManager* boltMemoryManagerFactory(const std::string& kind, std::unique_ptr<AllocationListener> listener) {
+  return new BoltMemoryManager(kind, std::move(listener), *BoltBackend::get()->getBackendConf());
 }
 
 void boltMemoryManagerReleaser(MemoryManager* memoryManager) {
@@ -128,8 +125,7 @@ void BoltBackend::init(
   backendConf_ =
       std::make_shared<bytedance::bolt::config::ConfigBase>(std::unordered_map<std::string, std::string>(conf));
 
-  globalMemoryManager_ =
-      std::make_unique<BoltMemoryManager>(kBoltBackendKind, std::move(listener), *backendConf_, "global");
+  globalMemoryManager_ = std::make_unique<BoltMemoryManager>(kBoltBackendKind, std::move(listener), *backendConf_);
 
   // Register factories.
   MemoryManager::registerFactory(kBoltBackendKind, boltMemoryManagerFactory, boltMemoryManagerReleaser);

@@ -84,6 +84,8 @@ public class BoltJniLibLoader {
   public static native boolean nativeLoadLibrary(String lib, int rtldFlags)
       throws UnsatisfiedLinkError;
 
+  public static native void nativePromoteLibrary(String lib) throws UnsatisfiedLinkError;
+
   public static synchronized void forceUnloadAll() {
     List<String> loaded = new ArrayList<>(REQUIRE_UNLOAD_LIBRARY_PATHS);
     Collections.reverse(loaded); // use reversed order to unload
@@ -408,29 +410,10 @@ public class BoltJniLibLoader {
       String libPath = req.file.getAbsolutePath();
       LOG.info("Loading library {} via dlopen wiht flag {}.", libPath, req.rtldFlags);
       if ((req.rtldFlags & BoltJniLibLoader.RTLD_GLOBAL) != 0) {
-
-        // A hacky workround. JNI sucks..
-        //  Use Java 21's Foreign Function and Memory in future?
-        //
-        // 1. we need to expose the Bolt's symbols, so that llvm ir module can
-        //    call Bolt's C/C++ functions directly.  JDK's System.loadLibrary() use dlopen()
-        //    to load libraries, however there is no way to pass in any RTLD_xxxx flags.
-        //
-        // 2. If we use dlopen with RTLD_GLOBAL flag directly, JVM won't know on which
-        //    library to search the symbols.
-        //    Please refer to HotSpot's fuction: NativeLookup::lookup_style
-        //
-        // 3. It is safe to call dlopen('same_lib').
-        //    If the same shared object is opened again with dlopen(),
-        //    the same object handle is returned.
-        //    Refere to: https://man7.org/linux/man-pages/man3/dlopen.3.html
-        //
-        //  Here, firstly load library via dlopen(), then call System.loadLibrary()
-        //  to load it again. System.loadLibrary() will register the library path to JVM.
-        LOG.info("Loading library {} via dlopen with flag {}.", libPath, req.rtldFlags);
-        BoltJniLibLoader.nativeLoadLibrary(libPath, req.rtldFlags);
-
+        // Let the JVM register the library and invoke JNI_OnLoad first, then promote the same
+        // handle to RTLD_GLOBAL for native dependencies and JIT-generated code.
         loadFromPath0(libPath, req.requireUnload);
+        BoltJniLibLoader.nativePromoteLibrary(libPath);
       } else {
         loadFromPath0(libPath, req.requireUnload);
       }

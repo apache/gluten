@@ -14,7 +14,7 @@
 
   <properties>
     <cpp.build.dir>../cpp/build/</cpp.build.dir>
-    <cpp.releases.dir>${cpp.build.dir}/releases/</cpp.releases.dir>
+    <cpp.bolt.package.dir>${cpp.build.dir}/package/bolt/${platform}/${arch}/</cpp.bolt.package.dir>
     <byte-buddy.version>1.9.3</byte-buddy.version>
   </properties>
 
@@ -204,7 +204,12 @@
       </resource>
       <resource>
         <targetPath>${platform}/${arch}</targetPath>
-        <directory>${cpp.releases.dir}</directory>
+        <directory>${cpp.bolt.package.dir}</directory>
+        <includes>
+          <include>libgluten.*</include>
+          <include>libbolt_backend.*</include>
+          <include>libglutenlibloader.*</include>
+        </includes>
       </resource>
     </resources>
     <plugins>
@@ -244,6 +249,7 @@
           <tagsToExclude>${tagsToExclude}</tagsToExclude>
           <systemProperties>
             <bolt.udf.lib.path>${cpp.build.dir}/Release/bolt/udf/examples/libmyudf.so</bolt.udf.lib.path>
+            <bolt.native.loader.path>${bolt.native.loader.path}</bolt.native.loader.path>
           </systemProperties>
         </configuration>
       </plugin>

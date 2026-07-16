@@ -29,7 +29,7 @@ target_link_libraries(glutenlibloader PRIVATE glog::glog)
 # Aligned with java ``` System.getProperty("os.arch") ```
 IF((${CMAKE_SYSTEM_PROCESSOR} MATCHES "x86_64") OR (${CMAKE_SYSTEM_PROCESSOR} MATCHES "AMD64"))
   set(ARCH "amd64")
-ELSEIF(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
+ELSEIF(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^(aarch64|arm64)$")
   set(ARCH "aarch64")
 ELSE()
   message(FATAL_ERROR "Unsupported System Architecture: ${CMAKE_SYSTEM_PROCESSOR}")

@@ -15,12 +15,14 @@
  * limitations under the License.
  */
 #include <fmt/ranges.h>
+#include <folly/json.h>
 #include "WholeStageResultIterator.h"
 #include <bolt/common/memory/sparksql/Spiller.h>
 #include <bolt/connectors/hive/PaimonConstants.h>
 #include <cstdint>
 #include <memory>
 #include "BoltBackend.h"
+#include "BoltMetrics.h"
 #include "BoltRuntime.h"
 #include "config/BoltConfig.h"
 #include "memory/BoltMemoryManager.h"
@@ -45,28 +47,6 @@ using namespace bytedance;
 namespace gluten {
 
 namespace {
-
-// metrics
-const std::string kDynamicFiltersProduced = "dynamicFiltersProduced";
-const std::string kDynamicFiltersAccepted = "dynamicFiltersAccepted";
-const std::string kReplacedWithDynamicFilterRows = "replacedWithDynamicFilterRows";
-const std::string kFlushRowCount = "flushRowCount";
-const std::string kLoadedToValueHook = "loadedToValueHook";
-const std::string kTotalScanTime = "totalScanTime";
-const std::string kSkippedSplits = "skippedSplits";
-const std::string kProcessedSplits = "processedSplits";
-const std::string kSkippedStrides = "skippedStrides";
-const std::string kProcessedStrides = "processedStrides";
-const std::string kRemainingFilterTime = "totalRemainingFilterTime";
-const std::string kIoWaitTime = "ioWaitWallNanos";
-const std::string kStorageReadBytes = "storageReadBytes";
-const std::string kLocalReadBytes = "localReadBytes";
-const std::string kRamReadBytes = "ramReadBytes";
-const std::string kPreloadSplits = "readyPreloadedSplits";
-const std::string kDataSourceAddSplitWallNanos = "dataSourceAddSplitWallNanos";
-const std::string kDataSourceReadWallNanos = "dataSourceReadWallNanos";
-const std::string kNumWrittenFiles = "numWrittenFiles";
-const std::string kWriteIOTime = "writeIOWallNanos";
 
 // others
 const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
@@ -380,7 +360,7 @@ std::shared_ptr<bolt::core::QueryCtx> WholeStageResultIterator::createNewBoltQue
   memory::sparksql::BoltMemoryPoolPtr boltPool;
   if (gluten::BoltGlutenMemoryManager::enabled()) {
     auto holder = gluten::BoltGlutenMemoryManager::getMemoryManagerHolder(
-        memoryManager_->name(), taskInfo_.taskId, reinterpret_cast<int64_t>(memoryManager_));
+        taskInfo_.taskId, reinterpret_cast<int64_t>(memoryManager_));
     auto mm = holder->getManager();
     boltPool = mm->getAggregateMemoryPool();
   } else {
@@ -474,7 +454,7 @@ int64_t WholeStageResultIterator::spillFixedSize(int64_t size) {
   memory::sparksql::BoltMemoryManagerPtr manager;
   if (gluten::BoltGlutenMemoryManager::enabled()) {
     auto holder = gluten::BoltGlutenMemoryManager::getMemoryManagerHolder(
-        memoryManager_->name(), taskInfo_.taskId, reinterpret_cast<int64_t>(memoryManager_));
+        taskInfo_.taskId, reinterpret_cast<int64_t>(memoryManager_));
     manager = holder->getManager();
     pool = manager->getAggregateMemoryPool();
   } else {
@@ -643,106 +623,12 @@ void WholeStageResultIterator::collectMetrics() {
   }
 
   auto planStats = bolt::exec::toPlanStats(taskStats);
-  // Calculate the total number of metrics.
-  int statsNum = 0;
-  for (int idx = 0; idx < orderedNodeIds_.size(); idx++) {
-    const auto& nodeId = orderedNodeIds_[idx];
-    if (planStats.find(nodeId) == planStats.end()) {
-      if (omittedNodeIds_.find(nodeId) == omittedNodeIds_.end()) {
-        LOG(WARNING) << "Not found node id: " << nodeId;
-        LOG(WARNING) << "Plan Node: " << std::endl << boltPlan_->toString(true, true);
-        throw std::runtime_error("Node id cannot be found in plan status.");
-      }
-      // Special handing for Filter over Project case. Filter metrics are
-      // omitted.
-      statsNum += 1;
-      continue;
-    }
-    statsNum += planStats.at(nodeId).operatorStats.size();
+  try {
+    metrics_ = bolt_metrics::toMetrics(planStats, orderedNodeIds_, omittedNodeIds_, loadLazyVectorTime_);
+  } catch (const std::runtime_error&) {
+    LOG(WARNING) << "Plan Node: " << std::endl << boltPlan_->toString(true, true);
+    throw;
   }
-
-  metrics_ = std::make_unique<Metrics>(statsNum);
-
-  int metricIndex = 0;
-  for (int idx = 0; idx < orderedNodeIds_.size(); idx++) {
-    metrics_->get(Metrics::kLoadLazyVectorTime)[metricIndex] = 0;
-
-    const auto& nodeId = orderedNodeIds_[idx];
-    if (planStats.find(nodeId) == planStats.end()) {
-      // Special handing for Filter over Project case. Filter metrics are
-      // omitted.
-      metrics_->get(Metrics::kOutputRows)[metricIndex] = 0;
-      metrics_->get(Metrics::kOutputVectors)[metricIndex] = 0;
-      metrics_->get(Metrics::kOutputBytes)[metricIndex] = 0;
-      metrics_->get(Metrics::kCpuCount)[metricIndex] = 0;
-      metrics_->get(Metrics::kWallNanos)[metricIndex] = 0;
-      metrics_->get(Metrics::kPeakMemoryBytes)[metricIndex] = 0;
-      metrics_->get(Metrics::kNumMemoryAllocations)[metricIndex] = 0;
-      metricIndex += 1;
-      continue;
-    }
-
-    const auto& stats = planStats.at(nodeId);
-    // Add each operator stats into metrics.
-    for (const auto& entry : stats.operatorStats) {
-      const auto& second = entry.second;
-      metrics_->get(Metrics::kInputRows)[metricIndex] = second->inputRows;
-      metrics_->get(Metrics::kInputVectors)[metricIndex] = second->inputVectors;
-      metrics_->get(Metrics::kInputBytes)[metricIndex] = second->inputBytes;
-      metrics_->get(Metrics::kRawInputRows)[metricIndex] = second->rawInputRows;
-      metrics_->get(Metrics::kRawInputBytes)[metricIndex] = second->rawInputBytes;
-      metrics_->get(Metrics::kOutputRows)[metricIndex] = second->outputRows;
-      metrics_->get(Metrics::kOutputVectors)[metricIndex] = second->outputVectors;
-      metrics_->get(Metrics::kOutputBytes)[metricIndex] = second->outputBytes;
-      metrics_->get(Metrics::kCpuCount)[metricIndex] = second->cpuWallTiming.count;
-      metrics_->get(Metrics::kWallNanos)[metricIndex] = second->cpuWallTiming.wallNanos;
-      metrics_->get(Metrics::kPeakMemoryBytes)[metricIndex] = second->peakMemoryBytes;
-      metrics_->get(Metrics::kNumMemoryAllocations)[metricIndex] = second->numMemoryAllocations;
-      metrics_->get(Metrics::kSpilledInputBytes)[metricIndex] = second->spilledInputBytes;
-      metrics_->get(Metrics::kSpilledBytes)[metricIndex] = second->spilledBytes;
-      metrics_->get(Metrics::kSpilledRows)[metricIndex] = second->spilledRows;
-      metrics_->get(Metrics::kSpilledPartitions)[metricIndex] = second->spilledPartitions;
-      metrics_->get(Metrics::kSpilledFiles)[metricIndex] = second->spilledFiles;
-      metrics_->get(Metrics::kNumDynamicFiltersProduced)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kDynamicFiltersProduced);
-      metrics_->get(Metrics::kNumDynamicFiltersAccepted)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kDynamicFiltersAccepted);
-      metrics_->get(Metrics::kNumReplacedWithDynamicFilterRows)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kReplacedWithDynamicFilterRows);
-      metrics_->get(Metrics::kFlushRowCount)[metricIndex] = runtimeMetric("sum", second->customStats, kFlushRowCount);
-      metrics_->get(Metrics::kLoadedToValueHook)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kLoadedToValueHook);
-      metrics_->get(Metrics::kScanTime)[metricIndex] = runtimeMetric("sum", second->customStats, kTotalScanTime);
-      metrics_->get(Metrics::kSkippedSplits)[metricIndex] = runtimeMetric("sum", second->customStats, kSkippedSplits);
-      metrics_->get(Metrics::kProcessedSplits)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kProcessedSplits);
-      metrics_->get(Metrics::kSkippedStrides)[metricIndex] = runtimeMetric("sum", second->customStats, kSkippedStrides);
-      metrics_->get(Metrics::kProcessedStrides)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kProcessedStrides);
-      metrics_->get(Metrics::kRemainingFilterTime)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kRemainingFilterTime);
-      metrics_->get(Metrics::kIoWaitTime)[metricIndex] = runtimeMetric("sum", second->customStats, kIoWaitTime);
-      metrics_->get(Metrics::kStorageReadBytes)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kStorageReadBytes);
-      metrics_->get(Metrics::kLocalReadBytes)[metricIndex] = runtimeMetric("sum", second->customStats, kLocalReadBytes);
-      metrics_->get(Metrics::kRamReadBytes)[metricIndex] = runtimeMetric("sum", second->customStats, kRamReadBytes);
-      metrics_->get(Metrics::kPreloadSplits)[metricIndex] =
-          runtimeMetric("sum", entry.second->customStats, kPreloadSplits);
-      metrics_->get(Metrics::kDataSourceAddSplitWallNanos)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kDataSourceAddSplitWallNanos);
-      metrics_->get(Metrics::kDataSourceReadWallNanos)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kDataSourceReadWallNanos);
-      metrics_->get(Metrics::kNumWrittenFiles)[metricIndex] =
-          runtimeMetric("sum", entry.second->customStats, kNumWrittenFiles);
-      metrics_->get(Metrics::kPhysicalWrittenBytes)[metricIndex] = second->physicalWrittenBytes;
-      metrics_->get(Metrics::kWriteIOTime)[metricIndex] = runtimeMetric("sum", second->customStats, kWriteIOTime);
-
-      metricIndex += 1;
-    }
-  }
-
-  // Put the loadLazyVector time into the metrics of the last operator.
-  metrics_->get(Metrics::kLoadLazyVectorTime)[orderedNodeIds_.size() - 1] = loadLazyVectorTime_;
 
   // Populate the metrics with task stats for long running tasks.
   if (const int64_t collectTaskStatsThreshold =
@@ -752,27 +638,6 @@ void WholeStageResultIterator::collectMetrics() {
           collectTaskStatsThreshold * 1'000) {
     auto jsonStats = bolt::exec::toPlanStatsJson(taskStats);
     metrics_->stats = folly::toJson(jsonStats);
-  }
-}
-
-int64_t WholeStageResultIterator::runtimeMetric(
-    const std::string& type,
-    const std::unordered_map<std::string, bolt::RuntimeMetric>& runtimeStats,
-    const std::string& metricId) {
-  if (runtimeStats.find(metricId) == runtimeStats.end()) {
-    return 0;
-  }
-
-  if (type == "sum") {
-    return runtimeStats.at(metricId).sum;
-  } else if (type == "count") {
-    return runtimeStats.at(metricId).count;
-  } else if (type == "min") {
-    return runtimeStats.at(metricId).min;
-  } else if (type == "max") {
-    return runtimeStats.at(metricId).max;
-  } else {
-    return 0;
   }
 }
 

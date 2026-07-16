@@ -17,11 +17,26 @@
 
 #include "BoltInputIterator.h"
 
-#include "compute/BoltBackend.h"
+#include "compute/BoltRuntime.h"
 #include "config/BoltConfig.h"
 #include "utils/ConfigResolver.h"
 
 namespace gluten {
+
+std::unique_ptr<ColumnarBatchIterator> BoltRuntime::createJniInputIterator(
+    const JniInputIteratorContext& context) {
+  const bool parallelEnabled = getBoolConfigValue(getConfMap(), kGlutenEnableParallel, false);
+  LOG(INFO) << "nativeCreateKernelWithIterator parallelEnabled=" << parallelEnabled;
+
+  auto shuffleReaderIter = ShuffleReaderWrapperedIterator::tryFrom(
+      context.env, context.jColumnarBatchIterator, this, parallelEnabled, context.iteratorIndex);
+  if (shuffleReaderIter != nullptr) {
+    LOG(INFO) << "Wrap ShuffleReaderWrapperedIterator for input iterator " << context.iteratorIndex;
+    return shuffleReaderIter;
+  }
+  return std::make_unique<BoltJniColumnarBatchIterator>(
+      context.env, context.jColumnarBatchIterator, this, parallelEnabled, context.iteratorIndex);
+}
 
 BoltJniColumnarBatchIterator::BoltJniColumnarBatchIterator(
     JNIEnv* env,
