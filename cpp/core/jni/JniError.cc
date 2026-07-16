@@ -16,6 +16,11 @@
  */
 #include "JniError.h"
 
+gluten::JniErrorState* gluten::getJniErrorState() {
+  static JniErrorState jniErrorState;
+  return &jniErrorState;
+}
+
 void gluten::JniErrorState::ensureInitialized(JNIEnv* env) {
   std::lock_guard<std::mutex> lockGuard(mtx_);
   if (initialized_) {

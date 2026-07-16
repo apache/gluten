@@ -232,11 +232,77 @@ if(ENABLE_ENHANCED_FEATURES)
 endif()
 
 # Subdirectories
-set(GLUTEN_CORE_LIBRARY_TYPE STATIC)
-set(GLUTEN_CORE_RENAME_JNI_ENTRYPOINTS ON)
+include("${CMAKE_CURRENT_LIST_DIR}/CMake/ConfigArrow.cmake")
+find_package(Arrow CONFIG REQUIRED)
+
+if(NOT TARGET Arrow::arrow)
+  if(TARGET arrow::arrow)
+    add_library(Arrow::arrow ALIAS arrow::arrow)
+  else()
+    message(FATAL_ERROR "Bolt Arrow package does not provide arrow::arrow")
+  endif()
+endif()
+
+if(NOT TARGET Arrow::arrow_bundled_dependencies)
+  add_library(Arrow::arrow_bundled_dependencies INTERFACE IMPORTED)
+endif()
+
+if(NOT TARGET google::glog)
+  if(TARGET glog::glog)
+    add_library(google::glog ALIAS glog::glog)
+  else()
+    message(FATAL_ERROR "Bolt glog package does not provide glog::glog")
+  endif()
+endif()
+
 add_subdirectory(core)
+if(GLUTEN_PREFIX_INCLUDE_DIRS)
+  target_include_directories(gluten BEFORE PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
+endif()
 
 if(BUILD_BOLT)
   add_subdirectory(bolt)
   add_subdirectory(bolt/nativeLoader)
+
+  if(NOT TARGET gluten OR NOT TARGET bolt_backend OR NOT TARGET glutenlibloader)
+    message(FATAL_ERROR
+            "Bolt native packaging requires gluten, bolt_backend, and glutenlibloader targets")
+  endif()
+
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(BOLT_PACKAGE_PLATFORM "linux")
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(BOLT_PACKAGE_PLATFORM "darwin")
+  else()
+    message(FATAL_ERROR "Unsupported Bolt package platform: ${CMAKE_SYSTEM_NAME}")
+  endif()
+
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+      set(BOLT_PACKAGE_ARCH "x86_64")
+    else()
+      set(BOLT_PACKAGE_ARCH "amd64")
+    endif()
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    set(BOLT_PACKAGE_ARCH "aarch64")
+  else()
+    message(FATAL_ERROR
+            "Unsupported Bolt package architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+  endif()
+
+  set(BOLT_NATIVE_PACKAGE_DIR
+      "${CMAKE_SOURCE_DIR}/build/package/bolt/${BOLT_PACKAGE_PLATFORM}/${BOLT_PACKAGE_ARCH}")
+  add_custom_target(
+    package_bolt_native ALL
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${BOLT_NATIVE_PACKAGE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${BOLT_NATIVE_PACKAGE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:gluten>"
+            "${BOLT_NATIVE_PACKAGE_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:bolt_backend>"
+            "${BOLT_NATIVE_PACKAGE_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:glutenlibloader>"
+            "${BOLT_NATIVE_PACKAGE_DIR}/"
+    DEPENDS gluten bolt_backend glutenlibloader
+    COMMENT "Staging Bolt native libraries in ${BOLT_NATIVE_PACKAGE_DIR}"
+    VERBATIM)
 endif()

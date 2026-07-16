@@ -22,12 +22,9 @@
 #include <execinfo.h>
 #include <jni.h>
 
-#include <functional>
-
 #include "compute/ProtobufUtils.h"
 #include "compute/Runtime.h"
 #include "memory/AllocationListener.h"
-#include "shuffle/ShuffleReader.h"
 #include "shuffle/rss/RssClient.h"
 #include "threads/ThreadInitializer.h"
 #include "utils/Compression.h"
@@ -152,7 +149,6 @@ static T* jniCastOrThrow(jlong handle) {
   GLUTEN_CHECK(instance != nullptr, "FATAL: resource instance should not be null.");
   return instance;
 }
-
 namespace gluten {
 
 class ShuffleStreamReader final : public StreamReader {
@@ -211,10 +207,7 @@ class JniCommonState {
   std::mutex mtx_;
 };
 
-inline JniCommonState* getJniCommonState() {
-  static JniCommonState jniCommonState;
-  return &jniCommonState;
-}
+JniCommonState* getJniCommonState();
 
 Runtime* getRuntime(JNIEnv* env, jobject runtimeAware);
 
@@ -325,6 +318,12 @@ DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kInt, jintArray, Int)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kLong, jlongArray, Long)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kFloat, jfloatArray, Float)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kDouble, jdoubleArray, Double)
+
+struct JniInputIteratorContext {
+  JNIEnv* env;
+  jobject jColumnarBatchIterator;
+  int32_t iteratorIndex;
+};
 
 class JniColumnarBatchIterator : public ColumnarBatchIterator {
  public:
@@ -549,7 +548,6 @@ class JavaRssClient : public RssClient {
 
   ~JavaRssClient() {
     JNIEnv* env;
-    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
     if (vm_->GetEnv(reinterpret_cast<void**>(&env), jniVersion) != JNI_OK) {
       LOG(WARNING) << "JavaRssClient#~JavaRssClient(): "
                    << "JNIEnv was not attached to current thread";
@@ -566,7 +564,6 @@ class JavaRssClient : public RssClient {
 
   int32_t pushPartitionData(int32_t partitionId, const char* bytes, int64_t size) override {
     JNIEnv* env;
-    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
     if (vm_->GetEnv(reinterpret_cast<void**>(&env), jniVersion) != JNI_OK) {
       throw gluten::GlutenException("JNIEnv was not attached to current thread");
     }

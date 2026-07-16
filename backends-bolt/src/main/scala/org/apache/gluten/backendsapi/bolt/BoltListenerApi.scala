@@ -207,13 +207,19 @@ class BoltListenerApi extends ListenerApi with Logging {
     // Initial library loader.
     val loader = new BoltJniLibLoader(JniWorkspace.getDefault.getWorkDir)
 
+    // Load libloader first so the JVM-loaded Bolt backend can be promoted to RTLD_GLOBAL.
+    loader.load(s"$platformLibDir/${System.mapLibraryName("glutenlibloader")}", false)
+
     // Load shared native libraries the backend libraries depend on.
     SharedLibraryLoaderUtils.load(conf, loader)
 
-    // Load backend libraries.
-    loader.load(s"$platformLibDir/${System.mapLibraryName("glutenlibloader")}", false)
-    // The symbols in bolt_backend, should be exposed.
-    // LLVM JIT modules / UDFs needs to access the symbols.
+    // Load Core before Bolt so both libraries run their own JNI_OnLoad.
+    // Keep Core local because Bolt resolves it through DT_NEEDED.
+    // Exposing Core globally can preempt private symbols from Bolt's static dependencies.
+    val coreLibName = conf.get(GlutenConfig.GLUTEN_LIB_NAME)
+    loader.load(s"$platformLibDir/${System.mapLibraryName(coreLibName)}", false)
+
+    // Bolt symbols must remain globally visible to LLVM JIT modules and UDFs.
     val flags = BoltJniLibLoader.RTLD_GLOBAL | BoltJniLibLoader.RTLD_LAZY
     val boltLibName = BoltBackend.BACKEND_NAME + "_backend"
     loader.load(s"$platformLibDir/${System.mapLibraryName(boltLibName)}", false, flags)

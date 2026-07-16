@@ -17,47 +17,26 @@
 
 #pragma once
 
-#include <cstdint>
-#include <string>
-#include <utility>
-
 #include "arrow/memory_pool.h"
 #include "memory.pb.h"
 #include "memory/AllocationListener.h"
 
 namespace gluten {
 
-struct MemoryManagerOptions {
-  std::string name;
-};
-
 class MemoryManager {
  public:
-  using Factory = std::function<MemoryManager*(
-      const std::string& kind,
-      std::unique_ptr<AllocationListener> listener,
-      const MemoryManagerOptions& options)>;
+  using Factory = std::function<MemoryManager*(const std::string& kind, std::unique_ptr<AllocationListener> listener)>;
   using Releaser = std::function<void(MemoryManager*)>;
   static void registerFactory(const std::string& kind, Factory factory, Releaser releaser);
-  static MemoryManager*
-  create(const std::string& kind, std::unique_ptr<AllocationListener> listener, MemoryManagerOptions options = {});
+  static MemoryManager* create(const std::string& kind, std::unique_ptr<AllocationListener> listener);
   static void release(MemoryManager*);
 
-  MemoryManager(const std::string& kind, MemoryManagerOptions options = {})
-      : kind_(kind), options_(std::move(options)){};
+  MemoryManager(const std::string& kind) : kind_(kind){};
 
   virtual ~MemoryManager() = default;
 
   virtual std::string kind() {
     return kind_;
-  }
-
-  std::string name() const {
-    return options_.name;
-  }
-
-  const MemoryManagerOptions& options() const {
-    return options_;
   }
 
   // Get the default Arrow memory pool for this memory manager. This memory pool is held by the memory manager.
@@ -79,7 +58,6 @@ class MemoryManager {
 
  private:
   std::string kind_;
-  MemoryManagerOptions options_;
 };
 
 } // namespace gluten

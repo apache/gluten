@@ -193,11 +193,12 @@ bool BoltGlutenMemoryManager::enabled() {
 }
 
 bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder*
-BoltGlutenMemoryManager::getMemoryManagerHolder(const std::string& name, int64_t taskId, int64_t memoryManagerHandle) {
+BoltGlutenMemoryManager::getMemoryManagerHolder(int64_t taskId, int64_t memoryManagerHandle) {
   std::lock_guard<std::mutex> guard(lock_);
 
   GLUTEN_CHECK(enabled_, "Expect BoltMemoryManager enabled");
 
+  const std::string name;
   bytedance::bolt::memory::sparksql::BoltMemoryManagerHolderKey key{
       .name = name, .taskId = taskId, .memoryManagerHandle = memoryManagerHandle};
 

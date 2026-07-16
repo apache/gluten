@@ -397,8 +397,7 @@ auto BM_Generic = [](::benchmark::State& state,
   listener->updateLimit(FLAGS_memory_limit);
 
   auto* listenerPtr = listener.get();
-  auto* memoryManager =
-      MemoryManager::create(kBoltBackendKind, std::move(listener), MemoryManagerOptions{"bm-generic"});
+  auto* memoryManager = MemoryManager::create(kBoltBackendKind, std::move(listener));
   auto runtime = runtimeFactory(memoryManager);
 
   auto plan = getPlanFromFile("Plan", planFile);
@@ -519,8 +518,7 @@ auto BM_ShuffleWriteRead = [](::benchmark::State& state,
   listener->updateLimit(FLAGS_memory_limit);
 
   auto* listenerPtr = listener.get();
-  auto* memoryManager =
-      MemoryManager::create(kBoltBackendKind, std::move(listener), MemoryManagerOptions{"bm-shuffle-write-read"});
+  auto* memoryManager = MemoryManager::create(kBoltBackendKind, std::move(listener));
   auto runtime = runtimeFactory(memoryManager);
 
   const size_t dirIndex = std::hash<std::thread::id>{}(std::this_thread::get_id()) % localDirs.size();

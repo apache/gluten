@@ -84,6 +84,23 @@ class NativeLibraryLoader {
     // }
   }
 
+  void promoteLibrary(const char* path) {
+    if (!initialized_.load(std::memory_order_acquire)) {
+        throw std::logic_error("NativeLibraryLoader is not initialized");
+    }
+#ifdef RTLD_NOLOAD
+    dlerror();
+    void* handle = dlopen(path, RTLD_NOLOAD | RTLD_NOW | RTLD_GLOBAL);
+    if (!handle) {
+        const char* error = dlerror();
+        throw std::logic_error(error == nullptr ? "Unable to promote native library" : error);
+    }
+    LOG(INFO) << "library: (" << path << ") is promoted to RTLD_GLOBAL";
+#else
+    throw std::logic_error("RTLD_NOLOAD is not supported on this platform");
+#endif
+  }
+
   void unload() {
     for (auto unload : unloadHooks_) {
       (*unload)(vm_, nullptr);
@@ -146,6 +163,42 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_jni_BoltJniLibLoader_nativeLoa
   }
 
   return true;
+}
+
+JNIEXPORT void JNICALL Java_org_apache_gluten_jni_BoltJniLibLoader_nativePromoteLibrary( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jstring path) {
+  if (path == nullptr) {
+    jclass nullPointerException = env->FindClass("java/lang/NullPointerException");
+    if (nullPointerException != nullptr) {
+      env->ThrowNew(nullPointerException, "Native library path must not be null");
+    }
+    return;
+  }
+
+  const char* pathPtr = env->GetStringUTFChars(path, nullptr);
+  if (pathPtr == nullptr) {
+    return;
+  }
+
+  try {
+    gluten::NativeLibraryLoader::getInstance()->promoteLibrary(pathPtr);
+  } catch (const std::exception& ex) {
+    std::string error = "Failed to promote the library: ";
+    error.append(pathPtr).append("\t").append(ex.what());
+    jclass unsatisfiedLinkError = env->FindClass("java/lang/UnsatisfiedLinkError");
+    if (unsatisfiedLinkError != nullptr) {
+      env->ThrowNew(unsatisfiedLinkError, error.c_str());
+    }
+  } catch (...) {
+    jclass unsatisfiedLinkError = env->FindClass("java/lang/UnsatisfiedLinkError");
+    if (unsatisfiedLinkError != nullptr) {
+      env->ThrowNew(unsatisfiedLinkError, "Failed to promote the library: unknown native error");
+    }
+  }
+
+  env->ReleaseStringUTFChars(path, pathPtr);
 }
 
 #ifdef __cplusplus
