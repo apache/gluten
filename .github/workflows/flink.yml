@@ -87,8 +87,8 @@ jobs:
           export VELOX_DEPENDENCY_SOURCE=BUNDLED
           export fmt_SOURCE=BUNDLED
           export folly_SOURCE=BUNDLED
-          git clone -b feature/idle-source-handling https://github.com/bigo-sg/velox4j.git
-          cd velox4j && git reset --hard 1794bab90fbdd7d28b0c45d6d03e914b69e0e74d
+          git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
+          cd velox4j && git reset --hard edffdc6404e942e1eb7b848c6517fa763bb91c7e
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..
