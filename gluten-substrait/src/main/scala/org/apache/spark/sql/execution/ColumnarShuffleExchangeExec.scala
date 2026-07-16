@@ -76,7 +76,6 @@ case class ColumnarShuffleExchangeExec(
 
   lazy val shuffleWriterType: ShuffleWriterType = getShuffleWriterType
 
-  // super.stringArgs ++ Iterator(output.map(o => s"${o}#${o.dataType.simpleString}"))
   lazy val serializer: Serializer = BackendsApiManager.getSparkPlanExecApiInstance
     .createColumnarBatchSerializer(schema, metrics, shuffleWriterType)
 
@@ -182,6 +181,7 @@ case class ColumnarShuffleExchangeExec(
       reducerStageMode)
   }
 
+  // super.stringArgs ++ Iterator(output.map(o => s"${o}#${o.dataType.simpleString}"))
   override def stringArgs: Iterator[Any] = {
     super.stringArgs ++ Iterator(s"[shuffle_writer_type=${shuffleWriterType.name}]")
   }

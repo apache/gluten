@@ -101,9 +101,7 @@ abstract class ColumnarCollectTailBaseExec(
         metrics,
         shuffleWriterType
       ),
-      readMetrics,
-      // FIXME: pass proper StageExecutionMode
-      CPUStageMode
+      readMetrics
     )
   }
 

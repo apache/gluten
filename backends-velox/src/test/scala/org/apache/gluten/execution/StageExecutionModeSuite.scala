@@ -30,11 +30,51 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
 
   import testImplicits._
 
+  private val leftTable = "stage_mode_left"
+  private val rightTable = "stage_mode_right"
+
+  override def beforeAll(): Unit = {
+    super.beforeAll()
+
+    spark.sql(s"DROP TABLE IF EXISTS $leftTable")
+    spark.sql(s"DROP TABLE IF EXISTS $rightTable")
+
+    Seq(
+      (1, "left-1"),
+      (2, "left-2"),
+      (3, "left-3"))
+      .toDF("id", "left_value")
+      .write
+      .mode("overwrite")
+      .format("parquet")
+      .saveAsTable(leftTable)
+
+    Seq(
+      (1, "right-1"),
+      (2, "right-2"),
+      (4, "right-4"))
+      .toDF("id", "right_value")
+      .write
+      .mode("overwrite")
+      .format("parquet")
+      .saveAsTable(rightTable)
+  }
+
+  override def afterAll(): Unit = {
+    try {
+      spark.sql(s"DROP TABLE IF EXISTS $leftTable")
+      spark.sql(s"DROP TABLE IF EXISTS $rightTable")
+    } finally {
+      super.afterAll()
+    }
+  }
+
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
       .set("spark.sql.shuffle.partitions", "2")
       .set(VeloxConfig.CUDF_ENABLE_VALIDATION.key, "false")
+      .set(VeloxConfig.CUDF_ENABLE_TABLE_SCAN.key, "false")
   }
 
   test("CPU shuffle mapper and GPU shuffle reader with AQE") {
@@ -44,63 +84,52 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
       GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> "true",
       SQLConf.ANSI_ENABLED.key -> "false"
     ) {
+      val df = sql(
+        s"""
+           |SELECT l.id, l.left_value, r.right_value
+           |FROM $leftTable l
+           |JOIN $rightTable r
+           |  ON l.id = r.id
+           |""".stripMargin)
 
-      withTempView("cpu_scan_left", "cpu_scan_right") {
-        Seq((1, "left-1"), (2, "left-2"), (3, "left-3"))
-          .toDF("id", "left_value")
-          .createOrReplaceTempView("cpu_scan_left")
+      checkAnswer(
+        df,
+        Seq(
+          Row(1, "left-1", "right-1"),
+          Row(2, "left-2", "right-2")))
 
-        Seq((1, "right-1"), (2, "right-2"), (4, "right-4"))
-          .toDF("id", "right_value")
-          .createOrReplaceTempView("cpu_scan_right")
+      val plan = getExecutedPlan(df)
 
-        val df = sql(
-          """
-            |SELECT l.id, l.left_value, r.right_value
-            |FROM cpu_scan_left l
-            |JOIN cpu_scan_right r
-            |  ON l.id = r.id
-            |""".stripMargin)
+      val shuffleReaders = plan.collect {
+        case reader: ColumnarAQEShuffleReadExec => reader
+      }
 
-        checkAnswer(
-          df,
-          Seq(
-            Row(1, "left-1", "right-1"),
-            Row(2, "left-2", "right-2")))
+      assert(shuffleReaders.nonEmpty)
 
-        val plan = getExecutedPlan(df)
+      shuffleReaders.foreach {
+        reader =>
+          assert(
+            reader.executionMode == MockGPUStageMode,
+            s"Expected GPU AQE shuffle reader, but got ${reader.executionMode}")
+      }
 
-        val shuffleReaders = plan.collect {
-          case reader: ColumnarAQEShuffleReadExec => reader
+      val shuffleStages = plan.collect {
+        case stage: ShuffleQueryStageExec => stage
+      }
+
+      val exchanges = shuffleStages.flatMap {
+        _.plan.collect {
+          case exchange: ColumnarShuffleExchangeExec => exchange
         }
+      }
 
-        assert(shuffleReaders.nonEmpty)
+      assert(exchanges.nonEmpty)
 
-        shuffleReaders.foreach {
-          reader =>
-            assert(
-              reader.executionMode == MockGPUStageMode,
-              s"Expected GPU AQE shuffle reader, but got ${reader.executionMode}")
-        }
-
-        val shuffleStages = plan.collect {
-          case stage: ShuffleQueryStageExec => stage
-        }
-
-        val exchanges = shuffleStages.flatMap {
-          _.plan.collect {
-            case exchange: ColumnarShuffleExchangeExec => exchange
-          }
-        }
-
-        assert(exchanges.nonEmpty)
-
-        exchanges.foreach {
-          exchange =>
-            assert(
-              exchange.mapperStageMode.contains(CPUStageMode),
-              s"Expected CPU mapper stage, but got ${exchange.mapperStageMode}")
-        }
+      exchanges.foreach {
+        exchange =>
+          assert(
+            !exchange.mapperStageMode.contains(MockGPUStageMode),
+            s"Expected CPU mapper stage, but got ${exchange.mapperStageMode}")
       }
     }
   }

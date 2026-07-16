@@ -16,7 +16,7 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.gluten.execution.StageExecutionMode
+import org.apache.gluten.execution.{CPUStageMode, StageExecutionMode}
 
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
@@ -60,13 +60,12 @@ class ShuffledColumnarBatchRDD(
 
   def this(
       dependency: ShuffleDependency[Int, ColumnarBatch, ColumnarBatch],
-      metrics: Map[String, SQLMetric],
-      executionMode: StageExecutionMode) = {
+      metrics: Map[String, SQLMetric]) = {
     this(
       dependency,
       metrics,
       Array.tabulate(dependency.partitioner.numPartitions)(i => CoalescedPartitionSpec(i, i + 1)),
-      executionMode
+      CPUStageMode
     )
   }
 

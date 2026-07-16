@@ -80,26 +80,24 @@ case class AdjustStageExecutionMode(
 
 object AdjustStageExecutionMode extends Logging {
   def adjustExecutionMode(plan: SparkPlan, stageExecutionMode: StageExecutionMode): SparkPlan = {
+    logInfo(s"Adjust ${plan.nodeName} to ${stageExecutionMode.name}.")
     plan match {
-      case aqeReader: AQEShuffleReadExec =>
-        logInfo(s"Adjust AQE shuffle read to ${stageExecutionMode.name}.")
+      // TODO: support BroadcastQueryStageExec.
+      case aqeShuffleRead @ AQEShuffleReadExec(s @ ShuffleQueryStageExec(_, _, _), _)
+          if s.shuffle.isInstanceOf[ColumnarShuffleExchangeExec] =>
         ColumnarAQEShuffleReadExec(
-          Left(aqeReader),
+          Left(aqeShuffleRead),
           stageExecutionMode)
-      case queryStageExec: ShuffleQueryStageExec =>
-        // If no AQEShuffleReadExec is created for the shuffle query stage,
-        // create ColumnarAQEShuffleReadExec here with partition specs wrapping the
-        // original partitions.
+      case queryStageExec: ShuffleQueryStageExec
+          if queryStageExec.shuffle.isInstanceOf[ColumnarShuffleExchangeExec] =>
         ColumnarAQEShuffleReadExec(
           Right(queryStageExec),
           stageExecutionMode)
       case shuffle: ColumnarShuffleExchangeExec =>
-        logInfo(s"Adjust shuffle exchange to ${stageExecutionMode.name}.")
         shuffle
           .copy(mapperStageMode = Some(stageExecutionMode))
           .withNewChildren(Seq(adjustExecutionMode(shuffle.child, stageExecutionMode)))
       case resizeBatches: VeloxResizeBatchesExec =>
-        logInfo(s"Adjust VeloxResizeBatchesExec to ${stageExecutionMode.name}.")
         VeloxResizeBatchesExec(
           adjustExecutionMode(resizeBatches.child, stageExecutionMode),
           Some(stageExecutionMode))
