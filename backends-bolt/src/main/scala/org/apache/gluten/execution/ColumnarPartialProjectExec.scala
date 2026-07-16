@@ -30,7 +30,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
-import org.apache.spark.sql.execution.{ExplainUtils, ProjectExec, SparkPlan, UnaryExecNode}
+import org.apache.spark.sql.execution.{ExplainUtils, OrderPreservingNodeShim, PartitioningPreservingNodeShim, ProjectExec, SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.hive.{BoltHiveUDFTransformer, HiveUDFTransformer}
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
@@ -50,9 +50,11 @@ import scala.collection.mutable.ListBuffer
  * @param child
  *   child plan
  */
-case class ColumnarPartialProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)(
+case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: SparkPlan)(
     replacedAlias: Seq[Alias])
   extends UnaryExecNode
+  with OrderPreservingNodeShim
+  with PartitioningPreservingNodeShim
   with ValidatablePlan {
 
   private val projectAttributes: ListBuffer[Attribute] = ListBuffer()
@@ -91,11 +93,6 @@ case class ColumnarPartialProjectExec(projectList: Seq[NamedExpression], child: 
 
   final override protected def otherCopyArgs: Seq[AnyRef] = {
     replacedAlias :: Nil
-  }
-
-  private def validateExpression(expr: Expression): Boolean = {
-    expr.deterministic && !expr.isInstanceOf[LambdaFunction] && expr.children
-      .forall(validateExpression)
   }
 
   private def getProjectIndexInChildOutput(exprs: Seq[Expression]): Unit = {
@@ -144,7 +141,7 @@ case class ColumnarPartialProjectExec(projectList: Seq[NamedExpression], child: 
       // e.g. udf1(col) + udf2(col), it will introduce 2 cols for a2c
       return ValidationResult.failed("Number of RowToColumn columns is more than ProjectExec")
     }
-    if (!projectList.forall(validateExpression(_))) {
+    if (!projectList.forall(ColumnarPartialProjectExec.validateExpression)) {
       return ValidationResult.failed("Contains expression not supported")
     }
     if (
@@ -164,6 +161,10 @@ case class ColumnarPartialProjectExec(projectList: Seq[NamedExpression], child: 
     child.executeColumnar().mapPartitions {
       batches =>
         val res: Iterator[Iterator[ColumnarBatch]] = new Iterator[Iterator[ColumnarBatch]] {
+          // select part of child output and child data
+          val projection: ArrowProjection =
+            ArrowProjection.create(replacedAlias, projectAttributes.toSeq)
+
           override def hasNext: Boolean = batches.hasNext
 
           override def next(): Iterator[ColumnarBatch] = {
@@ -175,7 +176,7 @@ case class ColumnarPartialProjectExec(projectList: Seq[NamedExpression], child: 
               val childData = ColumnarBatches
                 .select(BackendsApiManager.getBackendName, batch, projectIndexInChild.toArray)
               try {
-                val projectedBatch = getProjectedBatchArrow(childData, c2a, a2c)
+                val projectedBatch = getProjectedBatchArrow(childData, projection, c2a, a2c)
                 val batchIterator = projectedBatch.map {
                   b =>
                     if (b.numCols() != 0) {
@@ -208,17 +209,20 @@ case class ColumnarPartialProjectExec(projectList: Seq[NamedExpression], child: 
 
   private def getProjectedBatchArrow(
       childData: ColumnarBatch,
+      proj: ArrowProjection,
       c2a: SQLMetric,
       a2c: SQLMetric): Iterator[ColumnarBatch] = {
-    // select part of child output and child data
-    val proj = ArrowProjection.create(replacedAlias, projectAttributes.toSeq)
     val numRows = childData.numRows()
     val start = System.currentTimeMillis()
-    val arrowBatch = if (childData.numCols() == 0) {
+    val sparkColumnarBatch = if (childData.numCols() == 0) {
       childData
     } else {
       ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), childData)
     }
+    // In spark with version belows 4.0, the `ColumnarRow`'s get method doesn't check whether the
+    // column to get is null, so we change it to `ArrowColumnarBatch` manually. `ArrowColumnarBatch`
+    // returns `ArrowColumnarRow`, which fixes the bug.
+    val arrowBatch = ColumnarBatches.convertToArrowColumnarBatch(sparkColumnarBatch)
     c2a += System.currentTimeMillis() - start
 
     val schema =
@@ -268,11 +272,20 @@ case class ColumnarPartialProjectExec(projectList: Seq[NamedExpression], child: 
   override protected def withNewChildInternal(newChild: SparkPlan): ColumnarPartialProjectExec = {
     copy(child = newChild)(replacedAlias)
   }
+
+  override protected def orderingExpressions: Seq[SortOrder] = child.outputOrdering
+
+  override protected def outputExpressions: Seq[NamedExpression] = child.output ++ replacedAlias
 }
 
 object ColumnarPartialProjectExec {
 
   val projectPrefix = "_SparkPartialProject"
+
+  def validateExpression(expr: Expression): Boolean = {
+    expr.deterministic && !expr.isInstanceOf[LambdaFunction] && expr.children
+      .forall(validateExpression)
+  }
 
   /** Check if it's a hive udf but not transformable */
   private def containsUnsupportedHiveUDF(h: Expression): Boolean = {
