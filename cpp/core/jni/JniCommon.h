@@ -151,6 +151,10 @@ static T* jniCastOrThrow(jlong handle) {
 }
 namespace gluten {
 
+class StreamReader;
+
+std::shared_ptr<StreamReader> makeShuffleStreamReader(JNIEnv* env, jobject jShuffleStreamReader);
+
 class JniCommonState {
  public:
   virtual ~JniCommonState() = default;
@@ -285,6 +289,12 @@ DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kInt, jintArray, Int)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kLong, jlongArray, Long)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kFloat, jfloatArray, Float)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kDouble, jdoubleArray, Double)
+
+struct JniInputIteratorContext {
+  JNIEnv* env;
+  jobject jColumnarBatchIterator;
+  int32_t iteratorIndex;
+};
 
 class JniColumnarBatchIterator : public ColumnarBatchIterator {
  public:

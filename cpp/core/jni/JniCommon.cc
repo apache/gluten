@@ -67,6 +67,12 @@ gluten::Runtime* gluten::getRuntime(JNIEnv* env, jobject runtimeAware) {
   return ctx;
 }
 
+std::unique_ptr<gluten::ColumnarBatchIterator> gluten::Runtime::createJniInputIterator(
+    const JniInputIteratorContext& context) {
+  return std::make_unique<JniColumnarBatchIterator>(
+      context.env, context.jColumnarBatchIterator, this, context.iteratorIndex);
+}
+
 std::unique_ptr<gluten::JniColumnarBatchIterator>
 gluten::makeJniColumnarBatchIterator(JNIEnv* env, jobject jColumnarBatchItr, gluten::Runtime* runtime) {
   return std::make_unique<JniColumnarBatchIterator>(env, jColumnarBatchItr, runtime);

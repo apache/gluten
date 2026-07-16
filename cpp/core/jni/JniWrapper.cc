@@ -273,6 +273,14 @@ class ShuffleStreamReader : public StreamReader {
 
 } // namespace
 
+namespace gluten {
+
+std::shared_ptr<StreamReader> makeShuffleStreamReader(JNIEnv* env, jobject jShuffleStreamReader) {
+  return std::make_shared<::ShuffleStreamReader>(env, jShuffleStreamReader);
+}
+
+} // namespace gluten
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -566,7 +574,7 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeCreateKernelWith
     inputIters.reserve(itersLen);
     for (int idx = 0; idx < itersLen; idx++) {
       jobject iter = env->GetObjectArrayElement(batchItrArray, idx);
-      auto arrayIter = std::make_unique<JniColumnarBatchIterator>(env, iter, ctx, idx);
+      auto arrayIter = ctx->createJniInputIterator({env, iter, idx});
       auto resultIter = std::make_shared<ResultIterator>(std::move(arrayIter));
       inputIters.push_back(std::move(resultIter));
     }
