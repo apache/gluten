@@ -556,7 +556,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  ignore("raise_error, assert_true") {
+  test("raise_error, assert_true") {
     runQueryAndCompare("""SELECT assert_true(l_orderkey >= 1), l_orderkey
                          | from lineitem limit 100""".stripMargin) {
       checkGlutenPlan[ProjectExecTransformer]

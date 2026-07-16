@@ -18,7 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.execution.GenerateExecTransformer.supportsGenerate
-import org.apache.gluten.metrics.{GenerateMetricsUpdater, MetricsUpdater}
+import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.ExpressionNode
 import org.apache.gluten.substrait.extensions.{AdvancedExtensionNode, ExtensionBuilder}
@@ -27,7 +27,6 @@ import org.apache.gluten.utils.PullOutProjectHelper
 
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.{GenerateExec, ProjectExec, SparkPlan}
-import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.types.{BooleanType, IntegerType}
 
 import com.google.protobuf.StringValue
@@ -50,19 +49,10 @@ case class GenerateExecTransformer(
 
   @transient
   override lazy val metrics =
-    Map(
-      "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
-      "numOutputVectors" -> SQLMetrics.createMetric(sparkContext, "number of output vectors"),
-      "numOutputBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of output bytes"),
-      "wallNanos" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time of generate"),
-      "cpuCount" -> SQLMetrics.createMetric(sparkContext, "cpu wall time count"),
-      "peakMemoryBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak memory bytes"),
-      "numMemoryAllocations" -> SQLMetrics.createMetric(
-        sparkContext,
-        "number of memory allocations")
-    )
+    BackendsApiManager.getMetricsApiInstance.genGenerateTransformerMetrics(sparkContext)
 
-  override def metricsUpdater(): MetricsUpdater = new GenerateMetricsUpdater(metrics)
+  override def metricsUpdater(): MetricsUpdater =
+    BackendsApiManager.getMetricsApiInstance.genGenerateTransformerMetricsUpdater(metrics)
 
   override protected def withNewChildInternal(newChild: SparkPlan): GenerateExecTransformer =
     copy(generator, requiredChildOutput, outer, generatorOutput, newChild)

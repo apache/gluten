@@ -14,25 +14,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <fmt/ranges.h>
-#include <folly/json.h>
 #include "WholeStageResultIterator.h"
 #include <bolt/common/memory/sparksql/Spiller.h>
 #include <bolt/connectors/hive/PaimonConstants.h>
+#include <fmt/ranges.h>
+#include <folly/json.h>
 #include <cstdint>
 #include <memory>
 #include "BoltBackend.h"
 #include "BoltMetrics.h"
 #include "BoltRuntime.h"
-#include "config/BoltConfig.h"
-#include "memory/BoltMemoryManager.h"
-#include "memory/BoltGlutenMemoryManager.h"
 #include "bolt/connectors/hive/HiveConfig.h"
 #include "bolt/connectors/hive/HiveConnectorSplit.h"
 #include "bolt/exec/PlanNodeStats.h"
 #include "bolt/shuffle/sparksql/ShuffleWriterNode.h"
-#include "connectors/hive/PaimonConnectorSplit.h"
 #include "compute/paimon/PaimonPlanUtils.h"
+#include "config/BoltConfig.h"
+#include "connectors/hive/PaimonConnectorSplit.h"
+#include "memory/BoltGlutenMemoryManager.h"
+#include "memory/BoltMemoryManager.h"
 
 #ifdef GLUTEN_ENABLE_GPU
 #include <cudf/io/types.hpp>
@@ -146,8 +146,7 @@ void WholeStageResultIterator::initTask() {
   LOG(INFO) << "WholeStageResultIterator::WholeStageResultIterator parallelEnabled=" << parallelEnabled_;
   // Check the plan ends with shuffleWriter
   isMultiThreadExecMode_ = parallelEnabled_ &&
-      std::dynamic_pointer_cast<const bytedance::bolt::shuffle::sparksql::SparkShuffleWriterNode>(boltPlan_) !=
-          nullptr;
+      std::dynamic_pointer_cast<const bytedance::bolt::shuffle::sparksql::SparkShuffleWriterNode>(boltPlan_) != nullptr;
   if (isMultiThreadExecMode_) {
     LOG(INFO) << "Running task-" << std::to_string(taskInfo_.taskId) << " on multi-thread mode";
   }
@@ -224,15 +223,13 @@ void WholeStageResultIterator::initTask() {
         constructPartitionColumns(partitionKeys, partitionColumn);
       }
 
-
       std::shared_ptr<bolt::connector::ConnectorSplit> split;
       if (auto paimonSplitInfo = std::dynamic_pointer_cast<paimon::PaimonSplitInfo>(scanInfo)) {
         const auto& splitMetadata = paimonSplitInfo->metaAt(idx);
         std::unordered_map<std::string, std::string> splitInfo = customSplitInfo;
-        splitInfo[bytedance::bolt::connector::paimon::kFileMetaFirstRowID] =
-        std::to_string(splitMetadata.firstRowId);
+        splitInfo[bytedance::bolt::connector::paimon::kFileMetaFirstRowID] = std::to_string(splitMetadata.firstRowId);
         splitInfo[bytedance::bolt::connector::paimon::kFileMetaMaxSequenceNumber] =
-        std::to_string(splitMetadata.maxSequenceNumber);
+            std::to_string(splitMetadata.maxSequenceNumber);
 
         auto split = std::make_shared<bolt::connector::hive::HiveConnectorSplit>(
             kHiveConnectorId,
@@ -250,77 +247,79 @@ void WholeStageResultIterator::initTask() {
             std::nullopt,
             metadataColumn);
         if (!splitMetadata.rawConvertible) {
-          LOG(INFO) << "Split is not rawConvertible, adding to group " << splitMetadata.splitGroup << " : " << split->toString();
+          LOG(INFO) << "Split is not rawConvertible, adding to group " << splitMetadata.splitGroup << " : "
+                    << split->toString();
           splitGroups[splitMetadata.splitGroup].push_back(split);
         } else {
           LOG(INFO) << "Split is rawConvertible, adding single split: " << split->toString();
           connectorSplits.emplace_back(split);
         }
       } else {
-      // } else if (auto icebergSplitInfo = std::dynamic_pointer_cast<IcebergSplitInfo>(scanInfo)) {
-      //   // Set Iceberg split.
-      //   std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", "hive-iceberg"}};
-      //   auto deleteFiles = icebergSplitInfo->deleteFilesVec[idx];
-      //   split = std::make_shared<bolt::connector::hive::iceberg::HiveIcebergSplit>(
-      //       kHiveConnectorId,
-      //       paths[idx],
-      //       format,
-      //       starts[idx],
-      //       lengths[idx],
-      //       partitionKeys,
-      //       std::nullopt,
-      //       customSplitInfo,
-      //       nullptr,
-      //       true,
-      //       deleteFiles,
-      //       std::unordered_map<std::string, std::string>(),
-      //       properties[idx]);
-      // } else {
+        // } else if (auto icebergSplitInfo = std::dynamic_pointer_cast<IcebergSplitInfo>(scanInfo)) {
+        //   // Set Iceberg split.
+        //   std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", "hive-iceberg"}};
+        //   auto deleteFiles = icebergSplitInfo->deleteFilesVec[idx];
+        //   split = std::make_shared<bolt::connector::hive::iceberg::HiveIcebergSplit>(
+        //       kHiveConnectorId,
+        //       paths[idx],
+        //       format,
+        //       starts[idx],
+        //       lengths[idx],
+        //       partitionKeys,
+        //       std::nullopt,
+        //       customSplitInfo,
+        //       nullptr,
+        //       true,
+        //       deleteFiles,
+        //       std::unordered_map<std::string, std::string>(),
+        //       properties[idx]);
+        // } else {
 #ifdef GLUTEN_ENABLE_GPU
-      if (canUseCudfConnector) {
-        connectorId = kCudfHiveConnectorId;
-        BOLT_CHECK_EQ(starts[idx], 0, "Not support split file");
-        BOLT_CHECK_EQ(lengths[idx], scanInfo->properties[idx]->fileSize, "Not support split file");
-      }
+        if (canUseCudfConnector) {
+          connectorId = kCudfHiveConnectorId;
+          BOLT_CHECK_EQ(starts[idx], 0, "Not support split file");
+          BOLT_CHECK_EQ(lengths[idx], scanInfo->properties[idx]->fileSize, "Not support split file");
+        }
 #endif
-      // TODO sync bolt and uncomment it
-      // split = std::make_shared<bolt::connector::hive::HiveConnectorSplit>(
-      //     connectorId,
-      //     paths[idx],
-      //     format,
-      //     starts[idx],
-      //     lengths[idx],
-      //     partitionKeys,
-      //     std::nullopt /*tableBucketName*/,
-      //     std::unordered_map<std::string, std::string>() /*_customSplitInfo*/,
-      //     nullptr /*_extraFileInfo*/,
-      //     std::unordered_map<std::string, std::string>() /*_serdeParameters*/,
-      //     0 /*splitWeight*/,
-      //     true /*cacheable*/,
-      //     metadataColumn /*_infoColumns*/,
-      //     properties[idx] /*_properties*/);
-      split = std::make_shared<bolt::connector::hive::HiveConnectorSplit>(
-          connectorId,
-          paths[idx],
-          format,
-          starts[idx],
-          lengths[idx],
-          partitionKeys,
-          std::nullopt /*tableBucketName*/,
-          nullptr /*_hiveConnectorSplitCacheLimit*/,
-          customSplitInfo,
-          std::make_shared<std::string>() /*_extraFileInfo*/,
-          std::unordered_map<std::string, std::string>() /*_serdeParameters*/,
-          properties[idx]->fileSize.value_or(0) /*_fileSize*/,
-          std::nullopt /*_rowIdProperties*/,
-          metadataColumn);
+        // TODO sync bolt and uncomment it
+        // split = std::make_shared<bolt::connector::hive::HiveConnectorSplit>(
+        //     connectorId,
+        //     paths[idx],
+        //     format,
+        //     starts[idx],
+        //     lengths[idx],
+        //     partitionKeys,
+        //     std::nullopt /*tableBucketName*/,
+        //     std::unordered_map<std::string, std::string>() /*_customSplitInfo*/,
+        //     nullptr /*_extraFileInfo*/,
+        //     std::unordered_map<std::string, std::string>() /*_serdeParameters*/,
+        //     0 /*splitWeight*/,
+        //     true /*cacheable*/,
+        //     metadataColumn /*_infoColumns*/,
+        //     properties[idx] /*_properties*/);
+        split = std::make_shared<bolt::connector::hive::HiveConnectorSplit>(
+            connectorId,
+            paths[idx],
+            format,
+            starts[idx],
+            lengths[idx],
+            partitionKeys,
+            std::nullopt /*tableBucketName*/,
+            nullptr /*_hiveConnectorSplitCacheLimit*/,
+            customSplitInfo,
+            std::make_shared<std::string>() /*_extraFileInfo*/,
+            std::unordered_map<std::string, std::string>() /*_serdeParameters*/,
+            properties[idx]->fileSize.value_or(0) /*_fileSize*/,
+            std::nullopt /*_rowIdProperties*/,
+            metadataColumn);
 
-      connectorSplits.emplace_back(split);
-    }
+        connectorSplits.emplace_back(split);
+      }
     }
     for (const auto& [splitGroup, splits] : splitGroups) {
       LOG(INFO) << "Adding PaimonConnectorSplit group " << splitGroup << " with " << splits.size() << " splits";
-      auto connectorSplit = std::make_shared<bytedance::bolt::connector::hive::PaimonConnectorSplit>(connectorId, std::move(splits));
+      auto connectorSplit =
+          std::make_shared<bytedance::bolt::connector::hive::PaimonConnectorSplit>(connectorId, std::move(splits));
       connectorSplits.emplace_back(connectorSplit);
     }
 
@@ -665,8 +664,7 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       boltCfg_->get<std::string>(kThrowExceptionWhenEncounterBadJson, "false");
   configs[bolt::core::QueryConfig::kUseDOMParserInGetJsonObject] =
       boltCfg_->get<std::string>(kUseDOMParserInGetJsonObject, "false");
-  configs[bolt::core::QueryConfig::kUseSonicJson] =
-        boltCfg_->get<std::string>(kUseSonicJson, "true");
+  configs[bolt::core::QueryConfig::kUseSonicJson] = boltCfg_->get<std::string>(kUseSonicJson, "true");
   configs[bolt::core::QueryConfig::kIgnoreCorruptFiles] =
       std::to_string(boltCfg_->get<bool>(kIgnoreCorruptFiles, false));
   configs[bolt::core::QueryConfig::kThrowExceptionWhenEncounterBadTimestamp] =
@@ -676,15 +674,15 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
   configs[bolt::core::QueryConfig::kSparkLegacyCastComplexTypesToStringEnabled] =
       boltCfg_->get<std::string>(kLegacyCastComplexTypesToStringEnabled, "false");
   configs[bolt::core::QueryConfig::kRowBasedSpillMode] =
-        boltCfg_->get<std::string>(kRowBasedSpillMode, bolt::core::QueryConfig::kDefaultRowBasedSpillMode);
-  configs[bolt::core::QueryConfig::kBoltJitEnabled] =
-        std::to_string(boltCfg_->get<bool>(kBoltJitEnabled, true));
+      boltCfg_->get<std::string>(kRowBasedSpillMode, bolt::core::QueryConfig::kDefaultRowBasedSpillMode);
+  configs[bolt::core::QueryConfig::kBoltJitEnabled] = std::to_string(boltCfg_->get<bool>(kBoltJitEnabled, true));
   try {
     // configs[bolt::core::QueryConfig::kSparkAnsiEnabled] = boltCfg_->get<std::string>(kAnsiEnabled, "false");
     configs[bolt::core::QueryConfig::kSessionTimezone] = boltCfg_->get<std::string>(kSessionTimezone, "");
     // Adjust timestamp according to the above configured session timezone.
     configs[bolt::core::QueryConfig::kAdjustTimestampToTimezone] = "true";
-    configs[bolt::core::QueryConfig::kTimeParserPolicy] = boltCfg_->get<std::string>(kSparkLegacyTimeParserPolicy, "exception");
+    configs[bolt::core::QueryConfig::kTimeParserPolicy] =
+        boltCfg_->get<std::string>(kSparkLegacyTimeParserPolicy, "corrected");
     {
       // Find offheap size from Spark confs. If found, set the max memory usage of partial aggregation.
       // Partial aggregation memory configurations.
@@ -723,29 +721,27 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
           std::to_string(boltCfg_->get<bool>(kHashAggregationUniqueRowOpt, true));
       configs[bolt::core::QueryConfig::kHashAggregationCompositeOutputAccumulatorRatio] =
           std::to_string(boltCfg_->get<int32_t>(kHashAggregationCompositeOutputAccumulatorRatio, 5));
-      configs[bolt::core::QueryConfig::kSpillUringEnabled] =
-          boltCfg_->get<std::string>(kSpillUringEnabled, "false");
-      configs[bolt::core::QueryConfig::kTestingSpillPct] =
-          std::to_string(boltCfg_->get<int32_t>(kTestingSpillPct, 0));
+      configs[bolt::core::QueryConfig::kSpillUringEnabled] = boltCfg_->get<std::string>(kSpillUringEnabled, "false");
+      configs[bolt::core::QueryConfig::kTestingSpillPct] = std::to_string(boltCfg_->get<int32_t>(kTestingSpillPct, 0));
 
       configs[bolt::core::QueryConfig::kEnableSonicIsJsonScalar] =
-        std::to_string(boltCfg_->get<bool>(kEnableSonicIsJsonScalar, true));
+          std::to_string(boltCfg_->get<bool>(kEnableSonicIsJsonScalar, true));
       configs[bolt::core::QueryConfig::kEnableSonicJSsonArrayContains] =
-        std::to_string(boltCfg_->get<bool>(kEnableSonicJsonArrayContains, true));
+          std::to_string(boltCfg_->get<bool>(kEnableSonicJsonArrayContains, true));
       configs[bolt::core::QueryConfig::kEnableSonicJsonArrayLength] =
-        std::to_string(boltCfg_->get<bool>(kEnableSonicJsonArrayLength, true));
+          std::to_string(boltCfg_->get<bool>(kEnableSonicJsonArrayLength, true));
       configs[bolt::core::QueryConfig::kEnableSonicJsonExtractScalar] =
-        std::to_string(boltCfg_->get<bool>(kEnableSonicJsonExtractScalar, true));
+          std::to_string(boltCfg_->get<bool>(kEnableSonicJsonExtractScalar, true));
       configs[bolt::core::QueryConfig::kEnableSonicJsonExtract] =
-        std::to_string(boltCfg_->get<bool>(kEnableSonicJsonExtract, true));
+          std::to_string(boltCfg_->get<bool>(kEnableSonicJsonExtract, true));
       configs[bolt::core::QueryConfig::kEnableSonicJsonSize] =
-        std::to_string(boltCfg_->get<bool>(kEnableSonicJsonSize, true));
+          std::to_string(boltCfg_->get<bool>(kEnableSonicJsonSize, true));
       configs[bolt::core::QueryConfig::kEnableSonicJsonSplit] =
-        std::to_string(boltCfg_->get<bool>(kEnableSonicJsonSplit, true));
+          std::to_string(boltCfg_->get<bool>(kEnableSonicJsonSplit, true));
       configs[bolt::core::QueryConfig::kEnableSonicJsonParse] =
-        std::to_string(boltCfg_->get<bool>(kEnableSonicJsonParse, true));
+          std::to_string(boltCfg_->get<bool>(kEnableSonicJsonParse, true));
       configs[bolt::core::QueryConfig::kEnableSonicJsonToMap] =
-        std::to_string(boltCfg_->get<bool>(kEnableSonicJsonToMap, true));
+          std::to_string(boltCfg_->get<bool>(kEnableSonicJsonToMap, true));
 
       int32_t maxParquetRepDefMemoryLimit =
           (int32_t)(boltCfg_->get<double>(kParquetRepDefMemoryRatio, 0.1) * offHeapMemory);
@@ -760,8 +756,7 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     }
     configs[bolt::core::QueryConfig::kAggregationSpillEnabled] =
         std::to_string(boltCfg_->get<bool>(kAggregationSpillEnabled, true));
-    configs[bolt::core::QueryConfig::kJoinSpillEnabled] =
-        std::to_string(boltCfg_->get<bool>(kJoinSpillEnabled, true));
+    configs[bolt::core::QueryConfig::kJoinSpillEnabled] = std::to_string(boltCfg_->get<bool>(kJoinSpillEnabled, true));
     configs[bolt::core::QueryConfig::kOrderBySpillEnabled] =
         std::to_string(boltCfg_->get<bool>(kOrderBySpillEnabled, true));
     configs[bolt::core::QueryConfig::kOrderBySpillInOutputStageEnabled] =
@@ -803,8 +798,7 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
         BoltBackend::getScanPreloadAdaptiveParam(BoltBackend::getCombinedConf(boltCfg_), false);
     configs[bolt::core::QueryConfig::kMaxSplitPreloadPerDriver] = std::to_string(preloadSplitPerDriver);
     configs[bolt::core::QueryConfig::kPreloadBytesLimit] = std::to_string(avgTaskMemory);
-    configs[bolt::core::QueryConfig::kPreloadAdaptive] =
-        std::to_string(preloadEnabled == 1 ? true : false);
+    configs[bolt::core::QueryConfig::kPreloadAdaptive] = std::to_string(preloadEnabled == 1 ? true : false);
 
     LOG(INFO) << "Split preload configs: "
               << " maxSplitPreloadPerDriver=" << configs[bolt::core::QueryConfig::kMaxSplitPreloadPerDriver]
@@ -829,7 +823,7 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     }
     // To align with Spark's behavior, set the policy to deduplicate map keys in builtin functions
     configs[bolt::core::QueryConfig::kSparkMapKeyDedupPolicy] =
-      boltCfg_->get<std::string>(kSparkMapKeyDedupPolicy, "EXCEPTION");
+        boltCfg_->get<std::string>(kSparkMapKeyDedupPolicy, "EXCEPTION");
 
     configs[bolt::core::QueryConfig::kSparkLegacyStatisticalAggregate] =
         std::to_string(boltCfg_->get<bool>(kSparkLegacyStatisticalAggregate, false));
@@ -888,8 +882,7 @@ std::shared_ptr<bolt::config::ConfigBase> WholeStageResultIterator::createConnec
       !boltCfg_->get<bool>(kCaseSensitive, false) ? "true" : "false";
   configs[bolt::connector::hive::HiveConfig::kPartitionPathAsLowerCaseSession] = "false";
   configs[bolt::connector::hive::HiveConfig::kArrowBridgeTimestampUnit] = "6";
-  configs[bolt::connector::hive::HiveConfig::kReadTimestampUnitSession] =
-      "6";
+  configs[bolt::connector::hive::HiveConfig::kReadTimestampUnitSession] = "6";
   configs[bolt::connector::hive::HiveConfig::kMaxPartitionsPerWritersSession] =
       std::to_string(boltCfg_->get<int32_t>(kMaxPartitions, 10000));
   configs[bolt::connector::hive::HiveConfig::kIgnoreMissingFilesSession] =
@@ -897,7 +890,7 @@ std::shared_ptr<bolt::config::ConfigBase> WholeStageResultIterator::createConnec
   configs[bolt::connector::hive::HiveConfig::kParquetUseColumnNamesSession] =
       std::to_string(boltCfg_->get<bool>(kParquetUseColumnNames, true));
   configs[bolt::connector::hive::HiveConfig::kOrcUseColumnNamesSession] =
-        std::to_string(boltCfg_->get<bool>(kOrcUseColumnNames, true));
+      std::to_string(boltCfg_->get<bool>(kOrcUseColumnNames, true));
   return std::make_shared<bolt::config::ConfigBase>(std::move(configs));
 }
 

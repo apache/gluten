@@ -1174,6 +1174,16 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
     MonthsBetweenTransformer(substraitExprName, date1, date2, roundOff, original)
   }
 
+  override def getErrorMessage(raiseError: RaiseError): Expression = {
+    SparkShimLoader.getSparkShims.getErrorMessage(raiseError) match {
+      case Some(msg) => msg
+      case None =>
+        GlutenExceptionUtil.throwsNotFullySupported(
+          ExpressionNames.RAISE_ERROR,
+          RaiseErrorRestrictions.ONLY_SUPPORT_ERROR_MESSAGE)
+    }
+  }
+
   override def genWindowFunctionsNode(
       windowExpression: Seq[NamedExpression],
       windowExpressionNodes: JList[WindowFunctionNode],
