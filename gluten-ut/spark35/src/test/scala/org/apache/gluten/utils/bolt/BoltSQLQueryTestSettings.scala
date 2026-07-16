@@ -20,7 +20,7 @@ import org.apache.gluten.utils.SQLQueryTestSettings
 
 object BoltSQLQueryTestSettings extends SQLQueryTestSettings {
   override def getResourceFilePath: String =
-    getClass.getResource("/").getPath + "../../../src/test/resources/backends-velox/sql-tests"
+    getClass.getResource("/").getPath + "../../../src/test/resources/backends-bolt/sql-tests"
 
   override def getSupportedSQLQueryTests: Set[String] = SUPPORTED_SQL_QUERY_LIST
 
