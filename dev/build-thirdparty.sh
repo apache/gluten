@@ -32,7 +32,8 @@ function process_setup_ubuntu_2004 {
 
 function process_setup_ubuntu_2204 {
   cp /usr/lib/${ARCH}-linux-gnu/{libre2.so.9,libdouble-conversion.so.3,libglog.so.0,libgflags.so.2.2,libevent-2.1.so.7,libsnappy.so.1,libunwind.so.8,libcurl.so.4,libxml2.so.2,libicui18n.so.70,libicuuc.so.70,libnghttp2.so.14,libldap-2.5.so.0,liblber-2.5.so.0,librtmp.so.1,libsasl2.so.2,libssh.so.4,libicudata.so.70} $THIRDPARTY_LIB/
-  cp /usr/local/lib/{libboost_context.so.1.84.0,libboost_regex.so.1.84.0} $THIRDPARTY_LIB/
+  find /usr/ -name "libboost_context.so.1.84.0" -exec cp {} $THIRDPARTY_LIB/ \; 2>/dev/null
+  find /usr/ -name "libboost_regex.so.1.84.0" -exec cp {} $THIRDPARTY_LIB/ \; 2>/dev/null
 }
 
 function process_setup_centos_9 {
