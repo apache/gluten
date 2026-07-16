@@ -18,6 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.execution.ColumnarShuffleExchangeExec
 import org.apache.spark.sql.execution.adaptive.{ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
@@ -29,13 +30,19 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
 
   import testImplicits._
 
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
+      .set("spark.sql.shuffle.partitions", "2")
+      .set(VeloxConfig.CUDF_ENABLE_VALIDATION.key, "false")
+  }
+
   test("CPU shuffle mapper and GPU shuffle reader with AQE") {
     withSQLConf(
       SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
       SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
       GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> "true",
-      VeloxConfig.CUDF_ENABLE_VALIDATION.key -> "false",
-      "spark.sql.shuffle.partitions" -> "2"
+      SQLConf.ANSI_ENABLED.key -> "false"
     ) {
 
       withTempView("cpu_scan_left", "cpu_scan_right") {
