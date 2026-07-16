@@ -114,8 +114,10 @@ function compile {
     -Wno-error=uninitialized -Wno-unknown-warning-option -Wno-deprecated-declarations'
   if [[ "$(uname)" == "Darwin" ]]; then
     CXX_FLAGS="$CXX_FLAGS -Wno-inconsistent-missing-override -Wno-macro-redefined"
-    if [[ "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
-      CXX_FLAGS="$CXX_FLAGS -isystem /usr/local/include"
+    if [[ -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
+      # Some prefix-installed deps only publish loose headers (e.g. xsimd), so
+      # keep the prefix include dir on the compiler command line.
+      CXX_FLAGS="$CXX_FLAGS -I${INSTALL_PREFIX}/include"
     fi
   fi
 
@@ -125,8 +127,7 @@ function compile {
   if [ -n "${INSTALL_PREFIX:-}" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_PREFIX_PATH=${INSTALL_PREFIX} -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX}"
   fi
-  if [[ "$(uname)" == "Darwin" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
-    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON"
+  if [[ "$(uname)" == "Darwin" && -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PREFIX_PATH=/usr/local"
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_SYSTEM_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
@@ -191,7 +192,9 @@ function compile {
     cd _build/$COMPILE_TYPE/_deps
     if [ -d xsimd-build ]; then
       echo "INSTALL xsimd."
-      install_cmake_dependency xsimd-build/
+      if [ -f xsimd-build/cmake_install.cmake ]; then
+        install_cmake_dependency xsimd-build/
+      fi
     fi
     if [ -d googletest-build ]; then
       echo "INSTALL gtest."
@@ -218,6 +221,11 @@ if [ "$OS" == 'Darwin' ]; then
   export INSTALL_PREFIX="${INSTALL_PREFIX:-${VELOX_HOME}/deps-install}"
   if [[ "$INSTALL_PREFIX" == "/usr/local" || "$INSTALL_PREFIX" == /usr/local/* ]]; then
     echo "INFO: INSTALL_PREFIX=$INSTALL_PREFIX is under /usr/local; keeping /usr/local visible to CMake." >&2
+  else
+    # AppleClang adds /usr/local/include to the default header search path
+    # unless an SDK sysroot is selected. Keep prefix-based builds on the SDK so
+    # /usr/local headers cannot shadow the ones from INSTALL_PREFIX.
+    export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path)}"
   fi
 elif [ -n "${INSTALL_PREFIX:-}" ]; then
   export INSTALL_PREFIX

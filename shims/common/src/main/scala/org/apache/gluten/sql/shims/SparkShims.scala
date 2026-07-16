@@ -42,6 +42,7 @@ import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleEx
 import org.apache.spark.sql.execution.window.WindowGroupLimitExecShim
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DecimalType, StringType, StructType}
+import org.apache.spark.storage.{GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 import org.apache.spark.util.SparkShimVersionUtil
 
 import org.apache.hadoop.fs.{FileStatus, Path}
@@ -171,11 +172,12 @@ trait SparkShims {
   def generateMetadataColumns(
       file: PartitionedFile,
       metadataColumnNames: Seq[String] = Seq.empty): Map[String, String] = {
-    Map(
+    val requested = metadataColumnNames.toSet
+    Seq(
       InputFileName().prettyName -> file.filePath.toString,
       InputFileBlockStart().prettyName -> file.start.toString,
       InputFileBlockLength().prettyName -> file.length.toString
-    )
+    ).collect { case (name, value) if requested.contains(name) => name -> value }.toMap
   }
 
   // For compatibility with Spark-3.5.
@@ -313,4 +315,7 @@ trait SparkShims {
    * degrades silently to "accept any collation".
    */
   def isBinaryCollationString(dt: StringType): Boolean = true
+
+  def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
+      : GlutenShuffleBlockFetcherIteratorBase
 }

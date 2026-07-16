@@ -17,18 +17,18 @@
 
 #pragma once
 
+#include <folly/Executor.h>
+#include "IcebergNestedField.pb.h"
 #include "WholeStageResultIterator.h"
 #include "compute/Runtime.h"
 #include "compute/VeloxConnectorIds.h"
 #include "iceberg/IcebergWriter.h"
-#include <folly/Executor.h>
 #include "memory/VeloxMemoryManager.h"
 #include "operators/serializer/VeloxColumnarBatchSerializer.h"
 #include "operators/serializer/VeloxColumnarToRowConverter.h"
 #include "operators/writer/VeloxParquetDataSource.h"
 #include "shuffle/ShuffleReader.h"
 #include "shuffle/ShuffleWriter.h"
-#include "IcebergNestedField.pb.h"
 
 namespace gluten {
 
@@ -96,7 +96,7 @@ class VeloxRuntime final : public Runtime {
 
   std::shared_ptr<ShuffleReader> createShuffleReader(
       std::shared_ptr<arrow::Schema> schema,
-      ShuffleReaderOptions options) override;
+      const std::shared_ptr<ShuffleReaderOptions>& options) override;
 
   std::unique_ptr<ColumnarBatchSerializer> createColumnarBatchSerializer(struct ArrowSchema* cSchema) override;
 

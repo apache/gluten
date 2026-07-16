@@ -68,7 +68,8 @@ trait IteratorApi {
       updateNativeMetrics: IMetrics => Unit,
       partitionIndex: Int,
       inputIterators: Seq[Iterator[ColumnarBatch]] = Seq(),
-      enableCudf: Boolean = false
+      enableCudf: Boolean = false,
+      wsContext: WholeStageTransformContext = null
   ): Iterator[ColumnarBatch]
 
   /**

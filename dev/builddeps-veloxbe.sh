@@ -162,6 +162,12 @@ if [[ "$(uname)" == "Darwin" ]]; then
     export INSTALL_PREFIX=${INSTALL_PREFIX:-${VELOX_HOME}/deps-install}
     if [[ "$INSTALL_PREFIX" == "/usr/local" || "$INSTALL_PREFIX" == /usr/local/* ]]; then
         echo "INFO: INSTALL_PREFIX=$INSTALL_PREFIX is under /usr/local; keeping /usr/local visible to CMake." >&2
+    else
+        # AppleClang injects /usr/local/include into the default header search
+        # path unless an SDK sysroot is selected. Route this build and all child
+        # builds through the SDK so /usr/local headers cannot shadow the ones
+        # from INSTALL_PREFIX.
+        export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path)}"
     fi
 elif [ -n "${INSTALL_PREFIX:-}" ]; then
     export INSTALL_PREFIX
@@ -217,6 +223,7 @@ concat_velox_param
 export VELOX_HOME
 
 function build_arrow {
+  local GLUTEN_BUILD_TYPE="$BUILD_TYPE"
   if [ ! -d "$VELOX_HOME" ]; then
     get_velox
     if [ -z "${GLUTEN_VCPKG_ENABLED:-}" ] && [ $RUN_SETUP_SCRIPT == "ON" ]; then
@@ -227,6 +234,7 @@ function build_arrow {
   fi
   cd $GLUTEN_DIR/dev
   source ./build-arrow.sh
+  BUILD_TYPE="$GLUTEN_BUILD_TYPE"
 }
 
 function build_velox {
@@ -269,8 +277,7 @@ function build_gluten_cpp {
     GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX")
   fi
   if [ $OS == 'Darwin' ]; then
-    if [[ "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
-      GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON")
+    if [[ -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
       GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_IGNORE_PREFIX_PATH=/usr/local")
       GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake")
       GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_SYSTEM_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake")

@@ -43,6 +43,7 @@ import org.apache.spark.sql.sources._
 // scalastyle:off line.size.limit
 
 class ClickHouseTestSettings extends BackendTestSettings {
+  import SuiteSettings._
 
   enableSuite[ClickHouseAdaptiveQueryExecSuite]
     .includeAllGlutenTests()
@@ -2073,6 +2074,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("sorting on YearMonthIntervalType(0,1) with nullable=false, sortOrder=List('a DESC NULLS LAST)")
     .excludeCH("sorting on YearMonthIntervalType(0,1) with nullable=false, sortOrder=List('a DESC NULLS FIRST)")
   enableSuite[GlutenSparkSessionExtensionSuite]
+    .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenStatisticsCollectionSuite]
     // The output byte size of Velox is different
     .includeCH("SPARK-33687: analyze all tables in a specific database")

@@ -45,6 +45,7 @@ import org.apache.spark.sql.sources._
 // scalastyle:off line.size.limit
 
 class ClickHouseTestSettings extends BackendTestSettings {
+  import SuiteSettings._
 
   // disable tests that will break the whole UT
   override def shouldRun(suiteName: String, testName: String): Boolean = {
@@ -747,7 +748,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("to_timestamp_ntz")
     .exclude("to_timestamp exception mode")
     .exclude("SPARK-31896: Handle am-pm timestamp parsing when hour is missing")
-    .exclude("DATE_FROM_UNIX_DATE")
     .exclude("UNIX_SECONDS")
     .exclude("TIMESTAMP_SECONDS") // refer to https://github.com/ClickHouse/ClickHouse/issues/69280
     .exclude("TIMESTAMP_MICROS") // refer to https://github.com/apache/gluten/issues/7127
@@ -1881,6 +1881,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeGlutenTest("fallbackSummary with cache")
     .excludeGlutenTest("fallbackSummary with cached data and shuffle")
   enableSuite[GlutenSparkSessionExtensionSuite]
+    .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenHiveSQLQueryCHSuite]
   enableSuite[GlutenPercentileSuite]
 

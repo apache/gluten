@@ -33,7 +33,7 @@ import org.apache.gluten.utils._
 
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions.{Alias, CumeDist, DenseRank, Descending, Expression, Lag, Lead, NamedExpression, NthValue, NTile, PercentRank, RangeFrame, Rank, RowNumber, SortOrder, SpecialFrameBoundary, SpecifiedWindowFrame}
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, ApproximatePercentile, HyperLogLogPlusPlus, Percentile}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, ApproximatePercentile, Count, HyperLogLogPlusPlus, Percentile}
 import org.apache.spark.sql.catalyst.plans.{JoinType, LeftOuter, RightOuter}
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, CharVarcharUtils}
 import org.apache.spark.sql.connector.read.Scan
@@ -471,10 +471,19 @@ object VeloxBackendSettings extends BackendSettingsApi {
             case _: NthValue =>
             case _: Lag =>
             case _: Lead =>
-            case aggrExpr: AggregateExpression
-                if !aggrExpr.aggregateFunction.isInstanceOf[ApproximatePercentile]
-                  && !aggrExpr.aggregateFunction.isInstanceOf[Percentile]
-                  && !aggrExpr.aggregateFunction.isInstanceOf[HyperLogLogPlusPlus] =>
+            case ae: AggregateExpression =>
+              // Velox only supports count() and count(T) signatures for the window count
+              // function. Spark's count(c1, c2, ...) (counts rows where ALL arguments are
+              // non-null) is normally rewritten to single-arg form by RewriteMultiChildrenCount.
+              // If the rewrite did not run (e.g., the rule is disabled), keep us safe by
+              // falling back to vanilla Spark instead of crashing inside Velox.
+              ae.aggregateFunction match {
+                case c: Count if c.children.size > 1 =>
+                  allSupported = false
+                case _: ApproximatePercentile | _: Percentile | _: HyperLogLogPlusPlus =>
+                  allSupported = false
+                case _ =>
+              }
             case _ =>
               allSupported = false
           }

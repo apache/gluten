@@ -36,9 +36,23 @@ import scala.collection.mutable.ListBuffer
 object DeltaPostTransformRules {
   def rules: Seq[Rule[SparkPlan]] =
     RemoveTransitions ::
-      nativeDeletionVectorRule ::
-      pushDownInputFileExprRule ::
-      columnMappingRule :: Nil
+      deltaSpecificRules ::
+      Nil
+
+  /**
+   * Combines the three Delta-specific post-transform rules into a single rule that first checks
+   * whether the plan contains any DeltaScanTransformer. If not, the plan is returned unchanged,
+   * eliminating the overhead of multiple full tree traversals for non-Delta queries.
+   */
+  private val deltaSpecificRules: Rule[SparkPlan] = (plan: SparkPlan) => {
+    if (!plan.exists(_.isInstanceOf[DeltaScanTransformer])) {
+      plan
+    } else {
+      val afterDv = nativeDeletionVectorRule(plan)
+      val afterPushDown = pushDownInputFileExprRule(afterDv)
+      columnMappingRule(afterPushDown)
+    }
+  }
 
   private val deletionVectorDeletedRowColumnName = "__delta_internal_is_row_deleted"
   private val deletionVectorRowIndexColumnName = "__delta_internal_row_index"
@@ -164,10 +178,19 @@ object DeltaPostTransformRules {
     }
   }
 
+  /**
+   * Checks whether a plan subtree contains a DeltaScanTransformer. Uses a shallow check (direct
+   * child or grandchild) rather than a full subtree traversal, which is safe because transformUp
+   * processes bottom-up and the DV-related Filter/Project nodes sit directly above the scan in
+   * Delta's injected plan shape.
+   */
   private def containsNativeDeltaScan(plan: SparkPlan): Boolean = {
-    plan.exists {
+    plan match {
       case _: DeltaScanTransformer => true
-      case _ => false
+      case _ => plan.children.exists {
+          case _: DeltaScanTransformer => true
+          case child => child.children.exists(_.isInstanceOf[DeltaScanTransformer])
+        }
     }
   }
 
@@ -261,12 +284,12 @@ object DeltaPostTransformRules {
     }
   }
 
+  private val inputFileRelatedNames: Set[String] =
+    Set(InputFileName(), InputFileBlockStart(), InputFileBlockLength()).map(_.prettyName)
+
   private def isInputFileRelatedAttribute(attr: Attribute): Boolean = {
     attr match {
-      case AttributeReference(name, _, _, _) =>
-        Seq(InputFileName(), InputFileBlockStart(), InputFileBlockLength())
-          .map(_.prettyName)
-          .contains(name)
+      case AttributeReference(name, _, _, _) => inputFileRelatedNames.contains(name)
       case _ => false
     }
   }
@@ -405,18 +428,31 @@ object DeltaPostTransformRules {
       case class ColumnMapping(logicalName: String, logicalType: DataType, physicalAttr: Attribute)
       val columnMappings = ListBuffer.empty[ColumnMapping]
       val seenNames = mutable.Set.empty[String]
+
+      // Batch: collect all data attributes that need physical name mapping, call
+      // createPhysicalAttributes once (instead of per-column), then build a lookup map.
+      val dataAttrsNeedingMapping = plan.output.filter {
+        attr =>
+          !plan.isMetadataColumn(attr) &&
+          !isInputFileRelatedAttribute(attr) &&
+          !isPartitionCol(attr.name)
+      }
+      val physicalDataAttrs = if (dataAttrsNeedingMapping.nonEmpty) {
+        DeltaColumnMapping.createPhysicalAttributes(
+          dataAttrsNeedingMapping,
+          fmt.referenceSchema,
+          fmt.columnMappingMode)
+      } else {
+        Seq.empty
+      }
+      val physicalByExprId = dataAttrsNeedingMapping.zip(physicalDataAttrs)
+        .map {
+          case (logical, physical) =>
+            logical.exprId -> physical
+        }.toMap
+
       def mapAttribute(attr: Attribute) = {
-        val newAttr = if (plan.isMetadataColumn(attr)) {
-          attr
-        } else if (isInputFileRelatedAttribute(attr)) {
-          attr
-        } else if (isPartitionCol(attr.name)) {
-          attr
-        } else {
-          DeltaColumnMapping
-            .createPhysicalAttributes(Seq(attr), fmt.referenceSchema, fmt.columnMappingMode)
-            .head
-        }
+        val newAttr = physicalByExprId.getOrElse(attr.exprId, attr)
         if (seenNames.add(attr.name)) {
           columnMappings += ColumnMapping(attr.name, attr.dataType, newAttr)
         }

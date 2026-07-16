@@ -91,9 +91,19 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       .unzip
 
     val partitionColumns = getPartitionColumns(partitionSchema, partitionFiles)
-    val metadataColumns = partitionFiles
-      .map(
-        f => SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
+    val needMetadataColumns = metadataColumnNames != null && metadataColumnNames.nonEmpty
+    val emptyMetadataColumn: java.util.Map[String, String] =
+      java.util.Collections.emptyMap[String, String]()
+    val metadataColumns: java.util.List[java.util.Map[String, String]] =
+      if (needMetadataColumns) {
+        partitionFiles
+          .map(
+            f =>
+              SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
+          .asJava
+      } else {
+        java.util.Collections.nCopies(partitionFiles.size, emptyMetadataColumn)
+      }
     val otherMetadataColumns = partitionFiles
       .map(f => SparkShimLoader.getSparkShims.getOtherConstantMetadataColumnValues(f))
 
@@ -106,7 +116,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
         fileSizes.asJava,
         modificationTimes.asJava,
         partitionColumns.map(_.asJava).asJava,
-        metadataColumns.asJava,
+        metadataColumns,
         fileFormat,
         locations.toList.asJava,
         mapAsJavaMap(properties),
@@ -190,7 +200,8 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       updateNativeMetrics: IMetrics => Unit,
       partitionIndex: Int,
       inputIterators: Seq[Iterator[ColumnarBatch]] = Seq(),
-      enableCudf: Boolean = false): Iterator[ColumnarBatch] = {
+      enableCudf: Boolean = false,
+      wsContext: WholeStageTransformContext = null): Iterator[ColumnarBatch] = {
     assert(
       inputPartition.isInstanceOf[GlutenPartition],
       "Velox backend only accept GlutenPartition.")

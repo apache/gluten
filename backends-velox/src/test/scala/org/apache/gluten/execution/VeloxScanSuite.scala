@@ -219,8 +219,7 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
 
   test("parquet index based schema evolution") {
     withSQLConf(
-      VeloxConfig.PARQUET_USE_COLUMN_NAMES.key -> "false",
-      "spark.gluten.sql.complexType.scan.fallback.enabled" -> "false") {
+      VeloxConfig.PARQUET_USE_COLUMN_NAMES.key -> "false") {
       withTempDir {
         dir =>
           val path = dir.getCanonicalPath
@@ -263,8 +262,7 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
 
   test("ORC index based schema evolution") {
     withSQLConf(
-      VeloxConfig.ORC_USE_COLUMN_NAMES.key -> "false",
-      "spark.gluten.sql.complexType.scan.fallback.enabled" -> "false") {
+      VeloxConfig.ORC_USE_COLUMN_NAMES.key -> "false") {
       withTempDir {
         dir =>
           val path = dir.getCanonicalPath

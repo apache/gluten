@@ -28,12 +28,16 @@ function(add_velox_test TEST_EXEC)
   add_executable(${TEST_EXEC} ${SOURCES} ${VELOX_TEST_COMMON_SRCS})
   target_include_directories(${TEST_EXEC} PRIVATE ${CMAKE_SOURCE_DIR}/velox
                                                   ${CMAKE_SOURCE_DIR}/src)
+  target_compile_definitions(
+    ${TEST_EXEC}
+    PRIVATE GLUTEN_VELOX_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
   target_link_libraries(${TEST_EXEC} velox ${GLUTEN_ROARING_LINK_LIBRARY}
                         GTest::gtest GTest::gtest_main)
   if(ENABLE_GPU)
     target_link_libraries(${TEST_EXEC} velox_curl)
   endif()
-  gtest_discover_tests(${TEST_EXEC} DISCOVERY_MODE PRE_TEST)
+  gtest_discover_tests(${TEST_EXEC} DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT
+                       60)
 endfunction()
 
 if(ENABLE_GPU)
@@ -68,7 +72,9 @@ if(ENABLE_GPU)
     target_include_directories(${TEST_EXEC} PRIVATE ${CMAKE_SOURCE_DIR}/velox
                                                     ${CMAKE_SOURCE_DIR}/src)
     target_compile_definitions(
-      ${TEST_EXEC} PUBLIC LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE)
+      ${TEST_EXEC}
+      PUBLIC LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE
+      PRIVATE GLUTEN_VELOX_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
     target_link_libraries(
       ${TEST_EXEC}
       PUBLIC facebook::velox::velox_cudf_expression

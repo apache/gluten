@@ -123,12 +123,6 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   /// Collect Velox metrics.
   void collectMetrics();
 
-  /// Return a certain type of runtime metric. Supported metric types are: sum, count, min, max.
-  static int64_t runtimeMetric(
-      const std::string& type,
-      const std::unordered_map<std::string, facebook::velox::RuntimeMetric>& runtimeStats,
-      const std::string& metricId);
-
   /// Memory.
   VeloxMemoryManager* memoryManager_;
 

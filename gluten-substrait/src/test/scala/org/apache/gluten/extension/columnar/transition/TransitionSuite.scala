@@ -128,6 +128,56 @@ class TransitionSuite extends SharedSparkSession with TransitionSuiteBase with W
       insertTransitions(in, ConventionReq.ofRow(ConventionReq.RowType.Is(RowTypeA)))
     }
   }
+
+  test("Fail at planning time when a child has no recognizable convention") {
+    // Child with rowType=None and batchType=None is not executable; the fix throws at planning
+    // time with the offending parent / child spelled out.
+    val in = BatchUnary(BatchTypeA, NoConventionLeaf())
+    val ex = intercept[GlutenException] {
+      insertTransitions(in, ConventionReq.ofRow(ConventionReq.RowType.Is(RowTypeA)))
+    }
+    // Positional labels: catches an accidental argument swap in notExecutable(node, child) that
+    // would still contain both class names but with roles inverted.
+    assert(
+      ex.getMessage.contains("Parent: BatchUnary"),
+      s"error should identify BatchUnary as the parent, got: ${ex.getMessage}")
+    assert(
+      ex.getMessage.contains("Child: NoConventionLeaf"),
+      s"error should identify NoConventionLeaf as the offending child, got: ${ex.getMessage}")
+  }
+
+  test("Fail at planning time when a non-first child has no recognizable convention") {
+    // Ensures the per-child check does not short-circuit on the first slot.
+    val in = BatchBinary(BatchTypeA, BatchLeaf(BatchTypeA), NoConventionLeaf())
+    val ex = intercept[GlutenException] {
+      insertTransitions(in, ConventionReq.ofRow(ConventionReq.RowType.Is(RowTypeA)))
+    }
+    assert(
+      ex.getMessage.contains("Parent: BatchBinary"),
+      s"error should identify BatchBinary as the parent even for a non-first bad child, got: " +
+        ex.getMessage
+    )
+    assert(
+      ex.getMessage.contains("Child: NoConventionLeaf"),
+      s"error should identify the offending child even in a non-first slot, got: ${ex.getMessage}")
+  }
+
+  test("Fail at planning time when the root plan itself has no recognizable convention") {
+    // Root goes through Transitions.enforceReq. Pre-fix that path raised the internal
+    // assert(!from.isNone) in Transition.Factory#findTransition, giving a bare AssertionError
+    // without plan identity. Post-fix raises a symmetric GlutenException.
+    val ex = intercept[GlutenException] {
+      insertTransitions(NoConventionLeaf(), ConventionReq.ofRow(ConventionReq.RowType.Is(RowTypeA)))
+    }
+    // Single-arg overload uses "Plan:" and no "Parent:" / "Child:"; guard against migrating to
+    // a self-referential notExecutable(removed, removed) call.
+    assert(
+      ex.getMessage.contains("Plan: NoConventionLeaf"),
+      s"root-plan error should use the single-arg 'Plan:' framing, got: ${ex.getMessage}")
+    assert(
+      !ex.getMessage.contains("Parent:"),
+      s"root-plan error must not use the two-arg 'Parent:/Child:' framing, got: ${ex.getMessage}")
+  }
 }
 
 object TransitionSuite extends TransitionSuiteBase {

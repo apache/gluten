@@ -16,6 +16,25 @@
  */
 package org.apache.spark.sql.execution
 
+import org.apache.spark.SparkThrowable
 import org.apache.spark.sql.GlutenSQLTestsTrait
 
-class GlutenSimpleSQLViewSuite extends SimpleSQLViewSuite with GlutenSQLTestsTrait {}
+class GlutenSimpleSQLViewSuite extends SimpleSQLViewSuite with GlutenSQLTestsTrait {
+
+  // Velox returns a native FILE_NOT_FOUND error instead of Spark's structured error condition.
+  override def checkErrorMatchPVals(
+      exception: SparkThrowable,
+      condition: String,
+      parameters: Map[String, String]): Unit = {
+    if (condition == "FAILED_READ_FILE.FILE_NOT_EXIST") {
+      val messages = Iterator
+        .iterate[Throwable](exception.asInstanceOf[Throwable])(_.getCause)
+        .takeWhile(_ != null)
+        .flatMap(error => Option(error.getMessage))
+
+      assert(messages.exists(_.contains("FILE_NOT_FOUND")))
+    } else {
+      super.checkErrorMatchPVals(exception, condition, parameters)
+    }
+  }
+}

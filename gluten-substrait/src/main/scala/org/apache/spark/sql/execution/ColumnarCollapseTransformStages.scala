@@ -19,10 +19,11 @@ package org.apache.spark.sql.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
+import org.apache.gluten.extension.ApplyStageInputStatsRule
 import org.apache.gluten.extension.columnar.transition.{Convention, ConventionReq}
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.substrait.SubstraitContext
-import org.apache.gluten.substrait.rel.RelBuilder
+import org.apache.gluten.substrait.rel.{InputIteratorRelNode, RelBuilder}
 
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
@@ -31,7 +32,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.util.truncatedString
-import org.apache.spark.sql.execution.adaptive.{BroadcastQueryStageExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, BroadcastQueryStageExec, BroadcastStats, InputStats, ShuffleQueryStageExec, ShuffleStageWrapper, ShuffleStats}
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -76,6 +77,36 @@ case class InputIteratorTransformer(child: SparkPlan) extends UnaryTransformSupp
     assert(child.isInstanceOf[ColumnarInputAdapter])
     val operatorId = context.nextOperatorId(nodeName)
     val readRel = RelBuilder.makeReadRelForInputIterator(child.output.asJava, context, operatorId)
+    if (GlutenConfig.get.enablePassStageInputStats) {
+      val inputStatsOpt: Option[InputStats] = {
+        val inputAdapter = child.asInstanceOf[ColumnarInputAdapter]
+        inputAdapter.child match {
+          case shuffle @ ShuffleStageWrapper(stats) =>
+            val inputStats = InputStats(
+              known = true,
+              sizeInBytes = stats.sizeInBytes,
+              rowCount = stats.rowCount.getOrElse(0),
+              bytesByPartitionId =
+                stats.mapOutputStatistics.map(_.bytesByPartitionId).getOrElse(Array()),
+              if (shuffle.isInstanceOf[BroadcastQueryStageExec]) BroadcastStats else ShuffleStats
+            )
+            shuffle match {
+              case a: AQEShuffleReadExec =>
+                Some(
+                  ApplyStageInputStatsRule
+                    .recomputeInputStatsForAQEShuffleReadExec(inputStats, a.partitionSpecs))
+              case _ => Some(inputStats)
+            }
+          case other =>
+            logInfo(s"hit InputIteratorTransformer ${other.getClass.toString} with stats")
+            None
+        }
+      }
+      if (inputStatsOpt.isDefined) {
+        logInfo(s"set input iterator stats ${inputStatsOpt.get}")
+        readRel.asInstanceOf[InputIteratorRelNode].setInputStats(inputStatsOpt.get)
+      }
+    }
     TransformContext(output, readRel)
   }
 
@@ -189,7 +220,6 @@ case class ColumnarInputAdapter(child: SparkPlan)
   extends InputAdapterGenerateTreeStringShim
   with Convention.KnownBatchType
   with Convention.KnownRowType
-  with GlutenPlan.SupportsRowBasedCompatible
   with ConventionReq.KnownChildConvention {
   override def output: Seq[Attribute] = child.output
   final override val supportsColumnar: Boolean = true

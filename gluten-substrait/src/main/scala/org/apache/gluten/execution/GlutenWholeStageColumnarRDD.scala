@@ -17,6 +17,8 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.extension.ApplyStageInputStatsRule
 import org.apache.gluten.metrics.{GlutenTimeMetric, IMetrics}
 import org.apache.gluten.substrait.rel.SplitInfo
 
@@ -58,12 +60,19 @@ class GlutenWholeStageColumnarRDD(
     pipelineTime: SQLMetric,
     updateInputMetrics: InputMetricsWrapper => Unit,
     updateNativeMetrics: IMetrics => Unit,
-    enableCudf: Boolean = false)
+    enableCudf: Boolean = false,
+    wsContext: WholeStageTransformContext = null)
   extends RDD[ColumnarBatch](sc, rdds.getDependencies) {
 
   override def compute(split: Partition, context: TaskContext): Iterator[ColumnarBatch] = {
     GlutenTimeMetric.millis(pipelineTime) {
       _ =>
+        if (GlutenConfig.get.enablePassStageInputStats && wsContext != null) {
+          ApplyStageInputStatsRule.setStageInputStatsToInputNode(
+            wsContext,
+            split.index,
+            rdds.getPartitionLength)
+        }
         val (inputPartition, inputColumnarRDDPartitions) = castNativePartition(split)
         val inputIterators = rdds.getIterators(inputColumnarRDDPartitions, context)
         BackendsApiManager.getIteratorApiInstance.genFirstStageIterator(
@@ -74,7 +83,8 @@ class GlutenWholeStageColumnarRDD(
           updateNativeMetrics,
           split.index,
           inputIterators,
-          enableCudf
+          enableCudf,
+          wsContext
         )
     }
   }

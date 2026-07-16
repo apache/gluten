@@ -161,6 +161,7 @@ object VeloxBroadcastBuildSideCache
           val result =
             SerializedBroadcastHashTable.fromHashTable(
               hashTableHandle,
+              broadcastId,
               relation,
               droppedDuplicates,
               numRows)
@@ -197,7 +198,7 @@ object VeloxBroadcastBuildSideCache
       (_: String) => {
         logInfo(s"Deserializing hash table on executor for broadcast ID: $broadcastHashTableId")
         val startTime = System.currentTimeMillis()
-        val hashTableHandle = serialized.deserialize()
+        val hashTableHandle = serialized.deserialize(broadcastHashTableId)
         val timeMs = System.currentTimeMillis() - startTime
         deserializeHashTableTimeMetric.foreach(_ += timeMs)
         BroadcastHashTable(
@@ -245,7 +246,7 @@ object VeloxBroadcastBuildSideCache
         }
       }
 
-      HashJoinBuilder.clearHashTable(value.pointer)
+      HashJoinBuilder.clearHashTable(key, value.pointer)
     }
   }
 }
