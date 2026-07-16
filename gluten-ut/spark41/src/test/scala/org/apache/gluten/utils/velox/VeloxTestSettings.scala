@@ -869,13 +869,13 @@ class VeloxTestSettings extends BackendTestSettings {
     // Overridden
     .exclude("Query Spark logs with exception using SQL")
   enableSuite[GlutenPercentileQuerySuite]
-  // TODO: 4.x enableSuite[GlutenRandomDataGeneratorSuite]  // 232 failures
+  enableSuite[GlutenRandomDataGeneratorSuite]
   enableSuite[GlutenRowJsonSuite]
   enableSuite[GlutenRowSuite]
   enableSuite[GlutenRuntimeConfigSuite]
   enableSuite[GlutenSSBQuerySuite]
   enableSuite[GlutenSessionStateSuite]
-  // TODO: 4.x enableSuite[GlutenSetCommandSuite]  // 1 failure
+  enableSuite[GlutenSetCommandSuite]
   enableSuite[GlutenSparkSessionBuilderSuite]
   enableSuite[GlutenSparkSessionJobTaggingAndCancellationSuite]
     .exclude("Tags set from session are prefixed with session UUID")
