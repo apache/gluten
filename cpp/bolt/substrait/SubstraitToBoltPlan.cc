@@ -21,31 +21,31 @@
 #include "PaimonTableEnhancement.pb.h"
 #include "TypeUtils.h"
 #include "VariantToVectorConverter.h"
-#include "operators/plannodes/RowVectorStream.h"
 #include "bolt/connectors/hive/HiveDataSink.h"
 #include "bolt/exec/TableWriter.h"
 #include "bolt/type/Type.h"
+#include "operators/plannodes/RowVectorStream.h"
 
-#include "utils/ConfigExtractor.h"
 #include "utils/BoltWriterUtils.h"
+#include "utils/ConfigExtractor.h"
 
-#include "config.pb.h"
-#include "config/GlutenConfig.h"
-#include "config/BoltConfig.h"
-#include "bolt/shuffle/sparksql/ShuffleWriterNode.h"
+#include "bolt/expression/FunctionSignature.h"
 #include "bolt/shuffle/sparksql/ShuffleReaderNode.h"
-#include "shuffle/ReaderStreamIteratorWrapper.h"
-#include "shuffle/BoltShuffleReaderWrapper.h"
-#include "jni/JniCommon.h"
-#include "shuffle_reader_info.pb.h"
+#include "bolt/shuffle/sparksql/ShuffleWriterNode.h"
 #include "compute/BoltRuntime.h"
-
+#include "config.pb.h"
+#include "config/BoltConfig.h"
+#include "config/GlutenConfig.h"
+#include "jni/JniCommon.h"
+#include "shuffle/BoltShuffleReaderWrapper.h"
+#include "shuffle/ReaderStreamIteratorWrapper.h"
+#include "shuffle_reader_info.pb.h"
 
 #ifdef GLUTEN_ENABLE_GPU
 #include "bolt/experimental/cudf/connectors/hive/CudfHiveDataSink.h"
 #include "bolt/experimental/cudf/connectors/hive/CudfHiveTableHandle.h"
-#include "bolt/experimental/cudf/exec/ToCudf.h"
 #include "bolt/experimental/cudf/exec/BoltCudfInterop.h"
+#include "bolt/experimental/cudf/exec/ToCudf.h"
 
 using namespace cudf_bolt::connector::hive;
 #endif
@@ -633,9 +633,8 @@ std::shared_ptr<connector::hive::HiveInsertTableHandle> makeHiveInsertTableHandl
       tableStorageFormat,
       bucketProperty,
       compressionKind,
-      std::unordered_map<std::string, std::string>{}
-      // writerOptions
-    );
+      std::unordered_map<std::string, std::string>{} // writerOptions
+  );
 }
 
 #ifdef GLUTEN_ENABLE_GPU
@@ -957,7 +956,8 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Wi
   windowNodeFunctions.reserve(windowRel.measures().size());
   for (const auto& smea : windowRel.measures()) {
     const auto& windowFunction = smea.measure();
-    std::string funcName = SubstraitParser::findBoltFunction(functionMap_, windowFunction.function_reference(), useIcuRegex_);
+    std::string funcName =
+        SubstraitParser::findBoltFunction(functionMap_, windowFunction.function_reference(), useIcuRegex_);
     std::vector<core::TypedExprPtr> windowParams;
     auto& argumentList = windowFunction.arguments();
     windowParams.reserve(argumentList.size());
@@ -972,7 +972,8 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Wi
       windowParams.emplace_back(exprConverter_->toBoltExpr(arg.value(), inputType));
     }
     auto windowBoltType = SubstraitParser::parseType(windowFunction.output_type());
-    auto windowCall = std::make_shared<const core::CallTypedExpr>(windowBoltType, std::move(windowParams), funcName);
+    auto windowCall = std::make_shared<const core::CallTypedExpr>(
+        windowBoltType, std::move(windowParams), bytedance::bolt::exec::sanitizeName(funcName));
     auto upperBound = windowFunction.upper_bound();
     auto lowerBound = windowFunction.lower_bound();
     auto type = windowFunction.window_type();
@@ -1331,7 +1332,6 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Re
     LOG(INFO) << "Adding table parameters: " << paramstream.str();
   }
 
-
   // Bolt requires Filter Pushdown must being enabled.
   bool filterPushdownEnabled = true;
   auto names = colNameList;
@@ -1353,7 +1353,13 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Re
   }
   bytedance::bolt::connector::hive::SubfieldFilters subfieldFilters;
   tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
-      connectorId, "hive_table", filterPushdownEnabled, std::move(subfieldFilters), remainingFilter, tableSchema, tableParameters);
+      connectorId,
+      "hive_table",
+      filterPushdownEnabled,
+      std::move(subfieldFilters),
+      remainingFilter,
+      tableSchema,
+      tableParameters);
 
   // Get assignments and out names.
   std::vector<std::string> outNames;
@@ -1572,8 +1578,8 @@ void SubstraitToBoltPlanConverter::extractJoinKeys(
     auto visited = expressions.top();
     expressions.pop();
     if (visited->rex_type_case() == ::substrait::Expression::RexTypeCase::kScalarFunction) {
-      const auto& funcName = SubstraitParser::getNameBeforeDelimiter(
-          SubstraitParser::findBoltFunction(functionMap_, visited->scalar_function().function_reference(), useIcuRegex_));
+      const auto& funcName = SubstraitParser::getNameBeforeDelimiter(SubstraitParser::findBoltFunction(
+          functionMap_, visited->scalar_function().function_reference(), useIcuRegex_));
       const auto& args = visited->scalar_function().arguments();
       if (funcName == "and") {
         expressions.push(&args[1].value());
