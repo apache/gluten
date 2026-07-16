@@ -39,8 +39,8 @@ export CPPFLAGS=$CFLAGS  # Used by LZO.
 CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
 BUILD_DUCKDB="${BUILD_DUCKDB:-true}"
 BUILD_GEOS="${BUILD_GEOS:-true}"
-export CC=/opt/rh/gcc-toolset-11/root/bin/gcc
-export CXX=/opt/rh/gcc-toolset-11/root/bin/g++
+export CC=/opt/rh/gcc-toolset-12/root/bin/gcc
+export CXX=/opt/rh/gcc-toolset-12/root/bin/g++
 DEPENDENCY_DIR=${DEPENDENCY_DIR:-$(pwd)/deps-download}
 
 FB_OS_VERSION="v2026.01.05.00"
@@ -57,9 +57,10 @@ function dnf_install {
 function install_build_prerequisites {
   dnf update -y
   dnf_install epel-release dnf-plugins-core # For ccache, ninja
-  dnf config-manager --set-enabled powertools
+  dnf config-manager --set-enabled powertools || true # For centos8, powertools is needed for some dependencies.
+  dnf config-manager --set-enabled Stream-PowerTools || true
   dnf update -y
-  dnf_install ninja-build curl ccache gcc-toolset-11 git wget which expat-devel gettext-devel
+  dnf_install ninja-build curl ccache gcc-toolset-12 git wget which expat-devel gettext-devel
   dnf_install yasm
   dnf_install autoconf automake python39 python39-devel python39-pip libtool
   pip3.9 install cmake==3.28.3
@@ -172,7 +173,10 @@ function install_wangle {
 
 function install_fbthrift {
   wget_and_untar https://github.com/facebook/fbthrift/archive/refs/tags/${FB_OS_VERSION}.tar.gz fbthrift
-  cmake_install_dir fbthrift -Denable_tests=OFF -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
+  cd ${DEPENDENCY_DIR}/fbthrift
+  git apply ${VELOX_HOME:-${DEPENDENCY_DIR}/../}/CMake/resolve_dependency_modules/fbthrift/compactv1-protocol-refiller.patch 2>/dev/null || true
+  cd ${DEPENDENCY_DIR}
+  cmake_install_dir fbthrift -Denable_tests=OFF -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
 }
 
 function install_mvfst {
@@ -228,7 +232,7 @@ function install_velox_deps {
 (
   if [[ $# -ne 0 ]]; then
     # Activate gcc11; enable errors on unset variables afterwards.
-    source /opt/rh/gcc-toolset-11/enable || exit 1
+    source /opt/rh/gcc-toolset-12/enable || exit 1
     set -u
     for cmd in "$@"; do
       run_and_time "${cmd}"
@@ -242,7 +246,7 @@ function install_velox_deps {
       echo "Skipping installation of build dependencies since INSTALL_PREREQUISITES is not set"
     fi
     # Activate gcc11; enable errors on unset variables afterwards.
-    source /opt/rh/gcc-toolset-11/enable || exit 1
+    source /opt/rh/gcc-toolset-12/enable || exit 1
     set -u
     install_velox_deps
     echo "All dependencies for Velox installed!"
