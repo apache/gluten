@@ -66,7 +66,7 @@ class AverageAggregate {
     AccumulatorType() = delete;
 
     // Constructor used in initializeNewGroups().
-    explicit AccumulatorType(HashStringAllocator* /*allocator*/) {
+    explicit AccumulatorType(HashStringAllocator* /*allocator*/, AverageAggregate* /*fn*/) {
       sum_ = 0;
       count_ = 0;
     }
@@ -145,19 +145,19 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
           if (exec::isRawInput(step)) {
             switch (inputType->kind()) {
               case TypeKind::REAL:
-                return std::make_unique<SimpleAggregateAdapter<AverageAggregate<float>>>(resultType);
+                return std::make_unique<SimpleAggregateAdapter<AverageAggregate<float>>>(step, argTypes, resultType);
               case TypeKind::DOUBLE:
-                return std::make_unique<SimpleAggregateAdapter<AverageAggregate<double>>>(resultType);
+                return std::make_unique<SimpleAggregateAdapter<AverageAggregate<double>>>(step, argTypes, resultType);
               default:
                 BOLT_FAIL("Unknown input type for {} aggregation {}", name_, inputType->kindName());
             }
           } else {
             switch (resultType->kind()) {
               case TypeKind::REAL:
-                return std::make_unique<SimpleAggregateAdapter<AverageAggregate<float>>>(resultType);
+                return std::make_unique<SimpleAggregateAdapter<AverageAggregate<float>>>(step, argTypes, resultType);
               case TypeKind::DOUBLE:
               case TypeKind::ROW:
-                return std::make_unique<SimpleAggregateAdapter<AverageAggregate<double>>>(resultType);
+                return std::make_unique<SimpleAggregateAdapter<AverageAggregate<double>>>(step, argTypes, resultType);
               default:
                 BOLT_FAIL("Unsupported result type for final aggregation: {}", resultType->kindName());
             }

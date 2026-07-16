@@ -248,7 +248,7 @@
           <junitxml>.</junitxml>
           <tagsToExclude>${tagsToExclude}</tagsToExclude>
           <systemProperties>
-            <bolt.udf.lib.path>${cpp.build.dir}/Release/bolt/udf/examples/libmyudf.so</bolt.udf.lib.path>
+            <bolt.udf.lib.path>${cpp.build.dir}/Release/bolt/udf/examples/libmyudf.so,${cpp.build.dir}/Release/bolt/udf/examples/libmyudaf.so</bolt.udf.lib.path>
             <bolt.native.loader.path>${bolt.native.loader.path}</bolt.native.loader.path>
           </systemProperties>
         </configuration>

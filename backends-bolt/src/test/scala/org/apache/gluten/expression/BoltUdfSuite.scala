@@ -18,15 +18,15 @@ package org.apache.gluten.expression
 
 import org.apache.gluten.backendsapi.bolt.BoltBackendSettings
 import org.apache.gluten.execution.ProjectExecTransformer
+import org.apache.gluten.execution.WindowExecTransformer
 import org.apache.gluten.tags.{SkipTest, UDFTest}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.plans.SQLHelper
 import org.apache.spark.sql.execution.ProjectExec
+import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.expression.UDFResolver
-
-import org.junit.Ignore
 
 import java.nio.file.Paths
 
@@ -94,16 +94,16 @@ abstract class BoltUdfSuite extends GlutenQueryTest with SQLHelper {
       .set("spark.memory.offHeap.enabled", "true")
       .set("spark.memory.offHeap.size", "1024MB")
       .set("spark.ui.enabled", "false")
+      .set("spark.sql.adaptive.enabled", "false")
   }
 
-  // Aggregate result can be flaky.
-  ignore("test native hive udaf") {
+  test("test native hive udaf") {
     val tbl = "test_hive_udaf_replacement"
+    val udafClass = "test.org.apache.spark.sql.MyDoubleAvg"
     withTempPath {
       dir =>
         try {
           // Check native hive udaf has been registered.
-          val udafClass = "test.org.apache.spark.sql.MyDoubleAvg"
           assert(UDFResolver.UDAFNames.contains(udafClass))
 
           spark.sql(s"""
@@ -138,6 +138,7 @@ abstract class BoltUdfSuite extends GlutenQueryTest with SQLHelper {
           assert(nativeResult.sameElements(fallbackResult))
           assert(nativeImplicitConversionResult.sameElements(fallbackResult))
         } finally {
+          UDFResolver.UDAFNames.add(udafClass)
           spark.sql(s"DROP TABLE IF EXISTS $tbl")
           spark.sql(s"DROP TEMPORARY FUNCTION IF EXISTS my_double_avg")
         }
@@ -234,9 +235,67 @@ abstract class BoltUdfSuite extends GlutenQueryTest with SQLHelper {
         }
     }
   }
+
+  test("test native hive udaf in window") {
+    val tbl = "test_hive_udaf_window"
+    val udafClass = "test.org.apache.spark.sql.MyDoubleAvg"
+    val query =
+      s"""SELECT
+         |  col1,
+         |  my_double_avg(col1) OVER (
+         |    PARTITION BY col1 % 2
+         |    ORDER BY col1
+         |    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS my_avg_window
+         |FROM $tbl
+         |ORDER BY col1
+         |""".stripMargin
+
+    withTempPath {
+      dir =>
+        try {
+          assert(UDFResolver.UDAFNames.contains(udafClass))
+
+          spark.sql(s"""
+                       |CREATE TEMPORARY FUNCTION my_double_avg
+                       |AS '$udafClass'
+                       |""".stripMargin)
+          spark.sql(s"""
+                       |DROP TABLE IF EXISTS $tbl;
+                       |""".stripMargin)
+          spark.sql(s"""
+                       |CREATE EXTERNAL TABLE $tbl
+                       |LOCATION 'file://$dir'
+                       |AS SELECT CAST(v AS FLOAT) AS col1
+                       |FROM VALUES (1.0), (2.0), (3.0), (4.0) AS t(v)
+                       |""".stripMargin)
+
+          val offloadDF = spark.sql(query)
+          checkGlutenPlan[WindowExecTransformer](offloadDF)
+          checkAnswer(
+            offloadDF,
+            Seq(
+              Row(1.0f, 101.0),
+              Row(2.0f, 102.0),
+              Row(3.0f, 102.0),
+              Row(4.0f, 103.0)
+            ))
+          val offloadResult = offloadDF.collect()
+
+          UDFResolver.UDAFNames.remove(udafClass)
+          val fallbackDF = spark.sql(query)
+          checkSparkPlan[WindowExec](fallbackDF)
+          val fallbackResult = fallbackDF.collect()
+
+          assert(offloadResult.sameElements(fallbackResult))
+        } finally {
+          UDFResolver.UDAFNames.add(udafClass)
+          spark.sql(s"DROP TABLE IF EXISTS $tbl")
+          spark.sql(s"DROP TEMPORARY FUNCTION IF EXISTS my_double_avg")
+        }
+    }
+  }
 }
 
-@Ignore("temporarily disable BoltUdfSuiteLocal")
 @UDFTest
 class BoltUdfSuiteLocal extends BoltUdfSuite {
 
