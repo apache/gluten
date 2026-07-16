@@ -39,7 +39,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, EmptyRow, Expression, Projection, SortOrder, SpecificInternalRow, UnsafeProjection}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
-import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExecNode, ProjectExec}
+import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExecNode, ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.aggregate.SortAggregateExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, WriteJobStatsTracker, WriteTaskStats, WriteTaskStatsTracker}
 import org.apache.spark.sql.execution.metric.SQLMetric
@@ -55,6 +55,7 @@ import java.util.concurrent.{Callable, Executors, Future, SynchronousQueue}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
+import scala.util.control.NonFatal
 
 /** Gluten's stats tracker with vectorized aggregation inside to produce statistics efficiently. */
 private[stats] class GlutenDeltaJobStatsTracker(val delegate: DeltaJobStatisticsTracker)
@@ -77,7 +78,19 @@ private[stats] class GlutenDeltaJobStatsTracker(val delegate: DeltaJobStatistics
   override def newTaskInstance(): WriteTaskStatsTracker = {
     val rootPath = new Path(rootUri)
     val hadoopConf = srlHadoopConf.value
-    new GlutenDeltaTaskStatsTracker(dataCols, statsColExpr, rootPath, hadoopConf)
+    // Build and offload the local statistics aggregation plan here on the executor, where the
+    // native plan is actually run. Only when the WHOLE plan is offloaded to Velox do we use the
+    // native, vectorized stats tracker; otherwise (for example a TIMESTAMP_NTZ column whose
+    // aggregate Velox cannot offload) we fall back to row-based statistics collection through the
+    // original Delta tracker. Deciding here -- instead of assuming the offloaded plan is always a
+    // WholeStageTransformer -- avoids the ClassCastException reported in apache/gluten#12538 and
+    // allocates no native resources on the fallback path.
+    tryBuildOffloadedStatsPlan(dataCols, statsColExpr) match {
+      case Some(offloadedPlan) =>
+        new GlutenDeltaTaskStatsTracker(statsColExpr, offloadedPlan, rootPath, hadoopConf)
+      case None =>
+        new GlutenDeltaJobStatsFallbackTracker(delegate).newTaskInstance()
+    }
   }
 
   override def processStats(stats: Seq[WriteTaskStats], jobCommitTime: Long): Unit = {
@@ -99,10 +112,82 @@ object GlutenDeltaJobStatsTracker extends Logging {
       new GlutenDeltaJobStatsFallbackTracker(tracker)
   }
 
+  /** The complete-mode declarative aggregates embedded in a Delta statistics expression. */
+  private def statsAggregates(statsColExpr: Expression): Seq[AggregateExpression] =
+    statsColExpr.collect {
+      case ae: AggregateExpression if ae.aggregateFunction.isInstanceOf[DeclarativeAggregate] =>
+        assert(ae.mode == Complete)
+        ae
+    }
+
+  /**
+   * Build the local Velox aggregation plan used to compute Delta write statistics and try to
+   * offload it to Velox. Returns the offloaded [[TransformSupport]] tree only when the WHOLE plan
+   * was offloaded; otherwise returns None so the caller collects statistics the row-based way.
+   *
+   * A root [[WholeStageTransformer]] is not sufficient: [[ColumnarCollapseTransformStages]] can
+   * wrap an offloaded parent above a vanilla child, so an unsupported type/expression (for example
+   * a TIMESTAMP_NTZ aggregate) could still leave a non-offloaded node in the tree. We therefore
+   * require every node except the [[StatisticsInputNode]] leaf to be a [[TransformSupport]].
+   */
+  private def tryBuildOffloadedStatsPlan(
+      dataCols: Seq[Attribute],
+      statsColExpr: Expression): Option[TransformSupport] = {
+    try {
+      val aggregates = statsAggregates(statsColExpr)
+      val statsAttrs = aggregates.flatMap(_.aggregateFunction.aggBufferAttributes)
+      val statsResultAttrs = aggregates.flatMap(_.aggregateFunction.inputAggBufferAttributes)
+      val aggOp = SortAggregateExec(
+        None,
+        isStreaming = false,
+        None,
+        Seq.empty,
+        aggregates,
+        statsAttrs,
+        0,
+        statsResultAttrs,
+        StatisticsInputNode(dataCols)
+      )
+      val projOp = ProjectExec(statsResultAttrs, aggOp)
+      // Invoke the legacy transform rule to get a local Velox aggregation query plan.
+      val offloads = Seq(OffloadOthers()).map(_.toStrcitRule())
+      val validatorBuilder: GlutenConfig => Validator = conf =>
+        Validators.newValidator(conf, offloads)
+      val rewrites = Seq(PullOutPreProject)
+      val config = GlutenConfig.get
+      val transformRule =
+        HeuristicTransform.WithRewrites(validatorBuilder(config), rewrites, offloads)
+      val transformed = transformRule(projOp)
+      if (!isFullyOffloaded(transformed)) {
+        None
+      } else {
+        ColumnarCollapseTransformStages(config)(transformed) match {
+          case wst: WholeStageTransformer => Some(wst.child.asInstanceOf[TransformSupport])
+          case _ => None
+        }
+      }
+    } catch {
+      case NonFatal(t) =>
+        logWarning(
+          "Gluten Delta: could not offload the statistics collection plan to Velox; falling back" +
+            " to row-based statistics collection.",
+          t)
+        None
+    }
+  }
+
+  /**
+   * Whether every node in a transformed statistics plan was offloaded to Velox. The only allowed
+   * non-[[TransformSupport]] node is the [[StatisticsInputNode]] leaf that feeds the incoming
+   * columnar batches into the native aggregation.
+   */
+  private def isFullyOffloaded(plan: SparkPlan): Boolean =
+    !plan.exists(p => !p.isInstanceOf[TransformSupport] && !p.isInstanceOf[StatisticsInputNode])
+
   /** A columnar-based statistics collection for Gluten + Delta Lake. */
   private class GlutenDeltaTaskStatsTracker(
-      dataCols: Seq[Attribute],
       statsColExpr: Expression,
+      offloadedPlan: TransformSupport,
       rootPath: Path,
       hadoopConf: Configuration)
     extends WriteTaskStatsTracker {
@@ -114,11 +199,7 @@ object GlutenDeltaJobStatsTracker extends Logging {
       Map.empty[String, String].asJava)
     private val c2r = new VeloxColumnarToRowExec.Converter(new SQLMetric("convertTime"))
     private val inputBatchQueue = new SynchronousQueue[Option[ColumnarBatch]]()
-    private val aggregates: Seq[AggregateExpression] = statsColExpr.collect {
-      case ae: AggregateExpression if ae.aggregateFunction.isInstanceOf[DeclarativeAggregate] =>
-        assert(ae.mode == Complete)
-        ae
-    }
+    private val aggregates: Seq[AggregateExpression] = statsAggregates(statsColExpr)
     private val declarativeAggregates: Seq[DeclarativeAggregate] = aggregates.map {
       ae => ae.aggregateFunction.asInstanceOf[DeclarativeAggregate]
     }
@@ -142,44 +223,16 @@ object GlutenDeltaJobStatsTracker extends Logging {
       inputSchema = aggBufferAttrs
     )
     private val taskContext = TaskContext.get()
-    private val statsAttrs = aggregates.flatMap(_.aggregateFunction.aggBufferAttributes)
-    private val statsResultAttrs = aggregates.flatMap(_.aggregateFunction.inputAggBufferAttributes)
     private val veloxAggTask: ColumnarBatchOutIterator = {
-      val inputNode = StatisticsInputNode(dataCols)
-      val aggOp = SortAggregateExec(
-        None,
-        isStreaming = false,
-        None,
-        Seq.empty,
-        aggregates,
-        statsAttrs,
-        0,
-        statsResultAttrs,
-        inputNode
-      )
-      val projOp = ProjectExec(statsResultAttrs, aggOp)
-      // Invoke the legacy transform rule to get a local Velox aggregation query plan.
-      val offloads = Seq(OffloadOthers()).map(_.toStrcitRule())
-      val validatorBuilder: GlutenConfig => Validator = conf =>
-        Validators.newValidator(conf, offloads)
-      val rewrites = Seq(PullOutPreProject)
-      val config = GlutenConfig.get
-      val transformRule =
-        HeuristicTransform.WithRewrites(validatorBuilder(config), rewrites, offloads)
-      val veloxTransformer = transformRule(projOp)
-      val wholeStageTransformer = ColumnarCollapseTransformStages(config)(veloxTransformer)
-        .asInstanceOf[WholeStageTransformer]
-        .child
-        .asInstanceOf[TransformSupport]
       val substraitContext = new SubstraitContext
       TransformerState.enterValidation
       val transformedNode =
         try {
-          wholeStageTransformer.transform(substraitContext)
+          offloadedPlan.transform(substraitContext)
         } finally {
           TransformerState.finishValidation
         }
-      val outNames = wholeStageTransformer.output.map(ConverterUtils.genColumnNameWithExprId).asJava
+      val outNames = offloadedPlan.output.map(ConverterUtils.genColumnNameWithExprId).asJava
       val planNode =
         PlanBuilder.makePlan(substraitContext, Lists.newArrayList(transformedNode.root), outNames)
 
