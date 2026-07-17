@@ -60,12 +60,13 @@ class ShuffledColumnarBatchRDD(
 
   def this(
       dependency: ShuffleDependency[Int, ColumnarBatch, ColumnarBatch],
-      metrics: Map[String, SQLMetric]) = {
+      metrics: Map[String, SQLMetric],
+      executionMode: StageExecutionMode = CPUStageMode) = {
     this(
       dependency,
       metrics,
       Array.tabulate(dependency.partitioner.numPartitions)(i => CoalescedPartitionSpec(i, i + 1)),
-      CPUStageMode
+      executionMode
     )
   }
 
