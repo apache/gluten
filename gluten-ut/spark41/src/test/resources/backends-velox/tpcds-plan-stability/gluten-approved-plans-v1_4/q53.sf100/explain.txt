@@ -40,12 +40,12 @@ VeloxColumnarToRow (45)
 Output [5]: [i_item_sk#1, i_brand#2, i_class#3, i_category#4, i_manufact_id#5]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/item]
-PushedFilters: [Or(And(And(In(i_category, [Books                                             ,Children                                          ,Electronics                                       ]),In(i_class, [personal                                          ,portable                                          ,reference                                         ,self-help                                         ])),In(i_brand, [exportiunivamalg #6                               ,scholaramalgamalg #7                             ,scholaramalgamalg #8                              ,scholaramalgamalg #6                              ])),And(And(In(i_category, [Men                                               ,Music                                             ,Women                                             ]),In(i_class, [accessories                                       ,classical                                         ,fragrances                                        ,pants                                             ])),In(i_brand, [amalgimporto #9                                   ,edu packscholar #9                                ,exportiimporto #9                                 ,importoamalg #9                                   ]))), IsNotNull(i_item_sk)]
+PushedFilters: [Or(And(And(In(i_category, [Books                                             ,Children                                          ,Electronics                                       ]),In(i_class, [personal                                          ,portable                                          ,reference                                         ,self-help                                         ])),In(i_brand, [exportiunivamalg #9                               ,scholaramalgamalg #14                             ,scholaramalgamalg #7                              ,scholaramalgamalg #9                              ])),And(And(In(i_category, [Men                                               ,Music                                             ,Women                                             ]),In(i_class, [accessories                                       ,classical                                         ,fragrances                                        ,pants                                             ])),In(i_brand, [amalgimporto #1                                   ,edu packscholar #1                                ,exportiimporto #1                                 ,importoamalg #1                                   ]))), IsNotNull(i_item_sk)]
 ReadSchema: struct<i_item_sk:int,i_brand:string,i_class:string,i_category:string,i_manufact_id:int>
 
 (2) FilterExecTransformer
 Input [5]: [i_item_sk#1, i_brand#2, i_class#3, i_category#4, i_manufact_id#5]
-Arguments: ((((i_category#4 IN (Books                                             ,Children                                          ,Electronics                                       ) AND i_class#3 IN (personal                                          ,portable                                          ,reference                                         ,self-help                                         )) AND i_brand#2 IN (scholaramalgamalg #7                             ,scholaramalgamalg #8                              ,exportiunivamalg #6                               ,scholaramalgamalg #6                              )) OR ((i_category#4 IN (Women                                             ,Music                                             ,Men                                               ) AND i_class#3 IN (accessories                                       ,classical                                         ,fragrances                                        ,pants                                             )) AND i_brand#2 IN (amalgimporto #9                                   ,edu packscholar #9                                ,exportiimporto #9                                 ,importoamalg #9                                   ))) AND isnotnull(i_item_sk#1))
+Arguments: ((((i_category#4 IN (Books                                             ,Children                                          ,Electronics                                       ) AND i_class#3 IN (personal                                          ,portable                                          ,reference                                         ,self-help                                         )) AND i_brand#2 IN (scholaramalgamalg #14                             ,scholaramalgamalg #7                              ,exportiunivamalg #9                               ,scholaramalgamalg #9                              )) OR ((i_category#4 IN (Women                                             ,Music                                             ,Men                                               ) AND i_class#3 IN (accessories                                       ,classical                                         ,fragrances                                        ,pants                                             )) AND i_brand#2 IN (amalgimporto #1                                   ,edu packscholar #1                                ,exportiimporto #1                                 ,importoamalg #1                                   ))) AND isnotnull(i_item_sk#1))
 
 (3) ProjectExecTransformer
 Output [2]: [i_item_sk#1, i_manufact_id#5]
@@ -66,169 +66,169 @@ Input [2]: [i_item_sk#1, i_manufact_id#5]
 Input [2]: [i_item_sk#1, i_manufact_id#5]
 
 (8) FileSourceScanExecTransformer parquet spark_catalog.default.store_sales
-Output [4]: [ss_item_sk#10, ss_store_sk#11, ss_sales_price#12, ss_sold_date_sk#13]
+Output [4]: [ss_item_sk#6, ss_store_sk#7, ss_sales_price#8, ss_sold_date_sk#9]
 Batched: true
 Location: InMemoryFileIndex []
-PartitionFilters: [isnotnull(ss_sold_date_sk#13), dynamicpruningexpression(ss_sold_date_sk#13 IN dynamicpruning#14)]
+PartitionFilters: [isnotnull(ss_sold_date_sk#9), dynamicpruningexpression(ss_sold_date_sk#9 IN dynamicpruning#10)]
 PushedFilters: [IsNotNull(ss_item_sk), IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_item_sk:int,ss_store_sk:int,ss_sales_price:decimal(7,2)>
 
 (9) FilterExecTransformer
-Input [4]: [ss_item_sk#10, ss_store_sk#11, ss_sales_price#12, ss_sold_date_sk#13]
-Arguments: (isnotnull(ss_item_sk#10) AND isnotnull(ss_store_sk#11))
+Input [4]: [ss_item_sk#6, ss_store_sk#7, ss_sales_price#8, ss_sold_date_sk#9]
+Arguments: (isnotnull(ss_item_sk#6) AND isnotnull(ss_store_sk#7))
 
 (10) BroadcastHashJoinExecTransformer
 Left keys [1]: [i_item_sk#1]
-Right keys [1]: [ss_item_sk#10]
+Right keys [1]: [ss_item_sk#6]
 Join type: Inner
 Join condition: None
 
 (11) ProjectExecTransformer
-Output [4]: [i_manufact_id#5, ss_store_sk#11, ss_sales_price#12, ss_sold_date_sk#13]
-Input [6]: [i_item_sk#1, i_manufact_id#5, ss_item_sk#10, ss_store_sk#11, ss_sales_price#12, ss_sold_date_sk#13]
+Output [4]: [i_manufact_id#5, ss_store_sk#7, ss_sales_price#8, ss_sold_date_sk#9]
+Input [6]: [i_item_sk#1, i_manufact_id#5, ss_item_sk#6, ss_store_sk#7, ss_sales_price#8, ss_sold_date_sk#9]
 
 (12) FileSourceScanExecTransformer parquet spark_catalog.default.store
-Output [1]: [s_store_sk#15]
+Output [1]: [s_store_sk#11]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/store]
 PushedFilters: [IsNotNull(s_store_sk)]
 ReadSchema: struct<s_store_sk:int>
 
 (13) FilterExecTransformer
-Input [1]: [s_store_sk#15]
-Arguments: isnotnull(s_store_sk#15)
+Input [1]: [s_store_sk#11]
+Arguments: isnotnull(s_store_sk#11)
 
 (14) WholeStageCodegenTransformer (3)
-Input [1]: [s_store_sk#15]
+Input [1]: [s_store_sk#11]
 Arguments: false
 
 (15) ColumnarBroadcastExchange
-Input [1]: [s_store_sk#15]
+Input [1]: [s_store_sk#11]
 Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, false] as bigint)),false), [plan_id=2]
 
 (16) InputAdapter
-Input [1]: [s_store_sk#15]
+Input [1]: [s_store_sk#11]
 
 (17) InputIteratorTransformer
-Input [1]: [s_store_sk#15]
+Input [1]: [s_store_sk#11]
 
 (18) BroadcastHashJoinExecTransformer
-Left keys [1]: [ss_store_sk#11]
-Right keys [1]: [s_store_sk#15]
+Left keys [1]: [ss_store_sk#7]
+Right keys [1]: [s_store_sk#11]
 Join type: Inner
 Join condition: None
 
 (19) ProjectExecTransformer
-Output [3]: [i_manufact_id#5, ss_sales_price#12, ss_sold_date_sk#13]
-Input [5]: [i_manufact_id#5, ss_store_sk#11, ss_sales_price#12, ss_sold_date_sk#13, s_store_sk#15]
+Output [3]: [i_manufact_id#5, ss_sales_price#8, ss_sold_date_sk#9]
+Input [5]: [i_manufact_id#5, ss_store_sk#7, ss_sales_price#8, ss_sold_date_sk#9, s_store_sk#11]
 
 (20) ReusedExchange [Reuses operator id: 50]
-Output [2]: [d_date_sk#16, d_qoy#17]
+Output [2]: [d_date_sk#12, d_qoy#13]
 
 (21) InputAdapter
-Input [2]: [d_date_sk#16, d_qoy#17]
+Input [2]: [d_date_sk#12, d_qoy#13]
 
 (22) InputIteratorTransformer
-Input [2]: [d_date_sk#16, d_qoy#17]
+Input [2]: [d_date_sk#12, d_qoy#13]
 
 (23) BroadcastHashJoinExecTransformer
-Left keys [1]: [ss_sold_date_sk#13]
-Right keys [1]: [d_date_sk#16]
+Left keys [1]: [ss_sold_date_sk#9]
+Right keys [1]: [d_date_sk#12]
 Join type: Inner
 Join condition: None
 
 (24) ProjectExecTransformer
-Output [3]: [i_manufact_id#5, d_qoy#17, UnscaledValue(ss_sales_price#12) AS _pre_1#18]
-Input [5]: [i_manufact_id#5, ss_sales_price#12, ss_sold_date_sk#13, d_date_sk#16, d_qoy#17]
+Output [3]: [i_manufact_id#5, d_qoy#13, UnscaledValue(ss_sales_price#8) AS _pre_1#14]
+Input [5]: [i_manufact_id#5, ss_sales_price#8, ss_sold_date_sk#9, d_date_sk#12, d_qoy#13]
 
 (25) FlushableHashAggregateExecTransformer
-Input [3]: [i_manufact_id#5, d_qoy#17, _pre_1#18]
-Keys [2]: [i_manufact_id#5, d_qoy#17]
-Functions [1]: [partial_sum(_pre_1#18)]
-Aggregate Attributes [1]: [sum#19]
-Results [3]: [i_manufact_id#5, d_qoy#17, sum#20]
+Input [3]: [i_manufact_id#5, d_qoy#13, _pre_1#14]
+Keys [2]: [i_manufact_id#5, d_qoy#13]
+Functions [1]: [partial_sum(_pre_1#14)]
+Aggregate Attributes [1]: [sum#15]
+Results [3]: [i_manufact_id#5, d_qoy#13, sum#16]
 
 (26) ProjectExecTransformer
-Output [4]: [hash(i_manufact_id#5, d_qoy#17, 42) AS hash_partition_key#21, i_manufact_id#5, d_qoy#17, sum#20]
-Input [3]: [i_manufact_id#5, d_qoy#17, sum#20]
+Output [4]: [hash(i_manufact_id#5, d_qoy#13, 42) AS hash_partition_key#17, i_manufact_id#5, d_qoy#13, sum#16]
+Input [3]: [i_manufact_id#5, d_qoy#13, sum#16]
 
 (27) WholeStageCodegenTransformer (5)
-Input [4]: [hash_partition_key#21, i_manufact_id#5, d_qoy#17, sum#20]
+Input [4]: [hash_partition_key#17, i_manufact_id#5, d_qoy#13, sum#16]
 Arguments: false
 
 (28) VeloxResizeBatches
-Input [4]: [hash_partition_key#21, i_manufact_id#5, d_qoy#17, sum#20]
+Input [4]: [hash_partition_key#17, i_manufact_id#5, d_qoy#13, sum#16]
 Arguments: 1024, 2147483647, 10485760
 
 (29) ColumnarExchange
-Input [4]: [hash_partition_key#21, i_manufact_id#5, d_qoy#17, sum#20]
-Arguments: hashpartitioning(i_manufact_id#5, d_qoy#17, 1), ENSURE_REQUIREMENTS, [i_manufact_id#5, d_qoy#17, sum#20], [plan_id=3], [shuffle_writer_type=hash]
+Input [4]: [hash_partition_key#17, i_manufact_id#5, d_qoy#13, sum#16]
+Arguments: hashpartitioning(i_manufact_id#5, d_qoy#13, 1), ENSURE_REQUIREMENTS, [i_manufact_id#5, d_qoy#13, sum#16], [plan_id=3], [shuffle_writer_type=hash]
 
 (30) InputAdapter
-Input [3]: [i_manufact_id#5, d_qoy#17, sum#20]
+Input [3]: [i_manufact_id#5, d_qoy#13, sum#16]
 
 (31) InputIteratorTransformer
-Input [3]: [i_manufact_id#5, d_qoy#17, sum#20]
+Input [3]: [i_manufact_id#5, d_qoy#13, sum#16]
 
 (32) RegularHashAggregateExecTransformer
-Input [3]: [i_manufact_id#5, d_qoy#17, sum#20]
-Keys [2]: [i_manufact_id#5, d_qoy#17]
-Functions [1]: [sum(UnscaledValue(ss_sales_price#12))]
-Aggregate Attributes [1]: [sum(UnscaledValue(ss_sales_price#12))#22]
-Results [3]: [i_manufact_id#5, d_qoy#17, sum(UnscaledValue(ss_sales_price#12))#22]
+Input [3]: [i_manufact_id#5, d_qoy#13, sum#16]
+Keys [2]: [i_manufact_id#5, d_qoy#13]
+Functions [1]: [sum(UnscaledValue(ss_sales_price#8))]
+Aggregate Attributes [1]: [sum(UnscaledValue(ss_sales_price#8))#18]
+Results [3]: [i_manufact_id#5, d_qoy#13, sum(UnscaledValue(ss_sales_price#8))#18]
 
 (33) ProjectExecTransformer
-Output [4]: [hash(i_manufact_id#5, 42) AS hash_partition_key#23, i_manufact_id#5, MakeDecimal(sum(UnscaledValue(ss_sales_price#12))#22,17,2) AS sum_sales#24, MakeDecimal(sum(UnscaledValue(ss_sales_price#12))#22,17,2) AS _w0#25]
-Input [3]: [i_manufact_id#5, d_qoy#17, sum(UnscaledValue(ss_sales_price#12))#22]
+Output [4]: [hash(i_manufact_id#5, 42) AS hash_partition_key#19, i_manufact_id#5, MakeDecimal(sum(UnscaledValue(ss_sales_price#8))#18,17,2) AS sum_sales#20, MakeDecimal(sum(UnscaledValue(ss_sales_price#8))#18,17,2) AS _w0#21]
+Input [3]: [i_manufact_id#5, d_qoy#13, sum(UnscaledValue(ss_sales_price#8))#18]
 
 (34) WholeStageCodegenTransformer (6)
-Input [4]: [hash_partition_key#23, i_manufact_id#5, sum_sales#24, _w0#25]
+Input [4]: [hash_partition_key#19, i_manufact_id#5, sum_sales#20, _w0#21]
 Arguments: false
 
 (35) VeloxResizeBatches
-Input [4]: [hash_partition_key#23, i_manufact_id#5, sum_sales#24, _w0#25]
+Input [4]: [hash_partition_key#19, i_manufact_id#5, sum_sales#20, _w0#21]
 Arguments: 1024, 2147483647, 10485760
 
 (36) ColumnarExchange
-Input [4]: [hash_partition_key#23, i_manufact_id#5, sum_sales#24, _w0#25]
-Arguments: hashpartitioning(i_manufact_id#5, 1), ENSURE_REQUIREMENTS, [i_manufact_id#5, sum_sales#24, _w0#25], [plan_id=4], [shuffle_writer_type=hash]
+Input [4]: [hash_partition_key#19, i_manufact_id#5, sum_sales#20, _w0#21]
+Arguments: hashpartitioning(i_manufact_id#5, 1), ENSURE_REQUIREMENTS, [i_manufact_id#5, sum_sales#20, _w0#21], [plan_id=4], [shuffle_writer_type=hash]
 
 (37) InputAdapter
-Input [3]: [i_manufact_id#5, sum_sales#24, _w0#25]
+Input [3]: [i_manufact_id#5, sum_sales#20, _w0#21]
 
 (38) InputIteratorTransformer
-Input [3]: [i_manufact_id#5, sum_sales#24, _w0#25]
+Input [3]: [i_manufact_id#5, sum_sales#20, _w0#21]
 
 (39) SortExecTransformer
-Input [3]: [i_manufact_id#5, sum_sales#24, _w0#25]
+Input [3]: [i_manufact_id#5, sum_sales#20, _w0#21]
 Arguments: [i_manufact_id#5 ASC NULLS FIRST], false, 0
 
 (40) WindowExecTransformer
-Input [3]: [i_manufact_id#5, sum_sales#24, _w0#25]
-Arguments: [avg(_w0#25) windowspecdefinition(i_manufact_id#5, specifiedwindowframe(RowFrame, unboundedpreceding$(), unboundedfollowing$())) AS avg_quarterly_sales#26], [i_manufact_id#5]
+Input [3]: [i_manufact_id#5, sum_sales#20, _w0#21]
+Arguments: [avg(_w0#21) windowspecdefinition(i_manufact_id#5, specifiedwindowframe(RowFrame, unboundedpreceding$(), unboundedfollowing$())) AS avg_quarterly_sales#22], [i_manufact_id#5]
 
 (41) FilterExecTransformer
-Input [4]: [i_manufact_id#5, sum_sales#24, _w0#25, avg_quarterly_sales#26]
-Arguments: CASE WHEN (avg_quarterly_sales#26 > 0.000000) THEN ((abs((sum_sales#24 - avg_quarterly_sales#26)) / avg_quarterly_sales#26) > 0.1000000000000000) ELSE false END
+Input [4]: [i_manufact_id#5, sum_sales#20, _w0#21, avg_quarterly_sales#22]
+Arguments: CASE WHEN (avg_quarterly_sales#22 > 0.000000) THEN ((abs((sum_sales#20 - avg_quarterly_sales#22)) / avg_quarterly_sales#22) > 0.1000000000000000) ELSE false END
 
 (42) ProjectExecTransformer
-Output [3]: [i_manufact_id#5, sum_sales#24, avg_quarterly_sales#26]
-Input [4]: [i_manufact_id#5, sum_sales#24, _w0#25, avg_quarterly_sales#26]
+Output [3]: [i_manufact_id#5, sum_sales#20, avg_quarterly_sales#22]
+Input [4]: [i_manufact_id#5, sum_sales#20, _w0#21, avg_quarterly_sales#22]
 
 (43) WholeStageCodegenTransformer (7)
-Input [3]: [i_manufact_id#5, sum_sales#24, avg_quarterly_sales#26]
+Input [3]: [i_manufact_id#5, sum_sales#20, avg_quarterly_sales#22]
 Arguments: false
 
 (44) TakeOrderedAndProjectExecTransformer
-Input [3]: [i_manufact_id#5, sum_sales#24, avg_quarterly_sales#26]
-Arguments: 100, [avg_quarterly_sales#26 ASC NULLS FIRST, sum_sales#24 ASC NULLS FIRST, i_manufact_id#5 ASC NULLS FIRST], [i_manufact_id#5, sum_sales#24, avg_quarterly_sales#26], 0
+Input [3]: [i_manufact_id#5, sum_sales#20, avg_quarterly_sales#22]
+Arguments: 100, [avg_quarterly_sales#22 ASC NULLS FIRST, sum_sales#20 ASC NULLS FIRST, i_manufact_id#5 ASC NULLS FIRST], [i_manufact_id#5, sum_sales#20, avg_quarterly_sales#22], 0
 
 (45) VeloxColumnarToRow
-Input [3]: [i_manufact_id#5, sum_sales#24, avg_quarterly_sales#26]
+Input [3]: [i_manufact_id#5, sum_sales#20, avg_quarterly_sales#22]
 
 ===== Subqueries =====
 
-Subquery:1 Hosting operator id = 8 Hosting Expression = ss_sold_date_sk#13 IN dynamicpruning#14
+Subquery:1 Hosting operator id = 8 Hosting Expression = ss_sold_date_sk#9 IN dynamicpruning#10
 ColumnarBroadcastExchange (50)
 +- ^ ProjectExecTransformer (48)
    +- ^ FilterExecTransformer (47)
@@ -236,26 +236,26 @@ ColumnarBroadcastExchange (50)
 
 
 (46) FileSourceScanExecTransformer parquet spark_catalog.default.date_dim
-Output [3]: [d_date_sk#16, d_month_seq#27, d_qoy#17]
+Output [3]: [d_date_sk#12, d_month_seq#23, d_qoy#13]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
 PushedFilters: [In(d_month_seq, [1200,1201,1202,1203,1204,1205,1206,1207,1208,1209,1210,1211]), IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_month_seq:int,d_qoy:int>
 
 (47) FilterExecTransformer
-Input [3]: [d_date_sk#16, d_month_seq#27, d_qoy#17]
-Arguments: (d_month_seq#27 INSET 1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211 AND isnotnull(d_date_sk#16))
+Input [3]: [d_date_sk#12, d_month_seq#23, d_qoy#13]
+Arguments: (d_month_seq#23 INSET 1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211 AND isnotnull(d_date_sk#12))
 
 (48) ProjectExecTransformer
-Output [2]: [d_date_sk#16, d_qoy#17]
-Input [3]: [d_date_sk#16, d_month_seq#27, d_qoy#17]
+Output [2]: [d_date_sk#12, d_qoy#13]
+Input [3]: [d_date_sk#12, d_month_seq#23, d_qoy#13]
 
 (49) WholeStageCodegenTransformer (2)
-Input [2]: [d_date_sk#16, d_qoy#17]
+Input [2]: [d_date_sk#12, d_qoy#13]
 Arguments: false
 
 (50) ColumnarBroadcastExchange
-Input [2]: [d_date_sk#16, d_qoy#17]
+Input [2]: [d_date_sk#12, d_qoy#13]
 Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=5]
 
 
