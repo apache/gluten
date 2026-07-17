@@ -19,9 +19,9 @@
 #include <bolt/common/base/SuccinctPrinter.h>
 #include <cstdint>
 
+#include "bolt/row/UnsafeRowFast.h"
 #include "memory/BoltColumnarBatch.h"
 #include "utils/Exception.h"
-#include "bolt/row/UnsafeRowFast.h"
 
 using namespace bytedance;
 

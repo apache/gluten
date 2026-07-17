@@ -16,11 +16,11 @@
  */
 
 #include "utils/BoltWholeStageDumper.h"
+#include <fstream>
 #include "compute/BoltBackend.h"
 #include "config/GlutenConfig.h"
 #include "operators/reader/ParquetReaderIterator.h"
 #include "operators/writer/BoltColumnarBatchWriter.h"
-#include <fstream>
 
 namespace gluten {
 namespace {

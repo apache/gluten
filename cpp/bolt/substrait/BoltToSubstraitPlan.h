@@ -24,8 +24,8 @@
 #include "bolt/core/PlanNode.h"
 #include "bolt/type/Type.h"
 
-#include "SubstraitExtensionCollector.h"
 #include "BoltToSubstraitExpr.h"
+#include "SubstraitExtensionCollector.h"
 #include "substrait/algebra.pb.h"
 #include "substrait/plan.pb.h"
 

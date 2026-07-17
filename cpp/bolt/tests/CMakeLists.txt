@@ -26,43 +26,73 @@ function(add_bolt_test TEST_EXEC)
     message(FATAL_ERROR "No sources specified for test ${TEST_NAME}")
   endif()
   add_executable(${TEST_EXEC} ${SOURCES} ${BOLT_TEST_COMMON_SRCS})
-  target_include_directories(${TEST_EXEC} PRIVATE ${CMAKE_SOURCE_DIR}/bolt
-                                                  ${CMAKE_SOURCE_DIR}/src
-                                                  ${CMAKE_SOURCE_DIR}/core
-                                                  ${bolt_INCLUDE_DIRS}
-                                                  ${bolt_INCLUDE_DIRS}/bolt/external/duckdb)
-  target_link_libraries(${TEST_EXEC} ${PROJECT_NAME}_static gluten bolt::bolt GTest::gtest GTest::gtest_main glog::glog benchmark::benchmark gfx::timsort)
+  target_include_directories(
+    ${TEST_EXEC}
+    PRIVATE ${CMAKE_SOURCE_DIR}
+            /
+            bolt
+            ${CMAKE_SOURCE_DIR}
+            /
+            src
+            ${CMAKE_SOURCE_DIR}
+            /
+            core
+            ${bolt_INCLUDE_DIRS}
+            ${bolt_INCLUDE_DIRS}
+            /
+            bolt
+            /
+            external
+            /
+            duckdb)
+  target_link_libraries(
+    ${TEST_EXEC}
+    ${PROJECT_NAME}
+    _static
+    gluten
+    bolt::bolt
+    GTest::gtest
+    GTest::gtest_main
+    glog::glog
+    benchmark::benchmark
+    gfx::timsort)
 
   gtest_discover_tests(${TEST_EXEC} DISCOVERY_MODE PRE_TEST)
 endfunction()
 
-# codegen linker flags, -export-dynamic for rtti
+# codegen linker flags, -export - dynamic for rtti
 add_link_options("-Wl,-export-dynamic")
 
 set(BOLT_TEST_COMMON_SRCS JsonToProtoConverter.cc FilePathGenerator.cc)
 
-# TODO: ORC is not well supported. add_bolt_test(orc_test SOURCES OrcTest.cc)
+# TODO : ORC is not well supported.add_bolt_test(orc_test SOURCES OrcTest.cc)
 add_bolt_test(
   bolt_operators_test
   SOURCES
   BoltColumnarToRowTest.cc
-  BoltRowToColumnarTest.cc
+  BoltRowToColumnarTest
+  .cc
   BoltColumnarBatchTest.cc
-  BoltBatchResizerTest.cc)
+  BoltBatchResizerTest
+  .cc)
 add_bolt_test(
   bolt_plan_conversion_test
   SOURCES
-  Substrait2BoltPlanConversionTest.cc
-  Substrait2BoltPlanValidatorTest.cc
-  Substrait2BoltValuesNodeConversionTest.cc
+  Substrait2BoltPlanConversionTest
+  .cc
+  Substrait2BoltPlanValidatorTest
+  .cc
+  Substrait2BoltValuesNodeConversionTest
+  .cc
   SubstraitExtensionCollectorTest.cc
-  BoltSubstraitRoundTripTest.cc
+  BoltSubstraitRoundTripTest
+  .cc
   BoltSubstraitSignatureTest.cc
-  BoltToSubstraitTypeTest.cc)
-add_bolt_test(spark_functions_test SOURCES SparkFunctionTest.cc
-               FunctionTest.cc)
+  BoltToSubstraitTypeTest
+  .cc)
+add_bolt_test(spark_functions_test SOURCES SparkFunctionTest.cc FunctionTest.cc)
 add_bolt_test(runtime_test SOURCES RuntimeTest.cc)
-add_bolt_test(bolt_memory_test SOURCES MemoryManagerTest.cc)
+add_bolt_test(bolt_memory_test SOURCES MemoryManagerTest .cc)
 add_bolt_test(buffer_outputstream_test SOURCES BufferOutputStreamTest.cc)
 
 if(BUILD_EXAMPLES)
@@ -70,14 +100,15 @@ if(BUILD_EXAMPLES)
 endif()
 
 if(ENABLE_ENHANCED_FEATURES)
-  add_bolt_test(bolt_iceberg_test SOURCES iceberg/IcebergWriteTest.cc)
+  add_bolt_test(bolt_iceberg_test SOURCES iceberg / IcebergWriteTest .cc)
 endif()
 
 # copy test data directory
-set(DATA_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data)
-set(DATA_TARGET_DIR ${CMAKE_CURRENT_BINARY_DIR}/data)
-add_custom_target(copy_data_directory ALL
-    COMMENT "copy test data: ${DATA_SOURCE_DIR} -> ${DATA_TARGET_DIR}"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${DATA_SOURCE_DIR} ${DATA_TARGET_DIR}
-    VERBATIM
-)
+set(DATA_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR} / data)
+set(DATA_TARGET_DIR ${CMAKE_CURRENT_BINARY_DIR} / data)
+add_custom_target(
+  copy_data_directory ALL
+  COMMENT "copy test data: ${DATA_SOURCE_DIR} -> ${DATA_TARGET_DIR}"
+  COMMAND ${CMAKE_COMMAND} - E copy_directory ${DATA_SOURCE_DIR}
+          ${DATA_TARGET_DIR}
+  VERBATIM)

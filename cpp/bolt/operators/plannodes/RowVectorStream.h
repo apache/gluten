@@ -18,11 +18,11 @@
 #pragma once
 
 #include <cstdint>
-#include "compute/ResultIterator.h"
-#include "memory/BoltColumnarBatch.h"
 #include "bolt/exec/Driver.h"
 #include "bolt/exec/Operator.h"
 #include "bolt/exec/Task.h"
+#include "compute/ResultIterator.h"
+#include "memory/BoltColumnarBatch.h"
 
 namespace {
 
@@ -167,7 +167,7 @@ class ValueStreamNode final : public bytedance::bolt::core::PlanNode {
   }
 
  private:
-  void addDetails(std::stringstream& stream) const override {};
+  void addDetails(std::stringstream& stream) const override{};
 
   const bytedance::bolt::RowTypePtr outputType_;
   std::shared_ptr<ResultIterator> iterator_;

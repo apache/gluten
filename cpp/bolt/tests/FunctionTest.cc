@@ -24,11 +24,11 @@
 #include "bolt/dwio/common/tests/utils/DataFiles.h"
 #include "bolt/vector/tests/utils/VectorTestBase.h"
 
+#include "substrait/BoltToSubstraitType.h"
 #include "substrait/SubstraitParser.h"
 #include "substrait/SubstraitToBoltPlan.h"
 #include "substrait/TypeUtils.h"
 #include "substrait/VariantToVectorConverter.h"
-#include "substrait/BoltToSubstraitType.h"
 
 using namespace bytedance::bolt;
 using namespace bytedance::bolt::test;

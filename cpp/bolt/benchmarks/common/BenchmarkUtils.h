@@ -26,11 +26,11 @@
 
 #include "substrait/SubstraitToBoltPlan.h"
 
+#include "bolt/common/memory/Memory.h"
 #include "compute/ProtobufUtils.h"
 #include "memory/BoltColumnarBatch.h"
 #include "memory/BoltMemoryManager.h"
 #include "utils/Exception.h"
-#include "bolt/common/memory/Memory.h"
 
 DECLARE_int64(batch_size);
 DECLARE_int32(cpu);

@@ -26,8 +26,8 @@
 #include <folly/executors/IOThreadPoolExecutor.h>
 
 #include "config/GlutenConfig.h"
-#include "memory/ColumnarBatch.h"
 #include "memory/BoltColumnarBatch.h"
+#include "memory/ColumnarBatch.h"
 #include "operators/writer/BoltDataSource.h"
 
 #include "bolt/common/compression/Compression.h"

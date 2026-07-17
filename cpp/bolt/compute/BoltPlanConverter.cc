@@ -22,8 +22,8 @@
 #include "compute/paimon/PaimonPlanUtils.h"
 #include "config/GlutenConfig.h"
 // #include "iceberg/IcebergPlanConverter.h"
-#include "operators/plannodes/RowVectorStream.h"
 #include "bolt/common/file/FileSystems.h"
+#include "operators/plannodes/RowVectorStream.h"
 
 namespace gluten {
 
@@ -107,7 +107,7 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
         break;
     }
 
-     // The schema in file represents the table schema, it is set when the TableScan requires the
+    // The schema in file represents the table schema, it is set when the TableScan requires the
     // table schema to be present, currently when the option is set to map columns by index rather
     // than by name in Parquet or ORC files. Since the table schema should be the same for all
     // files, we set it in the SplitInfo based on the first file we encounter with the schema set.

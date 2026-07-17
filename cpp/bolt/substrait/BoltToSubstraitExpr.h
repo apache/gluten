@@ -19,10 +19,10 @@
 
 #include "bolt/core/PlanNode.h"
 
-#include "SubstraitExtensionCollector.h"
 #include "BoltToSubstraitType.h"
-#include "substrait/algebra.pb.h"
+#include "SubstraitExtensionCollector.h"
 #include "bolt/vector/ConstantVector.h"
+#include "substrait/algebra.pb.h"
 
 namespace gluten {
 

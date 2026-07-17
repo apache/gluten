@@ -52,7 +52,7 @@ std::shared_ptr<PaimonSplitInfo> PaimonPlanUtils::parsePaimonSplitInfo(
   auto rawConvertible = paimonReadOption.raw_convertible();
   const auto& path = file.uri_file();
   auto fileMeta = PaimonSplitInfo::FileMeta{
-        format, bucket, firstRowId, maxSequenceNumber, splitGroup, useHiveSplit, std::move(primaryKeys), rawConvertible};
+      format, bucket, firstRowId, maxSequenceNumber, splitGroup, useHiveSplit, std::move(primaryKeys), rawConvertible};
   auto existing = std::dynamic_pointer_cast<PaimonSplitInfo>(splitInfo);
 
   if (!existing) {

@@ -23,11 +23,11 @@
 #include <vector>
 
 #include "BoltSubstraitSignature.h"
-#include "substrait/algebra.pb.h"
-#include "substrait/plan.pb.h"
 #include "bolt/core/Expressions.h"
 #include "bolt/core/PlanNode.h"
 #include "bolt/type/Type.h"
+#include "substrait/algebra.pb.h"
+#include "substrait/plan.pb.h"
 
 namespace gluten {
 

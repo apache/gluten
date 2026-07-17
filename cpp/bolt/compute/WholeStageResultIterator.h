@@ -18,14 +18,14 @@
 
 #include "compute/Runtime.h"
 // #include "iceberg/IcebergPlanConverter.h"
+#include "bolt/common/config/Config.h"
 #include "compute/TaskStatusListener.h"
+#include "memory/BoltColumnarBatch.h"
 #include "memory/ColumnarBatchIterator.h"
 #include "memory/SplitAwareColumnarBatchIterator.h"
-#include "memory/BoltColumnarBatch.h"
 #include "substrait/SubstraitToBoltPlan.h"
 #include "substrait/plan.pb.h"
 #include "utils/Metrics.h"
-#include "bolt/common/config/Config.h"
 // #include "bolt/connectors/hive/iceberg/IcebergSplit.h"
 #include "bolt/core/PlanNode.h"
 #include "bolt/exec/Task.h"
@@ -59,8 +59,9 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
 
   // Add shuffle writer to task, this should called before initTask()
   void addShuffleWriter(
-    const bytedance::bolt::shuffle::sparksql::ShuffleWriterOptions& options, bytedance::bolt::shuffle::sparksql::ReportShuffleStatusCallback reportShuffleStatusCallback);
-  
+      const bytedance::bolt::shuffle::sparksql::ShuffleWriterOptions& options,
+      bytedance::bolt::shuffle::sparksql::ReportShuffleStatusCallback reportShuffleStatusCallback);
+
   void initTask();
 
   void addIteratorSplits(const std::vector<std::shared_ptr<ResultIterator>>& inputIterators) override;

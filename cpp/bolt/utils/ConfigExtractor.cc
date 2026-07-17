@@ -21,11 +21,11 @@
 #include <folly/Conv.h>
 #include <stdexcept>
 
+#include "bolt/connectors/hive/HiveConfig.h"
+#include "bolt/connectors/hive/storage_adapters/s3fs/S3Config.h"
 #include "config/BoltConfig.h"
 #include "utils/Exception.h"
 #include "utils/Macros.h"
-#include "bolt/connectors/hive/HiveConfig.h"
-#include "bolt/connectors/hive/storage_adapters/s3fs/S3Config.h"
 
 namespace gluten {
 
@@ -289,13 +289,14 @@ int32_t getSparkVcoreBoostRatio(const std::unordered_map<std::string, std::strin
   return folly::to<int32_t>(getConfigValue(confMap, kSparkVcoreBoostRatio, kSparkVcoreBoostRatioDefault));
 }
 
-int32_t getSparkExecutorMillicores(const std::unordered_map<std::string, std::string>& confMap, int32_t milliCoresdefault) {
+int32_t getSparkExecutorMillicores(
+    const std::unordered_map<std::string, std::string>& confMap,
+    int32_t milliCoresdefault) {
   return folly::to<int32_t>(getConfigValue(confMap, kSparkExecutorMilliCores, std::to_string(milliCoresdefault)));
 }
 
 bool useIcuRegex(const std::unordered_map<std::string, std::string>& confMap) {
   return folly::to<bool>(getConfigValue(confMap, kUseIcuRegex, kUseIcuRegexDefault));
 }
-
 
 } // namespace gluten

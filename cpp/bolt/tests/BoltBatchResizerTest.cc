@@ -17,8 +17,8 @@
 
 #include <limits>
 
-#include "utils/BoltBatchResizer.h"
 #include "bolt/vector/tests/utils/VectorTestBase.h"
+#include "utils/BoltBatchResizer.h"
 
 using namespace bytedance::bolt;
 

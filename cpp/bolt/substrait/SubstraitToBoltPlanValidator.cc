@@ -20,11 +20,11 @@
 #include <re2/re2.h>
 #include <string>
 #include "TypeUtils.h"
-#include "udf/UdfLoader.h"
-#include "utils/Common.h"
 #include "bolt/exec/Aggregate.h"
 #include "bolt/expression/Expr.h"
 #include "bolt/expression/SignatureBinder.h"
+#include "udf/UdfLoader.h"
+#include "utils/Common.h"
 
 namespace gluten {
 namespace {
@@ -58,8 +58,7 @@ const std::unordered_set<std::string> kRegexFunctions = {
     "regexp_replace",
     "rlike"};
 
-const std::unordered_set<std::string> kBlackList =
-    {"split_part", "approx_percentile"};
+const std::unordered_set<std::string> kBlackList = {"split_part", "approx_percentile"};
 } // namespace
 
 bool SubstraitToBoltPlanValidator::parseBoltType(
@@ -302,33 +301,34 @@ bool SubstraitToBoltPlanValidator::isAllowedCast(const TypePtr& fromType, const 
   }
 
   if (fromType->isMap() && toType->isMap()) {
-      const auto& fromKey = fromType->asMap().keyType();
-      const auto& fromValue = fromType->asMap().valueType();
-      const auto& toKey = toType->asMap().keyType();
-      const auto& toValue = toType->asMap().valueType();
+    const auto& fromKey = fromType->asMap().keyType();
+    const auto& fromValue = fromType->asMap().valueType();
+    const auto& toKey = toType->asMap().keyType();
+    const auto& toValue = toType->asMap().valueType();
 
-      return isAllowedCast(fromKey, toKey) && isAllowedCast(fromValue, toValue);
+    return isAllowedCast(fromKey, toKey) && isAllowedCast(fromValue, toValue);
   }
 
   if (fromType->isRow() && toType->isRow()) {
-      const auto& fromChildren = fromType->asRow().children();
-      const auto& toChildren = toType->asRow().children();
+    const auto& fromChildren = fromType->asRow().children();
+    const auto& toChildren = toType->asRow().children();
 
-      if (fromChildren.size() != toChildren.size()) {
+    if (fromChildren.size() != toChildren.size()) {
+      return false;
+    }
+
+    for (size_t childIdx = 0; childIdx < fromChildren.size(); ++childIdx) {
+      if (!isAllowedCast(fromChildren[childIdx], toChildren[childIdx])) {
         return false;
       }
+    }
 
-      for (size_t childIdx = 0; childIdx < fromChildren.size(); ++childIdx) {
-        if (!isAllowedCast(fromChildren[childIdx], toChildren[childIdx])) {
-          return false;
-        }
-      }
-
-      return true;
+    return true;
   }
 
   // Casting a complex type to/from any other type is not allowed.
-  if (fromType->isArray() || fromType->isMap() || fromType->isRow() || toType->isArray() || toType->isMap() || toType->isRow()) {
+  if (fromType->isArray() || fromType->isMap() || fromType->isRow() || toType->isArray() || toType->isMap() ||
+      toType->isRow()) {
     return false;
   }
 

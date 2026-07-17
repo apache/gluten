@@ -22,12 +22,12 @@
 #include <cstring>
 #include <utility>
 
-#include "memory/ArrowMemory.h"
-#include "memory/BoltColumnarBatch.h"
+#include "bolt/common/memory/ByteStream.h"
 #include "bolt/common/memory/Memory.h"
 #include "bolt/vector/FlatVector.h"
 #include "bolt/vector/arrow/Bridge.h"
-#include "bolt/common/memory/ByteStream.h"
+#include "memory/ArrowMemory.h"
+#include "memory/BoltColumnarBatch.h"
 
 #include <iostream>
 

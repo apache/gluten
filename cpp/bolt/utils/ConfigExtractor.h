@@ -23,9 +23,8 @@
 #include <string>
 #include <unordered_map>
 
-#include "config/GlutenConfig.h"
-#include "utils/ConfigResolver.h"
 #include "bolt/common/config/Config.h"
+#include "config/GlutenConfig.h"
 #include "utils/ConfigResolver.h"
 
 namespace gluten {

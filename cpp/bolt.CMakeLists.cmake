@@ -141,11 +141,10 @@ endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${KNOWN_WARNINGS}")
 
-
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
-elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang"
-       OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
+elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}"
+                                                      STREQUAL "AppleClang")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcolor-diagnostics")
 endif()
 
@@ -165,9 +164,7 @@ if(BUILD_TESTS)
   find_package(GTest ${GLUTEN_GTEST_MIN_VERSION} CONFIG)
   # find_package(glog CONFIG REQUIRED)
 
-  #if(NOT GTest_FOUND)
-  #  include(BuildGTest)
-  #endif()
+  # if(NOT GTest_FOUND) include(BuildGTest) endif()
   include(GoogleTest)
   enable_testing()
 endif()
@@ -188,8 +185,14 @@ function(ADD_TEST_CASE TEST_NAME)
   endif()
 
   add_executable(${TEST_NAME} ${SOURCES})
-  target_link_libraries(${TEST_NAME} gluten bolt::bolt glog::glog GTest::gtest
-                        GTest::gtest_main Threads::Threads)
+  target_link_libraries(
+    ${TEST_NAME}
+    gluten
+    bolt::bolt
+    glog::glog
+    GTest::gtest
+    GTest::gtest_main
+    Threads::Threads)
   target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/core)
 
   if(ARG_EXTRA_LINK_LIBS)
@@ -264,9 +267,13 @@ if(BUILD_BOLT)
   add_subdirectory(bolt)
   add_subdirectory(bolt/nativeLoader)
 
-  if(NOT TARGET gluten OR NOT TARGET bolt_backend OR NOT TARGET glutenlibloader)
-    message(FATAL_ERROR
-            "Bolt native packaging requires gluten, bolt_backend, and glutenlibloader targets")
+  if(NOT TARGET gluten
+     OR NOT TARGET bolt_backend
+     OR NOT TARGET glutenlibloader)
+    message(
+      FATAL_ERROR
+        "Bolt native packaging requires gluten, bolt_backend, and glutenlibloader targets"
+    )
   endif()
 
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -274,7 +281,8 @@ if(BUILD_BOLT)
   elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(BOLT_PACKAGE_PLATFORM "darwin")
   else()
-    message(FATAL_ERROR "Unsupported Bolt package platform: ${CMAKE_SYSTEM_NAME}")
+    message(
+      FATAL_ERROR "Unsupported Bolt package platform: ${CMAKE_SYSTEM_NAME}")
   endif()
 
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
@@ -286,12 +294,14 @@ if(BUILD_BOLT)
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
     set(BOLT_PACKAGE_ARCH "aarch64")
   else()
-    message(FATAL_ERROR
-            "Unsupported Bolt package architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+    message(
+      FATAL_ERROR
+        "Unsupported Bolt package architecture: ${CMAKE_SYSTEM_PROCESSOR}")
   endif()
 
   set(BOLT_NATIVE_PACKAGE_DIR
-      "${CMAKE_SOURCE_DIR}/build/package/bolt/${BOLT_PACKAGE_PLATFORM}/${BOLT_PACKAGE_ARCH}")
+      "${CMAKE_SOURCE_DIR}/build/package/bolt/${BOLT_PACKAGE_PLATFORM}/${BOLT_PACKAGE_ARCH}"
+  )
   add_custom_target(
     package_bolt_native ALL
     COMMAND ${CMAKE_COMMAND} -E rm -rf "${BOLT_NATIVE_PACKAGE_DIR}"

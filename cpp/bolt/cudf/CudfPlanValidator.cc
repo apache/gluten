@@ -17,14 +17,14 @@
  */
 
 #include "CudfPlanValidator.h"
-#include "compute/ResultIterator.h"
+#include "bolt/core/PlanNode.h"
+#include "bolt/exec/TableScan.h"
+#include "bolt/exec/Task.h"
+#include "bolt/experimental/cudf/exec/ToCudf.h"
 #include "compute/BoltBackend.h"
 #include "compute/BoltPlanConverter.h"
+#include "compute/ResultIterator.h"
 #include "operators/plannodes/RowVectorStream.h"
-#include "bolt/core/PlanNode.h"
-#include "bolt/exec/Task.h"
-#include "bolt/exec/TableScan.h"
-#include "bolt/experimental/cudf/exec/ToCudf.h"
 
 using namespace bytedance;
 
@@ -36,8 +36,7 @@ bool CudfPlanValidator::validate(const ::substrait::Plan& substraitPlan) {
   std::vector<std::shared_ptr<ResultIterator>> inputs;
   std::shared_ptr<bytedance::bolt::config::ConfigBase> boltCfg =
       std::make_shared<bytedance::bolt::config::ConfigBase>(std::unordered_map<std::string, std::string>());
-  BoltPlanConverter boltPlanConverter(
-      inputs, boltMemoryPool.get(), boltCfg.get(), std::nullopt, std::nullopt, true);
+  BoltPlanConverter boltPlanConverter(inputs, boltMemoryPool.get(), boltCfg.get(), std::nullopt, std::nullopt, true);
   auto planNode = boltPlanConverter.toBoltPlan(substraitPlan, localFiles);
   std::unordered_set<bolt::core::PlanNodeId> emptySet;
   bolt::core::PlanFragment planFragment{planNode, bolt::core::ExecutionStrategy::kUngrouped, 1, emptySet};

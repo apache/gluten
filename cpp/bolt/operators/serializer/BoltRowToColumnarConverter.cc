@@ -16,8 +16,8 @@
  */
 
 #include "BoltRowToColumnarConverter.h"
-#include "memory/BoltColumnarBatch.h"
 #include "bolt/row/UnsafeRowDeserializers.h"
+#include "memory/BoltColumnarBatch.h"
 // #include "bolt/row/UnsafeRowFast.h"
 #include "bolt/vector/FlatVector.h"
 #include "bolt/vector/arrow/Bridge.h"

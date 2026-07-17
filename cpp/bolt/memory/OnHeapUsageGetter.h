@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include <bolt/common/memory/MemoryUtils.h>
 #include <glog/logging.h>
 #include <jni.h>
-#include <bolt/common/memory/MemoryUtils.h>
 #include <cstdint>
 #include <mutex>
 

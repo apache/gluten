@@ -18,17 +18,17 @@
 #include "BoltUdf.h"
 #include "compute/BoltBackend.h"
 
-#include <google/protobuf/arena.h>
 #include <bolt/expression/SignatureBinder.h>
 #include <bolt/expression/VectorFunction.h>
 #include <bolt/type/fbhive/HiveTypeParser.h>
+#include <google/protobuf/arena.h>
 #include <vector>
 #include "substrait/BoltToSubstraitType.h"
 
 namespace bolt {
 
 void SparkCppUdfRegisterMgr::emplace(std::function<void()>&& registerCallback) {
-    udfRegisterCallbacks_.emplace_back(std::forward<std::function<void()>>(registerCallback));
+  udfRegisterCallbacks_.emplace_back(std::forward<std::function<void()>>(registerCallback));
 }
 
 void SparkCppUdfRegisterMgr::registerUdf() {
@@ -36,8 +36,7 @@ void SparkCppUdfRegisterMgr::registerUdf() {
     for (auto&& cb : udfRegisterCallbacks_) {
       cb();
     }
-  }
-  catch(std::exception& ex) {
+  } catch (std::exception& ex) {
     LOG(ERROR) << "Call UDF register callback: " << ex.what();
   }
 }
@@ -46,7 +45,7 @@ void SparkCppUdfRegisterMgr::registerFunctionName(const std::string& fn, const c
   bytedance::bolt::type::fbhive::HiveTypeParser parser;
   auto arena = std::make_unique<google::protobuf::Arena>();
   auto typeConverter = gluten::BoltToSubstraitTypeConvertor();
-  
+
   auto returnType = parser.parse(retType);
   auto substraitType = typeConverter.toSubstraitType(*arena, returnType);
 
@@ -60,4 +59,4 @@ std::unordered_map<std::string, std::string>& SparkCppUdfRegisterMgr::getUdfMap(
   return udfMap_;
 }
 
-}
+} // namespace bolt

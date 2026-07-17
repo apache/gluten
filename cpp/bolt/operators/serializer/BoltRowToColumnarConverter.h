@@ -18,10 +18,10 @@
 #pragma once
 
 #include <arrow/c/abi.h>
-#include "memory/ColumnarBatch.h"
-#include "operators/r2c/RowToColumnar.h"
 #include "bolt/common/memory/Memory.h"
 #include "bolt/type/Type.h"
+#include "memory/ColumnarBatch.h"
+#include "operators/r2c/RowToColumnar.h"
 
 namespace gluten {
 

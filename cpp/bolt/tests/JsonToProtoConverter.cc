@@ -33,6 +33,6 @@ void JsonToProtoConverter::readFromFile(const std::string& msgPath, google::prot
   auto status = google::protobuf::util::JsonStringToMessage(msgData, &msg);
   GLUTEN_CHECK(
       status.ok(),
-      std::string("Failed to parse Substrait JSON: ") + std::to_string(static_cast<int8_t>(status.code())) +
-          " " + status.message().ToString());
+      std::string("Failed to parse Substrait JSON: ") + std::to_string(static_cast<int8_t>(status.code())) + " " +
+          status.message().ToString());
 }

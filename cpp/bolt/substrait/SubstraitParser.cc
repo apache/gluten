@@ -259,8 +259,7 @@ std::string SubstraitParser::findBoltFunction(
   return mapToBoltFunction(funcName, isDecimal, useIcuRegex);
 }
 
-std::string
-SubstraitParser::mapToBoltFunction(const std::string& substraitFunction, bool isDecimal, bool useIcuRegex) {
+std::string SubstraitParser::mapToBoltFunction(const std::string& substraitFunction, bool isDecimal, bool useIcuRegex) {
   const std::unordered_map<std::string, std::string>& boltFunctionMap = substraitBoltFunctionMap(useIcuRegex);
   auto it = boltFunctionMap.find(substraitFunction);
   if (isDecimal) {
@@ -452,8 +451,7 @@ std::unordered_map<std::string, std::string> SubstraitParser::substraitBoltFunct
       {"regexp_replace", "icu_regexp_replace"},
       {"regexp_rlike", "icu_regexp_rlike"},
       {"rlike", "icu_rlike"}};
-  icuFunc.insert(
-      SubstraitParser::substraitBoltFunctionMap_.begin(), SubstraitParser::substraitBoltFunctionMap_.end());
+  icuFunc.insert(SubstraitParser::substraitBoltFunctionMap_.begin(), SubstraitParser::substraitBoltFunctionMap_.end());
   return icuFunc;
 }();
 

@@ -21,12 +21,12 @@ namespace gluten {
 /// 1) Some Spark functions are registered under different names.
 /// 2) The supported functions vary.
 class SparkExprToSubfieldFilterParser : public bytedance::bolt::exec::ExprToSubfieldFilterParser {
-public:
-std::optional<std::pair<bytedance::bolt::common::Subfield, std::unique_ptr<bytedance::bolt::common::Filter>>>
-leafCallToSubfieldFilter(
-    const bytedance::bolt::core::CallTypedExpr& call,
-    bytedance::bolt::core::ExpressionEvaluator* evaluator,
-    bool negated) override;
+ public:
+  std::optional<std::pair<bytedance::bolt::common::Subfield, std::unique_ptr<bytedance::bolt::common::Filter>>>
+  leafCallToSubfieldFilter(
+      const bytedance::bolt::core::CallTypedExpr& call,
+      bytedance::bolt::core::ExpressionEvaluator* evaluator,
+      bool negated) override;
 };
 
 } // namespace gluten

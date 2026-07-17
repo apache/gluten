@@ -27,7 +27,6 @@
 
 #include <glog/logging.h>
 
-
 // JNI_OnLoad()
 typedef int (*OnLoadFunc)(JavaVM*, void*);
 
@@ -53,7 +52,7 @@ class NativeLibraryLoader {
 
   void loadLibrary(const char* path, int flags) {
     if (!initialized_.load(std::memory_order_acquire)) {
-       LOG(ERROR) << dlerror();
+      LOG(ERROR) << dlerror();
       throw std::logic_error("NativeLibraryLoader is not initialized");
     }
 
@@ -68,9 +67,9 @@ class NativeLibraryLoader {
     OnLoadFunc loadFunc = (OnLoadFunc)dlsym(handle, "JNI_OnLoad");
     char* dlerr = dlerror();
     if (dlerr != nullptr || (!loadFunc)) {
-        dlclose(handle);
-        LOG(ERROR) << dlerr;
-        throw std::logic_error("Cannot load symbol: JNI_OnLoad ");
+      dlclose(handle);
+      LOG(ERROR) << dlerr;
+      throw std::logic_error("Cannot load symbol: JNI_OnLoad ");
     }
     // if (loadFunc) {
     //   (*loadFunc)(vm_, nullptr);
@@ -86,14 +85,14 @@ class NativeLibraryLoader {
 
   void promoteLibrary(const char* path) {
     if (!initialized_.load(std::memory_order_acquire)) {
-        throw std::logic_error("NativeLibraryLoader is not initialized");
+      throw std::logic_error("NativeLibraryLoader is not initialized");
     }
 #ifdef RTLD_NOLOAD
     dlerror();
     void* handle = dlopen(path, RTLD_NOLOAD | RTLD_NOW | RTLD_GLOBAL);
     if (!handle) {
-        const char* error = dlerror();
-        throw std::logic_error(error == nullptr ? "Unable to promote native library" : error);
+      const char* error = dlerror();
+      throw std::logic_error(error == nullptr ? "Unable to promote native library" : error);
     }
     LOG(INFO) << "library: (" << path << ") is promoted to RTLD_GLOBAL";
 #else

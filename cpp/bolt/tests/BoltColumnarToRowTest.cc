@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
+#include "bolt/vector/tests/utils/VectorTestBase.h"
 #include "memory/BoltColumnarBatch.h"
 #include "memory/BoltMemoryManager.h"
 #include "operators/serializer/BoltColumnarToRowConverter.h"
 #include "operators/serializer/BoltRowToColumnarConverter.h"
-#include "bolt/vector/tests/utils/VectorTestBase.h"
 
 #include <gtest/gtest.h>
 

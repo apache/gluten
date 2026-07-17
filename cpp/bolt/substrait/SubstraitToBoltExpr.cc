@@ -18,10 +18,10 @@
 #include "SubstraitToBoltExpr.h"
 
 #include "TypeUtils.h"
-#include "utils/ConfigExtractor.h"
+#include "bolt/type/Timestamp.h"
 #include "bolt/vector/FlatVector.h"
 #include "bolt/vector/VariantToVector.h"
-#include "bolt/type/Timestamp.h"
+#include "utils/ConfigExtractor.h"
 
 using namespace bytedance::bolt;
 
@@ -202,16 +202,14 @@ makeFieldAccessExpr(const std::string& name, const TypePtr& type, core::FieldAcc
 
 } // namespace
 
-
 namespace gluten {
 
-
 SubstraitBoltExprConverter::SubstraitBoltExprConverter(
-      memory::MemoryPool* pool,
-      const std::unordered_map<uint64_t, std::string>& functionMap,
-      const std::unordered_map<std::string, std::string>& confMap)
-      : pool_(pool), functionMap_(functionMap), confMap_(confMap) {
-    useIcuRegex_ = useIcuRegex(confMap);
+    memory::MemoryPool* pool,
+    const std::unordered_map<uint64_t, std::string>& functionMap,
+    const std::unordered_map<std::string, std::string>& confMap)
+    : pool_(pool), functionMap_(functionMap), confMap_(confMap) {
+  useIcuRegex_ = useIcuRegex(confMap);
 }
 
 std::shared_ptr<const core::FieldAccessTypedExpr> SubstraitBoltExprConverter::toBoltExpr(
@@ -304,7 +302,8 @@ core::TypedExprPtr SubstraitBoltExprConverter::toBoltExpr(
   for (const auto& sArg : substraitFunc.arguments()) {
     params.emplace_back(toBoltExpr(sArg.value(), inputType));
   }
-  const auto& boltFunction = SubstraitParser::findBoltFunction(functionMap_, substraitFunc.function_reference(), useIcuRegex_);
+  const auto& boltFunction =
+      SubstraitParser::findBoltFunction(functionMap_, substraitFunc.function_reference(), useIcuRegex_);
   const auto& outputType = SubstraitParser::parseType(substraitFunc.output_type());
 
   if (boltFunction == "lambdafunction") {
@@ -335,7 +334,8 @@ std::shared_ptr<const core::ConstantTypedExpr> SubstraitBoltExprConverter::liter
   }
   BOLT_CHECK(literalType.has_value(), "Type expected.");
   auto varArray = variant::array(variants);
-  ArrayVectorPtr arrayVector = bytedance::bolt::core::variantArrayToVector(ARRAY(literalType.value()), varArray.array(), pool_);
+  ArrayVectorPtr arrayVector =
+      bytedance::bolt::core::variantArrayToVector(ARRAY(literalType.value()), varArray.array(), pool_);
   // Wrap the array vector into constant vector.
   auto constantVector = BaseVector::wrapInConstant(1 /*length*/, 0 /*index*/, arrayVector);
   return std::make_shared<const core::ConstantTypedExpr>(constantVector);
@@ -507,8 +507,7 @@ VectorPtr SubstraitBoltExprConverter::literalsToVector(
       auto boltType = getScalarType(elementAtFunc(0));
       if (boltType) {
         auto kind = boltType->kind();
-        return BOLT_DYNAMIC_SCALAR_TYPE_DISPATCH(
-            constructFlatVector, kind, elementAtFunc, childSize, boltType, pool_);
+        return BOLT_DYNAMIC_SCALAR_TYPE_DISPATCH(constructFlatVector, kind, elementAtFunc, childSize, boltType, pool_);
       }
       BOLT_NYI("literals not supported for type case '{}'", std::to_string(childTypeCase));
   }
@@ -539,8 +538,7 @@ RowVectorPtr SubstraitBoltExprConverter::literalsToRowVector(const ::substrait::
       case ::substrait::Expression_Literal::LiteralTypeCase::kNull: {
         auto boltType = SubstraitParser::parseType(child.null());
         auto kind = boltType->kind();
-        auto vecPtr =
-            BOLT_DYNAMIC_SCALAR_TYPE_DISPATCH(constructFlatVectorForStruct, kind, child, 1, boltType, pool_);
+        auto vecPtr = BOLT_DYNAMIC_SCALAR_TYPE_DISPATCH(constructFlatVectorForStruct, kind, child, 1, boltType, pool_);
         vectors.emplace_back(vecPtr);
         break;
       }

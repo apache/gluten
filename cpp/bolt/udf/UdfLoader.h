@@ -21,9 +21,9 @@
 #include <google/protobuf/arena.h>
 #include <unordered_map>
 #include <vector>
-#include "substrait/BoltToSubstraitType.h"
 #include "bolt/type/Type.h"
 #include "bolt/type/fbhive/HiveTypeParser.h"
+#include "substrait/BoltToSubstraitType.h"
 
 namespace gluten {
 

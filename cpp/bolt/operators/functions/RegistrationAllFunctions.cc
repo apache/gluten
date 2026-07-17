@@ -16,11 +16,11 @@
  */
 #include "operators/functions/RegistrationAllFunctions.h"
 
+#include "bolt/expression/SpecialFormRegistry.h"
+#include "bolt/expression/VectorFunction.h"
 #include "operators/functions/Arithmetic.h"
 #include "operators/functions/RowConstructorWithNull.h"
 #include "operators/functions/RowFunctionWithNull.h"
-#include "bolt/expression/SpecialFormRegistry.h"
-#include "bolt/expression/VectorFunction.h"
 // #include "bolt/functions/iceberg/Register.h"
 #include "bolt/functions/lib/CheckedArithmetic.h"
 #include "bolt/functions/lib/RegistrationHelpers.h"
@@ -96,7 +96,7 @@ void registerAllFunctions() {
   // and Bolt.
   registerFunctionOverwrite();
 
-  // Note: iceberg disabled for now. 
+  // Note: iceberg disabled for now.
   // TODO: sync bolt and uncomment it
   // bolt::functions::iceberg::registerFunctions();
 }

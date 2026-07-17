@@ -23,9 +23,9 @@
 #include "utils/ConfigExtractor.h"
 #include "utils/Exception.h"
 
-#include "memory/BoltMemoryManager.h"
 #include "bolt/common/compression/Compression.h"
 #include "bolt/type/Type.h"
+#include "memory/BoltMemoryManager.h"
 
 namespace gluten {
 
@@ -93,7 +93,7 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
   };
   writeOption->parquetWriteTimestampTimeZone = getConfigValue(sparkConfs, kSessionTimezone, std::nullopt);
   // writeOption->arrowPool_ =
-      // getDefaultMemoryManager()->getOrCreateArrowMemoryPool("BoltParquetWrite.ArrowMemoryPool");
+  // getDefaultMemoryManager()->getOrCreateArrowMemoryPool("BoltParquetWrite.ArrowMemoryPool");
   if (auto it = sparkConfs.find(kParquetDataPageSize); it != sparkConfs.end()) {
     auto dataPageSize = std::stoi(it->second);
     writeOption->dataPageSize = dataPageSize;

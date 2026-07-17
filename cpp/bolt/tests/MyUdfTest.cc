@@ -16,10 +16,10 @@
  */
 
 #include <vector>
-#include "udf/UdfLoader.h"
 #include "bolt/expression/SimpleFunctionRegistry.h"
 #include "bolt/functions/prestosql/tests/utils/FunctionBaseTest.h"
 #include "bolt/parse/TypeResolver.h"
+#include "udf/UdfLoader.h"
 
 using namespace bytedance::bolt::functions::test;
 using namespace bytedance::bolt;

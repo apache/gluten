@@ -18,28 +18,28 @@
 #pragma once
 
 #include <functional>
-#include <vector>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "bolt/functions/lib/RegistrationHelpers.h"
 #include "bolt/type/Type.h"
 
 #ifndef BOLT_CONCATE_
-  #define BOLT_CONCATE_(X,Y) X##Y
-  #define BOLT_CONCATE(X,Y) BOLT_CONCATE_(X,Y)
+#define BOLT_CONCATE_(X, Y) X##Y
+#define BOLT_CONCATE(X, Y) BOLT_CONCATE_(X, Y)
 #endif
 
 #ifndef BOLT_UNIQUE_IDENTIFIER
-  #ifdef __COUNTER__
-    #define BOLT_UNIQUE_IDENTIFIER(prefix) BOLT_CONCATE(prefix, __COUNTER__)
-  #else
-    #define BOLT_UNIQUE_IDENTIFIER(prefix) BOLT_CONCATE(prefix, __LINE__)
-  #endif // __COUNTER__
-#endif 
+#ifdef __COUNTER__
+#define BOLT_UNIQUE_IDENTIFIER(prefix) BOLT_CONCATE(prefix, __COUNTER__)
+#else
+#define BOLT_UNIQUE_IDENTIFIER(prefix) BOLT_CONCATE(prefix, __LINE__)
+#endif // __COUNTER__
+#endif
 
-
-#define SPARK_UDF_REGISTER [[maybe_unused]] static bolt::UdfRegisterStaticVar BOLT_UNIQUE_IDENTIFIER(block)  = []() -> void
+#define SPARK_UDF_REGISTER \
+  [[maybe_unused]] static bolt::UdfRegisterStaticVar BOLT_UNIQUE_IDENTIFIER(block) = []() -> void
 
 // NOTE: Make no sense, just for making sure all the symbols are imported.
 extern bool exportModuleBoltBackend;
@@ -48,46 +48,46 @@ extern bool exportModuleBoltBackend;
 namespace bolt {
 
 class SparkCppUdfRegisterMgr {
-public:
-    void emplace(std::function<void()>&& registerCallback);
+ public:
+  void emplace(std::function<void()>&& registerCallback);
 
-    SparkCppUdfRegisterMgr() = default;
+  SparkCppUdfRegisterMgr() = default;
 
-    // Make this class non-movable and non-copiable.
-    SparkCppUdfRegisterMgr(SparkCppUdfRegisterMgr&) = delete;
-    SparkCppUdfRegisterMgr(SparkCppUdfRegisterMgr&&) = delete;
+  // Make this class non-movable and non-copiable.
+  SparkCppUdfRegisterMgr(SparkCppUdfRegisterMgr&) = delete;
+  SparkCppUdfRegisterMgr(SparkCppUdfRegisterMgr&&) = delete;
 
-    static SparkCppUdfRegisterMgr& getInstance() {
-        static SparkCppUdfRegisterMgr mgr;
-        return mgr;
-    }
+  static SparkCppUdfRegisterMgr& getInstance() {
+    static SparkCppUdfRegisterMgr mgr;
+    return mgr;
+  }
 
-    void registerUdf();
+  void registerUdf();
 
-    void registerFunctionName(const std::string& fn, const char* funName);
+  void registerFunctionName(const std::string& fn, const char* funName);
 
-    std::unordered_map<std::string, std::string>& getUdfMap();
+  std::unordered_map<std::string, std::string>& getUdfMap();
 
-private:
-    std::vector<std::function<void()>> udfRegisterCallbacks_{};
+ private:
+  std::vector<std::function<void()>> udfRegisterCallbacks_{};
 
-    // <alias, return_type_name> 
-    // for registering it into Spark
-    std::unordered_map<std::string, std::string> udfMap_{};
+  // <alias, return_type_name>
+  // for registering it into Spark
+  std::unordered_map<std::string, std::string> udfMap_{};
 };
 
-class UdfRegisterStaticVar
-{
-public:
-  template<typename F> UdfRegisterStaticVar (F&& lambda) {    
+class UdfRegisterStaticVar {
+ public:
+  template <typename F>
+  UdfRegisterStaticVar(F&& lambda) {
     SparkCppUdfRegisterMgr::getInstance().emplace(std::forward<F>(lambda));
 
     IMPORT_STATIC_LINK_MODULE_BOLT_BACKEND;
-  }  
+  }
 };
 
 /// bolt register wrapper
-/// so that function name can be registered into Spark or Flink 
+/// so that function name can be registered into Spark or Flink
 template <template <class> typename Func, typename TReturn, typename... TArgs>
 void registerFunction(const std::vector<std::string>& aliases = {}) {
   const char* retTypeName = bytedance::bolt::SimpleTypeTrait<TReturn>::name;
@@ -98,4 +98,4 @@ void registerFunction(const std::vector<std::string>& aliases = {}) {
   bytedance::bolt::registerFunction<Func, TReturn, TArgs...>(aliases);
 }
 
-} // ~ns bolt
+} // namespace bolt
