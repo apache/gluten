@@ -1229,6 +1229,33 @@ jobs:
           $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
           -Pspark-ut -Pdelta -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
           -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+      - name: Print Surefire and JVM crash files
+        if: always()
+        shell: bash
+        run: |
+          echo "=== Surefire reports ==="
+          find . -path '*/target/surefire-reports/*' -type f -maxdepth 8 \
+            -exec sh -c 'echo "----- $1"; cat "$1"' _ {} \; || true
+
+          echo "=== Surefire dump files ==="
+          find . -path '*/target/surefire/*' \
+            \( -name '*.dump' -o -name '*.dumpstream' \) -type f \
+            -exec sh -c 'echo "----- $1"; cat "$1"' _ {} \; || true
+
+          echo "=== JVM fatal-error logs ==="
+          find . /tmp -name 'hs_err_pid*.log' -type f 2>/dev/null \
+            -exec sh -c 'echo "----- $1"; cat "$1"' _ {} \; || true
+      - name: Upload full diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maven-crash-diagnostics
+          if-no-files-found: warn
+          path: |
+            **/target/surefire-reports/**
+            **/target/surefire/*.dump
+            **/target/surefire/*.dumpstream
+            **/hs_err_pid*.log
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
