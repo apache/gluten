@@ -17,8 +17,8 @@
 
 #include <vector>
 
-#include "operators/functions/RegistrationAllFunctions.h"
 #include "bolt/functions/sparksql/tests/SparkFunctionBaseTest.h"
+#include "operators/functions/RegistrationAllFunctions.h"
 
 using namespace bytedance::bolt::functions::sparksql::test;
 using namespace bytedance::bolt;

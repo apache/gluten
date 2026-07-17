@@ -18,8 +18,8 @@
 #pragma once
 
 #include "operators/writer/BoltParquetDataSource.h"
-#include "utils/ConfigExtractor.h"
 #include "utils/BoltArrowUtils.h"
+#include "utils/ConfigExtractor.h"
 
 #include <string>
 

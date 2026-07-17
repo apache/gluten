@@ -18,8 +18,8 @@
 #pragma once
 
 #include <arrow/io/memory.h>
-#include "utils/Exception.h"
 #include "bolt/common/memory/ByteStream.h"
+#include "utils/Exception.h"
 
 namespace gluten {
 

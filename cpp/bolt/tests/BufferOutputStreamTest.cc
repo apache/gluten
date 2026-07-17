@@ -16,11 +16,11 @@
  */
 
 #include "memory/BufferOutputStream.h"
-#include "compute/BoltBackend.h"
-#include "memory/BoltColumnarBatch.h"
 #include "bolt/common/memory/ByteStream.h"
 #include "bolt/vector/tests/utils/VectorTestBase.h"
+#include "compute/BoltBackend.h"
 #include "config/GlutenConfig.h"
+#include "memory/BoltColumnarBatch.h"
 
 using namespace bytedance::bolt;
 

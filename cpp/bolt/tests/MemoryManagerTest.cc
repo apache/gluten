@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
+#include "bolt/common/base/tests/GTestUtils.h"
 #include "compute/BoltBackend.h"
 #include "config/BoltConfig.h"
 #include "memory/BoltMemoryManager.h"
-#include "bolt/common/base/tests/GTestUtils.h"
 
 namespace gluten {
 

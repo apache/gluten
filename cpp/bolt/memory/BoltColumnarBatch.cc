@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 #include "BoltColumnarBatch.h"
-#include "compute/BoltRuntime.h"
-#include "utils/Timer.h"
-#include "utils/BoltArrowUtils.h"
 #include "bolt/row/UnsafeRowFast.h"
 #include "bolt/type/Type.h"
 #include "bolt/vector/FlatVector.h"
+#include "compute/BoltRuntime.h"
+#include "utils/BoltArrowUtils.h"
+#include "utils/Timer.h"
 
 namespace gluten {
 

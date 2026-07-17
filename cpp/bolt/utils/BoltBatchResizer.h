@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-#include "memory/ColumnarBatchIterator.h"
-#include "memory/BoltColumnarBatch.h"
-#include "utils/Exception.h"
 #include "bolt/common/memory/MemoryPool.h"
 #include "bolt/vector/ComplexVector.h"
+#include "memory/BoltColumnarBatch.h"
+#include "memory/ColumnarBatchIterator.h"
+#include "utils/Exception.h"
 
 namespace gluten {
 

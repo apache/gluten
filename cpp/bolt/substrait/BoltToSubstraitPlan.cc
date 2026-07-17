@@ -368,8 +368,7 @@ const ::substrait::SortRel& BoltToSubstraitPlanConvertor::processSortFields(
     const bytedance::bolt::RowTypePtr& inputType) {
   ::substrait::SortRel* sortRel = google::protobuf::Arena::CreateMessage<::substrait::SortRel>(&arena);
 
-  BOLT_CHECK_EQ(
-      sortingKeys.size(), sortingOrders.size(), "Number of sorting keys and sorting orders must be the same");
+  BOLT_CHECK_EQ(sortingKeys.size(), sortingOrders.size(), "Number of sorting keys and sorting orders must be the same");
 
   for (int64_t i = 0; i < sortingKeys.size(); i++) {
     ::substrait::SortField* sortField = sortRel->add_sorts();

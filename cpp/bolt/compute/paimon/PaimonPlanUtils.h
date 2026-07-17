@@ -17,60 +17,62 @@
 
 #pragma once
 #include <fmt/ranges.h>
+#include <unordered_map>
 #include "dwio/common/Options.h"
 #include "substrait/SubstraitToBoltPlan.h"
-#include <unordered_map>
 
 namespace gluten::paimon {
 
-
 struct PaimonSplitInfo : SplitInfo {
-    struct FileMeta {
-        dwio::common::FileFormat format;
-        int32_t bucket;
-        int64_t firstRowId;
-        int64_t maxSequenceNumber;
-        int32_t splitGroup;
-        bool useHiveSplit;
-        std::vector<std::string> primaryKeys;
-        bool rawConvertible;
-    };
+  struct FileMeta {
+    dwio::common::FileFormat format;
+    int32_t bucket;
+    int64_t firstRowId;
+    int64_t maxSequenceNumber;
+    int32_t splitGroup;
+    bool useHiveSplit;
+    std::vector<std::string> primaryKeys;
+    bool rawConvertible;
+  };
 
-    std::unordered_map<std::string, FileMeta> metaByPath_;
+  std::unordered_map<std::string, FileMeta> metaByPath_;
 
-    explicit PaimonSplitInfo(const SplitInfo& splitInfo)
-        : SplitInfo(splitInfo) {}
+  explicit PaimonSplitInfo(const SplitInfo& splitInfo) : SplitInfo(splitInfo) {}
 
-    const FileMeta& metaAt(size_t i) const {
-        const auto& path = paths.at(i);
-        auto it = metaByPath_.find(path);
-        if (it == metaByPath_.end()) {
-            throw std::runtime_error("Missing Paimon split meta for path: " + path);
-        }
-        return it->second;
+  const FileMeta& metaAt(size_t i) const {
+    const auto& path = paths.at(i);
+    auto it = metaByPath_.find(path);
+    if (it == metaByPath_.end()) {
+      throw std::runtime_error("Missing Paimon split meta for path: " + path);
+    }
+    return it->second;
+  }
+
+  const std::string toString() const {
+    // convert metaByPath to string
+    std::ostringstream metaByPathStr;
+    for (const auto& [path, meta] : metaByPath_) {
+      metaByPathStr << fmt::format(
+          "{}: {{format: {}, bucket: {}, firstRowId: {}, maxSequenceNumber: {}, splitGroup: {}, useHiveSplit: {}, primaryKeys: {}}}",
+          path,
+          dwio::common::toString(meta.format),
+          meta.bucket,
+          meta.firstRowId,
+          meta.maxSequenceNumber,
+          meta.splitGroup,
+          meta.useHiveSplit,
+          meta.primaryKeys);
     }
 
-    const std::string toString() const {
-        // convert metaByPath to string
-        std::ostringstream metaByPathStr;
-        for (const auto& [path, meta] : metaByPath_) {
-            metaByPathStr << fmt::format("{}: {{format: {}, bucket: {}, firstRowId: {}, maxSequenceNumber: {}, splitGroup: {}, useHiveSplit: {}, primaryKeys: {}}}",
-                path, dwio::common::toString(meta.format), meta.bucket, meta.firstRowId, meta.maxSequenceNumber, meta.splitGroup, meta.useHiveSplit, meta.primaryKeys);
-        }
-
-        return fmt::format(
-            "PaimonSplitInfo[{}, {}]",
-            dwio::common::toString(format), metaByPathStr.str());
-    }
-
+    return fmt::format("PaimonSplitInfo[{}, {}]", dwio::common::toString(format), metaByPathStr.str());
+  }
 };
 
 class PaimonPlanUtils {
-public:
-    static std::shared_ptr<PaimonSplitInfo> parsePaimonSplitInfo(
+ public:
+  static std::shared_ptr<PaimonSplitInfo> parsePaimonSplitInfo(
       substrait::ReadRel_LocalFiles_FileOrFiles file,
       std::shared_ptr<SplitInfo> splitInfo);
 };
-
 
 } // namespace gluten::paimon

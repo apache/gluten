@@ -16,11 +16,11 @@
  */
 
 #include "../utils/BoltArrowUtils.h"
+#include "bolt/vector/tests/utils/VectorTestBase.h"
 #include "memory/ArrowMemoryPool.h"
 #include "memory/BoltColumnarBatch.h"
 #include "operators/serializer//BoltColumnarToRowConverter.h"
 #include "operators/serializer//BoltRowToColumnarConverter.h"
-#include "bolt/vector/tests/utils/VectorTestBase.h"
 
 using namespace bytedance;
 using namespace bytedance::bolt;

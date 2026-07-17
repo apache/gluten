@@ -79,7 +79,6 @@ class RowFunctionWithNull final : public bytedance::bolt::exec::VectorFunction {
   bool isDefaultNullBehavior() const override {
     return false;
   }
-
 };
 
 } // namespace gluten

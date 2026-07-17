@@ -34,7 +34,9 @@ namespace gluten {
 
 class BoltShuffleWriterWrapper : public ShuffleWriterBase {
  public:
-  static bytedance::bolt::shuffle::sparksql::ShuffleWriterOptions getOptionsFromInfo(const ShuffleWriterInfo& info, std::shared_ptr<RssClient> rssClient) {
+  static bytedance::bolt::shuffle::sparksql::ShuffleWriterOptions getOptionsFromInfo(
+      const ShuffleWriterInfo& info,
+      std::shared_ptr<RssClient> rssClient) {
     auto shuffleWriterOptions = bytedance::bolt::shuffle::sparksql::ShuffleWriterOptions{
         .bufferSize = info.buffer_size(),
         .bufferReallocThreshold = info.realloc_threshold(),
@@ -51,9 +53,8 @@ class BoltShuffleWriterWrapper : public ShuffleWriterBase {
         .recommendedColumn2RowSize = info.recommended_c2r_size(),
         .shuffleCheckRatio = info.shuffle_check_ratio(),
     };
-    shuffleWriterOptions.rowFormat =
-        info.row_format() == "dense" ? bytedance::bolt::row::RowFormat::DENSE
-                                     : bytedance::bolt::row::RowFormat::COMPACT;
+    shuffleWriterOptions.rowFormat = info.row_format() == "dense" ? bytedance::bolt::row::RowFormat::DENSE
+                                                                  : bytedance::bolt::row::RowFormat::COMPACT;
 
     // Convert codec string into lowercase.
     std::string codecLower;
@@ -72,9 +73,10 @@ class BoltShuffleWriterWrapper : public ShuffleWriterBase {
         .compressionMode = info.compression_mode(),
         .bufferedWrite = true,
         .numSubDirs = info.num_sub_dirs(),
-        .pushBufferMaxSize =
-            info.push_buffer_max_size() > 0 ? info.push_buffer_max_size() : bytedance::bolt::shuffle::sparksql::kDefaultShuffleWriterBufferSize,
-	.shuffleBufferSize = info.shuffle_batch_byte_size(),
+        .pushBufferMaxSize = info.push_buffer_max_size() > 0
+            ? info.push_buffer_max_size()
+            : bytedance::bolt::shuffle::sparksql::kDefaultShuffleWriterBufferSize,
+        .shuffleBufferSize = info.shuffle_batch_byte_size(),
         .rowvectorModeCompressionMinColumns = info.row_compression_min_cols(),
         .rowvectorModeCompressionMaxBufferSize = info.row_compression_max_buffer(),
 
@@ -124,18 +126,17 @@ class BoltShuffleWriterWrapper : public ShuffleWriterBase {
       int64_t firstBatchFlatSize,
       bytedance::bolt::memory::MemoryPool* boltPool,
       arrow::MemoryPool* pool)
-      : shuffleWriter_(
-            bytedance::bolt::shuffle::sparksql::BoltShuffleWriter::create(
-                getOptionsFromInfo(info, rssClient),
-                numColumnsExcludePid,
-                firstBatchRowNumber,
-                firstBatchFlatSize,
-                info.mem_limit(),
-                boltPool,
-                pool)) {}
+      : shuffleWriter_(bytedance::bolt::shuffle::sparksql::BoltShuffleWriter::create(
+            getOptionsFromInfo(info, rssClient),
+            numColumnsExcludePid,
+            firstBatchRowNumber,
+            firstBatchFlatSize,
+            info.mem_limit(),
+            boltPool,
+            pool)) {}
 
-  BoltShuffleWriterWrapper(
-      std::shared_ptr<bytedance::bolt::shuffle::sparksql::BoltShuffleWriter> shuffleWriter) : shuffleWriter_(std::move(shuffleWriter)) {}
+  BoltShuffleWriterWrapper(std::shared_ptr<bytedance::bolt::shuffle::sparksql::BoltShuffleWriter> shuffleWriter)
+      : shuffleWriter_(std::move(shuffleWriter)) {}
 
   virtual arrow::Status split(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) {
     // Note: if cb is a CompositeColumnarBatch, it will combine into one RowVector here.

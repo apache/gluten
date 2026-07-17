@@ -30,6 +30,7 @@
 #include "compute/BoltBackend.h"
 #include "compute/BoltRuntime.h"
 #include "compute/Runtime.h"
+#include "config/BoltConfig.h"
 #include "config/GlutenConfig.h"
 #include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
@@ -45,7 +46,6 @@
 #include "substrait/SubstraitToBoltPlanValidator.h"
 #include "utils/BoltBatchResizer.h"
 #include "utils/ObjectStore.h"
-#include "config/BoltConfig.h"
 
 #ifdef GLUTEN_ENABLE_GPU
 #include "cudf/CudfPlanValidator.h"

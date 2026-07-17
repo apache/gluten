@@ -15,8 +15,10 @@
 
 add_library(myudf SHARED "MyUDF.cc")
 target_link_libraries(myudf bolt::bolt)
-target_include_directories(myudf PRIVATE ${CMAKE_SOURCE_DIR}/bolt ${CMAKE_SOURCE_DIR}/core)
+target_include_directories(myudf PRIVATE ${CMAKE_SOURCE_DIR}/bolt
+                                         ${CMAKE_SOURCE_DIR}/core)
 
 add_library(myudaf SHARED "MyUDAF.cc")
 target_link_libraries(myudaf bolt::bolt)
-target_include_directories(myudaf PRIVATE ${CMAKE_SOURCE_DIR}/bolt ${CMAKE_SOURCE_DIR}/core)
+target_include_directories(myudaf PRIVATE ${CMAKE_SOURCE_DIR}/bolt
+                                          ${CMAKE_SOURCE_DIR}/core)

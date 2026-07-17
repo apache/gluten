@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include "bolt/common/memory/MemoryPool.h"
 #include "compute/ResultIterator.h"
 #include "memory/ColumnarBatchIterator.h"
-#include "bolt/common/memory/MemoryPool.h"
 
 namespace gluten {
 

@@ -17,18 +17,18 @@
 
 #include "memory/BoltGlutenMemoryManager.h"
 
-#include <fmt/core.h>
-#include <fmt/format.h>
-#include <folly/String.h>
-#include <unistd.h>
 #include <bolt/common/base/Exceptions.h>
+#include <bolt/common/config/Config.h>
 #include <bolt/common/memory/MemoryUtils.h>
 #include <bolt/common/memory/sparksql/ConfigurationResolver.h>
 #include <bolt/common/memory/sparksql/MemoryTarget.h>
 #include <bolt/common/memory/sparksql/OomPrinter.h>
 #include <bolt/common/memory/sparksql/Spiller.h>
-#include <bolt/common/config/Config.h>
 #include <bolt/common/process/StackTrace.h>
+#include <fmt/core.h>
+#include <fmt/format.h>
+#include <folly/String.h>
+#include <unistd.h>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
@@ -130,15 +130,16 @@ int64_t BoltGlutenMemoryManager::getTaskMemoryCapacity(const std::unordered_map<
   using bytedance::bolt::memory::sparksql::ConfigurationResolver;
 
   const char* specialCapacity = "0";
-  int64_t capacity = ConfigurationResolver::getIntParamFromConf(
-      conf, ConfigurationResolver::kMemoryOffHeapBytes, specialCapacity);
+  int64_t capacity =
+      ConfigurationResolver::getIntParamFromConf(conf, ConfigurationResolver::kMemoryOffHeapBytes, specialCapacity);
   if (capacity == 0) {
-    std::string anotherCapacity = ConfigurationResolver::getStringParamFromConf(
-        conf, ConfigurationResolver::kMemoryOffHeap, specialCapacity);
+    std::string anotherCapacity =
+        ConfigurationResolver::getStringParamFromConf(conf, ConfigurationResolver::kMemoryOffHeap, specialCapacity);
     capacity = bytedance::bolt::config::toCapacity(anotherCapacity, bytedance::bolt::config::CapacityUnit::BYTE);
   }
   if (capacity <= 0) {
-    LOG(ERROR) << "Unexpected BoltMemoryManager's capacity, capacity is: " << capacity << ", stack is: " << bytedance::bolt::process::StackTrace().toString();
+    LOG(ERROR) << "Unexpected BoltMemoryManager's capacity, capacity is: " << capacity
+               << ", stack is: " << bytedance::bolt::process::StackTrace().toString();
   }
   GLUTEN_CHECK(capacity > 0, "BoltMemoryManager expects capacity is bigger than 0");
   return capacity;
@@ -192,8 +193,9 @@ bool BoltGlutenMemoryManager::enabled() {
   return enabled_;
 }
 
-bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder*
-BoltGlutenMemoryManager::getMemoryManagerHolder(int64_t taskId, int64_t memoryManagerHandle) {
+bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder* BoltGlutenMemoryManager::getMemoryManagerHolder(
+    int64_t taskId,
+    int64_t memoryManagerHandle) {
   std::lock_guard<std::mutex> guard(lock_);
 
   GLUTEN_CHECK(enabled_, "Expect BoltMemoryManager enabled");

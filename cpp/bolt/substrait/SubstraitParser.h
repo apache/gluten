@@ -81,7 +81,8 @@ class SubstraitParser {
 
   /// Used to find the Bolt function name according to the function id
   /// from a pre-constructed function map.
-  static std::string findBoltFunction(const std::unordered_map<uint64_t, std::string>& functionMap, uint64_t id, bool useIcuRegex);
+  static std::string
+  findBoltFunction(const std::unordered_map<uint64_t, std::string>& functionMap, uint64_t id, bool useIcuRegex);
 
   /// Map the Substrait function keyword into Bolt function keyword.
   static std::string mapToBoltFunction(const std::string& substraitFunction, bool isDecimal, bool useIcuRegex);

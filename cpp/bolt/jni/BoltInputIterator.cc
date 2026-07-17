@@ -23,8 +23,7 @@
 
 namespace gluten {
 
-std::unique_ptr<ColumnarBatchIterator> BoltRuntime::createJniInputIterator(
-    const JniInputIteratorContext& context) {
+std::unique_ptr<ColumnarBatchIterator> BoltRuntime::createJniInputIterator(const JniInputIteratorContext& context) {
   const bool parallelEnabled = getBoolConfigValue(getConfMap(), kGlutenEnableParallel, false);
   LOG(INFO) << "nativeCreateKernelWithIterator parallelEnabled=" << parallelEnabled;
 

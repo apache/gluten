@@ -18,9 +18,6 @@
 #include "FilePathGenerator.h"
 #include "JsonToProtoConverter.h"
 
-#include "memory/BoltMemoryManager.h"
-#include "substrait/SubstraitToBoltPlan.h"
-#include "substrait/SubstraitToBoltPlanValidator.h"
 #include "bolt/common/base/tests/GTestUtils.h"
 #include "bolt/dwio/common/tests/utils/DataFiles.h"
 #include "bolt/exec/tests/utils/AssertQueryBuilder.h"
@@ -28,6 +25,9 @@
 #include "bolt/exec/tests/utils/PlanBuilder.h"
 #include "bolt/exec/tests/utils/TempDirectoryPath.h"
 #include "bolt/type/Type.h"
+#include "memory/BoltMemoryManager.h"
+#include "substrait/SubstraitToBoltPlan.h"
+#include "substrait/SubstraitToBoltPlanValidator.h"
 
 using namespace bytedance::bolt;
 using namespace bytedance::bolt::test;

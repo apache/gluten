@@ -22,9 +22,9 @@
 
 #include <vector>
 
+#include "bolt/serializers/PrestoSerializer.h"
 #include "memory/ColumnarBatch.h"
 #include "operators/serializer/ColumnarBatchSerializer.h"
-#include "bolt/serializers/PrestoSerializer.h"
 
 namespace gluten {
 

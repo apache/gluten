@@ -17,13 +17,13 @@
 
 #include "benchmarks/common/BenchmarkUtils.h"
 
+#include "bolt/dwio/common/Options.h"
 #include "compute/BoltBackend.h"
 #include "compute/BoltRuntime.h"
 #include "config/BoltConfig.h"
 #include "shuffle/Utils.h"
 #include "shuffle/sparksql/Utils.h"
 #include "utils/StringUtil.h"
-#include "bolt/dwio/common/Options.h"
 
 #include <benchmark/benchmark.h>
 

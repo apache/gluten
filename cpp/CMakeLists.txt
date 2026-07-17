@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if (ENABLE_BOLT) 
+if(ENABLE_BOLT)
   include(bolt.CMakeLists.cmake)
   return()
 endif()

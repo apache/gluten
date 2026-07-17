@@ -18,9 +18,9 @@
 #pragma once
 
 #include "IcebergNestedField.pb.h"
-#include "memory/BoltColumnarBatch.h"
 #include "bolt/connectors/hive/iceberg/IcebergColumnHandle.h"
 #include "bolt/connectors/hive/iceberg/IcebergDataSink.h"
+#include "memory/BoltColumnarBatch.h"
 
 namespace gluten {
 

@@ -27,9 +27,9 @@
 #include "arrow/c/bridge.h"
 #include "compute/BoltRuntime.h"
 
+#include "config/BoltConfig.h"
 #include "utils/BoltArrowUtils.h"
 #include "utils/BoltWriterUtils.h"
-#include "config/BoltConfig.h"
 
 using namespace bytedance;
 using namespace bytedance::bolt::dwio::common;

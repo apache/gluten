@@ -17,9 +17,9 @@
 
 #include "bolt/common/base/tests/GTestUtils.h"
 
+#include "substrait/BoltToSubstraitType.h"
 #include "substrait/SubstraitParser.h"
 #include "substrait/TypeUtils.h"
-#include "substrait/BoltToSubstraitType.h"
 
 using namespace bytedance::bolt;
 

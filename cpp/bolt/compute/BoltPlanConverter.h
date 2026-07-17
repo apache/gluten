@@ -18,11 +18,11 @@
 #pragma once
 
 #include <bolt/common/memory/MemoryPool.h>
+#include "bolt/core/PlanNode.h"
 #include "compute/ResultIterator.h"
 #include "memory/BoltMemoryManager.h"
 #include "substrait/SubstraitToBoltPlan.h"
 #include "substrait/plan.pb.h"
-#include "bolt/core/PlanNode.h"
 
 namespace gluten {
 

@@ -68,8 +68,9 @@ class BoltGlutenMemoryManager final {
 
   static bool enabled();
 
-  static bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder*
-  getMemoryManagerHolder(int64_t taskId, int64_t memoryManagerHandle);
+  static bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder* getMemoryManagerHolder(
+      int64_t taskId,
+      int64_t memoryManagerHandle);
 
   static void destroy(int64_t taskId, int64_t memoryManagerHandle);
 

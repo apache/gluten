@@ -18,12 +18,12 @@
 #include "IcebergWriter.h"
 
 #include "IcebergPartitionSpec.pb.h"
+#include "bolt/connectors/hive/iceberg/IcebergDataSink.h"
+#include "bolt/connectors/hive/iceberg/IcebergDeleteFile.h"
 #include "compute/ProtobufUtils.h"
 #include "compute/iceberg/IcebergFormat.h"
 #include "config/BoltConfig.h"
 #include "utils/ConfigExtractor.h"
-#include "bolt/connectors/hive/iceberg/IcebergDataSink.h"
-#include "bolt/connectors/hive/iceberg/IcebergDeleteFile.h"
 
 using namespace bytedance::bolt;
 using namespace bytedance::bolt::connector::hive;
@@ -62,21 +62,19 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
   }
   for (auto i = 0; i < columnNames.size(); ++i) {
     if (std::find(partitionColumns.begin(), partitionColumns.end(), columnNames[i]) != partitionColumns.end()) {
-      columnHandles.push_back(
-          std::make_shared<iceberg::IcebergColumnHandle>(
-              columnNames.at(i),
-              connector::hive::HiveColumnHandle::ColumnType::kPartitionKey,
-              columnTypes.at(i),
-              columnTypes.at(i),
-              nestedField.children[i]));
+      columnHandles.push_back(std::make_shared<iceberg::IcebergColumnHandle>(
+          columnNames.at(i),
+          connector::hive::HiveColumnHandle::ColumnType::kPartitionKey,
+          columnTypes.at(i),
+          columnTypes.at(i),
+          nestedField.children[i]));
     } else {
-      columnHandles.push_back(
-          std::make_shared<iceberg::IcebergColumnHandle>(
-              columnNames.at(i),
-              connector::hive::HiveColumnHandle::ColumnType::kRegular,
-              columnTypes.at(i),
-              columnTypes.at(i),
-              nestedField.children[i]));
+      columnHandles.push_back(std::make_shared<iceberg::IcebergColumnHandle>(
+          columnNames.at(i),
+          connector::hive::HiveColumnHandle::ColumnType::kRegular,
+          columnTypes.at(i),
+          columnTypes.at(i),
+          nestedField.children[i]));
     }
   }
   std::shared_ptr<const connector::hive::LocationHandle> locationHandle =
@@ -103,8 +101,8 @@ IcebergWriter::IcebergWriter(
     : rowType_(rowType), field_(convertToIcebergNestedField(field)), pool_(memoryPool), connectorPool_(connectorPool) {
   auto boltCfg =
       std::make_shared<bytedance::bolt::config::ConfigBase>(std::unordered_map<std::string, std::string>(sparkConfs));
-  connectorSessionProperties_ = std::make_shared<bytedance::bolt::config::ConfigBase>(
-      std::unordered_map<std::string, std::string>(), true);
+  connectorSessionProperties_ =
+      std::make_shared<bytedance::bolt::config::ConfigBase>(std::unordered_map<std::string, std::string>(), true);
   connectorSessionProperties_->set(
       bytedance::bolt::connector::hive::HiveConfig::kMaxPartitionsPerWritersSession,
       std::to_string(boltCfg->get<int32_t>(kMaxPartitions, 10000)));

@@ -18,8 +18,8 @@
 #pragma once
 
 #include <functional>
-#include "jni/JniCommon.h"
 #include "bolt/exec/Task.h"
+#include "jni/JniCommon.h"
 
 namespace gluten {
 
@@ -47,7 +47,6 @@ class TaskStatusListener {
     TaskContext(jobject jTaskContext, std::weak_ptr<bytedance::bolt::exec::Task> boltTask)
         : jTaskContext(jTaskContext), boltTask(std::move(boltTask)) {}
   };
-
 
   std::once_flag threadStartedFlag_;
   std::thread listenerThread_;

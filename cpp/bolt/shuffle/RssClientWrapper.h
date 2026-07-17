@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "shuffle/rss/RssClient.h"
 #include "bolt/shuffle/sparksql/partition_writer/rss/RssClient.h"
+#include "shuffle/rss/RssClient.h"
 
 namespace gluten {
 class RssClientWrapper : public bytedance::bolt::shuffle::sparksql::RssClient {

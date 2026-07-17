@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-#include "compute/iceberg/IcebergWriter.h"
-#include "memory/BoltColumnarBatch.h"
 #include "bolt/dwio/parquet/RegisterParquetWriter.h"
 #include "bolt/exec/tests/utils/TempDirectoryPath.h"
 #include "bolt/vector/tests/utils/VectorTestBase.h"
+#include "compute/iceberg/IcebergWriter.h"
+#include "memory/BoltColumnarBatch.h"
 
 #include <gtest/gtest.h>
 

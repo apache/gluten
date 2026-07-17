@@ -18,15 +18,15 @@
 #include "JsonToProtoConverter.h"
 
 #include <filesystem>
-#include "bolt/connectors/hive/HiveConnectorSplit.h"
-#include "compute/BoltPlanConverter.h"
-#include "substrait/SubstraitToBoltPlan.h"
 #include "bolt/common/base/tests/GTestUtils.h"
+#include "bolt/connectors/hive/HiveConnectorSplit.h"
 #include "bolt/dwio/common/tests/utils/DataFiles.h"
 #include "bolt/exec/tests/utils/AssertQueryBuilder.h"
 #include "bolt/exec/tests/utils/HiveConnectorTestBase.h"
 #include "bolt/exec/tests/utils/TempDirectoryPath.h"
 #include "bolt/type/Type.h"
+#include "compute/BoltPlanConverter.h"
+#include "substrait/SubstraitToBoltPlan.h"
 
 #include "FilePathGenerator.h"
 
@@ -268,8 +268,11 @@ TEST_F(Substrait2BoltPlanConversionTest, q6) {
 //   // Convert to Bolt PlanNode.
 //   auto planNode = planConverter_->toBoltPlan(substraitPlan, std::vector<::substrait::ReadRel_LocalFiles>{split});
 //   ASSERT_EQ(
-//       "-- Project[1][expressions: ] -> \n  -- TableScan[0][table: hive_table, remaining filter: (and(and(and(and(isnotnull(\"hd_vehicle_count\"),or(equalto(\"hd_buy_potential\",>10000),equalto(\"hd_buy_potential\",unknown))),greaterthan(\"hd_vehicle_count\",0)),if(greaterthan(\"hd_vehicle_count\",0),greaterthan(divide(cast(\"hd_dep_count\" as DOUBLE),cast(\"hd_vehicle_count\" as DOUBLE)),1.2))),isnotnull(\"hd_demo_sk\"))), data columns: ROW<hd_demo_sk:BIGINT,hd_buy_potential:VARCHAR,hd_dep_count:BIGINT,hd_vehicle_count:BIGINT>] -> n0_0:BIGINT, n0_1:VARCHAR, n0_2:BIGINT, n0_3:BIGINT\n",
-//       planNode->toString(true, true));
+//       "-- Project[1][expressions: ] -> \n  -- TableScan[0][table: hive_table, remaining filter:
+//       (and(and(and(and(isnotnull(\"hd_vehicle_count\"),or(equalto(\"hd_buy_potential\",>10000),equalto(\"hd_buy_potential\",unknown))),greaterthan(\"hd_vehicle_count\",0)),if(greaterthan(\"hd_vehicle_count\",0),greaterthan(divide(cast(\"hd_dep_count\"
+//       as DOUBLE),cast(\"hd_vehicle_count\" as DOUBLE)),1.2))),isnotnull(\"hd_demo_sk\"))), data columns:
+//       ROW<hd_demo_sk:BIGINT,hd_buy_potential:VARCHAR,hd_dep_count:BIGINT,hd_vehicle_count:BIGINT>] -> n0_0:BIGINT,
+//       n0_1:VARCHAR, n0_2:BIGINT, n0_3:BIGINT\n", planNode->toString(true, true));
 // }
 
 // TEST_F(Substrait2BoltPlanConversionTest, filterUpper) {
@@ -284,7 +287,8 @@ TEST_F(Substrait2BoltPlanConversionTest, q6) {
 //   // Convert to Bolt PlanNode.
 //   auto planNode = planConverter_->toBoltPlan(substraitPlan, std::vector<::substrait::ReadRel_LocalFiles>{split});
 //   ASSERT_EQ(
-//       "-- Project[1][expressions: ] -> \n  -- TableScan[0][table: hive_table, remaining filter: (and(isnotnull(\"key\"),lessthan(\"key\",3))), data columns: ROW<key:INTEGER>] -> n0_0:INTEGER\n",
+//       "-- Project[1][expressions: ] -> \n  -- TableScan[0][table: hive_table, remaining filter:
+//       (and(isnotnull(\"key\"),lessthan(\"key\",3))), data columns: ROW<key:INTEGER>] -> n0_0:INTEGER\n",
 //       planNode->toString(true, true));
 // }
 

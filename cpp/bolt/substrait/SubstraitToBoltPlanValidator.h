@@ -29,8 +29,8 @@ namespace gluten {
 /// a Substrait plan is supported in Bolt.
 class SubstraitToBoltPlanValidator {
  public:
-  SubstraitToBoltPlanValidator(memory::MemoryPool* pool,
-      const std::unordered_map<std::string, std::string>& confMap) : confMap_(confMap), useIcuRegex_(useIcuRegex(confMap)) {
+  SubstraitToBoltPlanValidator(memory::MemoryPool* pool, const std::unordered_map<std::string, std::string>& confMap)
+      : confMap_(confMap), useIcuRegex_(useIcuRegex(confMap)) {
     std::unordered_map<std::string, std::string> configs{
         {bolt::core::QueryConfig::kSparkPartitionId, "0"}, {bolt::core::QueryConfig::kSessionTimezone, "GMT"}};
     boltCfg_ = std::make_shared<bytedance::bolt::config::ConfigBase>(std::move(configs));

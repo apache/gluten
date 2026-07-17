@@ -25,12 +25,12 @@
 #include "bolt/exec/tests/utils/PlanBuilder.h"
 #include "bolt/vector/tests/utils/VectorMaker.h"
 
-#include "substrait/SubstraitToBoltPlan.h"
-#include "substrait/BoltToSubstraitPlan.h"
 #include "bolt/vector/tests/utils/VectorTestBase.h"
-
-#include "substrait/VariantToVectorConverter.h"
 #include "substrait/BoltToSubstraitPlan.h"
+#include "substrait/SubstraitToBoltPlan.h"
+
+#include "substrait/BoltToSubstraitPlan.h"
+#include "substrait/VariantToVectorConverter.h"
 
 using namespace bytedance::bolt;
 using namespace bytedance::bolt::test;
@@ -92,8 +92,7 @@ class BoltSubstraitRoundTripTest : public OperatorTestBase {
       auto boltCfg =
           std::make_shared<bytedance::bolt::config::ConfigBase>(std::unordered_map<std::string, std::string>());
       std::shared_ptr<SubstraitToBoltPlanConverter> substraitConverter_ =
-          std::make_shared<SubstraitToBoltPlanConverter>(
-              pool_.get(), boltCfg.get(), std::nullopt, std::nullopt, true);
+          std::make_shared<SubstraitToBoltPlanConverter>(pool_.get(), boltCfg.get(), std::nullopt, std::nullopt, true);
       // Convert Substrait Plan to the same Bolt Plan.
       auto samePlan = substraitConverter_->toBoltPlan(substraitPlan);
 

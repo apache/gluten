@@ -23,7 +23,8 @@ namespace gluten {
 
 namespace {
 template <TypeKind KIND>
-VectorPtr setVectorFromVariantsByKind(const std::vector<variant>& values, const TypePtr& type, memory::MemoryPool* pool) {
+VectorPtr
+setVectorFromVariantsByKind(const std::vector<variant>& values, const TypePtr& type, memory::MemoryPool* pool) {
   using T = typename TypeTraits<KIND>::NativeType;
 
   auto flatVector = BaseVector::create<FlatVector<T>>(type, values.size(), pool);

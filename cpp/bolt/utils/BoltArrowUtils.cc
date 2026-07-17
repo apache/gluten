@@ -19,10 +19,10 @@
 
 #include <arrow/buffer.h>
 
-#include "memory/BoltColumnarBatch.h"
-#include "utils/Common.h"
 #include "bolt/vector/ComplexVector.h"
 #include "bolt/vector/arrow/Bridge.h"
+#include "memory/BoltColumnarBatch.h"
+#include "utils/Common.h"
 
 namespace gluten {
 

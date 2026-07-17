@@ -20,10 +20,10 @@
 #include <arrow/memory_pool.h>
 #include <arrow/type.h>
 
-#include "operators/c2r/ColumnarToRow.h"
 #include "bolt/buffer/Buffer.h"
 #include "bolt/row/UnsafeRowFast.h"
 #include "bolt/vector/ComplexVector.h"
+#include "operators/c2r/ColumnarToRow.h"
 
 namespace gluten {
 
