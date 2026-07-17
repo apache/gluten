@@ -16,7 +16,6 @@
  */
 
 #include "JniCommon.h"
-#include <folly/system/ThreadName.h>
 
 void gluten::JniCommonState::ensureInitialized(JNIEnv* env) {
   std::lock_guard<std::mutex> lockGuard(mtx_);
