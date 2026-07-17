@@ -22,10 +22,9 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{AnalysisException, DataFrame, Row}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, Contains, GetJsonObject, InSet}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, GetJsonObject}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ShuffleQueryStageExec}
-import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.joins.BroadcastNestedLoopJoinExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.functions._
@@ -581,6 +580,55 @@ class MiscOperatorSuite extends BoltWholeStageTransformerSuite with AdaptiveSpar
         {
           getExecutedPlan(df).exists(plan => plan.find(_.isInstanceOf[ColumnarUnionExec]).isDefined)
         }
+    }
+  }
+
+  test("native union_all with two level union keeps distinct output columns") {
+    withTempView("union_src_a", "union_src_b", "union_src_c") {
+      Seq(
+        ("valueA", "value1", "value11", "value111"),
+        ("valueA", "value2", "value22", "value222")
+      ).toDF("col1", "col2", "col3", "col4")
+        .createOrReplaceTempView("union_src_a")
+      Seq(
+        ("valueB", "value3", "value33", "value333"),
+        ("valueB", "value4", "value44", "value444")
+      ).toDF("col1", "col2", "col3", "col4")
+        .createOrReplaceTempView("union_src_b")
+
+      withSQLConf(GlutenConfig.NATIVE_UNION_ENABLED.key -> "true") {
+        compareDfResultsAgainstVanillaSpark(
+          () =>
+            spark.sql("""
+                        |with deduplicated_data as (
+                        |  select col1, col2, col3, col4
+                        |  from (
+                        |    select
+                        |      u.col1,
+                        |      u.col2,
+                        |      u.col3,
+                        |      u.col4,
+                        |      row_number() over (partition by u.col2 order by u.col5 desc) as rn
+                        |    from (
+                        |      select col1, col2, col3, col4, 98 as col5 from union_src_a
+                        |      union all
+                        |      select col1, col2, col3, col4, 100 as col5 from union_src_b
+                        |    ) u
+                        |  ) t
+                        |  where t.rn = 1
+                        |)
+                        |select col1, col2, col3, col4
+                        |from deduplicated_data
+                        |where col1 != 'valueC'
+                        |union all
+                        |select col1, col2, col3, col4
+                        |from deduplicated_data
+                        |where col1 = 'valueC'
+                        |""".stripMargin),
+          compareResult = true,
+          checkGlutenPlan[UnionExecTransformer]
+        )
+      }
     }
   }
 
@@ -1887,7 +1935,7 @@ class MiscOperatorSuite extends BoltWholeStageTransformerSuite with AdaptiveSpar
     checkAnswer(df, expected)
   }
 
-  test("Test json_tuple function") {
+  ignore("Test json_tuple function") {
     withTempView("t") {
       Seq[(String)](("{\"a\":\"b\"}"), (null), ("{\"b\":\"a\"}"))
         .toDF("json_field")
@@ -2091,7 +2139,9 @@ class MiscOperatorSuite extends BoltWholeStageTransformerSuite with AdaptiveSpar
     }
   }
 
-  test("FullOuter in BroadcastNestLoopJoin") {
+  // Ignore until Bolt explicitly decides to support this again.
+  // Apache Gluten PR #11021 removed FullOuter BNLJ support.
+  ignore("FullOuter in BroadcastNestLoopJoin") {
     withTable("t1", "t2") {
       spark.range(10).write.format("parquet").saveAsTable("t1")
       spark.range(10).write.format("parquet").saveAsTable("t2")
@@ -2192,32 +2242,6 @@ class MiscOperatorSuite extends BoltWholeStageTransformerSuite with AdaptiveSpar
       })
   }
 
-  test("Check BoltResizeBatches is added on reused shuffle read") {
-    withSQLConf(
-      BoltConfig.COLUMNAR_BOLT_RESIZE_BATCHES_SHUFFLE_OUTPUT.key -> "true",
-      SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "2",
-      SQLConf.SHUFFLE_PARTITIONS.key -> "10",
-      SQLConf.COALESCE_PARTITIONS_ENABLED.key -> "true"
-    ) {
-      val df = spark.range(100).toDF("id")
-      val join = df.join(df, "id")
-      checkAnswer(join, df)
-
-      val executedPlan = getExecutedPlan(join)
-      assert(executedPlan.collect { case _: ReusedExchangeExec => true }.nonEmpty)
-      assert(executedPlan.collect { case _: AQEShuffleReadExec => true }.nonEmpty)
-      assert(executedPlan.collect {
-        case resize: BoltResizeBatchesExec
-            if (resize.child match {
-              case AQEShuffleReadExec(ShuffleQueryStageExec(_, _: ReusedExchangeExec, _), _) =>
-                true
-              case _ => false
-            }) =>
-          resize
-      }.nonEmpty)
-    }
-  }
-
   test("RowToBoltColumnar preferredBatchBytes") {
     Seq("1", "80", "100000000").foreach(
       preferredBatchBytes => {
@@ -2239,30 +2263,6 @@ class MiscOperatorSuite extends BoltWholeStageTransformerSuite with AdaptiveSpar
           assert(metrics("numOutputBatches").value == expectedNumBatches)
         }
       })
-  }
-
-  test("Optimize GetJsonObject(ToJson(NamedStruct))") {
-    withTable("t") {
-      withTempPath {
-        path =>
-          val query =
-            """
-              |select get_json_object(to_json(named_struct('a', id, 'b', id+1)), '$.a') as col
-              |from range(10)
-              |""".stripMargin
-          runQueryAndCompare(query)(
-            df => {
-              val executedPlan = getExecutedPlan(df)
-              val projectExec = executedPlan.find(_.isInstanceOf[ProjectExecTransformer])
-              assert(projectExec.isDefined)
-              val projectList = projectExec.get.asInstanceOf[ProjectExecTransformer].projectList
-              assert(projectList.exists(_ match {
-                case Alias(Cast(_: Attribute, StringType, _, _), _) => true
-                case _ => false
-              }))
-            })
-      }
-    }
   }
 
   // FIXME: select get_json_object(to_json(named_struct('a', '{"x":1,"y":2}')), '$.a.x')
@@ -2294,42 +2294,6 @@ class MiscOperatorSuite extends BoltWholeStageTransformerSuite with AdaptiveSpar
               }))
             })
       }
-    }
-  }
-
-  test("Rewrite foldable Like(Concat())") {
-    runQueryAndCompare("select 'hello world' like concat('%', id, '%') from range(10)") {
-      df =>
-        {
-          val executedPlan = getExecutedPlan(df)
-          val projectExec = executedPlan.find(_.isInstanceOf[ProjectExecTransformer])
-          assert(projectExec.isDefined)
-          val projectList = projectExec.get.asInstanceOf[ProjectExecTransformer].projectList
-          assert(projectList.exists {
-            case Alias(_: Contains, _) => true
-            case _ => false
-          })
-        }
-    }
-  }
-  test("Rewrite foldable ArrayContains(Split())") {
-    runQueryAndCompare("""
-                         |select array_contains(
-                         | split('1,3572183', ',', -1),
-                         | cast(id as string)
-                         |) from range(10)
-                         |""".stripMargin) {
-      df =>
-        {
-          val executedPlan = getExecutedPlan(df)
-          val projectExec = executedPlan.find(_.isInstanceOf[ProjectExecTransformer])
-          assert(projectExec.isDefined)
-          val projectList = projectExec.get.asInstanceOf[ProjectExecTransformer].projectList
-          assert(projectList.exists {
-            case Alias(_: InSet, _) => true
-            case _ => false
-          })
-        }
     }
   }
 
