@@ -209,10 +209,10 @@ jar_spark35:
 	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.5_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
 
 test:
-	mvn -Pbackends-bolt -Pspark-3.2 -Pceleborn -Ppaimon package -Denforcer.skip=true
+	SPARK_TESTING=true mvn -Pbackends-bolt -Pspark-3.2 -Pceleborn -Ppaimon package -Denforcer.skip=true
 
 test_spark35:
-	mvn -Pbackends-bolt -Pspark-3.5 -Ppaimon -Phadoop-3.2 -Pceleborn -Piceberg package -Denforcer.skip=true -DfailIfNoTests=false -Dexec.skip -Dmaven.test.failure.ignore=true
+	SPARK_TESTING=true mvn -Pbackends-bolt -Pspark-3.5 -Ppaimon -Phadoop-3.2 -Pceleborn -Piceberg package -Denforcer.skip=true -DfailIfNoTests=false -Dexec.skip -Dmaven.test.failure.ignore=true
 
 cpp-test-release: release-with-tests
 	cd $(BUILD_DIR)/Release && ctest --timeout 7200 -j $(NUM_THREADS) --output-on-failure -V
