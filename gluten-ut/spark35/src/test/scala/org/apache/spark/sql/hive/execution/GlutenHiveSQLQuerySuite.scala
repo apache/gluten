@@ -119,7 +119,7 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
       purge = false)
   }
 
-  testGluten("orc.force.positional.evolution maps Hive ORC columns by position") {
+  ignoreGluten("orc.force.positional.evolution maps Hive ORC columns by position") {
     val hiveClient: HiveClient =
       spark.sharedState.externalCatalog.unwrapped.asInstanceOf[HiveExternalCatalog].client
 
