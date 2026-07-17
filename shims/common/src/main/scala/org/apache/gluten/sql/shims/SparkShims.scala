@@ -318,4 +318,11 @@ trait SparkShims {
 
   def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
       : GlutenShuffleBlockFetcherIteratorBase
+
+  /**
+   * Returns the Spark exception thrown for an invalid `bitmap_construct_agg` position
+   * (INVALID_BITMAP_POSITION), or null for Spark versions that don't have bitmap aggregate
+   * functions (< 3.5).
+   */
+  def invalidBitmapPositionError(bitPosition: Long, bitmapNumBytes: Long): RuntimeException = null
 }

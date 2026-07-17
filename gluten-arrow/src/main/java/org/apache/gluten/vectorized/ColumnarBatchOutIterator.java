@@ -21,11 +21,14 @@ import org.apache.gluten.exception.GlutenException;
 import org.apache.gluten.iterator.ClosableIterator;
 import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.RuntimeAware;
+import org.apache.gluten.sql.shims.SparkShimLoader;
 
 import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupportedException;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 import java.io.IOException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     implements RuntimeAware {
@@ -132,6 +135,14 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     nativeRequestBarrier(iterHandle);
   }
 
+  // Velox's bitmap_construct_agg uses a fixed 4096-byte bitmap, same as Spark's implementation.
+  private static final long BITMAP_NUM_BYTES = 4096;
+
+  // Velox's check failure message for an invalid bitmap_construct_agg position, e.g.
+  // "(-1 vs. 0) Bitmap position out of bounds". The first operand is the failing position.
+  private static final Pattern BITMAP_POSITION_OUT_OF_BOUNDS =
+      Pattern.compile("\\((-?\\d+) vs\\. -?\\d+\\)[^\\n]*Bitmap position out of bounds");
+
   /**
    * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
    * Returns null if the message does not indicate a type conversion error.
@@ -143,6 +154,29 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     return null;
   }
 
+  /**
+   * Translates a Velox invalid bitmap position error from bitmap_construct_agg into Spark's
+   * INVALID_BITMAP_POSITION exception. Returns null if the message does not indicate an invalid
+   * bitmap position, or if the running Spark version has no bitmap aggregate functions.
+   */
+  private static RuntimeException translateToInvalidBitmapPositionException(String msg) {
+    if (!msg.contains("Bitmap position out of bounds")) {
+      return null;
+    }
+    Matcher matcher = BITMAP_POSITION_OUT_OF_BOUNDS.matcher(msg);
+    if (!matcher.find()) {
+      return null;
+    }
+    final long bitPosition;
+    try {
+      bitPosition = Long.parseLong(matcher.group(1));
+    } catch (NumberFormatException ignored) {
+      return null;
+    }
+    return SparkShimLoader.getSparkShims()
+        .invalidBitmapPositionError(bitPosition, BITMAP_NUM_BYTES);
+  }
+
   @Override
   protected RuntimeException translateException(Exception e) {
     String msg = findFirstNonNullMessage(e);
@@ -151,6 +185,11 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       if (schemaEx != null) {
         schemaEx.initCause(e);
         return schemaEx;
+      }
+      RuntimeException bitmapEx = translateToInvalidBitmapPositionException(msg);
+      if (bitmapEx != null) {
+        bitmapEx.initCause(e);
+        return bitmapEx;
       }
     }
     return new GlutenException(e);

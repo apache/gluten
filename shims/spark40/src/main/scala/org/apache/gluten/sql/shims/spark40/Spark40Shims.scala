@@ -41,6 +41,7 @@ import org.apache.spark.sql.classic.ClassicConversions._
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read.{HasPartitionKey, InputPartition, Scan}
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
+import org.apache.spark.sql.errors.GlutenQueryExecutionErrors
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.datasources._
@@ -676,4 +677,9 @@ class Spark40Shims extends SparkShims {
       params.clock
     )
   }
+
+  override def invalidBitmapPositionError(
+      bitPosition: Long,
+      bitmapNumBytes: Long): RuntimeException =
+    GlutenQueryExecutionErrors.invalidBitmapPositionError(bitPosition, bitmapNumBytes)
 }
