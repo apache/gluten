@@ -121,6 +121,7 @@ private class CelebornColumnarBatchSerializerInstance(
 
     val shuffleBatchByteSize = BoltConfig.get.maxShuffleBatchByteSize
     val forceShuffleWriterType = BoltConfig.get.forceShuffleWriterType
+    val rowFormat = BoltConfig.get.shuffleRowFormat
     val builder = ShuffleReaderInfo.newBuilder()
     builder
       .setBatchSize(batchSize)
@@ -130,6 +131,7 @@ private class CelebornColumnarBatchSerializerInstance(
       .setForcedWriterType(forceShuffleWriterType)
       .setCompressionType(compressionCodec)
       .setCodec(compressionCodecBackend)
+      .setRowFormat(rowFormat)
     val handle = jniWrapper
       .make(
         cSchema.memoryAddress(),

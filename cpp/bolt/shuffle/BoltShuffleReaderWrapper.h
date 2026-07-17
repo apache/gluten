@@ -22,8 +22,9 @@
 #include <arrow/ipc/message.h>
 #include <arrow/ipc/options.h>
 
-#include "compute/ResultIterator.h"
+#include "bolt/row/RowFormat.h"
 #include "bolt/shuffle/sparksql/BoltShuffleReader.h"
+#include "compute/ResultIterator.h"
 
 namespace gluten {
 
@@ -76,7 +77,7 @@ inline bytedance::bolt::shuffle::sparksql::ShuffleReaderOptions getOptionsFromIn
     std::transform(comp.begin(), comp.end(), std::back_inserter(lowerStr), ::tolower);
     GLUTEN_ASSIGN_OR_THROW(compressionType, arrow::util::Codec::GetCompressionType(lowerStr));
   }
-  return bytedance::bolt::shuffle::sparksql::ShuffleReaderOptions{
+  auto options = bytedance::bolt::shuffle::sparksql::ShuffleReaderOptions{
       .compressionType = compressionType,
       .codecBackend = info.codec(),
       .batchSize = info.batch_size(),
@@ -84,6 +85,10 @@ inline bytedance::bolt::shuffle::sparksql::ShuffleReaderOptions getOptionsFromIn
       .numPartitions = info.num_partitions(),
       .partitionShortName = info.partition_short_name(),
       .forceShuffleWriterType = info.forced_writer_type()};
+  options.rowFormat =
+      info.row_format() == "dense" ? bytedance::bolt::row::RowFormat::DENSE
+                                   : bytedance::bolt::row::RowFormat::COMPACT;
+  return options;
 }
 
 class BoltShuffleReaderWrapper : public ShuffleReaderBase {

@@ -140,6 +140,7 @@ class ColumnarShuffleReader[K, C](
     val batchSize = GlutenConfig.get.maxBatchSize
     val shuffleBatchByteSize = BoltConfig.get.maxShuffleBatchByteSize
     val forceShuffleWriterType = BoltConfig.get.forceShuffleWriterType
+    val rowFormat = BoltConfig.get.shuffleRowFormat
     val nativePartitioning =
       dep
         .asInstanceOf[ColumnarShuffleDependency[Int, ColumnarBatch, ColumnarBatch]]
@@ -153,6 +154,7 @@ class ColumnarShuffleReader[K, C](
       .setForcedWriterType(forceShuffleWriterType)
       .setCompressionType(compressionCodec)
       .setCodec(compressionCodecBackend)
+      .setRowFormat(rowFormat)
     builder.build()
   }
 

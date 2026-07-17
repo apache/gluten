@@ -98,6 +98,9 @@ class BoltConfig(conf: SQLConf) extends GlutenConfig(conf) {
     getConf(FORCE_SHUFFLE_WRITER_TYPE)
   }
 
+  def shuffleRowFormat: String =
+    getConf(COLUMNAR_SHUFFLE_ROW_FORMAT)
+
   def columnarShuffleCompressionMode: String =
     getConf(COLUMNAR_SHUFFLE_COMPRESSION_MODE)
 
@@ -130,7 +133,7 @@ class BoltConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def maxShuffleBatchByteSize: Int = getConf(COLUMNAR_MAX_SHUFFLE_BATCH_BYTE_SIZE)
 
   def shuffleInsideBolt: Boolean =
-    getConf(GLUTEN_SHUFFLE_INSIDE_BOLT)
+    getConf(USE_BOLT_MEMORY_MANAGER) && getConf(GLUTEN_SHUFFLE_INSIDE_BOLT)
 
   def orcUseColumnNames: Boolean = getConf(ORC_USE_COLUMN_NAMES)
 
@@ -966,6 +969,17 @@ object BoltConfig extends ConfigRegistry {
         "ShuffleWriterType should be 0(adaptive), 1(V1) or 2(V2) or 3(Sort-Based Row-Format)")
       .createWithDefault(0)
 
+  val COLUMNAR_SHUFFLE_ROW_FORMAT =
+    buildConf("spark.gluten.sql.columnar.shuffle.rowFormat")
+      .internal()
+      .doc(
+        "The on-wire row format for row-based (sort-based) Bolt shuffle. " +
+          "dense: DenseRow format; compact: CompactRow format. " +
+          "The reader side must use the same format as the writer side.")
+      .stringConf
+      .checkValues(Set("dense", "compact"))
+      .createWithDefault("compact")
+
   val USE_V2_PREALLOC_SIZE_THRESHOLD =
     buildConf("spark.gluten.sql.columnar.shuffle.useV2PreallocSizeThreshold")
       .internal()
@@ -1034,7 +1048,7 @@ object BoltConfig extends ConfigRegistry {
       .internal()
       .doc("run shuffle inside bolt")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
 
   val ORC_USE_COLUMN_NAMES =
     buildConf("spark.gluten.sql.columnar.backend.bolt.orcUseColumnNames")

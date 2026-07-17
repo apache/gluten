@@ -15,4 +15,5 @@ message ShuffleReaderInfo {
     int32 num_partitions = 5;
     string partition_short_name = 6;
     int32 forced_writer_type = 7;
+    string row_format = 10;  // On-wire row format for row-based shuffle, "dense"/"compact". Must match the writer side.
 }

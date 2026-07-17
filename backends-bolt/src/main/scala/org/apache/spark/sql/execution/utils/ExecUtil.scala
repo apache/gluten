@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.backendsapi.bolt.WholeStageIteratorWrapper
 import org.apache.gluten.columnarbatch.{BoltColumnarBatches, ColumnarBatches}
 import org.apache.gluten.config.{BoltConfig, ShuffleWriterType}
+import org.apache.gluten.execution.{GlutenWholeStageColumnarRDD, WholeStageZippedPartitionsRDD}
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
@@ -27,7 +28,7 @@ import org.apache.gluten.vectorized.{ArrowWritableColumnVector, NativeColumnarTo
 
 import org.apache.spark.{Partitioner, RangePartitioner, ShuffleDependency}
 import org.apache.spark.internal.Logging
-import org.apache.spark.rdd.{MapPartitionsRDD, RDD}
+import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.{ColumnarShuffleDependency, GlutenShuffleUtils}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -203,22 +204,23 @@ object ExecUtil extends Logging {
         if (BoltConfig.get.shuffleInsideBolt) {
           rdd match {
 
-            /** if enable shuffle offload, remove the MapPartitionsRDD to get the prev rdd */
-            case m: MapPartitionsRDD[_, _] =>
-              m.prev
-                .asInstanceOf[RDD[ColumnarBatch]]
-                .mapPartitionsWithIndexInternal(
-                  (_, cbIter) =>
-                    cbIter match {
-                      case w: WholeStageIteratorWrapper[ColumnarBatch] =>
-                        /** Wrap iterator if the iterator is a whole stage iterator */
-                        new WholeStageIteratorWrapper[Product2[Int, ColumnarBatch]](
-                          cbIter.map(cb => (0, cb)),
-                          w.getInner)
-                      case _ => cbIter.map(cb => (0, cb))
-                    },
-                  isOrderSensitive = isOrderSensitive
-                )
+            /**
+             * if enable shuffle offload, and rdd is GlutenWholeStageColumnarRDD, then wrap the
+             * inner iterator to offload shuffle writer
+             */
+            case r @ (_: GlutenWholeStageColumnarRDD | _: WholeStageZippedPartitionsRDD) =>
+              r.mapPartitionsWithIndexInternal(
+                (_, cbIter) =>
+                  cbIter match {
+                    case w: WholeStageIteratorWrapper[ColumnarBatch] =>
+                      /** Wrap iterator if the iterator is a whole stage iterator */
+                      new WholeStageIteratorWrapper[Product2[Int, ColumnarBatch]](
+                        cbIter.map(cb => (0, cb)),
+                        w.getInner)
+                    case _ => cbIter.map(cb => (0, cb))
+                  },
+                isOrderSensitive = isOrderSensitive
+              )
             case _ =>
               rdd.mapPartitionsWithIndexInternal(
                 (_, cbIter) => cbIter.map(cb => (0, cb)),

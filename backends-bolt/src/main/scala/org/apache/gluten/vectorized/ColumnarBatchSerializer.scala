@@ -124,6 +124,7 @@ private class ColumnarBatchSerializerInstanceImpl(
 
     val shuffleBatchByteSize = BoltConfig.get.maxShuffleBatchByteSize
     val forceShuffleWriterType = BoltConfig.get.forceShuffleWriterType
+    val rowFormat = BoltConfig.get.shuffleRowFormat
 
     val builder = ShuffleReaderInfo.newBuilder()
     builder
@@ -134,6 +135,7 @@ private class ColumnarBatchSerializerInstanceImpl(
       .setForcedWriterType(forceShuffleWriterType)
       .setCompressionType(compressionCodec)
       .setCodec(compressionCodecBackend)
+      .setRowFormat(rowFormat)
     val shuffleReaderHandle = jniWrapper.make(
       cSchema.memoryAddress(),
       builder.build().toByteArray
