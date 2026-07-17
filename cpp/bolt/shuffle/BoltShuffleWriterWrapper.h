@@ -22,12 +22,13 @@
 #include <numeric>
 #include <utility>
 
+#include "bolt/row/RowFormat.h"
+#include "bolt/shuffle/sparksql/BoltShuffleWriter.h"
 #include "memory/ColumnarBatch.h"
+#include "shuffle/RssClientWrapper.h"
+#include "shuffle/ShuffleWriterBase.h"
 #include "shuffle_writer_info.pb.h"
 #include "utils/StringUtil.h"
-#include "shuffle/ShuffleWriterBase.h"
-#include "shuffle/RssClientWrapper.h"
-#include "bolt/shuffle/sparksql/BoltShuffleWriter.h"
 
 namespace gluten {
 
@@ -50,6 +51,9 @@ class BoltShuffleWriterWrapper : public ShuffleWriterBase {
         .recommendedColumn2RowSize = info.recommended_c2r_size(),
         .shuffleCheckRatio = info.shuffle_check_ratio(),
     };
+    shuffleWriterOptions.rowFormat =
+        info.row_format() == "dense" ? bytedance::bolt::row::RowFormat::DENSE
+                                     : bytedance::bolt::row::RowFormat::COMPACT;
 
     // Convert codec string into lowercase.
     std::string codecLower;

@@ -59,6 +59,9 @@ class BoltCelebornColumnarShuffleWriter[K, V](
   private val forceShuffleWriterType =
     BoltConfig.get.forceShuffleWriterType
 
+  private val shuffleRowFormat =
+    BoltConfig.get.shuffleRowFormat
+
   private val useV2PreAllocSizeThreshold =
     BoltConfig.get.useV2PreallocSizeThreshold
 
@@ -124,6 +127,7 @@ class BoltCelebornColumnarShuffleWriter[K, V](
     builder.setAccumulateBatchMaxBatches(accumulateBatchMaxBatches)
     builder.setRecommendedC2RSize(recommendedColumn2RowSize)
     builder.setShuffleCheckRatio(shuffleCheckRatio)
+    builder.setRowFormat(shuffleRowFormat)
 
     builder.build()
   }

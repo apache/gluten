@@ -713,7 +713,8 @@ class MiscOperatorSuite extends BoltWholeStageTransformerSuite with AdaptiveSpar
     withSQLConf(
       BoltConfig.COLUMNAR_BOLT_RESIZE_BATCHES_SHUFFLE_INPUT.key -> "true",
       GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "2",
-      BoltConfig.COLUMNAR_BOLT_RESIZE_BATCHES_SHUFFLE_INPUT_MIN_SIZE.key -> s"$minBatchSize"
+      BoltConfig.COLUMNAR_BOLT_RESIZE_BATCHES_SHUFFLE_INPUT_MIN_SIZE.key -> s"$minBatchSize",
+      BoltConfig.GLUTEN_SHUFFLE_INSIDE_BOLT.key -> "false"
     ) {
       val df = runQueryAndCompare(
         "select l_orderkey, sum(l_partkey) as sum from lineitem " +
@@ -732,7 +733,8 @@ class MiscOperatorSuite extends BoltWholeStageTransformerSuite with AdaptiveSpar
 
     withSQLConf(
       BoltConfig.COLUMNAR_BOLT_RESIZE_BATCHES_SHUFFLE_INPUT.key -> "true",
-      GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "2"
+      GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "2",
+      BoltConfig.GLUTEN_SHUFFLE_INSIDE_BOLT.key -> "false"
     ) {
       val df = runQueryAndCompare(
         "select l_orderkey, sum(l_partkey) as sum from lineitem " +

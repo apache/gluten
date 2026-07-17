@@ -37,6 +37,10 @@ case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
       return plan
     }
 
+    if (BoltConfig.get.shuffleInsideBolt) {
+      // BoltResizeBatchesExec before shuffle writer would stop shuffle offload.
+      return plan
+    }
     val range = BoltConfig.get.boltResizeBatchesShuffleInputOutputRange
     val preferredBatchBytes = BoltConfig.get.boltPreferredBatchBytes
 

@@ -369,6 +369,7 @@ class BoltMetricsApi extends MetricsApi with Logging {
       "numPartitions" -> SQLMetrics.createMetric(sparkContext, "number of partitions"),
       "dataSize" -> SQLMetrics.createSizeMetric(sparkContext, "data size"),
       "bytesSpilled" -> SQLMetrics.createSizeMetric(sparkContext, "shuffle bytes spilled"),
+      "splitBufferSize" -> SQLMetrics.createSizeMetric(sparkContext, "split buffer size total"),
       "avgReadBatchNumRows" -> SQLMetrics
         .createAverageMetric(sparkContext, "avg read batch num rows"),
       "numInputRows" -> SQLMetrics.createMetric(sparkContext, "number of input rows"),
@@ -393,7 +394,24 @@ class BoltMetricsApi extends MetricsApi with Logging {
       // For sort shuffle writer, the peak bytes represents the maximum
       // row buffer + sort buffer size.
       "peakBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak bytes allocated"),
+      "preallocSize" -> SQLMetrics.createMetric(sparkContext, "number of preallocated rows"),
       "useV2" -> SQLMetrics.createMetric(sparkContext, "number of tasks use V2"),
+      "rowVectorModeCompress" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of rowVectorModeCompress"),
+      "combinedVectorNumber" -> SQLMetrics.createAverageMetric(
+        sparkContext,
+        "number of combined vectors"),
+      "combineVectorTimes" -> SQLMetrics.createAverageMetric(
+        sparkContext,
+        "number of times combine vector"),
+      "combineVectorCost" -> SQLMetrics.createNanoTimingMetric(
+        sparkContext,
+        "totaltime to combine vector"),
+      "computePidTime" -> SQLMetrics.createNanoTimingMetric(
+        sparkContext,
+        "totaltime to compute pid"
+      ),
       "convertTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "totaltime to c2r convert"),
       "flattenTime" -> SQLMetrics.createNanoTimingMetric(
         sparkContext,

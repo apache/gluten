@@ -54,6 +54,7 @@ message ShuffleWriterInfo {
   int32 accumulate_batch_max_batches = 27;           // Batches limit
   int32 recommended_c2r_size = 28;   // Conversion size
   double shuffle_check_ratio = 31;  // Shuffle debug check ratio [0, 1]
+  string row_format = 33;  // On-wire row format for row-based shuffle, "dense"/"compact"
 }
 
 message ShuffleWriterResult {

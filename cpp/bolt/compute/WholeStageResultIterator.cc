@@ -27,6 +27,7 @@
 #include "bolt/connectors/hive/HiveConfig.h"
 #include "bolt/connectors/hive/HiveConnectorSplit.h"
 #include "bolt/exec/PlanNodeStats.h"
+#include "bolt/shuffle/sparksql/ShuffleReaderNode.h"
 #include "bolt/shuffle/sparksql/ShuffleWriterNode.h"
 #include "compute/paimon/PaimonPlanUtils.h"
 #include "config/BoltConfig.h"
@@ -543,8 +544,9 @@ void WholeStageResultIterator::getOrderedNodeIds(
   if (std::dynamic_pointer_cast<const bytedance::bolt::shuffle::sparksql::SparkShuffleWriterNode>(planNode) !=
       nullptr) {
     omittedNodeIds_.insert(planNode->id());
+  } else {
+    nodeIds.emplace_back(planNode->id());
   }
-  nodeIds.emplace_back(planNode->id());
 }
 
 void WholeStageResultIterator::constructPartitionColumns(
@@ -581,10 +583,10 @@ void WholeStageResultIterator::tryAddSplitsToTask() {
 }
 
 void WholeStageResultIterator::noMoreSplits() {
-  if (task_ == nullptr) {
-    initTask();
+  // Defer task initialization so a shuffle writer can still be attached to the plan.
+  if (task_ != nullptr) {
+    tryAddSplitsToTask();
   }
-  tryAddSplitsToTask();
 }
 
 void WholeStageResultIterator::requestBarrier() {

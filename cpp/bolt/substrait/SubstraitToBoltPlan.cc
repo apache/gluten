@@ -1244,7 +1244,11 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::constructValueStreamNode(
   auto node = factory(nextPlanNodeId(), pool_, streamIdx, outputType, rowCount);
 
   auto splitInfo = std::make_shared<SplitInfo>();
-  splitInfo->leafType = SplitInfo::LeafType::SPLIT_AWARE_STREAM;
+  if (std::dynamic_pointer_cast<const bytedance::bolt::shuffle::sparksql::SparkShuffleReaderNode>(node)) {
+    splitInfo->leafType = SplitInfo::LeafType::TRIVIAL_LEAF;
+  } else {
+    splitInfo->leafType = SplitInfo::LeafType::SPLIT_AWARE_STREAM;
+  }
   splitInfoMap_[node->id()] = splitInfo;
   return node;
 }
