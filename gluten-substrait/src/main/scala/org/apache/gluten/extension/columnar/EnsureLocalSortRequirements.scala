@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.extension.columnar
 
+import org.apache.gluten.execution.GlutenPlan
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.sql.shims.SparkShimLoader
 
@@ -65,11 +66,19 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
   }
 
   private def addLocalSort(
+      plan: SparkPlan,
       originalChild: SparkPlan,
       requiredOrdering: Seq[SortOrder]): SparkPlan = {
     // FIXME: HeuristicTransform is costly. Re-applying it may cause performance issues.
     val newChild = SortExec(requiredOrdering, global = false, child = originalChild)
-    transform.apply(newChild)
+    (plan, originalChild) match {
+      case (_, child: GlutenPlan) if child.supportsColumnar =>
+        transform.apply(newChild)
+      case (parent: GlutenPlan, _) if parent.supportsColumnar =>
+        transform.apply(newChild)
+      case _ =>
+        newChild
+    }
   }
 
   override def apply(plan: SparkPlan): SparkPlan = {
@@ -82,7 +91,7 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
             if (SortOrder.orderingSatisfies(child.outputOrdering, requiredOrdering)) {
               child
             } else {
-              addLocalSort(child, requiredOrdering)
+              addLocalSort(p, child, requiredOrdering)
             }
         }
         p.withNewChildren(newChildren)
