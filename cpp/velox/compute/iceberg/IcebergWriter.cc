@@ -168,7 +168,9 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
       compressionKind,
       serdeParameters,
       writeKind,
-      std::unordered_map<std::string, ExistingDeletionVector>{},
+      std::unordered_map<
+          std::string,
+          facebook::velox::connector::hive::iceberg::IcebergInsertTableHandle::ExistingDeletionVector>{},
       fileNameGenerator);
 }
 
