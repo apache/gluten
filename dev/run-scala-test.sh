@@ -611,6 +611,40 @@ if [[ -d "$MODULE_CLASSES" ]]; then
   RESOLVED_CLASSPATH="${MODULE_CLASSES}:${RESOLVED_CLASSPATH}"
 fi
 
+# For each requested suite, check if its .class file is missing from the
+# current classpath. If so, scan all known module test-class directories to
+# find the one that owns the class and prepend it.  This handles suites that
+# live in a dependency module (e.g. backends-velox) when the driver module
+# (e.g. gluten-ut/spark35) is passed via -pl.
+for _suite in "${SUITES[@]}"; do
+  _class_rel="${_suite//.//}.class"
+  _found_in_cp=false
+  IFS=':' read -ra _CP_CHECK <<< "$RESOLVED_CLASSPATH"
+  for _cp_entry in "${_CP_CHECK[@]}"; do
+    if [[ -f "${_cp_entry}/${_class_rel}" ]]; then
+      _found_in_cp=true
+      break
+    fi
+  done
+
+  if [[ "$_found_in_cp" == "false" ]]; then
+    log_warn "Suite ${_suite} not found in current classpath — scanning module test-class dirs..."
+    for _artifact in "${!MODULE_MAP[@]}"; do
+      _tc_dir=$(get_target_dir "$_artifact" "$SCALA_VERSION" "test-classes")
+      if [[ -f "${_tc_dir}/${_class_rel}" ]]; then
+        log_info "  Found in ${_tc_dir} — prepending to classpath"
+        RESOLVED_CLASSPATH="${_tc_dir}:${RESOLVED_CLASSPATH}"
+        # Also prepend the corresponding classes/ dir so companion objects load
+        _cls_dir=$(get_target_dir "$_artifact" "$SCALA_VERSION" "classes")
+        if [[ -d "$_cls_dir" && ":${RESOLVED_CLASSPATH}:" != *":${_cls_dir}:"* ]]; then
+          RESOLVED_CLASSPATH="${_cls_dir}:${RESOLVED_CLASSPATH}"
+        fi
+        break
+      fi
+    done
+  fi
+done
+
 log_info "Resolved classpath ready"
 
 # Sanity check: no non-.m2 jar files should remain in the classpath
