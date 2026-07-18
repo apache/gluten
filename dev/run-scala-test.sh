@@ -636,7 +636,7 @@ for _suite in "${SUITES[@]}"; do
         RESOLVED_CLASSPATH="${_tc_dir}:${RESOLVED_CLASSPATH}"
         # Also prepend the corresponding classes/ dir so companion objects load
         _cls_dir=$(get_target_dir "$_artifact" "$SCALA_VERSION" "classes")
-        if [[ -d "$_cls_dir" && "$RESOLVED_CLASSPATH" != *"${_cls_dir}"* ]]; then
+        if [[ -d "$_cls_dir" && ":${RESOLVED_CLASSPATH}:" != *":${_cls_dir}:"* ]]; then
           RESOLVED_CLASSPATH="${_cls_dir}:${RESOLVED_CLASSPATH}"
         fi
         break
