@@ -72,6 +72,7 @@ jobs:
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
+            export CCACHE_MAXSIZE=1G
             mkdir -p /work/.ccache
             bash dev/ci-velox-buildstatic-centos-7-enhanced-features.sh
             ccache -s

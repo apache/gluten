@@ -66,6 +66,7 @@ jobs:
       - name: Build Gluten native libraries
         run: |
           df -a
+          export CCACHE_MAXSIZE=1G
           bash dev/ci-velox-buildstatic-centos-9.sh
           ccache -s
       - name: "Save ccache"
