@@ -88,7 +88,7 @@ std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOp
       // please make sure `brotli` is enabled when compiling
       throw GlutenException("Gluten+velox does not support write parquet using brotli.");
     } else if (boost::iequals(compressionCodecStr, "lz4")) {
-      compressionCodec = CompressionKind::CompressionKind_LZ4;
+      compressionCodec = CompressionKind::CompressionKind_LZ4_HADOOP;
     } else if (boost::iequals(compressionCodecStr, "zstd")) {
       compressionCodec = CompressionKind::CompressionKind_ZSTD;
       auto codecOptions = std::make_shared<parquet::arrow::util::CodecOptions>();

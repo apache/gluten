@@ -2307,14 +2307,5 @@
         <os.full.name>${platform}_${arch}</os.full.name>
       </properties>
     </profile>
-    <profile>
-      <id>disaggregated-shuffle</id>
-      <activation>
-        <activeByDefault>false</activeByDefault>
-      </activation>
-      <modules>
-        <module>gluten-disaggregated-shuffle</module>
-      </modules>
-    </profile>
   </profiles>
 </project>
