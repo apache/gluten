@@ -68,6 +68,8 @@ case class BatchScanExecTransformer(
       runtimeFilters = QueryPlan.normalizePredicates(
         runtimeFilters.filterNot(_ == DynamicPruningExpression(Literal.TrueLiteral)),
         output),
+      keyGroupedPartitioning = keyGroupedPartitioning.map(
+        QueryPlan.normalizeExpressions(_, output)),
       pushDownFilters = pushDownFilters.map(QueryPlan.normalizePredicates(_, output))
     )
   }
@@ -199,7 +201,8 @@ abstract class BatchScanExecTransformerBase(
       false
   }
 
-  override def hashCode(): Int = Objects.hashCode(batch, runtimeFilters, pushDownFilters)
+  override def hashCode(): Int =
+    Objects.hashCode(batch, runtimeFilters, keyGroupedPartitioning, pushDownFilters)
 
   /** Return a copy of this scan with a new output schema. */
   def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase

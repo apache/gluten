@@ -24,7 +24,7 @@ import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.GreaterThan
-import org.apache.spark.sql.execution.ScalarSubquery
+import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, ScalarSubquery}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -299,6 +299,55 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
               "select e, d, c from test",
               Seq(Row(null, "10", 0L), Row(null, "11", 1L)))
           }
+      }
+    }
+  }
+
+  test("GLUTEN-12566: BatchScanExecTransformer should propagate keyGroupedPartitioning") {
+    withSQLConf(
+      "spark.sql.sources.useV1SourceList" -> "",
+      "spark.sql.sources.v2.bucketing.enabled" -> "true",
+      "spark.sql.sources.v2.bucketing.pushPartValues.enabled" -> "true",
+      "spark.sql.autoBroadcastJoinThreshold" -> "-1",
+      "spark.sql.adaptive.enabled" -> "false") {
+      withTempDir {
+        dir =>
+          val path1 = s"${dir.getCanonicalPath}/t1"
+          val path2 = s"${dir.getCanonicalPath}/t2"
+          spark
+            .range(10)
+            .selectExpr("id as k", "cast(id as string) as v")
+            .write
+            .format("parquet")
+            .bucketBy(4, "k")
+            .mode("overwrite")
+            .save(path1)
+          spark
+            .range(10)
+            .selectExpr("id as k", "cast(id + 100 as string) as v")
+            .write
+            .format("parquet")
+            .bucketBy(4, "k")
+            .mode("overwrite")
+            .save(path2)
+
+          val df = spark.read.parquet(path1).alias("l").join(
+            spark.read.parquet(path2).alias("r"),
+            "k")
+
+          val plan = df.queryExecution.executedPlan
+          val scans = plan.collect { case s: BatchScanExecTransformer => s }
+          assert(
+            scans.nonEmpty,
+            "Expected BatchScanExecTransformer nodes but found none")
+          assert(
+            scans.forall(_.keyGroupedPartitioning.isDefined),
+            "All BatchScanExecTransformer nodes should have keyGroupedPartitioning defined")
+
+          val shuffles = plan.collect { case s: ColumnarShuffleExchangeExec => s }
+          assert(
+            shuffles.isEmpty,
+            s"Expected 0 shuffles for bucketed join but found ${shuffles.length}")
       }
     }
   }
