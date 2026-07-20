@@ -109,7 +109,7 @@
     <gluten.shade.packageName>org.apache.gluten.shaded</gluten.shade.packageName>
 
     <!-- The original protobuf version -->
-    <protobuf.version>3.23.4</protobuf.version>
+    <protobuf.version>4.35.1</protobuf.version>
     <guava.version>32.0.1-jre</guava.version>
     <!--spotless-->
     <spotless.version>2.27.2</spotless.version>
