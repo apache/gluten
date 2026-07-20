@@ -44,29 +44,12 @@ case class ColumnarShuffleExchangeExec(
     shuffleOrigin: ShuffleOrigin = ENSURE_REQUIREMENTS,
     projectOutputAttributes: Seq[Attribute],
     advisoryPartitionSize: Option[Long] = None,
-    mapperStageMode: Option[StageExecutionMode] = None,
-    reducerStageMode: Option[StageExecutionMode] = None)
+    mapperStageMode: Option[StageExecutionMode] = None)
   extends ShuffleExchangeLike
   with ValidatablePlan {
 
-  override def nodeName: String = "ColumnarExchange" + {
-    if (mapperStageMode.isDefined) {
-      if (conf.adaptiveExecutionEnabled) {
-        // In AQE, the reducer stage mode is set in the downstream query stage.
-        // It is shown in the ColumnarAQEShuffleReaderExec node.
-        s"(${mapperStageMode.get.name})"
-      } else {
-        // Mapper and reducer stage modes should be set together when AQE is disabled.
-        if (reducerStageMode.isEmpty) {
-          throw new IllegalStateException(
-            "Reducer stage mode is not defined in ColumnarShuffleExchangeExec when AQE is disabled")
-        }
-        s"(${mapperStageMode.get.name}, ${reducerStageMode.get.name})"
-      }
-    } else {
-      ""
-    }
-  }
+  override def nodeName: String =
+    "ColumnarExchange" + mapperStageMode.map(mode => s"(${mode.name})").getOrElse("")
 
   private[sql] lazy val writeMetrics =
     SQLShuffleWriteMetricsReporter.createShuffleWriteMetrics(sparkContext)
@@ -198,8 +181,7 @@ case class ColumnarShuffleExchangeExec(
     if (cachedShuffleRDD == null) {
       cachedShuffleRDD = new ShuffledColumnarBatchRDD(
         columnarShuffleDependency,
-        readMetrics,
-        reducerStageMode.getOrElse(CPUStageMode))
+        readMetrics)
     }
     cachedShuffleRDD
   }
