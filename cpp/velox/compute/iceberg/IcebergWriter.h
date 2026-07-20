@@ -25,6 +25,8 @@
 
 namespace gluten {
 
+void registerIcebergOrcWriterFactory();
+
 struct WriteStats {
   uint64_t numWrittenBytes{0};
   uint32_t numWrittenFiles{0};

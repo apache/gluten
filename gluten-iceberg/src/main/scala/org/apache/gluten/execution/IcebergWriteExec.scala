@@ -108,7 +108,7 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
       return ValidationResult.failed("Not support write table with sort order")
     }
     val format = IcebergWriteUtil.getFileFormat(write)
-    if (format != FileFormat.PARQUET) {
+    if (!Seq(FileFormat.PARQUET, FileFormat.ORC).contains(format)) {
       return ValidationResult.failed("Not support this format " + format.name())
     }
 

@@ -40,6 +40,7 @@
 #endif
 
 #include "compute/VeloxRuntime.h"
+#include "compute/iceberg/IcebergWriter.h"
 #include "config/VeloxConfig.h"
 #ifdef ENABLE_S3
 #include "filesystem/GlutenS3FileSystem.h"
@@ -246,6 +247,7 @@ void VeloxBackend::init(
   velox::parquet::registerParquetReaderFactory();
   velox::parquet::registerParquetWriterFactory();
   velox::orc::registerOrcReaderFactory();
+  registerIcebergOrcWriterFactory();
   velox::exec::ExprToSubfieldFilterParser::registerParser(std::make_unique<SparkExprToSubfieldFilterParser>());
   velox::connector::hive::BufferedInputBuilder::registerBuilder(std::make_shared<GlutenBufferedInputBuilder>());
 

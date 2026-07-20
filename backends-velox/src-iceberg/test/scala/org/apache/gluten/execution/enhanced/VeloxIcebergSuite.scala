@@ -63,6 +63,29 @@ class VeloxIcebergSuite extends IcebergSuite {
     }
   }
 
+  test("iceberg native ORC write") {
+    withTable("iceberg_orc_write") {
+      spark.sql("""
+                  |create table iceberg_orc_write(a int, b string) using iceberg
+                  |tblproperties ('write.format.default' = 'orc')
+                  |""".stripMargin)
+
+      val df = spark.sql("insert into iceberg_orc_write values (1, 'a'), (2, 'b')")
+      assert(
+        df.queryExecution.executedPlan
+          .asInstanceOf[CommandResultExec]
+          .commandPhysicalPlan
+          .isInstanceOf[VeloxIcebergAppendDataExec])
+
+      checkAnswer(
+        spark.sql("select * from iceberg_orc_write order by a"),
+        Seq(Row(1, "a"), Row(2, "b")))
+      checkAnswer(
+        spark.sql("select distinct file_format from default.iceberg_orc_write.files"),
+        Seq(Row("ORC")))
+    }
+  }
+
   test("iceberg insert partition table identity transform") {
     withTable("iceberg_tb2") {
       spark.sql("""
