@@ -63,6 +63,27 @@ Because Delta shards **by suite**, every suite (and therefore every test) runs
 in exactly one shard, so per-shard enforcement sees complete suites and never
 double-counts.
 
+## When it runs
+
+To keep GitHub Actions usage in check, the suite does **not** run on every PR:
+
+- **Per PR** — `velox_backend_x86.yml` runs the Delta suite only when the PR
+  touches a **high-signal Delta path**: the Delta integration code
+  (`backends-velox/src-delta*`), the `gluten-delta` module, or this pipeline's
+  own files (`delta_spark_ut.yml`, `util/delta-spark-ut/**`,
+  `velox_backend_x86.yml`). Changes to general Velox/core/native code can also
+  affect Delta offload, but they're touched on most PRs, so per-PR they skip the
+  suite — the nightly run and the opt-in label are the safety nets. Add the
+  **`run-delta-ci`** label to force the suite on any PR (the label is read from
+  the triggering event, so apply it before/with a push).
+- **Nightly** — `delta_spark_ut.yml` runs the **full** suite against the latest
+  default branch on a `schedule` (05:00 UTC), so rarer regressions are still
+  caught daily. The nightly run enforces the baseline **and** fails on
+  now-passing tests (`fail_on_fixed=true`), so baseline drift surfaces as a red
+  nightly — the signal to refresh `known-failures.txt`.
+- **Manually** — **Actions → Delta Spark UT (Gluten) → Run workflow**
+  (`workflow_dispatch`), e.g. to refresh the baseline (see below).
+
 ## Bootstrapping the baseline (first time)
 
 While `known-failures.txt` has no entries the gate auto-runs in **seed mode**

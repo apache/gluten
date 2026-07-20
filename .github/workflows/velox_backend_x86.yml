@@ -110,8 +110,62 @@ jobs:
   # built above instead of duplicating the native build. Not gated on Delta-only
   # paths: core/velox/substrait/cpp/shims changes can affect Delta query offload,
   # so this runs on every trigger like the other spark-test jobs.
+  # Gate the (expensive) Delta Spark UT suite so per-PR it runs only when the PR
+  # touches high-signal Delta paths -- the Delta integration code
+  # (backends-velox/src-delta*), the gluten-delta module, or this pipeline's own
+  # files -- or carries the `run-delta-ci` opt-in label. Changes to general
+  # Velox/core/native code can also affect Delta offload but are touched
+  # constantly, so per-PR they skip it; the nightly full run (delta_spark_ut.yml
+  # `schedule`) and the opt-in label are the safety nets. This keeps GHA usage
+  # down. NOTE: the label is read from the event that triggered this run, so add
+  # it before/with a push; labeling an already-finished run needs a new push.
+  delta-changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      run_delta: ${{ steps.filter.outputs.run_delta }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect Delta-relevant changes / opt-in label
+        id: filter
+        env:
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-delta-ci') }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Opt-in label forces the suite even with no Delta-relevant path change.
+          if [ "$HAS_LABEL" = "true" ]; then
+            echo "run-delta-ci label present -> running Delta suite"
+            echo "run_delta=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Fail open if we can't determine the PR range (e.g. a non-PR trigger):
+          # never silently skip coverage.
+          if [ -z "${BASE_SHA:-}" ] || [ -z "${HEAD_SHA:-}" ]; then
+            echo "no PR base/head sha -> running Delta suite (fail-open)"
+            echo "run_delta=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || echo "$BASE_SHA")
+          echo "diff base=$BASE head=$HEAD_SHA"
+          # High-signal Delta paths only: the Delta integration code
+          # (backends-velox/src-delta*), the Delta module, and this pipeline's own
+          # files. A change to general Velox/core/native code can also affect Delta
+          # offload, but those are touched constantly; per-PR we skip them (the
+          # nightly full run + the `run-delta-ci` label are the safety nets) to
+          # keep GHA usage down.
+          if git diff --name-only "$BASE" "$HEAD_SHA" | grep -Eq \
+            '^(\.github/workflows/velox_backend_x86\.yml|\.github/workflows/delta_spark_ut\.yml|\.github/workflows/util/delta-spark-ut/|gluten-delta/|backends-velox/src-delta)'; then
+            echo "Delta-relevant paths changed -> running Delta suite"
+            echo "run_delta=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No Delta-relevant paths changed and no opt-in label -> skipping Delta suite"
+            echo "run_delta=false" >> "$GITHUB_OUTPUT"
+          fi
+
   delta-spark-ut:
-    needs: build-native-lib-centos-7
+    needs: [build-native-lib-centos-7, delta-changes]
+    if: ${{ needs.delta-changes.outputs.run_delta == 'true' }}
     uses: ./.github/workflows/delta_spark_ut.yml
     with:
       native_lib_artifact: velox-native-lib-centos-7-${{ github.sha }}

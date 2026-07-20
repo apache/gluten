@@ -93,6 +93,14 @@ on:
         type: boolean
         required: false
         default: true
+  # Nightly full run against the latest default branch. The per-PR entry point
+  # (velox_backend_x86.yml) now runs the Delta suite only when a PR touches
+  # Delta-relevant paths (or carries the opt-in label), to save GHA minutes; this
+  # scheduled run keeps full coverage once a day so rarer regressions are still
+  # caught. It builds its own native lib (build-native-lib-centos-7 below) since
+  # there is no caller to provide one, and uses the workflow's default inputs.
+  schedule:
+    - cron: '0 5 * * *'
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
@@ -106,10 +114,10 @@ env:
   # 2.13 + JDK 17 are pinned -- they match Delta v4.2.0's default Spark 4.1.0 from
   # project/CrossSparkVersions.scala -- so pair a non-default spark_version with a
   # compatible delta_ref.
-  GLUTEN_SPARK_PROFILE: spark-${{ inputs.spark_version }}
+  GLUTEN_SPARK_PROFILE: spark-${{ inputs.spark_version || '4.1' }}
   GLUTEN_SCALA_PROFILE: 'scala-2.13'
   GLUTEN_JAVA_PROFILE: 'java-17'
-  GLUTEN_BUNDLE_SPARK_VERSION: ${{ inputs.spark_version }}
+  GLUTEN_BUNDLE_SPARK_VERSION: ${{ inputs.spark_version || '4.1' }}
   GLUTEN_BUNDLE_SCALA_VERSION: '2.13'
   DELTA_SCALA_VERSION: '2.13.16'
   # Number of shards in the delta-spark-test matrix. Must equal the length of
@@ -133,10 +141,10 @@ env:
 
 jobs:
   build-native-lib-centos-7:
-    # Standalone (workflow_dispatch) only. When called by velox_backend_x86.yml
-    # the caller already built the native lib and passes it as an input, so this
-    # job is skipped and the duplicate native build is avoided.
-    if: github.event_name == 'workflow_dispatch'
+    # Standalone runs (workflow_dispatch + nightly schedule) build the native lib
+    # here. When called by velox_backend_x86.yml the caller already built it and
+    # passes it as an input, so this job is skipped and the duplicate build avoided.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -262,14 +270,19 @@ jobs:
 
       - name: Resolve workflow inputs
         id: resolve
-        # Every input has a default (workflow_call + workflow_dispatch), so they
-        # are always set; just surface them as step outputs for the steps below.
+        # Surface the inputs as step outputs. workflow_call / workflow_dispatch
+        # supply them (with defaults); the nightly `schedule` event supplies NONE,
+        # so fall back to the same defaults here. The boolean inputs are rendered
+        # as explicit 'true'/'false' strings (never empty) via the `&&/||` form so
+        # a schedule run resolves cleanly: update_baseline=false (enforce) and
+        # fail_on_fixed=true (so a now-passing baseline test turns the nightly red
+        # -- our signal that the committed baseline needs refreshing).
         env:
-          DELTA_REF: ${{ inputs.delta_ref }}
-          SPARK_VERSION: ${{ inputs.spark_version }}
-          TEST_PARALLELISM: ${{ inputs.test_parallelism }}
-          UPDATE_BASELINE: ${{ inputs.update_baseline }}
-          FAIL_ON_FIXED: ${{ inputs.fail_on_fixed }}
+          DELTA_REF: ${{ inputs.delta_ref || 'v4.2.0' }}
+          SPARK_VERSION: ${{ inputs.spark_version || '4.1' }}
+          TEST_PARALLELISM: ${{ inputs.test_parallelism || '4' }}
+          UPDATE_BASELINE: ${{ inputs.update_baseline && 'true' || 'false' }}
+          FAIL_ON_FIXED: ${{ github.event_name == 'schedule' && 'true' || (inputs.fail_on_fixed && 'true' || 'false') }}
         run: |
           set -euo pipefail
           {
