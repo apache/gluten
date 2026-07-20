@@ -140,7 +140,7 @@
     <!-- plugin version-->
     <build-helper-maven-plugin.version>3.6.0</build-helper-maven-plugin.version>
     <scala.compiler.version>4.9.2</scala.compiler.version>
-    <maven.compiler.plugin>3.14.1</maven.compiler.plugin>
+    <maven.compiler.plugin>3.15.0</maven.compiler.plugin>
     <maven.jar.plugin>3.2.2</maven.jar.plugin>
     <scalastyle.version>1.0.0</scalastyle.version>
     <scalatest-maven-plugin.version>2.2.0</scalatest-maven-plugin.version>
