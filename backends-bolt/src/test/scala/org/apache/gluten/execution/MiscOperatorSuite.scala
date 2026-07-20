@@ -2207,6 +2207,7 @@ class MiscOperatorSuite extends BoltWholeStageTransformerSuite with AdaptiveSpar
       coalesceEnabled => {
         withSQLConf(
           BoltConfig.COLUMNAR_BOLT_RESIZE_BATCHES_SHUFFLE_OUTPUT.key -> "true",
+          BoltConfig.GLUTEN_SHUFFLE_INSIDE_BOLT.key -> "false",
           SQLConf.SHUFFLE_PARTITIONS.key -> "10",
           SQLConf.COALESCE_PARTITIONS_ENABLED.key -> coalesceEnabled.toString
         ) {
