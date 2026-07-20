@@ -309,7 +309,8 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
       "spark.sql.sources.v2.bucketing.enabled" -> "true",
       "spark.sql.sources.v2.bucketing.pushPartValues.enabled" -> "true",
       "spark.sql.autoBroadcastJoinThreshold" -> "-1",
-      "spark.sql.adaptive.enabled" -> "false") {
+      "spark.sql.adaptive.enabled" -> "false"
+    ) {
       withTempDir {
         dir =>
           val path1 = s"${dir.getCanonicalPath}/t1"
