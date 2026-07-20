@@ -196,9 +196,9 @@ abstract class BatchScanExecTransformerBase(
 
   override def equals(other: Any): Boolean = other match {
     case other: BatchScanExecTransformerBase =>
-      this.pushDownFilters == other.pushDownFilters &&
       this.keyGroupedPartitioning == other.keyGroupedPartitioning &&
-      super.equals(other)
+        this.pushDownFilters == other.pushDownFilters &&
+        super.equals(other)
     case _ =>
       false
   }
