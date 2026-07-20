@@ -41,7 +41,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ "centos:8", "quay.io/centos/centos:stream9" ]
-    
+    if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
     container: ${{ matrix.os }}
     steps:
@@ -74,7 +74,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ "ubuntu:22.04" ]
-    
+    if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
     container: ${{ matrix.os }}
     steps:
@@ -117,7 +117,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ "openeuler/openeuler:24.03" ]
-    
+    if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-24.04-arm
     container: ${{ matrix.os }}
     steps:
@@ -146,7 +146,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ "openeuler/openeuler:24.03" ]
-    
+    if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-24.04-arm
     container: ${{ matrix.os }}
     steps:
@@ -172,7 +172,7 @@ jobs:
   weekly-build-on-macos:
     strategy:
       fail-fast: false
-    
+    if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: macos-15
     env:
       INSTALL_PREFIX: /tmp/deps-install
