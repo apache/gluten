@@ -139,6 +139,28 @@ def parse_entry(line):
     return (stripped[:idx], stripped[idx + len(SEP) :])
 
 
+def normalize_key(suite, test):
+    """Normalize a (suite, test) key parsed from JUnit XML to match baseline keys.
+
+    Baseline/flaky entries round-trip through write_entries (which collapses CR/LF
+    in the test name to spaces) and parse_entry (which strips the whole
+    ``suite#test`` line). A raw XML name carrying a trailing newline or
+    surrounding whitespace would therefore never equal its normalized baseline
+    entry: the gate would keep reporting it as a REGRESSION, and the
+    copy-pasteable line it prints could never suppress it (load strips it back).
+    Delta test names are freeform, so a version bump could introduce exactly that.
+    Applying the identical format+parse round-trip here keeps the two sides in
+    sync (and is a no-op for the normal, whitespace-free names).
+    """
+    safe_test = (test or "").replace("\r", " ").replace("\n", " ")
+    normalized = parse_entry(format_entry(suite or "", safe_test))
+    # parse_entry only returns None for a blank/comment line, which a real
+    # testcase key is not; fall back to a bare strip to keep this total.
+    if normalized is None:
+        return ((suite or "").strip(), safe_test.strip())
+    return normalized
+
+
 def load_entries(path):
     """Load a set of (suite, test) tuples from a baseline/shard-list file."""
     entries = set()
@@ -315,7 +337,7 @@ def parse_reports(reports_dir):
                     continue
                 suite = tc.get("classname") or suite_name
                 name = tc.get("name") or ""
-                key = (suite, name)
+                key = normalize_key(suite, name)
                 tags = _child_local_tags(tc)
                 if "failure" in tags or "error" in tags:
                     failed.add(key)
@@ -336,7 +358,7 @@ def parse_reports(reports_dir):
             except ValueError:
                 errors = failures = 0
             if (errors + failures) > 0 and not suite_has_failing_tc:
-                failed.add((suite_name, SUITE_ABORTED))
+                failed.add(normalize_key(suite_name, SUITE_ABORTED))
 
     if not parsed_any:
         raise NoReportsError(

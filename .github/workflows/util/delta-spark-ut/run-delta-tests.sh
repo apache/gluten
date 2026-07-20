@@ -89,8 +89,13 @@ set +e
 # threads (to the job log, and to a file for the artifact) once the test
 # output has been silent for too long, so the deadlock is diagnosable.
 SBT_LOG="/tmp/sbt-spark-test-shard-${SHARD_ID}.log"
+# Marker the watchdog touches when it KILLS a wedged test fork. The killed fork's
+# running suite plus every suite queued behind it never run and never write a
+# report, and since we ignore sbt's exit code the gate would only judge the
+# suites that DID report -- so the main flow fails the shard when this exists.
+WATCHDOG_KILL_MARKER="/tmp/sbt-watchdog-killed-shard-${SHARD_ID}"
 : > "$SBT_LOG"
-rm -f /tmp/sbt-done
+rm -f /tmp/sbt-done "$WATCHDOG_KILL_MARKER"
 (
   # CRITICAL: the step shell runs with `bash -eo pipefail`, which the
   # subshell inherits. Without `set +e` here, ANY non-zero command --
@@ -148,14 +153,22 @@ rm -f /tmp/sbt-done
     # Heartbeat every ~5 min so we can SEE the watchdog is alive (and how
     # long the test has been silent) without waiting for a hang.
     [ $(( hb % 5 )) -eq 0 ] && echo "HANG WATCHDOG: alive; last test output ${silent}s ago"
+    # The dump/kill budget below is PER silent-episode: reset it whenever output
+    # is flowing again. Otherwise a transient pre-fork/compile stall that we dump
+    # but (correctly) don't kill could exhaust the budget and leave a later real
+    # fork hang un-dumped and un-killed for the rest of the run.
+    [ "$silent" -lt "$silent_limit" ] && dumps=0
     if [ "$silent" -ge "$silent_limit" ] && [ "$dumps" -lt 3 ]; then
       dumps=$(( dumps + 1 ))
-      pids="$(fork_pids | sort -un)"
-      # Safety net: if the fork JVM cannot be pinpointed, dump EVERY JVM.
-      [ -n "$pids" ] || pids="$(all_java_pids | sort -un)"
-      echo "::group::HANG WATCHDOG: test output silent ${silent}s -- thread dump #${dumps} (pids:$(printf ' %s' $pids))"
-      [ -n "$pids" ] || echo "HANG WATCHDOG: no java process found to dump"
-      for pid in $pids; do
+      fork_matched="$(fork_pids | sort -un)"
+      # Dump set: the sbt.ForkMain test fork(s) if we can pinpoint them; if not,
+      # dump EVERY JVM so a hang is still diagnosable. Diagnostics are harmless on
+      # any JVM, so the broad fallback stays here.
+      dump_pids="$fork_matched"
+      [ -n "$dump_pids" ] || dump_pids="$(all_java_pids | sort -un)"
+      echo "::group::HANG WATCHDOG: test output silent ${silent}s -- thread dump #${dumps} (pids:$(printf ' %s' $dump_pids))"
+      [ -n "$dump_pids" ] || echo "HANG WATCHDOG: no java process found to dump"
+      for pid in $dump_pids; do
         # SIGQUIT makes the JVM print a full thread dump to its OWN stderr,
         # which sbt relays into the test log via the SAME stream as test
         # output -- so it lands in the job log even when a separately
@@ -167,16 +180,27 @@ rm -f /tmp/sbt-done
           || echo "HANG WATCHDOG: jstack failed/timed out for pid ${pid}"
       done
       echo "::endgroup::"
-      # The dump is now captured (job log via SIGQUIT + artifact via
-      # jstack file). A hung JVM otherwise stalls the whole shard until
-      # the 350-min job timeout AND keeps the job log frozen so the dump
-      # never becomes reachable. So KILL the wedged JVM(s): the suite
-      # fails fast (acceptable -- errors are expected; only an
-      # unrecoverable hang blocks CI), the job proceeds/ends, and the log
-      # + artifacts flush. Give SIGQUIT a moment to print first.
+      # The dump is now captured (job log via SIGQUIT + artifact via jstack
+      # file). A hung fork otherwise stalls the whole shard until the 350-min job
+      # timeout AND keeps the job log frozen so the dump never becomes reachable.
+      # So KILL the wedged fork(s): the suite fails fast (acceptable -- errors are
+      # expected; only an unrecoverable hang blocks CI), the job proceeds/ends,
+      # and the log + artifacts flush. Give SIGQUIT a moment to print first.
       sleep 20
-      echo "HANG WATCHDOG: killing wedged JVM(s) to unblock the shard: $(printf '%s ' $pids)"
-      for pid in $pids; do kill -KILL "$pid" 2>/dev/null; done
+      # Kill ONLY the matched sbt.ForkMain fork(s) -- never the sbt launcher.
+      # Before any fork exists (dependency resolution or a cold-cache compile of
+      # the big spark test module) sbt can legitimately go silent for >15 min;
+      # killing the launcher then would kill the job with a confusing "compile or
+      # launch failure" and waste the whole slot. A pre-fork hang is left running
+      # (rare; still bounded by the 350-min job timeout). Touch the marker so the
+      # main flow fails the shard: the killed fork's queued suites never ran.
+      if [ -n "$fork_matched" ]; then
+        echo "HANG WATCHDOG: killing wedged fork JVM(s) to unblock the shard:$(printf ' %s' $fork_matched)"
+        touch "$WATCHDOG_KILL_MARKER"
+        for pid in $fork_matched; do kill -KILL "$pid" 2>/dev/null; done
+      else
+        echo "HANG WATCHDOG: no sbt.ForkMain fork matched -- dumped all JVMs but leaving sbt running (likely a pre-fork resolve/compile stall, not a wedged test)."
+      fi
     fi
   done
 ) &
@@ -209,6 +233,16 @@ echo "sbt spark/test exited with ${SBT_EXIT}"
            /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.events; do
     [ -r "$f" ] && { echo "--- $f ---"; cat "$f"; }
   done ) || true
+
+# If the hang watchdog killed a wedged test fork, the suite it was running plus
+# every suite QUEUED BEHIND it in that fork never ran and never wrote a report.
+# Because we intentionally ignore sbt's exit code, the gate would only judge the
+# suites that DID report and could go green with those tests silently unrun. A
+# watchdog kill is an abnormal run, so fail the shard outright (re-run to retry).
+if [ -f "$WATCHDOG_KILL_MARKER" ]; then
+  echo "::error::hang watchdog killed a wedged test fork on shard ${SHARD_ID}; suites queued behind it never ran, so results are incomplete. Failing the shard."
+  exit 1
+fi
 
 # A compile/launch failure leaves no reports at all. In that case the
 # gate would see zero failures and pass spuriously, so fail loudly.
