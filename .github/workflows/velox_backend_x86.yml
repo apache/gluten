@@ -106,10 +106,6 @@ jobs:
           path: ./cpp/build/
           if-no-files-found: error
 
-  # Delta Spark UT, run via the reusable workflow so it reuses the native lib
-  # built above instead of duplicating the native build. Not gated on Delta-only
-  # paths: core/velox/substrait/cpp/shims changes can affect Delta query offload,
-  # so this runs on every trigger like the other spark-test jobs.
   # Gate the (expensive) Delta Spark UT suite so per-PR it runs only when the PR
   # touches high-signal Delta paths -- the Delta integration code
   # (backends-velox/src-delta*), the gluten-delta module, or this pipeline's own
@@ -163,6 +159,10 @@ jobs:
             echo "run_delta=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # Run the Delta Spark UT via the reusable workflow, passing the native lib
+  # built above so it is not rebuilt. Gated by `delta-changes` (Delta-relevant
+  # paths or the `run-delta-ci` label); the nightly full run lives in
+  # delta_spark_ut.yml's `schedule` trigger.
   delta-spark-ut:
     needs: [build-native-lib-centos-7, delta-changes]
     if: ${{ needs.delta-changes.outputs.run_delta == 'true' }}
