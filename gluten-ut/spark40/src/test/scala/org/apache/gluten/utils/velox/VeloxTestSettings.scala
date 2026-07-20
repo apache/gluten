@@ -894,7 +894,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDefaultANSIValueSuite]
   enableSuite[GlutenDeprecatedDatasetAggregatorSuite]
   disableSuite[GlutenExplainSuite](
-    "Validates Spark-specific physical plan and JVM codegen output that does not apply to " +
+    "Validates Spark-specific physical plans and JVM codegen output, neither of which applies to " +
       "Gluten's native execution plan")
   enableSuite[GlutenICUCollationsMapSuite]
   enableSuite[GlutenInlineTableParsingImprovementsSuite]
