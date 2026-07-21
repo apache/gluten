@@ -1029,34 +1029,6 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrappe
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
-JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrapper_createGpuHashShuffleWriter(
-    JNIEnv* env,
-    jobject wrapper,
-    jint numPartitions,
-    jstring partitioningNameJstr,
-    jint startPartitionId,
-    jint splitBufferSize,
-    jdouble splitBufferReallocThreshold,
-    jlong partitionWriterHandle) {
-  JNI_METHOD_START
-
-  const auto ctx = getRuntime(env, wrapper);
-
-  auto partitionWriter = ObjectStore::retrieve<PartitionWriter>(partitionWriterHandle);
-  if (partitionWriter == nullptr) {
-    throw GlutenException("Partition writer handle is invalid: " + std::to_string(partitionWriterHandle));
-  }
-  ObjectStore::release(partitionWriterHandle);
-
-  auto shuffleWriterOptions = std::make_shared<HashShuffleWriterOptions>(
-      toPartitioning(jStringToCString(env, partitioningNameJstr)),
-      startPartitionId,
-      splitBufferSize,
-      splitBufferReallocThreshold);
-  return ctx->saveObject(ctx->createShuffleWriter(numPartitions, partitionWriter, shuffleWriterOptions));
-  JNI_METHOD_END(kInvalidObjectHandle)
-}
-
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleWriterJniWrapper_createSortShuffleWriter(
     JNIEnv* env,
     jobject wrapper,

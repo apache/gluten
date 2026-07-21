@@ -17,8 +17,8 @@
 package org.apache.spark.sql.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.config.{GpuHashShuffleWriterType, ShuffleWriterType}
-import org.apache.gluten.execution.{CPUStageMode, GPUStageMode, StageExecutionMode, ValidatablePlan, ValidationResult}
+import org.apache.gluten.config.ShuffleWriterType
+import org.apache.gluten.execution.{CPUStageMode, StageExecutionMode, ValidatablePlan, ValidationResult}
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.sql.shims.SparkShimLoader
 
@@ -29,7 +29,7 @@ import org.apache.spark.serializer.Serializer
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.logical.Statistics
-import org.apache.spark.sql.catalyst.plans.physical.{SinglePartition, _}
+import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.execution.exchange._
 import org.apache.spark.sql.execution.metric.SQLShuffleWriteMetricsReporter
@@ -129,14 +129,10 @@ case class ColumnarShuffleExchangeExec(
   }
 
   def getShuffleWriterType: ShuffleWriterType = {
-    mapperStageMode match {
-      case Some(GPUStageMode) =>
-        GpuHashShuffleWriterType
-      case _ =>
-        BackendsApiManager.getSparkPlanExecApiInstance.getShuffleWriterType(
-          outputPartitioning,
-          output)
-    }
+    BackendsApiManager.getSparkPlanExecApiInstance.getShuffleWriterType(
+      outputPartitioning,
+      output,
+      mapperStageMode)
   }
 
   // Required for Spark 4.0 to implement a trait method.

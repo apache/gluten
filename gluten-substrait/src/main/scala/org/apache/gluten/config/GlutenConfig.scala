@@ -54,12 +54,6 @@ case object RssSortShuffleWriterType extends ShuffleWriterType {
   override val requiresResizingShuffleOutput: Boolean = false
 }
 
-case object GpuHashShuffleWriterType extends ShuffleWriterType {
-  override val name: String = ReservedKeys.GLUTEN_GPU_HASH_SHUFFLE_WRITER
-  override val requiresResizingShuffleInput: Boolean = true
-  override val requiresResizingShuffleOutput: Boolean = true
-}
-
 /*
  * Note: Gluten configiguration.md is automatically generated from this code.
  * Make sure to run dev/gen-all-config-docs.sh after making changes to this file.
