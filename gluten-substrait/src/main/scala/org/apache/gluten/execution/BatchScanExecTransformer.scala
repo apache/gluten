@@ -27,6 +27,7 @@ import org.apache.spark.Partition
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
+import org.apache.spark.sql.catalyst.plans.physical.UnknownPartitioning
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read.Scan
@@ -190,10 +191,10 @@ abstract class BatchScanExecTransformerBase(
     val taskPartitions =
       if (
         orderedPartitions.size > target &&
-        keyGroupedPartitioning.isEmpty &&
-        commonPartitionValues.isEmpty &&
-        !applyPartialClustering &&
-        !replicatePartitions
+        // Coalescing changes task boundaries. Only do it when Spark does not advertise a
+        // distribution whose partition groups must remain aligned, such as key-grouped
+        // partitioning used by storage-partitioned joins.
+        outputPartitioning.isInstanceOf[UnknownPartitioning]
       ) {
         Seq.tabulate(target) {
           index =>
