@@ -35,40 +35,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-on-centos-7:
-    strategy:
-      fail-fast: false
-    if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04
-    container: centos:7
-    steps:
-      - name: Build Gluten native libraries and package
-        run: |
-          sed -i -e 's|mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-* || true
-          sed -i -e 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-* || true
-          yum update -y
-          yum install -y epel-release sudo dnf
-          yum install -y centos-release-scl
-          rm /etc/yum.repos.d/CentOS-SCLo-scl.repo -f
-          sed -i \
-          -e 's/^mirrorlist/#mirrorlist/' \
-          -e 's/^#baseurl/baseurl/' \
-          -e 's/mirror\.centos\.org/vault.centos.org/' \
-          /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
-          yum install -y devtoolset-11
-          source /opt/rh/devtoolset-11/enable
-          yum install -y java-1.8.0-openjdk-devel patch wget git perl python3-pip
-          export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk && \
-          export PATH=$JAVA_HOME/bin:$PATH
-          
-          # action/checkout does not work centos7 anymore, so we clone the branch instead.
-          git clone -b main --depth=1 https://github.com/apache/gluten.git && cd gluten/
-          if [ ${{ github.event_name }} = "pull_request" ]; then
-            git fetch origin ${{ github.ref }}:pr_branch && git checkout pr_branch
-          fi
-          ./dev/package.sh --spark_version=3.5
 
-  build-on-centos:
+  weekly-build-on-centos:
     strategy:
       fail-fast: false
       matrix:
@@ -79,42 +47,33 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Update mirror list
-        run: |
-          sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
-          sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true
       - name: build
         run: |
-          yum update -y
-          yum install -y epel-release sudo dnf
-          if [ "${{ matrix.os }}" = "centos:7" ]; then
-            yum install -y centos-release-scl
-            rm /etc/yum.repos.d/CentOS-SCLo-scl.repo -f
-            sed -i \
-            -e 's/^mirrorlist/#mirrorlist/' \
-            -e 's/^#baseurl/baseurl/' \
-            -e 's/mirror\.centos\.org/vault.centos.org/' \
-            /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
-            yum install -y devtoolset-11
-            source /opt/rh/devtoolset-11/enable
-          elif [ "${{ matrix.os }}" = "quay.io/centos/centos:stream9" ]; then
-            dnf install -y --setopt=install_weak_deps=False gcc-toolset-12
-            source /opt/rh/gcc-toolset-12/enable || exit 1
-          else
-            dnf install -y --setopt=install_weak_deps=False gcc-toolset-11
-            source /opt/rh/gcc-toolset-11/enable || exit 1
+          if [ "${{ matrix.os }}" = "centos:8" ]; then
+            sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
+            sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true
+            dnf update -y
+            dnf install -y centos-release-stream
+            sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-Stream-* || true
+            sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-Stream-* || true
+            dnf swap -y --allowerasing centos-{linux,stream}-repos
+            sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-Stream-* || true
+            sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-Stream-* || true
           fi
+          dnf install -y epel-release sudo dnf
+          dnf install -y --setopt=install_weak_deps=False gcc-toolset-12
+          source /opt/rh/gcc-toolset-12/enable || exit 1
           yum install -y java-1.8.0-openjdk-devel patch wget git perl
           export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk && \
           export PATH=$JAVA_HOME/bin:$PATH
-
+          export VELOX_BUILD_SHARED=ON
           cd $GITHUB_WORKSPACE/ && ./dev/package.sh --spark_version=3.5
 
-  build-on-ubuntu:
+  weekly-build-on-ubuntu:
     strategy:
       fail-fast: false
       matrix:
-        os: [ "ubuntu:22.04" ] # skip "ubuntu:20.04" due to not enough disk space
+        os: [ "ubuntu:22.04" ]
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
     container: ${{ matrix.os }}
@@ -125,30 +84,35 @@ jobs:
           # sed -i 's|http://archive|http://us.archive|g' /etc/apt/sources.list
           # To avoid the prompt for region selection during installing tzdata.
           export DEBIAN_FRONTEND=noninteractive
-          apt-get update && apt-get install -y sudo maven wget git curl
-          if [ "${{ matrix.os }}" = "ubuntu:20.04" ]; then
-            sudo apt install -y software-properties-common
-            sudo add-apt-repository ppa:ubuntu-toolchain-r/test
-            sudo apt update && sudo apt install -y gcc-11 g++-11 build-essential cmake
-            export CC=/usr/bin/gcc-11
-            export CXX=/usr/bin/g++-11
-            wget https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.1.tar.gz
-            tar xf v0.8.1.tar.gz
-            cd xxHash-0.8.1/
-            make && make install
-            cd /tmp
-            wget https://github.com/google/googletest/archive/refs/tags/v1.13.0.tar.gz
-            tar xf v1.13.0.tar.gz && cd googletest-1.13.0/
-            export CXXFLAGS=-fPIC
-            cmake . && make install -j
-            apt autoremove -y
-            rm -rf /tmp/*
-          fi
-          sudo apt-get install -y openjdk-8-jdk python3-pip cmake
+          export INSTALL_PREFIX=/usr/
+          apt-get update && apt-get install -y sudo maven wget git curl gcc-11 g++-11 build-essential cmake openjdk-8-jdk python3-pip
+          pip3 install cmake==3.31.4
+          cd /tmp
+          wget https://github.com/gflags/gflags/archive/v2.2.2.tar.gz -O gflags.tar.gz
+          tar -xzf gflags.tar.gz && cd gflags-2.2.2
+          cmake -B build \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_STATIC_LIBS=ON \
+            -DBUILD_gflags_LIB=ON \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j4 --target install
+          wget https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.1.tar.gz
+          tar xf v0.8.1.tar.gz
+          cd xxHash-0.8.1/
+          make && make install
+          cd /tmp
+          wget https://github.com/google/googletest/archive/refs/tags/v1.13.0.tar.gz
+          tar xf v1.13.0.tar.gz && cd googletest-1.13.0/
+          export CXXFLAGS=-fPIC
+          cmake . && make install -j
+          apt autoremove -y
           export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+          export VELOX_BUILD_SHARED=ON
           cd $GITHUB_WORKSPACE/ && ./dev/package.sh --spark_version=3.5
 
-  build-on-openeuler:
+  weekly-build-on-openeuler:
     strategy:
       fail-fast: false
       matrix:
@@ -177,7 +141,7 @@ jobs:
           $TPCH_TEST --extra-conf=spark.gluten.loadLibFromJar=true \
             --extra-conf=spark.gluten.loadLibOS=openEuler --extra-conf=spark.gluten.loadLibOSVersion=24.03
 
-  build-on-openeuler-vcpkg:
+  weekly-build-on-openeuler-vcpkg:
     strategy:
       fail-fast: false
       matrix:
@@ -205,7 +169,7 @@ jobs:
           cd $GITHUB_WORKSPACE/tools/gluten-it
           $TPCH_TEST
 
-  build-on-macos:
+  weekly-build-on-macos:
     strategy:
       fail-fast: false
     if: ${{ startsWith(github.repository, 'apache/') }}
