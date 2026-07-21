@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
@@ -173,9 +174,9 @@ abstract class BatchScanExecTransformerBase(
   override def metricsUpdater(): MetricsUpdater =
     BackendsApiManager.getMetricsApiInstance.genBatchScanTransformerMetricsUpdater(metrics)
 
-  @transient protected lazy val finalPartitions: Seq[Partition] =
-    SparkShimLoader.getSparkShims
-      .orderPartitions(
+  @transient protected lazy val finalPartitions: Seq[Partition] = {
+    val orderedPartitions =
+      SparkShimLoader.getSparkShims.orderPartitions(
         this,
         scan,
         keyGroupedPartitioning,
@@ -184,10 +185,30 @@ abstract class BatchScanExecTransformerBase(
         commonPartitionValues,
         applyPartialClustering,
         replicatePartitions)
-      .zipWithIndex
-      .map {
-        case (inputPartitions, index) => new SparkDataSourceRDDPartition(index, inputPartitions)
+
+    val target = GlutenConfig.get.batchScanMaxInputPartitions
+    val taskPartitions =
+      if (
+        orderedPartitions.size > target &&
+        keyGroupedPartitioning.isEmpty &&
+        commonPartitionValues.isEmpty &&
+        !applyPartialClustering &&
+        !replicatePartitions
+      ) {
+        Seq.tabulate(target) {
+          index =>
+            val from = index * orderedPartitions.size / target
+            val until = (index + 1) * orderedPartitions.size / target
+            orderedPartitions.slice(from, until).flatten
+        }
+      } else {
+        orderedPartitions
       }
+
+    taskPartitions.zipWithIndex.map {
+      case (inputPartitions, index) => new SparkDataSourceRDDPartition(index, inputPartitions)
+    }
+  }
 
   @transient override lazy val fileFormat: ReadFileFormat =
     BackendsApiManager.getSettings.getSubstraitReadFileFormatV2(scan)
