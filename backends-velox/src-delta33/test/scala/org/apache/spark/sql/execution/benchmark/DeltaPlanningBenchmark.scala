@@ -97,10 +97,7 @@ object DeltaPlanningBenchmark extends SqlBasedBenchmark {
     withDeltaTableWithDVs(numFiles, rowsPerFile) {
       (path, partitionedFiles) =>
         benchmark.addCase(s"normalize() - $numFiles DV files", benchmarkIters) {
-          _ =>
-            DeltaDeletionVectorScanInfo.normalize(
-              partitionColumnCount = 0,
-              partitionFiles = partitionedFiles)
+          _ => DeltaDeletionVectorScanInfo.normalize(partitionedFiles, new Path(path))
         }
 
         benchmark.run()

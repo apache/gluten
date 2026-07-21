@@ -27,8 +27,7 @@ import java.util.{Map => JMap}
 /** Reading deletion vectors natively requires Delta 3.3+, so there is nothing to materialize. */
 object DeltaDeletionVectorScanInfo {
   def normalize(
-      partitionColumnCount: Int,
       partitionFiles: Seq[PartitionedFile],
-      tablePath: Option[Path] = None)
+      tablePath: Path)
       : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = None
 }

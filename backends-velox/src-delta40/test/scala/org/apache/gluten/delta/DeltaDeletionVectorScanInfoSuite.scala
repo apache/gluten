@@ -82,7 +82,7 @@ class DeltaDeletionVectorScanInfoSuite
           )
         )
 
-        val scanInfo = DeltaDeletionVectorScanInfo.extract(spark, 0, partitionedFile)
+        val scanInfo = DeltaDeletionVectorScanInfo.extract(spark, partitionedFile, new Path(path))
         val dvInfo = scanInfo.deletionVectorInfo
 
         assert(dvInfo.hasDeletionVector)
@@ -106,7 +106,7 @@ class DeltaDeletionVectorScanInfoSuite
           dataFile.size,
           Map("kept_key" -> "kept_value"))
 
-        val scanInfo = DeltaDeletionVectorScanInfo.extract(spark, 0, partitionedFile)
+        val scanInfo = DeltaDeletionVectorScanInfo.extract(spark, partitionedFile, new Path(path))
         val dvInfo = scanInfo.deletionVectorInfo
 
         assert(!dvInfo.hasDeletionVector)
@@ -131,13 +131,13 @@ class DeltaDeletionVectorScanInfoSuite
           Map(GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_TYPE -> "IF_CONTAINED"))
 
         val error = intercept[IllegalStateException] {
-          DeltaDeletionVectorScanInfo.extract(spark, 0, partitionedFile)
+          DeltaDeletionVectorScanInfo.extract(spark, partitionedFile, new Path(path))
         }
         assert(error.getMessage.contains("must either be present or absent"))
     }
   }
 
-  test("normalize materializes the same DV whether the table path is supplied or derived") {
+  test("normalize materializes DV read options using the supplied table path") {
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
@@ -170,25 +170,12 @@ class DeltaDeletionVectorScanInfoSuite
           )
         )
 
-        // Supplying the table root (as DeltaScanTransformer does via TahoeFileIndex.path) must
-        // yield exactly the same materialized DV as deriving it from the file path. This proves the
-        // new tablePath parameter is honored and the fast path stays correct.
-        val withSuppliedPath =
-          DeltaDeletionVectorScanInfo.normalize(0, Seq(partitionedFile), Some(new Path(path)))
-        val withDerivedPath =
-          DeltaDeletionVectorScanInfo.normalize(0, Seq(partitionedFile), None)
-
-        assert(withSuppliedPath.isDefined, "normalize should materialize DV options")
-        assert(withDerivedPath.isDefined, "normalize should materialize DV options")
-
-        val supplied = withSuppliedPath.get._2.head
-        val derived = withDerivedPath.get._2.head
-        assert(supplied.hasDeletionVector)
-        assert(supplied.deletionVectorCardinality == dataFile.deletionVector.cardinality)
-        assert(supplied.serializedDeletionVector.nonEmpty)
-        assert(
-          supplied.serializedDeletionVector.sameElements(derived.serializedDeletionVector),
-          "supplied-path and derived-path DV payloads must be identical")
+        val result = DeltaDeletionVectorScanInfo.normalize(Seq(partitionedFile), new Path(path))
+        assert(result.isDefined, "normalize should materialize DV options")
+        val opts = result.get._2.head
+        assert(opts.hasDeletionVector)
+        assert(opts.deletionVectorCardinality == dataFile.deletionVector.cardinality)
+        assert(opts.serializedDeletionVector.nonEmpty)
     }
   }
 

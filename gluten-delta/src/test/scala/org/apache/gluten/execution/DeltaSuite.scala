@@ -628,6 +628,31 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
+  testWithMinSparkVersion("deletion vector on partitioned table", "3.4") {
+    withTempPath {
+      p =>
+        import testImplicits._
+        val path = p.getCanonicalPath
+        // Partitioned so data files live under partition subdirs (region=.../...). The DV path is
+        // resolved from the table root (TahoeFileIndex.path) regardless of partition nesting; this
+        // guards the removal of the old partition-count-based table-path walk-up.
+        val data =
+          Seq((1, "a"), (2, "a"), (3, "b"), (4, "b"), (5, "a"), (6, "b")).toDF("id", "region")
+        data.write.format("delta").partitionBy("region").save(path)
+        spark.sql(
+          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+        spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (2, 3, 6)")
+        val df = spark.read.format("delta").load(path)
+        if (SparkVersionUtil.gteSpark35) {
+          assert(
+            df.queryExecution.executedPlan
+              .collect { case _: DeltaScanTransformer => true }
+              .nonEmpty)
+        }
+        checkAnswer(df, Seq((1, "a"), (4, "b"), (5, "a")).toDF("id", "region"))
+    }
+  }
+
   test("delta: push down input_file_name expression") {
     withTable("source_table") {
       withTable("target_table") {

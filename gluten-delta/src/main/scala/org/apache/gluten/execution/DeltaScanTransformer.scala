@@ -120,29 +120,29 @@ case class DeltaScanTransformer(
   override def getSplitInfosFromPartitions(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
     val splitInfos = super.getSplitInfosFromPartitions(partitions)
-    val partitionColumnCount = getPartitionSchema.fields.length
-    // The Delta table root is already known from the scan's file index (TahoeFileIndex.path), so
-    // pass it down to DV materialization. This avoids re-deriving the root from a file path via
-    // `_delta_log` existence probing -- one FileSystem.exists() call (an HTTP HEAD on object
-    // stores) per partition. When the location is not a TahoeFileIndex we pass None and
-    // normalize() falls back to deriving the path from the files.
-    val tableRootPath = relation.location match {
-      case tahoe: TahoeFileIndex => Some(tahoe.path)
-      case _ => None
-    }
-    splitInfos.zip(partitions).map {
-      case (localFiles: LocalFilesNode, (filePartition: FilePartition, _)) =>
-        DeltaDeletionVectorScanInfo
-          .normalize(partitionColumnCount, filePartition.files.toSeq, tableRootPath)
-          .map {
-            case (otherMetadataColumns, deltaReadOptions) =>
-              DeltaLocalFilesBuilder.makeDeltaLocalFiles(
-                localFiles,
-                otherMetadataColumns.asJava,
-                deltaReadOptions.asJava): SplitInfo
-          }
-          .getOrElse(localFiles)
-      case (splitInfo, _) => splitInfo
+    // Deletion vectors only exist on Delta tables read through a TahoeFileIndex (which also covers
+    // PreparedDeltaFileIndex). Its `path` is the authoritative table root and is used to resolve
+    // per-file DV locations. Any other location cannot carry Delta DV metadata, so the generic
+    // split representation is returned unchanged.
+    relation.location match {
+      case tahoe: TahoeFileIndex =>
+        val tableRootPath = tahoe.path
+        splitInfos.zip(partitions).map {
+          case (localFiles: LocalFilesNode, (filePartition: FilePartition, _)) =>
+            DeltaDeletionVectorScanInfo
+              .normalize(filePartition.files.toSeq, tableRootPath)
+              .map {
+                case (otherMetadataColumns, deltaReadOptions) =>
+                  DeltaLocalFilesBuilder.makeDeltaLocalFiles(
+                    localFiles,
+                    otherMetadataColumns.asJava,
+                    deltaReadOptions.asJava): SplitInfo
+              }
+              .getOrElse(localFiles)
+          case (splitInfo, _) => splitInfo
+        }
+      case _ =>
+        splitInfos
     }
   }
 

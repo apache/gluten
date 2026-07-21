@@ -64,15 +64,13 @@ object DeltaDeletionVectorScanInfo {
    * the DV bookkeeping keys stripped. Returns None when no file in the split carries a deletion
    * vector, so callers can keep the generic split representation.
    *
-   * Performance: reuses a single Hadoop Configuration instance across all files in the partition.
-   * The table root is taken from `tablePath` when the caller can supply it (e.g. from
-   * `TahoeFileIndex.path`); otherwise it is derived once from the first file, which requires a
-   * `_delta_log` existence probe. Passing `tablePath` avoids that filesystem round-trip.
+   * `tablePath` is the Delta table root, supplied by the caller from `TahoeFileIndex.path`, and is
+   * used to resolve on-disk DV locations. A single Hadoop Configuration is reused across all files
+   * in the partition.
    */
   def normalize(
-      partitionColumnCount: Int,
       partitionFiles: Seq[PartitionedFile],
-      tablePath: Option[Path] = None)
+      tablePath: Path)
       : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
     if (partitionFiles.isEmpty) {
       return None
@@ -80,14 +78,8 @@ object DeltaDeletionVectorScanInfo {
     val spark = activeSparkSession
     // Create a single Hadoop Configuration for the entire partition.
     val hadoopConf = spark.sessionState.newHadoopConf()
-    // Prefer the caller-supplied table root (TahoeFileIndex.path). Fall back to deriving it from
-    // the first file -- which probes the filesystem for _delta_log -- only when unavailable.
-    val cachedTablePath =
-      tablePath.getOrElse(resolveTablePath(hadoopConf, partitionColumnCount, partitionFiles.head))
 
-    val scanInfos = partitionFiles.map {
-      file => extract(partitionColumnCount, file, hadoopConf, cachedTablePath)
-    }
+    val scanInfos = partitionFiles.map(file => extract(file, hadoopConf, tablePath))
     if (scanInfos.exists(_.deletionVectorInfo.hasDeletionVector)) {
       Some(
         (
@@ -101,15 +93,13 @@ object DeltaDeletionVectorScanInfo {
   /** Public entry point for extracting DV info from a single file (used by tests). */
   def extract(
       spark: SparkSession,
-      partitionColumnCount: Int,
-      file: PartitionedFile): PartitionFileScanInfo = {
+      file: PartitionedFile,
+      tablePath: Path): PartitionFileScanInfo = {
     val hadoopConf = spark.sessionState.newHadoopConf()
-    val tablePath = resolveTablePath(hadoopConf, partitionColumnCount, file)
-    extract(partitionColumnCount, file, hadoopConf, tablePath)
+    extract(file, hadoopConf, tablePath)
   }
 
   private def extract(
-      partitionColumnCount: Int,
       file: PartitionedFile,
       hadoopConf: Configuration,
       tablePath: Path): PartitionFileScanInfo = {
@@ -253,60 +243,4 @@ object DeltaDeletionVectorScanInfo {
     }
   }
 
-  private def resolveTablePath(
-      hadoopConf: org.apache.hadoop.conf.Configuration,
-      partitionColumnCount: Int,
-      file: PartitionedFile): Path = {
-    val fileParent = new Path(unescapePathName(file.filePath.toString)).getParent
-    var tablePath = fileParent
-    for (_ <- 0 until partitionColumnCount) {
-      tablePath = tablePath.getParent
-    }
-    if (tablePath != null && isDeltaTablePath(hadoopConf, tablePath)) {
-      return tablePath
-    }
-
-    var candidate = fileParent
-    while (candidate != null && !isDeltaTablePath(hadoopConf, candidate)) {
-      candidate = candidate.getParent
-    }
-    if (candidate != null) candidate else tablePath
-  }
-
-  private def isDeltaTablePath(
-      hadoopConf: org.apache.hadoop.conf.Configuration,
-      tablePath: Path): Boolean = {
-    val deltaLogPath = new Path(tablePath, "_delta_log")
-    try {
-      deltaLogPath.getFileSystem(hadoopConf).exists(deltaLogPath)
-    } catch {
-      case NonFatal(_) => false
-    }
-  }
-
-  private def unescapePathName(path: String): String = {
-    if (path == null || path.indexOf('%') < 0) {
-      path
-    } else {
-      val builder = new StringBuilder(path.length)
-      var index = 0
-      while (index < path.length) {
-        if (path.charAt(index) == '%' && index + 2 < path.length) {
-          val high = Character.digit(path.charAt(index + 1), 16)
-          val low = Character.digit(path.charAt(index + 2), 16)
-          if (high >= 0 && low >= 0) {
-            builder.append(((high << 4) | low).toChar)
-            index += 3
-          } else {
-            builder.append(path.charAt(index))
-            index += 1
-          }
-        } else {
-          builder.append(path.charAt(index))
-          index += 1
-        }
-      }
-      builder.toString()
-    }
-  }
 }
