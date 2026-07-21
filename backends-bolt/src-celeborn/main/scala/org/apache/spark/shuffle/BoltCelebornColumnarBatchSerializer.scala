@@ -291,6 +291,9 @@ private class CelebornColumnarBatchSerializerInstance(
     }
 
     private def close0(): Unit = {
+      // The native reader now owns the input streams and closes them itself, and
+      // the reader handle is released by the TaskResources recycler. So there is
+      // nothing to stop/close here.
       if (numBatchesTotal > 0) {
         readBatchNumRows.set(numRowsTotal.toDouble / numBatchesTotal)
       }
@@ -298,7 +301,6 @@ private class CelebornColumnarBatchSerializerInstance(
       if (wrappedOut != null) {
         wrappedOut.close()
       }
-      streamReader.close()
       if (cb != null) {
         cb.close()
       }
