@@ -20,9 +20,8 @@ import org.apache.gluten.config.BoltConfig
 import org.apache.gluten.execution.BoltResizeBatchesExec
 
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExecBase, SparkPlan}
+import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, ShuffleQueryStageExec}
-import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 
 /**
  * Try to append [[BoltResizeBatchesExec]] for shuffle input and output to make the batch sizes in
@@ -63,7 +62,7 @@ case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
       max: Int,
       preferredBatchBytes: Long): SparkPlan = {
     plan.transformUp {
-      case shuffle: ColumnarShuffleExchangeExecBase
+      case shuffle: ColumnarShuffleExchangeExec
           if shuffle.shuffleWriterType.requiresResizingShuffleInput =>
         val appendBatches =
           BoltResizeBatchesExec(shuffle.child, min, max, preferredBatchBytes)
@@ -77,30 +76,22 @@ case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
       max: Int,
       preferredBatchBytes: Long): SparkPlan = {
     plan match {
-      case s @ ShuffleQueryStageExec(_, c: ColumnarShuffleExchangeExecBase, _)
-          if c.shuffleWriterType.requiresResizingShuffleOutput =>
+      case s: ShuffleQueryStageExec if requiresResizingShuffleOutput(s) =>
         BoltResizeBatchesExec(s, min, max, preferredBatchBytes)
-      case s @ ShuffleQueryStageExec(
-            _,
-            ReusedExchangeExec(_, c: ColumnarShuffleExchangeExecBase),
-            _)
-          if c.shuffleWriterType.requiresResizingShuffleOutput =>
-        BoltResizeBatchesExec(s, min, max, preferredBatchBytes)
-      case a @ AQEShuffleReadExec(
-            s @ ShuffleQueryStageExec(_, c: ColumnarShuffleExchangeExecBase, _),
-            _)
-          if c.shuffleWriterType.requiresResizingShuffleOutput =>
-        BoltResizeBatchesExec(a, min, max, preferredBatchBytes)
-      case a @ AQEShuffleReadExec(
-            s @ ShuffleQueryStageExec(
-              _,
-              ReusedExchangeExec(_, c: ColumnarShuffleExchangeExecBase),
-              _),
-            _)
-          if c.shuffleWriterType.requiresResizingShuffleOutput =>
+      case a @ AQEShuffleReadExec(s @ ShuffleQueryStageExec(_, _, _), _)
+          if requiresResizingShuffleOutput(s) =>
         BoltResizeBatchesExec(a, min, max, preferredBatchBytes)
       case other =>
         other.mapChildren(addResizeBatchesForShuffleOutput(_, min, max, preferredBatchBytes))
+    }
+  }
+
+  private def requiresResizingShuffleOutput(s: ShuffleQueryStageExec): Boolean = {
+    s.shuffle match {
+      case c: ColumnarShuffleExchangeExec
+          if c.shuffleWriterType.requiresResizingShuffleOutput =>
+        true
+      case _ => false
     }
   }
 }

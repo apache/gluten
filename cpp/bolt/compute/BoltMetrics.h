@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <folly/dynamic.h>
+#include <folly/json.h>
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -49,98 +51,51 @@ inline std::unique_ptr<Metrics> toMetrics(
     const std::vector<bytedance::bolt::core::PlanNodeId>& orderedNodeIds,
     const std::unordered_set<bytedance::bolt::core::PlanNodeId>& omittedNodeIds,
     int64_t loadLazyVectorTime) {
-  size_t statsNum = 0;
+  folly::dynamic orderedNodeIdsJson = folly::dynamic::array();
+  folly::dynamic omittedNodeIdsJson = folly::dynamic::array();
+  folly::dynamic nodeStatsJson = folly::dynamic::object();
+  unsigned int statsNum = 0;
+
   for (const auto& nodeId : orderedNodeIds) {
+    orderedNodeIdsJson.push_back(nodeId);
     const auto statsIt = planStats.find(nodeId);
     if (statsIt == planStats.end()) {
       if (omittedNodeIds.find(nodeId) == omittedNodeIds.end()) {
         throw std::runtime_error("Node id cannot be found in plan status: " + nodeId);
       }
+      omittedNodeIdsJson.push_back(nodeId);
       ++statsNum;
       continue;
     }
-    statsNum += statsIt->second.operatorStats.size();
-  }
 
-  if (statsNum > std::numeric_limits<unsigned int>::max() / Metrics::kNum) {
-    throw std::overflow_error("The number of Bolt metrics exceeds the Metrics protocol limit.");
-  }
-
-  auto metrics = std::make_unique<Metrics>(static_cast<unsigned int>(statsNum));
-  std::fill_n(metrics->arrayRawPtr, statsNum * Metrics::kNum, 0L);
-
-  size_t metricIndex = 0;
-  for (const auto& nodeId : orderedNodeIds) {
-    const auto statsIt = planStats.find(nodeId);
-    if (statsIt == planStats.end()) {
-      // Keep one fully zeroed slot so omitted filters preserve plan traversal order.
-      ++metricIndex;
-      continue;
-    }
-
+    folly::dynamic operatorStats = folly::dynamic::array();
     for (const auto& entry : statsIt->second.operatorStats) {
       const auto& opStats = entry.second;
-      metrics->get(Metrics::kInputRows)[metricIndex] = opStats->inputRows;
-      metrics->get(Metrics::kInputVectors)[metricIndex] = opStats->inputVectors;
-      metrics->get(Metrics::kInputBytes)[metricIndex] = opStats->inputBytes;
-      metrics->get(Metrics::kRawInputRows)[metricIndex] = opStats->rawInputRows;
-      metrics->get(Metrics::kRawInputBytes)[metricIndex] = opStats->rawInputBytes;
-      metrics->get(Metrics::kOutputRows)[metricIndex] = opStats->outputRows;
-      metrics->get(Metrics::kOutputVectors)[metricIndex] = opStats->outputVectors;
-      metrics->get(Metrics::kOutputBytes)[metricIndex] = opStats->outputBytes;
-      metrics->get(Metrics::kCpuCount)[metricIndex] = opStats->cpuWallTiming.count;
-      metrics->get(Metrics::kWallNanos)[metricIndex] = opStats->cpuWallTiming.wallNanos;
-      metrics->get(Metrics::kPeakMemoryBytes)[metricIndex] = opStats->peakMemoryBytes;
-      metrics->get(Metrics::kNumMemoryAllocations)[metricIndex] = opStats->numMemoryAllocations;
-      metrics->get(Metrics::kSpilledInputBytes)[metricIndex] = opStats->spilledInputBytes;
-      metrics->get(Metrics::kSpilledBytes)[metricIndex] = opStats->spilledBytes;
-      metrics->get(Metrics::kSpilledRows)[metricIndex] = opStats->spilledRows;
-      metrics->get(Metrics::kSpilledPartitions)[metricIndex] = opStats->spilledPartitions;
-      metrics->get(Metrics::kSpilledFiles)[metricIndex] = opStats->spilledFiles;
-      metrics->get(Metrics::kNumDynamicFiltersProduced)[metricIndex] =
-          runtimeMetric(opStats->customStats, "dynamicFiltersProduced");
-      metrics->get(Metrics::kNumDynamicFiltersAccepted)[metricIndex] =
-          runtimeMetric(opStats->customStats, "dynamicFiltersAccepted");
-      metrics->get(Metrics::kNumReplacedWithDynamicFilterRows)[metricIndex] =
-          runtimeMetric(opStats->customStats, "replacedWithDynamicFilterRows");
-      metrics->get(Metrics::kNumDynamicFilterInputRows)[metricIndex] =
-          runtimeMetric(opStats->customStats, "dynamicFilterInputRows");
-      metrics->get(Metrics::kFlushRowCount)[metricIndex] = runtimeMetric(opStats->customStats, "flushRowCount");
-      metrics->get(Metrics::kAbandonedPartialAggregationRows)[metricIndex] =
-          runtimeMetric(opStats->customStats, "abandonedPartialAggregationRows");
-      metrics->get(Metrics::kLoadedToValueHook)[metricIndex] = runtimeMetric(opStats->customStats, "loadedToValueHook");
-      metrics->get(Metrics::kBloomFilterBlocksByteSize)[metricIndex] =
-          runtimeMetric(opStats->customStats, "bloomFilterSize");
-      metrics->get(Metrics::kScanTime)[metricIndex] = runtimeMetric(opStats->customStats, "totalScanTime");
-      metrics->get(Metrics::kSkippedSplits)[metricIndex] = runtimeMetric(opStats->customStats, "skippedSplits");
-      metrics->get(Metrics::kProcessedSplits)[metricIndex] = runtimeMetric(opStats->customStats, "processedSplits");
-      metrics->get(Metrics::kSkippedStrides)[metricIndex] = runtimeMetric(opStats->customStats, "skippedStrides");
-      metrics->get(Metrics::kProcessedStrides)[metricIndex] = runtimeMetric(opStats->customStats, "processedStrides");
-      metrics->get(Metrics::kRemainingFilterTime)[metricIndex] =
-          runtimeMetric(opStats->customStats, "totalRemainingFilterTime");
-      metrics->get(Metrics::kIoWaitTime)[metricIndex] = runtimeMetric(opStats->customStats, "ioWaitWallNanos");
-      metrics->get(Metrics::kStorageReadBytes)[metricIndex] = runtimeMetric(opStats->customStats, "storageReadBytes");
-      metrics->get(Metrics::kStorageReads)[metricIndex] = runtimeMetric(opStats->customStats, "storageReadBytes", true);
-      metrics->get(Metrics::kLocalReadBytes)[metricIndex] = runtimeMetric(opStats->customStats, "localReadBytes");
-      metrics->get(Metrics::kRamReadBytes)[metricIndex] = runtimeMetric(opStats->customStats, "ramReadBytes");
-      metrics->get(Metrics::kPreloadSplits)[metricIndex] = runtimeMetric(opStats->customStats, "readyPreloadedSplits");
-      metrics->get(Metrics::kPageLoadTime)[metricIndex] = runtimeMetric(opStats->customStats, "pageLoadTimeNs");
-      metrics->get(Metrics::kDataSourceAddSplitWallNanos)[metricIndex] =
-          runtimeMetric(opStats->customStats, "dataSourceAddSplitWallNanos") +
-          runtimeMetric(opStats->customStats, "waitForPreloadSplitNanos");
-      metrics->get(Metrics::kDataSourceReadWallNanos)[metricIndex] =
-          runtimeMetric(opStats->customStats, "dataSourceReadWallNanos");
-      metrics->get(Metrics::kPhysicalWrittenBytes)[metricIndex] = opStats->physicalWrittenBytes;
-      metrics->get(Metrics::kWriteIOTime)[metricIndex] = runtimeMetric(opStats->customStats, "writeIOWallNanos");
-      metrics->get(Metrics::kNumWrittenFiles)[metricIndex] = runtimeMetric(opStats->customStats, "numWrittenFiles");
-      ++metricIndex;
+      folly::dynamic customStats = folly::dynamic::object();
+      for (const auto& customMetric : opStats->customStats) {
+        customStats[customMetric.first] = folly::dynamic::object("sum", customMetric.second.sum)(
+            "count", customMetric.second.count)("min", customMetric.second.min)("max", customMetric.second.max);
+      }
+
+      operatorStats.push_back(folly::dynamic::object("inputRows", opStats->inputRows)(
+          "inputVectors", opStats->inputVectors)("inputBytes", opStats->inputBytes)(
+          "rawInputRows", opStats->rawInputRows)("rawInputBytes", opStats->rawInputBytes)(
+          "outputRows", opStats->outputRows)("outputVectors", opStats->outputVectors)(
+          "outputBytes", opStats->outputBytes)("cpuCount", opStats->cpuWallTiming.count)(
+          "wallNanos", opStats->cpuWallTiming.wallNanos)("peakMemoryBytes", opStats->peakMemoryBytes)(
+          "numMemoryAllocations", opStats->numMemoryAllocations)("spilledInputBytes", opStats->spilledInputBytes)(
+          "spilledBytes", opStats->spilledBytes)("spilledRows", opStats->spilledRows)(
+          "spilledPartitions", opStats->spilledPartitions)("spilledFiles", opStats->spilledFiles)(
+          "physicalWrittenBytes", opStats->physicalWrittenBytes)("customStats", customStats));
     }
+
+    statsNum += static_cast<unsigned int>(operatorStats.size());
+    nodeStatsJson[nodeId] = folly::dynamic::object("operatorStats", operatorStats);
   }
 
-  if (statsNum > 0) {
-    metrics->get(Metrics::kLoadLazyVectorTime)[statsNum - 1] = loadLazyVectorTime;
-  }
-  return metrics;
+  folly::dynamic payload = folly::dynamic::object("orderedNodeIds", orderedNodeIdsJson)(
+      "omittedNodeIds", omittedNodeIdsJson)("loadLazyVectorTime", loadLazyVectorTime)("nodeStats", nodeStatsJson);
+  return std::make_unique<Metrics>(statsNum, folly::toJson(payload));
 }
 
 } // namespace gluten::bolt_metrics
