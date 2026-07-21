@@ -65,18 +65,25 @@ object DeltaDeletionVectorScanInfo {
    * the DV bookkeeping keys stripped. Returns None when no file in the split carries a deletion
    * vector, so callers can keep the generic split representation.
    *
-   * Performance: resolves the table path once (using the first file) and reuses a single Hadoop
-   * Configuration instance across all files in the partition to avoid redundant filesystem I/O and
-   * object allocation.
+   * Performance: reuses a single Hadoop Configuration instance across all files in the partition.
+   * The table root is taken from `tablePath` when the caller can supply it (e.g. from
+   * `TahoeFileIndex.path`); otherwise it is derived once from the first file, which requires a
+   * `_delta_log` existence probe. Passing `tablePath` avoids that filesystem round-trip.
    */
-  def normalize(partitionColumnCount: Int, partitionFiles: Seq[PartitionedFile])
+  def normalize(
+      partitionColumnCount: Int,
+      partitionFiles: Seq[PartitionedFile],
+      tablePath: Option[Path] = None)
       : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
     if (partitionFiles.isEmpty) {
       return None
     }
     val spark = activeSparkSession
     val hadoopConf = spark.sessionState.newHadoopConf()
-    val cachedTablePath = resolveTablePath(hadoopConf, partitionColumnCount, partitionFiles.head)
+    // Prefer the caller-supplied table root (TahoeFileIndex.path). Fall back to deriving it from
+    // the first file -- which probes the filesystem for _delta_log -- only when unavailable.
+    val cachedTablePath =
+      tablePath.getOrElse(resolveTablePath(hadoopConf, partitionColumnCount, partitionFiles.head))
 
     val scanInfos = partitionFiles.map {
       file => extract(partitionColumnCount, file, hadoopConf, cachedTablePath)

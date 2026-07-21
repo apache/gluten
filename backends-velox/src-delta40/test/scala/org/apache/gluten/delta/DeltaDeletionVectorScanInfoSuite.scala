@@ -137,6 +137,61 @@ class DeltaDeletionVectorScanInfoSuite
     }
   }
 
+  test("normalize materializes the same DV whether the table path is supplied or derived") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
+          .toDF("id", "value")
+          .coalesce(1)
+          .write
+          .format("delta")
+          .save(path)
+
+        spark.sql(
+          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+        spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)")
+
+        val dataFile = DeltaLog
+          .forTable(spark, new Path(path))
+          .update()
+          .allFiles
+          .collect()
+          .find(_.deletionVector != null)
+          .get
+        val partitionedFile = partitionedFileWithMetadata(
+          path,
+          dataFile.path,
+          dataFile.size,
+          Map(
+            GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_ID_ENCODED ->
+              dataFile.deletionVector.serializeToBase64(),
+            GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_TYPE -> "IF_CONTAINED"
+          )
+        )
+
+        // Supplying the table root (as DeltaScanTransformer does via TahoeFileIndex.path) must
+        // yield exactly the same materialized DV as deriving it from the file path. This proves the
+        // new tablePath parameter is honored and the fast path stays correct.
+        val withSuppliedPath =
+          DeltaDeletionVectorScanInfo.normalize(0, Seq(partitionedFile), Some(new Path(path)))
+        val withDerivedPath =
+          DeltaDeletionVectorScanInfo.normalize(0, Seq(partitionedFile), None)
+
+        assert(withSuppliedPath.isDefined, "normalize should materialize DV options")
+        assert(withDerivedPath.isDefined, "normalize should materialize DV options")
+
+        val supplied = withSuppliedPath.get._2.head
+        val derived = withDerivedPath.get._2.head
+        assert(supplied.hasDeletionVector)
+        assert(supplied.deletionVectorCardinality == dataFile.deletionVector.cardinality)
+        assert(supplied.serializedDeletionVector.nonEmpty)
+        assert(
+          supplied.serializedDeletionVector.sameElements(derived.serializedDeletionVector),
+          "supplied-path and derived-path DV payloads must be identical")
+    }
+  }
+
   private def partitionedFileWithMetadata(
       tablePath: String,
       relativeFilePath: String,

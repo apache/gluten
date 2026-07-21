@@ -27,7 +27,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference,
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NoMapping}
-import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeRemoveFileIndex}
+import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeFileIndex, TahoeRemoveFileIndex}
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.{FilePartition, HadoopFsRelation}
 import org.apache.spark.sql.types.StructType
@@ -121,10 +121,19 @@ case class DeltaScanTransformer(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
     val splitInfos = super.getSplitInfosFromPartitions(partitions)
     val partitionColumnCount = getPartitionSchema.fields.length
+    // The Delta table root is already known from the scan's file index (TahoeFileIndex.path), so
+    // pass it down to DV materialization. This avoids re-deriving the root from a file path via
+    // `_delta_log` existence probing -- one FileSystem.exists() call (an HTTP HEAD on object
+    // stores) per partition. When the location is not a TahoeFileIndex we pass None and
+    // normalize() falls back to deriving the path from the files.
+    val tableRootPath = relation.location match {
+      case tahoe: TahoeFileIndex => Some(tahoe.path)
+      case _ => None
+    }
     splitInfos.zip(partitions).map {
       case (localFiles: LocalFilesNode, (filePartition: FilePartition, _)) =>
         DeltaDeletionVectorScanInfo
-          .normalize(partitionColumnCount, filePartition.files.toSeq)
+          .normalize(partitionColumnCount, filePartition.files.toSeq, tableRootPath)
           .map {
             case (otherMetadataColumns, deltaReadOptions) =>
               DeltaLocalFilesBuilder.makeDeltaLocalFiles(
