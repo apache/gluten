@@ -32,6 +32,19 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 final private case class ShuffledColumnarBatchRDDPartition(index: Int, spec: ShufflePartitionSpec)
   extends Partition
 
+/** Wrap metrics with named class, so callers can access the delegate iterator when needed. */
+class ShuffleReaderWithMetricsIterator(
+    val delegate: Iterator[Product2[Int, ColumnarBatch]],
+    sqlMetricsReporter: SQLColumnarShuffleReadMetricsReporter)
+  extends Iterator[ColumnarBatch] {
+  override def hasNext: Boolean = delegate.hasNext
+  override def next(): ColumnarBatch = {
+    val batch = delegate.next()._2
+    sqlMetricsReporter.incBatchesRecordsRead(batch.numRows())
+    batch
+  }
+}
+
 /** [[ShuffledColumnarBatchRDD]] is the columnar version of [[org.apache.spark.rdd.ShuffledRDD]]. */
 class ShuffledColumnarBatchRDD(
     var dependency: ShuffleDependency[Int, ColumnarBatch, ColumnarBatch],
@@ -149,11 +162,9 @@ class ShuffledColumnarBatchRDD(
           sqlMetricsReporter,
           executionMode)
     }
-    reader.read().asInstanceOf[Iterator[Product2[Int, ColumnarBatch]]].map {
-      case (_, batch: ColumnarBatch) =>
-        sqlMetricsReporter.incBatchesRecordsRead(batch.numRows())
-        batch
-    }
+    new ShuffleReaderWithMetricsIterator(
+      reader.read().asInstanceOf[Iterator[Product2[Int, ColumnarBatch]]],
+      sqlMetricsReporter)
   }
 
   override def clearDependencies(): Unit = {
