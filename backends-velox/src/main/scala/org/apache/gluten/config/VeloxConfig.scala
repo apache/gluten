@@ -62,6 +62,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableVeloxFlushablePartialAggregation: Boolean =
     getConf(VELOX_FLUSHABLE_PARTIAL_AGGREGATION_ENABLED)
 
+  def enableVeloxLazyAggregateExpand: Boolean =
+    getConf(VELOX_LAZY_AGGREGATE_EXPAND_ENABLED)
+
   def enableBroadcastBuildRelationInOffheap: Boolean =
     getConf(VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP)
 
@@ -430,6 +433,21 @@ object VeloxConfig extends ConfigRegistry {
       )
       .booleanConf
       .createWithDefault(true)
+
+  val VELOX_LAZY_AGGREGATE_EXPAND_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.lazyAggregateExpand.enabled")
+      .doc(
+        "Experimental. For aggregation over grouping sets (rollup/cube), aggregate at the " +
+          "finest grain below the Expand operator first, then expand only the intermediate " +
+          "aggregation states and merge them before shuffle. This avoids aggregating one copy " +
+          "of every input row per grouping set and is beneficial when the number of distinct " +
+          "full-grouping-key combinations is much smaller than the input row count. Relies on " +
+          "flushable partial aggregation to stay adaptive on high-cardinality grouping keys; " +
+          "ignored when spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation" +
+          "=false."
+      )
+      .booleanConf
+      .createWithDefault(false)
 
   val MAX_PARTIAL_AGGREGATION_MEMORY =
     buildConf("spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemory")
