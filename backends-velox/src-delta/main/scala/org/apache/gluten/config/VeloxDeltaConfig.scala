@@ -49,7 +49,7 @@ object VeloxDeltaConfig extends ConfigRegistry {
       .experimental()
       .doc(
         "Enable the experimental native Delta DELETE/UPDATE/MERGE target row-index scan for " +
-          "Velox. This also requires native Delta write to be enabled.")
+          "Velox.")
       .booleanConf
       .createWithDefault(false)
 }

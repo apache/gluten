@@ -23,7 +23,7 @@ import org.apache.gluten.extension.DeltaDeletionVectorDmlUtils
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
-import org.apache.spark.sql.execution.{FileSourceScanExec, FilterExec, ProjectExec, SparkPlan}
+import org.apache.spark.sql.execution.{ColumnarToRowExec, FileSourceScanExec, FilterExec, ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.tags.ExtendedSQLTest
@@ -73,6 +73,7 @@ class DeltaDeletionVectorHandoffSuite
 
   private def isDmlFallbackSubtree(plan: SparkPlan): Boolean = plan match {
     case scan: FileSourceScanExec => containsDmlFallbackScan(scan)
+    case ColumnarToRowExec(child) => isDmlFallbackSubtree(child)
     case ProjectExec(_, child) => isDmlFallbackSubtree(child)
     case FilterExec(_, child) => isDmlFallbackSubtree(child)
     case project: ProjectExecTransformerBase => isDmlFallbackSubtree(project.child)
@@ -88,7 +89,6 @@ class DeltaDeletionVectorHandoffSuite
     withSQLConf(
       DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key ->
         useMetadataRowIndex.toString,
-      VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> "false",
       VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key -> "false"
     ) {
       executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
@@ -210,7 +210,6 @@ class DeltaDeletionVectorHandoffSuite
             withSQLConf(
               DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key ->
                 useMetadataRowIndex.toString,
-              VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> "false",
               VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key -> "false"
             ) {
               executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {

@@ -49,7 +49,6 @@ class VeloxDeltaComponent extends Component {
       c =>
         val offload = Seq(
           OffloadDeltaScan(
-            enableNativeDeltaWriteKey = VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key,
             enableNativeDeletionVectorDmlRowIndexScanKey =
               VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key
           ),

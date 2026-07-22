@@ -28,7 +28,6 @@ import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.util.SparkVersionUtil
 
 case class OffloadDeltaScan(
-    enableNativeDeltaWriteKey: String,
     enableNativeDeletionVectorDmlRowIndexScanKey: String)
   extends OffloadSingleNode {
   private val DeletionVectorsUseMetadataRowIndexKey =
@@ -60,15 +59,11 @@ case class OffloadDeltaScan(
   }
 
   private def shouldFallbackDeletionVectorDmlScan(scan: FileSourceScanExec): Boolean = {
-    val enableNativeDeltaWrite =
-      scan.relation.sparkSession.sessionState.conf
-        .getConfString(enableNativeDeltaWriteKey, "false")
-        .toBoolean
     val enableNativeDmlRowIndexScan =
       scan.relation.sparkSession.sessionState.conf
         .getConfString(enableNativeDeletionVectorDmlRowIndexScanKey, "false")
         .toBoolean
-    if (enableNativeDeltaWrite && enableNativeDmlRowIndexScan) {
+    if (enableNativeDmlRowIndexScan) {
       return false
     }
 
