@@ -54,6 +54,8 @@ public class UniffleShuffleManager extends RssShuffleManager implements Supports
           (ColumnarShuffleDependency<K, V, V>) rssHandle.getDependency();
       setPusherAppId(rssHandle);
       String taskId = context.taskAttemptId() + "_" + context.attemptNumber();
+      long rssTaskAttemptId =
+          getTaskAttemptIdForBlockId(context.partitionId(), context.attemptNumber());
       ShuffleWriteMetrics writeMetrics;
       if (metrics != null) {
         writeMetrics = new WriteMetrics(metrics);
@@ -72,7 +74,7 @@ public class UniffleShuffleManager extends RssShuffleManager implements Supports
           rssHandle.getAppId(),
           rssHandle.getShuffleId(),
           taskId,
-          context.taskAttemptId(),
+          rssTaskAttemptId,
           writeMetrics,
           this,
           conf,
