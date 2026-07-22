@@ -29,7 +29,7 @@ import java.util.Properties;
 
 public class HiveSourceSinkFactory extends FileSystemSinkFactory {
   private static final String COMPRESSION_KIND = "sink.file.compression";
-  private static final String[] TABLE_COMPRESSION_KEYS = {
+  private static final String[] SUPPORTED_COMPRESSION_TABLE_KEYS = {
     "orc.compress", "parquet.compression", "parquet.compression.codec", "parquet.compression-codec"
   };
 
@@ -47,9 +47,10 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
     Configuration tableOptions = getTableOptions(partitionCommitter, fileWriterOperator);
     Map<String, String> tableParams = new HashMap<>(tableOptions.toMap());
     tableParams.put("path", getLocationPath(partitionCommitter, fileWriterOperator));
-    tableParams.putIfAbsent("format", resolveWriteFormat(fileWriterOperator));
+    Object bucketsBuilder = getBucketsBuilder(fileWriterOperator);
+    tableParams.putIfAbsent("format", resolveWriteFormat(bucketsBuilder));
     tableParams.put("connector", "hive");
-    addHiveCompressionParams(fileWriterOperator, tableParams);
+    addHiveCompressionParams(bucketsBuilder, tableParams);
     return tableParams;
   }
 
@@ -63,15 +64,21 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
     return "hive";
   }
 
+  private String resolveWriteFormat(Object bucketsBuilder) {
+    String format = resolveFormatFromBucketsBuilder(bucketsBuilder);
+    if (format != null) {
+      return format;
+    }
+    return getDefaultFormat();
+  }
+
   @Override
-  protected String resolveFormatFromHadoopBulkWriterFactory(Object writerFactory) {
-    Class<?> factoryClass = writerFactory.getClass();
-    if (factoryClass.getName().contains("HiveBulkWriterFactory")) {
-      Object hiveWriterFactory =
-          ReflectUtils.getObjectField(factoryClass, writerFactory, "factory");
+  protected String resolveFormatFromBucketsBuilder(Object bucketsBuilder) {
+    Object hiveWriterFactory = getHiveWriterFactoryFromBucketsBuilder(bucketsBuilder);
+    if (hiveWriterFactory != null) {
       return resolveFormatFromHiveWriterFactory(hiveWriterFactory);
     }
-    return super.resolveFormatFromHadoopBulkWriterFactory(writerFactory);
+    return super.resolveFormatFromBucketsBuilder(bucketsBuilder);
   }
 
   private String resolveFormatFromHiveWriterFactory(Object hiveWriterFactory) {
@@ -103,21 +110,22 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
     return inferFormatFromClassName(outputFormatClz.getName());
   }
 
-  private void addHiveCompressionParams(
-      OneInputStreamOperator<?, ?> fileWriterOperator, Map<String, String> tableParams) {
-    Object hiveWriterFactory = getHiveWriterFactory(fileWriterOperator);
+  private void addHiveCompressionParams(Object bucketsBuilder, Map<String, String> tableParams) {
+    Object hiveWriterFactory = getHiveWriterFactoryFromBucketsBuilder(bucketsBuilder);
     if (hiveWriterFactory == null) {
       return;
     }
     Properties tableProperties =
         (Properties) ReflectUtils.tryGetObjectField(hiveWriterFactory, "tableProperties");
-    addCompressionParamsFromTableProperties(tableProperties, tableParams);
+    addNativeCompressionParamFromTableProperties(tableProperties, tableParams);
   }
 
-  private Object getHiveWriterFactory(OneInputStreamOperator<?, ?> fileWriterOperator) {
-    Object bucketsBuilder =
-        ReflectUtils.getObjectField(
-            ABSTRACT_STREAMING_WRITER_CLASS, fileWriterOperator, "bucketsBuilder");
+  private Object getBucketsBuilder(OneInputStreamOperator<?, ?> fileWriterOperator) {
+    return ReflectUtils.getObjectField(
+        ABSTRACT_STREAMING_WRITER_CLASS, fileWriterOperator, "bucketsBuilder");
+  }
+
+  private Object getHiveWriterFactoryFromBucketsBuilder(Object bucketsBuilder) {
     Object writerFactory = ReflectUtils.tryGetObjectField(bucketsBuilder, "writerFactory");
     if (writerFactory == null
         || !writerFactory.getClass().getName().contains("HiveBulkWriterFactory")) {
@@ -126,16 +134,14 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
     return ReflectUtils.getObjectField(writerFactory.getClass(), writerFactory, "factory");
   }
 
-  static void addCompressionParamsFromTableProperties(
+  static void addNativeCompressionParamFromTableProperties(
       Properties tableProperties, Map<String, String> tableParams) {
-    if (tableProperties == null) {
+    if (!isParquetFormat(tableParams.get("format"))) {
+      tableParams.remove(COMPRESSION_KIND);
       return;
     }
-    for (String key : tableProperties.stringPropertyNames()) {
-      String value = tableProperties.getProperty(key);
-      if (isCompressionProperty(key, value)) {
-        tableParams.putIfAbsent(key, value);
-      }
+    if (tableProperties == null) {
+      return;
     }
 
     String compressionKind = resolveCompressionKind(tableProperties);
@@ -144,8 +150,12 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
     }
   }
 
+  private static boolean isParquetFormat(String format) {
+    return format != null && "parquet".equalsIgnoreCase(format.trim());
+  }
+
   private static String resolveCompressionKind(Properties tableProperties) {
-    for (String key : TABLE_COMPRESSION_KEYS) {
+    for (String key : SUPPORTED_COMPRESSION_TABLE_KEYS) {
       String compressionKind = normalizeCompressionKind(tableProperties.getProperty(key));
       if (compressionKind != null) {
         return compressionKind;
@@ -154,42 +164,32 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
     return null;
   }
 
-  private static boolean isCompressionProperty(String key, String value) {
-    return key != null
-        && value != null
-        && (key.toLowerCase().contains("compress") || key.toLowerCase().contains("codec"));
-  }
-
   static String normalizeCompressionKind(String compression) {
     if (compression == null) {
       return null;
     }
-    String normalized = compression.trim().toLowerCase();
-    if (normalized.isEmpty()
-        || "none".equals(normalized)
-        || "no".equals(normalized)
-        || "false".equals(normalized)
-        || "uncompressed".equals(normalized)) {
-      return null;
+    switch (compression.trim().toLowerCase()) {
+      case "snappy":
+        return "snappy";
+      case "gzip":
+        return "gzip";
+      case "zstd":
+      case "zstandard":
+        return "zstd";
+      case "lz4":
+        return "lz4";
+      case "lzo":
+        return "lzo";
+      case "zlib":
+      case "deflate":
+        return "zlib";
+      case "":
+      case "none":
+      case "no":
+      case "false":
+      case "uncompressed":
+      default:
+        return null;
     }
-    if (normalized.contains("snappy")) {
-      return "snappy";
-    }
-    if (normalized.contains("gzip")) {
-      return "gzip";
-    }
-    if (normalized.contains("zstd") || normalized.contains("zstandard")) {
-      return "zstd";
-    }
-    if (normalized.contains("lz4")) {
-      return "lz4";
-    }
-    if (normalized.contains("lzo")) {
-      return "lzo";
-    }
-    if (normalized.contains("zlib") || normalized.contains("deflate")) {
-      return "zlib";
-    }
-    return normalized;
   }
 }

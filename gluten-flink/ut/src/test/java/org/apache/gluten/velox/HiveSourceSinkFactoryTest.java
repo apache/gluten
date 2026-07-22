@@ -27,23 +27,92 @@ import static org.assertj.core.api.Assertions.assertThat;
 class HiveSourceSinkFactoryTest {
 
   @Test
-  void addCompressionParamsReadsHiveTableProperties() {
-    Properties tableProperties = new Properties();
-    tableProperties.setProperty("orc.compress", "SNAPPY");
+  void addNativeCompressionParamMapsSupportedParquetCodecs() {
+    String[][] compressionCodecs = {
+      {"SNAPPY", "snappy"},
+      {"GZIP", "gzip"},
+      {"zstandard", "zstd"},
+      {"LZ4", "lz4"},
+      {"LZO", "lzo"},
+      {"deflate", "zlib"}
+    };
 
-    Map<String, String> tableParams = new HashMap<>();
-    HiveSourceSinkFactory.addCompressionParamsFromTableProperties(tableProperties, tableParams);
+    for (String[] compressionCodec : compressionCodecs) {
+      Properties tableProperties = new Properties();
+      tableProperties.setProperty("parquet.compression", compressionCodec[0]);
 
-    assertThat(tableParams)
-        .containsEntry("orc.compress", "SNAPPY")
-        .containsEntry("sink.file.compression", "snappy");
+      Map<String, String> tableParams = new HashMap<>();
+      tableParams.put("format", "parquet");
+      HiveSourceSinkFactory.addNativeCompressionParamFromTableProperties(
+          tableProperties, tableParams);
+
+      assertThat(tableParams)
+          .containsEntry("sink.file.compression", compressionCodec[1])
+          .doesNotContainKey("parquet.compression");
+    }
   }
 
   @Test
-  void normalizeCompressionKindMapsHiveTablePropertyValues() {
-    assertThat(HiveSourceSinkFactory.normalizeCompressionKind("SNAPPY")).isEqualTo("snappy");
-    assertThat(HiveSourceSinkFactory.normalizeCompressionKind("GZIP")).isEqualTo("gzip");
-    assertThat(HiveSourceSinkFactory.normalizeCompressionKind("zstandard")).isEqualTo("zstd");
-    assertThat(HiveSourceSinkFactory.normalizeCompressionKind("UNCOMPRESSED")).isNull();
+  void addNativeCompressionParamReadsSupportedParquetCompressionKeys() {
+    Properties tableProperties = new Properties();
+    tableProperties.setProperty("parquet.compression.codec", "SNAPPY");
+
+    Map<String, String> tableParams = new HashMap<>();
+    tableParams.put("format", "parquet");
+    HiveSourceSinkFactory.addNativeCompressionParamFromTableProperties(
+        tableProperties, tableParams);
+
+    assertThat(tableParams).containsEntry("sink.file.compression", "snappy");
+  }
+
+  @Test
+  void addNativeCompressionParamDoesNotProduceConfigForUnsupportedFormats() {
+    for (String format : new String[] {"orc", "json", "csv", "hive"}) {
+      Properties tableProperties = new Properties();
+      tableProperties.setProperty("parquet.compression", "SNAPPY");
+
+      Map<String, String> tableParams = new HashMap<>();
+      tableParams.put("format", format);
+      tableParams.put("sink.file.compression", "snappy");
+      HiveSourceSinkFactory.addNativeCompressionParamFromTableProperties(
+          tableProperties, tableParams);
+
+      assertThat(tableParams)
+          .containsEntry("format", format)
+          .doesNotContainKey("sink.file.compression");
+    }
+  }
+
+  @Test
+  void addNativeCompressionParamDoesNotProduceConfigForUnsupportedParquetCodecs() {
+    for (String compressionCodec : new String[] {"brotli", "org.example.SnappyCodec"}) {
+      Properties tableProperties = new Properties();
+      tableProperties.setProperty("parquet.compression", compressionCodec);
+
+      Map<String, String> tableParams = new HashMap<>();
+      tableParams.put("format", "parquet");
+      HiveSourceSinkFactory.addNativeCompressionParamFromTableProperties(
+          tableProperties, tableParams);
+
+      assertThat(tableParams)
+          .containsEntry("format", "parquet")
+          .doesNotContainKey("sink.file.compression");
+    }
+  }
+
+  @Test
+  void addNativeCompressionParamDoesNotProduceConfigForUnsupportedCompressionKeys() {
+    Properties tableProperties = new Properties();
+    tableProperties.setProperty("custom.compress", "SNAPPY");
+    tableProperties.setProperty("custom.codec", "GZIP");
+
+    Map<String, String> tableParams = new HashMap<>();
+    tableParams.put("format", "parquet");
+    HiveSourceSinkFactory.addNativeCompressionParamFromTableProperties(
+        tableProperties, tableParams);
+
+    assertThat(tableParams)
+        .containsEntry("format", "parquet")
+        .doesNotContainKey("sink.file.compression");
   }
 }
