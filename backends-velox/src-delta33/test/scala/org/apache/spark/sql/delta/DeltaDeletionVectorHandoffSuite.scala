@@ -19,7 +19,6 @@ package org.apache.spark.sql.delta
 import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.gluten.execution.{DeltaScanTransformer, FilterExecTransformerBase, ProjectExecTransformerBase}
 import org.apache.gluten.extension.DeltaDeletionVectorDmlUtils
-import org.apache.gluten.extension.columnar.FallbackTags
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
@@ -44,15 +43,12 @@ class DeltaDeletionVectorHandoffSuite
 
   import testImplicits._
 
-  private val DmlFallbackReason = "fallback Delta DV DML row-index scan"
-
   private def containsDmlFallbackScan(plan: SparkPlan): Boolean = {
+    // FallbackTags are removed before AQE captures the executed plan. Identify the final fallback
+    // from the persistent DML row-index marker and the vanilla Spark scan type instead.
     collectWithSubqueries(plan) {
       case scan: FileSourceScanExec
-          if DeltaDeletionVectorDmlUtils.isDeletionVectorDmlRowIndexScan(scan) &&
-            FallbackTags
-              .getOption(scan)
-              .exists(_.reason().contains(DmlFallbackReason)) =>
+          if DeltaDeletionVectorDmlUtils.isDeletionVectorDmlRowIndexScan(scan) =>
         scan
     }.nonEmpty
   }
@@ -117,7 +113,7 @@ class DeltaDeletionVectorHandoffSuite
       val planText = executedPlan.treeString
       if (useMetadataRowIndex) {
         assert(containsNativeDeltaScan(executedPlan), planText)
-        assert(!planText.contains(DmlFallbackReason), planText)
+        assert(!containsDmlFallbackScan(executedPlan), planText)
       } else {
         assert(!containsNativeDeltaScan(executedPlan), planText)
       }
@@ -174,6 +170,9 @@ class DeltaDeletionVectorHandoffSuite
           .write
           .format("delta")
           .save(path)
+
+        spark.sql(
+          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
 
         val df = spark.sql(
           s"SELECT id, _metadata.row_index AS row_index FROM delta.`$path` " +
