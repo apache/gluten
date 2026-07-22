@@ -205,7 +205,6 @@
             <fileset>
               <directory>target</directory>
               <excludes>
-                <exclude>*spark3.2*</exclude>
                 <exclude>*spark3.3*</exclude>
                 <exclude>*spark3.4*</exclude>
                 <exclude>*spark3.5*</exclude>

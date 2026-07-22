@@ -119,7 +119,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [3]: [hash_partition_key#X, c_custkey#X, c_name#X]
-Arguments: X, X, X
 
 (6) ColumnarExchange
 Input [3]: [hash_partition_key#X, c_custkey#X, c_name#X]
@@ -156,7 +155,6 @@ Arguments: false
 
 (14) VeloxResizeBatches
 Input [5]: [hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
-Arguments: X, X, X
 
 (15) ColumnarExchange
 Input [5]: [hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
@@ -195,7 +193,6 @@ Arguments: false
 
 (23) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, l_orderkey#X, sum#X, isEmpty#X]
-Arguments: X, X, X
 
 (24) ColumnarExchange
 Input [4]: [hash_partition_key#X, l_orderkey#X, sum#X, isEmpty#X]
@@ -241,7 +238,6 @@ Arguments: false
 
 (34) VeloxResizeBatches
 Input [5]: [hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
-Arguments: X, X, X
 
 (35) ColumnarExchange
 Input [5]: [hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
@@ -272,7 +268,6 @@ Arguments: false
 
 (42) VeloxResizeBatches
 Input [6]: [hash_partition_key#X, c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
-Arguments: X, X, X
 
 (43) ColumnarExchange
 Input [6]: [hash_partition_key#X, c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
@@ -309,7 +304,6 @@ Arguments: false
 
 (51) VeloxResizeBatches
 Input [3]: [hash_partition_key#X, l_orderkey#X, l_quantity#X]
-Arguments: X, X, X
 
 (52) ColumnarExchange
 Input [3]: [hash_partition_key#X, l_orderkey#X, l_quantity#X]

@@ -116,7 +116,6 @@ Arguments: false
 
 (17) VeloxResizeBatches
 Input [3]: [hash_partition_key#X, o_orderpriority#X, count#X]
-Arguments: X, X, X
 
 (18) ColumnarExchange
 Input [3]: [hash_partition_key#X, o_orderpriority#X, count#X]
@@ -145,7 +144,6 @@ Arguments: false
 
 (24) VeloxResizeBatches
 Input [2]: [o_orderpriority#X, order_count#X]
-Arguments: X, X, X
 
 (25) ColumnarExchange
 Input [2]: [o_orderpriority#X, order_count#X]

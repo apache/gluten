@@ -666,8 +666,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenFileMetadataStructSuite]
   enableSuite[GlutenParquetV1AggregatePushDownSuite]
   enableSuite[GlutenParquetV2AggregatePushDownSuite]
-    // TODO: Timestamp columns stats will lost if using int64 in parquet writer.
-    .exclude("aggregate push down - different data types")
   enableSuite[GlutenOrcV1AggregatePushDownSuite]
     .exclude("nested column: Count(nested sub-field) not push down")
   enableSuite[GlutenOrcV2AggregatePushDownSuite]
@@ -741,7 +739,22 @@ class VeloxTestSettings extends BackendTestSettings {
   disableSuite[GlutenProjectedOrderingAndPartitioningSuite](
     "Validates Spark planner output ordering and partitioning metadata")
   enableSuite[GlutenQueryPlanningTrackerEndToEndSuite]
-  // TODO: 4.x enableSuite[GlutenRemoveRedundantProjectsSuite]  // 14 failures
+  enableSuite[GlutenRemoveRedundantProjectsSuite]
+    // Rewrite as result checks because Gluten transforms and may pull out additional projects.
+    .exclude("project with filter")
+    .exclude("project with specific column ordering")
+    .exclude("project with extra columns")
+    .exclude("project with fewer columns")
+    .exclude("aggregate without ordering requirement")
+    .exclude("aggregate with ordering requirement")
+    .exclude("join without ordering requirement")
+    .exclude("join with ordering requirement")
+    .exclude("window function")
+    .exclude("generate should require column ordering")
+    .exclude("subquery")
+    .exclude("SPARK-33697: UnionExec should require column ordering")
+    .exclude("SPARK-33697: remove redundant projects under expand")
+    .exclude("SPARK-36020: Project should not be removed when child's logical link is different")
   enableSuite[GlutenRemoveRedundantSortsSuite]
     // Rewrite as it check spark SortExec.
     .includeAllGlutenTests()
@@ -880,7 +893,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataFrameTransposeSuite]
   enableSuite[GlutenDefaultANSIValueSuite]
   enableSuite[GlutenDeprecatedDatasetAggregatorSuite]
-  // TODO: 4.x enableSuite[GlutenExplainSuite]  // 1 failure
+  disableSuite[GlutenExplainSuite](
+    "Validates Spark-specific physical plans and JVM codegen output, neither of which applies to " +
+      "Gluten's native execution plan")
   enableSuite[GlutenICUCollationsMapSuite]
   enableSuite[GlutenInlineTableParsingImprovementsSuite]
   enableSuite[GlutenJoinHintSuite]
@@ -895,7 +910,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenRuntimeConfigSuite]
   enableSuite[GlutenSSBQuerySuite]
   enableSuite[GlutenSessionStateSuite]
-  // TODO: 4.x enableSuite[GlutenSetCommandSuite]  // 1 failure
+  enableSuite[GlutenSetCommandSuite]
   enableSuite[GlutenSparkSessionBuilderSuite]
   enableSuite[GlutenSparkSessionJobTaggingAndCancellationSuite]
     .exclude("Tags set from session are prefixed with session UUID")
@@ -1151,11 +1166,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenXPathFunctionsSuite]
   enableSuite[GlutenFallbackSuite]
   enableSuite[GlutenHashAggregationQuerySuite]
-    // TODO: fix on https://github.com/apache/gluten/issues/11919
-    .exclude("udaf with all data types")
   enableSuite[GlutenHashAggregationQueryWithControlledFallbackSuite]
-    // TODO: fix on https://github.com/apache/gluten/issues/11919
-    .exclude("udaf with all data types")
   enableSuite[GlutenHiveCommandSuite]
   enableSuite[GlutenHiveDDLSuite]
   enableSuite[GlutenHiveExplainSuite]
@@ -1256,10 +1267,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Dependent Batched Python UDFs and Scalar Pandas UDFs should not be combined")
     .exclude("Python UDF should not break column pruning/filter pushdown -- Parquet V2")
   enableSuite[GlutenStreamingQuerySuite]
-    // requires test resources that don't exist in Gluten repo
-    .exclude("detect escaped path and report the migration guide")
-    .exclude("ignore the escaped path check when the flag is off")
-    .excludeByPrefix("SPARK-51187")
   enableSuite[GlutenQueryExecutionSuite]
     // Rewritten to set root logger level to INFO so that logs can be parsed
     .exclude("Logging plan changes for execution")

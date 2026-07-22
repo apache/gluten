@@ -25,14 +25,18 @@ public class SparkJvmOptions {
 
   public static String read() {
     try {
-      final Class<?> clazz = Class.forName("org.apache.spark.launcher.JavaModuleOptions");
+      final Class<?> clazz = Class.forName(MODULE_OPTIONS_CLASS_NAME);
       final Method method = clazz.getMethod("defaultModuleOptions");
       return (String) method.invoke(null);
-    } catch (ClassNotFoundException e) {
-      // Could happen in Spark 3.2 which doesn't have this class yet.
-      return "";
-    } catch (NoSuchMethodException | InvocationTargetException | IllegalAccessException e) {
-      throw new RuntimeException(e);
+    } catch (ClassNotFoundException
+        | NoSuchMethodException
+        | InvocationTargetException
+        | IllegalAccessException e) {
+      throw new RuntimeException(
+          "Failed to read Spark JVM module options via "
+              + MODULE_OPTIONS_CLASS_NAME
+              + "#defaultModuleOptions",
+          e);
     }
   }
 

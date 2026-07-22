@@ -213,7 +213,6 @@ Arguments: false
 
 (28) VeloxResizeBatches
 Input [6]: [hash_partition_key#37, s_store_id#24, sum#33, sum#34, sum#35, sum#36]
-Arguments: 1024, 2147483647, 10485760
 
 (29) ColumnarExchange
 Input [6]: [hash_partition_key#37, s_store_id#24, sum#33, sum#34, sum#35, sum#36]
@@ -360,7 +359,6 @@ Arguments: false
 
 (62) VeloxResizeBatches
 Input [6]: [hash_partition_key#82, cp_catalog_page_id#69, sum#78, sum#79, sum#80, sum#81]
-Arguments: 1024, 2147483647, 10485760
 
 (63) ColumnarExchange
 Input [6]: [hash_partition_key#82, cp_catalog_page_id#69, sum#78, sum#79, sum#80, sum#81]
@@ -537,7 +535,6 @@ Arguments: false
 
 (103) VeloxResizeBatches
 Input [6]: [hash_partition_key#132, web_site_id#119, sum#128, sum#129, sum#130, sum#131]
-Arguments: 1024, 2147483647, 10485760
 
 (104) ColumnarExchange
 Input [6]: [hash_partition_key#132, web_site_id#119, sum#128, sum#129, sum#130, sum#131]
@@ -594,7 +591,6 @@ Arguments: false
 
 (117) VeloxResizeBatches
 Input [10]: [hash_partition_key#157, channel#142, id#143, spark_grouping_id#144, sum#151, isEmpty#152, sum#153, isEmpty#154, sum#155, isEmpty#156]
-Arguments: 1024, 2147483647, 10485760
 
 (118) ColumnarExchange
 Input [10]: [hash_partition_key#157, channel#142, id#143, spark_grouping_id#144, sum#151, isEmpty#152, sum#153, isEmpty#154, sum#155, isEmpty#156]

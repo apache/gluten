@@ -79,7 +79,6 @@ Confirm that all the needed sources and binaries are successfully created at the
 [root@8de83f716f0f workspace]# ls -l release/
 total 481628
 -rw-r--r--. 1 root root  74396439 Oct 14 14:19 apache-gluten-1.6.0-example-src.tar.gz
--rw-r--r--. 1 root root 104790092 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.2.tar.gz
 -rw-r--r--. 1 root root 104767582 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.3.tar.gz
 -rw-r--r--. 1 root root 104625356 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.4.tar.gz
 -rw-r--r--. 1 root root 104595103 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.5.tar.gz

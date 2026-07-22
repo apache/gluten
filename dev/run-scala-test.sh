@@ -164,7 +164,6 @@ declare -A MODULE_MAP=(
 
   # Shims modules (Java only, no scala subdirectory)
   ["spark-sql-columnar-shims-common"]="shims/common:java"
-  ["spark-sql-columnar-shims-spark32"]="shims/spark32:java"
   ["spark-sql-columnar-shims-spark33"]="shims/spark33:java"
   ["spark-sql-columnar-shims-spark34"]="shims/spark34:java"
   ["spark-sql-columnar-shims-spark35"]="shims/spark35:java"
@@ -174,7 +173,6 @@ declare -A MODULE_MAP=(
   # Unit test modules
   ["gluten-ut-common"]="gluten-ut/common:scala"
   ["gluten-ut-test"]="gluten-ut/test:scala"
-  ["gluten-ut-spark32"]="gluten-ut/spark32:scala"
   ["gluten-ut-spark33"]="gluten-ut/spark33:scala"
   ["gluten-ut-spark34"]="gluten-ut/spark34:scala"
   ["gluten-ut-spark35"]="gluten-ut/spark35:scala"

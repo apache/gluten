@@ -14,12 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.shuffle.utils
+package org.apache.spark.shuffle
 
-import org.apache.spark.shuffle._
 import org.apache.spark.shuffle.sort.{ColumnarShuffleHandle, ColumnarShuffleManager}
 
-object ShuffleUtil {
+object VeloxShuffleUtils {
 
   def genColumnarShuffleWriter[K, V](
       parameters: GenShuffleWriterParameters[K, V]): GlutenShuffleWriterWrapper[K, V] = {
@@ -39,7 +38,8 @@ object ShuffleUtil {
         parameters.blocksByAddress,
         parameters.context,
         parameters.readMetrics,
-        ColumnarShuffleManager.bypassDecompressionSerializerManger,
+        parameters.executionMode,
+        serializerManager = ColumnarShuffleManager.bypassDecompressionSerializerManger,
         shouldBatchFetch = parameters.shouldBatchFetch
       )
     } else {

@@ -329,7 +329,8 @@ class VeloxShuffleWriterTest : public ::testing::TestWithParam<ShuffleTestParams
 
     const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
-    const auto iter = reader->read(std::make_shared<TestStreamReader>(std::move(in)));
+    const auto iter =
+        reader->read(std::make_shared<TestStreamReader>(std::move(in)), ShuffleReader::OutputType::kRowVector);
     while (iter->hasNext()) {
       auto vector = std::dynamic_pointer_cast<VeloxColumnarBatch>(iter->next())->getRowVector();
       vectors.emplace_back(vector);
@@ -543,7 +544,8 @@ class VeloxShuffleReaderStreamMergeTest : public ::testing::Test, public VeloxSh
 
     const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
-    const auto iter = reader->read(std::make_shared<MultiStreamReader>(std::move(streams)));
+    const auto iter =
+        reader->read(std::make_shared<MultiStreamReader>(std::move(streams)), ShuffleReader::OutputType::kRowVector);
 
     std::vector<RowVectorPtr> output;
     while (iter->hasNext()) {
@@ -723,7 +725,8 @@ TEST_F(VeloxShuffleReaderStreamMergeTest, hashReaderDoesNotReuseDictionaryAcross
 
   const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
-  const auto iter = reader->read(std::make_shared<MultiStreamReader>(std::move(streams)));
+  const auto iter =
+      reader->read(std::make_shared<MultiStreamReader>(std::move(streams)), ShuffleReader::OutputType::kRowVector);
 
   ASSERT_TRUE(iter->hasNext());
   facebook::velox::test::assertEqualVectors(

@@ -57,7 +57,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, l_partkey#X, l_extendedprice#X, l_discount#X]
-Arguments: X, X, X
 
 (6) ColumnarExchange
 Input [4]: [hash_partition_key#X, l_partkey#X, l_extendedprice#X, l_discount#X]
@@ -94,7 +93,6 @@ Arguments: false
 
 (14) VeloxResizeBatches
 Input [3]: [hash_partition_key#X, p_partkey#X, p_type#X]
-Arguments: X, X, X
 
 (15) ColumnarExchange
 Input [3]: [hash_partition_key#X, p_partkey#X, p_type#X]

@@ -122,7 +122,6 @@ class GlutenClickHouseNativeWriteTableSuite
           (s"test_insert_into_${format}_supplier", null, sql)
         },
         (table_name, format) => {
-          // spark 3.2 without orc or parquet suffix
           val files = recursiveListFiles(new File(s"$dataHome/$table_name"))
             .map(_.getName)
             .filterNot(s => s.endsWith(s".crc") || s.equals("_SUCCESS"))

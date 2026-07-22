@@ -67,7 +67,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, c_custkey#X, c_phone#X, c_acctbal#X]
-Arguments: X, X, X
 
 (6) ColumnarExchange
 Input [4]: [hash_partition_key#X, c_custkey#X, c_phone#X, c_acctbal#X]
@@ -99,7 +98,6 @@ Arguments: false
 
 (13) VeloxResizeBatches
 Input [2]: [hash_partition_key#X, o_custkey#X]
-Arguments: X, X, X
 
 (14) ColumnarExchange
 Input [2]: [hash_partition_key#X, o_custkey#X]
@@ -141,7 +139,6 @@ Arguments: false
 
 (23) VeloxResizeBatches
 Input [5]: [hash_partition_key#X, cntrycode#X, count#X, sum#X, isEmpty#X]
-Arguments: X, X, X
 
 (24) ColumnarExchange
 Input [5]: [hash_partition_key#X, cntrycode#X, count#X, sum#X, isEmpty#X]
@@ -170,7 +167,6 @@ Arguments: false
 
 (30) VeloxResizeBatches
 Input [3]: [cntrycode#X, numcust#X, totacctbal#X]
-Arguments: X, X, X
 
 (31) ColumnarExchange
 Input [3]: [cntrycode#X, numcust#X, totacctbal#X]
