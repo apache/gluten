@@ -574,7 +574,7 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeCreateKernelWith
     inputIters.reserve(itersLen);
     for (int idx = 0; idx < itersLen; idx++) {
       jobject iter = env->GetObjectArrayElement(batchItrArray, idx);
-      auto arrayIter = ctx->createJniInputIterator({env, iter, idx});
+      auto arrayIter = ctx->createJniInputIterator({.env = env, .jColumnarBatchIterator = iter, .iteratorIndex = idx});
       auto resultIter = std::make_shared<ResultIterator>(std::move(arrayIter));
       inputIters.push_back(std::move(resultIter));
     }
