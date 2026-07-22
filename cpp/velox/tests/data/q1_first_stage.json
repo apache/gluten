@@ -1,70 +1,70 @@
 {
-    "extension_uris": [
+    "extension_urns": [
         {
-            "extension_uri_anchor": 1,
-            "uri": "/functions_datetime.yaml"
+            "extension_urn_anchor": 1,
+            "urn": "extension:io.substrait:functions_datetime"
         }
     ],
     "extensions": [
         {
             "extension_function": {
-                "extension_uri_reference": 1,
+                "extension_urn_reference": 1,
                 "function_anchor": 1,
                 "name": "lte:fp64_fp64"
             }
         },
         {
             "extension_function": {
-                "extension_uri_reference": 1,
+                "extension_urn_reference": 1,
                 "function_anchor": 6,
                 "name": "sum:opt_fp64"
             }
         },
         {
             "extension_function": {
-                "extension_uri_reference": 1,
+                "extension_urn_reference": 1,
                 "function_anchor": 3,
                 "name": "subtract:opt_fp64_fp64"
             }
         },
         {
             "extension_function": {
-                "extension_uri_reference": 1,
+                "extension_urn_reference": 1,
                 "function_anchor": 9,
                 "name": "is_not_null:fp64"
             }
         },
         {
             "extension_function": {
-                "extension_uri_reference": 1,
+                "extension_urn_reference": 1,
                 "function_anchor": 2,
                 "name": "and:bool_bool"
             }
         },
         {
             "extension_function": {
-                "extension_uri_reference": 1,
+                "extension_urn_reference": 1,
                 "function_anchor": 5,
                 "name": "add:opt_fp64_fp64"
             }
         },
         {
             "extension_function": {
-                "extension_uri_reference": 1,
+                "extension_urn_reference": 1,
                 "function_anchor": 7,
                 "name": "count:opt_fp64"
             }
         },
         {
             "extension_function": {
-                "extension_uri_reference": 1,
+                "extension_urn_reference": 1,
                 "function_anchor": 4,
                 "name": "multiply:opt_fp64_fp64"
             }
         },
         {
             "extension_function": {
-                "extension_uri_reference": 1,
+                "extension_urn_reference": 1,
                 "function_anchor": 8,
                 "name": "count:opt_i32"
             }
