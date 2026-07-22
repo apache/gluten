@@ -21,7 +21,7 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.execution.ColumnarShuffleExchangeExec
-import org.apache.spark.sql.execution.adaptive.{ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
 import org.apache.spark.sql.internal.SQLConf
 
 class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
@@ -113,19 +113,19 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
             s"Expected GPU AQE shuffle reader, but got ${reader.executionMode}")
       }
 
-      val shuffleStages = plan.collect {
-        case stage: ShuffleQueryStageExec => stage
+      val shuffleStages: Seq[ShuffleQueryStageExec] = shuffleReaders.map(_.delegate).map {
+        case a: AQEShuffleReadExec =>
+          assert(a.child.isInstanceOf[ShuffleQueryStageExec])
+          a.child.asInstanceOf[ShuffleQueryStageExec]
+        case s: ShuffleQueryStageExec => s
+        case _ =>
+          throw new IllegalArgumentException("Unexpected child of ColumnarAQEShuffleReadExec")
       }
 
-      val exchanges = shuffleStages.flatMap {
-        _.plan.collect {
-          case exchange: ColumnarShuffleExchangeExec => exchange
-        }
-      }
-
-      assert(exchanges.nonEmpty)
-
-      exchanges.foreach {
+      shuffleStages.foreach {
+        shuffleStage =>
+          assert(shuffleStage.shuffle.isInstanceOf[ColumnarShuffleExchangeExec])
+          val exchange = shuffleStage.shuffle.asInstanceOf[ColumnarShuffleExchangeExec]
         exchange =>
           assert(
             !exchange.mapperStageMode.contains(MockGPUStageMode),
