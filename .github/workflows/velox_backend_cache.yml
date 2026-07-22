@@ -166,6 +166,7 @@ jobs:
           df -a
           dnf autoremove -y && dnf clean all
           dnf remove -y cuda-toolkit-12* && dnf install -y cuda-toolkit-13-1
+          pip3 install cmake==4.3.2
           ls -l /usr/local/
           source /opt/rh/gcc-toolset-12/enable
 
