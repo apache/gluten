@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.expression.{AttributeReferenceTransformer, ExpressionConverter}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.SubstraitContext
@@ -274,8 +275,15 @@ object JoinUtils {
           inputBuildOutput.indices.map(ExpressionBuilder.makeSelection(_)) :+
             ExpressionBuilder.makeSelection(buildOutput.size)
         case LeftSemi | LeftAnti =>
-          // When the left semi/anti join support the BuildLeft
-          leftOutput.indices.map(idx => ExpressionBuilder.makeSelection(idx + streamedOutput.size))
+          // BuildLeft (exchangeTable=true) layout is backend-specific. Velox
+          // (kRightSemiFilter / kAnti) outputs only the build (= original-left) columns
+          // indexed from 0; ClickHouse keeps a concatenated [streamed ++ build] layout.
+          if (BackendsApiManager.getSettings.semiAntiBuildLeftOutputsBuildOnly) {
+            leftOutput.indices.map(ExpressionBuilder.makeSelection(_))
+          } else {
+            leftOutput.indices.map(
+              idx => ExpressionBuilder.makeSelection(idx + streamedOutput.size))
+          }
         case LeftExistence(_) =>
           leftOutput.indices.map(ExpressionBuilder.makeSelection(_))
         case _ =>

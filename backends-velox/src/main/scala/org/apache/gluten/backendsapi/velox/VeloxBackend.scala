@@ -514,6 +514,9 @@ object VeloxBackendSettings extends BackendSettingsApi {
         }
       }
   }
+
+  override def semiAntiBuildLeftOutputsBuildOnly: Boolean = true
+
   override def supportHashBuildJoinTypeOnRight: JoinType => Boolean = {
     t =>
       if (super.supportHashBuildJoinTypeOnRight(t)) {

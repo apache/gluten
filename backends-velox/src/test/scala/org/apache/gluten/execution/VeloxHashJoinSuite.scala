@@ -22,6 +22,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
+import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildRight}
 import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarSubqueryBroadcastExec, InputIteratorTransformer, SerializedHashTableBroadcastRelation}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.joins.BuildSideRelation
@@ -653,6 +654,106 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
             assert(subqueryBroadcastExecs.size == 1)
           }
         })
+  }
+
+  test("LeftSemi BuildLeft output correctness") {
+    withSQLConf(
+      ("spark.sql.autoBroadcastJoinThreshold", "-1"),
+      ("spark.sql.adaptive.enabled", "true"),
+      (GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true"),
+      (GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_ENABLED.key, "true"),
+      (GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_BYTES.key, "0"),
+      (GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_TO_LEFT_RATIO.key, "1.0")
+    ) {
+      withTable("semi_left", "semi_right") {
+        spark.sql("""
+          CREATE TABLE semi_left USING PARQUET
+          AS SELECT id as key, id * 10 as value FROM range(100)
+        """)
+        spark.sql("""
+          CREATE TABLE semi_right USING PARQUET
+          AS SELECT id * 2 as key FROM range(1000)
+        """)
+
+        val query = "SELECT key, value FROM semi_left WHERE key IN (SELECT key FROM semi_right)"
+        runQueryAndCompare(query) {
+          df =>
+            val plan = df.queryExecution.executedPlan
+            val shjJoins = plan.collect {
+              case shj: ShuffledHashJoinExecTransformer => shj
+            }
+            assert(shjJoins.nonEmpty, "Should use ShuffledHashJoin")
+            assert(
+              shjJoins.exists(_.joinBuildSide == BuildLeft),
+              "Should have at least one LeftSemi BuildLeft join")
+        }
+      }
+    }
+  }
+
+  test("LeftSemi BuildRight output correctness (regression)") {
+    withSQLConf(
+      ("spark.sql.autoBroadcastJoinThreshold", "-1"),
+      ("spark.sql.adaptive.enabled", "true"),
+      (GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true"),
+      (GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_ENABLED.key, "false")
+    ) {
+      withTable("semi_left_br", "semi_right_br") {
+        spark.sql("""
+          CREATE TABLE semi_left_br USING PARQUET
+          AS SELECT id as key, id * 10 as value FROM range(100)
+        """)
+        spark.sql("""
+          CREATE TABLE semi_right_br USING PARQUET
+          AS SELECT id * 2 as key FROM range(1000)
+        """)
+
+        val query =
+          "SELECT key, value FROM semi_left_br WHERE key IN (SELECT key FROM semi_right_br)"
+        runQueryAndCompare(query) {
+          df =>
+            val plan = df.queryExecution.executedPlan
+            val shjJoins = plan.collect {
+              case shj: ShuffledHashJoinExecTransformer => shj
+            }
+            assert(shjJoins.nonEmpty, "Should use ShuffledHashJoin")
+            assert(
+              shjJoins.forall(_.joinBuildSide == BuildRight),
+              "All LeftSemi joins should use BuildRight when feature is disabled")
+        }
+      }
+    }
+  }
+
+  test("LeftAnti with ShuffledHashJoin output correctness") {
+    withSQLConf(
+      ("spark.sql.autoBroadcastJoinThreshold", "-1"),
+      ("spark.sql.adaptive.enabled", "true"),
+      (GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
+    ) {
+      withTable("anti_left", "anti_right") {
+        spark.sql("""
+          CREATE TABLE anti_left USING PARQUET
+          AS SELECT id as key, id * 10 as value FROM range(100)
+        """)
+        spark.sql("""
+          CREATE TABLE anti_right USING PARQUET
+          AS SELECT id * 2 as key FROM range(1000)
+        """)
+
+        val query =
+          """SELECT key, value FROM anti_left a
+            |WHERE NOT EXISTS (SELECT 1 FROM anti_right b WHERE a.key = b.key)""".stripMargin
+        runQueryAndCompare(query) {
+          df =>
+            val plan = df.queryExecution.executedPlan
+            val shjJoins = plan.collect {
+              case shj: ShuffledHashJoinExecTransformer => shj
+            }
+            assert(shjJoins.nonEmpty, "Should use ShuffledHashJoin")
+        }
+      }
+    }
   }
 
 }

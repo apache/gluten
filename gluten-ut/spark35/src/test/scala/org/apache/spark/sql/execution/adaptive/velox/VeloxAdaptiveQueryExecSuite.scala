@@ -1500,6 +1500,154 @@ class VeloxAdaptiveQueryExecSuite extends AdaptiveQueryExecSuite with GlutenSQLT
     }
   }
 
+  testGluten("LeftSemi BuildLeft guard: enabled with large ratio chooses BuildLeft") {
+    withTempView("big", "small") {
+      spark.sparkContext
+        .parallelize((1 to 1000).map(i => TestData(i % 50, i.toString)), 10)
+        .toDF("c1", "c2")
+        .createOrReplaceTempView("big")
+      spark.sparkContext
+        .parallelize((1 to 10).map(i => TestData(i, i.toString)), 5)
+        .toDF("c1", "c2")
+        .createOrReplaceTempView("small")
+
+      withSQLConf(
+        SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+        SQLConf.SHUFFLE_PARTITIONS.key -> "5",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_ENABLED.key -> "true",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_BYTES.key -> "1",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_TO_LEFT_RATIO.key -> "2.0",
+        GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "true"
+      ) {
+        val (_, adaptive) = runAdaptiveAndVerifyResult(
+          "SELECT small.c1 FROM small LEFT SEMI JOIN big ON small.c1 = big.c1")
+        val shj = findTopLevelShuffledHashJoinTransform(adaptive)
+        assert(shj.size === 1)
+        assert(shj.head.joinBuildSide == BuildLeft)
+      }
+    }
+  }
+
+  testGluten("LeftSemi BuildLeft guard: right-side too small forces BuildRight") {
+    withTempView("big", "small") {
+      spark.sparkContext
+        .parallelize((1 to 1000).map(i => TestData(i % 50, i.toString)), 10)
+        .toDF("c1", "c2")
+        .createOrReplaceTempView("big")
+      spark.sparkContext
+        .parallelize((1 to 10).map(i => TestData(i, i.toString)), 5)
+        .toDF("c1", "c2")
+        .createOrReplaceTempView("small")
+
+      withSQLConf(
+        SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+        SQLConf.SHUFFLE_PARTITIONS.key -> "5",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_ENABLED.key -> "true",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_BYTES.key -> "100GB",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_TO_LEFT_RATIO.key -> "1.0",
+        GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "true"
+      ) {
+        val (_, adaptive) = runAdaptiveAndVerifyResult(
+          "SELECT small.c1 FROM small LEFT SEMI JOIN big ON small.c1 = big.c1")
+        val shj = findTopLevelShuffledHashJoinTransform(adaptive)
+        assert(shj.size === 1)
+        assert(shj.head.joinBuildSide == BuildRight)
+      }
+    }
+  }
+
+  testGluten("LeftSemi BuildLeft guard: insufficient ratio forces BuildRight") {
+    withTempView("small", "medium") {
+      spark.sparkContext
+        .parallelize((1 to 10).map(i => TestData(i, i.toString)), 5)
+        .toDF("c1", "c2")
+        .createOrReplaceTempView("small")
+      spark.sparkContext
+        .parallelize((1 to 50).map(i => TestData(i % 10, i.toString)), 10)
+        .toDF("c1", "c2")
+        .createOrReplaceTempView("medium")
+
+      withSQLConf(
+        SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+        SQLConf.SHUFFLE_PARTITIONS.key -> "5",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_ENABLED.key -> "true",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_BYTES.key -> "1",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_TO_LEFT_RATIO.key -> "10.0",
+        GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "true"
+      ) {
+        val (_, adaptive) = runAdaptiveAndVerifyResult(
+          "SELECT small.c1 FROM small LEFT SEMI JOIN medium ON small.c1 = medium.c1")
+        val shj = findTopLevelShuffledHashJoinTransform(adaptive)
+        assert(shj.size === 1)
+        assert(shj.head.joinBuildSide == BuildRight)
+      }
+    }
+  }
+
+  testGluten("LeftSemi BuildLeft guard: disabled config keeps BuildRight") {
+    withTempView("big", "small") {
+      spark.sparkContext
+        .parallelize((1 to 1000).map(i => TestData(i % 50, i.toString)), 10)
+        .toDF("c1", "c2")
+        .createOrReplaceTempView("big")
+      spark.sparkContext
+        .parallelize((1 to 10).map(i => TestData(i, i.toString)), 5)
+        .toDF("c1", "c2")
+        .createOrReplaceTempView("small")
+
+      withSQLConf(
+        SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+        SQLConf.SHUFFLE_PARTITIONS.key -> "5",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_ENABLED.key -> "false",
+        GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "true"
+      ) {
+        val (_, adaptive) = runAdaptiveAndVerifyResult(
+          "SELECT small.c1 FROM small LEFT SEMI JOIN big ON small.c1 = big.c1")
+        val shj = findTopLevelShuffledHashJoinTransform(adaptive)
+        assert(shj.size === 1)
+        assert(shj.head.joinBuildSide == BuildRight)
+      }
+    }
+  }
+
+  testGluten("LeftSemi BuildLeft guard: probe-side skew forces BuildRight") {
+    withTempView("small", "large_skewed") {
+      spark.sparkContext
+        .parallelize((1 to 10).map(i => TestData(i, i.toString)), 5)
+        .toDF("c1", "c2")
+        .createOrReplaceTempView("small")
+      spark.sparkContext
+        .parallelize(
+          (1 to 900).map(_ => TestData(1, "hot")) ++
+            (1 to 100).map(i => TestData(i % 10 + 1, i.toString)),
+          10)
+        .toDF("c1", "c2")
+        .createOrReplaceTempView("large_skewed")
+
+      withSQLConf(
+        SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+        SQLConf.SHUFFLE_PARTITIONS.key -> "5",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_ENABLED.key -> "true",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_BYTES.key -> "1",
+        GlutenConfig.COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_TO_LEFT_RATIO.key -> "1.0",
+        GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "true",
+        SQLConf.SKEW_JOIN_SKEWED_PARTITION_FACTOR.key -> "2",
+        SQLConf.SKEW_JOIN_SKEWED_PARTITION_THRESHOLD.key -> "100"
+      ) {
+        val (_, adaptive) = runAdaptiveAndVerifyResult(
+          "SELECT small.c1 FROM small LEFT SEMI JOIN large_skewed ON small.c1 = large_skewed.c1")
+        val shj = findTopLevelShuffledHashJoinTransform(adaptive)
+        assert(shj.size === 1)
+        assert(shj.head.joinBuildSide == BuildRight)
+      }
+    }
+  }
+
   testGluten("test log level") {
     def verifyLog(expectedLevel: Level): Unit = {
       val logAppender = new LogAppender("adaptive execution")

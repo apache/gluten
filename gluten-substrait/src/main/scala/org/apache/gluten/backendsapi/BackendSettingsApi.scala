@@ -86,6 +86,8 @@ trait BackendSettingsApi {
     case _ => false
   }
 
+  def semiAntiBuildLeftOutputsBuildOnly: Boolean = false
+
   def supportHashBuildJoinTypeOnRight: JoinType => Boolean = {
     case _: InnerLike | LeftOuter | FullOuter | LeftSemi | LeftAnti | _: ExistenceJoin => true
     // LeftSingle is a Spark 4.0+ join type with same semantics as LeftOuter for build side.
