@@ -22,9 +22,12 @@
 #include <execinfo.h>
 #include <jni.h>
 
+#include <functional>
+
 #include "compute/ProtobufUtils.h"
 #include "compute/Runtime.h"
 #include "memory/AllocationListener.h"
+#include "shuffle/ShuffleReader.h"
 #include "shuffle/rss/RssClient.h"
 #include "threads/ThreadInitializer.h"
 #include "utils/Compression.h"
@@ -151,9 +154,17 @@ static T* jniCastOrThrow(jlong handle) {
 }
 namespace gluten {
 
-class StreamReader;
+class ShuffleStreamReader final : public StreamReader {
+ public:
+  ShuffleStreamReader(JNIEnv* env, jobject reader);
+  ~ShuffleStreamReader() override;
 
-std::shared_ptr<StreamReader> makeShuffleStreamReader(JNIEnv* env, jobject jShuffleStreamReader);
+  std::shared_ptr<arrow::io::InputStream> readNextStream(arrow::MemoryPool* pool) override;
+
+ private:
+  JavaVM* vm_{nullptr};
+  jobject ref_{nullptr};
+};
 
 class JniCommonState {
  public:
@@ -189,6 +200,14 @@ inline JniCommonState* getJniCommonState() {
 }
 
 Runtime* getRuntime(JNIEnv* env, jobject runtimeAware);
+
+using JniInputIteratorFactory = std::function<
+    std::unique_ptr<ColumnarBatchIterator>(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex)>;
+
+void registerJniInputIteratorFactory(const std::string& runtimeKind, JniInputIteratorFactory factory);
+
+std::unique_ptr<ColumnarBatchIterator>
+createJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex);
 
 // Safe version of JNI {Get|Release}<PrimitiveType>ArrayElements routines.
 // SafeNativeArray would release the managed array elements automatically
@@ -289,12 +308,6 @@ DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kInt, jintArray, Int)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kLong, jlongArray, Long)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kFloat, jfloatArray, Float)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kDouble, jdoubleArray, Double)
-
-struct JniInputIteratorContext {
-  JNIEnv* env;
-  jobject jColumnarBatchIterator;
-  int32_t iteratorIndex;
-};
 
 class JniColumnarBatchIterator : public ColumnarBatchIterator {
  public:

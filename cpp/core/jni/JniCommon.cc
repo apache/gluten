@@ -18,6 +18,20 @@
 #include "JniCommon.h"
 #include <folly/system/ThreadName.h>
 
+namespace {
+
+std::unordered_map<std::string, gluten::JniInputIteratorFactory>& jniInputIteratorFactories() {
+  static std::unordered_map<std::string, gluten::JniInputIteratorFactory> factories;
+  return factories;
+}
+
+std::mutex& jniInputIteratorFactoriesMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+} // namespace
+
 void gluten::JniCommonState::ensureInitialized(JNIEnv* env) {
   std::lock_guard<std::mutex> lockGuard(mtx_);
   if (initialized_) {
@@ -67,10 +81,32 @@ gluten::Runtime* gluten::getRuntime(JNIEnv* env, jobject runtimeAware) {
   return ctx;
 }
 
-std::unique_ptr<gluten::ColumnarBatchIterator> gluten::Runtime::createJniInputIterator(
-    const JniInputIteratorContext& context) {
-  return std::make_unique<JniColumnarBatchIterator>(
-      context.env, context.jColumnarBatchIterator, this, context.iteratorIndex);
+void gluten::registerJniInputIteratorFactory(const std::string& runtimeKind, JniInputIteratorFactory factory) {
+  GLUTEN_CHECK(!runtimeKind.empty(), "JNI input iterator factory runtime kind must not be empty");
+  GLUTEN_CHECK(static_cast<bool>(factory), "JNI input iterator factory must not be empty");
+
+  std::lock_guard<std::mutex> lock(jniInputIteratorFactoriesMutex());
+  const bool inserted = jniInputIteratorFactories().emplace(runtimeKind, std::move(factory)).second;
+  GLUTEN_CHECK(inserted, "JNI input iterator factory already registered for " + runtimeKind);
+}
+
+std::unique_ptr<gluten::ColumnarBatchIterator>
+gluten::createJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex) {
+  GLUTEN_CHECK(runtime != nullptr, "Runtime must not be null");
+
+  JniInputIteratorFactory factory;
+  {
+    std::lock_guard<std::mutex> lock(jniInputIteratorFactoriesMutex());
+    const auto it = jniInputIteratorFactories().find(runtime->kind());
+    if (it != jniInputIteratorFactories().end()) {
+      factory = it->second;
+    }
+  }
+
+  if (factory) {
+    return factory(env, iterator, runtime, iteratorIndex);
+  }
+  return std::make_unique<JniColumnarBatchIterator>(env, iterator, runtime, iteratorIndex);
 }
 
 std::unique_ptr<gluten::JniColumnarBatchIterator>

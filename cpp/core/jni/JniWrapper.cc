@@ -238,45 +238,33 @@ void internalRuntimeReleaser(Runtime* runtime) {
   delete runtime;
 }
 
-class ShuffleStreamReader : public StreamReader {
- public:
-  ShuffleStreamReader(JNIEnv* env, jobject reader) {
-    if (env->GetJavaVM(&vm_) != JNI_OK) {
-      throw GlutenException("Unable to get JavaVM instance");
-    }
-    ref_ = env->NewGlobalRef(reader);
-  }
-
-  ~ShuffleStreamReader() override {
-    JNIEnv* env = nullptr;
-    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-    env->DeleteGlobalRef(ref_);
-  }
-
-  std::shared_ptr<arrow::io::InputStream> readNextStream(arrow::MemoryPool* pool) override {
-    JNIEnv* env = nullptr;
-    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-
-    jobject jniIn = env->CallObjectMethod(ref_, shuffleStreamReaderNextStream);
-    checkException(env);
-    if (jniIn == nullptr) {
-      return nullptr; // No more streams to read
-    }
-    std::shared_ptr<arrow::io::InputStream> in = std::make_shared<JavaInputStreamAdaptor>(env, pool, jniIn);
-    return in;
-  }
-
- private:
-  JavaVM* vm_;
-  jobject ref_;
-};
-
 } // namespace
 
 namespace gluten {
 
-std::shared_ptr<StreamReader> makeShuffleStreamReader(JNIEnv* env, jobject jShuffleStreamReader) {
-  return std::make_shared<::ShuffleStreamReader>(env, jShuffleStreamReader);
+ShuffleStreamReader::ShuffleStreamReader(JNIEnv* env, jobject reader) {
+  if (env->GetJavaVM(&vm_) != JNI_OK) {
+    throw GlutenException("Unable to get JavaVM instance");
+  }
+  ref_ = env->NewGlobalRef(reader);
+}
+
+ShuffleStreamReader::~ShuffleStreamReader() {
+  JNIEnv* env = nullptr;
+  attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+  env->DeleteGlobalRef(ref_);
+}
+
+std::shared_ptr<arrow::io::InputStream> ShuffleStreamReader::readNextStream(arrow::MemoryPool* pool) {
+  JNIEnv* env = nullptr;
+  attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+
+  jobject jniIn = env->CallObjectMethod(ref_, shuffleStreamReaderNextStream);
+  checkException(env);
+  if (jniIn == nullptr) {
+    return nullptr; // No more streams to read
+  }
+  return std::make_shared<JavaInputStreamAdaptor>(env, pool, jniIn);
 }
 
 } // namespace gluten
@@ -574,7 +562,7 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeCreateKernelWith
     inputIters.reserve(itersLen);
     for (int idx = 0; idx < itersLen; idx++) {
       jobject iter = env->GetObjectArrayElement(batchItrArray, idx);
-      auto arrayIter = ctx->createJniInputIterator({.env = env, .jColumnarBatchIterator = iter, .iteratorIndex = idx});
+      auto arrayIter = createJniInputIterator(env, iter, ctx, idx);
       auto resultIter = std::make_shared<ResultIterator>(std::move(arrayIter));
       inputIters.push_back(std::move(resultIter));
     }

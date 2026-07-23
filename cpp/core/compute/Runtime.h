@@ -36,7 +36,6 @@
 
 namespace gluten {
 
-struct JniInputIteratorContext;
 class ResultIterator;
 
 struct SparkTaskInfo {
@@ -190,8 +189,6 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   virtual WholeStageDumper* getDumper() {
     return dumper_.get();
   }
-
-  virtual std::unique_ptr<ColumnarBatchIterator> createJniInputIterator(const JniInputIteratorContext& context);
 
   ObjectHandle saveObject(std::shared_ptr<void> obj) {
     return objStore_->save(obj);
