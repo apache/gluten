@@ -152,7 +152,7 @@ std::vector<GpuShuffleTestParams> getTestParams() {
       for (const auto mergeBufferSize : mergeBufferSizes) {
         for (const auto enableGpuAsyncReader : {false, true}) {
           params.push_back(GpuShuffleTestParams{
-              .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+              .shuffleWriterType = ShuffleWriterType::kHashShuffle,
               .partitionWriterType = PartitionWriterType::kLocal,
               .compressionType = compression,
               .compressionThreshold = compressionThreshold,
@@ -163,7 +163,7 @@ std::vector<GpuShuffleTestParams> getTestParams() {
 
       // Rss.
       params.push_back(GpuShuffleTestParams{
-          .shuffleWriterType = ShuffleWriterType::kGpuHashShuffle,
+          .shuffleWriterType = ShuffleWriterType::kHashShuffle,
           .partitionWriterType = PartitionWriterType::kRss,
           .compressionType = compression,
           .compressionThreshold = compressionThreshold});
@@ -225,7 +225,7 @@ class GpuVeloxShuffleWriterTest : public ::testing::TestWithParam<GpuShuffleTest
     std::shared_ptr<ShuffleWriterOptions> options;
     const auto& params = GetParam();
     switch (params.shuffleWriterType) {
-      case ShuffleWriterType::kGpuHashShuffle: {
+      case ShuffleWriterType::kHashShuffle: {
         auto hashOptions = std::make_shared<HashShuffleWriterOptions>();
         hashOptions->splitBufferSize = splitBufferSize;
         options = hashOptions;

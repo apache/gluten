@@ -17,7 +17,7 @@
 package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.MetricsApi
-import org.apache.gluten.config.{GpuHashShuffleWriterType, HashShuffleWriterType, RssSortShuffleWriterType, ShuffleWriterType, SortShuffleWriterType}
+import org.apache.gluten.config.{HashShuffleWriterType, RssSortShuffleWriterType, ShuffleWriterType, SortShuffleWriterType}
 import org.apache.gluten.metrics._
 import org.apache.gluten.substrait.{AggregationParams, JoinParams}
 
@@ -430,7 +430,7 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "peakBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak bytes allocated")
     )
     shuffleWriterType match {
-      case HashShuffleWriterType | GpuHashShuffleWriterType =>
+      case HashShuffleWriterType =>
         baseMetrics ++ Map(
           "splitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to split"),
           "avgDictionaryFields" -> SQLMetrics

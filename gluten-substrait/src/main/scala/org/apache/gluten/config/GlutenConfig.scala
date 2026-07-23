@@ -54,12 +54,6 @@ case object RssSortShuffleWriterType extends ShuffleWriterType {
   override val requiresResizingShuffleOutput: Boolean = false
 }
 
-case object GpuHashShuffleWriterType extends ShuffleWriterType {
-  override val name: String = ReservedKeys.GLUTEN_GPU_HASH_SHUFFLE_WRITER
-  override val requiresResizingShuffleInput: Boolean = true
-  override val requiresResizingShuffleOutput: Boolean = true
-}
-
 /*
  * Note: Gluten configiguration.md is automatically generated from this code.
  * Make sure to run dev/gen-all-config-docs.sh after making changes to this file.
@@ -75,6 +69,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def enableNativeValidation: Boolean = getConf(NATIVE_VALIDATION_ENABLED)
 
   def enableColumnarBatchScan: Boolean = getConf(COLUMNAR_BATCHSCAN_ENABLED)
+
+  def batchScanMaxInputPartitions: Int = getConf(COLUMNAR_BATCHSCAN_MAX_INPUT_PARTITIONS)
 
   def enableColumnarFileScan: Boolean = getConf(COLUMNAR_FILESCAN_ENABLED)
 
@@ -853,6 +849,14 @@ object GlutenConfig extends ConfigRegistry {
       .doc("Enable or disable columnar batchscan.")
       .booleanConf
       .createWithDefault(true)
+
+  val COLUMNAR_BATCHSCAN_MAX_INPUT_PARTITIONS =
+    buildConf("spark.gluten.sql.columnar.batchscan.maxInputPartitions")
+      .doc(
+        "Maximum number of Spark task partitions for supported DataSource V2 batch scans. ")
+      .intConf
+      .checkValue(_ > 0, s"must be positive.")
+      .createWithDefault(Int.MaxValue)
 
   val COLUMNAR_FILESCAN_ENABLED =
     buildConf("spark.gluten.sql.columnar.filescan")
