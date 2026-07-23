@@ -178,6 +178,14 @@ class JniCommonState {
 
   jmethodID runtimeAwareCtxHandle();
 
+  jmethodID jniByteInputStreamRead();
+
+  jmethodID jniByteInputStreamTell();
+
+  jmethodID jniByteInputStreamClose();
+
+  jmethodID shuffleStreamReaderNextStream();
+
   JavaVM* getJavaVM() const {
     return vm_;
   }
@@ -187,6 +195,14 @@ class JniCommonState {
 
   jclass runtimeAwareClass_;
   jmethodID runtimeAwareCtxHandle_;
+
+  jclass jniByteInputStreamClass_;
+  jmethodID jniByteInputStreamRead_;
+  jmethodID jniByteInputStreamTell_;
+  jmethodID jniByteInputStreamClose_;
+
+  jclass shuffleStreamReaderClass_;
+  jmethodID shuffleStreamReaderNextStream_;
 
   JavaVM* vm_;
   bool initialized_{false};
