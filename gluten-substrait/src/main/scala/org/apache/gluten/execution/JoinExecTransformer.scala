@@ -165,6 +165,7 @@ trait HashJoinLikeExecTransformer extends BaseJoinExec with TransformSupport {
         case leftSingle if SparkShimLoader.getSparkShims.isLeftSingleJoinType(leftSingle) =>
           left.outputPartitioning
         case FullOuter => UnknownPartitioning(left.outputPartitioning.numPartitions)
+        case LeftSemi => left.outputPartitioning
         case x =>
           throw new IllegalArgumentException(
             s"HashJoin should not take $x as the JoinType with building left side")
