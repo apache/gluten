@@ -84,8 +84,8 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     return JNI_ERR;
   }
 
-  getJniCommonState()->assertInitialized();
-  getJniErrorState()->assertInitialized();
+  getJniCommonState()->ensureInitialized(env);
+  getJniErrorState()->ensureInitialized(env);
 
   initBoltJniFileSystem(env);
   initBoltJniUDF(env);
@@ -125,6 +125,8 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* vm, void*) {
   finalizeBoltJniUDF(env);
   finalizeBoltJniFileSystem(env);
 
+  getJniErrorState()->close();
+  getJniCommonState()->close();
   google::ShutdownGoogleLogging();
 }
 
