@@ -9,7 +9,6 @@
     extern "C++" {
       # Hide symbols of glog, gflags (protobuf is made global at above).
       *google::*;
-      *gflags::*;
       fL*::FLAGS_*;
       gflags_mutex_namespace::*;
       glog_internal_namespace_::*;

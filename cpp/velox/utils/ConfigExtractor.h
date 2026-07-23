@@ -33,6 +33,11 @@ enum class FileSystemType : uint8_t { kHdfs, kS3, kAbfs, kGcs, kAll };
 std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionConfig(
     const std::shared_ptr<facebook::velox::config::ConfigBase>& conf);
 
+std::string getConfigValue(
+    const std::unordered_map<std::string, std::string>& confMap,
+    const std::string& key,
+    const std::optional<std::string>& fallbackValue);
+
 /// Create hive connector config.
 std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorConfig(
     const std::shared_ptr<facebook::velox::config::ConfigBase>& conf,
