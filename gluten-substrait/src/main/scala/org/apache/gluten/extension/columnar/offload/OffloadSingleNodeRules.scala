@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.extension.columnar.FallbackTags
+import org.apache.gluten.extension.columnar.rewrite.RewriteJoin
 import org.apache.gluten.logging.LogLevelUtil
 import org.apache.gluten.sql.shims.SparkShimLoader
 
@@ -136,6 +137,11 @@ object OffloadJoin {
       return BuildRight
     }
     if (!rightBuildable) {
+      return BuildLeft
+    }
+
+    // Honor a ForceShjBuildLeft tag set by the guard rule (stats verified safe for BuildLeft).
+    if (shj.getTagValue(RewriteJoin.ForceShjBuildLeftTag).getOrElse(false)) {
       return BuildLeft
     }
 

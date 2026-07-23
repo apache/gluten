@@ -21,11 +21,16 @@ import org.apache.gluten.extension.columnar.offload.OffloadJoin
 
 import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildRight, BuildSide, JoinSelectionHelper}
 import org.apache.spark.sql.catalyst.plans.logical.Join
+import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.joins.{ShuffledHashJoinExec, SortMergeJoinExec}
 
 /** If force ShuffledHashJoin, convert [[SortMergeJoinExec]] to [[ShuffledHashJoinExec]]. */
 object RewriteJoin extends RewriteSingleNode with JoinSelectionHelper {
+
+  val ForceShjBuildLeftTag: TreeNodeTag[Boolean] =
+    TreeNodeTag[Boolean]("org.apache.gluten.RewriteJoin.ForceShjBuildLeft")
+
   override def isRewritable(plan: SparkPlan): Boolean = {
     plan match {
       case _: SortMergeJoinExec => true
@@ -62,7 +67,7 @@ object RewriteJoin extends RewriteSingleNode with JoinSelectionHelper {
     case smj: SortMergeJoinExec if GlutenConfig.get.forceShuffledHashJoin =>
       getSmjBuildSide(smj) match {
         case Some(buildSide) =>
-          ShuffledHashJoinExec(
+          val shj = ShuffledHashJoinExec(
             smj.leftKeys,
             smj.rightKeys,
             smj.joinType,
@@ -71,6 +76,10 @@ object RewriteJoin extends RewriteSingleNode with JoinSelectionHelper {
             smj.left,
             smj.right,
             smj.isSkewJoin)
+          if (smj.getTagValue(ForceShjBuildLeftTag).getOrElse(false)) {
+            shj.setTagValue(ForceShjBuildLeftTag, true)
+          }
+          shj
         case _ => plan
       }
     case _ => plan

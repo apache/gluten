@@ -51,6 +51,9 @@ object VeloxRuleApi {
    * injected through [[injectLegacy]].
    */
   private def injectSpark(injector: SparkInjector): Unit = {
+    // QueryStagePrepRule: guards LeftSemi BuildLeft against unsafe conditions.
+    injector.injectQueryStagePrepRule(LeftSemiBuildLeftGuardRule.apply)
+
     // Inject the regular Spark rules directly.
     injector.injectOptimizerRule(CollectRewriteRule.apply)
     injector.injectOptimizerRule(HLLRewriteRule.apply)
