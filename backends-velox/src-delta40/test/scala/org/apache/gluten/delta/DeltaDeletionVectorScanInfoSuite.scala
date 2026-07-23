@@ -140,27 +140,29 @@ class DeltaDeletionVectorScanInfoSuite
   test("normalize materializes DV read options using the supplied table path") {
     withTempDir {
       tempDir =>
-        val path = tempDir.getCanonicalPath
+        val tablePath = new Path(tempDir.getCanonicalPath, "table")
+        val unrelatedPath = new Path(tempDir.getCanonicalPath, "unrelated")
         Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
           .toDF("id", "value")
           .coalesce(1)
           .write
           .format("delta")
-          .save(path)
+          .save(tablePath.toString)
 
         spark.sql(
-          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
-        spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)")
+          s"ALTER TABLE delta.`$tablePath` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+        spark.sql(s"DELETE FROM delta.`$tablePath` WHERE id IN (3, 4)")
 
         val dataFile = DeltaLog
-          .forTable(spark, new Path(path))
+          .forTable(spark, tablePath)
           .update()
           .allFiles
           .collect()
           .find(_.deletionVector != null)
           .get
+        assert(dataFile.deletionVector.storageType == "u")
         val partitionedFile = partitionedFileWithMetadata(
-          path,
+          unrelatedPath.toString,
           dataFile.path,
           dataFile.size,
           Map(
@@ -170,7 +172,7 @@ class DeltaDeletionVectorScanInfoSuite
           )
         )
 
-        val result = DeltaDeletionVectorScanInfo.normalize(Seq(partitionedFile), new Path(path))
+        val result = DeltaDeletionVectorScanInfo.normalize(Seq(partitionedFile), tablePath)
         assert(result.isDefined, "normalize should materialize DV options")
         val opts = result.get._2.head
         assert(opts.hasDeletionVector)

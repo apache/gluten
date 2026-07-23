@@ -20,8 +20,11 @@ import org.apache.gluten.extension.DeltaPostTransformRules
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.delta.DeltaLog
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SparkVersionUtil
+
+import org.apache.hadoop.fs.Path
 
 import scala.collection.JavaConverters._
 
@@ -642,6 +645,16 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         spark.sql(
           s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
         spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (2, 3, 6)")
+        val deletionVectors = DeltaLog
+          .forTable(spark, new Path(path))
+          .update()
+          .allFiles
+          .collect()
+          .flatMap(file => Option(file.deletionVector))
+        assert(deletionVectors.nonEmpty, "DELETE should produce deletion vectors")
+        assert(
+          deletionVectors.exists(_.storageType == "u"),
+          "DELETE should produce a table-root-relative UUID deletion vector")
         val df = spark.read.format("delta").load(path)
         if (SparkVersionUtil.gteSpark35) {
           assert(
