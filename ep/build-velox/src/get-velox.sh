@@ -65,7 +65,7 @@ if [ "$VELOX_HOME" == "" ]; then
 fi
 
 function process_setup_ubuntu {
-  sed -i "s|run_and_time install_arrow||g" scripts/setup-centos9.sh
+  sed -i "s|run_and_time install_arrow||g" scripts/setup-ubuntu.sh
   echo "Using setup script from Velox"
 }
 
