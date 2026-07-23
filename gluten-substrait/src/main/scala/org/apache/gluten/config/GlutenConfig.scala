@@ -115,6 +115,15 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def shuffledHashJoinOptimizeBuildSide: Boolean =
     getConf(COLUMNAR_SHUFFLED_HASH_JOIN_OPTIMIZE_BUILD_SIDE)
 
+  def shjLeftSemiBuildLeftEnabled: Boolean =
+    getConf(COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_ENABLED)
+
+  def shjLeftSemiBuildLeftMinRightBytes: Long =
+    getConf(COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_BYTES)
+
+  def shjLeftSemiBuildLeftMinRightToLeftRatio: Double =
+    getConf(COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_TO_LEFT_RATIO)
+
   def forceShuffledHashJoin: Boolean = getConf(COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED)
 
   def enableColumnarSortMergeJoin: Boolean = getConf(COLUMNAR_SORTMERGEJOIN_ENABLED)
@@ -981,6 +990,30 @@ object GlutenConfig extends ConfigRegistry {
       .doc("Whether to allow Gluten to choose an optimal build side for shuffled hash join.")
       .booleanConf
       .createWithDefault(true)
+
+  val COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_ENABLED =
+    buildConf("spark.gluten.sql.columnar.shuffledHashJoin.leftSemi.buildLeft.enabled")
+      .doc("Whether to allow BuildLeft for LeftSemi ShuffledHashJoin. When enabled, Velox " +
+        "maps LeftSemi BuildLeft to kRightSemiFilter and can build a hash table on the " +
+        "small left side, streaming the large right side as probe. Disabled by default " +
+        "because the optimization is only profitable on large workloads (see " +
+        "`minRightBytes` and `minRightToLeftRatio`).")
+      .booleanConf
+      .createWithDefault(false)
+
+  val COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_BYTES =
+    buildConf("spark.gluten.sql.columnar.shuffledHashJoin.leftSemi.buildLeft.minRightBytes")
+      .doc("Minimum right-side shuffle total bytes for LeftSemi BuildLeft to activate.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("10GB")
+
+  val COLUMNAR_SHJ_LEFTSEMI_BUILDLEFT_MIN_RIGHT_TO_LEFT_RATIO =
+    buildConf("spark.gluten.sql.columnar.shuffledHashJoin.leftSemi.buildLeft.minRightToLeftRatio")
+      .doc("Minimum right/left shuffle-total-bytes ratio required for LeftSemi BuildLeft. " +
+        "Default 10.0 covers the observed profitable region.")
+      .doubleConf
+      .checkValue(_ >= 1.0, "ratio must be >= 1")
+      .createWithDefault(10.0)
 
   val COLUMNAR_SORTMERGEJOIN_ENABLED =
     buildConf("spark.gluten.sql.columnar.sortMergeJoin")

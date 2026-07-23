@@ -26,6 +26,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildRight, BuildSide}
+import org.apache.spark.sql.catalyst.plans.LeftSemi
 import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.RDDScanTransformer
@@ -143,6 +144,12 @@ object OffloadJoin {
     // Honor a ForceShjBuildLeft tag set by the guard rule (stats verified safe for BuildLeft).
     if (shj.getTagValue(RewriteJoin.ForceShjBuildLeftTag).getOrElse(false)) {
       return BuildLeft
+    }
+
+    // When BuildLeft feature is enabled for LeftSemi but the guard didn't approve (no tag),
+    // prevent CBO from accidentally choosing BuildLeft without safety verification.
+    if (shj.joinType == LeftSemi && GlutenConfig.get.shjLeftSemiBuildLeftEnabled) {
+      return BuildRight
     }
 
     // Both left and right are buildable. Find out the better one.

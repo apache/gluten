@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.extension
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.extension.columnar.rewrite.RewriteJoin
 import org.apache.gluten.extension.columnar.util.ShuffleSkewDetector
 
@@ -27,35 +28,23 @@ import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.joins.{ShuffledHashJoinExec, SortMergeJoinExec}
 import org.apache.spark.sql.internal.SQLConf
 
-/**
- * QueryStagePrepRule that fires after each AQE shuffle stage completes, i.e. once `mapStats` are
- * available.
- *
- * For a LeftSemi join (either [[SortMergeJoinExec]] or already-rewritten [[ShuffledHashJoinExec]])
- * it decides whether BuildLeft is safe and, if so, sets [[RewriteJoin.ForceShjBuildLeftTag]] on the
- * join node. The tag is later consumed by:
- *   - [[RewriteJoin.getSmjBuildSide]] (SMJ path).
- *   - [[org.apache.gluten.extension.columnar.offload.OffloadJoin.getShjBuildSide]] (SHJ path).
- *
- * AQE `OptimizeSkewedJoin` cannot split the probe side of a ShuffledHashJoin, so a skewed probe
- * would materialize as extreme straggler tasks. When the right (would-be probe) side is skewed,
- * this rule refuses to tag the join for BuildLeft so that Velox builds the (skewed) side per
- * partition.
- *
- * Skew thresholds reuse Spark's `spark.sql.adaptive.skewJoin.*` so we don't fight AQE's own
- * definition of skew.
- */
 case class LeftSemiBuildLeftGuardRule(session: SparkSession)
   extends Rule[SparkPlan]
   with Logging {
 
   override def apply(plan: SparkPlan): SparkPlan = {
+    val glutenConf = GlutenConfig.get
+    if (!glutenConf.shjLeftSemiBuildLeftEnabled) {
+      return plan
+    }
     val skewJudgement = buildSkewJudgement()
+    val minRatio = glutenConf.shjLeftSemiBuildLeftMinRightToLeftRatio
+    val minRightBytes = glutenConf.shjLeftSemiBuildLeftMinRightBytes
     plan.foreachUp {
       case smj: SortMergeJoinExec if smj.joinType == LeftSemi =>
-        maybeTag(smj, smj.right, "SMJ", skewJudgement)
+        maybeTag(smj, smj.left, smj.right, "SMJ", skewJudgement, minRatio, minRightBytes)
       case shj: ShuffledHashJoinExec if shj.joinType == LeftSemi =>
-        maybeTag(shj, shj.right, "SHJ", skewJudgement)
+        maybeTag(shj, shj.left, shj.right, "SHJ", skewJudgement, minRatio, minRightBytes)
       case _ =>
     }
     plan
@@ -63,11 +52,40 @@ case class LeftSemiBuildLeftGuardRule(session: SparkSession)
 
   private def maybeTag(
       join: SparkPlan,
+      leftSide: SparkPlan,
       rightSide: SparkPlan,
       kind: String,
-      skewJudgement: ShuffleSkewDetector.SkewJudgement): Unit = {
+      skewJudgement: ShuffleSkewDetector.SkewJudgement,
+      minRatio: Double,
+      minRightBytes: Long): Unit = {
     if (join.getTagValue(RewriteJoin.ForceShjBuildLeftTag).getOrElse(false)) {
       return
+    }
+
+    val rightTotalBytes = ShuffleSkewDetector.totalBytes(rightSide) match {
+      case Some(bytes) => bytes
+      case None => return
+    }
+    if (rightTotalBytes < minRightBytes) {
+      logDebug(
+        s"LeftSemiBuildLeftGuardRule: right-side too small on LeftSemi $kind " +
+          s"(rightBytes=$rightTotalBytes < minRightBytes=$minRightBytes); skipping BuildLeft.")
+      return
+    }
+
+    val leftTotalBytes = ShuffleSkewDetector.totalBytes(leftSide) match {
+      case Some(bytes) => bytes
+      case None => return
+    }
+    if (leftTotalBytes > 0) {
+      val ratio = rightTotalBytes.toDouble / leftTotalBytes.toDouble
+      if (ratio < minRatio) {
+        logDebug(
+          f"LeftSemiBuildLeftGuardRule: insufficient right/left ratio on LeftSemi $kind " +
+            f"(rightBytes=$rightTotalBytes / leftBytes=$leftTotalBytes " +
+            f"= $ratio%.1f < minRatio=$minRatio%.1f); skipping BuildLeft.")
+        return
+      }
     }
 
     val rightStats = ShuffleSkewDetector.analyze(rightSide, skewJudgement)

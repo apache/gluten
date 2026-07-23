@@ -506,13 +506,10 @@ object VeloxBackendSettings extends BackendSettingsApi {
         true
       } else {
         t match {
-          // OPPRO-266: For Velox backend, build right and left are both supported for
-          // LeftOuter.
           case LeftOuter => true
-          // Velox maps LeftSemi BuildLeft to kRightSemiFilter (via Substrait
-          // JOIN_TYPE_RIGHT_SEMI) and fully supports it in both HashBuild and HashProbe.
-          // The earlier restriction referenced Velox issue #9980 which has been resolved.
-          case LeftSemi => true
+          case LeftSemi
+              if GlutenConfig.get.shjLeftSemiBuildLeftEnabled &&
+                SQLConf.get.adaptiveExecutionEnabled => true
           case _ => false
         }
       }

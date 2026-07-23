@@ -26,6 +26,24 @@ object ShuffleSkewDetector {
       partitionThresholdBytes: Long,
       minTotalBytes: Long)
 
+  def totalBytes(side: SparkPlan): Option[Long] = {
+    val stages = side.collect { case s: ShuffleQueryStageExec => s }
+    if (stages.isEmpty) return None
+    var total = 0L
+    var found = false
+    stages.foreach {
+      stage =>
+        if (stage.isMaterialized) {
+          stage.mapStats.foreach {
+            ms =>
+              total += ms.bytesByPartitionId.foldLeft(0L)(_ + _)
+              found = true
+          }
+        }
+    }
+    if (found) Some(total) else None
+  }
+
   def analyze(side: SparkPlan, judgement: SkewJudgement): Result = {
     val stages = side.collect { case s: ShuffleQueryStageExec => s }
     if (stages.isEmpty) {
