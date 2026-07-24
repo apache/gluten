@@ -157,11 +157,97 @@ case class DeltaScanTransformer(
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BasicScanExecTransformer =
     copy(pushDownFilters = Some(filters))
+
+  // Delta's upstream CDF filter-pushdown tests assert the executed plan prints
+  // `PushedFilters: [*IsNotNull(id), *LessThan(id,5)]`. The leading `*` is Spark's
+  // RowDataSourceScanExec convention for a filter the source evaluates itself, so no separate
+  // post-scan Filter is needed. Gluten pushes every conjunct into the native scan via
+  // PushDownFilterToScan and applies them as exact row-level filters, so the paired
+  // FilterExecTransformer is a no-op (FilterExecTransformerBase.isNoop) -- the same end state the
+  // `*` advertises. The inherited FileSourceScanLike rendering leaves `PushedFilters` unmarked,
+  // so mark it in the rendered plan string. (`metadata` is a lazy val, so it cannot be
+  // super-overridden -- post-process the rendered node string instead.)
+  override def simpleString(maxFields: Int): String =
+    DeltaScanTransformer.markPushedFilters(super.simpleString(maxFields))
 }
 
 object DeltaScanTransformer {
 
   val DELETION_VECTOR_UNSUPPORTED = "Deletion vector is not supported in native."
+
+  /**
+   * Mark every entry of the `PushedFilters: [...]` list in a rendered plan-node string with a `*`,
+   * indicating the native scan fully evaluates those filters. Returns the text unchanged when no
+   * (untruncated) `PushedFilters` list is present.
+   */
+  private[execution] def markPushedFilters(text: String): String = {
+    val marker = "PushedFilters: ["
+    val markerAt = text.indexOf(marker)
+    if (markerAt < 0) {
+      return text
+    }
+    val listStart = markerAt + marker.length - 1 // index of the opening '['
+    var depth = 0
+    var i = listStart
+    var listEnd = -1
+    while (i < text.length && listEnd < 0) {
+      text.charAt(i) match {
+        case '[' | '(' => depth += 1
+        case ']' | ')' =>
+          depth -= 1
+          if (depth == 0) {
+            listEnd = i
+          }
+        case _ =>
+      }
+      i += 1
+    }
+    if (listEnd < 0) {
+      return text // truncated/abbreviated list; leave as-is
+    }
+    val marked = starPushedFilters(text.substring(listStart, listEnd + 1))
+    text.substring(0, listStart) + marked + text.substring(listEnd + 1)
+  }
+
+  /**
+   * Prefix each top-level entry of a rendered `PushedFilters` list (`"[f1, f2, ...]"`) with `*` to
+   * mark it as fully handled by the native scan. Depth-aware: commas nested inside a single filter
+   * (e.g. `In(id, [1,2,3])`) are not treated as entry separators.
+   */
+  private[execution] def starPushedFilters(rendered: String): String = {
+    if (rendered.length < 2 || rendered.head != '[' || rendered.last != ']') {
+      return rendered
+    }
+    val inner = rendered.substring(1, rendered.length - 1)
+    if (inner.isEmpty) {
+      return rendered
+    }
+    val entries = scala.collection.mutable.ArrayBuffer.empty[String]
+    val current = new StringBuilder
+    var depth = 0
+    var i = 0
+    while (i < inner.length) {
+      val c = inner.charAt(i)
+      if (c == '[' || c == '(') {
+        depth += 1
+        current.append(c)
+        i += 1
+      } else if (c == ']' || c == ')') {
+        depth -= 1
+        current.append(c)
+        i += 1
+      } else if (c == ',' && depth == 0 && i + 1 < inner.length && inner.charAt(i + 1) == ' ') {
+        entries += current.toString
+        current.clear()
+        i += 2
+      } else {
+        current.append(c)
+        i += 1
+      }
+    }
+    entries += current.toString
+    entries.map("*" + _).mkString("[", ", ", "]")
+  }
 
   def apply(scanExec: FileSourceScanExec): DeltaScanTransformer = {
     new DeltaScanTransformer(
