@@ -23,18 +23,21 @@
 
 namespace gluten {
 
-std::unique_ptr<ColumnarBatchIterator> BoltRuntime::createJniInputIterator(const JniInputIteratorContext& context) {
-  const bool parallelEnabled = getBoolConfigValue(getConfMap(), kGlutenEnableParallel, false);
+std::unique_ptr<ColumnarBatchIterator>
+createBoltJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex) {
+  auto* boltRuntime = dynamic_cast<BoltRuntime*>(runtime);
+  GLUTEN_CHECK(boltRuntime != nullptr, "Expected BoltRuntime");
+
+  const bool parallelEnabled = getBoolConfigValue(boltRuntime->getConfMap(), kGlutenEnableParallel, false);
   LOG(INFO) << "nativeCreateKernelWithIterator parallelEnabled=" << parallelEnabled;
 
-  auto shuffleReaderIter = ShuffleReaderWrapperedIterator::tryFrom(
-      context.env, context.jColumnarBatchIterator, this, parallelEnabled, context.iteratorIndex);
+  auto shuffleReaderIter =
+      ShuffleReaderWrapperedIterator::tryFrom(env, iterator, boltRuntime, parallelEnabled, iteratorIndex);
   if (shuffleReaderIter != nullptr) {
-    LOG(INFO) << "Wrap ShuffleReaderWrapperedIterator for input iterator " << context.iteratorIndex;
+    LOG(INFO) << "Wrap ShuffleReaderWrapperedIterator for input iterator " << iteratorIndex;
     return shuffleReaderIter;
   }
-  return std::make_unique<BoltJniColumnarBatchIterator>(
-      context.env, context.jColumnarBatchIterator, this, parallelEnabled, context.iteratorIndex);
+  return std::make_unique<BoltJniColumnarBatchIterator>(env, iterator, boltRuntime, parallelEnabled, iteratorIndex);
 }
 
 BoltJniColumnarBatchIterator::BoltJniColumnarBatchIterator(
@@ -240,7 +243,7 @@ ShuffleReaderWrapperedIterator::ShuffleReaderWrapperedIterator(
 
   auto handles = resolveShuffleReaderHandles(env, jColumnarBatchItr);
 
-  streamReader_ = makeShuffleStreamReader(env, handles.streamReader);
+  streamReader_ = std::make_shared<ShuffleStreamReader>(env, handles.streamReader);
   env->DeleteLocalRef(handles.streamReader);
 
   jclass shuffleReaderIteratorWrapperClass = env->GetObjectClass(handles.wrapper);

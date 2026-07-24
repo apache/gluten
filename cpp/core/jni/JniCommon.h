@@ -22,9 +22,12 @@
 #include <execinfo.h>
 #include <jni.h>
 
+#include <functional>
+
 #include "compute/ProtobufUtils.h"
 #include "compute/Runtime.h"
 #include "memory/AllocationListener.h"
+#include "shuffle/ShuffleReader.h"
 #include "shuffle/rss/RssClient.h"
 #include "threads/ThreadInitializer.h"
 #include "utils/Compression.h"
@@ -321,12 +324,6 @@ DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kInt, jintArray, Int)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kLong, jlongArray, Long)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kFloat, jfloatArray, Float)
 DEFINE_SAFE_GET_PRIMITIVE_ARRAY_FUNCTIONS(kDouble, jdoubleArray, Double)
-
-struct JniInputIteratorContext {
-  JNIEnv* env;
-  jobject jColumnarBatchIterator;
-  int32_t iteratorIndex;
-};
 
 class JniColumnarBatchIterator : public ColumnarBatchIterator {
  public:

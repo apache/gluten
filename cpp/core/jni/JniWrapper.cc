@@ -160,14 +160,6 @@ void internalRuntimeReleaser(Runtime* runtime) {
 
 } // namespace
 
-namespace gluten {
-
-std::shared_ptr<StreamReader> makeShuffleStreamReader(JNIEnv* env, jobject jShuffleStreamReader) {
-  return std::make_shared<::ShuffleStreamReader>(env, jShuffleStreamReader);
-}
-
-} // namespace gluten
-
 #ifdef __cplusplus
 extern "C" {
 #endif
