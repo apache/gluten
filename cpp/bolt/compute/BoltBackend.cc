@@ -53,6 +53,7 @@
 #include "bolt/shuffle/sparksql/ShuffleWriterNode.h"
 #include "compute/BoltRuntime.h"
 #include "config/BoltConfig.h"
+#include "jni/BoltInputIterator.h"
 #include "jni/JniFileSystem.h"
 #include "memory/BoltGlutenMemoryManager.h"
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
@@ -131,6 +132,7 @@ void BoltBackend::init(
   MemoryManager::registerFactory(kBoltBackendKind, boltMemoryManagerFactory, boltMemoryManagerReleaser);
   ThreadManager::registerFactory(kBoltBackendKind, boltThreadManagerFactory, boltThreadManagerReleaser);
   Runtime::registerFactory(kBoltBackendKind, boltRuntimeFactory, boltRuntimeReleaser);
+  registerJniInputIteratorFactory(kBoltBackendKind, createBoltJniInputIterator);
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
     LOG(INFO) << "BoltBackend config:" << printConfig(backendConf_->rawConfigs());

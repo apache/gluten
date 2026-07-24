@@ -1154,7 +1154,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_shuffle_BoltShuffleReaderJniWrapp
   auto ctx = dynamic_cast<BoltRuntime*>(gluten::getRuntime(env, wrapper));
   auto reader = std::dynamic_pointer_cast<gluten::BoltShuffleReaderWrapper>(
       ObjectStore::retrieve<ShuffleReaderBase>(shuffleReaderHandle));
-  auto streamReader = gluten::makeShuffleStreamReader(env, jStreamReader);
+  auto streamReader = std::make_shared<gluten::ShuffleStreamReader>(env, jStreamReader);
   auto outItr = reader->readStream(streamReader);
   return ctx->saveObject(outItr);
   JNI_METHOD_END(kInvalidObjectHandle)

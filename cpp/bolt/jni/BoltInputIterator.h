@@ -21,6 +21,9 @@
 
 namespace gluten {
 
+std::unique_ptr<ColumnarBatchIterator>
+createBoltJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex);
+
 class BoltJniColumnarBatchIterator : public JniColumnarBatchIterator {
  public:
   explicit BoltJniColumnarBatchIterator(
