@@ -586,7 +586,8 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
   /** Determine whether to use sort-based shuffle based on shuffle partitioning and output. */
   override def getShuffleWriterType(
       partitioning: Partitioning,
-      output: Seq[Attribute]): ShuffleWriterType = {
+      output: Seq[Attribute],
+      executionMode: Option[StageExecutionMode] = None): ShuffleWriterType = {
     val conf = GlutenConfig.get
     // todo: remove isUseCelebornShuffleManager here
     if (conf.isUseCelebornShuffleManager) {
