@@ -407,6 +407,13 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         Seq(
           Row(2, "v2", "update_preimage", 2L),
           Row(2, "v2_updated", "update_postimage", 2L)))
+      assert(
+        collect(filteredCDF.queryExecution.executedPlan) {
+          case scan: DeltaScanTransformer =>
+            scan.dataFilters.exists(_.references.exists(_.name == "id"))
+        }.contains(true),
+        filteredCDF.queryExecution.executedPlan
+      )
 
       val boundedCDF = runAndCompare(
         s"""

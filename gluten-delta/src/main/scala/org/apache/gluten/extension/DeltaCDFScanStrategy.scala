@@ -84,7 +84,11 @@ case class DeltaCDFScanStrategy(spark: SparkSession) extends SparkStrategy {
     val cdfOutput = cdfPlan.output
     val rewrittenFilters = filters.map(rewriteExpression(_, cdfOutput))
     val rewrittenProjects = projects.map(rewriteProject(_, cdfOutput))
-    Some(projectAndFilter(cdfPlan, rewrittenProjects, rewrittenFilters))
+    val rewrittenPlan = projectAndFilter(cdfPlan, rewrittenProjects, rewrittenFilters)
+
+    // This strategy expands the CDF relation during physical planning, after Spark's normal
+    // optimizer pass. Optimize the resolved replacement so predicates can reach its file scans.
+    Some(spark.sessionState.optimizer.execute(rewrittenPlan))
   }
 
   private def projectAndFilter(
