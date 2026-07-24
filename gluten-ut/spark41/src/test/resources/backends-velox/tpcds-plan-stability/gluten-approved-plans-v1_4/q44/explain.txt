@@ -51,7 +51,7 @@ VeloxColumnarToRow (57)
 Output [4]: [ss_item_sk#1, ss_store_sk#2, ss_net_profit#3, ss_sold_date_sk#4]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_store_sk), EqualTo(ss_store_sk,4)]
+PushedFilters: [*IsNotNull(ss_store_sk), *EqualTo(ss_store_sk,4)]
 ReadSchema: struct<ss_item_sk:int,ss_store_sk:int,ss_net_profit:decimal(7,2)>
 
 (2) FilterExecTransformer
@@ -217,7 +217,7 @@ Input [4]: [item_sk#12, rnk#15, item_sk#22, rnk#24]
 Output [2]: [i_item_sk#26, i_product_name#27]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/item]
-PushedFilters: [IsNotNull(i_item_sk)]
+PushedFilters: [*IsNotNull(i_item_sk)]
 ReadSchema: struct<i_item_sk:int,i_product_name:string>
 
 (43) FilterExecTransformer
@@ -298,7 +298,7 @@ VeloxColumnarToRow (71)
 Output [4]: [ss_addr_sk#32, ss_store_sk#33, ss_net_profit#34, ss_sold_date_sk#35]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_store_sk), EqualTo(ss_store_sk,4), IsNull(ss_addr_sk)]
+PushedFilters: [*IsNotNull(ss_store_sk), *EqualTo(ss_store_sk,4), *IsNull(ss_addr_sk)]
 ReadSchema: struct<ss_addr_sk:int,ss_store_sk:int,ss_net_profit:decimal(7,2)>
 
 (59) FilterExecTransformer

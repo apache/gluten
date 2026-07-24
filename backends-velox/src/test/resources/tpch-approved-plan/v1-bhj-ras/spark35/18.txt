@@ -83,7 +83,7 @@ AdaptiveSparkPlan (88)
 Output [2]: [c_custkey#X, c_name#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(c_custkey)]
+PushedFilters: [*IsNotNull(c_custkey)]
 ReadSchema: struct<c_custkey:bigint,c_name:string>
 
 (2) FilterExecTransformer
@@ -112,7 +112,7 @@ Input [2]: [c_custkey#X, c_name#X]
 Output [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(o_custkey), IsNotNull(o_orderkey)]
+PushedFilters: [*IsNotNull(o_custkey), *IsNotNull(o_orderkey)]
 ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint,o_totalprice:decimal(12,2),o_orderdate:date>
 
 (9) FilterExecTransformer
@@ -211,7 +211,7 @@ Input [6]: [c_custkey#X, c_name#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_
 Output [2]: [l_orderkey#X, l_quantity#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(l_orderkey)]
+PushedFilters: [*IsNotNull(l_orderkey)]
 ReadSchema: struct<l_orderkey:bigint,l_quantity:decimal(12,2)>
 
 (31) FilterExecTransformer

@@ -219,6 +219,10 @@ abstract class FileSourceScanExecTransformerBase(
 
   override def simpleString(maxFields: Int): String = {
     val metadataEntries = metadata.toSeq.sorted.map {
+      case ("PushedFilters", value) =>
+        "PushedFilters: " + StringUtils.abbreviate(
+          redact(FileSourceScanExecTransformerBase.starPushedFilters(value)),
+          maxMetadataValueLength)
       case (key, value) =>
         key + ": " + StringUtils.abbreviate(redact(value), maxMetadataValueLength)
     }
@@ -229,6 +233,12 @@ abstract class FileSourceScanExecTransformerBase(
         s" $nativeFiltersString")
   }
 
+  // Formatted explain (used by the plan-stability golden files) renders `PushedFilters` from
+  // `metadata` via Spark's verboseStringWithOperatorId, which the simpleString override above does
+  // not touch. Mark it there too so both rendering paths agree.
+  override def verboseStringWithOperatorId(): String =
+    FileSourceScanExecTransformerBase.markPushedFilters(super.verboseStringWithOperatorId())
+
   // The "override" keyword is omitted to maintain compatibility with earlier Spark versions.
   def getStream: Option[SparkDataStream] = {
     stream
@@ -238,4 +248,95 @@ abstract class FileSourceScanExecTransformerBase(
 object FileSourceScanExecTransformerBase {
   private def isDynamicPruningFilter(e: Expression): Boolean =
     e.find(_.isInstanceOf[PlanExpression[_]]).isDefined
+
+  // Mark each pushed filter with a `*` in the rendered `PushedFilters` list, mirroring Spark's
+  // RowDataSourceScanExec convention for a filter the source evaluates itself (so no separate
+  // post-scan Filter is needed). Gluten pushes every conjunct into the native scan via
+  // PushDownFilterToScan and applies them as exact row-level filters, so the paired
+  // FilterExecTransformer is a no-op (FilterExecTransformerBase.isNoop) -- the same end state a `*`
+  // advertises. `metadata` is a lazy val and cannot be super-overridden, so the mark is applied to
+  // the rendered plan string.
+
+  /**
+   * Mark every entry of the `PushedFilters: [...]` list in a rendered plan-node string with a `*`.
+   * Returns the text unchanged when no (untruncated) `PushedFilters` list is present.
+   */
+  private[execution] def markPushedFilters(text: String): String =
+    rewritePushedFiltersList(text, starPushedFilters)
+
+  /**
+   * Locate the `PushedFilters: [...]` list in a rendered plan-node string and replace it with
+   * `rewrite(list)` (where `list` is the whole `"[...]"` including brackets). Returns the text
+   * unchanged when no (untruncated) `PushedFilters` list is present. Used to layer independent
+   * display rewrites (e.g. `*`-marking, Delta CDF backtick removal) over the same list.
+   */
+  private[execution] def rewritePushedFiltersList(
+      text: String,
+      rewrite: String => String): String = {
+    val marker = "PushedFilters: ["
+    val markerAt = text.indexOf(marker)
+    if (markerAt < 0) {
+      return text
+    }
+    val listStart = markerAt + marker.length - 1 // index of the opening '['
+    var depth = 0
+    var i = listStart
+    var listEnd = -1
+    while (i < text.length && listEnd < 0) {
+      text.charAt(i) match {
+        case '[' | '(' => depth += 1
+        case ']' | ')' =>
+          depth -= 1
+          if (depth == 0) {
+            listEnd = i
+          }
+        case _ =>
+      }
+      i += 1
+    }
+    if (listEnd < 0) {
+      return text // truncated/abbreviated list; leave as-is
+    }
+    val rewritten = rewrite(text.substring(listStart, listEnd + 1))
+    text.substring(0, listStart) + rewritten + text.substring(listEnd + 1)
+  }
+
+  /**
+   * Prefix each top-level entry of a rendered `PushedFilters` list (`"[f1, f2, ...]"`) with `*`.
+   * Depth-aware: commas nested inside a single filter (e.g. `In(id, [1,2,3])`) are not separators.
+   */
+  private[execution] def starPushedFilters(rendered: String): String = {
+    if (rendered.length < 2 || rendered.head != '[' || rendered.last != ']') {
+      return rendered
+    }
+    val inner = rendered.substring(1, rendered.length - 1)
+    if (inner.isEmpty) {
+      return rendered
+    }
+    val entries = scala.collection.mutable.ArrayBuffer.empty[String]
+    val current = new StringBuilder
+    var depth = 0
+    var i = 0
+    while (i < inner.length) {
+      val c = inner.charAt(i)
+      if (c == '[' || c == '(') {
+        depth += 1
+        current.append(c)
+        i += 1
+      } else if (c == ']' || c == ')') {
+        depth -= 1
+        current.append(c)
+        i += 1
+      } else if (c == ',' && depth == 0 && i + 1 < inner.length && inner.charAt(i + 1) == ' ') {
+        entries += current.toString
+        current.clear()
+        i += 2
+      } else {
+        current.append(c)
+        i += 1
+      }
+    }
+    entries += current.toString
+    entries.map("*" + _).mkString("[", ", ", "]")
+  }
 }

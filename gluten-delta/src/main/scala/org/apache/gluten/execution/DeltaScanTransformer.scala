@@ -27,7 +27,8 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference,
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NoMapping}
-import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeRemoveFileIndex}
+import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeChangeFileIndex}
+import org.apache.spark.sql.delta.files.TahoeRemoveFileIndex
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.{FilePartition, HadoopFsRelation}
 import org.apache.spark.sql.types.StructType
@@ -157,11 +158,56 @@ case class DeltaScanTransformer(
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BasicScanExecTransformer =
     copy(pushDownFilters = Some(filters))
+
+  // Vanilla Delta serves a CDF read through a single PrunedFilteredScan (DeltaCDFRelation), whose
+  // `PushedFilters` are V1 filters translated with nested-predicate pushdown DISABLED, so a column
+  // name is rendered verbatim (`IsNotNull(id with space)`). Gluten offloads the CDF read to this
+  // parquet-backed scan, where Spark translates the same filters with nested pushdown ENABLED and
+  // therefore back-quotes any name needing quoting (`IsNotNull(`id with space`)`). Delta's CDF
+  // "filters ... should be pushed down" tests assert the un-quoted form, so drop the display-only
+  // back-quoting for CDF scans to match vanilla Delta. Only CDF scans are affected; a regular Delta
+  // read is a parquet scan in vanilla Spark too and keeps the quoting. `metadata` is a lazy val and
+  // cannot be super-overridden, so the rewrite is applied to the rendered plan string (on top of
+  // the base `*`-marking).
+  override def simpleString(maxFields: Int): String =
+    stripCdfPushedFilterQuoting(super.simpleString(maxFields))
+
+  override def verboseStringWithOperatorId(): String =
+    stripCdfPushedFilterQuoting(super.verboseStringWithOperatorId())
+
+  private def stripCdfPushedFilterQuoting(rendered: String): String = {
+    if (isCdfScan) {
+      FileSourceScanExecTransformerBase.rewritePushedFiltersList(
+        rendered,
+        DeltaScanTransformer.unquotePushedFilters)
+    } else {
+      rendered
+    }
+  }
+
+  private def isCdfScan: Boolean = relation.location match {
+    case _: CdcAddFileIndex | _: TahoeRemoveFileIndex | _: TahoeChangeFileIndex => true
+    case _ => false
+  }
 }
 
 object DeltaScanTransformer {
 
   val DELETION_VECTOR_UNSUPPORTED = "Deletion vector is not supported in native."
+
+  // Matches a back-quoted identifier `...` where an embedded backtick is escaped by doubling (``).
+  private val backQuotedIdentifier = "`((?:[^`]|``)*)`".r
+
+  /**
+   * Remove the display-only back-quoting Spark's V1 filter translation adds around column names
+   * that need quoting (e.g. names with spaces), turning `` `id with space` `` into `id with space`.
+   * Operates on a rendered `PushedFilters` list (`"[...]"`) so vanilla Delta CDF's un-quoted
+   * rendering is matched. Embedded doubled backticks are un-escaped back to a single backtick.
+   */
+  private[execution] def unquotePushedFilters(renderedList: String): String =
+    backQuotedIdentifier.replaceAllIn(
+      renderedList,
+      m => java.util.regex.Matcher.quoteReplacement(m.group(1).replace("``", "`")))
 
   def apply(scanExec: FileSourceScanExec): DeltaScanTransformer = {
     new DeltaScanTransformer(

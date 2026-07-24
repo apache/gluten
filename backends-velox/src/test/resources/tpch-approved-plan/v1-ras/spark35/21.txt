@@ -123,7 +123,7 @@ AdaptiveSparkPlan (137)
 Output [3]: [s_suppkey#X, s_name#X, s_nationkey#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(s_suppkey), IsNotNull(s_nationkey)]
+PushedFilters: [*IsNotNull(s_suppkey), *IsNotNull(s_nationkey)]
 ReadSchema: struct<s_suppkey:bigint,s_name:string,s_nationkey:bigint>
 
 (2) FilterExecTransformer
@@ -160,7 +160,7 @@ Input [3]: [s_suppkey#X, s_name#X, s_nationkey#X]
 Output [4]: [l_orderkey#X, l_suppkey#X, l_commitdate#X, l_receiptdate#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(l_receiptdate), IsNotNull(l_commitdate), IsNotNull(l_suppkey), IsNotNull(l_orderkey)]
+PushedFilters: [*IsNotNull(l_receiptdate), *IsNotNull(l_commitdate), *IsNotNull(l_suppkey), *IsNotNull(l_orderkey)]
 ReadSchema: struct<l_orderkey:bigint,l_suppkey:bigint,l_commitdate:date,l_receiptdate:date>
 
 (11) FilterExecTransformer
@@ -235,7 +235,7 @@ Join condition: NOT (l_suppkey#X = l_suppkey#X)
 Output [4]: [l_orderkey#X, l_suppkey#X, l_commitdate#X, l_receiptdate#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(l_receiptdate), IsNotNull(l_commitdate)]
+PushedFilters: [*IsNotNull(l_receiptdate), *IsNotNull(l_commitdate)]
 ReadSchema: struct<l_orderkey:bigint,l_suppkey:bigint,l_commitdate:date,l_receiptdate:date>
 
 (29) FilterExecTransformer
@@ -336,7 +336,7 @@ Input [3]: [s_name#X, s_nationkey#X, l_orderkey#X]
 Output [2]: [o_orderkey#X, o_orderstatus#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(o_orderstatus), EqualTo(o_orderstatus,F), IsNotNull(o_orderkey)]
+PushedFilters: [*IsNotNull(o_orderstatus), *EqualTo(o_orderstatus,F), *IsNotNull(o_orderkey)]
 ReadSchema: struct<o_orderkey:bigint,o_orderstatus:string>
 
 (54) FilterExecTransformer
@@ -405,7 +405,7 @@ Input [2]: [s_name#X, s_nationkey#X]
 Output [2]: [n_nationkey#X, n_name#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(n_name), EqualTo(n_name,SAUDI ARABIA), IsNotNull(n_nationkey)]
+PushedFilters: [*IsNotNull(n_name), *EqualTo(n_name,SAUDI ARABIA), *IsNotNull(n_nationkey)]
 ReadSchema: struct<n_nationkey:bigint,n_name:string>
 
 (71) FilterExecTransformer

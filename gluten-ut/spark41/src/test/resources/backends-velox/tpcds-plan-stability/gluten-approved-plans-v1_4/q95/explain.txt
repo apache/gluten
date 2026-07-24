@@ -64,7 +64,7 @@ VeloxColumnarToRow (75)
 Output [7]: [ws_ship_date_sk#1, ws_ship_addr_sk#2, ws_web_site_sk#3, ws_order_number#4, ws_ext_ship_cost#5, ws_net_profit#6, ws_sold_date_sk#7]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/web_sales]
-PushedFilters: [IsNotNull(ws_ship_date_sk), IsNotNull(ws_ship_addr_sk), IsNotNull(ws_web_site_sk)]
+PushedFilters: [*IsNotNull(ws_ship_date_sk), *IsNotNull(ws_ship_addr_sk), *IsNotNull(ws_web_site_sk)]
 ReadSchema: struct<ws_ship_date_sk:int,ws_ship_addr_sk:int,ws_web_site_sk:int,ws_order_number:int,ws_ext_ship_cost:decimal(7,2),ws_net_profit:decimal(7,2)>
 
 (2) FilterExecTransformer
@@ -96,7 +96,7 @@ Input [6]: [ws_ship_date_sk#1, ws_ship_addr_sk#2, ws_web_site_sk#3, ws_order_num
 Output [3]: [ws_warehouse_sk#9, ws_order_number#10, ws_sold_date_sk#11]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/web_sales]
-PushedFilters: [IsNotNull(ws_order_number), IsNotNull(ws_warehouse_sk)]
+PushedFilters: [*IsNotNull(ws_order_number), *IsNotNull(ws_warehouse_sk)]
 ReadSchema: struct<ws_warehouse_sk:int,ws_order_number:int>
 
 (10) FilterExecTransformer
@@ -153,7 +153,7 @@ Join condition: None
 Output [2]: [wr_order_number#15, wr_returned_date_sk#16]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/web_returns]
-PushedFilters: [IsNotNull(wr_order_number)]
+PushedFilters: [*IsNotNull(wr_order_number)]
 ReadSchema: struct<wr_order_number:int>
 
 (24) FilterExecTransformer
@@ -229,7 +229,7 @@ Join condition: None
 Output [2]: [d_date_sk#22, d_date#23]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_date), GreaterThanOrEqual(d_date,1999-02-01), LessThanOrEqual(d_date,1999-04-02), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_date), *GreaterThanOrEqual(d_date,1999-02-01), *LessThanOrEqual(d_date,1999-04-02), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_date:date>
 
 (43) FilterExecTransformer
@@ -268,7 +268,7 @@ Input [7]: [ws_ship_date_sk#1, ws_ship_addr_sk#2, ws_web_site_sk#3, ws_order_num
 Output [2]: [ca_address_sk#24, ca_state#25]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
-PushedFilters: [IsNotNull(ca_state), EqualTo(ca_state,IL), IsNotNull(ca_address_sk)]
+PushedFilters: [*IsNotNull(ca_state), *EqualTo(ca_state,IL), *IsNotNull(ca_address_sk)]
 ReadSchema: struct<ca_address_sk:int,ca_state:string>
 
 (52) FilterExecTransformer
@@ -307,7 +307,7 @@ Input [6]: [ws_ship_addr_sk#2, ws_web_site_sk#3, ws_order_number#4, ws_ext_ship_
 Output [2]: [web_site_sk#26, web_company_name#27]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/web_site]
-PushedFilters: [IsNotNull(web_company_name), EqualTo(web_company_name,pri                                               ), IsNotNull(web_site_sk)]
+PushedFilters: [*IsNotNull(web_company_name), *EqualTo(web_company_name,pri                                               ), *IsNotNull(web_site_sk)]
 ReadSchema: struct<web_site_sk:int,web_company_name:string>
 
 (61) FilterExecTransformer

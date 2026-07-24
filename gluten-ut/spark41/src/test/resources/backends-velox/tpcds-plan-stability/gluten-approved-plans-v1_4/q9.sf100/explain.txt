@@ -9,7 +9,7 @@ VeloxColumnarToRow (5)
 Output [1]: [r_reason_sk#1]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/reason]
-PushedFilters: [IsNotNull(r_reason_sk), EqualTo(r_reason_sk,1)]
+PushedFilters: [*IsNotNull(r_reason_sk), *EqualTo(r_reason_sk,1)]
 ReadSchema: struct<r_reason_sk:int>
 
 (2) FilterExecTransformer
@@ -46,7 +46,7 @@ VeloxColumnarToRow (18)
 Output [4]: [ss_quantity#12, ss_ext_discount_amt#13, ss_net_paid#14, ss_sold_date_sk#15]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,1), LessThanOrEqual(ss_quantity,20)]
+PushedFilters: [*IsNotNull(ss_quantity), *GreaterThanOrEqual(ss_quantity,1), *LessThanOrEqual(ss_quantity,20)]
 ReadSchema: struct<ss_quantity:int,ss_ext_discount_amt:decimal(7,2),ss_net_paid:decimal(7,2)>
 
 (7) FilterExecTransformer
@@ -120,7 +120,7 @@ VeloxColumnarToRow (31)
 Output [4]: [ss_quantity#32, ss_ext_discount_amt#33, ss_net_paid#34, ss_sold_date_sk#35]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,21), LessThanOrEqual(ss_quantity,40)]
+PushedFilters: [*IsNotNull(ss_quantity), *GreaterThanOrEqual(ss_quantity,21), *LessThanOrEqual(ss_quantity,40)]
 ReadSchema: struct<ss_quantity:int,ss_ext_discount_amt:decimal(7,2),ss_net_paid:decimal(7,2)>
 
 (20) FilterExecTransformer
@@ -194,7 +194,7 @@ VeloxColumnarToRow (44)
 Output [4]: [ss_quantity#52, ss_ext_discount_amt#53, ss_net_paid#54, ss_sold_date_sk#55]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,41), LessThanOrEqual(ss_quantity,60)]
+PushedFilters: [*IsNotNull(ss_quantity), *GreaterThanOrEqual(ss_quantity,41), *LessThanOrEqual(ss_quantity,60)]
 ReadSchema: struct<ss_quantity:int,ss_ext_discount_amt:decimal(7,2),ss_net_paid:decimal(7,2)>
 
 (33) FilterExecTransformer
@@ -268,7 +268,7 @@ VeloxColumnarToRow (57)
 Output [4]: [ss_quantity#72, ss_ext_discount_amt#73, ss_net_paid#74, ss_sold_date_sk#75]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,61), LessThanOrEqual(ss_quantity,80)]
+PushedFilters: [*IsNotNull(ss_quantity), *GreaterThanOrEqual(ss_quantity,61), *LessThanOrEqual(ss_quantity,80)]
 ReadSchema: struct<ss_quantity:int,ss_ext_discount_amt:decimal(7,2),ss_net_paid:decimal(7,2)>
 
 (46) FilterExecTransformer
@@ -342,7 +342,7 @@ VeloxColumnarToRow (70)
 Output [4]: [ss_quantity#92, ss_ext_discount_amt#93, ss_net_paid#94, ss_sold_date_sk#95]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_quantity), GreaterThanOrEqual(ss_quantity,81), LessThanOrEqual(ss_quantity,100)]
+PushedFilters: [*IsNotNull(ss_quantity), *GreaterThanOrEqual(ss_quantity,81), *LessThanOrEqual(ss_quantity,100)]
 ReadSchema: struct<ss_quantity:int,ss_ext_discount_amt:decimal(7,2),ss_net_paid:decimal(7,2)>
 
 (59) FilterExecTransformer

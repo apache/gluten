@@ -40,7 +40,7 @@ VeloxColumnarToRow (45)
 Output [5]: [i_item_sk#1, i_brand#2, i_class#3, i_category#4, i_manufact_id#5]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/item]
-PushedFilters: [Or(And(And(In(i_category, [Books                                             ,Children                                          ,Electronics                                       ]),In(i_class, [personal                                          ,portable                                          ,reference                                         ,self-help                                         ])),In(i_brand, [exportiunivamalg #6                               ,scholaramalgamalg #7                             ,scholaramalgamalg #8                              ,scholaramalgamalg #6                              ])),And(And(In(i_category, [Men                                               ,Music                                             ,Women                                             ]),In(i_class, [accessories                                       ,classical                                         ,fragrances                                        ,pants                                             ])),In(i_brand, [amalgimporto #9                                   ,edu packscholar #9                                ,exportiimporto #9                                 ,importoamalg #9                                   ]))), IsNotNull(i_item_sk)]
+PushedFilters: [*Or(And(And(In(i_category, [Books                                             ,Children                                          ,Electronics                                       ]),In(i_class, [personal                                          ,portable                                          ,reference                                         ,self-help                                         ])),In(i_brand, [exportiunivamalg #6                               ,scholaramalgamalg #7                             ,scholaramalgamalg #8                              ,scholaramalgamalg #6                              ])),And(And(In(i_category, [Men                                               ,Music                                             ,Women                                             ]),In(i_class, [accessories                                       ,classical                                         ,fragrances                                        ,pants                                             ])),In(i_brand, [amalgimporto #9                                   ,edu packscholar #9                                ,exportiimporto #9                                 ,importoamalg #9                                   ]))), *IsNotNull(i_item_sk)]
 ReadSchema: struct<i_item_sk:int,i_brand:string,i_class:string,i_category:string,i_manufact_id:int>
 
 (2) FilterExecTransformer
@@ -70,7 +70,7 @@ Output [4]: [ss_item_sk#10, ss_store_sk#11, ss_sales_price#12, ss_sold_date_sk#1
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ss_sold_date_sk#13), (ss_sold_date_sk#13 >= 2451911), (ss_sold_date_sk#13 <= 2452275), dynamicpruningexpression(ss_sold_date_sk#13 IN dynamicpruning#14)]
-PushedFilters: [IsNotNull(ss_item_sk), IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_item_sk), *IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_item_sk:int,ss_store_sk:int,ss_sales_price:decimal(7,2)>
 
 (9) FilterExecTransformer
@@ -91,7 +91,7 @@ Input [6]: [i_item_sk#1, i_manufact_id#5, ss_item_sk#10, ss_store_sk#11, ss_sale
 Output [1]: [s_store_sk#15]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/store]
-PushedFilters: [IsNotNull(s_store_sk)]
+PushedFilters: [*IsNotNull(s_store_sk)]
 ReadSchema: struct<s_store_sk:int>
 
 (13) FilterExecTransformer
@@ -237,7 +237,7 @@ ColumnarBroadcastExchange (50)
 Output [3]: [d_date_sk#16, d_month_seq#27, d_qoy#17]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [In(d_month_seq, [1212,1213,1214,1215,1216,1217,1218,1219,1220,1221,1222,1223]), GreaterThanOrEqual(d_date_sk,2451911), LessThanOrEqual(d_date_sk,2452275), IsNotNull(d_date_sk)]
+PushedFilters: [*In(d_month_seq, [1212,1213,1214,1215,1216,1217,1218,1219,1220,1221,1222,1223]), *GreaterThanOrEqual(d_date_sk,2451911), *LessThanOrEqual(d_date_sk,2452275), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_month_seq:int,d_qoy:int>
 
 (47) FilterExecTransformer

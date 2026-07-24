@@ -42,7 +42,7 @@ VeloxColumnarToRow (48)
 Output [6]: [c_customer_id#1, c_current_cdemo_sk#2, c_current_hdemo_sk#3, c_current_addr_sk#4, c_first_name#5, c_last_name#6]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_current_addr_sk), IsNotNull(c_current_cdemo_sk), IsNotNull(c_current_hdemo_sk)]
+PushedFilters: [*IsNotNull(c_current_addr_sk), *IsNotNull(c_current_cdemo_sk), *IsNotNull(c_current_hdemo_sk)]
 ReadSchema: struct<c_customer_id:string,c_current_cdemo_sk:int,c_current_hdemo_sk:int,c_current_addr_sk:int,c_first_name:string,c_last_name:string>
 
 (2) FilterExecTransformer
@@ -53,7 +53,7 @@ Arguments: ((isnotnull(c_current_addr_sk#4) AND isnotnull(c_current_cdemo_sk#2))
 Output [2]: [ca_address_sk#7, ca_city#8]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
-PushedFilters: [IsNotNull(ca_city), EqualTo(ca_city,Edgewood), IsNotNull(ca_address_sk)]
+PushedFilters: [*IsNotNull(ca_city), *EqualTo(ca_city,Edgewood), *IsNotNull(ca_address_sk)]
 ReadSchema: struct<ca_address_sk:int,ca_city:string>
 
 (4) FilterExecTransformer
@@ -92,7 +92,7 @@ Input [7]: [c_customer_id#1, c_current_cdemo_sk#2, c_current_hdemo_sk#3, c_curre
 Output [2]: [hd_demo_sk#9, hd_income_band_sk#10]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/household_demographics]
-PushedFilters: [IsNotNull(hd_demo_sk), IsNotNull(hd_income_band_sk)]
+PushedFilters: [*IsNotNull(hd_demo_sk), *IsNotNull(hd_income_band_sk)]
 ReadSchema: struct<hd_demo_sk:int,hd_income_band_sk:int>
 
 (13) FilterExecTransformer
@@ -103,7 +103,7 @@ Arguments: (isnotnull(hd_demo_sk#9) AND isnotnull(hd_income_band_sk#10))
 Output [3]: [ib_income_band_sk#11, ib_lower_bound#12, ib_upper_bound#13]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/income_band]
-PushedFilters: [IsNotNull(ib_lower_bound), IsNotNull(ib_upper_bound), GreaterThanOrEqual(ib_lower_bound,38128), LessThanOrEqual(ib_upper_bound,88128), IsNotNull(ib_income_band_sk)]
+PushedFilters: [*IsNotNull(ib_lower_bound), *IsNotNull(ib_upper_bound), *GreaterThanOrEqual(ib_lower_bound,38128), *LessThanOrEqual(ib_upper_bound,88128), *IsNotNull(ib_income_band_sk)]
 ReadSchema: struct<ib_income_band_sk:int,ib_lower_bound:int,ib_upper_bound:int>
 
 (15) FilterExecTransformer
@@ -180,7 +180,7 @@ Input [4]: [c_customer_id#1, c_current_cdemo_sk#2, c_first_name#5, c_last_name#6
 Output [1]: [cd_demo_sk#14]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_demographics]
-PushedFilters: [IsNotNull(cd_demo_sk)]
+PushedFilters: [*IsNotNull(cd_demo_sk)]
 ReadSchema: struct<cd_demo_sk:int>
 
 (34) FilterExecTransformer
@@ -215,7 +215,7 @@ Input [4]: [c_customer_id#1, c_first_name#5, c_last_name#6, cd_demo_sk#14]
 Output [2]: [sr_cdemo_sk#15, sr_returned_date_sk#16]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_returns]
-PushedFilters: [IsNotNull(sr_cdemo_sk)]
+PushedFilters: [*IsNotNull(sr_cdemo_sk)]
 ReadSchema: struct<sr_cdemo_sk:int>
 
 (42) FilterExecTransformer

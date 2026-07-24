@@ -36,7 +36,7 @@ VeloxColumnarToRow (42)
 Output [2]: [ps_partkey#1, ps_suppkey#2]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/partsupp]
-PushedFilters: [IsNotNull(ps_partkey)]
+PushedFilters: [*IsNotNull(ps_partkey)]
 ReadSchema: struct<ps_partkey:bigint,ps_suppkey:bigint>
 
 (2) FilterExecTransformer
@@ -47,7 +47,7 @@ Arguments: isnotnull(ps_partkey#1)
 Output [2]: [s_suppkey#3, s_comment#4]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/supplier]
-PushedFilters: [IsNotNull(s_comment)]
+PushedFilters: [*IsNotNull(s_comment)]
 ReadSchema: struct<s_suppkey:bigint,s_comment:string>
 
 (4) FilterExecTransformer
@@ -82,7 +82,7 @@ Join condition: None
 Output [4]: [p_partkey#5, p_brand#6, p_type#7, p_size#8]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/part]
-PushedFilters: [IsNotNull(p_brand), IsNotNull(p_type), Not(EqualTo(p_brand,Brand#9)), Not(StringStartsWith(p_type,MEDIUM POLISHED)), In(p_size, [14,19,23,3,36,45,49,9]), IsNotNull(p_partkey)]
+PushedFilters: [*IsNotNull(p_brand), *IsNotNull(p_type), *Not(EqualTo(p_brand,Brand#9)), *Not(StringStartsWith(p_type,MEDIUM POLISHED)), *In(p_size, [14,19,23,3,36,45,49,9]), *IsNotNull(p_partkey)]
 ReadSchema: struct<p_partkey:bigint,p_brand:string,p_type:string,p_size:int>
 
 (12) FilterExecTransformer

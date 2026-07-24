@@ -51,7 +51,7 @@ Output [9]: [ss_customer_sk#1, ss_hdemo_sk#2, ss_addr_sk#3, ss_store_sk#4, ss_ti
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ss_sold_date_sk#9), dynamicpruningexpression(ss_sold_date_sk#9 IN dynamicpruning#10)]
-PushedFilters: [IsNotNull(ss_store_sk), IsNotNull(ss_hdemo_sk), IsNotNull(ss_addr_sk), IsNotNull(ss_customer_sk)]
+PushedFilters: [*IsNotNull(ss_store_sk), *IsNotNull(ss_hdemo_sk), *IsNotNull(ss_addr_sk), *IsNotNull(ss_customer_sk)]
 ReadSchema: struct<ss_customer_sk:int,ss_hdemo_sk:int,ss_addr_sk:int,ss_store_sk:int,ss_ticket_number:int,ss_ext_sales_price:decimal(7,2),ss_ext_list_price:decimal(7,2),ss_ext_tax:decimal(7,2)>
 
 (2) FilterExecTransformer
@@ -81,7 +81,7 @@ Input [10]: [ss_customer_sk#1, ss_hdemo_sk#2, ss_addr_sk#3, ss_store_sk#4, ss_ti
 Output [2]: [s_store_sk#12, s_city#13]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/store]
-PushedFilters: [In(s_city, [Fairview,Midway]), IsNotNull(s_store_sk)]
+PushedFilters: [*In(s_city, [Fairview,Midway]), *IsNotNull(s_store_sk)]
 ReadSchema: struct<s_store_sk:int,s_city:string>
 
 (9) FilterExecTransformer
@@ -120,7 +120,7 @@ Input [9]: [ss_customer_sk#1, ss_hdemo_sk#2, ss_addr_sk#3, ss_store_sk#4, ss_tic
 Output [3]: [hd_demo_sk#14, hd_dep_count#15, hd_vehicle_count#16]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/household_demographics]
-PushedFilters: [Or(EqualTo(hd_dep_count,4),EqualTo(hd_vehicle_count,3)), IsNotNull(hd_demo_sk)]
+PushedFilters: [*Or(EqualTo(hd_dep_count,4),EqualTo(hd_vehicle_count,3)), *IsNotNull(hd_demo_sk)]
 ReadSchema: struct<hd_demo_sk:int,hd_dep_count:int,hd_vehicle_count:int>
 
 (18) FilterExecTransformer
@@ -159,7 +159,7 @@ Input [8]: [ss_customer_sk#1, ss_hdemo_sk#2, ss_addr_sk#3, ss_ticket_number#5, s
 Output [2]: [ca_address_sk#17, ca_city#18]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
-PushedFilters: [IsNotNull(ca_address_sk), IsNotNull(ca_city)]
+PushedFilters: [*IsNotNull(ca_address_sk), *IsNotNull(ca_city)]
 ReadSchema: struct<ca_address_sk:int,ca_city:string>
 
 (27) FilterExecTransformer
@@ -233,7 +233,7 @@ Input [7]: [ss_ticket_number#5, ss_customer_sk#1, ss_addr_sk#3, ca_city#18, sum(
 Output [4]: [c_customer_sk#36, c_current_addr_sk#37, c_first_name#38, c_last_name#39]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_customer_sk), IsNotNull(c_current_addr_sk)]
+PushedFilters: [*IsNotNull(c_customer_sk), *IsNotNull(c_current_addr_sk)]
 ReadSchema: struct<c_customer_sk:int,c_current_addr_sk:int,c_first_name:string,c_last_name:string>
 
 (44) FilterExecTransformer
@@ -307,7 +307,7 @@ ColumnarBroadcastExchange (63)
 Output [3]: [d_date_sk#11, d_year#42, d_dom#43]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_dom), GreaterThanOrEqual(d_dom,1), LessThanOrEqual(d_dom,2), In(d_year, [1999,2000,2001]), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_dom), *GreaterThanOrEqual(d_dom,1), *LessThanOrEqual(d_dom,2), *In(d_year, [1999,2000,2001]), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_year:int,d_dom:int>
 
 (60) FilterExecTransformer

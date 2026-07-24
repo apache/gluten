@@ -67,7 +67,7 @@ AdaptiveSparkPlan (71)
 Output [2]: [ps_partkey#X, ps_suppkey#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(ps_partkey)]
+PushedFilters: [*IsNotNull(ps_partkey)]
 ReadSchema: struct<ps_partkey:bigint,ps_suppkey:bigint>
 
 (2) FilterExecTransformer
@@ -104,7 +104,7 @@ Input [2]: [ps_partkey#X, ps_suppkey#X]
 Output [4]: [p_partkey#X, p_brand#X, p_type#X, p_size#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(p_brand), IsNotNull(p_type), Not(EqualTo(p_brand,Brand#X)), Not(StringStartsWith(p_type,MEDIUM POLISHED)), In(p_size, [14,19,23,3,36,45,49,9]), IsNotNull(p_partkey)]
+PushedFilters: [*IsNotNull(p_brand), *IsNotNull(p_type), *Not(EqualTo(p_brand,Brand#X)), *Not(StringStartsWith(p_type,MEDIUM POLISHED)), *In(p_size, [14,19,23,3,36,45,49,9]), *IsNotNull(p_partkey)]
 ReadSchema: struct<p_partkey:bigint,p_brand:string,p_type:string,p_size:int>
 
 (11) FilterExecTransformer
