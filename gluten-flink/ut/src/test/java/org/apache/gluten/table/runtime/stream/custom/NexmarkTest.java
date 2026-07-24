@@ -223,6 +223,8 @@ public class NexmarkTest {
     }
     tEnv.executeSql("drop table if exists nexmark_q10_orc");
     for (String view : VIEWS) {
+      String dropTemporaryViewSql = String.format("drop temporary view if exists %s", view);
+      tEnv.executeSql(dropTemporaryViewSql);
       String sql = String.format("drop view if exists %s", view);
       tEnv.executeSql(sql);
     }
