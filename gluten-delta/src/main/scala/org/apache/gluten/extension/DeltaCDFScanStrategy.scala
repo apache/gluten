@@ -91,22 +91,31 @@ case class DeltaCDFScanStrategy(spark: SparkSession, offloadEnabled: () => Boole
     val cdfOutput = cdfPlan.output
     val rewrittenFilters = filters.map(rewriteExpression(_, cdfOutput))
     val rewrittenProjects = projects.map(rewriteProject(_, cdfOutput))
-    val rewrittenPlan = projectAndFilter(cdfPlan, rewrittenProjects, rewrittenFilters)
 
     // This strategy expands the CDF relation during physical planning, after Spark's normal
-    // optimizer pass. Optimize the resolved replacement so predicates can reach its file scans.
-    Some(spark.sessionState.optimizer.execute(rewrittenPlan))
+    // optimizer pass. Optimize the resolved child so predicates can reach its file scans, but keep
+    // the output-restoring projection outside the optimizer: parent operators were planned against
+    // the original relation's expression IDs, and Spark 3.3 can remove these aliases as redundant.
+    val optimizedChild =
+      spark.sessionState.optimizer.execute(filter(cdfPlan, rewrittenFilters))
+    Some(Project(rewrittenProjects, optimizedChild))
   }
 
   private def projectAndFilter(
       child: LogicalPlan,
       projects: Seq[NamedExpression],
       filters: Seq[Expression]): LogicalPlan = {
+    Project(projects, filter(child, filters))
+  }
+
+  private def filter(
+      child: LogicalPlan,
+      filters: Seq[Expression]): LogicalPlan = {
     val filtered = filters.reduceOption(org.apache.spark.sql.catalyst.expressions.And) match {
       case Some(condition) => Filter(condition, child)
       case None => child
     }
-    Project(projects, filtered)
+    filtered
   }
 
   private def rewriteProject(
