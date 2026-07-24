@@ -63,7 +63,7 @@ object DeltaDeletionVectorDmlUtils {
             if nextHasBitmapAggregation &&
               nextHasRowIndexReference &&
               nextHasFilePathReference &&
-              isDeletionVectorDmlRowIndexScanCandidate(scan) =>
+              hasDeletionVectorDmlRowIndexScanShape(scan) =>
           scan.setTagValue(DmlRowIndexScanTag, true)
         case child =>
           visit(
@@ -105,14 +105,19 @@ object DeltaDeletionVectorDmlUtils {
 
   def isDeletionVectorDmlRowIndexScan(scan: FileSourceScanExec): Boolean = {
     scan.getTagValue(DmlRowIndexScanTag).contains(true) &&
-    isDeletionVectorDmlRowIndexScanCandidate(scan)
+    hasDeletionVectorDmlRowIndexScanShape(scan)
   }
 
   def isDeletionVectorDmlRowIndexScan(plan: SparkPlan): Boolean = {
     plan.getTagValue(DmlRowIndexScanTag).contains(true)
   }
 
-  private def isDeletionVectorDmlRowIndexScanCandidate(scan: FileSourceScanExec): Boolean = {
+  /**
+   * Returns whether a scan has Delta's DML target file-path/row-index shape, independently of the
+   * planning tag. TreeNodeTags are not guaranteed to survive plan copies made during AQE, so final
+   * executed-plan inspection must use the structured shape rather than the tag.
+   */
+  def hasDeletionVectorDmlRowIndexScanShape(scan: FileSourceScanExec): Boolean = {
     if (!isDeltaScan(scan)) {
       return false
     }

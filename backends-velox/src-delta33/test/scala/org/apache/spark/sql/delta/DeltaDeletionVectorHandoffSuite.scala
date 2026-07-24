@@ -44,11 +44,11 @@ class DeltaDeletionVectorHandoffSuite
   import testImplicits._
 
   private def containsDmlFallbackScan(plan: SparkPlan): Boolean = {
-    // FallbackTags are removed before AQE captures the executed plan. Identify the final fallback
-    // from the persistent DML row-index marker and the vanilla Spark scan type instead.
+    // FallbackTags and TreeNodeTags do not reliably survive AQE plan copies. Identify the final
+    // fallback from the structured DML target shape and the vanilla Spark scan type instead.
     collectWithSubqueries(plan) {
       case scan: FileSourceScanExec
-          if DeltaDeletionVectorDmlUtils.isDeletionVectorDmlRowIndexScan(scan) =>
+          if DeltaDeletionVectorDmlUtils.hasDeletionVectorDmlRowIndexScanShape(scan) =>
         scan
     }.nonEmpty
   }

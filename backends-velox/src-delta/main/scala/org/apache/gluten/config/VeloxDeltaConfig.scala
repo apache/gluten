@@ -22,8 +22,6 @@ class VeloxDeltaConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   import VeloxDeltaConfig._
 
   def enableNativeWrite: Boolean = getConf(ENABLE_NATIVE_WRITE)
-
-  def enableNativeDmlRowIndexScan: Boolean = getConf(ENABLE_NATIVE_DML_ROW_INDEX_SCAN)
 }
 
 object VeloxDeltaConfig extends ConfigRegistry {
