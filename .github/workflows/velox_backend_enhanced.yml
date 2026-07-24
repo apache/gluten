@@ -57,10 +57,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Get Ccache from Apache Stash
+        id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-enhanced-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from actions/cache (fallback on Stash miss)
+        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-enhanced-centos7-release-default-${{github.sha}}
+          restore-keys: |
+            ccache-enhanced-centos7-release-default
       - name: Build Gluten native libraries
         run: |
           docker pull apache/gluten:vcpkg-centos-7-gcc13
