@@ -25,16 +25,23 @@ import org.apache.spark.sql.delta.commands.cdc.CDCReader
 import org.apache.spark.sql.execution.{SparkPlan, SparkStrategy}
 import org.apache.spark.sql.execution.datasources.LogicalRelation
 
-case class DeltaCDFScanStrategy(spark: SparkSession) extends SparkStrategy {
-  override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-    case PhysicalOperation(projects, filters, relation: LogicalRelation) =>
-      relation.relation match {
-        case cdfRelation: CDCReader.DeltaCDFRelation
-            if !changesContainDeletionVectors(cdfRelation) =>
-          planCDFRelation(relation, cdfRelation, projects, filters).map(planLater).toSeq
-        case _ => Nil
-      }
-    case _ => Nil
+case class DeltaCDFScanStrategy(spark: SparkSession, offloadEnabled: () => Boolean)
+  extends SparkStrategy {
+  override def apply(plan: LogicalPlan): Seq[SparkPlan] = {
+    if (!offloadEnabled()) {
+      return Nil
+    }
+
+    plan match {
+      case PhysicalOperation(projects, filters, relation: LogicalRelation) =>
+        relation.relation match {
+          case cdfRelation: CDCReader.DeltaCDFRelation
+              if !changesContainDeletionVectors(cdfRelation) =>
+            planCDFRelation(relation, cdfRelation, projects, filters).map(planLater).toSeq
+          case _ => Nil
+        }
+      case _ => Nil
+    }
   }
 
   // Delta CDF over a commit that uses deletion vectors needs Delta's DV-aware, row-level
