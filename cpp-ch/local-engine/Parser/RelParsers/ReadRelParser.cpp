@@ -131,7 +131,7 @@ bool ReadRelParser::isReadRelFromMergeTree(const substrait::ReadRel & rel)
         return false;
 
     google::protobuf::StringValue optimization;
-    optimization.ParseFromString(rel.advanced_extension().optimization().value());
+    optimization.ParseFromString(firstOptimizationOrDefault(rel.advanced_extension()).value());
     ReadBufferFromString in(optimization.value());
     if (!checkString("isMergeTree=", in))
         return false;
@@ -148,7 +148,7 @@ bool ReadRelParser::isReadRelFromRange(const substrait::ReadRel & rel)
         return false;
 
     google::protobuf::StringValue optimization;
-    optimization.ParseFromString(rel.advanced_extension().optimization().value());
+    optimization.ParseFromString(firstOptimizationOrDefault(rel.advanced_extension()).value());
     ReadBufferFromString in(optimization.value());
     if (!checkString("isRange=", in))
         return false;

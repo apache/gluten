@@ -870,8 +870,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
   GLUTEN_CHECK(writeRel.named_table().has_advanced_extension(), "Advanced extension not found in WriteRel");
   const auto& ext = writeRel.named_table().advanced_extension();
-  GLUTEN_CHECK(ext.has_optimization(), "Extension optimization not found in WriteRel");
-  const auto& opt = ext.optimization();
+  GLUTEN_CHECK(ext.optimization_size() > 0, "Extension optimization not found in WriteRel");
+  const auto& opt = ext.optimization(0);
   gluten::ConfigMap confMap;
   opt.UnpackTo(&confMap);
   std::unordered_map<std::string, std::string> writeConfs;

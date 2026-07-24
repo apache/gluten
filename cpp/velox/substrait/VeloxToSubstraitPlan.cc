@@ -282,7 +282,7 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
         substrait::extensions::AdvancedExtension ae{};
         google::protobuf::StringValue msg;
         msg.set_value("allowFlush=1");
-        ae.mutable_optimization()->PackFrom(msg);
+        ae.add_optimization()->PackFrom(msg);
         aggregateRel->mutable_advanced_extension()->MergeFrom(ae);
         break;
       }
