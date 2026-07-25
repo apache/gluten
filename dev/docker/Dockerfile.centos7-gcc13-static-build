@@ -45,8 +45,8 @@ RUN set -ex; \
     mkdir -p ${VCPKG_PATH}; \
     echo "vcpkg installs the native dependencies and Maven resolves Java dependencies."; \
     cd /opt/gluten; \
-    bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --enable_s3=ON --enable_gcs=ON \
-                                       --enable_hdfs=ON --enable_abfs=ON  true; \
+    bash -c 'source ./dev/vcpkg/env.sh --build_tests=ON --enable_s3=ON --enable_gcs=ON \
+                                       --enable_hdfs=ON --enable_abfs=ON'; \
     ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
     dnf clean all; \
     rm -rf /opt/gluten; \

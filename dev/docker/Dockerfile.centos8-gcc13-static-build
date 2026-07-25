@@ -43,8 +43,8 @@ RUN set -ex; \
         export VCPKG_FORCE_SYSTEM_BINARIES=1; \
     fi; \
     cd /opt/gluten; \
-    bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --enable_s3=ON --enable_gcs=ON \
-                                    --enable_hdfs=ON --enable_abfs=ON  true; \
+    bash -c 'source ./dev/vcpkg/env.sh --build_tests=ON --enable_s3=ON --enable_gcs=ON \
+                                    --enable_hdfs=ON --enable_abfs=ON'; \
     ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
     rm -rf /opt/gluten; \
     rm -rf /root/.cache/ccache;
