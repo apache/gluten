@@ -443,8 +443,10 @@ endif()
 target_link_libraries(velox PUBLIC Folly::folly)
 
 # Link thrift libraries - check vcpkg first, then fall back to system libraries
-# Determine vcpkg triplet directory based on architecture
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
+# Use the active vcpkg triplet when available, then fall back to architecture.
+if(VCPKG_TARGET_TRIPLET)
+  set(VCPKG_TRIPLET_DIR "${VCPKG_TARGET_TRIPLET}")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
   set(VCPKG_TRIPLET_DIR "x64-linux-avx")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(arm64)")
   set(VCPKG_TRIPLET_DIR "arm64-linux-neon")
