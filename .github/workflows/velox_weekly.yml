@@ -295,7 +295,7 @@ jobs:
           mkdir -p $CCACHE_DIR
           cd $GITHUB_WORKSPACE/
           ./dev/vcpkg/setup-build-depends.sh
-          ./dev/package-vcpkg.sh --build_arrow=ON --spark_version=3.5
+          ./dev/package-vcpkg.sh --spark_version=3.5
           cd $GITHUB_WORKSPACE/tools/gluten-it
           $GITHUB_WORKSPACE/build/mvn -ntp clean install -Pspark-3.5
       - name: Clean Ccache tmp before save

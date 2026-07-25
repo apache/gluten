@@ -153,11 +153,7 @@ function apply_provided_velox_patch {
 }
 
 function apply_compilation_fixes {
-  local SUDO_CMD=""
-  if [ "$OS" == "Linux" ]; then
-    SUDO_CMD="sudo"
-  fi
-  $SUDO_CMD cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
+  cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
 
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
 }

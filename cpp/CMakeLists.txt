@@ -68,6 +68,7 @@ endif()
 
 set(GLUTEN_PREFIX_INCLUDE_DIRS)
 if(CMAKE_INSTALL_PREFIX
+   AND NOT ENABLE_GLUTEN_VCPKG
    AND NOT CMAKE_INSTALL_PREFIX STREQUAL "/usr/local"
    AND IS_DIRECTORY "${CMAKE_INSTALL_PREFIX}/include")
   list(APPEND GLUTEN_PREFIX_INCLUDE_DIRS "${CMAKE_INSTALL_PREFIX}/include")
@@ -191,6 +192,11 @@ find_package(Threads REQUIRED)
 find_package(JNI REQUIRED)
 
 find_package(glog REQUIRED)
+if(ENABLE_GLUTEN_VCPKG
+   AND TARGET glog::glog
+   AND NOT TARGET google::glog)
+  add_library(google::glog ALIAS glog::glog)
+endif()
 
 if(BUILD_TESTS)
   set(GLUTEN_GTEST_MIN_VERSION "1.13.0")

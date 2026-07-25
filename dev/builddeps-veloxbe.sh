@@ -45,6 +45,7 @@ VELOX_BRANCH=""
 VELOX_HOME="$GLUTEN_DIR/ep/build-velox/build/velox_ep"
 VELOX_PARAMETER=""
 BUILD_ARROW=ON
+BUILD_ARROW_EXPLICIT=OFF
 SPARK_VERSION=ALL
 
 # set default number of threads as cpu cores minus 2
@@ -141,6 +142,7 @@ do
         ;;
         --build_arrow=*)
         BUILD_ARROW="${arg#*=}"
+        BUILD_ARROW_EXPLICIT=ON
         shift # Remove argument name from processing
         ;;
         --num_threads=*)
@@ -157,6 +159,18 @@ do
         ;;
     esac
 done
+
+function vcpkg_is_active {
+    [ "$ENABLE_VCPKG" = "ON" ] || [ -n "${GLUTEN_VCPKG_ENABLED:-}" ]
+}
+
+if vcpkg_is_active; then
+    if [ "$BUILD_ARROW_EXPLICIT" = "ON" ] && [ "$BUILD_ARROW" = "ON" ]; then
+        echo "ERROR: --build_arrow=ON is deprecated with --enable_vcpkg=ON; Arrow is managed by Gluten vcpkg." >&2
+        exit 1
+    fi
+    BUILD_ARROW=OFF
+fi
 
 if [[ "$(uname)" == "Darwin" ]]; then
     export INSTALL_PREFIX=${INSTALL_PREFIX:-${VELOX_HOME}/deps-install}
@@ -223,6 +237,10 @@ concat_velox_param
 export VELOX_HOME
 
 function build_arrow {
+  if vcpkg_is_active; then
+    echo "ERROR: build_arrow is deprecated with --enable_vcpkg=ON; Arrow is managed by Gluten vcpkg." >&2
+    return 1
+  fi
   local GLUTEN_BUILD_TYPE="$BUILD_TYPE"
   if [ ! -d "$VELOX_HOME" ]; then
     get_velox
@@ -273,8 +291,10 @@ function build_gluten_cpp {
   )
 
   if [ -n "${INSTALL_PREFIX:-}" ]; then
-    GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX")
     GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX")
+    if [ -z "${GLUTEN_VCPKG_ENABLED:-}" ]; then
+      GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX")
+    fi
   fi
   if [ $OS == 'Darwin' ]; then
     if [[ -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then

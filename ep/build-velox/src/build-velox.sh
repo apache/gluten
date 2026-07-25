@@ -114,7 +114,7 @@ function compile {
     -Wno-error=uninitialized -Wno-unknown-warning-option -Wno-deprecated-declarations'
   if [[ "$(uname)" == "Darwin" ]]; then
     CXX_FLAGS="$CXX_FLAGS -Wno-inconsistent-missing-override -Wno-macro-redefined"
-    if [[ -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
+    if [[ -z "${GLUTEN_VCPKG_ENABLED:-}" && -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
       # Add the dependency prefix as a system include: this finds deps that only
       # publish loose headers (e.g. xsimd) and demotes warnings in vendored
       # dependency headers (abseil's __is_trivially_relocatable, arrow's vendored
@@ -128,7 +128,10 @@ function compile {
       -DVELOX_MONO_LIBRARY=ON -DVELOX_BUILD_RUNNER=OFF -DVELOX_SIMDJSON_SKIPUTF8VALIDATION=ON \
       -DVELOX_ENABLE_GEO=OFF"
   if [ -n "${INSTALL_PREFIX:-}" ]; then
-    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_PREFIX_PATH=${INSTALL_PREFIX} -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX}"
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX}"
+    if [ -z "${GLUTEN_VCPKG_ENABLED:-}" ]; then
+      COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_PREFIX_PATH=${INSTALL_PREFIX}"
+    fi
   fi
   if [[ "$(uname)" == "Darwin" && -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PREFIX_PATH=/usr/local"
@@ -183,12 +186,20 @@ function compile {
   fi
   echo "NUM_THREADS_OPTS: $NUM_THREADS_OPTS"
 
-  export simdjson_SOURCE=AUTO
-  export Arrow_SOURCE=AUTO
+  local -a VELOX_MAKE_COMMAND=(make)
+  if [ -n "${GLUTEN_VCPKG_ENABLED:-}" ]; then
+    export VELOX_DEPENDENCY_SOURCE=SYSTEM
+    export simdjson_SOURCE=SYSTEM
+    export Arrow_SOURCE=SYSTEM
+    VELOX_MAKE_COMMAND=(env GLUTEN_VCPKG_PREFER_CONFIG=OFF make)
+  else
+    export simdjson_SOURCE=AUTO
+    export Arrow_SOURCE=AUTO
+  fi
   if [ $ARCH == 'x86_64' ]; then
-    make $COMPILE_TYPE $NUM_THREADS_OPTS EXTRA_CMAKE_FLAGS="${COMPILE_OPTION}"
+    "${VELOX_MAKE_COMMAND[@]}" $COMPILE_TYPE $NUM_THREADS_OPTS EXTRA_CMAKE_FLAGS="${COMPILE_OPTION}"
   elif [[ "$ARCH" == 'arm64' || "$ARCH" == 'aarch64' || "$ARCH" == "ppc64le" ]]; then
-    CPU_TARGET=$ARCH make $COMPILE_TYPE $NUM_THREADS_OPTS EXTRA_CMAKE_FLAGS="${COMPILE_OPTION}"
+    CPU_TARGET=$ARCH "${VELOX_MAKE_COMMAND[@]}" $COMPILE_TYPE $NUM_THREADS_OPTS EXTRA_CMAKE_FLAGS="${COMPILE_OPTION}"
   else
     echo "Unsupported arch: $ARCH"
     exit 1

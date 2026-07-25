@@ -43,10 +43,10 @@ RUN set -ex; \
     yum remove gcc -y && yum clean all; \
     yes | cp -rf /usr/share/aclocal/* /usr/local/share/aclocal/; \
     mkdir -p ${VCPKG_PATH}; \
-    echo "Build arrow, then install the native libs to system paths and jar package to .m2/ directory."; \
+    echo "vcpkg installs the native dependencies and Maven resolves Java dependencies."; \
     cd /opt/gluten; \
     bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --enable_s3=ON --enable_gcs=ON \
-                                       --enable_hdfs=ON --enable_abfs=ON  build_arrow; \
+                                       --enable_hdfs=ON --enable_abfs=ON  true; \
     ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
     dnf clean all; \
     rm -rf /opt/gluten; \

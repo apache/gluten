@@ -201,8 +201,10 @@ if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
   endif()
 endif()
 
-find_arrow_lib(${ARROW_LIB_NAME})
-find_arrow_lib(${ARROW_BUNDLED_DEPS})
+if(NOT ENABLE_GLUTEN_VCPKG)
+  find_arrow_lib(${ARROW_LIB_NAME})
+  find_arrow_lib(${ARROW_BUNDLED_DEPS})
+endif()
 
 if(ENABLE_QAT)
   include(BuildQATzip)
@@ -251,8 +253,10 @@ if(BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-target_link_libraries(gluten PUBLIC Arrow::arrow
-                                    Arrow::arrow_bundled_dependencies)
+target_link_libraries(gluten PUBLIC Arrow::arrow)
+if(NOT ENABLE_GLUTEN_VCPKG)
+  target_link_libraries(gluten PUBLIC Arrow::arrow_bundled_dependencies)
+endif()
 target_link_libraries(gluten PRIVATE google::glog)
 
 install(TARGETS gluten DESTINATION ${CMAKE_INSTALL_LIBDIR})
