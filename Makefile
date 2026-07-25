@@ -156,19 +156,19 @@ arrow:
 
 # build gluten jar
 jar:
-	java -version && mvn package -Pbackends-bolt -Pspark-3.3 -Pceleborn -DskipTests -Denforcer.skip=true -Pjava-8 -Ppaimon &&\
+	java -version && build/mvn -ntp package -Pbackends-bolt -Pspark-3.3 -Pceleborn -DskipTests -Denforcer.skip=true -Pjava-8 -Ppaimon &&\
 	mkdir -p output && \
 	rm -rf output/gluten-spark*.jar
 	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.2_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
 
 jar-skip-check:
-	java -version && mvn package -Pbackends-bolt -Pspark-3.2 -Pceleborn -DskipTests -Denforcer.skip=true -Pjava-8 -Ppaimon -Dcheckstyle.skip=true -Dspotless.check.skip=true &&\
+	java -version && build/mvn -ntp package -Pbackends-bolt -Pspark-3.2 -Pceleborn -DskipTests -Denforcer.skip=true -Pjava-8 -Ppaimon -Dcheckstyle.skip=true -Dspotless.check.skip=true &&\
 	mkdir -p output && \
 	rm -rf output/gluten-spark*.jar
 	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.2_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
 
 spark32-las:
-	java -version && mvn package -Pbackends-bolt -Pspark-3.2-las -Pceleborn -DskipTests -Denforcer.skip=true -Pjava-8 -Ppaimon &&\
+	java -version && build/mvn -ntp package -Pbackends-bolt -Pspark-3.2-las -Pceleborn -DskipTests -Denforcer.skip=true -Pjava-8 -Ppaimon &&\
 	mkdir -p output && \
 	rm -rf output/gluten-spark*.jar
 	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.2_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
@@ -191,28 +191,28 @@ fast-zip:
 	zip -j output/gluten-spark3.2_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.zip output/gluten-spark3.2_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
 
 jar_spark33:
-	java -version && mvn -T32 clean package -Pbackends-bolt -Pspark-3.3 -Pceleborn -Piceberg -DskipTests -Denforcer.skip=true -Ppaimon && \
+	java -version && build/mvn -ntp -T32 clean package -Pbackends-bolt -Pspark-3.3 -Pceleborn -Piceberg -DskipTests -Denforcer.skip=true -Ppaimon && \
 	mkdir -p output && \
 	rm -rf output/gluten-spark*.jar
 	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.3_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
 
 jar_spark34:
-	java -version && mvn clean package -Pbackends-bolt -Pspark-3.4 -Pceleborn -Piceberg -DskipTests -Denforcer.skip=true -Ppaimon && \
+	java -version && build/mvn -ntp clean package -Pbackends-bolt -Pspark-3.4 -Pceleborn -Piceberg -DskipTests -Denforcer.skip=true -Ppaimon && \
 	mkdir -p output && \
 	rm -rf output/gluten-spark*.jar
 	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.4_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
 
 jar_spark35:
-	java -version && mvn -T32 package -Pfast-build -Pbackends-bolt -Pspark-3.5 -Phadoop-3.2 -Pceleborn -Piceberg -DskipTests -Denforcer.skip=true && \
+	java -version && build/mvn -ntp -T32 package -Pfast-build -Pbackends-bolt -Pspark-3.5 -Phadoop-3.2 -Pceleborn -Piceberg -DskipTests -Denforcer.skip=true && \
 	mkdir -p output && \
 	rm -rf output/gluten-spark*.jar
 	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.5_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
 
 test:
-	SPARK_TESTING=true mvn -Pbackends-bolt -Pspark-3.2 -Pceleborn -Ppaimon package -Denforcer.skip=true
+	SPARK_TESTING=true build/mvn -ntp -Pbackends-bolt -Pspark-3.2 -Pceleborn -Ppaimon package -Denforcer.skip=true
 
 test_spark35:
-	SPARK_TESTING=true mvn -Pbackends-bolt -Pspark-3.5 -Ppaimon -Phadoop-3.2 -Pceleborn -Piceberg package -Denforcer.skip=true -DfailIfNoTests=false -Dexec.skip -Dmaven.test.failure.ignore=true
+	SPARK_TESTING=true build/mvn -ntp -Pbackends-bolt -Pspark-3.5 -Phadoop-3.2 -Pceleborn -Piceberg package -Denforcer.skip=true -DfailIfNoTests=false -Dexec.skip -Dmaven.test.failure.ignore=true
 
 cpp-test-release: release-with-tests
 	cd $(BUILD_DIR)/Release && ctest --timeout 7200 -j $(NUM_THREADS) --output-on-failure -V
@@ -222,5 +222,5 @@ cpp-test-debug: debug-with-tests
 
 clean :
 	$(MAKE) clean_cpp
-	mvn clean -Pbackends-bolt -Pspark-3.2 -Pceleborn -Ppaimon -DskipTests -Denforcer.skip=true && \
+	build/mvn -ntp clean -Pbackends-bolt -Pspark-3.2 -Pceleborn -Ppaimon -DskipTests -Denforcer.skip=true && \
 	rm -rf ${ROOT_DIR}/output/gluten-*.jar
