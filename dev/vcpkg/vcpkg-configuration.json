@@ -6,7 +6,7 @@
     {
       "kind": "git",
       "repository": "https://github.com/Microsoft/vcpkg",
-      "baseline": "943c5ef1c8f6b5e6ced092b242c8299caae2ff01",
+      "baseline": "bcf3d00d2116056fda0ce47615f6074ffecb7524",
       "packages": [ "boost", "boost-*"]
     },
     {
