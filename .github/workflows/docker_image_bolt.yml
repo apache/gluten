@@ -1,0 +1,57 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Build Bolt Docker Image
+
+on:
+  push:
+    branches:
+      - add_bolt_backend_new
+      - bolt_ci
+    paths:
+      - '.github/workflows/docker_image_bolt.yml'
+      - '.github/workflows/util/install-spark-resources.sh'
+      - 'dev/docker/Dockerfile.ubuntu22-bolt'
+  schedule:
+    - cron: '0 15 * * 4'
+  workflow_dispatch:
+
+env:
+  DOCKERHUB_REPO: taiyangli/gluten
+
+jobs:
+  build-bolt-ubuntu22:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dev/docker/Dockerfile.ubuntu22-bolt
+          push: true
+          tags: ${{ env.DOCKERHUB_REPO }}:ubuntu22-bolt

@@ -99,7 +99,7 @@ ENV PATH "$JAVA_HOME/bin:$PATH"
 
 # Install maven
 ARG MAVEN_DIR=/opt/maven/apache-maven-${MAVEN_VERSION}
-ARG MAVEN_URL=https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz
+ARG MAVEN_URL=https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz
 RUN mkdir -p ${MAVEN_DIR} && \
     wget -qO- ${MAVEN_URL} | tar -zxf - -C  ${MAVEN_DIR} --strip-components=1 && \
     ln -sf ${MAVEN_DIR}/bin/mvn /usr/bin/mvn
