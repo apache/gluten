@@ -1,6 +1,5 @@
-<img src="docs/image/gluten-logo.svg" alt="Gluten" width="200">
+<img src="docs/image/gluten-logo.svg" alt="Gluten" width="260">
 
-# Apache Gluten
 
 **A Middle Layer for Offloading JVM-based SQL Engines' Execution to Native Engines**
 
