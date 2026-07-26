@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package gluten;
+
+option java_package = "org.apache.gluten.proto";
+option java_multiple_files = true;
+
+enum IcebergNativeWriteMode {
+  ICEBERG_NATIVE_WRITE_MODE_DATA = 0;
+  ICEBERG_NATIVE_WRITE_MODE_DELETION_VECTOR = 1;
+  ICEBERG_NATIVE_WRITE_MODE_MERGE = 2;
+}
+
+message IcebergExistingDeletionVector {
+  string referenced_data_file = 1;
+  string puffin_path = 2;
+  int64 content_offset = 3;
+  int64 content_length = 4;
+  int64 record_count = 5;
+  int64 file_size_in_bytes = 6;
+}
+
+message IcebergNativeWriteInfo {
+  IcebergNativeWriteMode write_mode = 1;
+  repeated int32 data_column_indices = 2;
+  optional int32 operation_column_index = 3;
+  optional int32 file_path_column_index = 4;
+  optional int32 row_position_column_index = 5;
+  repeated IcebergExistingDeletionVector existing_deletion_vectors = 6;
+}

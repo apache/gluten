@@ -150,6 +150,7 @@ message ReadRel {
       message ArrowReadOptions {}
       message OrcReadOptions {}
       message DwrfReadOptions {}
+      message PuffinReadOptions {}
       message TextReadOptions {
         string field_delimiter = 1;
         uint64 max_block_size = 2;
@@ -185,10 +186,15 @@ message ReadRel {
           oneof file_format {
             ParquetReadOptions parquet = 5;
             OrcReadOptions orc = 6;
+            PuffinReadOptions puffin = 10;
           }
           repeated int32 equalityFieldIds = 7;
           Map lowerBounds = 8;
           Map upperBounds = 9;
+          optional int64 contentOffset = 11;
+          optional int64 contentSizeInBytes = 12;
+          optional string referencedDataFile = 13;
+          optional int64 dataSequenceNumber = 14;
         }
         oneof file_format {
           ParquetReadOptions parquet = 1;

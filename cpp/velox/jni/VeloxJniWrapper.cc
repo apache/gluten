@@ -859,7 +859,7 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_cudf_VeloxCudfPlanValidatorJni
 }
 #endif
 
-JNIEXPORT jlong JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_init( // NOLINT
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_initWithWriteInfo( // NOLINT
     JNIEnv* env,
     jobject wrapper,
     jlong cSchema,
@@ -870,7 +870,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_
     jlong taskId,
     jstring operationId,
     jbyteArray partition,
-    jbyteArray fieldBytes) {
+    jbyteArray fieldBytes,
+    jbyteArray writeInfoBytes) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
   auto runtime = dynamic_cast<VeloxRuntime*>(ctx);
@@ -885,6 +886,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_
   auto safeArrayField = gluten::getByteArrayElementsSafe(env, fieldBytes);
   gluten::IcebergNestedField protoField;
   gluten::parseProtobuf(safeArrayField.elems(), safeArrayField.length(), &protoField);
+  auto safeArrayWriteInfo = gluten::getByteArrayElementsSafe(env, writeInfoBytes);
+  gluten::IcebergNativeWriteInfo protoWriteInfo;
+  gluten::parseProtobuf(safeArrayWriteInfo.elems(), safeArrayWriteInfo.length(), &protoWriteInfo);
   return ctx->saveObject(runtime->createIcebergWriter(
       rowType,
       format,
@@ -895,7 +899,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_
       jStringToCString(env, operationId),
       spec,
       protoField,
-      sparkConf));
+      sparkConf,
+      gluten::parseIcebergNativeWriteInfo(protoWriteInfo)));
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
@@ -918,14 +923,36 @@ JNIEXPORT jobjectArray JNICALL Java_org_apache_gluten_execution_IcebergWriteJniW
   JNI_METHOD_START
   auto writer = ObjectStore::retrieve<IcebergWriter>(writerHandle);
   auto commitMessages = writer->commit();
-  jobjectArray ret =
-      env->NewObjectArray(commitMessages.size(), env->FindClass("java/lang/String"), env->NewStringUTF(""));
+  auto stringClass = env->FindClass("java/lang/String");
+  jobjectArray ret = env->NewObjectArray(commitMessages.size(), stringClass, nullptr);
+  env->DeleteLocalRef(stringClass);
   for (auto i = 0; i < commitMessages.size(); i++) {
-    env->SetObjectArrayElement(ret, i, env->NewStringUTF(commitMessages[i].data()));
+    auto message = env->NewStringUTF(commitMessages[i].c_str());
+    env->SetObjectArrayElement(ret, i, message);
+    env->DeleteLocalRef(message);
   }
   return ret;
 
   JNI_METHOD_END(nullptr)
+}
+
+JNIEXPORT void JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_abort( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong writerHandle) {
+  JNI_METHOD_START
+  auto writer = ObjectStore::retrieve<IcebergWriter>(writerHandle);
+  writer->abort();
+  JNI_METHOD_END()
+}
+
+JNIEXPORT void JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_close( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong writerHandle) {
+  JNI_METHOD_START
+  ObjectStore::release(writerHandle);
+  JNI_METHOD_END()
 }
 
 JNIEXPORT jobject JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrapper_metrics( // NOLINT

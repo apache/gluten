@@ -1,0 +1,32 @@
+--- a/velox/connectors/hive/iceberg/DeletionVectorReader.cpp
++++ b/velox/connectors/hive/iceberg/DeletionVectorReader.cpp
+@@ -21 +20,0 @@
+-#include <folly/hash/Checksum.h>
+@@ -22,0 +22 @@
++#include <zlib.h>
+@@ -73,3 +73,6 @@
+-  const uint32_t computedCrc = folly::crc32(
+-      reinterpret_cast<const uint8_t*>(blob.data() + kLengthSize),
+-      magicAndVectorLength);
++  uLong crc = crc32(0L, Z_NULL, 0);
++  crc = crc32(
++      crc,
++      reinterpret_cast<const Bytef*>(blob.data() + kLengthSize),
++      static_cast<uInt>(magicAndVectorLength));
++  const auto computedCrc = static_cast<uint32_t>(crc);
+--- a/velox/connectors/hive/iceberg/DeletionVectorWriter.cpp
++++ b/velox/connectors/hive/iceberg/DeletionVectorWriter.cpp
+@@ -23 +22,0 @@
+-#include <folly/hash/Checksum.h>
+@@ -25,0 +25 @@
++#include <zlib.h>
+@@ -84,3 +84,6 @@
+-  const uint32_t crc = folly::crc32(
+-      reinterpret_cast<const uint8_t*>(magicAndVector.data()),
+-      magicAndVector.size());
++  uLong crcState = crc32(0L, Z_NULL, 0);
++  crcState = crc32(
++      crcState,
++      reinterpret_cast<const Bytef*>(magicAndVector.data()),
++      static_cast<uInt>(magicAndVector.size()));
++  const auto crc = static_cast<uint32_t>(crcState);

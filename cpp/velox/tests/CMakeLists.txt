@@ -127,6 +127,7 @@ add_velox_test(
   Substrait2VeloxPlanConversionTest.cc
   Substrait2VeloxPlanValidatorTest.cc
   Substrait2VeloxValuesNodeConversionTest.cc
+  iceberg/IcebergPlanConverterTest.cc
   SubstraitExtensionCollectorTest.cc
   SubstraitVeloxExprConverterTest.cc
   VeloxSubstraitRoundTripTest.cc

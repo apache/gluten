@@ -157,6 +157,7 @@ function apply_compilation_fixes {
   if [ "$OS" == "Linux" ]; then
     SUDO_CMD="sudo"
   fi
+  git -C "$VELOX_HOME" apply "$CURRENT_DIR/fix_iceberg_dv_crc.patch"
   $SUDO_CMD cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
 
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/

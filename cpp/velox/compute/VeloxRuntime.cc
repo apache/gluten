@@ -541,7 +541,8 @@ std::shared_ptr<IcebergWriter> VeloxRuntime::createIcebergWriter(
     const std::string& operationId,
     std::shared_ptr<const facebook::velox::connector::hive::iceberg::IcebergPartitionSpec> spec,
     const gluten::IcebergNestedField& protoField,
-    const std::unordered_map<std::string, std::string>& sparkConfs) {
+    const std::unordered_map<std::string, std::string>& sparkConfs,
+    IcebergNativeWriteOptions writeOptions) {
   auto veloxPool = memoryManager()->getLeafMemoryPool();
   auto connectorPool = memoryManager()->getAggregateMemoryPool();
   return std::make_shared<IcebergWriter>(
@@ -556,7 +557,8 @@ std::shared_ptr<IcebergWriter> VeloxRuntime::createIcebergWriter(
       protoField,
       sparkConfs,
       veloxPool,
-      connectorPool);
+      connectorPool,
+      std::move(writeOptions));
 }
 
 std::shared_ptr<ShuffleWriter> VeloxRuntime::createShuffleWriter(
