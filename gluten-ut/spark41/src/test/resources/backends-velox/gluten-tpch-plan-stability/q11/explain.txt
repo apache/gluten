@@ -32,7 +32,7 @@ VeloxColumnarToRow (36)
 Output [4]: [ps_partkey#1, ps_suppkey#2, ps_availqty#3, ps_supplycost#4]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/partsupp]
-PushedFilters: [IsNotNull(ps_suppkey)]
+PushedFilters: [*IsNotNull(ps_suppkey)]
 ReadSchema: struct<ps_partkey:bigint,ps_suppkey:bigint,ps_availqty:int,ps_supplycost:decimal(10,0)>
 
 (2) FilterExecTransformer
@@ -43,7 +43,7 @@ Arguments: isnotnull(ps_suppkey#2)
 Output [2]: [s_suppkey#5, s_nationkey#6]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/supplier]
-PushedFilters: [IsNotNull(s_suppkey), IsNotNull(s_nationkey)]
+PushedFilters: [*IsNotNull(s_suppkey), *IsNotNull(s_nationkey)]
 ReadSchema: struct<s_suppkey:bigint,s_nationkey:bigint>
 
 (4) FilterExecTransformer
@@ -78,7 +78,7 @@ Input [6]: [ps_partkey#1, ps_suppkey#2, ps_availqty#3, ps_supplycost#4, s_suppke
 Output [2]: [n_nationkey#7, n_name#8]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/nation]
-PushedFilters: [IsNotNull(n_name), EqualTo(n_name,GERMANY), IsNotNull(n_nationkey)]
+PushedFilters: [*IsNotNull(n_name), *EqualTo(n_name,GERMANY), *IsNotNull(n_nationkey)]
 ReadSchema: struct<n_nationkey:bigint,n_name:string>
 
 (12) FilterExecTransformer
@@ -206,7 +206,7 @@ VeloxColumnarToRow (58)
 Output [3]: [ps_suppkey#18, ps_availqty#19, ps_supplycost#20]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/partsupp]
-PushedFilters: [IsNotNull(ps_suppkey)]
+PushedFilters: [*IsNotNull(ps_suppkey)]
 ReadSchema: struct<ps_suppkey:bigint,ps_availqty:int,ps_supplycost:decimal(10,0)>
 
 (38) FilterExecTransformer

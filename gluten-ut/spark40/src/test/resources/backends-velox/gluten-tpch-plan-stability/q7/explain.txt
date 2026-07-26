@@ -46,7 +46,7 @@ VeloxColumnarToRow (55)
 Output [2]: [s_suppkey#1, s_nationkey#2]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/supplier]
-PushedFilters: [IsNotNull(s_suppkey), IsNotNull(s_nationkey)]
+PushedFilters: [*IsNotNull(s_suppkey), *IsNotNull(s_nationkey)]
 ReadSchema: struct<s_suppkey:bigint,s_nationkey:bigint>
 
 (2) FilterExecTransformer
@@ -57,7 +57,7 @@ Arguments: (isnotnull(s_suppkey#1) AND isnotnull(s_nationkey#2))
 Output [5]: [l_orderkey#3, l_suppkey#4, l_extendedprice#5, l_discount#6, l_shipdate#7]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/lineitem]
-PushedFilters: [IsNotNull(l_shipdate), GreaterThanOrEqual(l_shipdate,1995-01-01), LessThanOrEqual(l_shipdate,1996-12-31), IsNotNull(l_suppkey), IsNotNull(l_orderkey)]
+PushedFilters: [*IsNotNull(l_shipdate), *GreaterThanOrEqual(l_shipdate,1995-01-01), *LessThanOrEqual(l_shipdate,1996-12-31), *IsNotNull(l_suppkey), *IsNotNull(l_orderkey)]
 ReadSchema: struct<l_orderkey:bigint,l_suppkey:bigint,l_extendedprice:decimal(10,0),l_discount:decimal(10,0),l_shipdate:date>
 
 (4) FilterExecTransformer
@@ -92,7 +92,7 @@ Input [7]: [s_suppkey#1, s_nationkey#2, l_orderkey#3, l_suppkey#4, l_extendedpri
 Output [2]: [o_orderkey#8, o_custkey#9]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/orders]
-PushedFilters: [IsNotNull(o_orderkey), IsNotNull(o_custkey)]
+PushedFilters: [*IsNotNull(o_orderkey), *IsNotNull(o_custkey)]
 ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint>
 
 (12) FilterExecTransformer
@@ -127,7 +127,7 @@ Input [7]: [s_nationkey#2, l_orderkey#3, l_extendedprice#5, l_discount#6, l_ship
 Output [2]: [c_custkey#10, c_nationkey#11]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_custkey), IsNotNull(c_nationkey)]
+PushedFilters: [*IsNotNull(c_custkey), *IsNotNull(c_nationkey)]
 ReadSchema: struct<c_custkey:bigint,c_nationkey:bigint>
 
 (20) FilterExecTransformer
@@ -162,7 +162,7 @@ Input [7]: [s_nationkey#2, l_extendedprice#5, l_discount#6, l_shipdate#7, o_cust
 Output [2]: [n_nationkey#12, n_name#13]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/nation]
-PushedFilters: [IsNotNull(n_nationkey), Or(EqualTo(n_name,FRANCE),EqualTo(n_name,GERMANY))]
+PushedFilters: [*IsNotNull(n_nationkey), *Or(EqualTo(n_name,FRANCE),EqualTo(n_name,GERMANY))]
 ReadSchema: struct<n_nationkey:bigint,n_name:string>
 
 (28) FilterExecTransformer

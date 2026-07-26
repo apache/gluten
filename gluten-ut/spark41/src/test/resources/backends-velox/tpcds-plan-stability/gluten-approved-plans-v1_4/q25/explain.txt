@@ -53,7 +53,7 @@ Output [6]: [ss_item_sk#1, ss_customer_sk#2, ss_store_sk#3, ss_ticket_number#4, 
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ss_sold_date_sk#6), dynamicpruningexpression(ss_sold_date_sk#6 IN dynamicpruning#7)]
-PushedFilters: [IsNotNull(ss_customer_sk), IsNotNull(ss_item_sk), IsNotNull(ss_ticket_number), IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_customer_sk), *IsNotNull(ss_item_sk), *IsNotNull(ss_ticket_number), *IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_item_sk:int,ss_customer_sk:int,ss_store_sk:int,ss_ticket_number:int,ss_net_profit:decimal(7,2)>
 
 (2) FilterExecTransformer
@@ -65,7 +65,7 @@ Output [5]: [sr_item_sk#8, sr_customer_sk#9, sr_ticket_number#10, sr_net_loss#11
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(sr_returned_date_sk#12), dynamicpruningexpression(sr_returned_date_sk#12 IN dynamicpruning#13)]
-PushedFilters: [IsNotNull(sr_customer_sk), IsNotNull(sr_item_sk), IsNotNull(sr_ticket_number)]
+PushedFilters: [*IsNotNull(sr_customer_sk), *IsNotNull(sr_item_sk), *IsNotNull(sr_ticket_number)]
 ReadSchema: struct<sr_item_sk:int,sr_customer_sk:int,sr_ticket_number:int,sr_net_loss:decimal(7,2)>
 
 (4) FilterExecTransformer
@@ -101,7 +101,7 @@ Output [4]: [cs_bill_customer_sk#14, cs_item_sk#15, cs_net_profit#16, cs_sold_da
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(cs_sold_date_sk#17), dynamicpruningexpression(cs_sold_date_sk#17 IN dynamicpruning#13)]
-PushedFilters: [IsNotNull(cs_bill_customer_sk), IsNotNull(cs_item_sk)]
+PushedFilters: [*IsNotNull(cs_bill_customer_sk), *IsNotNull(cs_item_sk)]
 ReadSchema: struct<cs_bill_customer_sk:int,cs_item_sk:int,cs_net_profit:decimal(7,2)>
 
 (12) FilterExecTransformer
@@ -193,7 +193,7 @@ Input [7]: [ss_item_sk#1, ss_store_sk#3, ss_net_profit#5, sr_net_loss#11, cs_net
 Output [3]: [s_store_sk#21, s_store_id#22, s_store_name#23]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/store]
-PushedFilters: [IsNotNull(s_store_sk)]
+PushedFilters: [*IsNotNull(s_store_sk)]
 ReadSchema: struct<s_store_sk:int,s_store_id:string,s_store_name:string>
 
 (35) FilterExecTransformer
@@ -228,7 +228,7 @@ Input [8]: [ss_item_sk#1, ss_store_sk#3, ss_net_profit#5, sr_net_loss#11, cs_net
 Output [3]: [i_item_sk#24, i_item_id#25, i_item_desc#26]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/item]
-PushedFilters: [IsNotNull(i_item_sk)]
+PushedFilters: [*IsNotNull(i_item_sk)]
 ReadSchema: struct<i_item_sk:int,i_item_id:string,i_item_desc:string>
 
 (43) FilterExecTransformer
@@ -322,7 +322,7 @@ ColumnarBroadcastExchange (66)
 Output [3]: [d_date_sk#18, d_year#43, d_moy#44]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_moy), IsNotNull(d_year), EqualTo(d_moy,4), EqualTo(d_year,2001), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_moy), *IsNotNull(d_year), *EqualTo(d_moy,4), *EqualTo(d_year,2001), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_year:int,d_moy:int>
 
 (63) FilterExecTransformer
@@ -352,7 +352,7 @@ ColumnarBroadcastExchange (71)
 Output [3]: [d_date_sk#19, d_year#45, d_moy#46]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_moy), IsNotNull(d_year), GreaterThanOrEqual(d_moy,4), LessThanOrEqual(d_moy,10), EqualTo(d_year,2001), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_moy), *IsNotNull(d_year), *GreaterThanOrEqual(d_moy,4), *LessThanOrEqual(d_moy,10), *EqualTo(d_year,2001), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_year:int,d_moy:int>
 
 (68) FilterExecTransformer

@@ -36,7 +36,7 @@ VeloxColumnarToRow (40)
 Output [3]: [l_partkey#1, l_quantity#2, l_extendedprice#3]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/lineitem]
-PushedFilters: [IsNotNull(l_partkey), IsNotNull(l_quantity)]
+PushedFilters: [*IsNotNull(l_partkey), *IsNotNull(l_quantity)]
 ReadSchema: struct<l_partkey:bigint,l_quantity:decimal(10,0),l_extendedprice:decimal(10,0)>
 
 (2) FilterExecTransformer
@@ -47,7 +47,7 @@ Arguments: (isnotnull(l_partkey#1) AND isnotnull(l_quantity#2))
 Output [3]: [p_partkey#4, p_brand#5, p_container#6]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/part]
-PushedFilters: [IsNotNull(p_brand), IsNotNull(p_container), EqualTo(p_brand,Brand#7), EqualTo(p_container,MED BOX), IsNotNull(p_partkey)]
+PushedFilters: [*IsNotNull(p_brand), *IsNotNull(p_container), *EqualTo(p_brand,Brand#7), *EqualTo(p_container,MED BOX), *IsNotNull(p_partkey)]
 ReadSchema: struct<p_partkey:bigint,p_brand:string,p_container:string>
 
 (4) FilterExecTransformer
@@ -86,7 +86,7 @@ Input [4]: [l_partkey#1, l_quantity#2, l_extendedprice#3, p_partkey#4]
 Output [2]: [l_partkey#8, l_quantity#9]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/lineitem]
-PushedFilters: [IsNotNull(l_partkey)]
+PushedFilters: [*IsNotNull(l_partkey)]
 ReadSchema: struct<l_partkey:bigint,l_quantity:decimal(10,0)>
 
 (13) FilterExecTransformer

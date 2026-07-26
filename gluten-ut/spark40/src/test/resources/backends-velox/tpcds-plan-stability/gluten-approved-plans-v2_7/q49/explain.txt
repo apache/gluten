@@ -97,7 +97,7 @@ Output [6]: [ws_item_sk#1, ws_order_number#2, ws_quantity#3, ws_net_paid#4, ws_n
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ws_sold_date_sk#6), dynamicpruningexpression(ws_sold_date_sk#6 IN dynamicpruning#7)]
-PushedFilters: [IsNotNull(ws_net_profit), IsNotNull(ws_net_paid), IsNotNull(ws_quantity), GreaterThan(ws_net_profit,1.00), GreaterThan(ws_net_paid,0.00), GreaterThan(ws_quantity,0), IsNotNull(ws_order_number), IsNotNull(ws_item_sk)]
+PushedFilters: [*IsNotNull(ws_net_profit), *IsNotNull(ws_net_paid), *IsNotNull(ws_quantity), *GreaterThan(ws_net_profit,1.00), *GreaterThan(ws_net_paid,0.00), *GreaterThan(ws_quantity,0), *IsNotNull(ws_order_number), *IsNotNull(ws_item_sk)]
 ReadSchema: struct<ws_item_sk:int,ws_order_number:int,ws_quantity:int,ws_net_paid:decimal(7,2),ws_net_profit:decimal(7,2)>
 
 (2) FilterExecTransformer
@@ -126,7 +126,7 @@ Input [5]: [ws_item_sk#1, ws_order_number#2, ws_quantity#3, ws_net_paid#4, ws_so
 Output [5]: [wr_item_sk#8, wr_order_number#9, wr_return_quantity#10, wr_return_amt#11, wr_returned_date_sk#12]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/web_returns]
-PushedFilters: [IsNotNull(wr_return_amt), GreaterThan(wr_return_amt,10000.00), IsNotNull(wr_order_number), IsNotNull(wr_item_sk)]
+PushedFilters: [*IsNotNull(wr_return_amt), *GreaterThan(wr_return_amt,10000.00), *IsNotNull(wr_order_number), *IsNotNull(wr_item_sk)]
 ReadSchema: struct<wr_item_sk:int,wr_order_number:int,wr_return_quantity:int,wr_return_amt:decimal(7,2)>
 
 (9) FilterExecTransformer
@@ -238,7 +238,7 @@ Output [6]: [cs_item_sk#41, cs_order_number#42, cs_quantity#43, cs_net_paid#44, 
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(cs_sold_date_sk#46), dynamicpruningexpression(cs_sold_date_sk#46 IN dynamicpruning#7)]
-PushedFilters: [IsNotNull(cs_net_profit), IsNotNull(cs_net_paid), IsNotNull(cs_quantity), GreaterThan(cs_net_profit,1.00), GreaterThan(cs_net_paid,0.00), GreaterThan(cs_quantity,0), IsNotNull(cs_order_number), IsNotNull(cs_item_sk)]
+PushedFilters: [*IsNotNull(cs_net_profit), *IsNotNull(cs_net_paid), *IsNotNull(cs_quantity), *GreaterThan(cs_net_profit,1.00), *GreaterThan(cs_net_paid,0.00), *GreaterThan(cs_quantity,0), *IsNotNull(cs_order_number), *IsNotNull(cs_item_sk)]
 ReadSchema: struct<cs_item_sk:int,cs_order_number:int,cs_quantity:int,cs_net_paid:decimal(7,2),cs_net_profit:decimal(7,2)>
 
 (35) FilterExecTransformer
@@ -267,7 +267,7 @@ Input [5]: [cs_item_sk#41, cs_order_number#42, cs_quantity#43, cs_net_paid#44, c
 Output [5]: [cr_item_sk#47, cr_order_number#48, cr_return_quantity#49, cr_return_amount#50, cr_returned_date_sk#51]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/catalog_returns]
-PushedFilters: [IsNotNull(cr_return_amount), GreaterThan(cr_return_amount,10000.00), IsNotNull(cr_order_number), IsNotNull(cr_item_sk)]
+PushedFilters: [*IsNotNull(cr_return_amount), *GreaterThan(cr_return_amount,10000.00), *IsNotNull(cr_order_number), *IsNotNull(cr_item_sk)]
 ReadSchema: struct<cr_item_sk:int,cr_order_number:int,cr_return_quantity:int,cr_return_amount:decimal(7,2)>
 
 (42) FilterExecTransformer
@@ -379,7 +379,7 @@ Output [6]: [ss_item_sk#80, ss_ticket_number#81, ss_quantity#82, ss_net_paid#83,
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ss_sold_date_sk#85), dynamicpruningexpression(ss_sold_date_sk#85 IN dynamicpruning#7)]
-PushedFilters: [IsNotNull(ss_net_profit), IsNotNull(ss_net_paid), IsNotNull(ss_quantity), GreaterThan(ss_net_profit,1.00), GreaterThan(ss_net_paid,0.00), GreaterThan(ss_quantity,0), IsNotNull(ss_ticket_number), IsNotNull(ss_item_sk)]
+PushedFilters: [*IsNotNull(ss_net_profit), *IsNotNull(ss_net_paid), *IsNotNull(ss_quantity), *GreaterThan(ss_net_profit,1.00), *GreaterThan(ss_net_paid,0.00), *GreaterThan(ss_quantity,0), *IsNotNull(ss_ticket_number), *IsNotNull(ss_item_sk)]
 ReadSchema: struct<ss_item_sk:int,ss_ticket_number:int,ss_quantity:int,ss_net_paid:decimal(7,2),ss_net_profit:decimal(7,2)>
 
 (68) FilterExecTransformer
@@ -408,7 +408,7 @@ Input [5]: [ss_item_sk#80, ss_ticket_number#81, ss_quantity#82, ss_net_paid#83, 
 Output [5]: [sr_item_sk#86, sr_ticket_number#87, sr_return_quantity#88, sr_return_amt#89, sr_returned_date_sk#90]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_returns]
-PushedFilters: [IsNotNull(sr_return_amt), GreaterThan(sr_return_amt,10000.00), IsNotNull(sr_ticket_number), IsNotNull(sr_item_sk)]
+PushedFilters: [*IsNotNull(sr_return_amt), *GreaterThan(sr_return_amt,10000.00), *IsNotNull(sr_ticket_number), *IsNotNull(sr_item_sk)]
 ReadSchema: struct<sr_item_sk:int,sr_ticket_number:int,sr_return_quantity:int,sr_return_amt:decimal(7,2)>
 
 (75) FilterExecTransformer
@@ -583,7 +583,7 @@ ColumnarBroadcastExchange (118)
 Output [3]: [d_date_sk#13, d_year#120, d_moy#121]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), IsNotNull(d_moy), EqualTo(d_year,2001), EqualTo(d_moy,12), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_year), *IsNotNull(d_moy), *EqualTo(d_year,2001), *EqualTo(d_moy,12), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_year:int,d_moy:int>
 
 (115) FilterExecTransformer

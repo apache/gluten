@@ -62,7 +62,7 @@ VeloxColumnarToRow (74)
 Output [4]: [ws_sold_time_sk#1, ws_ship_hdemo_sk#2, ws_web_page_sk#3, ws_sold_date_sk#4]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/web_sales]
-PushedFilters: [IsNotNull(ws_ship_hdemo_sk), IsNotNull(ws_sold_time_sk), IsNotNull(ws_web_page_sk)]
+PushedFilters: [*IsNotNull(ws_ship_hdemo_sk), *IsNotNull(ws_sold_time_sk), *IsNotNull(ws_web_page_sk)]
 ReadSchema: struct<ws_sold_time_sk:int,ws_ship_hdemo_sk:int,ws_web_page_sk:int>
 
 (2) FilterExecTransformer
@@ -77,7 +77,7 @@ Input [4]: [ws_sold_time_sk#1, ws_ship_hdemo_sk#2, ws_web_page_sk#3, ws_sold_dat
 Output [2]: [hd_demo_sk#5, hd_dep_count#6]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/household_demographics]
-PushedFilters: [IsNotNull(hd_dep_count), EqualTo(hd_dep_count,6), IsNotNull(hd_demo_sk)]
+PushedFilters: [*IsNotNull(hd_dep_count), *EqualTo(hd_dep_count,6), *IsNotNull(hd_demo_sk)]
 ReadSchema: struct<hd_demo_sk:int,hd_dep_count:int>
 
 (5) FilterExecTransformer
@@ -116,7 +116,7 @@ Input [4]: [ws_sold_time_sk#1, ws_ship_hdemo_sk#2, ws_web_page_sk#3, hd_demo_sk#
 Output [2]: [t_time_sk#7, t_hour#8]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_hour), GreaterThanOrEqual(t_hour,8), LessThanOrEqual(t_hour,9), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_hour), *GreaterThanOrEqual(t_hour,8), *LessThanOrEqual(t_hour,9), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_hour:int>
 
 (14) FilterExecTransformer
@@ -155,7 +155,7 @@ Input [3]: [ws_sold_time_sk#1, ws_web_page_sk#3, t_time_sk#7]
 Output [2]: [wp_web_page_sk#9, wp_char_count#10]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/web_page]
-PushedFilters: [IsNotNull(wp_char_count), GreaterThanOrEqual(wp_char_count,5000), LessThanOrEqual(wp_char_count,5200), IsNotNull(wp_web_page_sk)]
+PushedFilters: [*IsNotNull(wp_char_count), *GreaterThanOrEqual(wp_char_count,5000), *LessThanOrEqual(wp_char_count,5200), *IsNotNull(wp_web_page_sk)]
 ReadSchema: struct<wp_web_page_sk:int,wp_char_count:int>
 
 (23) FilterExecTransformer
@@ -225,7 +225,7 @@ Results [1]: [count(1)#13 AS amc#14]
 Output [4]: [ws_sold_time_sk#15, ws_ship_hdemo_sk#16, ws_web_page_sk#17, ws_sold_date_sk#18]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/web_sales]
-PushedFilters: [IsNotNull(ws_ship_hdemo_sk), IsNotNull(ws_sold_time_sk), IsNotNull(ws_web_page_sk)]
+PushedFilters: [*IsNotNull(ws_ship_hdemo_sk), *IsNotNull(ws_sold_time_sk), *IsNotNull(ws_web_page_sk)]
 ReadSchema: struct<ws_sold_time_sk:int,ws_ship_hdemo_sk:int,ws_web_page_sk:int>
 
 (39) FilterExecTransformer
@@ -259,7 +259,7 @@ Input [4]: [ws_sold_time_sk#15, ws_ship_hdemo_sk#16, ws_web_page_sk#17, hd_demo_
 Output [2]: [t_time_sk#20, t_hour#21]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_hour), GreaterThanOrEqual(t_hour,19), LessThanOrEqual(t_hour,20), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_hour), *GreaterThanOrEqual(t_hour,19), *LessThanOrEqual(t_hour,20), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_hour:int>
 
 (47) FilterExecTransformer

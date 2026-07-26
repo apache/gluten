@@ -105,7 +105,7 @@ Input [2]: [sold_date_sk#3, sales_price#4]
 Output [3]: [d_date_sk#9, d_week_seq#10, d_day_name#11]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_date_sk), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_date_sk), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_date_sk:int,d_week_seq:int,d_day_name:string>
 
 (11) FilterExecTransformer
@@ -179,7 +179,7 @@ Input [8]: [d_week_seq#10, sum(UnscaledValue(CASE WHEN (d_day_name#11 = Sunday  
 Output [2]: [d_week_seq#49, d_year#50]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,2001), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,2001), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_week_seq:int,d_year:int>
 
 (28) FilterExecTransformer
@@ -257,7 +257,7 @@ Input [2]: [sold_date_sk#61, sales_price#62]
 Output [3]: [d_date_sk#67, d_week_seq#68, d_day_name#69]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_date_sk), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_date_sk), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_date_sk:int,d_week_seq:int,d_day_name:string>
 
 (46) FilterExecTransformer
@@ -331,7 +331,7 @@ Input [8]: [d_week_seq#68, sum(UnscaledValue(CASE WHEN (d_day_name#69 = Sunday  
 Output [2]: [d_week_seq#100, d_year#101]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,2002), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,2002), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_week_seq:int,d_year:int>
 
 (63) FilterExecTransformer
@@ -436,7 +436,7 @@ VeloxColumnarToRow (96)
 Output [2]: [d_week_seq#49, d_year#50]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,2001), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,2001), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_week_seq:int,d_year:int>
 
 (86) FilterExecTransformer
@@ -513,7 +513,7 @@ VeloxColumnarToRow (108)
 Output [2]: [d_week_seq#100, d_year#101]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,2002), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,2002), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_week_seq:int,d_year:int>
 
 (98) FilterExecTransformer

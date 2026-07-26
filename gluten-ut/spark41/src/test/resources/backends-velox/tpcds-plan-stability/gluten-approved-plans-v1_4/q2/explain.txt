@@ -90,7 +90,7 @@ Input [2]: [sold_date_sk#3, sales_price#4]
 Output [3]: [d_date_sk#9, d_week_seq#10, d_day_name#11]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_date_sk), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_date_sk), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_date_sk:int,d_week_seq:int,d_day_name:string>
 
 (11) FilterExecTransformer
@@ -164,7 +164,7 @@ Input [8]: [d_week_seq#10, sum(UnscaledValue(CASE WHEN (d_day_name#11 = Sunday  
 Output [2]: [d_week_seq#48, d_year#49]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,2001), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,2001), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_week_seq:int,d_year:int>
 
 (28) FilterExecTransformer
@@ -223,7 +223,7 @@ Input [8]: [d_week_seq#58, sum(UnscaledValue(CASE WHEN (d_day_name#66 = Sunday  
 Output [2]: [d_week_seq#75, d_year#76]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,2002), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,2002), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_week_seq:int,d_year:int>
 
 (42) FilterExecTransformer

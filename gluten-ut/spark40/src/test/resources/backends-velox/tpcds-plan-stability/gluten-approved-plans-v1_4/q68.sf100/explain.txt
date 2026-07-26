@@ -58,7 +58,7 @@ VeloxColumnarToRow (70)
 Output [4]: [c_customer_sk#1, c_current_addr_sk#2, c_first_name#3, c_last_name#4]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_customer_sk), IsNotNull(c_current_addr_sk)]
+PushedFilters: [*IsNotNull(c_customer_sk), *IsNotNull(c_current_addr_sk)]
 ReadSchema: struct<c_customer_sk:int,c_current_addr_sk:int,c_first_name:string,c_last_name:string>
 
 (2) FilterExecTransformer
@@ -90,7 +90,7 @@ Input [4]: [c_customer_sk#1, c_current_addr_sk#2, c_first_name#3, c_last_name#4]
 Output [2]: [ca_address_sk#6, ca_city#7]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
-PushedFilters: [IsNotNull(ca_address_sk), IsNotNull(ca_city)]
+PushedFilters: [*IsNotNull(ca_address_sk), *IsNotNull(ca_city)]
 ReadSchema: struct<ca_address_sk:int,ca_city:string>
 
 (10) FilterExecTransformer
@@ -150,7 +150,7 @@ Output [9]: [ss_customer_sk#10, ss_hdemo_sk#11, ss_addr_sk#12, ss_store_sk#13, s
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ss_sold_date_sk#18), dynamicpruningexpression(ss_sold_date_sk#18 IN dynamicpruning#19)]
-PushedFilters: [IsNotNull(ss_store_sk), IsNotNull(ss_hdemo_sk), IsNotNull(ss_addr_sk), IsNotNull(ss_customer_sk)]
+PushedFilters: [*IsNotNull(ss_store_sk), *IsNotNull(ss_hdemo_sk), *IsNotNull(ss_addr_sk), *IsNotNull(ss_customer_sk)]
 ReadSchema: struct<ss_customer_sk:int,ss_hdemo_sk:int,ss_addr_sk:int,ss_store_sk:int,ss_ticket_number:int,ss_ext_sales_price:decimal(7,2),ss_ext_list_price:decimal(7,2),ss_ext_tax:decimal(7,2)>
 
 (25) FilterExecTransformer
@@ -180,7 +180,7 @@ Input [10]: [ss_customer_sk#10, ss_hdemo_sk#11, ss_addr_sk#12, ss_store_sk#13, s
 Output [2]: [s_store_sk#21, s_city#22]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/store]
-PushedFilters: [In(s_city, [Fairview,Midway]), IsNotNull(s_store_sk)]
+PushedFilters: [*In(s_city, [Fairview,Midway]), *IsNotNull(s_store_sk)]
 ReadSchema: struct<s_store_sk:int,s_city:string>
 
 (32) FilterExecTransformer
@@ -219,7 +219,7 @@ Input [9]: [ss_customer_sk#10, ss_hdemo_sk#11, ss_addr_sk#12, ss_store_sk#13, ss
 Output [3]: [hd_demo_sk#23, hd_dep_count#24, hd_vehicle_count#25]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/household_demographics]
-PushedFilters: [Or(EqualTo(hd_dep_count,4),EqualTo(hd_vehicle_count,3)), IsNotNull(hd_demo_sk)]
+PushedFilters: [*Or(EqualTo(hd_dep_count,4),EqualTo(hd_vehicle_count,3)), *IsNotNull(hd_demo_sk)]
 ReadSchema: struct<hd_demo_sk:int,hd_dep_count:int,hd_vehicle_count:int>
 
 (41) FilterExecTransformer
@@ -352,7 +352,7 @@ ColumnarBroadcastExchange (75)
 Output [3]: [d_date_sk#20, d_year#40, d_dom#41]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_dom), GreaterThanOrEqual(d_dom,1), LessThanOrEqual(d_dom,2), In(d_year, [1999,2000,2001]), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_dom), *GreaterThanOrEqual(d_dom,1), *LessThanOrEqual(d_dom,2), *In(d_year, [1999,2000,2001]), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_year:int,d_dom:int>
 
 (72) FilterExecTransformer

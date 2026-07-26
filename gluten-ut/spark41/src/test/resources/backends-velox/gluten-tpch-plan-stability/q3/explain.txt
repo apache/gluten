@@ -30,7 +30,7 @@ VeloxColumnarToRow (32)
 Output [2]: [c_custkey#1, c_mktsegment#2]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_mktsegment), EqualTo(c_mktsegment,BUILDING), IsNotNull(c_custkey)]
+PushedFilters: [*IsNotNull(c_mktsegment), *EqualTo(c_mktsegment,BUILDING), *IsNotNull(c_custkey)]
 ReadSchema: struct<c_custkey:bigint,c_mktsegment:string>
 
 (2) FilterExecTransformer
@@ -45,7 +45,7 @@ Input [2]: [c_custkey#1, c_mktsegment#2]
 Output [4]: [o_orderkey#3, o_custkey#4, o_orderdate#5, o_shippriority#6]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/orders]
-PushedFilters: [IsNotNull(o_orderdate), LessThan(o_orderdate,1995-03-15), IsNotNull(o_custkey), IsNotNull(o_orderkey)]
+PushedFilters: [*IsNotNull(o_orderdate), *LessThan(o_orderdate,1995-03-15), *IsNotNull(o_custkey), *IsNotNull(o_orderkey)]
 ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint,o_orderdate:date,o_shippriority:int>
 
 (5) FilterExecTransformer
@@ -80,7 +80,7 @@ Input [5]: [c_custkey#1, o_orderkey#3, o_custkey#4, o_orderdate#5, o_shippriorit
 Output [4]: [l_orderkey#7, l_extendedprice#8, l_discount#9, l_shipdate#10]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/lineitem]
-PushedFilters: [IsNotNull(l_shipdate), GreaterThan(l_shipdate,1995-03-15), IsNotNull(l_orderkey)]
+PushedFilters: [*IsNotNull(l_shipdate), *GreaterThan(l_shipdate,1995-03-15), *IsNotNull(l_orderkey)]
 ReadSchema: struct<l_orderkey:bigint,l_extendedprice:decimal(10,0),l_discount:decimal(10,0),l_shipdate:date>
 
 (13) FilterExecTransformer

@@ -21,7 +21,7 @@ VeloxColumnarToRow (21)
 Output [4]: [l_partkey#1, l_extendedprice#2, l_discount#3, l_shipdate#4]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/lineitem]
-PushedFilters: [IsNotNull(l_shipdate), GreaterThanOrEqual(l_shipdate,1995-09-01), LessThan(l_shipdate,1995-10-01), IsNotNull(l_partkey)]
+PushedFilters: [*IsNotNull(l_shipdate), *GreaterThanOrEqual(l_shipdate,1995-09-01), *LessThan(l_shipdate,1995-10-01), *IsNotNull(l_partkey)]
 ReadSchema: struct<l_partkey:bigint,l_extendedprice:decimal(10,0),l_discount:decimal(10,0),l_shipdate:date>
 
 (2) FilterExecTransformer
@@ -36,7 +36,7 @@ Input [4]: [l_partkey#1, l_extendedprice#2, l_discount#3, l_shipdate#4]
 Output [2]: [p_partkey#5, p_type#6]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/part]
-PushedFilters: [IsNotNull(p_partkey)]
+PushedFilters: [*IsNotNull(p_partkey)]
 ReadSchema: struct<p_partkey:bigint,p_type:string>
 
 (5) FilterExecTransformer

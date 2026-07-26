@@ -63,7 +63,7 @@ VeloxColumnarToRow (77)
 Output [5]: [s_store_sk#1, s_store_name#2, s_market_id#3, s_state#4, s_zip#5]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/store]
-PushedFilters: [IsNotNull(s_market_id), EqualTo(s_market_id,8), IsNotNull(s_store_sk), IsNotNull(s_zip)]
+PushedFilters: [*IsNotNull(s_market_id), *EqualTo(s_market_id,8), *IsNotNull(s_store_sk), *IsNotNull(s_zip)]
 ReadSchema: struct<s_store_sk:int,s_store_name:string,s_market_id:int,s_state:string,s_zip:string>
 
 (2) FilterExecTransformer
@@ -92,7 +92,7 @@ Input [4]: [s_store_sk#1, s_store_name#2, s_state#4, s_zip#5]
 Output [4]: [ca_address_sk#6, ca_state#7, ca_zip#8, ca_country#9]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
-PushedFilters: [IsNotNull(ca_address_sk), IsNotNull(ca_country), IsNotNull(ca_zip)]
+PushedFilters: [*IsNotNull(ca_address_sk), *IsNotNull(ca_country), *IsNotNull(ca_zip)]
 ReadSchema: struct<ca_address_sk:int,ca_state:string,ca_zip:string,ca_country:string>
 
 (9) FilterExecTransformer
@@ -127,7 +127,7 @@ Input [6]: [s_store_sk#1, s_store_name#2, s_state#4, ca_address_sk#6, ca_state#7
 Output [5]: [c_customer_sk#10, c_current_addr_sk#11, c_first_name#12, c_last_name#13, c_birth_country#14]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_customer_sk), IsNotNull(c_current_addr_sk), IsNotNull(c_birth_country)]
+PushedFilters: [*IsNotNull(c_customer_sk), *IsNotNull(c_current_addr_sk), *IsNotNull(c_birth_country)]
 ReadSchema: struct<c_customer_sk:int,c_current_addr_sk:int,c_first_name:string,c_last_name:string,c_birth_country:string>
 
 (17) FilterExecTransformer
@@ -162,7 +162,7 @@ Input [7]: [s_store_sk#1, s_store_name#2, s_state#4, ca_state#7, c_customer_sk#1
 Output [6]: [ss_item_sk#15, ss_customer_sk#16, ss_store_sk#17, ss_ticket_number#18, ss_net_paid#19, ss_sold_date_sk#20]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_ticket_number), IsNotNull(ss_item_sk), IsNotNull(ss_store_sk), IsNotNull(ss_customer_sk)]
+PushedFilters: [*IsNotNull(ss_ticket_number), *IsNotNull(ss_item_sk), *IsNotNull(ss_store_sk), *IsNotNull(ss_customer_sk)]
 ReadSchema: struct<ss_item_sk:int,ss_customer_sk:int,ss_store_sk:int,ss_ticket_number:int,ss_net_paid:decimal(7,2)>
 
 (25) FilterExecTransformer
@@ -187,7 +187,7 @@ Input [12]: [s_store_sk#1, s_store_name#2, s_state#4, ca_state#7, c_customer_sk#
 Output [6]: [i_item_sk#21, i_current_price#22, i_size#23, i_color#24, i_units#25, i_manager_id#26]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/item]
-PushedFilters: [IsNotNull(i_color), EqualTo(i_color,pale                ), IsNotNull(i_item_sk)]
+PushedFilters: [*IsNotNull(i_color), *EqualTo(i_color,pale                ), *IsNotNull(i_item_sk)]
 ReadSchema: struct<i_item_sk:int,i_current_price:decimal(7,2),i_size:string,i_color:string,i_units:string,i_manager_id:int>
 
 (30) FilterExecTransformer
@@ -239,7 +239,7 @@ Input [13]: [s_store_name#2, s_state#4, ca_state#7, c_first_name#12, c_last_name
 Output [3]: [sr_item_sk#28, sr_ticket_number#29, sr_returned_date_sk#30]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_returns]
-PushedFilters: [IsNotNull(sr_ticket_number), IsNotNull(sr_item_sk)]
+PushedFilters: [*IsNotNull(sr_ticket_number), *IsNotNull(sr_item_sk)]
 ReadSchema: struct<sr_item_sk:int,sr_ticket_number:int>
 
 (43) FilterExecTransformer
@@ -436,7 +436,7 @@ Input [7]: [s_store_sk#46, s_store_name#47, s_state#48, ca_state#49, c_customer_
 Output [6]: [ss_item_sk#53, ss_customer_sk#54, ss_store_sk#55, ss_ticket_number#56, ss_net_paid#57, ss_sold_date_sk#58]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_ticket_number), IsNotNull(ss_item_sk), IsNotNull(ss_store_sk), IsNotNull(ss_customer_sk)]
+PushedFilters: [*IsNotNull(ss_ticket_number), *IsNotNull(ss_item_sk), *IsNotNull(ss_store_sk), *IsNotNull(ss_customer_sk)]
 ReadSchema: struct<ss_item_sk:int,ss_customer_sk:int,ss_store_sk:int,ss_ticket_number:int,ss_net_paid:decimal(7,2)>
 
 (82) FilterExecTransformer
@@ -478,7 +478,7 @@ Input [8]: [s_store_name#47, s_state#48, ca_state#49, c_first_name#51, c_last_na
 Output [6]: [i_item_sk#60, i_current_price#61, i_size#62, i_color#63, i_units#64, i_manager_id#65]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/item]
-PushedFilters: [IsNotNull(i_item_sk)]
+PushedFilters: [*IsNotNull(i_item_sk)]
 ReadSchema: struct<i_item_sk:int,i_current_price:decimal(7,2),i_size:string,i_color:string,i_units:string,i_manager_id:int>
 
 (92) FilterExecTransformer

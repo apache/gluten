@@ -40,7 +40,7 @@ AdaptiveSparkPlan (40)
 Output [3]: [c_custkey#X, c_phone#X, c_acctbal#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(c_acctbal)]
+PushedFilters: [*IsNotNull(c_acctbal)]
 ReadSchema: struct<c_custkey:bigint,c_phone:string,c_acctbal:decimal(12,2)>
 
 (2) FilterExecTransformer
@@ -241,7 +241,7 @@ AdaptiveSparkPlan (60)
 Output [2]: [c_phone#X, c_acctbal#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(c_acctbal), GreaterThan(c_acctbal,0.00)]
+PushedFilters: [*IsNotNull(c_acctbal), *GreaterThan(c_acctbal,0.00)]
 ReadSchema: struct<c_phone:string,c_acctbal:decimal(12,2)>
 
 (42) FilterExecTransformer

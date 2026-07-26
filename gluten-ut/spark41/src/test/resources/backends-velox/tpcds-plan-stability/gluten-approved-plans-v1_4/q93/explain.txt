@@ -60,7 +60,7 @@ Input [5]: [ss_item_sk#1, ss_customer_sk#2, ss_ticket_number#3, ss_quantity#4, s
 Output [5]: [sr_item_sk#8, sr_reason_sk#9, sr_ticket_number#10, sr_return_quantity#11, sr_returned_date_sk#12]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_returns]
-PushedFilters: [IsNotNull(sr_item_sk), IsNotNull(sr_ticket_number), IsNotNull(sr_reason_sk)]
+PushedFilters: [*IsNotNull(sr_item_sk), *IsNotNull(sr_ticket_number), *IsNotNull(sr_reason_sk)]
 ReadSchema: struct<sr_item_sk:int,sr_reason_sk:int,sr_ticket_number:int,sr_return_quantity:int>
 
 (9) FilterExecTransformer
@@ -102,7 +102,7 @@ Input [9]: [ss_item_sk#1, ss_customer_sk#2, ss_ticket_number#3, ss_quantity#4, s
 Output [2]: [r_reason_sk#14, r_reason_desc#15]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/reason]
-PushedFilters: [IsNotNull(r_reason_desc), EqualTo(r_reason_desc,reason 28                                                                                           ), IsNotNull(r_reason_sk)]
+PushedFilters: [*IsNotNull(r_reason_desc), *EqualTo(r_reason_desc,reason 28                                                                                           ), *IsNotNull(r_reason_sk)]
 ReadSchema: struct<r_reason_sk:int,r_reason_desc:string>
 
 (19) FilterExecTransformer

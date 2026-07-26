@@ -36,7 +36,7 @@ VeloxColumnarToRow (40)
 Output [7]: [c_custkey#1, c_name#2, c_address#3, c_nationkey#4, c_phone#5, c_acctbal#6, c_comment#7]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_custkey), IsNotNull(c_nationkey)]
+PushedFilters: [*IsNotNull(c_custkey), *IsNotNull(c_nationkey)]
 ReadSchema: struct<c_custkey:bigint,c_name:string,c_address:string,c_nationkey:bigint,c_phone:string,c_acctbal:decimal(10,0),c_comment:string>
 
 (2) FilterExecTransformer
@@ -47,7 +47,7 @@ Arguments: (isnotnull(c_custkey#1) AND isnotnull(c_nationkey#4))
 Output [3]: [o_orderkey#8, o_custkey#9, o_orderdate#10]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/orders]
-PushedFilters: [IsNotNull(o_orderdate), GreaterThanOrEqual(o_orderdate,1993-10-01), LessThan(o_orderdate,1994-01-01), IsNotNull(o_custkey), IsNotNull(o_orderkey)]
+PushedFilters: [*IsNotNull(o_orderdate), *GreaterThanOrEqual(o_orderdate,1993-10-01), *LessThan(o_orderdate,1994-01-01), *IsNotNull(o_custkey), *IsNotNull(o_orderkey)]
 ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint,o_orderdate:date>
 
 (4) FilterExecTransformer
@@ -86,7 +86,7 @@ Input [9]: [c_custkey#1, c_name#2, c_address#3, c_nationkey#4, c_phone#5, c_acct
 Output [4]: [l_orderkey#11, l_extendedprice#12, l_discount#13, l_returnflag#14]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/lineitem]
-PushedFilters: [IsNotNull(l_returnflag), EqualTo(l_returnflag,R), IsNotNull(l_orderkey)]
+PushedFilters: [*IsNotNull(l_returnflag), *EqualTo(l_returnflag,R), *IsNotNull(l_orderkey)]
 ReadSchema: struct<l_orderkey:bigint,l_extendedprice:decimal(10,0),l_discount:decimal(10,0),l_returnflag:string>
 
 (13) FilterExecTransformer
@@ -125,7 +125,7 @@ Input [11]: [c_custkey#1, c_name#2, c_address#3, c_nationkey#4, c_phone#5, c_acc
 Output [2]: [n_nationkey#15, n_name#16]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/nation]
-PushedFilters: [IsNotNull(n_nationkey)]
+PushedFilters: [*IsNotNull(n_nationkey)]
 ReadSchema: struct<n_nationkey:bigint,n_name:string>
 
 (22) FilterExecTransformer

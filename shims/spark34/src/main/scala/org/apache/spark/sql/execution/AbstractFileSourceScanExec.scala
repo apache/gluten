@@ -74,6 +74,21 @@ abstract class AbstractFileSourceScanExec(
         ".supportsColumnar")
   }
 
+  /** Controls nested-predicate quoting in the display-only filter translation. */
+  protected def supportNestedPredicatePushdownForDisplay: Boolean =
+    DataSourceUtils.supportNestedPredicatePushdown(relation)
+
+  /** Returns the individual filter strings used by Spark's `PushedFilters` metadata. */
+  protected def pushedFilterStringsForDisplay: Seq[String] =
+    dataFilters
+      .filterNot(_.references.exists {
+        case FileSourceConstantMetadataAttribute(_) => true
+        case _ => false
+      })
+      .flatMap(
+        DataSourceStrategy.translateFilter(_, supportNestedPredicatePushdownForDisplay))
+      .map(_.toString)
+
   private lazy val needsUnsafeRowConversion: Boolean = {
     if (relation.fileFormat.isInstanceOf[ParquetSource]) {
       conf.parquetVectorizedReaderEnabled

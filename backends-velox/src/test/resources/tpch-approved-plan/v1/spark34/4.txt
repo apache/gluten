@@ -54,7 +54,7 @@ AdaptiveSparkPlan (56)
 Output [3]: [o_orderkey#X, o_orderdate#X, o_orderpriority#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(o_orderdate), GreaterThanOrEqual(o_orderdate,1993-07-01), LessThan(o_orderdate,1993-10-01)]
+PushedFilters: [*IsNotNull(o_orderdate), *GreaterThanOrEqual(o_orderdate,1993-07-01), *LessThan(o_orderdate,1993-10-01)]
 ReadSchema: struct<o_orderkey:bigint,o_orderdate:date,o_orderpriority:string>
 
 (2) FilterExecTransformer
@@ -90,7 +90,7 @@ Input [2]: [o_orderkey#X, o_orderpriority#X]
 Output [3]: [l_orderkey#X, l_commitdate#X, l_receiptdate#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(l_commitdate), IsNotNull(l_receiptdate)]
+PushedFilters: [*IsNotNull(l_commitdate), *IsNotNull(l_receiptdate)]
 ReadSchema: struct<l_orderkey:bigint,l_commitdate:date,l_receiptdate:date>
 
 (11) FilterExecTransformer

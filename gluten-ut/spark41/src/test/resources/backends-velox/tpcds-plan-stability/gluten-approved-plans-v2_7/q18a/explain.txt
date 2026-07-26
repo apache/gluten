@@ -194,7 +194,7 @@ Output [9]: [cs_bill_customer_sk#1, cs_bill_cdemo_sk#2, cs_item_sk#3, cs_quantit
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(cs_sold_date_sk#9), dynamicpruningexpression(cs_sold_date_sk#9 IN dynamicpruning#10)]
-PushedFilters: [IsNotNull(cs_bill_cdemo_sk), IsNotNull(cs_bill_customer_sk), IsNotNull(cs_item_sk)]
+PushedFilters: [*IsNotNull(cs_bill_cdemo_sk), *IsNotNull(cs_bill_customer_sk), *IsNotNull(cs_item_sk)]
 ReadSchema: struct<cs_bill_customer_sk:int,cs_bill_cdemo_sk:int,cs_item_sk:int,cs_quantity:int,cs_list_price:decimal(7,2),cs_sales_price:decimal(7,2),cs_coupon_amt:decimal(7,2),cs_net_profit:decimal(7,2)>
 
 (2) FilterExecTransformer
@@ -205,7 +205,7 @@ Arguments: ((isnotnull(cs_bill_cdemo_sk#2) AND isnotnull(cs_bill_customer_sk#1))
 Output [4]: [cd_demo_sk#11, cd_gender#12, cd_education_status#13, cd_dep_count#14]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_demographics]
-PushedFilters: [IsNotNull(cd_gender), IsNotNull(cd_education_status), EqualTo(cd_gender,M), EqualTo(cd_education_status,College             ), IsNotNull(cd_demo_sk)]
+PushedFilters: [*IsNotNull(cd_gender), *IsNotNull(cd_education_status), *EqualTo(cd_gender,M), *EqualTo(cd_education_status,College             ), *IsNotNull(cd_demo_sk)]
 ReadSchema: struct<cd_demo_sk:int,cd_gender:string,cd_education_status:string,cd_dep_count:int>
 
 (4) FilterExecTransformer
@@ -244,7 +244,7 @@ Input [11]: [cs_bill_customer_sk#1, cs_bill_cdemo_sk#2, cs_item_sk#3, cs_quantit
 Output [5]: [c_customer_sk#15, c_current_cdemo_sk#16, c_current_addr_sk#17, c_birth_month#18, c_birth_year#19]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [In(c_birth_month, [1,10,12,4,5,9]), IsNotNull(c_customer_sk), IsNotNull(c_current_cdemo_sk), IsNotNull(c_current_addr_sk)]
+PushedFilters: [*In(c_birth_month, [1,10,12,4,5,9]), *IsNotNull(c_customer_sk), *IsNotNull(c_current_cdemo_sk), *IsNotNull(c_current_addr_sk)]
 ReadSchema: struct<c_customer_sk:int,c_current_cdemo_sk:int,c_current_addr_sk:int,c_birth_month:int,c_birth_year:int>
 
 (13) FilterExecTransformer
@@ -283,7 +283,7 @@ Input [13]: [cs_bill_customer_sk#1, cs_item_sk#3, cs_quantity#4, cs_list_price#5
 Output [1]: [cd_demo_sk#20]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_demographics]
-PushedFilters: [IsNotNull(cd_demo_sk)]
+PushedFilters: [*IsNotNull(cd_demo_sk)]
 ReadSchema: struct<cd_demo_sk:int>
 
 (22) FilterExecTransformer
@@ -318,7 +318,7 @@ Input [12]: [cs_item_sk#3, cs_quantity#4, cs_list_price#5, cs_sales_price#6, cs_
 Output [4]: [ca_address_sk#21, ca_county#22, ca_state#23, ca_country#24]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
-PushedFilters: [In(ca_state, [AL,MS,NC,ND,OK,TN,WI]), IsNotNull(ca_address_sk)]
+PushedFilters: [*In(ca_state, [AL,MS,NC,ND,OK,TN,WI]), *IsNotNull(ca_address_sk)]
 ReadSchema: struct<ca_address_sk:int,ca_county:string,ca_state:string,ca_country:string>
 
 (30) FilterExecTransformer
@@ -372,7 +372,7 @@ Input [13]: [cs_item_sk#3, cs_quantity#4, cs_list_price#5, cs_sales_price#6, cs_
 Output [2]: [i_item_sk#26, i_item_id#27]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/item]
-PushedFilters: [IsNotNull(i_item_sk)]
+PushedFilters: [*IsNotNull(i_item_sk)]
 ReadSchema: struct<i_item_sk:int,i_item_id:string>
 
 (43) FilterExecTransformer
@@ -447,7 +447,7 @@ Output [9]: [cs_bill_customer_sk#78, cs_bill_cdemo_sk#79, cs_item_sk#80, cs_quan
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(cs_sold_date_sk#86), dynamicpruningexpression(cs_sold_date_sk#86 IN dynamicpruning#10)]
-PushedFilters: [IsNotNull(cs_bill_cdemo_sk), IsNotNull(cs_bill_customer_sk), IsNotNull(cs_item_sk)]
+PushedFilters: [*IsNotNull(cs_bill_cdemo_sk), *IsNotNull(cs_bill_customer_sk), *IsNotNull(cs_item_sk)]
 ReadSchema: struct<cs_bill_customer_sk:int,cs_bill_cdemo_sk:int,cs_item_sk:int,cs_quantity:int,cs_list_price:decimal(7,2),cs_sales_price:decimal(7,2),cs_coupon_amt:decimal(7,2),cs_net_profit:decimal(7,2)>
 
 (60) FilterExecTransformer
@@ -515,7 +515,7 @@ Input [12]: [cs_item_sk#80, cs_quantity#81, cs_list_price#82, cs_sales_price#83,
 Output [3]: [ca_address_sk#94, ca_state#95, ca_country#96]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
-PushedFilters: [In(ca_state, [AL,MS,NC,ND,OK,TN,WI]), IsNotNull(ca_address_sk)]
+PushedFilters: [*In(ca_state, [AL,MS,NC,ND,OK,TN,WI]), *IsNotNull(ca_address_sk)]
 ReadSchema: struct<ca_address_sk:int,ca_state:string,ca_country:string>
 
 (77) FilterExecTransformer
@@ -632,7 +632,7 @@ Output [9]: [cs_bill_customer_sk#151, cs_bill_cdemo_sk#152, cs_item_sk#153, cs_q
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(cs_sold_date_sk#159), dynamicpruningexpression(cs_sold_date_sk#159 IN dynamicpruning#10)]
-PushedFilters: [IsNotNull(cs_bill_cdemo_sk), IsNotNull(cs_bill_customer_sk), IsNotNull(cs_item_sk)]
+PushedFilters: [*IsNotNull(cs_bill_cdemo_sk), *IsNotNull(cs_bill_customer_sk), *IsNotNull(cs_item_sk)]
 ReadSchema: struct<cs_bill_customer_sk:int,cs_bill_cdemo_sk:int,cs_item_sk:int,cs_quantity:int,cs_list_price:decimal(7,2),cs_sales_price:decimal(7,2),cs_coupon_amt:decimal(7,2),cs_net_profit:decimal(7,2)>
 
 (105) FilterExecTransformer
@@ -700,7 +700,7 @@ Input [12]: [cs_item_sk#153, cs_quantity#154, cs_list_price#155, cs_sales_price#
 Output [3]: [ca_address_sk#167, ca_state#168, ca_country#169]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
-PushedFilters: [In(ca_state, [AL,MS,NC,ND,OK,TN,WI]), IsNotNull(ca_address_sk)]
+PushedFilters: [*In(ca_state, [AL,MS,NC,ND,OK,TN,WI]), *IsNotNull(ca_address_sk)]
 ReadSchema: struct<ca_address_sk:int,ca_state:string,ca_country:string>
 
 (122) FilterExecTransformer
@@ -821,7 +821,7 @@ Output [9]: [cs_bill_customer_sk#225, cs_bill_cdemo_sk#226, cs_item_sk#227, cs_q
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(cs_sold_date_sk#233), dynamicpruningexpression(cs_sold_date_sk#233 IN dynamicpruning#10)]
-PushedFilters: [IsNotNull(cs_bill_cdemo_sk), IsNotNull(cs_bill_customer_sk), IsNotNull(cs_item_sk)]
+PushedFilters: [*IsNotNull(cs_bill_cdemo_sk), *IsNotNull(cs_bill_customer_sk), *IsNotNull(cs_item_sk)]
 ReadSchema: struct<cs_bill_customer_sk:int,cs_bill_cdemo_sk:int,cs_item_sk:int,cs_quantity:int,cs_list_price:decimal(7,2),cs_sales_price:decimal(7,2),cs_coupon_amt:decimal(7,2),cs_net_profit:decimal(7,2)>
 
 (151) FilterExecTransformer
@@ -889,7 +889,7 @@ Input [12]: [cs_item_sk#227, cs_quantity#228, cs_list_price#229, cs_sales_price#
 Output [2]: [ca_address_sk#241, ca_state#242]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer_address]
-PushedFilters: [In(ca_state, [AL,MS,NC,ND,OK,TN,WI]), IsNotNull(ca_address_sk)]
+PushedFilters: [*In(ca_state, [AL,MS,NC,ND,OK,TN,WI]), *IsNotNull(ca_address_sk)]
 ReadSchema: struct<ca_address_sk:int,ca_state:string>
 
 (168) FilterExecTransformer
@@ -1010,7 +1010,7 @@ Output [9]: [cs_bill_customer_sk#299, cs_bill_cdemo_sk#300, cs_item_sk#301, cs_q
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(cs_sold_date_sk#307), dynamicpruningexpression(cs_sold_date_sk#307 IN dynamicpruning#10)]
-PushedFilters: [IsNotNull(cs_bill_cdemo_sk), IsNotNull(cs_bill_customer_sk), IsNotNull(cs_item_sk)]
+PushedFilters: [*IsNotNull(cs_bill_cdemo_sk), *IsNotNull(cs_bill_customer_sk), *IsNotNull(cs_item_sk)]
 ReadSchema: struct<cs_bill_customer_sk:int,cs_bill_cdemo_sk:int,cs_item_sk:int,cs_quantity:int,cs_list_price:decimal(7,2),cs_sales_price:decimal(7,2),cs_coupon_amt:decimal(7,2),cs_net_profit:decimal(7,2)>
 
 (197) FilterExecTransformer
@@ -1116,7 +1116,7 @@ Input [10]: [cs_item_sk#301, cs_quantity#302, cs_list_price#303, cs_sales_price#
 Output [1]: [i_item_sk#317]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/item]
-PushedFilters: [IsNotNull(i_item_sk)]
+PushedFilters: [*IsNotNull(i_item_sk)]
 ReadSchema: struct<i_item_sk:int>
 
 (224) FilterExecTransformer
@@ -1209,7 +1209,7 @@ ColumnarBroadcastExchange (247)
 Output [2]: [d_date_sk#25, d_year#371]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,2001), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,2001), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_year:int>
 
 (244) FilterExecTransformer

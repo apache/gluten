@@ -26,7 +26,7 @@ VeloxColumnarToRow (28)
 Output [3]: [o_orderkey#1, o_orderdate#2, o_orderpriority#3]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/orders]
-PushedFilters: [IsNotNull(o_orderdate), GreaterThanOrEqual(o_orderdate,1993-07-01), LessThan(o_orderdate,1993-10-01)]
+PushedFilters: [*IsNotNull(o_orderdate), *GreaterThanOrEqual(o_orderdate,1993-07-01), *LessThan(o_orderdate,1993-10-01)]
 ReadSchema: struct<o_orderkey:bigint,o_orderdate:date,o_orderpriority:string>
 
 (2) FilterExecTransformer
@@ -41,7 +41,7 @@ Input [3]: [o_orderkey#1, o_orderdate#2, o_orderpriority#3]
 Output [3]: [l_orderkey#4, l_commitdate#5, l_receiptdate#6]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/lineitem]
-PushedFilters: [IsNotNull(l_commitdate), IsNotNull(l_receiptdate)]
+PushedFilters: [*IsNotNull(l_commitdate), *IsNotNull(l_receiptdate)]
 ReadSchema: struct<l_orderkey:bigint,l_commitdate:date,l_receiptdate:date>
 
 (5) FilterExecTransformer

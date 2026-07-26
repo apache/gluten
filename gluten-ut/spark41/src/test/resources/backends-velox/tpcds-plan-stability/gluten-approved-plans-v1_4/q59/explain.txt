@@ -57,7 +57,7 @@ Output [3]: [ss_store_sk#1, ss_sales_price#2, ss_sold_date_sk#3]
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ss_sold_date_sk#3)]
-PushedFilters: [IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_store_sk:int,ss_sales_price:decimal(7,2)>
 
 (2) FilterExecTransformer
@@ -68,7 +68,7 @@ Arguments: isnotnull(ss_store_sk#1)
 Output [3]: [d_date_sk#4, d_week_seq#5, d_day_name#6]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_date_sk), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_date_sk), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_date_sk:int,d_week_seq:int,d_day_name:string>
 
 (4) FilterExecTransformer
@@ -142,7 +142,7 @@ Input [9]: [d_week_seq#5, ss_store_sk#1, sum(UnscaledValue(CASE WHEN (d_day_name
 Output [3]: [s_store_sk#43, s_store_id#44, s_store_name#45]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/store]
-PushedFilters: [IsNotNull(s_store_sk), IsNotNull(s_store_id)]
+PushedFilters: [*IsNotNull(s_store_sk), *IsNotNull(s_store_id)]
 ReadSchema: struct<s_store_sk:int,s_store_id:string,s_store_name:string>
 
 (21) FilterExecTransformer
@@ -177,7 +177,7 @@ Input [12]: [d_week_seq#5, ss_store_sk#1, sun_sales#36, mon_sales#37, tue_sales#
 Output [2]: [d_month_seq#46, d_week_seq#47]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_month_seq), GreaterThanOrEqual(d_month_seq,1212), LessThanOrEqual(d_month_seq,1223), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_month_seq), *GreaterThanOrEqual(d_month_seq,1212), *LessThanOrEqual(d_month_seq,1223), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_month_seq:int,d_week_seq:int>
 
 (29) FilterExecTransformer
@@ -236,7 +236,7 @@ Input [9]: [d_week_seq#58, ss_store_sk#59, sum(UnscaledValue(CASE WHEN (d_day_na
 Output [2]: [s_store_sk#76, s_store_id#77]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/store]
-PushedFilters: [IsNotNull(s_store_sk), IsNotNull(s_store_id)]
+PushedFilters: [*IsNotNull(s_store_sk), *IsNotNull(s_store_id)]
 ReadSchema: struct<s_store_sk:int,s_store_id:string>
 
 (43) FilterExecTransformer
@@ -271,7 +271,7 @@ Input [11]: [d_week_seq#58, ss_store_sk#59, sun_sales#69, mon_sales#70, tue_sale
 Output [2]: [d_month_seq#78, d_week_seq#79]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_month_seq), GreaterThanOrEqual(d_month_seq,1224), LessThanOrEqual(d_month_seq,1235), IsNotNull(d_week_seq)]
+PushedFilters: [*IsNotNull(d_month_seq), *GreaterThanOrEqual(d_month_seq,1224), *LessThanOrEqual(d_month_seq,1235), *IsNotNull(d_week_seq)]
 ReadSchema: struct<d_month_seq:int,d_week_seq:int>
 
 (51) FilterExecTransformer

@@ -30,7 +30,7 @@ VeloxColumnarToRow (32)
 Output [3]: [d_date_sk#1, d_year#2, d_day_name#3]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,1998), GreaterThanOrEqual(d_date_sk,2450816), LessThanOrEqual(d_date_sk,2451179), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,1998), *GreaterThanOrEqual(d_date_sk,2450816), *LessThanOrEqual(d_date_sk,2451179), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_year:int,d_day_name:string>
 
 (2) FilterExecTransformer
@@ -60,7 +60,7 @@ Output [3]: [ss_store_sk#4, ss_sales_price#5, ss_sold_date_sk#6]
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ss_sold_date_sk#6), (ss_sold_date_sk#6 >= 2450816), (ss_sold_date_sk#6 <= 2451179), dynamicpruningexpression(ss_sold_date_sk#6 IN dynamicpruning#7)]
-PushedFilters: [IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_store_sk:int,ss_sales_price:decimal(7,2)>
 
 (9) FilterExecTransformer
@@ -81,7 +81,7 @@ Input [5]: [d_date_sk#1, d_day_name#3, ss_store_sk#4, ss_sales_price#5, ss_sold_
 Output [4]: [s_store_sk#8, s_store_id#9, s_store_name#10, s_gmt_offset#11]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/store]
-PushedFilters: [IsNotNull(s_gmt_offset), EqualTo(s_gmt_offset,-5.00), IsNotNull(s_store_sk)]
+PushedFilters: [*IsNotNull(s_gmt_offset), *EqualTo(s_gmt_offset,-5.00), *IsNotNull(s_store_sk)]
 ReadSchema: struct<s_store_sk:int,s_store_id:string,s_store_name:string,s_gmt_offset:decimal(5,2)>
 
 (13) FilterExecTransformer
