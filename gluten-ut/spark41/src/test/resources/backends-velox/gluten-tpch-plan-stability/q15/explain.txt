@@ -26,7 +26,7 @@ VeloxColumnarToRow (28)
 Output [4]: [s_suppkey#1, s_name#2, s_address#3, s_phone#4]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/supplier]
-PushedFilters: [IsNotNull(s_suppkey)]
+PushedFilters: [*IsNotNull(s_suppkey)]
 ReadSchema: struct<s_suppkey:bigint,s_name:string,s_address:string,s_phone:string>
 
 (2) FilterExecTransformer
@@ -37,7 +37,7 @@ Arguments: isnotnull(s_suppkey#1)
 Output [4]: [l_suppkey#5, l_extendedprice#6, l_discount#7, l_shipdate#8]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/lineitem]
-PushedFilters: [IsNotNull(l_shipdate), GreaterThanOrEqual(l_shipdate,1996-01-01), LessThan(l_shipdate,1996-04-01), IsNotNull(l_suppkey)]
+PushedFilters: [*IsNotNull(l_shipdate), *GreaterThanOrEqual(l_shipdate,1996-01-01), *LessThan(l_shipdate,1996-04-01), *IsNotNull(l_suppkey)]
 ReadSchema: struct<l_suppkey:bigint,l_extendedprice:decimal(10,0),l_discount:decimal(10,0),l_shipdate:date>
 
 (4) FilterExecTransformer
@@ -160,7 +160,7 @@ VeloxColumnarToRow (43)
 Output [4]: [l_suppkey#19, l_extendedprice#20, l_discount#21, l_shipdate#22]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/lineitem]
-PushedFilters: [IsNotNull(l_shipdate), GreaterThanOrEqual(l_shipdate,1996-01-01), LessThan(l_shipdate,1996-04-01)]
+PushedFilters: [*IsNotNull(l_shipdate), *GreaterThanOrEqual(l_shipdate,1996-01-01), *LessThan(l_shipdate,1996-04-01)]
 ReadSchema: struct<l_suppkey:bigint,l_extendedprice:decimal(10,0),l_discount:decimal(10,0),l_shipdate:date>
 
 (30) FilterExecTransformer

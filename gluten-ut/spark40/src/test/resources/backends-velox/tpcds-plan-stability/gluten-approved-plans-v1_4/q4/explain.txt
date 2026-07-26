@@ -143,7 +143,7 @@ VeloxColumnarToRow (179)
 Output [8]: [c_customer_sk#1, c_customer_id#2, c_first_name#3, c_last_name#4, c_preferred_cust_flag#5, c_birth_country#6, c_login#7, c_email_address#8]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_customer_sk), IsNotNull(c_customer_id)]
+PushedFilters: [*IsNotNull(c_customer_sk), *IsNotNull(c_customer_id)]
 ReadSchema: struct<c_customer_sk:int,c_customer_id:string,c_first_name:string,c_last_name:string,c_preferred_cust_flag:string,c_birth_country:string,c_login:string,c_email_address:string>
 
 (2) FilterExecTransformer
@@ -155,7 +155,7 @@ Output [6]: [ss_customer_sk#9, ss_ext_discount_amt#10, ss_ext_sales_price#11, ss
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ss_sold_date_sk#14), dynamicpruningexpression(ss_sold_date_sk#14 IN dynamicpruning#15)]
-PushedFilters: [IsNotNull(ss_customer_sk)]
+PushedFilters: [*IsNotNull(ss_customer_sk)]
 ReadSchema: struct<ss_customer_sk:int,ss_ext_discount_amt:decimal(7,2),ss_ext_sales_price:decimal(7,2),ss_ext_wholesale_cost:decimal(7,2),ss_ext_list_price:decimal(7,2)>
 
 (4) FilterExecTransformer
@@ -252,7 +252,7 @@ Arguments: (isnotnull(year_total#26) AND (year_total#26 > 0.000000))
 Output [8]: [c_customer_sk#27, c_customer_id#28, c_first_name#29, c_last_name#30, c_preferred_cust_flag#31, c_birth_country#32, c_login#33, c_email_address#34]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_customer_sk), IsNotNull(c_customer_id)]
+PushedFilters: [*IsNotNull(c_customer_sk), *IsNotNull(c_customer_id)]
 ReadSchema: struct<c_customer_sk:int,c_customer_id:string,c_first_name:string,c_last_name:string,c_preferred_cust_flag:string,c_birth_country:string,c_login:string,c_email_address:string>
 
 (27) FilterExecTransformer
@@ -264,7 +264,7 @@ Output [6]: [ss_customer_sk#35, ss_ext_discount_amt#36, ss_ext_sales_price#37, s
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ss_sold_date_sk#40), dynamicpruningexpression(ss_sold_date_sk#40 IN dynamicpruning#41)]
-PushedFilters: [IsNotNull(ss_customer_sk)]
+PushedFilters: [*IsNotNull(ss_customer_sk)]
 ReadSchema: struct<ss_customer_sk:int,ss_ext_discount_amt:decimal(7,2),ss_ext_sales_price:decimal(7,2),ss_ext_wholesale_cost:decimal(7,2),ss_ext_list_price:decimal(7,2)>
 
 (29) FilterExecTransformer
@@ -377,7 +377,7 @@ Join condition: None
 Output [8]: [c_customer_sk#58, c_customer_id#59, c_first_name#60, c_last_name#61, c_preferred_cust_flag#62, c_birth_country#63, c_login#64, c_email_address#65]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_customer_sk), IsNotNull(c_customer_id)]
+PushedFilters: [*IsNotNull(c_customer_sk), *IsNotNull(c_customer_id)]
 ReadSchema: struct<c_customer_sk:int,c_customer_id:string,c_first_name:string,c_last_name:string,c_preferred_cust_flag:string,c_birth_country:string,c_login:string,c_email_address:string>
 
 (56) FilterExecTransformer
@@ -389,7 +389,7 @@ Output [6]: [cs_bill_customer_sk#66, cs_ext_discount_amt#67, cs_ext_sales_price#
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(cs_sold_date_sk#71), dynamicpruningexpression(cs_sold_date_sk#71 IN dynamicpruning#15)]
-PushedFilters: [IsNotNull(cs_bill_customer_sk)]
+PushedFilters: [*IsNotNull(cs_bill_customer_sk)]
 ReadSchema: struct<cs_bill_customer_sk:int,cs_ext_discount_amt:decimal(7,2),cs_ext_sales_price:decimal(7,2),cs_ext_wholesale_cost:decimal(7,2),cs_ext_list_price:decimal(7,2)>
 
 (58) FilterExecTransformer
@@ -510,7 +510,7 @@ Input [12]: [customer_id#25, year_total#26, customer_id#50, customer_first_name#
 Output [8]: [c_customer_sk#83, c_customer_id#84, c_first_name#85, c_last_name#86, c_preferred_cust_flag#87, c_birth_country#88, c_login#89, c_email_address#90]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_customer_sk), IsNotNull(c_customer_id)]
+PushedFilters: [*IsNotNull(c_customer_sk), *IsNotNull(c_customer_id)]
 ReadSchema: struct<c_customer_sk:int,c_customer_id:string,c_first_name:string,c_last_name:string,c_preferred_cust_flag:string,c_birth_country:string,c_login:string,c_email_address:string>
 
 (87) FilterExecTransformer
@@ -522,7 +522,7 @@ Output [6]: [cs_bill_customer_sk#91, cs_ext_discount_amt#92, cs_ext_sales_price#
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(cs_sold_date_sk#96), dynamicpruningexpression(cs_sold_date_sk#96 IN dynamicpruning#41)]
-PushedFilters: [IsNotNull(cs_bill_customer_sk)]
+PushedFilters: [*IsNotNull(cs_bill_customer_sk)]
 ReadSchema: struct<cs_bill_customer_sk:int,cs_ext_discount_amt:decimal(7,2),cs_ext_sales_price:decimal(7,2),cs_ext_wholesale_cost:decimal(7,2),cs_ext_list_price:decimal(7,2)>
 
 (89) FilterExecTransformer
@@ -639,7 +639,7 @@ Input [13]: [customer_id#25, year_total#26, customer_id#50, customer_first_name#
 Output [8]: [c_customer_sk#107, c_customer_id#108, c_first_name#109, c_last_name#110, c_preferred_cust_flag#111, c_birth_country#112, c_login#113, c_email_address#114]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_customer_sk), IsNotNull(c_customer_id)]
+PushedFilters: [*IsNotNull(c_customer_sk), *IsNotNull(c_customer_id)]
 ReadSchema: struct<c_customer_sk:int,c_customer_id:string,c_first_name:string,c_last_name:string,c_preferred_cust_flag:string,c_birth_country:string,c_login:string,c_email_address:string>
 
 (117) FilterExecTransformer
@@ -651,7 +651,7 @@ Output [6]: [ws_bill_customer_sk#115, ws_ext_discount_amt#116, ws_ext_sales_pric
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ws_sold_date_sk#120), dynamicpruningexpression(ws_sold_date_sk#120 IN dynamicpruning#15)]
-PushedFilters: [IsNotNull(ws_bill_customer_sk)]
+PushedFilters: [*IsNotNull(ws_bill_customer_sk)]
 ReadSchema: struct<ws_bill_customer_sk:int,ws_ext_discount_amt:decimal(7,2),ws_ext_sales_price:decimal(7,2),ws_ext_wholesale_cost:decimal(7,2),ws_ext_list_price:decimal(7,2)>
 
 (119) FilterExecTransformer
@@ -772,7 +772,7 @@ Input [12]: [customer_id#25, customer_id#50, customer_first_name#51, customer_la
 Output [8]: [c_customer_sk#132, c_customer_id#133, c_first_name#134, c_last_name#135, c_preferred_cust_flag#136, c_birth_country#137, c_login#138, c_email_address#139]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/customer]
-PushedFilters: [IsNotNull(c_customer_sk), IsNotNull(c_customer_id)]
+PushedFilters: [*IsNotNull(c_customer_sk), *IsNotNull(c_customer_id)]
 ReadSchema: struct<c_customer_sk:int,c_customer_id:string,c_first_name:string,c_last_name:string,c_preferred_cust_flag:string,c_birth_country:string,c_login:string,c_email_address:string>
 
 (148) FilterExecTransformer
@@ -784,7 +784,7 @@ Output [6]: [ws_bill_customer_sk#140, ws_ext_discount_amt#141, ws_ext_sales_pric
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ws_sold_date_sk#145), dynamicpruningexpression(ws_sold_date_sk#145 IN dynamicpruning#41)]
-PushedFilters: [IsNotNull(ws_bill_customer_sk)]
+PushedFilters: [*IsNotNull(ws_bill_customer_sk)]
 ReadSchema: struct<ws_bill_customer_sk:int,ws_ext_discount_amt:decimal(7,2),ws_ext_sales_price:decimal(7,2),ws_ext_wholesale_cost:decimal(7,2),ws_ext_list_price:decimal(7,2)>
 
 (150) FilterExecTransformer
@@ -920,7 +920,7 @@ ColumnarBroadcastExchange (183)
 Output [2]: [d_date_sk#16, d_year#17]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,2001), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,2001), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_year:int>
 
 (181) FilterExecTransformer
@@ -945,7 +945,7 @@ ColumnarBroadcastExchange (187)
 Output [2]: [d_date_sk#42, d_year#43]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,2002), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,2002), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_year:int>
 
 (185) FilterExecTransformer

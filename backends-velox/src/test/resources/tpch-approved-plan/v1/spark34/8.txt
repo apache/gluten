@@ -181,7 +181,7 @@ AdaptiveSparkPlan (207)
 Output [2]: [p_partkey#X, p_type#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(p_type), EqualTo(p_type,ECONOMY ANODIZED STEEL), IsNotNull(p_partkey)]
+PushedFilters: [*IsNotNull(p_type), *EqualTo(p_type,ECONOMY ANODIZED STEEL), *IsNotNull(p_partkey)]
 ReadSchema: struct<p_partkey:bigint,p_type:string>
 
 (2) FilterExecTransformer
@@ -217,7 +217,7 @@ Input [1]: [p_partkey#X]
 Output [5]: [l_orderkey#X, l_partkey#X, l_suppkey#X, l_extendedprice#X, l_discount#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(l_partkey), IsNotNull(l_suppkey), IsNotNull(l_orderkey)]
+PushedFilters: [*IsNotNull(l_partkey), *IsNotNull(l_suppkey), *IsNotNull(l_orderkey)]
 ReadSchema: struct<l_orderkey:bigint,l_partkey:bigint,l_suppkey:bigint,l_extendedprice:decimal(12,2),l_discount:decimal(12,2)>
 
 (11) FilterExecTransformer
@@ -284,7 +284,7 @@ Input [4]: [l_orderkey#X, l_suppkey#X, l_extendedprice#X, l_discount#X]
 Output [2]: [s_suppkey#X, s_nationkey#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(s_suppkey), IsNotNull(s_nationkey)]
+PushedFilters: [*IsNotNull(s_suppkey), *IsNotNull(s_nationkey)]
 ReadSchema: struct<s_suppkey:bigint,s_nationkey:bigint>
 
 (28) FilterExecTransformer
@@ -351,7 +351,7 @@ Input [4]: [l_orderkey#X, l_extendedprice#X, l_discount#X, s_nationkey#X]
 Output [3]: [o_orderkey#X, o_custkey#X, o_orderdate#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(o_orderdate), GreaterThanOrEqual(o_orderdate,1995-01-01), LessThanOrEqual(o_orderdate,1996-12-31), IsNotNull(o_orderkey), IsNotNull(o_custkey)]
+PushedFilters: [*IsNotNull(o_orderdate), *GreaterThanOrEqual(o_orderdate,1995-01-01), *LessThanOrEqual(o_orderdate,1996-12-31), *IsNotNull(o_orderkey), *IsNotNull(o_custkey)]
 ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint,o_orderdate:date>
 
 (45) FilterExecTransformer
@@ -418,7 +418,7 @@ Input [5]: [l_extendedprice#X, l_discount#X, s_nationkey#X, o_custkey#X, o_order
 Output [2]: [c_custkey#X, c_nationkey#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(c_custkey), IsNotNull(c_nationkey)]
+PushedFilters: [*IsNotNull(c_custkey), *IsNotNull(c_nationkey)]
 ReadSchema: struct<c_custkey:bigint,c_nationkey:bigint>
 
 (62) FilterExecTransformer
@@ -485,7 +485,7 @@ Input [5]: [l_extendedprice#X, l_discount#X, s_nationkey#X, o_orderdate#X, c_nat
 Output [2]: [n_nationkey#X, n_regionkey#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(n_nationkey), IsNotNull(n_regionkey)]
+PushedFilters: [*IsNotNull(n_nationkey), *IsNotNull(n_regionkey)]
 ReadSchema: struct<n_nationkey:bigint,n_regionkey:bigint>
 
 (79) FilterExecTransformer
@@ -552,7 +552,7 @@ Input [5]: [l_extendedprice#X, l_discount#X, s_nationkey#X, o_orderdate#X, n_reg
 Output [2]: [n_nationkey#X, n_name#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(n_nationkey)]
+PushedFilters: [*IsNotNull(n_nationkey)]
 ReadSchema: struct<n_nationkey:bigint,n_name:string>
 
 (96) FilterExecTransformer
@@ -619,7 +619,7 @@ Input [5]: [l_extendedprice#X, l_discount#X, o_orderdate#X, n_regionkey#X, n_nam
 Output [2]: [r_regionkey#X, r_name#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(r_name), EqualTo(r_name,AMERICA), IsNotNull(r_regionkey)]
+PushedFilters: [*IsNotNull(r_name), *EqualTo(r_name,AMERICA), *IsNotNull(r_regionkey)]
 ReadSchema: struct<r_regionkey:bigint,r_name:string>
 
 (113) FilterExecTransformer

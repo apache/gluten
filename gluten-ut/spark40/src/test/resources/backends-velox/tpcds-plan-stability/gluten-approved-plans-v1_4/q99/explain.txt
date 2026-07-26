@@ -40,7 +40,7 @@ VeloxColumnarToRow (46)
 Output [5]: [cs_ship_date_sk#1, cs_call_center_sk#2, cs_ship_mode_sk#3, cs_warehouse_sk#4, cs_sold_date_sk#5]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/catalog_sales]
-PushedFilters: [IsNotNull(cs_warehouse_sk), IsNotNull(cs_ship_mode_sk), IsNotNull(cs_call_center_sk), IsNotNull(cs_ship_date_sk)]
+PushedFilters: [*IsNotNull(cs_warehouse_sk), *IsNotNull(cs_ship_mode_sk), *IsNotNull(cs_call_center_sk), *IsNotNull(cs_ship_date_sk)]
 ReadSchema: struct<cs_ship_date_sk:int,cs_call_center_sk:int,cs_ship_mode_sk:int,cs_warehouse_sk:int>
 
 (2) FilterExecTransformer
@@ -51,7 +51,7 @@ Arguments: (((isnotnull(cs_warehouse_sk#4) AND isnotnull(cs_ship_mode_sk#3)) AND
 Output [2]: [w_warehouse_sk#6, w_warehouse_name#7]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/warehouse]
-PushedFilters: [IsNotNull(w_warehouse_sk)]
+PushedFilters: [*IsNotNull(w_warehouse_sk)]
 ReadSchema: struct<w_warehouse_sk:int,w_warehouse_name:string>
 
 (4) FilterExecTransformer
@@ -86,7 +86,7 @@ Input [7]: [cs_ship_date_sk#1, cs_call_center_sk#2, cs_ship_mode_sk#3, cs_wareho
 Output [2]: [sm_ship_mode_sk#8, sm_type#9]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/ship_mode]
-PushedFilters: [IsNotNull(sm_ship_mode_sk)]
+PushedFilters: [*IsNotNull(sm_ship_mode_sk)]
 ReadSchema: struct<sm_ship_mode_sk:int,sm_type:string>
 
 (12) FilterExecTransformer
@@ -121,7 +121,7 @@ Input [7]: [cs_ship_date_sk#1, cs_call_center_sk#2, cs_ship_mode_sk#3, cs_sold_d
 Output [2]: [cc_call_center_sk#10, cc_name#11]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/call_center]
-PushedFilters: [IsNotNull(cc_call_center_sk)]
+PushedFilters: [*IsNotNull(cc_call_center_sk)]
 ReadSchema: struct<cc_call_center_sk:int,cc_name:string>
 
 (20) FilterExecTransformer
@@ -156,7 +156,7 @@ Input [7]: [cs_ship_date_sk#1, cs_call_center_sk#2, cs_sold_date_sk#5, w_warehou
 Output [2]: [d_date_sk#12, d_month_seq#13]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_month_seq), GreaterThanOrEqual(d_month_seq,1200), LessThanOrEqual(d_month_seq,1211), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_month_seq), *GreaterThanOrEqual(d_month_seq,1200), *LessThanOrEqual(d_month_seq,1211), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_month_seq:int>
 
 (28) FilterExecTransformer

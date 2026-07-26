@@ -62,7 +62,7 @@ AdaptiveSparkPlan (62)
 Output [3]: [l_partkey#X, l_quantity#X, l_extendedprice#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(l_partkey), IsNotNull(l_quantity)]
+PushedFilters: [*IsNotNull(l_partkey), *IsNotNull(l_quantity)]
 ReadSchema: struct<l_partkey:bigint,l_quantity:decimal(12,2),l_extendedprice:decimal(12,2)>
 
 (2) FilterExecTransformer
@@ -98,7 +98,7 @@ Input [3]: [l_partkey#X, l_quantity#X, l_extendedprice#X]
 Output [3]: [p_partkey#X, p_brand#X, p_container#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(p_brand), IsNotNull(p_container), EqualTo(p_brand,Brand#X), EqualTo(p_container,MED BOX), IsNotNull(p_partkey)]
+PushedFilters: [*IsNotNull(p_brand), *IsNotNull(p_container), *EqualTo(p_brand,Brand#X), *EqualTo(p_container,MED BOX), *IsNotNull(p_partkey)]
 ReadSchema: struct<p_partkey:bigint,p_brand:string,p_container:string>
 
 (11) FilterExecTransformer
@@ -143,7 +143,7 @@ Input [4]: [l_partkey#X, l_quantity#X, l_extendedprice#X, p_partkey#X]
 Output [2]: [l_partkey#X, l_quantity#X]
 Batched: true
 Location: InMemoryFileIndex [*]
-PushedFilters: [IsNotNull(l_partkey)]
+PushedFilters: [*IsNotNull(l_partkey)]
 ReadSchema: struct<l_partkey:bigint,l_quantity:decimal(12,2)>
 
 (22) FilterExecTransformer

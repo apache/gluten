@@ -37,7 +37,7 @@ ReadSchema: struct<c_custkey:bigint>
 Output [3]: [o_orderkey#2, o_custkey#3, o_comment#4]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/orders]
-PushedFilters: [IsNotNull(o_comment), IsNotNull(o_custkey)]
+PushedFilters: [*IsNotNull(o_comment), *IsNotNull(o_custkey)]
 ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint,o_comment:string>
 
 (3) FilterExecTransformer
