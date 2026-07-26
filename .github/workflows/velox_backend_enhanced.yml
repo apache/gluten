@@ -82,6 +82,10 @@ jobs:
             export CCACHE_MAXSIZE=1G
             mkdir -p /work/.ccache
             bash dev/ci-velox-buildstatic-centos-7-enhanced-features.sh
+            ctest --test-dir cpp/build \
+              -R '(VeloxIcebergWriteTest|IcebergPlanConverterTest)' \
+              --no-tests=error \
+              --output-on-failure
             ccache -s
           "
 

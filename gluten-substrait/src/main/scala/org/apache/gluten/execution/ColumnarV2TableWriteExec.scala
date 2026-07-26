@@ -49,7 +49,11 @@ trait ColumnarV2TableWriteExec extends V2TableWriteExec with ValidatablePlan {
   protected def createStreamingWriterFactory(schema: StructType): ColumnarStreamingDataWriterFactory
 
   override protected def run(): Seq[InternalRow] = {
-    writeColumnarBatchWithV2(batchWrite)
+    try {
+      writeColumnarBatchWithV2(batchWrite)
+    } finally {
+      V2WriteShim.postDriverMetrics(write, metrics, sparkContext)
+    }
     refreshCache()
     Nil
   }
@@ -110,7 +114,7 @@ trait ColumnarV2TableWriteExec extends V2TableWriteExec with ValidatablePlan {
       )
 
       logInfo(s"Data source write support $batchWrite is committing.")
-      batchWrite.commit(messages)
+      V2WriteShim.commit(batchWrite, messages, query)
       logInfo(s"Data source write support $batchWrite committed.")
       commitProgress = Some(
         StreamWriterCommitProgressUtil.getStreamWriterCommitProgress(totalNumRowsAccumulator.value))
