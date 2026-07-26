@@ -173,6 +173,14 @@ function compile {
         -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc"
   fi
   if [ -n "${GLUTEN_VCPKG_ENABLED:-}" ]; then
+    # Flex is a host build tool, so admit only its matching executable and headers.
+    FLEX_EXECUTABLE="$(realpath "$(command -v flex)")"
+    FLEX_INCLUDE_DIR="$(dirname "$(dirname "${FLEX_EXECUTABLE}")")/include"
+    if [ ! -f "${FLEX_INCLUDE_DIR}/FlexLexer.h" ]; then
+      echo "FlexLexer.h not found for ${FLEX_EXECUTABLE}: ${FLEX_INCLUDE_DIR}" >&2
+      return 1
+    fi
+    COMPILE_OPTION="$COMPILE_OPTION -DFLEX_EXECUTABLE=${FLEX_EXECUTABLE} -DFLEX_INCLUDE_DIR=${FLEX_INCLUDE_DIR}"
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_GFLAGS_TYPE=static"
   fi
 
