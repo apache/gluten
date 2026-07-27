@@ -6,21 +6,22 @@ package substrait.extensions;
 import "google/protobuf/any.proto";
 
 option csharp_namespace = "Substrait.Protobuf";
-option go_package = "github.com/substrait-io/substrait-go/proto/extensions";
+option go_package = "github.com/substrait-io/substrait-protobuf/go/substraitpb/extensions";
 option java_multiple_files = true;
 option java_package = "io.substrait.proto";
 
-message SimpleExtensionURI {
+message SimpleExtensionURN {
   // A surrogate key used in the context of a single plan used to reference the
-  // URI associated with an extension.
-  uint32 extension_uri_anchor = 1;
+  // URN associated with an extension.
+  // 0 is a valid anchor/reference, but prefer non-zero values for ergonomics.
+  uint32 extension_urn_anchor = 1;
 
-  // The URI where this extension YAML can be retrieved. This is the "namespace"
-  // of this extension.
-  string uri = 2;
+  // The extension URN that uniquely identifies this extension. This must follow the
+  // format extension:<OWNER>:<ID> and serves as the "namespace" of this extension.
+  string urn = 2;
 }
 
-// Describes a mapping between a specific extension entity and the uri where
+// Describes a mapping between a specific extension entity and the URN where
 // that extension can be found.
 message SimpleExtensionDeclaration {
   oneof mapping_type {
@@ -31,11 +32,14 @@ message SimpleExtensionDeclaration {
 
   // Describes a Type
   message ExtensionType {
-    // references the extension_uri_anchor defined for a specific extension URI.
-    uint32 extension_uri_reference = 1;
+    reserved 1;
+
+    // references the extension_urn_anchor defined for a specific extension URN.
+    uint32 extension_urn_reference = 4;
 
     // A surrogate key used in the context of a single plan to reference a
-    // specific extension type
+    // specific extension type.
+    // 0 is a valid anchor/reference, but prefer non-zero values for ergonomics.
     uint32 type_anchor = 2;
 
     // the name of the type in the defined extension YAML.
@@ -43,11 +47,14 @@ message SimpleExtensionDeclaration {
   }
 
   message ExtensionTypeVariation {
-    // references the extension_uri_anchor defined for a specific extension URI.
-    uint32 extension_uri_reference = 1;
+    reserved 1;
+
+    // references the extension_urn_anchor defined for a specific extension URN.
+    uint32 extension_urn_reference = 4;
 
     // A surrogate key used in the context of a single plan to reference a
-    // specific type variation
+    // specific type variation.
+    // Use non-zero values; 0 is reserved for the system-preferred variation.
     uint32 type_variation_anchor = 2;
 
     // the name of the type in the defined extension YAML.
@@ -55,16 +62,17 @@ message SimpleExtensionDeclaration {
   }
 
   message ExtensionFunction {
-    // references the extension_uri_anchor defined for a specific extension URI.
-    uint32 extension_uri_reference = 1;
+    reserved 1;
+
+    // references the extension_urn_anchor defined for a specific extension URN.
+    uint32 extension_urn_reference = 4;
 
     // A surrogate key used in the context of a single plan to reference a
-    // specific function
+    // specific function.
+    // 0 is a valid anchor/reference, but prefer non-zero values for ergonomics.
     uint32 function_anchor = 2;
 
-    // A simple name if there is only one impl for the function within the YAML.
-    // A compound name, referencing that includes type short names if there is
-    // more than one impl per name in the YAML.
+    // A function signature
     string name = 3;
   }
 }

@@ -200,6 +200,10 @@ jobs:
   spark-test-spark40:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
     env:
       SPARK_TESTING: true
     container: apache/gluten:centos-8-jdk17
@@ -221,7 +225,7 @@ jobs:
         run: |
           rm -rf /opt/shims/spark40
           bash .github/workflows/util/install-spark-resources.sh 4.0
-      - name: Build and Run unit test for Spark 4.0.0 with scala-2.13 (other tests)
+      - name: Build and Run unit test for Spark 4.0.0 with scala-2.13 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.13
@@ -229,20 +233,31 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta \
-          -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.SkipTest
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.SkipTest"
+          if [ "${{ matrix.group }}" = "1" ]; then
+            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta \
+            -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+          elif [ "${{ matrix.group }}" = "2" ]; then
+            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta \
+            -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
+          else
+            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta \
+            -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
+          fi
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-report
+          name: spark-test-spark40-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-test-log
+          name: spark-test-spark40-group${{ matrix.group }}-test-log
           path: |
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log
