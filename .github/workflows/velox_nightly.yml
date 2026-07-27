@@ -77,12 +77,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -115,12 +115,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -153,12 +153,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -228,12 +228,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-8-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -266,12 +266,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-8-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -305,12 +305,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-8-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -342,12 +342,12 @@ jobs:
         id: date
         run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
       - name: Download ARM JDK8 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk8-arm64-${{ steps.date.outputs.date }}
           path: package/
       - name: Download X86 JDK8 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk8-x86-${{ steps.date.outputs.date }}
           path: package/
@@ -371,12 +371,12 @@ jobs:
         id: date
         run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
       - name: Download ARM JDK17 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk17-arm64-${{ steps.date.outputs.date }}
           path: package/
       - name: Download X86 JDK17 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk17-x86-${{ steps.date.outputs.date }}
           path: package/
@@ -400,12 +400,12 @@ jobs:
         id: date
         run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
       - name: Download ARM JDK21 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk21-arm64-${{ steps.date.outputs.date }}
           path: package/
       - name: Download X86 JDK21 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk21-x86-${{ steps.date.outputs.date }}
           path: package/
@@ -465,12 +465,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-enhanced-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-7-enhanced-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
