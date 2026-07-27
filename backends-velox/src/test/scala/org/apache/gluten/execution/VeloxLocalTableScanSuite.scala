@@ -21,8 +21,6 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.execution.LocalTableScanExec
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.types._
@@ -52,6 +50,17 @@ class VeloxLocalTableScanSuite
 
   private def createDF(rows: Seq[Row], schema: StructType): DataFrame = {
     spark.createDataFrame(JArrays.asList(rows: _*), schema)
+  }
+
+  // Builds a genuine batch [[LocalTableScanExec]] via the physical planner. This avoids calling the
+  // constructor directly, whose arity differs across Spark versions (Spark 4.0+ adds a required
+  // `stream` parameter), keeping this suite compilable on every supported Spark version.
+  private def newBatchLocalTableScan(): LocalTableScanExec = {
+    val schema = StructType(Seq(StructField("id", IntegerType)))
+    val df = createDF(Seq(Row(1)), schema)
+    df.queryExecution.sparkPlan
+      .collectFirst { case l: LocalTableScanExec => l }
+      .getOrElse(fail("Expected a LocalTableScanExec in the spark plan"))
   }
 
   test("basic LocalTableScanExec with int and string columns") {
@@ -255,8 +264,7 @@ class VeloxLocalTableScanSuite
     // Simulates a plan that was serialized and shipped across an RPC boundary (e.g. an AQE
     // sub-plan), where the @transient rows field becomes null after Java serialization.
     // Offload must be skipped to avoid a downstream NPE.
-    val output = Seq(AttributeReference("id", IntegerType)())
-    val plan = LocalTableScanExec(output, Seq.empty[InternalRow])
+    val plan = newBatchLocalTableScan()
 
     // Serialize and deserialize to null out the @transient rows field.
     val baos = new ByteArrayOutputStream()
@@ -281,8 +289,7 @@ class VeloxLocalTableScanSuite
     // the shim classifies an ordinary batch plan as non-streaming (None) on every supported Spark
     // version, so the streaming guard does not falsely skip batch offload. The true streaming path
     // (getLocalTableScanStream(plan).isDefined) is exercised by Spark 4.x profiles only.
-    val output = Seq(AttributeReference("id", IntegerType)())
-    val plan = LocalTableScanExec(output, Seq.empty[InternalRow])
+    val plan = newBatchLocalTableScan()
 
     val stream = SparkShimLoader.getSparkShims.getLocalTableScanStream(plan)
     assert(
@@ -299,8 +306,7 @@ class VeloxLocalTableScanSuite
 
   test("isSupportLocalTableScanExec returns true for normal plan") {
     withSQLConf("spark.gluten.sql.columnar.localTableScan" -> "true") {
-      val output = Seq(AttributeReference("id", IntegerType)())
-      val plan = LocalTableScanExec(output, Seq.empty[InternalRow])
+      val plan = newBatchLocalTableScan()
 
       val api = BackendsApiManager.getSparkPlanExecApiInstance
       val result = api.isSupportLocalTableScanExec(plan)
@@ -310,8 +316,7 @@ class VeloxLocalTableScanSuite
 
   test("isSupportLocalTableScanExec returns false when localTableScan offload is disabled") {
     withSQLConf("spark.gluten.sql.columnar.localTableScan" -> "false") {
-      val output = Seq(AttributeReference("id", IntegerType)())
-      val plan = LocalTableScanExec(output, Seq.empty[InternalRow])
+      val plan = newBatchLocalTableScan()
 
       val api = BackendsApiManager.getSparkPlanExecApiInstance
       assert(!api.isSupportLocalTableScanExec(plan))
