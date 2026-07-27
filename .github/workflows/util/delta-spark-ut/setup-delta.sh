@@ -64,10 +64,18 @@ echo "::group::Cloning delta-io/delta @ ${DELTA_REF}"
 # destructive `rm -rf "$DELTA_DIR"` it required. `--` terminates options so a
 # DELTA_REF starting with `-` can't be misread as a git flag (this script is
 # workflow_dispatch-runnable with a user-supplied ref).
+#
+# Every step here is idempotent so a local re-run (or a CI re-run on a runner
+# that kept the workspace) resumes instead of dying: `git init` re-initializes
+# an existing repo harmlessly, but `remote add` errors out when `origin` already
+# exists, so drop it first; and `checkout -f` discards leftovers from a previous
+# partial run. Nothing worth keeping exists here yet -- the bundle jar and the
+# source patches below are applied *after* this block.
 git init -q "$DELTA_DIR"
+git -C "$DELTA_DIR" remote remove origin 2>/dev/null || true
 git -C "$DELTA_DIR" remote add origin https://github.com/delta-io/delta.git
 git -C "$DELTA_DIR" fetch -q --depth 1 origin -- "$DELTA_REF"
-git -C "$DELTA_DIR" checkout -q FETCH_HEAD
+git -C "$DELTA_DIR" checkout -qf FETCH_HEAD
 git -C "$DELTA_DIR" --no-pager log -1 --oneline
 echo "::endgroup::"
 

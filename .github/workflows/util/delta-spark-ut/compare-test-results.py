@@ -46,9 +46,12 @@ This script has three modes:
     can be (re)generated from a real run.
 
 ``aggregate`` (final job)
-    Merge every shard's ``--failures-out`` / ``--ran-out`` file into a single,
-    sorted, ready-to-commit ``known-failures.txt`` and report stale baseline
-    entries (tests no longer present in any shard). Pass ``--expected-shards N``
+    Merge every shard's ``--failures-out`` / ``--ran-out`` / ``--skipped-out``
+    file into a single, sorted, ready-to-commit ``known-failures.txt`` and report
+    stale baseline entries (tests no longer present in any shard). Skipped tests
+    are tracked apart from run tests so "stale" means *truly absent* rather than
+    merely skipped this run; they are also kept out of the now-passing set, since
+    a skipped test is not evidence of a fix. Pass ``--expected-shards N``
     to fail when fewer than ``N`` shards contributed gate lists (a shard that
     died before writing them), so an incomplete baseline is never produced.
 
@@ -454,6 +457,14 @@ def run_enforce(args):
         write_entries(args.failures_out, {e for e in failed if not sig_flaky(e)})
     if args.ran_out:
         write_entries(args.ran_out, passed | failed)
+    # Skipped tests are written separately rather than folded into --ran-out: the
+    # aggregate job derives "now-passing" from `ran - failed`, so counting a
+    # skipped test as "ran" would report it as fixed and (under fail_on_fixed)
+    # demand its removal from the baseline -- only for it to come back as a
+    # regression the next time it actually executes. Kept apart, skipped tests can
+    # still be excluded from the "stale" set, which is what they are not.
+    if args.skipped_out:
+        write_entries(args.skipped_out, skipped)
 
     write, handle = _summary_sink()
     try:
@@ -575,6 +586,13 @@ def run_aggregate(args):
     ran_files = sorted(
         glob.glob(os.path.join(args.inputs_dir, "**", "ran-*.txt"), recursive=True)
     )
+    # Optional: older gate-list artifacts predate --skipped-out, so a missing set
+    # of skipped-*.txt just degrades to the previous behaviour (no skip tracking)
+    # rather than failing the aggregation. Deliberately left out of the
+    # completeness guard below for the same reason.
+    skipped_files = sorted(
+        glob.glob(os.path.join(args.inputs_dir, "**", "skipped-*.txt"), recursive=True)
+    )
 
     # No per-shard gate lists means the artifacts were never produced or the
     # download failed (the workflow's download step is continue-on-error). Bail
@@ -619,13 +637,29 @@ def run_aggregate(args):
     union_ran = set()
     for f in ran_files:
         union_ran |= load_entries(f)
+    union_skipped = set()
+    for f in skipped_files:
+        union_skipped |= load_entries(f)
+    # A test that ran in any shard is not "skipped" overall.
+    union_skipped -= union_ran
 
     flaky_is = make_is_flaky(load_entries(args.flaky_tests))
+    prev_baseline = (
+        load_entries(args.known_failures)
+        if args.known_failures and os.path.exists(args.known_failures)
+        else set()
+    )
+    # A known failure that was merely *skipped* this run produced no failure
+    # record, so regenerating purely from union_failed would silently drop it --
+    # and it would come back as a regression the next time it actually executes.
+    # Carry those entries over; genuinely removed tests appear in neither
+    # union_ran nor union_skipped and are still dropped (reported as stale).
+    carried_skipped = prev_baseline & union_skipped
     # Exclude quarantined flaky tests from the regenerated baseline: a flaky test
     # that happened to fail this run must never be baked into known-failures.txt
     # (otherwise it would trip the now-passing gate on the next run where it
     # passes). Flaky failures are tracked in flaky-tests.txt, not the baseline.
-    baseline_body = {e for e in union_failed if not flaky_is(e)}
+    baseline_body = {e for e in (union_failed | carried_skipped) if not flaky_is(e)}
 
     header = (
         "# Known Delta-on-Gluten unit test failures.\n"
@@ -652,7 +686,7 @@ def run_aggregate(args):
 
         exit_code = 0
         if args.known_failures and os.path.exists(args.known_failures):
-            baseline = load_entries(args.known_failures)
+            baseline = prev_baseline
             if baseline:
                 regressions = {e for e in (union_failed - baseline) if not flaky_is(e)}
                 quarantined = {e for e in (union_failed - baseline) if flaky_is(e)}
@@ -661,13 +695,19 @@ def run_aggregate(args):
                     for e in (baseline & (union_ran - union_failed))
                     if not flaky_is(e)
                 }
-                stale = baseline - union_ran
+                stale = baseline - union_ran - union_skipped
+                skipped_baseline = baseline & union_skipped
                 write("| Baseline entries | {} |".format(len(baseline)))
                 write("| Regressions (global) | {} |".format(len(regressions)))
                 write("| Now-passing (global) | {} |".format(len(fixed)))
                 write(
                     "| Quarantined flaky failures (ignored) | {} |".format(
                         len(quarantined)
+                    )
+                )
+                write(
+                    "| Skipped this run (kept in baseline) | {} |".format(
+                        len(skipped_baseline)
                     )
                 )
                 write("| Stale (not seen this run) | {} |".format(len(stale)))
@@ -677,6 +717,11 @@ def run_aggregate(args):
                     write,
                     "Quarantined flaky failures -- ignored (flaky-tests.txt + flaky-error-patterns.txt)",
                     quarantined,
+                )
+                _print_block(
+                    write,
+                    "Skipped this run -- NOT stale, leave them in the baseline",
+                    skipped_baseline,
                 )
                 _print_block(write, "Stale baseline entries (suite/test gone)", stale)
                 if args.fail_on_regression and regressions:
@@ -728,6 +773,12 @@ def main(argv=None):
     )
     parser.add_argument(
         "--ran-out", help="Write this shard's run tests (pass+fail) here."
+    )
+    parser.add_argument(
+        "--skipped-out",
+        help="Write this shard's skipped tests here. Kept separate from --ran-out "
+        "so the aggregate job can tell 'skipped this run' from 'gone' without "
+        "mistaking a skip for a fix.",
     )
     parser.add_argument(
         "--fail-on-fixed",

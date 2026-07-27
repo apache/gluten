@@ -59,6 +59,13 @@ A final `aggregate` job merges every shard's results into a single, sorted,
 ready-to-commit `known-failures.txt` artifact and reports **stale** baseline
 entries (tests no longer present in any shard, e.g. after a Delta version bump).
 
+Tests reported as `<skipped>` are tracked separately from tests that actually
+ran, so a baseline entry that was merely skipped this run is **not** mistaken
+for either a fix or a stale entry: it is listed under *"Skipped this run"* and
+carried over into the regenerated baseline. (Folding skips into the run set
+would report them as now-passing and — under `fail_on_fixed` — demand their
+removal, only for them to return as regressions the next time they execute.)
+
 Because Delta shards **by suite**, every suite (and therefore every test) runs
 in exactly one shard, so per-shard enforcement sees complete suites and never
 double-counts.

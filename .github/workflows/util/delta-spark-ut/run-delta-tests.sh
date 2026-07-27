@@ -271,4 +271,5 @@ python3 "$UTIL_DIR/compare-test-results.py" \
   --flaky-error-patterns "$UTIL_DIR/flaky-error-patterns.txt" \
   --failures-out "$GITHUB_WORKSPACE/gate-out/failures-shard-${SHARD_ID}.txt" \
   --ran-out "$GITHUB_WORKSPACE/gate-out/ran-shard-${SHARD_ID}.txt" \
+  --skipped-out "$GITHUB_WORKSPACE/gate-out/skipped-shard-${SHARD_ID}.txt" \
   --fail-on-fixed "${FAIL_ON_FIXED}"
