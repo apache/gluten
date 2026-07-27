@@ -144,13 +144,23 @@ jobs:
           fi
           BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || echo "$BASE_SHA")
           echo "diff base=$BASE head=$HEAD_SHA"
+          # Fail open if the diff itself can't be computed (missing objects after a
+          # force-push race, an unfetched fork head, ...). Piping straight into
+          # `grep -q` inside an `if` would hide that: git's failure leaves grep with
+          # empty input, so the pipeline exits non-zero exactly as it does for "no
+          # match" -- and `set -e`/`pipefail` can't help, since a tested command is
+          # allowed to fail. Capture the diff first so the two cases stay distinct.
+          if ! CHANGED=$(git diff --name-only "$BASE" "$HEAD_SHA"); then
+            echo "git diff failed -> running Delta suite (fail-open)"
+            echo "run_delta=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           # High-signal Delta paths only: the Delta integration code
           # (backends-velox/src-delta*), the Delta module, and this pipeline's own
           # files. A change to general Velox/core/native code can also affect Delta
           # offload, but those are touched constantly; per-PR we skip them (the
           # nightly full run + the `run-delta-ci` label are the safety nets) to
           # keep GHA usage down.
-          if git diff --name-only "$BASE" "$HEAD_SHA" | grep -Eq \
+          if printf '%s\n' "$CHANGED" | grep -Eq \
             '^(\.github/workflows/velox_backend_x86\.yml|\.github/workflows/delta_spark_ut\.yml|\.github/workflows/util/delta-spark-ut/|gluten-delta/|backends-velox/src-delta)'; then
             echo "Delta-relevant paths changed -> running Delta suite"
             echo "run_delta=true" >> "$GITHUB_OUTPUT"
