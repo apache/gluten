@@ -80,7 +80,7 @@
     <aws-java-sdk-dynamodb.version>1.12.262</aws-java-sdk-dynamodb.version>
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
-    <arrow.version>15.0.0</arrow.version>
+    <arrow.version>19.0.0</arrow.version>
     <arrow-memory.artifact>arrow-memory-unsafe</arrow-memory.artifact>
     <hadoop.version>2.7.4</hadoop.version>
     <antlr4.version>4.9.3</antlr4.version>
