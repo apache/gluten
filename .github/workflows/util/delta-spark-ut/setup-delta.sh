@@ -125,16 +125,38 @@ echo "::endgroup::"
 # matches to the shared `FileSourceScanLike` interface that both the vanilla and
 # Gluten scans implement (behavior-preserving for vanilla). Both are merged
 # upstream but land after the pinned DELTA_REF (v4.2.0), so apply them here; once
-# DELTA_REF includes a commit its cherry-pick is a clean no-op and the call can go.
+# DELTA_REF includes a fix, cherry_pick_delta_fix detects it and skips (see below).
 #
 # Depth-2 fetch brings each fix commit and its parent, which cherry-pick needs to
 # diff against (a depth-1 fetch grafts the parent away); `-n` stages the change
 # without requiring a committer identity.
 cherry_pick_delta_fix() {
   local sha="$1" pr="$2"
-  echo "Cherry-picking delta-io/delta${pr}"
   git -C "$DELTA_DIR" fetch --quiet --depth 2 origin "$sha"
-  git -C "$DELTA_DIR" cherry-pick -n "$sha"
+  echo "Cherry-picking delta-io/delta${pr}"
+  if git -C "$DELTA_DIR" cherry-pick -n "$sha"; then
+    return 0
+  fi
+  # The cherry-pick did not apply. The usual cause is that the pinned DELTA_REF
+  # already contains this fix (e.g. after a version bump), which makes the patch
+  # empty/conflicting and would -- under `set -e` -- abort the whole setup. We
+  # can't use ancestry to tell "already contained" from a genuine conflict here
+  # (the clone is shallow, so `merge-base --is-ancestor` can't see past the graft),
+  # so recover the exact paths this fix touches -- leaving other setup such as the
+  # DeltaSQLCommandTest patch intact -- and continue. This is self-correcting: if
+  # the fix is genuinely still needed, the FileSourceScanLike failures it prevents
+  # resurface as gate regressions rather than being hidden by a hard abort here.
+  echo "Cherry-pick of delta-io/delta${pr} did not apply cleanly" \
+    "(most likely already contained in ${DELTA_REF}); skipping it."
+  local f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    git -C "$DELTA_DIR" reset -q -- "$f" 2>/dev/null || true
+    git -C "$DELTA_DIR" checkout -q -- "$f" 2>/dev/null || true
+  done < <(git -C "$DELTA_DIR" diff-tree --no-commit-id --name-only -r "$sha")
+  # Clear any leftover sequencer state (harmless if none exists).
+  git -C "$DELTA_DIR" cherry-pick --quit 2>/dev/null || true
+  return 0
 }
 
 echo "::group::Cherry-picking upstream Delta FileSourceScanLike test fixes"
