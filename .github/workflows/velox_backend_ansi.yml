@@ -131,7 +131,7 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{github.sha}}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
@@ -195,7 +195,7 @@ jobs:
           grep -B1 "<<< ERROR!" backends-velox-test-output.log || echo "(no errors)"
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-backends-velox-ansi-report
           path: |
@@ -203,7 +203,7 @@ jobs:
             backends-velox-test-output.log
       - name: Upload log files
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-backends-velox-ansi-logs
           path: |
@@ -268,7 +268,7 @@ jobs:
           grep -B1 "<<< ERROR!" spark-ut-test-output.log || echo "(no errors)"
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark-ut-ansi-report
           path: |
@@ -276,14 +276,14 @@ jobs:
             spark-ut-test-output.log
       - name: Upload offload data
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ansi-offload-spark41
           path: '**/target/ansi-offload/*.json'
           if-no-files-found: ignore
       - name: Upload log files
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark-ut-ansi-logs
           path: |
@@ -349,7 +349,7 @@ jobs:
           grep -B1 "<<< ERROR!" backends-velox-spark40-test-output.log || echo "(no errors)"
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-backends-velox-ansi-spark40-report
           path: |
@@ -357,7 +357,7 @@ jobs:
             backends-velox-spark40-test-output.log
       - name: Upload log files
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-backends-velox-ansi-spark40-logs
           path: |
@@ -422,7 +422,7 @@ jobs:
           grep -B1 "<<< ERROR!" spark-ut-spark40-test-output.log || echo "(no errors)"
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark-ut-ansi-spark40-report
           path: |
@@ -430,14 +430,14 @@ jobs:
             spark-ut-spark40-test-output.log
       - name: Upload offload data
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ansi-offload-spark40
           path: '**/target/ansi-offload/*.json'
           if-no-files-found: ignore
       - name: Upload log files
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark-ut-ansi-spark40-logs
           path: |

@@ -94,7 +94,7 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
@@ -202,13 +202,13 @@ jobs:
       #     $MVN_CMD test -Pspark-3.5 -Pbackends-velox -Pjava-17 -Piceberg -Pdelta -Ppaimon -DtagsToExclude=None \
       #     -DtagsToInclude=org.apache.gluten.tags.UDFTest
       - name: Upload test report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-test-log
           path: "**/target/*.log"

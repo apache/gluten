@@ -188,7 +188,7 @@ jobs:
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digests-vcpkg-centos-8-gcc13-${{ matrix.os }}
           path: ${{ runner.temp }}/digests/*
@@ -238,7 +238,7 @@ jobs:
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digests-vcpkg-centos-9-${{ matrix.os }}
           path: ${{ runner.temp }}/digests/*
@@ -301,7 +301,7 @@ jobs:
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digests-centos-8-${{ matrix.jdk }}-${{ matrix.os }}
           path: ${{ runner.temp }}/digests/*
@@ -364,7 +364,7 @@ jobs:
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digests-centos-9-${{ matrix.jdk }}-${{ matrix.os }}
           path: ${{ runner.temp }}/digests/*

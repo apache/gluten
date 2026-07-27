@@ -95,7 +95,7 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{github.sha}}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -666,13 +666,13 @@ jobs:
           -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-test-log
           path: |
@@ -681,7 +681,7 @@ jobs:
             **/gluten-ut/**/core.*
       - name: Upload golden files
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-golden-files
           path: /tmp/tpch-approved-plan/**
@@ -721,13 +721,13 @@ jobs:
           -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-test-log
           path: |
@@ -782,13 +782,13 @@ jobs:
           fi
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark34-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark34-group${{ matrix.group }}-test-log
           path: |
@@ -797,7 +797,7 @@ jobs:
             **/gluten-ut/**/core.*
       - name: Upload golden files
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark34-group${{ matrix.group }}-golden-files
           path: /tmp/tpch-approved-plan/**
@@ -843,13 +843,13 @@ jobs:
           fi
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark34-slow-${{ matrix.suite }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark34-slow-${{ matrix.suite }}-test-log
           path: |
@@ -905,13 +905,13 @@ jobs:
           fi
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark35-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark35-group${{ matrix.group }}-test-log
           path: |
@@ -920,7 +920,7 @@ jobs:
             **/gluten-ut/**/core.*
       - name: Upload golden files
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark35-group${{ matrix.group }}-golden-files
           path: /tmp/tpch-approved-plan/**
@@ -973,13 +973,13 @@ jobs:
           fi
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark35-scala213-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark35-scala213-group${{ matrix.group }}-test-log
           path: |
@@ -1028,13 +1028,13 @@ jobs:
           fi
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark35-slow-${{ matrix.suite }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark35-slow-${{ matrix.suite }}-test-log
           path: |
@@ -1114,13 +1114,13 @@ jobs:
           --plan $(realpath backends-velox/generated-native-benchmark/plan_12_0_*.json) \
           --data $(realpath backends-velox/generated-native-benchmark/data_12_0_*_0.parquet),$(realpath backends-velox/generated-native-benchmark/data_12_0_*_1.parquet)
       - name: Upload test report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-test-log
           path: "**/target/*.log"
@@ -1237,13 +1237,13 @@ jobs:
           fi
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark40-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark40-group${{ matrix.group }}-test-log
           path: |
@@ -1292,13 +1292,13 @@ jobs:
           fi
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark40-slow-${{ matrix.suite }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark40-slow-${{ matrix.suite }}-test-log
           path: |
@@ -1367,13 +1367,13 @@ jobs:
           fi
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark41-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark41-group${{ matrix.group }}-test-log
           path: |
@@ -1423,13 +1423,13 @@ jobs:
           fi
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark41-slow-${{ matrix.suite }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark41-slow-${{ matrix.suite }}-test-log
           path: |
