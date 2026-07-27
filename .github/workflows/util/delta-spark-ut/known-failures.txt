@@ -361,6 +361,7 @@ org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATC
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: Struct<value:BIGINT>, targetType: Struct<value:INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
+org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
