@@ -495,7 +495,7 @@
         <activeByDefault>false</activeByDefault>
       </activation>
       <properties>
-        <hadoop.version>3.4.1</hadoop.version>
+        <hadoop.version>3.5.0</hadoop.version>
       </properties>
       <dependencies>
         <dependency>
