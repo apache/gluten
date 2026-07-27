@@ -18,7 +18,7 @@ package org.apache.gluten.backendsapi.clickhouse
 
 import org.apache.gluten.GlutenBuildInfo._
 import org.apache.gluten.backendsapi._
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{ConfigRegistry, GlutenConfig}
 import org.apache.gluten.execution.ValidationResult
 import org.apache.gluten.execution.WriteFilesExecTransformer
 import org.apache.gluten.expression.WindowFunctionsBuilder
@@ -67,6 +67,7 @@ class CHBackend extends SubstraitBackend {
   override def listenerApi(): ListenerApi = new CHListenerApi
   override def ruleApi(): RuleApi = new CHRuleApi
   override def settings(): BackendSettingsApi = CHBackendSettings
+  override def confs(): Seq[ConfigRegistry] = Seq(CHConfig)
   override def convFuncOverride(): ConventionFunc.Override = new ConvFunc()
   override def costers(): Seq[LongCoster] = Seq(LegacyCoster)
 }

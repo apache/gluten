@@ -17,6 +17,7 @@
 package org.apache.gluten.component
 
 import org.apache.gluten.backend.Backend
+import org.apache.gluten.config.{ConfigRegistry, NativeConfRegistry}
 import org.apache.gluten.extension.injector.Injector
 
 import org.scalatest.BeforeAndAfterAll
@@ -165,9 +166,76 @@ class ComponentSuite extends AnyFunSuite with BeforeAndAfterAll {
       Component.sorted()
     }
   }
+
+  test("Component confs are empty by default and overridable") {
+    val a = new DummyComponent("A") {}
+    assert(a.confs().isEmpty)
+
+    val withConfs = new DummyComponent("B") {
+      override def confs(): Seq[ConfigRegistry] = Seq(ComponentSuite.EmptyComponentConfig)
+    }
+    assert(withConfs.confs() === Seq(ComponentSuite.EmptyComponentConfig))
+  }
+
+  test("Initializing a component's confs registers its native confs") {
+    val modifiableKey = "spark.gluten.test.component.dynamic.conf"
+    val staticKey = "spark.gluten.test.component.static.conf"
+    val plainKey = "spark.gluten.test.component.plain.conf"
+
+    val component = new DummyComponent("WithConfs") {
+      override def confs(): Seq[ConfigRegistry] = Seq(ComponentSuite.DummyComponentConfig)
+    }
+    // This is what `ensureAllComponentsRegistered` does for every discovered component. It is
+    // idempotent, so this test does not care whether an earlier run already initialized the object.
+    component.confs().foreach(_.ensureRegistered())
+
+    // A modifiable conf reaches both channels, a static one the backend channel only.
+    assert(NativeConfRegistry.isRuntimeKey(modifiableKey))
+    assert(NativeConfRegistry.isBackendKey(modifiableKey))
+    assert(NativeConfRegistry.isBackendKey(staticKey))
+    assert(!NativeConfRegistry.isRuntimeKey(staticKey))
+    assert(NativeConfRegistry.isBackendKey(plainKey))
+    assert(!NativeConfRegistry.isRuntimeKey(plainKey))
+
+    assert(
+      NativeConfRegistry
+        .selectRuntimeConf(Map(modifiableKey -> "8"))
+        .get(modifiableKey) === Some("8"))
+    // The component declared a default for its plain key, so native always gets the key.
+    assert(
+      NativeConfRegistry
+        .selectBackendConf(Map.empty[String, String])
+        .get(plainKey) === Some("componentDefault"))
+  }
 }
 
 object ComponentSuite {
+
+  /** A conf object declaring nothing, used where touching it must have no side effect. */
+  private object EmptyComponentConfig extends ConfigRegistry
+
+  /** A conf object as a third-party component would declare one. */
+  private object DummyComponentConfig extends ConfigRegistry {
+    val DYNAMIC =
+      buildConf("spark.gluten.test.component.dynamic.conf")
+        .passToNative()
+        .intConf
+        .createWithDefault(4)
+
+    val STATIC =
+      buildStaticConf("spark.gluten.test.component.static.conf")
+        .passToNative()
+        .booleanConf
+        .createWithDefault(false)
+
+    // A plain Spark-style key with no Gluten entry, read once at native backend init.
+    registerStaticConf("spark.gluten.test.component.plain.conf")
+      .stringConf
+      .passToNative()
+      .passDefault()
+      .createWithDefault("componentDefault")
+  }
+
   private trait DependencyBuilder extends Component {
     private val dependencyBuffer = mutable.Set[Class[_ <: Component]]()
 

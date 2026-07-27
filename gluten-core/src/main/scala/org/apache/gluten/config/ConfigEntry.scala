@@ -198,6 +198,50 @@ private[gluten] class ConfigEntryWithDefaultString[T](
   override def defaultValueString: String = _defaultVal
 }
 
+/**
+ * A config entry whose default value is computed on each read rather than fixed at declaration,
+ * mirroring Spark's `createWithDefaultFunction`. Use it when the default depends on JVM or session
+ * state, e.g. `spark.sql.session.timeZone` defaults to the current JVM default time zone.
+ */
+private[gluten] class ConfigEntryWithDefaultFunction[T](
+    _key: String,
+    _doc: String,
+    _version: String,
+    _backend: BackendType,
+    _isPublic: Boolean,
+    _isExperimental: Boolean,
+    _alternatives: List[String],
+    _valueConverter: String => T,
+    _stringConverter: T => String,
+    _defaultFunction: () => T)
+  extends ConfigEntry[T] {
+  override def key: String = _key
+
+  override def doc: String = _doc
+
+  override def version: String = _version
+
+  override def backend: BackendType = _backend
+
+  override def isPublic: Boolean = _isPublic
+
+  override def isExperimental: Boolean = _isExperimental
+
+  override def alternatives: List[String] = _alternatives
+
+  override def valueConverter: String => T = _valueConverter
+
+  override def stringConverter: T => String = _stringConverter
+
+  override def readFrom(conf: GlutenConfigProvider): T = {
+    readString(conf).map(valueConverter).getOrElse(_defaultFunction())
+  }
+
+  override def defaultValue: Option[T] = Some(_defaultFunction())
+
+  override def defaultValueString: String = stringConverter(_defaultFunction())
+}
+
 private[gluten] class ConfigEntryFallback[T](
     _key: String,
     _doc: String,
@@ -233,6 +277,70 @@ private[gluten] class ConfigEntryFallback[T](
   override def defaultValue: Option[T] = fallback.defaultValue
 
   override def defaultValueString: String = fallback.defaultValueString
+}
+
+/**
+ * A config entry that falls back to a config owned by Spark rather than by Gluten, e.g. Gluten's
+ * shuffle codec falling back to `spark.io.compression.codec`.
+ *
+ * The fallback is stated by key and default value rather than as Spark's own `ConfigEntry`, which
+ * is `private[spark]` and so cannot appear in a signature here. It is read through
+ * [[GlutenConfigProvider]] so that both keys are looked up in the same conf source, and its default
+ * value applies when neither key is set.
+ */
+private[gluten] class ConfigEntrySparkFallback[T](
+    _key: String,
+    _doc: String,
+    _version: String,
+    _backend: BackendType,
+    _isPublic: Boolean,
+    _isExperimental: Boolean,
+    _alternatives: List[String],
+    _valueConverter: String => T,
+    _stringConverter: T => String,
+    _fallbackKey: String,
+    _fallbackDefault: String)
+  extends ConfigEntry[T] {
+  override def key: String = _key
+
+  override def doc: String = _doc
+
+  override def version: String = _version
+
+  override def backend: BackendType = _backend
+
+  override def isPublic: Boolean = _isPublic
+
+  override def isExperimental: Boolean = _isExperimental
+
+  override def alternatives: List[String] = _alternatives
+
+  override def valueConverter: String => T = _valueConverter
+
+  override def stringConverter: T => String = _stringConverter
+
+  /** The key of the Spark configuration this entry falls back to. */
+  def fallbackKey: String = _fallbackKey
+
+  override def readFrom(conf: GlutenConfigProvider): T = readWithSource(conf)._1
+
+  /**
+   * Reads the value and tells whether it came from this entry's own key rather than from the Spark
+   * configuration it falls back to. A caller that treats the two differently - e.g. validating an
+   * explicitly set value against a stricter set of allowed values - should use this rather than
+   * looking the key up a second time, so the value and its origin cannot disagree.
+   */
+  def readWithSource(conf: GlutenConfigProvider): (T, Boolean) = {
+    readString(conf) match {
+      case Some(value) => (valueConverter(value), true)
+      case None =>
+        (conf.get(_fallbackKey).map(valueConverter).getOrElse(defaultValue.get), false)
+    }
+  }
+
+  override def defaultValue: Option[T] = Some(valueConverter(defaultValueString))
+
+  override def defaultValueString: String = _fallbackDefault
 }
 
 object ConfigEntry {

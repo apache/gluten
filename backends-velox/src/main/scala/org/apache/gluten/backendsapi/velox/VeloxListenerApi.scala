@@ -315,7 +315,7 @@ object VeloxListenerApi {
 
   def parseConf(conf: SparkConf, isDriver: Boolean): Map[String, String] = {
     // Ensure velox conf registered.
-    VeloxConfig.get
+    VeloxConfig.ensureRegistered()
 
     var parsed: Map[String, String] = GlutenConfigUtil.parseConfig(conf.getAll.toMap)
 

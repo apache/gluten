@@ -57,7 +57,7 @@ object CHConfig extends ConfigRegistry {
   def startWithSettingsPrefix(key: String): Boolean = key.startsWith(RUNTIME_SETTINGS)
   def removeSettingsPrefix(key: String): String = key.substring(RUNTIME_SETTINGS.length + 1)
 
-  def get: CHConfig = new CHConfig(SQLConf.get)
+  override def get: CHConfig = new CHConfig(SQLConf.get)
 
   val ENABLE_ONEPIPELINE_MERGETREE_WRITE =
     buildConf(prefixOf("mergetree.write.pipeline"))
@@ -124,6 +124,40 @@ object CHConfig extends ConfigRegistry {
       .doc("A class for the extended expressions transformer.")
       .stringConf
       .createWithDefaultString("")
+
+  // Spark / Hadoop keys without a Gluten ConfigEntry that only the ClickHouse backend consumes.
+  // They are translated into CH runtime config by `CHTransformerApi.postProcessNativeConfig`,
+  // which reads them off the native backend conf map, and are not re-read afterwards.
+  registerStaticConf("spark.hadoop.input.connect.timeout")
+    .doc("HDFS client connect timeout in milliseconds, consumed by ClickHouse backend init.")
+    .intConf
+    .passToNative()
+    .passDefault()
+    .createWithDefault(180000)
+  registerStaticConf("spark.hadoop.input.read.timeout")
+    .doc("HDFS client read timeout in milliseconds, consumed by ClickHouse backend init.")
+    .intConf
+    .passToNative()
+    .passDefault()
+    .createWithDefault(180000)
+  registerStaticConf("spark.hadoop.input.write.timeout")
+    .doc("HDFS client write timeout in milliseconds, consumed by ClickHouse backend init.")
+    .intConf
+    .passToNative()
+    .passDefault()
+    .createWithDefault(180000)
+  registerStaticConf("spark.hadoop.dfs.client.log.severity")
+    .doc("libhdfs3 log level, consumed by ClickHouse backend init.")
+    .stringConf
+    .passToNative()
+    .passDefault()
+    .createWithDefault("INFO")
+  registerStaticConf("spark.sql.orc.compression.codec")
+    .doc("ORC write compression codec, consumed by ClickHouse backend init.")
+    .stringConf
+    .passToNative()
+    .passDefault()
+    .createWithDefault("snappy")
 }
 
 class CHConfig(conf: SQLConf) extends GlutenConfig(conf) {

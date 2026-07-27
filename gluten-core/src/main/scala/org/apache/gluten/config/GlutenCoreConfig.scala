@@ -76,6 +76,13 @@ object GlutenCoreConfig extends ConfigRegistry {
   val SPARK_OFFHEAP_SIZE_KEY = "spark.memory.offHeap.size"
   val SPARK_OFFHEAP_ENABLED_KEY = "spark.memory.offHeap.enabled"
 
+  // A Spark key without a Gluten ConfigEntry, read while the native backend is initialized.
+  registerStaticConf(SPARK_OFFHEAP_ENABLED_KEY)
+    .doc("Whether Spark off-heap memory is enabled, read by native backend initialization.")
+    .booleanConf
+    .passToNative()
+    .createOptional
+
   val GLUTEN_ENABLED =
     buildConf("spark.gluten.enabled")
       .doc(
@@ -115,8 +122,9 @@ object GlutenCoreConfig extends ConfigRegistry {
       .createWithDefault(false)
 
   val COLUMNAR_OVERHEAD_SIZE_IN_BYTES =
-    buildConf("spark.gluten.memoryOverhead.size.in.bytes")
+    buildStaticConf("spark.gluten.memoryOverhead.size.in.bytes")
       .internal()
+      .passToNative()
       .doc(
         "Must provide default value since non-execution operations " +
           "(e.g. org.apache.spark.sql.Dataset#summary) doesn't propagate configurations using " +
@@ -127,6 +135,7 @@ object GlutenCoreConfig extends ConfigRegistry {
   val COLUMNAR_OFFHEAP_SIZE_IN_BYTES =
     buildConf("spark.gluten.memory.offHeap.size.in.bytes")
       .internal()
+      .passToNative()
       .doc(
         "Must provide default value since non-execution operations " +
           "(e.g. org.apache.spark.sql.Dataset#summary) doesn't propagate configurations using " +
@@ -137,6 +146,7 @@ object GlutenCoreConfig extends ConfigRegistry {
   val COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES =
     buildConf("spark.gluten.memory.task.offHeap.size.in.bytes")
       .internal()
+      .passToNative()
       .doc(
         "Must provide default value since non-execution operations " +
           "(e.g. org.apache.spark.sql.Dataset#summary) doesn't propagate configurations using " +
@@ -170,6 +180,8 @@ object GlutenCoreConfig extends ConfigRegistry {
 
   val NUM_TASK_SLOTS_PER_EXECUTOR =
     buildConf("spark.gluten.numTaskSlotsPerExecutor")
+      .passToNative()
+      .passDefault()
       .doc(
         "Must provide default value since non-execution operations " +
           "(e.g. org.apache.spark.sql.Dataset#summary) doesn't propagate configurations using " +
