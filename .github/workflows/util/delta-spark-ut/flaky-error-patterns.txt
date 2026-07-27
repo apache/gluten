@@ -40,4 +40,7 @@
 # too-large (Long.MAX_VALUE) -- RoaringBitmapArray.cpp addSafe, value <= kMaxRepresentableValue
 Delta RoaringBitmapArray row index \d+ exceeds max representable value
 # negative garbage -- DeltaBitmapAggregator.cc addRowIndex, value >= 0
-Delta bitmap row index cannot be negative: -?\d+
+# The check is `value >= 0`, so the reported index is always negative: match the
+# sign explicitly rather than `-?` so this can't quarantine an unrelated failure
+# if the message format ever changes.
+Delta bitmap row index cannot be negative: -\d+

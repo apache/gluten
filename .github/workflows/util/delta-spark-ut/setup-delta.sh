@@ -188,7 +188,10 @@ echo "::group::Force-failing memory-hog DeletionVectorsSuite 2B-row tests"
 #
 # ORDER MATTERS: keep this sed AFTER the cherry-picks above. #7105 also edits
 # DeletionVectorsSuite.scala, and git cherry-pick aborts (exit 128) when the work
-# tree has uncommitted edits to a file it touches.
+# tree has uncommitted edits to a file it touches. It also relies on the clone
+# step's `checkout -f`: the sed appends after the declaration line, so without
+# that per-run reset a re-run injects duplicate `fail` lines and trips the
+# INJECTED != 2 check below.
 DVS="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala"
 if [ ! -f "$DVS" ]; then
   echo "Expected file not found in Delta clone: $DVS" >&2

@@ -116,6 +116,14 @@ class CorruptReportError(NoReportsError):
     """
 
 
+class BadPatternError(RuntimeError):
+    """Raised when flaky-error-patterns.txt contains an uncompilable regex.
+
+    Hand-edited file, so a typo is plausible; without this the bare re.error
+    surfaces as a traceback that names neither the file nor the offending line.
+    """
+
+
 SEP = "#"
 
 
@@ -215,16 +223,25 @@ def load_patterns(path):
     (its JUnit <failure>/<error> message + stack), so a test that fails with a
     known-nondeterministic native error (e.g. the Delta DV bitmap row-index bug)
     can be quarantined by root cause instead of by exact test name.
+
+    Raises BadPatternError (naming the file, line number and pattern) if a line
+    is not a valid regex, so a typo fails the gate with an actionable message
+    rather than an opaque traceback.
     """
     patterns = []
     if not path or not os.path.exists(path):
         return patterns
     with open(path, encoding="utf-8") as fh:
-        for line in fh:
+        for lineno, line in enumerate(fh, start=1):
             line = line.rstrip("\n")
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
-            patterns.append(re.compile(line))
+            try:
+                patterns.append(re.compile(line))
+            except re.error as exc:
+                raise BadPatternError(
+                    "{}:{}: invalid regex {!r}: {}".format(path, lineno, line, exc)
+                )
     return patterns
 
 
@@ -432,7 +449,11 @@ def run_enforce(args):
         return 2
     baseline = load_entries(args.known_failures)
     name_flaky = make_is_flaky(load_entries(args.flaky_tests))
-    sig_matches = make_signature_matcher(load_patterns(args.flaky_error_patterns))
+    try:
+        sig_matches = make_signature_matcher(load_patterns(args.flaky_error_patterns))
+    except BadPatternError as exc:
+        eprint("ERROR: {}".format(exc))
+        return 2
     try:
         passed, failed, skipped, fail_texts = parse_reports(args.reports_dir)
     except NoReportsError as exc:
