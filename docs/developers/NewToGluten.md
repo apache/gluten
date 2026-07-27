@@ -428,7 +428,7 @@ The following failure may occur in GitHub CI or local tests:
 ```log
 - TPC-H q5 *** FAILED ***
   Mismatch for query 5
-  Actual Plan path: /tmp/tpch-approved-plan/v2-bhj/spark322/5.txt
-  Golden Plan path: /opt/gluten/backends-velox/target/scala-2.12/test-classes/tpch-approved-plan/v2-bhj/spark322/5.txt (VeloxTPCHSuite.scala:101)
+  Actual Plan path: /tmp/tpch-approved-plan/v1-bhj/spark35/5.txt
+  Golden Plan path: /opt/gluten/backends-velox/target/scala-2.12/test-classes/tpch-approved-plan/v1-bhj/spark35/5.txt (VeloxTPCHSuite.scala)
 ```
 To update the golden files, find the actual Gluten plans in GitHub CI Artifacts or the local `/tmp/` directory, then update the corresponding golden files in the `tpch-approved-plan/` directory.

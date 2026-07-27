@@ -18,6 +18,99 @@
 #include "JniCommon.h"
 #include <folly/system/ThreadName.h>
 
+#include "utils/ArrowStatus.h"
+
+namespace {
+
+std::unordered_map<std::string, gluten::JniInputIteratorFactory>& jniInputIteratorFactories() {
+  static std::unordered_map<std::string, gluten::JniInputIteratorFactory> factories;
+  return factories;
+}
+
+std::mutex& jniInputIteratorFactoriesMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+class JavaInputStreamAdaptor final : public arrow::io::InputStream {
+ public:
+  JavaInputStreamAdaptor(JNIEnv* env, arrow::MemoryPool* pool, jobject jniIn) : pool_(pool) {
+    // IMPORTANT: DO NOT USE LOCAL REF IN DIFFERENT THREAD
+    if (env->GetJavaVM(&vm_) != JNI_OK) {
+      std::string errorMessage = "Unable to get JavaVM instance";
+      throw gluten::GlutenException(errorMessage);
+    }
+    jniIn_ = env->NewGlobalRef(jniIn);
+  }
+
+  ~JavaInputStreamAdaptor() override {
+    try {
+      auto status = JavaInputStreamAdaptor::Close();
+      if (!status.ok()) {
+        LOG(WARNING) << __func__ << " call JavaInputStreamAdaptor::Close() failed, status:" << status.ToString();
+      }
+    } catch (std::exception& e) {
+      LOG(WARNING) << __func__ << " call JavaInputStreamAdaptor::Close() got exception:" << e.what();
+    }
+  }
+
+  // not thread safe
+  arrow::Status Close() override {
+    if (closed_) {
+      return arrow::Status::OK();
+    }
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    env->CallVoidMethod(jniIn_, gluten::getJniCommonState()->jniByteInputStreamClose());
+    checkException(env);
+    env->DeleteGlobalRef(jniIn_);
+    // Do NOT call DetachCurrentThread() here.
+    // libhdfs.so caches JNIEnv* in thread-local storage after AttachCurrentThread.
+    // If we detach, libhdfs's TLS cache becomes stale — the next HDFS call via
+    // libhdfs returns the stale env, causing SIGSEGV in jni_NewStringUTF.
+    // Daemon-attached threads are safe to leave attached; they won't block JVM shutdown.
+    closed_ = true;
+    return arrow::Status::OK();
+  }
+
+  arrow::Result<int64_t> Tell() const override {
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    jlong told = env->CallLongMethod(jniIn_, gluten::getJniCommonState()->jniByteInputStreamTell());
+    checkException(env);
+    return told;
+  }
+
+  bool closed() const override {
+    return closed_;
+  }
+
+  arrow::Result<int64_t> Read(int64_t nbytes, void* out) override {
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    jlong read = env->CallLongMethod(
+        jniIn_, gluten::getJniCommonState()->jniByteInputStreamRead(), reinterpret_cast<jlong>(out), nbytes);
+    checkException(env);
+    return read;
+  }
+
+  arrow::Result<std::shared_ptr<arrow::Buffer>> Read(int64_t nbytes) override {
+    GLUTEN_ASSIGN_OR_THROW(auto buffer, arrow::AllocateResizableBuffer(nbytes, pool_))
+    GLUTEN_ASSIGN_OR_THROW(int64_t bytes_read, Read(nbytes, buffer->mutable_data()))
+    GLUTEN_THROW_NOT_OK(buffer->Resize(bytes_read, false));
+    buffer->ZeroPadding();
+    return std::move(buffer);
+  }
+
+ private:
+  arrow::MemoryPool* pool_;
+  JavaVM* vm_;
+  jobject jniIn_;
+  bool closed_ = false;
+};
+
+} // namespace
+
 void gluten::JniCommonState::ensureInitialized(JNIEnv* env) {
   std::lock_guard<std::mutex> lockGuard(mtx_);
   if (initialized_) {
@@ -38,9 +131,41 @@ jmethodID gluten::JniCommonState::runtimeAwareCtxHandle() {
   return runtimeAwareCtxHandle_;
 }
 
+jmethodID gluten::JniCommonState::jniByteInputStreamRead() {
+  assertInitialized();
+  return jniByteInputStreamRead_;
+}
+
+jmethodID gluten::JniCommonState::jniByteInputStreamTell() {
+  assertInitialized();
+  return jniByteInputStreamTell_;
+}
+
+jmethodID gluten::JniCommonState::jniByteInputStreamClose() {
+  assertInitialized();
+  return jniByteInputStreamClose_;
+}
+
+jmethodID gluten::JniCommonState::shuffleStreamReaderNextStream() {
+  assertInitialized();
+  return shuffleStreamReaderNextStream_;
+}
+
 void gluten::JniCommonState::initialize(JNIEnv* env) {
   runtimeAwareClass_ = createGlobalClassReference(env, "Lorg/apache/gluten/runtime/RuntimeAware;");
   runtimeAwareCtxHandle_ = getMethodIdOrError(env, runtimeAwareClass_, "rtHandle", "()J");
+
+  jniByteInputStreamClass_ =
+      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/JniByteInputStream;");
+  jniByteInputStreamRead_ = getMethodIdOrError(env, jniByteInputStreamClass_, "read", "(JJ)J");
+  jniByteInputStreamTell_ = getMethodIdOrError(env, jniByteInputStreamClass_, "tell", "()J");
+  jniByteInputStreamClose_ = getMethodIdOrError(env, jniByteInputStreamClass_, "close", "()V");
+
+  shuffleStreamReaderClass_ =
+      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/ShuffleStreamReader;");
+  shuffleStreamReaderNextStream_ = getMethodIdOrError(
+      env, shuffleStreamReaderClass_, "nextStream", "()Lorg/apache/gluten/vectorized/JniByteInputStream;");
+
   JavaVM* vm;
   if (env->GetJavaVM(&vm) != JNI_OK) {
     throw gluten::GlutenException("Unable to get JavaVM instance");
@@ -56,6 +181,8 @@ void gluten::JniCommonState::close() {
   JNIEnv* env = nullptr;
   attachCurrentThreadAsDaemonOrThrow(vm_, &env);
   env->DeleteGlobalRef(runtimeAwareClass_);
+  env->DeleteGlobalRef(jniByteInputStreamClass_);
+  env->DeleteGlobalRef(shuffleStreamReaderClass_);
   closed_ = true;
 }
 
@@ -65,6 +192,59 @@ gluten::Runtime* gluten::getRuntime(JNIEnv* env, jobject runtimeAware) {
   auto ctx = reinterpret_cast<Runtime*>(ctxHandle);
   GLUTEN_CHECK(ctx != nullptr, "FATAL: resource instance should not be null.");
   return ctx;
+}
+
+void gluten::registerJniInputIteratorFactory(const std::string& runtimeKind, JniInputIteratorFactory factory) {
+  GLUTEN_CHECK(!runtimeKind.empty(), "JNI input iterator factory runtime kind must not be empty");
+  GLUTEN_CHECK(static_cast<bool>(factory), "JNI input iterator factory must not be empty");
+
+  std::lock_guard<std::mutex> lock(jniInputIteratorFactoriesMutex());
+  const bool inserted = jniInputIteratorFactories().emplace(runtimeKind, std::move(factory)).second;
+  GLUTEN_CHECK(inserted, "JNI input iterator factory already registered for " + runtimeKind);
+}
+
+std::unique_ptr<gluten::ColumnarBatchIterator>
+gluten::createJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex) {
+  GLUTEN_CHECK(runtime != nullptr, "Runtime must not be null");
+
+  JniInputIteratorFactory factory;
+  {
+    std::lock_guard<std::mutex> lock(jniInputIteratorFactoriesMutex());
+    const auto it = jniInputIteratorFactories().find(runtime->kind());
+    if (it != jniInputIteratorFactories().end()) {
+      factory = it->second;
+    }
+  }
+
+  if (factory) {
+    return factory(env, iterator, runtime, iteratorIndex);
+  }
+  return std::make_unique<JniColumnarBatchIterator>(env, iterator, runtime, iteratorIndex);
+}
+
+gluten::ShuffleStreamReader::ShuffleStreamReader(JNIEnv* env, jobject reader) {
+  if (env->GetJavaVM(&vm_) != JNI_OK) {
+    throw GlutenException("Unable to get JavaVM instance");
+  }
+  ref_ = env->NewGlobalRef(reader);
+}
+
+gluten::ShuffleStreamReader::~ShuffleStreamReader() {
+  JNIEnv* env = nullptr;
+  attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+  env->DeleteGlobalRef(ref_);
+}
+
+std::shared_ptr<arrow::io::InputStream> gluten::ShuffleStreamReader::readNextStream(arrow::MemoryPool* pool) {
+  JNIEnv* env = nullptr;
+  attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+
+  jobject jniIn = env->CallObjectMethod(ref_, getJniCommonState()->shuffleStreamReaderNextStream());
+  checkException(env);
+  if (jniIn == nullptr) {
+    return nullptr; // No more streams to read
+  }
+  return std::make_shared<JavaInputStreamAdaptor>(env, pool, jniIn);
 }
 
 std::unique_ptr<gluten::JniColumnarBatchIterator>

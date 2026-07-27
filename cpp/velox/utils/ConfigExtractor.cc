@@ -322,6 +322,10 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorConfig(
 
   hiveConfMap[facebook::velox::connector::hive::HiveConfig::kEnableFileHandleCache] =
       conf->get<bool>(kVeloxFileHandleCacheEnabled, kVeloxFileHandleCacheEnabledDefault) ? "true" : "false";
+  hiveConfMap[facebook::velox::connector::hive::HiveConfig::kNumCacheFileHandles] =
+      std::to_string(conf->get<int32_t>(kVeloxNumCacheFileHandles, kVeloxNumCacheFileHandlesDefault));
+  hiveConfMap[facebook::velox::connector::hive::HiveConfig::kFileHandleExpirationDurationMs] = std::to_string(
+      conf->get<int64_t>(kVeloxFileHandleExpirationDurationMs, kVeloxFileHandleExpirationDurationMsDefault));
   hiveConfMap[facebook::velox::connector::hive::HiveConfig::kMaxCoalescedBytes] =
       conf->get<std::string>(kMaxCoalescedBytes, "67108864"); // 64M
   hiveConfMap[facebook::velox::connector::hive::HiveConfig::kMaxCoalescedDistance] =

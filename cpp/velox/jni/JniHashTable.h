@@ -94,6 +94,9 @@ long getJoin(const std::string& hashTableId);
 // Return the exact serialized hash table size for direct buffer allocation.
 size_t serializedHashTableSize(std::shared_ptr<HashTableBuilder> builder);
 
+// Return retained bytes for the hash table, including parallel-build subtables.
+int64_t hashTableMemoryUsage(std::shared_ptr<HashTableBuilder> builder);
+
 // Serialize hash table directly to a caller-provided buffer.
 void serializeHashTableTo(std::shared_ptr<HashTableBuilder> builder, uint8_t* data, size_t size);
 

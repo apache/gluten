@@ -666,8 +666,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenFileMetadataStructSuite]
   enableSuite[GlutenParquetV1AggregatePushDownSuite]
   enableSuite[GlutenParquetV2AggregatePushDownSuite]
-    // TODO: Timestamp columns stats will lost if using int64 in parquet writer.
-    .exclude("aggregate push down - different data types")
   enableSuite[GlutenOrcV1AggregatePushDownSuite]
     .exclude("nested column: Count(nested sub-field) not push down")
   enableSuite[GlutenOrcV2AggregatePushDownSuite]
@@ -895,7 +893,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataFrameTransposeSuite]
   enableSuite[GlutenDefaultANSIValueSuite]
   enableSuite[GlutenDeprecatedDatasetAggregatorSuite]
-  // TODO: 4.x enableSuite[GlutenExplainSuite]  // 1 failure
+  disableSuite[GlutenExplainSuite](
+    "Validates Spark-specific physical plans and JVM codegen output, neither of which applies to " +
+      "Gluten's native execution plan")
   enableSuite[GlutenICUCollationsMapSuite]
   enableSuite[GlutenInlineTableParsingImprovementsSuite]
   enableSuite[GlutenJoinHintSuite]
@@ -1166,11 +1166,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenXPathFunctionsSuite]
   enableSuite[GlutenFallbackSuite]
   enableSuite[GlutenHashAggregationQuerySuite]
-    // TODO: fix on https://github.com/apache/gluten/issues/11919
-    .exclude("udaf with all data types")
   enableSuite[GlutenHashAggregationQueryWithControlledFallbackSuite]
-    // TODO: fix on https://github.com/apache/gluten/issues/11919
-    .exclude("udaf with all data types")
   enableSuite[GlutenHiveCommandSuite]
   enableSuite[GlutenHiveDDLSuite]
   enableSuite[GlutenHiveExplainSuite]
@@ -1271,10 +1267,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Dependent Batched Python UDFs and Scalar Pandas UDFs should not be combined")
     .exclude("Python UDF should not break column pruning/filter pushdown -- Parquet V2")
   enableSuite[GlutenStreamingQuerySuite]
-    // requires test resources that don't exist in Gluten repo
-    .exclude("detect escaped path and report the migration guide")
-    .exclude("ignore the escaped path check when the flag is off")
-    .excludeByPrefix("SPARK-51187")
   enableSuite[GlutenQueryExecutionSuite]
     // Rewritten to set root logger level to INFO so that logs can be parsed
     .exclude("Logging plan changes for execution")

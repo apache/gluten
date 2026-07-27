@@ -18,6 +18,7 @@ package org.apache.spark.shuffle
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.execution.StageExecutionMode
 import org.apache.gluten.vectorized.NativePartitioning
 
 import org.apache.spark.{ShuffleUtils, SparkConf, TaskContext}
@@ -157,7 +158,8 @@ object GlutenShuffleUtils {
       startPartition: Int,
       endPartition: Int,
       context: TaskContext,
-      metrics: ShuffleReadMetricsReporter): ShuffleReader[K, C] = {
+      metrics: ShuffleReadMetricsReporter,
+      executionMode: StageExecutionMode): ShuffleReader[K, C] = {
     val (blocksByAddress, canEnableBatchFetch) = {
       getReaderParam(handle, startMapIndex, endMapIndex, startPartition, endPartition)
     }
@@ -171,7 +173,8 @@ object GlutenShuffleUtils {
           blocksByAddress,
           context,
           metrics,
-          shouldBatchFetch))
+          shouldBatchFetch,
+          executionMode))
       .shuffleReader
   }
 }

@@ -33,11 +33,11 @@ package object transition {
   //
   // Extend this list in shim layer once Spark has more.
   def canPropagateConvention(plan: SparkPlan): Boolean = plan match {
-    case p: DebugExec => true
-    case p: UnionExec => true
-    case p: AQEShuffleReadExec => true
-    case p: InputAdapter => true
-    case p: WholeStageCodegenExec => true
+    case _: DebugExec => true
+    case _: UnionExec => true
+    case _: AQEShuffleReadExec => true
+    case _: InputAdapter => true
+    case _: WholeStageCodegenExec => true
     case _ => false
   }
 

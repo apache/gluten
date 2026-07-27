@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_07_16
-VELOX_ENHANCED_BRANCH=ibm-2026_07_16
+VELOX_BRANCH=dft-2026_07_24
+VELOX_ENHANCED_BRANCH=ibm-2026_07_24
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
@@ -65,6 +65,7 @@ if [ "$VELOX_HOME" == "" ]; then
 fi
 
 function process_setup_ubuntu {
+  sed -i "s|run_and_time install_arrow||g" scripts/setup-centos9.sh
   echo "Using setup script from Velox"
 }
 

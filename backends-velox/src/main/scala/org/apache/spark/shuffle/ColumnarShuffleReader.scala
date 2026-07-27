@@ -16,6 +16,7 @@
  */
 package org.apache.spark.shuffle
 
+import org.apache.gluten.execution.StageExecutionMode
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.vectorized.ColumnarBatchSerializerInstance
 
@@ -34,6 +35,7 @@ class ColumnarShuffleReader[K, C](
     blocksByAddress: Iterator[(BlockManagerId, collection.Seq[(BlockId, Long, Int)])],
     context: TaskContext,
     readMetrics: ShuffleReadMetricsReporter,
+    executionMode: StageExecutionMode,
     serializerManager: SerializerManager = SparkEnv.get.serializerManager,
     blockManager: BlockManager = SparkEnv.get.blockManager,
     mapOutputTracker: MapOutputTracker = SparkEnv.get.mapOutputTracker,
@@ -101,7 +103,8 @@ class ColumnarShuffleReader[K, C](
           .asInstanceOf[ColumnarBatchSerializerInstance]
           .deserializeStreams(
             shuffleBlockFetcherIterator,
-            shuffleBlockFetcherIterator.onComplete)
+            shuffleBlockFetcherIterator.onComplete,
+            executionMode)
           .asKeyValueIterator
       case _ =>
         val wrappedStreams = new ShuffleBlockFetcherIterator(

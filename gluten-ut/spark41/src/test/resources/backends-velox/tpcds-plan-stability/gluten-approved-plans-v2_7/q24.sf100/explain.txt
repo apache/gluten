@@ -224,7 +224,6 @@ Arguments: false
 
 (38) VeloxResizeBatches
 Input [14]: [hash_partition_key#27, s_store_name#2, s_state#4, ca_state#7, c_first_name#12, c_last_name#13, ss_item_sk#15, ss_ticket_number#18, ss_net_paid#19, i_current_price#22, i_size#23, i_color#24, i_units#25, i_manager_id#26]
-Arguments: 1024, 2147483647, 10485760
 
 (39) ColumnarExchange
 Input [14]: [hash_partition_key#27, s_store_name#2, s_state#4, ca_state#7, c_first_name#12, c_last_name#13, ss_item_sk#15, ss_ticket_number#18, ss_net_paid#19, i_current_price#22, i_size#23, i_color#24, i_units#25, i_manager_id#26]
@@ -257,7 +256,6 @@ Arguments: false
 
 (46) VeloxResizeBatches
 Input [3]: [hash_partition_key#31, sr_item_sk#28, sr_ticket_number#29]
-Arguments: 1024, 2147483647, 10485760
 
 (47) ColumnarExchange
 Input [3]: [hash_partition_key#31, sr_item_sk#28, sr_ticket_number#29]
@@ -296,7 +294,6 @@ Arguments: false
 
 (55) VeloxResizeBatches
 Input [12]: [hash_partition_key#35, c_last_name#13, c_first_name#12, s_store_name#2, ca_state#7, s_state#4, i_color#24, i_current_price#22, i_manager_id#26, i_units#25, i_size#23, sum#34]
-Arguments: 1024, 2147483647, 10485760
 
 (56) ColumnarExchange
 Input [12]: [hash_partition_key#35, c_last_name#13, c_first_name#12, s_store_name#2, ca_state#7, s_state#4, i_color#24, i_current_price#22, i_manager_id#26, i_units#25, i_size#23, sum#34]
@@ -336,7 +333,6 @@ Arguments: false
 
 (64) VeloxResizeBatches
 Input [6]: [hash_partition_key#42, c_last_name#13, c_first_name#12, s_store_name#2, sum#40, isEmpty#41]
-Arguments: 1024, 2147483647, 10485760
 
 (65) ColumnarExchange
 Input [6]: [hash_partition_key#42, c_last_name#13, c_first_name#12, s_store_name#2, sum#40, isEmpty#41]
@@ -365,7 +361,6 @@ Arguments: false
 
 (71) VeloxResizeBatches
 Input [4]: [c_last_name#13, c_first_name#12, s_store_name#2, paid#44]
-Arguments: 1024, 2147483647, 10485760
 
 (72) ColumnarExchange
 Input [4]: [c_last_name#13, c_first_name#12, s_store_name#2, paid#44]
@@ -468,7 +463,6 @@ Arguments: false
 
 (87) VeloxResizeBatches
 Input [9]: [hash_partition_key#59, s_store_name#47, s_state#48, ca_state#49, c_first_name#51, c_last_name#52, ss_item_sk#53, ss_ticket_number#56, ss_net_paid#57]
-Arguments: 1024, 2147483647, 10485760
 
 (88) ColumnarExchange
 Input [9]: [hash_partition_key#59, s_store_name#47, s_state#48, ca_state#49, c_first_name#51, c_last_name#52, ss_item_sk#53, ss_ticket_number#56, ss_net_paid#57]
@@ -501,7 +495,6 @@ Arguments: false
 
 (95) VeloxResizeBatches
 Input [7]: [hash_partition_key#66, i_item_sk#60, i_current_price#61, i_size#62, i_color#63, i_units#64, i_manager_id#65]
-Arguments: 1024, 2147483647, 10485760
 
 (96) ColumnarExchange
 Input [7]: [hash_partition_key#66, i_item_sk#60, i_current_price#61, i_size#62, i_color#63, i_units#64, i_manager_id#65]
@@ -529,7 +522,6 @@ Arguments: false
 
 (102) VeloxResizeBatches
 Input [14]: [hash_partition_key#67, s_store_name#47, s_state#48, ca_state#49, c_first_name#51, c_last_name#52, ss_item_sk#53, ss_ticket_number#56, ss_net_paid#57, i_current_price#61, i_size#62, i_color#63, i_units#64, i_manager_id#65]
-Arguments: 1024, 2147483647, 10485760
 
 (103) ColumnarExchange
 Input [14]: [hash_partition_key#67, s_store_name#47, s_state#48, ca_state#49, c_first_name#51, c_last_name#52, ss_item_sk#53, ss_ticket_number#56, ss_net_paid#57, i_current_price#61, i_size#62, i_color#63, i_units#64, i_manager_id#65]
@@ -577,7 +569,6 @@ Arguments: false
 
 (114) VeloxResizeBatches
 Input [12]: [hash_partition_key#73, c_last_name#52, c_first_name#51, s_store_name#47, ca_state#49, s_state#48, i_color#63, i_current_price#61, i_manager_id#65, i_units#64, i_size#62, sum#72]
-Arguments: 1024, 2147483647, 10485760
 
 (115) ColumnarExchange
 Input [12]: [hash_partition_key#73, c_last_name#52, c_first_name#51, s_store_name#47, ca_state#49, s_state#48, i_color#63, i_current_price#61, i_manager_id#65, i_units#64, i_size#62, sum#72]

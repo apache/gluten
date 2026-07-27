@@ -180,9 +180,10 @@ object VeloxConfig extends ConfigRegistry {
 
   val COLUMNAR_VELOX_SSD_CACHE_IO_THREADS =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.ssdCacheIOThreads")
-      .doc("The IO threads for cache promoting")
+      .doc("The number of IO threads for SSD cache read/write operations")
       .intConf
-      .createWithDefault(1)
+      .checkValue(_ > 0, "must be a positive number")
+      .createWithDefault(4)
 
   val COLUMNAR_VELOX_SSD_ODIRECT_ENABLED =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.ssdODirect")
@@ -534,10 +535,38 @@ object VeloxConfig extends ConfigRegistry {
   val COLUMNAR_VELOX_FILE_HANDLE_CACHE_ENABLED =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled")
       .doc(
-        "Disables caching if false. File handle cache should be disabled " +
-          "if files are mutable, i.e. file content may change while file path stays the same.")
+        "Enables caching of open file handles to avoid repeated open/close overhead. " +
+          "Benefits both local filesystems (fewer open/close syscalls and file descriptor " +
+          "churn) and remote filesystems/object stores (reused connection state). Should be " +
+          "disabled if files are mutable, i.e. file content may change while the file path " +
+          "stays the same.")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
+
+  val COLUMNAR_VELOX_NUM_CACHE_FILE_HANDLES =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.numCacheFileHandles")
+      .doc(
+        "Maximum number of entries in the file handle cache. Each entry holds an open " +
+          "file descriptor (local FS) or connection state (remote FS). Note that on " +
+          "local filesystems, high values may approach the OS file descriptor limit " +
+          "(ulimit -n). On remote object stores (S3, ABFS, GCS) entries represent " +
+          "network connections/sockets rather than per-file OS file descriptors, but " +
+          "they can still count toward OS resource limits (ulimit -n).")
+      .intConf
+      .checkValue(_ > 0, "must be a positive number")
+      .createWithDefault(10000)
+
+  val COLUMNAR_VELOX_FILE_HANDLE_EXPIRATION_DURATION_MS =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.fileHandleExpirationDurationMs")
+      .doc(
+        "Expiration time for cached file handles. Handles not accessed within this duration " +
+          "are evicted from the cache. This prevents stale handles from accumulating (e.g., " +
+          "expired HDFS leases, closed remote connections). Accepts a Spark duration string " +
+          "(e.g., \"10m\", \"600s\") or a plain number interpreted as milliseconds. A value " +
+          "of 0 disables TTL-based eviction.")
+      .timeConf(TimeUnit.MILLISECONDS)
+      .checkValue(_ >= 0, "must be a non-negative number (0 disables TTL-based eviction)")
+      .createWithDefaultString("10m")
 
   val DIRECTORY_SIZE_GUESS =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.directorySizeGuess")

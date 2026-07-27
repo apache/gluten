@@ -325,7 +325,6 @@ Arguments: false
 
 (43) VeloxResizeBatches
 Input [4]: [hash_partition_key#28, brand_id#25, class_id#26, category_id#27]
-Arguments: 1024, 2147483647, 10485760
 
 (44) ColumnarExchange
 Input [4]: [hash_partition_key#28, brand_id#25, class_id#26, category_id#27]
@@ -544,7 +543,6 @@ Arguments: false
 
 (96) VeloxResizeBatches
 Input [7]: [hash_partition_key#49, i_brand_id#38, i_class_id#39, i_category_id#40, sum#46, isEmpty#47, count#48]
-Arguments: 1024, 2147483647, 10485760
 
 (97) ColumnarExchange
 Input [7]: [hash_partition_key#49, i_brand_id#38, i_class_id#39, i_category_id#40, sum#46, isEmpty#47, count#48]
@@ -657,7 +655,6 @@ Arguments: false
 
 (123) VeloxResizeBatches
 Input [7]: [hash_partition_key#76, i_brand_id#65, i_class_id#66, i_category_id#67, sum#73, isEmpty#74, count#75]
-Arguments: 1024, 2147483647, 10485760
 
 (124) ColumnarExchange
 Input [7]: [hash_partition_key#76, i_brand_id#65, i_class_id#66, i_category_id#67, sum#73, isEmpty#74, count#75]
@@ -770,7 +767,6 @@ Arguments: false
 
 (150) VeloxResizeBatches
 Input [7]: [hash_partition_key#99, i_brand_id#88, i_class_id#89, i_category_id#90, sum#96, isEmpty#97, count#98]
-Arguments: 1024, 2147483647, 10485760
 
 (151) ColumnarExchange
 Input [7]: [hash_partition_key#99, i_brand_id#88, i_class_id#89, i_category_id#90, sum#96, isEmpty#97, count#98]
@@ -831,7 +827,6 @@ Arguments: false
 
 (165) VeloxResizeBatches
 Input [9]: [hash_partition_key#116, channel#105, i_brand_id#106, i_class_id#107, i_category_id#108, spark_grouping_id#109, sum#113, isEmpty#114, sum#115]
-Arguments: 1024, 2147483647, 10485760
 
 (166) ColumnarExchange
 Input [9]: [hash_partition_key#116, channel#105, i_brand_id#106, i_class_id#107, i_category_id#108, spark_grouping_id#109, sum#113, isEmpty#114, sum#115]
@@ -1010,7 +1005,6 @@ Arguments: false
 
 (201) VeloxResizeBatches
 Input [2]: [sum#142, count#143]
-Arguments: 1024, 2147483647, 10485760
 
 (202) ColumnarExchange
 Input [2]: [sum#142, count#143]

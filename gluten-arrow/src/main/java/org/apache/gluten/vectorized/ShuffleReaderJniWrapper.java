@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.vectorized;
 
+import org.apache.gluten.execution.CPUStageMode;
 import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.RuntimeAware;
 
@@ -69,7 +70,12 @@ public class ShuffleReaderJniWrapper implements RuntimeAware {
       boolean enableGpuAsyncReader,
       long gpuAsyncReaderMaxPrefetchBytes);
 
-  public native long read(long shuffleReaderHandle, ShuffleStreamReader streamReader);
+  public native long read(
+      long shuffleReaderHandle, ShuffleStreamReader streamReader, int executionMode);
+
+  public long read(long shuffleReaderHandle, ShuffleStreamReader streamReader) {
+    return read(shuffleReaderHandle, streamReader, CPUStageMode.id());
+  }
 
   public native void populateMetrics(long shuffleReaderHandle, ShuffleReaderMetrics metrics);
 

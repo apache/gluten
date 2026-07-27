@@ -181,7 +181,8 @@ case class BroadcastHashJoinExecTransformer(
         metrics.get("buildHashTableTime"),
         metrics.get("serializeHashTableTime"),
         metrics.get("deserializeHashTableTime"),
-        metrics.get("serializedHashTableSize")
+        metrics.get("serializedHashTableSize"),
+        metrics.get("hashTableMemorySize")
       )
 
     // Check the type of broadcast relation to determine the approach
@@ -265,7 +266,8 @@ case class BroadcastHashJoinContext(
     buildHashTableTimeMetric: Option[SQLMetric] = None,
     serializeHashTableTimeMetric: Option[SQLMetric] = None,
     deserializeHashTableTimeMetric: Option[SQLMetric] = None,
-    serializedHashTableSizeMetric: Option[SQLMetric] = None) {
+    serializedHashTableSizeMetric: Option[SQLMetric] = None,
+    hashTableMemorySizeMetric: Option[SQLMetric] = None) {
   def droppedDuplicates: Boolean = {
     !hasMixedFiltCondition && (
       substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI ||

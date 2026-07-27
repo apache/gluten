@@ -180,6 +180,11 @@ size_t serializedHashTableSize(std::shared_ptr<HashTableBuilder> builder) {
   return HashTableSerializer::serializedSize<true>(hashTableTrue);
 }
 
+int64_t hashTableMemoryUsage(std::shared_ptr<HashTableBuilder> builder) {
+  VELOX_CHECK_NOT_NULL(builder, "Hash table builder cannot be null");
+  return builder->hashTableMemoryUsage();
+}
+
 void serializeHashTableTo(std::shared_ptr<HashTableBuilder> builder, uint8_t* data, size_t size) {
   VELOX_CHECK_NOT_NULL(builder, "Hash table builder cannot be null");
   VELOX_CHECK_NOT_NULL(data, "Serialized buffer cannot be null");

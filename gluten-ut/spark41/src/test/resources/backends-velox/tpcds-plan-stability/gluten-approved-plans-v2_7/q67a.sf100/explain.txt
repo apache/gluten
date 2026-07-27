@@ -199,7 +199,6 @@ Arguments: false
 
 (17) VeloxResizeBatches
 Input [8]: [hash_partition_key#13, ss_item_sk#1, ss_quantity#3, ss_sales_price#4, d_year#8, d_moy#9, d_qoy#10, s_store_id#12]
-Arguments: 1024, 2147483647, 10485760
 
 (18) ColumnarExchange
 Input [8]: [hash_partition_key#13, ss_item_sk#1, ss_quantity#3, ss_sales_price#4, d_year#8, d_moy#9, d_qoy#10, s_store_id#12]
@@ -232,7 +231,6 @@ Arguments: false
 
 (25) VeloxResizeBatches
 Input [6]: [hash_partition_key#19, i_item_sk#14, i_brand#15, i_class#16, i_category#17, i_product_name#18]
-Arguments: 1024, 2147483647, 10485760
 
 (26) ColumnarExchange
 Input [6]: [hash_partition_key#19, i_item_sk#14, i_brand#15, i_class#16, i_category#17, i_product_name#18]
@@ -271,7 +269,6 @@ Arguments: false
 
 (34) VeloxResizeBatches
 Input [11]: [hash_partition_key#25, i_category#17, i_class#16, i_brand#15, i_product_name#18, d_year#8, d_qoy#10, d_moy#9, s_store_id#12, sum#23, isEmpty#24]
-Arguments: 1024, 2147483647, 10485760
 
 (35) ColumnarExchange
 Input [11]: [hash_partition_key#25, i_category#17, i_class#16, i_brand#15, i_product_name#18, d_year#8, d_qoy#10, d_moy#9, s_store_id#12, sum#23, isEmpty#24]
@@ -335,7 +332,6 @@ Arguments: false
 
 (49) VeloxResizeBatches
 Input [10]: [hash_partition_key#53, i_category#36, i_class#37, i_brand#38, i_product_name#39, d_year#40, d_qoy#41, d_moy#42, sum#51, isEmpty#52]
-Arguments: 1024, 2147483647, 10485760
 
 (50) ColumnarExchange
 Input [10]: [hash_partition_key#53, i_category#36, i_class#37, i_brand#38, i_product_name#39, d_year#40, d_qoy#41, d_moy#42, sum#51, isEmpty#52]
@@ -399,7 +395,6 @@ Arguments: false
 
 (64) VeloxResizeBatches
 Input [9]: [hash_partition_key#74, i_category#57, i_class#58, i_brand#59, i_product_name#60, d_year#61, d_qoy#62, sum#72, isEmpty#73]
-Arguments: 1024, 2147483647, 10485760
 
 (65) ColumnarExchange
 Input [9]: [hash_partition_key#74, i_category#57, i_class#58, i_brand#59, i_product_name#60, d_year#61, d_qoy#62, sum#72, isEmpty#73]
@@ -463,7 +458,6 @@ Arguments: false
 
 (79) VeloxResizeBatches
 Input [8]: [hash_partition_key#96, i_category#79, i_class#80, i_brand#81, i_product_name#82, d_year#83, sum#94, isEmpty#95]
-Arguments: 1024, 2147483647, 10485760
 
 (80) ColumnarExchange
 Input [8]: [hash_partition_key#96, i_category#79, i_class#80, i_brand#81, i_product_name#82, d_year#83, sum#94, isEmpty#95]
@@ -527,7 +521,6 @@ Arguments: false
 
 (94) VeloxResizeBatches
 Input [7]: [hash_partition_key#119, i_category#102, i_class#103, i_brand#104, i_product_name#105, sum#117, isEmpty#118]
-Arguments: 1024, 2147483647, 10485760
 
 (95) ColumnarExchange
 Input [7]: [hash_partition_key#119, i_category#102, i_class#103, i_brand#104, i_product_name#105, sum#117, isEmpty#118]
@@ -591,7 +584,6 @@ Arguments: false
 
 (109) VeloxResizeBatches
 Input [6]: [hash_partition_key#143, i_category#126, i_class#127, i_brand#128, sum#141, isEmpty#142]
-Arguments: 1024, 2147483647, 10485760
 
 (110) ColumnarExchange
 Input [6]: [hash_partition_key#143, i_category#126, i_class#127, i_brand#128, sum#141, isEmpty#142]
@@ -655,7 +647,6 @@ Arguments: false
 
 (124) VeloxResizeBatches
 Input [5]: [hash_partition_key#168, i_category#151, i_class#152, sum#166, isEmpty#167]
-Arguments: 1024, 2147483647, 10485760
 
 (125) ColumnarExchange
 Input [5]: [hash_partition_key#168, i_category#151, i_class#152, sum#166, isEmpty#167]
@@ -719,7 +710,6 @@ Arguments: false
 
 (139) VeloxResizeBatches
 Input [4]: [hash_partition_key#194, i_category#177, sum#192, isEmpty#193]
-Arguments: 1024, 2147483647, 10485760
 
 (140) ColumnarExchange
 Input [4]: [hash_partition_key#194, i_category#177, sum#192, isEmpty#193]
@@ -804,7 +794,6 @@ Arguments: false
 
 (160) VeloxResizeBatches
 Input [10]: [hash_partition_key#227, i_category#27, i_class#28, i_brand#29, i_product_name#30, d_year#31, d_qoy#32, d_moy#33, s_store_id#34, sumsales#35]
-Arguments: 1024, 2147483647, 10485760
 
 (161) ColumnarExchange
 Input [10]: [hash_partition_key#227, i_category#27, i_class#28, i_brand#29, i_product_name#30, d_year#31, d_qoy#32, d_moy#33, s_store_id#34, sumsales#35]

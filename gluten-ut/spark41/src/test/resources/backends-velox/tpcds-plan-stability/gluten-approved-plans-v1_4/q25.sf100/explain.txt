@@ -133,7 +133,6 @@ Arguments: false
 
 (17) VeloxResizeBatches
 Input [7]: [hash_partition_key#12, ss_item_sk#1, ss_customer_sk#2, ss_ticket_number#4, ss_net_profit#5, s_store_id#10, s_store_name#11]
-Arguments: 1024, 2147483647, 10485760
 
 (18) ColumnarExchange
 Input [7]: [hash_partition_key#12, ss_item_sk#1, ss_customer_sk#2, ss_ticket_number#4, ss_net_profit#5, s_store_id#10, s_store_name#11]
@@ -166,7 +165,6 @@ Arguments: false
 
 (25) VeloxResizeBatches
 Input [4]: [hash_partition_key#16, i_item_sk#13, i_item_id#14, i_item_desc#15]
-Arguments: 1024, 2147483647, 10485760
 
 (26) ColumnarExchange
 Input [4]: [hash_partition_key#16, i_item_sk#13, i_item_id#14, i_item_desc#15]
@@ -194,7 +192,6 @@ Arguments: false
 
 (32) VeloxResizeBatches
 Input [9]: [hash_partition_key#17, ss_item_sk#1, ss_customer_sk#2, ss_ticket_number#4, ss_net_profit#5, s_store_id#10, s_store_name#11, i_item_id#14, i_item_desc#15]
-Arguments: 1024, 2147483647, 10485760
 
 (33) ColumnarExchange
 Input [9]: [hash_partition_key#17, ss_item_sk#1, ss_customer_sk#2, ss_ticket_number#4, ss_net_profit#5, s_store_id#10, s_store_name#11, i_item_id#14, i_item_desc#15]
@@ -243,7 +240,6 @@ Arguments: false
 
 (44) VeloxResizeBatches
 Input [5]: [hash_partition_key#25, sr_item_sk#18, sr_customer_sk#19, sr_ticket_number#20, sr_net_loss#21]
-Arguments: 1024, 2147483647, 10485760
 
 (45) ColumnarExchange
 Input [5]: [hash_partition_key#25, sr_item_sk#18, sr_customer_sk#19, sr_ticket_number#20, sr_net_loss#21]
@@ -271,7 +267,6 @@ Arguments: false
 
 (51) VeloxResizeBatches
 Input [9]: [hash_partition_key#26, ss_net_profit#5, s_store_id#10, s_store_name#11, i_item_id#14, i_item_desc#15, sr_item_sk#18, sr_customer_sk#19, sr_net_loss#21]
-Arguments: 1024, 2147483647, 10485760
 
 (52) ColumnarExchange
 Input [9]: [hash_partition_key#26, ss_net_profit#5, s_store_id#10, s_store_name#11, i_item_id#14, i_item_desc#15, sr_item_sk#18, sr_customer_sk#19, sr_net_loss#21]
@@ -320,7 +315,6 @@ Arguments: false
 
 (63) VeloxResizeBatches
 Input [4]: [hash_partition_key#32, cs_bill_customer_sk#27, cs_item_sk#28, cs_net_profit#29]
-Arguments: 1024, 2147483647, 10485760
 
 (64) ColumnarExchange
 Input [4]: [hash_partition_key#32, cs_bill_customer_sk#27, cs_item_sk#28, cs_net_profit#29]
@@ -359,7 +353,6 @@ Arguments: false
 
 (72) VeloxResizeBatches
 Input [8]: [hash_partition_key#42, i_item_id#14, i_item_desc#15, s_store_id#10, s_store_name#11, sum#39, sum#40, sum#41]
-Arguments: 1024, 2147483647, 10485760
 
 (73) ColumnarExchange
 Input [8]: [hash_partition_key#42, i_item_id#14, i_item_desc#15, s_store_id#10, s_store_name#11, sum#39, sum#40, sum#41]

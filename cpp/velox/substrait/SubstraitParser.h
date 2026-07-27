@@ -18,13 +18,9 @@
 #pragma once
 
 #include "substrait/algebra.pb.h"
-#include "substrait/capabilities.pb.h"
 #include "substrait/extensions/extensions.pb.h"
-#include "substrait/function.pb.h"
-#include "substrait/parameterized_types.pb.h"
 #include "substrait/plan.pb.h"
 #include "substrait/type.pb.h"
-#include "substrait/type_expressions.pb.h"
 
 #include <google/protobuf/wrappers.pb.h>
 

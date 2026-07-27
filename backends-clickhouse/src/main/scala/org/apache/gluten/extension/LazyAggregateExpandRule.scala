@@ -69,6 +69,7 @@ case class LazyAggregateExpandRule(session: SparkSession) extends Rule[SparkPlan
               ExpandExecTransformer(projections, output, child)),
             _,
             _,
+            _,
             _
           ) =>
         logDebug(s"xxx match plan:$shuffle")
@@ -114,6 +115,7 @@ case class LazyAggregateExpandRule(session: SparkSession) extends Rule[SparkPlan
               _,
               resultExpressions,
               FilterExecTransformer(_, ExpandExecTransformer(projections, output, child))),
+            _,
             _,
             _,
             _
