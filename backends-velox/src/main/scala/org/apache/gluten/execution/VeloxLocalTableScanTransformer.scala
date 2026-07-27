@@ -64,7 +64,7 @@ case class VeloxLocalTableScanTransformer(
       }
     }
 
-    logInfo(
+    logDebug(
       s"local_table_scan native validation succeeded: " +
         s"schema=${schema.fields.map(_.dataType.simpleString).mkString(",")}, " +
         s"appId=${sparkContext.applicationId}")
@@ -99,6 +99,16 @@ case class VeloxLocalTableScanTransformer(
     val localSchema = this.schema
     val batchSize = GlutenConfig.get.maxBatchSize
     val batchBytes = VeloxConfig.get.veloxPreferredBatchBytes
+
+    // `rows` is @transient and becomes null if this transformer is deserialized (e.g. an AQE
+    // sub-plan shipped across an RPC boundary). Offload is guarded against null rows in
+    // VeloxSparkPlanExecApi.isSupportLocalTableScanExec, so reaching execution with null rows
+    // indicates an inconsistent plan; fail fast with a clear message rather than a bare NPE.
+    if (rows == null) {
+      throw new IllegalStateException(
+        "VeloxLocalTableScanTransformer.rows is null (deserialized plan cannot be executed " +
+          "natively); this plan should not have been offloaded")
+    }
 
     if (rows.isEmpty) {
       sparkContext.emptyRDD[ColumnarBatch]

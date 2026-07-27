@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
@@ -272,6 +273,28 @@ class VeloxLocalTableScanSuite
     val api = BackendsApiManager.getSparkPlanExecApiInstance
     val result = api.isSupportLocalTableScanExec(deserialized)
     assert(!result, "Deserialized plan with null transient rows should not be offloaded")
+  }
+
+  test("getLocalTableScanStream returns None for a batch LocalTableScanExec (no streaming skip)") {
+    // The streaming-source skip in isSupportLocalTableScanExec only triggers on Spark 4.0+, where
+    // LocalTableScanExec may carry a streaming SparkDataStream. This version-agnostic test asserts
+    // the shim classifies an ordinary batch plan as non-streaming (None) on every supported Spark
+    // version, so the streaming guard does not falsely skip batch offload. The true streaming path
+    // (getLocalTableScanStream(plan).isDefined) is exercised by Spark 4.x profiles only.
+    val output = Seq(AttributeReference("id", IntegerType)())
+    val plan = LocalTableScanExec(output, Seq.empty[InternalRow])
+
+    val stream = SparkShimLoader.getSparkShims.getLocalTableScanStream(plan)
+    assert(
+      stream.isEmpty,
+      "A batch LocalTableScanExec must not be classified as a streaming source")
+
+    withSQLConf("spark.gluten.sql.columnar.localTableScan" -> "true") {
+      val api = BackendsApiManager.getSparkPlanExecApiInstance
+      assert(
+        api.isSupportLocalTableScanExec(plan),
+        "Batch plan must not be skipped by the streaming-source guard")
+    }
   }
 
   test("isSupportLocalTableScanExec returns true for normal plan") {
