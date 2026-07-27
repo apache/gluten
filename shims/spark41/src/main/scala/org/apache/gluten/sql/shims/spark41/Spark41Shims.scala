@@ -66,6 +66,9 @@ import scala.reflect.ClassTag
 
 class Spark41Shims extends SparkShims {
 
+  override def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] =
+    plan.stream
+
   override def scalarExpressionMappings: Seq[Sig] = {
     Seq(
       Sig[Empty2Null](ExpressionNames.EMPTY2NULL),
