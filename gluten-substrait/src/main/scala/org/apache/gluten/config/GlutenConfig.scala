@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.config
 
+import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.shuffle.SupportsColumnarShuffle
 
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
@@ -53,12 +54,6 @@ case object RssSortShuffleWriterType extends ShuffleWriterType {
   override val requiresResizingShuffleOutput: Boolean = false
 }
 
-case object GpuHashShuffleWriterType extends ShuffleWriterType {
-  override val name: String = ReservedKeys.GLUTEN_GPU_HASH_SHUFFLE_WRITER
-  override val requiresResizingShuffleInput: Boolean = true
-  override val requiresResizingShuffleOutput: Boolean = true
-}
-
 /*
  * Note: Gluten configiguration.md is automatically generated from this code.
  * Make sure to run dev/gen-all-config-docs.sh after making changes to this file.
@@ -74,6 +69,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def enableNativeValidation: Boolean = getConf(NATIVE_VALIDATION_ENABLED)
 
   def enableColumnarBatchScan: Boolean = getConf(COLUMNAR_BATCHSCAN_ENABLED)
+
+  def batchScanMaxInputPartitions: Int = getConf(COLUMNAR_BATCHSCAN_MAX_INPUT_PARTITIONS)
 
   def enableColumnarFileScan: Boolean = getConf(COLUMNAR_FILESCAN_ENABLED)
 
@@ -325,6 +322,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableFallbackReport: Boolean = getConf(FALLBACK_REPORTER_ENABLED)
 
+  def enablePassStageInputStats: Boolean = getConf(GLUTEN_PASS_STAGE_INPUT_STATS_ENABLED)
+
   def failOnFallback: Boolean = getConf(FALLBACK_FAIL_ON_FALLBACK)
 
   def debug: Boolean = getConf(DEBUG_ENABLED)
@@ -532,10 +531,18 @@ object GlutenConfig extends ConfigRegistry {
     "spark.gluten.sql.columnar.backend.velox.columnarBatchSerializerCompression"
   )
 
+  private def backendSettings(backendName: String) = {
+    // Only one backend is loaded in a running Gluten session. Use backend settings hooks to avoid
+    // hard-coding backend-specific configs in common code.
+    BackendsApiManager.getSettings
+  }
+
   /** Get dynamic configs. */
   def getNativeSessionConf(backendName: String, conf: Map[String, String]): Map[String, String] = {
+    val settings = backendSettings(backendName)
     val nativeConfMap = mutable.Map[String, String](conf.filter {
-      case (key, _) => nativeKeys.contains(key)
+      case (key, _) =>
+        nativeKeys.contains(key) || settings.extraNativeSessionConfKeys().contains(key)
     }.toSeq: _*)
 
     Seq(
@@ -642,13 +649,16 @@ object GlutenConfig extends ConfigRegistry {
       ("spark.hadoop.dfs.client.log.severity", "INFO"),
       ("spark.sql.orc.compression.codec", "snappy"),
       ("spark.sql.decimalOperations.allowPrecisionLoss", "true"),
-      ("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled", "false"),
+      ("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled", "true"),
+      ("spark.gluten.sql.columnar.backend.velox.numCacheFileHandles", "10000"),
+      ("spark.gluten.sql.columnar.backend.velox.fileHandleExpirationDurationMs", "600000"),
       ("spark.gluten.velox.awsSdkLogLevel", "FATAL"),
       ("spark.gluten.velox.s3UseProxyFromEnv", "false"),
       ("spark.gluten.velox.s3PayloadSigningPolicy", "Never"),
       (SQLConf.SESSION_LOCAL_TIMEZONE.key, SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString)
     ).foreach { case (k, defaultValue) => nativeConfMap.put(k, conf.getOrElse(k, defaultValue)) }
 
+    val settings = backendSettings(backendName)
     val keys = Set(
       DEBUG_ENABLED.key,
       // datasource config
@@ -666,7 +676,9 @@ object GlutenConfig extends ConfigRegistry {
       COLUMNAR_CUDF_ENABLED.key
     )
 
-    nativeConfMap ++= conf.filter { case (k, _) => keys.contains(k) }
+    nativeConfMap ++= conf.filter {
+      case (k, _) => keys.contains(k) || settings.extraNativeBackendConfKeys().contains(k)
+    }
 
     val confPrefix = prefixOf(backendName)
     val s3Prefix = HADOOP_PREFIX + S3A_PREFIX
@@ -839,6 +851,14 @@ object GlutenConfig extends ConfigRegistry {
       .doc("Enable or disable columnar batchscan.")
       .booleanConf
       .createWithDefault(true)
+
+  val COLUMNAR_BATCHSCAN_MAX_INPUT_PARTITIONS =
+    buildConf("spark.gluten.sql.columnar.batchscan.maxInputPartitions")
+      .doc(
+        "Maximum number of Spark task partitions for supported DataSource V2 batch scans. ")
+      .intConf
+      .checkValue(_ > 0, s"must be positive.")
+      .createWithDefault(Int.MaxValue)
 
   val COLUMNAR_FILESCAN_ENABLED =
     buildConf("spark.gluten.sql.columnar.filescan")
@@ -1431,6 +1451,15 @@ object GlutenConfig extends ConfigRegistry {
       .doc("When true, enable fallback reporter rule to print fallback reason")
       .booleanConf
       .createWithDefault(true)
+
+  val GLUTEN_PASS_STAGE_INPUT_STATS_ENABLED =
+    buildConf("spark.gluten.sql.enablePassStageInputStats")
+      .internal()
+      .doc("When true, pass stage input stats (scan/shuffle/broadcast) to the native engine " +
+        "as estimated row size hints. Disabled by default and no-op for backends that do not " +
+        "consume the hints.")
+      .booleanConf
+      .createWithDefault(false)
 
   val FALLBACK_FAIL_ON_FALLBACK =
     buildConf("spark.gluten.sql.columnar.failOnFallback")

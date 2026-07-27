@@ -47,6 +47,7 @@ import org.apache.spark.sql.sources.{GlutenBucketedReadWithoutHiveSupportSuite, 
 // scalastyle:off line.size.limit
 
 class VeloxTestSettings extends BackendTestSettings {
+  import SuiteSettings._
   enableSuite[GlutenStringFunctionsSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenDataSourceV2DataFrameSessionCatalogSuite]
@@ -625,9 +626,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
     .exclude("create a table, drop it and create another one with the same name")
   enableSuite[GlutenDDLSourceLoadSuite]
-  enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite]
-    .disable(
-      "DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type")
+  disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
+    "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
   enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuiteAE]
   enableSuite[GlutenExternalCommandRunnerSuite]
   enableSuite[GlutenFilteredScanSuite]
@@ -955,6 +955,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenWindowQuerySuite]
   enableSuite[GlutenCollapseProjectExecTransformerSuite]
   enableSuite[GlutenSparkSessionExtensionSuite]
+    .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenGroupBasedDeleteFromTableSuite]
   enableSuite[GlutenDeltaBasedDeleteFromTableSuite]
   enableSuite[GlutenDataFrameToSchemaSuite]

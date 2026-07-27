@@ -365,7 +365,7 @@ class GlutenClickHouseMergeTreeWriteOnHDFSWithRocksDBMetaSuite extends CreateMer
                  |USING clickhouse
                  |PARTITIONED BY (l_returnflag)
                  |CLUSTERED BY (l_orderkey)
-                 |${if (spark32) "" else "SORTED BY (l_partkey)"} INTO 4 BUCKETS
+                 |SORTED BY (l_partkey) INTO 4 BUCKETS
                  |LOCATION '$remotePath/lineitem_mergetree_bucket_hdfs'
                  |TBLPROPERTIES (storage_policy='__hdfs_main_rocksdb')
                  |""".stripMargin)
@@ -388,17 +388,10 @@ class GlutenClickHouseMergeTreeWriteOnHDFSWithRocksDBMetaSuite extends CreateMer
         val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
         assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
         assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isDefined)
-        if (spark32) {
-          assert(
-            ClickHouseTableV2
-              .getTable(fileIndex.deltaLog)
-              .orderByKey === StorageMeta.DEFAULT_ORDER_BY_KEY)
-        } else {
-          assertResult("l_partkey")(
-            ClickHouseTableV2
-              .getTable(fileIndex.deltaLog)
-              .orderByKey)
-        }
+        assertResult("l_partkey")(
+          ClickHouseTableV2
+            .getTable(fileIndex.deltaLog)
+            .orderByKey)
         assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).primaryKey.isEmpty)
         assertResult(1)(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.size)
         assertResult("l_returnflag")(

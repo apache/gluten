@@ -379,7 +379,8 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
         wsCtx.substraitContext.registeredJoinParams,
         wsCtx.substraitContext.registeredAggregationParams
       ),
-      wsCtx.enableCudf
+      wsCtx.enableCudf,
+      wsCtx
     )
 
     val allInputPartitions = leafTransformers.map(_.getPartitions)
@@ -434,7 +435,8 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
           wsCtx.substraitContext.registeredJoinParams,
           wsCtx.substraitContext.registeredAggregationParams
         ),
-        materializeInput
+        materializeInput,
+        inputRDDs.getPartitionLength
       )
     }
   }
@@ -487,11 +489,15 @@ class ColumnarInputRDDsWrapper(columnarInputRDDs: Seq[RDD[ColumnarBatch]]) exten
   }
 
   def getPartitionLength: Int = {
-    assert(columnarInputRDDs.nonEmpty)
-    val nonBroadcastRDD = columnarInputRDDs.find(!_.isInstanceOf[BroadcastBuildSideRDD])
-    assert(nonBroadcastRDD.isDefined)
-    nonBroadcastRDD.get.partitions.length
+    getPartitionLengthOption.getOrElse {
+      throw new IllegalStateException("No non-broadcast input RDD is available")
+    }
   }
+
+  def getPartitionLengthOption: Option[Int] =
+    columnarInputRDDs
+      .find(!_.isInstanceOf[BroadcastBuildSideRDD])
+      .map(_.partitions.length)
 
   def getIterators(
       inputColumnarRDDPartitions: Seq[Partition],

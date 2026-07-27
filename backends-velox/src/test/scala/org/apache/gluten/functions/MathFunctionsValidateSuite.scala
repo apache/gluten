@@ -248,6 +248,17 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("ln") {
+    runQueryAndCompare("SELECT ln(l_orderkey) from lineitem limit 1") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Verify null semantics: ln(0) and ln(-1) must return null, not -Infinity/NaN
+    compareResultsAgainstVanillaSpark(
+      "SELECT ln(0), ln(-1), ln(cast(null as double))",
+      true,
+      { _ => })
+  }
+
   test("log") {
     runQueryAndCompare("SELECT log(10, l_orderkey) from lineitem limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
@@ -295,6 +306,12 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("radians") {
+    runQueryAndCompare("SELECT radians(l_orderkey) from lineitem limit 1") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
   test("rint") {
     withTempPath {
       path =>
@@ -328,6 +345,24 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
 
   test("shiftleft") {
     runQueryAndCompare("SELECT shiftleft(int_field1, 1) from datatab limit 1") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("sin") {
+    runQueryAndCompare("SELECT sin(l_orderkey) from lineitem limit 1") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("tan") {
+    runQueryAndCompare("SELECT tan(l_orderkey) from lineitem limit 1") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("tanh") {
+    runQueryAndCompare("SELECT tanh(l_orderkey) from lineitem limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
     }
   }

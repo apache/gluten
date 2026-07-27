@@ -150,7 +150,8 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     utils/StringUtil.cc
     utils/ObjectStore.cc
     jni/JniError.cc
-    jni/JniCommon.cc)
+    jni/JniCommon.cc
+    jni/TaskContextJniWrapper.cc)
 
 file(MAKE_DIRECTORY ${root_directory}/releases)
 add_library(gluten SHARED ${SPARK_COLUMNAR_PLUGIN_SRCS})
@@ -162,6 +163,27 @@ add_dependencies(gluten jni_proto)
 if(NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
   target_link_options(
     gluten PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/symbols.map)
+  # libgluten statically links libstdc++/libgcc (see dev/vcpkg/toolchain.cmake's
+  # -static-libstdc++ -static-libgcc). The version script above has no "local:
+  # *" catch-all (it must keep Arrow/substrait/etc. exported for libvelox to
+  # resolve against), so by default the bundled gcc-13 C++ runtime symbols also
+  # stay in libgluten's dynamic symbol table -- and the std::locale::id objects
+  # that index the facet table are emitted as STB_GNU_UNIQUE. When another
+  # libstdc++ is already loaded in the process (the system gcc-11 libstdc++.so.6
+  # pulled in by the JVM inside the centos-9 image), the loader collapses those
+  # unique ids into one process-wide definition; libgluten then indexes its
+  # gcc-13 facet table with the system id value, reads a bogus num_put/codecvt
+  # facet pointer, and crashes with SIGSEGV during Velox backend initialization
+  # (do_unshift, si_addr=0x30). -Bsymbolic does not help because STB_GNU_UNIQUE
+  # overrides it. --exclude-libs demotes the symbols coming from the named C++
+  # runtime archives to STB_LOCAL, dropping them from the dynamic symbol table
+  # entirely (this also clears their STB_GNU_UNIQUE binding) so they can neither
+  # interpose nor be interposed -- the same isolation libvelox already gets from
+  # its "local: *" map. Symbols from the other static deps (Arrow, substrait,
+  # ...) come from different archives and stay exported.
+  target_link_options(
+    gluten PRIVATE -Wl,--exclude-libs,libstdc++.a -Wl,--exclude-libs,libgcc.a
+    -Wl,--exclude-libs,libgcc_eh.a)
 endif()
 
 if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
@@ -219,6 +241,9 @@ target_include_directories(
   gluten
   PUBLIC ${CMAKE_SYSTEM_INCLUDE_PATH} ${JNI_INCLUDE_DIRS}
          ${CMAKE_CURRENT_SOURCE_DIR} ${PROTO_OUTPUT_DIR} ${PROTOBUF_INCLUDE})
+if(GLUTEN_PREFIX_INCLUDE_DIRS)
+  target_include_directories(gluten BEFORE PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
+endif()
 set_target_properties(gluten PROPERTIES LIBRARY_OUTPUT_DIRECTORY
                                         ${root_directory}/releases)
 
@@ -226,27 +251,21 @@ if(BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-if(DEFINED ENV{HADOOP_HOME})
-  set(LIBHDFS3_DESTINATION $ENV{HADOOP_HOME}/lib/native)
-else()
-  set(LIBHDFS3_DESTINATION ${CMAKE_INSTALL_LIBDIR})
-endif()
-
 target_link_libraries(gluten PUBLIC Arrow::arrow
                                     Arrow::arrow_bundled_dependencies)
 target_link_libraries(gluten PRIVATE google::glog)
 
 install(TARGETS gluten DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/resources/libhdfs.so
-        DESTINATION ${LIBHDFS3_DESTINATION})
 
-add_custom_command(
-  TARGET gluten
-  POST_BUILD
-  COMMAND ld $<TARGET_FILE:gluten> || true
-  COMMENT "Checking ld result of libgluten.so")
-add_custom_command(
-  TARGET gluten
-  POST_BUILD
-  COMMAND ldd $<TARGET_FILE:gluten> || true
-  COMMENT "Checking ldd result of libgluten.so")
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+  add_custom_command(
+    TARGET gluten
+    POST_BUILD
+    COMMAND ld $<TARGET_FILE:gluten> || true
+    COMMENT "Checking ld result of libgluten.so")
+  add_custom_command(
+    TARGET gluten
+    POST_BUILD
+    COMMAND ldd $<TARGET_FILE:gluten> || true
+    COMMENT "Checking ldd result of libgluten.so")
+endif()

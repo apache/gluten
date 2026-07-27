@@ -318,7 +318,6 @@ Arguments: false
 
 (16) VeloxResizeBatches
 Input [5]: [hash_partition_key#18, i_item_sk#14, i_brand_id#15, i_class_id#16, i_category_id#17]
-Arguments: 1024, 2147483647, 10485760
 
 (17) ColumnarExchange
 Input [5]: [hash_partition_key#18, i_item_sk#14, i_brand_id#15, i_class_id#16, i_category_id#17]
@@ -402,7 +401,6 @@ Arguments: false
 
 (36) VeloxResizeBatches
 Input [4]: [hash_partition_key#26, i_brand_id#23, i_class_id#24, i_category_id#25]
-Arguments: 1024, 2147483647, 10485760
 
 (37) ColumnarExchange
 Input [4]: [hash_partition_key#26, i_brand_id#23, i_class_id#24, i_category_id#25]
@@ -461,7 +459,6 @@ Arguments: false
 
 (50) VeloxResizeBatches
 Input [4]: [hash_partition_key#30, brand_id#27, class_id#28, category_id#29]
-Arguments: 1024, 2147483647, 10485760
 
 (51) ColumnarExchange
 Input [4]: [hash_partition_key#30, brand_id#27, class_id#28, category_id#29]
@@ -490,7 +487,6 @@ Arguments: false
 
 (57) VeloxResizeBatches
 Input [4]: [hash_partition_key#31, brand_id#27, class_id#28, category_id#29]
-Arguments: 1024, 2147483647, 10485760
 
 (58) ColumnarExchange
 Input [4]: [hash_partition_key#31, brand_id#27, class_id#28, category_id#29]
@@ -558,7 +554,6 @@ Arguments: false
 
 (74) VeloxResizeBatches
 Input [4]: [hash_partition_key#39, i_brand_id#36, i_class_id#37, i_category_id#38]
-Arguments: 1024, 2147483647, 10485760
 
 (75) ColumnarExchange
 Input [4]: [hash_partition_key#39, i_brand_id#36, i_class_id#37, i_category_id#38]
@@ -706,7 +701,6 @@ Arguments: false
 
 (110) VeloxResizeBatches
 Input [7]: [hash_partition_key#53, i_brand_id#43, i_class_id#44, i_category_id#45, sum#50, isEmpty#51, count#52]
-Arguments: 1024, 2147483647, 10485760
 
 (111) ColumnarExchange
 Input [7]: [hash_partition_key#53, i_brand_id#43, i_class_id#44, i_category_id#45, sum#50, isEmpty#51, count#52]
@@ -819,7 +813,6 @@ Arguments: false
 
 (137) VeloxResizeBatches
 Input [7]: [hash_partition_key#77, i_brand_id#67, i_class_id#68, i_category_id#69, sum#74, isEmpty#75, count#76]
-Arguments: 1024, 2147483647, 10485760
 
 (138) ColumnarExchange
 Input [7]: [hash_partition_key#77, i_brand_id#67, i_class_id#68, i_category_id#69, sum#74, isEmpty#75, count#76]
@@ -932,7 +925,6 @@ Arguments: false
 
 (164) VeloxResizeBatches
 Input [7]: [hash_partition_key#100, i_brand_id#90, i_class_id#91, i_category_id#92, sum#97, isEmpty#98, count#99]
-Arguments: 1024, 2147483647, 10485760
 
 (165) ColumnarExchange
 Input [7]: [hash_partition_key#100, i_brand_id#90, i_class_id#91, i_category_id#92, sum#97, isEmpty#98, count#99]
@@ -1104,7 +1096,6 @@ Arguments: false
 
 (206) VeloxResizeBatches
 Input [7]: [hash_partition_key#148, channel#117, i_brand_id#110, i_class_id#111, sum#145, isEmpty#146, sum#147]
-Arguments: 1024, 2147483647, 10485760
 
 (207) ColumnarExchange
 Input [7]: [hash_partition_key#148, channel#117, i_brand_id#110, i_class_id#111, sum#145, isEmpty#146, sum#147]
@@ -1252,7 +1243,6 @@ Arguments: false
 
 (242) VeloxResizeBatches
 Input [6]: [hash_partition_key#192, channel#161, i_brand_id#154, sum#189, isEmpty#190, sum#191]
-Arguments: 1024, 2147483647, 10485760
 
 (243) ColumnarExchange
 Input [6]: [hash_partition_key#192, channel#161, i_brand_id#154, sum#189, isEmpty#190, sum#191]
@@ -1400,7 +1390,6 @@ Arguments: false
 
 (278) VeloxResizeBatches
 Input [5]: [hash_partition_key#237, channel#206, sum#234, isEmpty#235, sum#236]
-Arguments: 1024, 2147483647, 10485760
 
 (279) ColumnarExchange
 Input [5]: [hash_partition_key#237, channel#206, sum#234, isEmpty#235, sum#236]
@@ -1572,7 +1561,6 @@ Arguments: false
 
 (320) VeloxResizeBatches
 Input [7]: [hash_partition_key#285, channel#56, i_brand_id#43, i_class_id#44, i_category_id#45, sum_sales#108, number_sales#109]
-Arguments: 1024, 2147483647, 10485760
 
 (321) ColumnarExchange
 Input [7]: [hash_partition_key#285, channel#56, i_brand_id#43, i_class_id#44, i_category_id#45, sum_sales#108, number_sales#109]
@@ -1747,7 +1735,6 @@ Arguments: false
 
 (355) VeloxResizeBatches
 Input [2]: [sum#308, count#309]
-Arguments: 1024, 2147483647, 10485760
 
 (356) ColumnarExchange
 Input [2]: [sum#308, count#309]

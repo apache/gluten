@@ -49,7 +49,7 @@ jobs:
         run: |
           sleep 15
       - name: Add comment to PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

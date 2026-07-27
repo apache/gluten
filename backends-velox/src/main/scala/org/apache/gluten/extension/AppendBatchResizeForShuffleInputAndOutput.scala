@@ -30,27 +30,20 @@ import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, ShuffleQuery
 case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
   extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = {
-    if (VeloxConfig.get.enableColumnarCudf) {
-      return plan
-    }
-
     val resizeBatchesShuffleInputEnabled = VeloxConfig.get.veloxResizeBatchesShuffleInput
     val resizeBatchesShuffleOutputEnabled = VeloxConfig.get.veloxResizeBatchesShuffleOutput
     if (!resizeBatchesShuffleInputEnabled && !resizeBatchesShuffleOutputEnabled) {
       return plan
     }
 
-    val range = VeloxConfig.get.veloxResizeBatchesShuffleInputOutputRange
-    val preferredBatchBytes = VeloxConfig.get.veloxPreferredBatchBytes
-
     val newPlan = if (resizeBatchesShuffleInputEnabled) {
-      addResizeBatchesForShuffleInput(plan, range.min, range.max, preferredBatchBytes)
+      addResizeBatchesForShuffleInput(plan)
     } else {
       plan
     }
 
     val resultPlan = if (isAdaptiveContext && resizeBatchesShuffleOutputEnabled) {
-      addResizeBatchesForShuffleOutput(newPlan, range.min, range.max, preferredBatchBytes)
+      addResizeBatchesForShuffleOutput(newPlan)
     } else {
       newPlan
     }
@@ -59,32 +52,26 @@ case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
   }
 
   private def addResizeBatchesForShuffleInput(
-      plan: SparkPlan,
-      min: Int,
-      max: Int,
-      preferredBatchBytes: Long): SparkPlan = {
+      plan: SparkPlan): SparkPlan = {
     plan.transformUp {
       case shuffle: ColumnarShuffleExchangeExec
           if shuffle.shuffleWriterType.requiresResizingShuffleInput =>
         val appendBatches =
-          VeloxResizeBatchesExec(shuffle.child, min, max, preferredBatchBytes)
+          VeloxResizeBatchesExec(shuffle.child)
         shuffle.withNewChildren(Seq(appendBatches))
     }
   }
 
   private def addResizeBatchesForShuffleOutput(
-      plan: SparkPlan,
-      min: Int,
-      max: Int,
-      preferredBatchBytes: Long): SparkPlan = {
+      plan: SparkPlan): SparkPlan = {
     plan match {
       case s: ShuffleQueryStageExec if requiresResizingShuffleOutput(s) =>
-        VeloxResizeBatchesExec(s, min, max, preferredBatchBytes)
+        VeloxResizeBatchesExec(s)
       case a @ AQEShuffleReadExec(s @ ShuffleQueryStageExec(_, _, _), _)
           if requiresResizingShuffleOutput(s) =>
-        VeloxResizeBatchesExec(a, min, max, preferredBatchBytes)
+        VeloxResizeBatchesExec(a)
       case other =>
-        other.mapChildren(addResizeBatchesForShuffleOutput(_, min, max, preferredBatchBytes))
+        other.mapChildren(addResizeBatchesForShuffleOutput)
     }
   }
 

@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
@@ -26,6 +27,7 @@ import org.apache.spark.Partition
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
+import org.apache.spark.sql.catalyst.plans.physical.UnknownPartitioning
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read.Scan
@@ -173,9 +175,9 @@ abstract class BatchScanExecTransformerBase(
   override def metricsUpdater(): MetricsUpdater =
     BackendsApiManager.getMetricsApiInstance.genBatchScanTransformerMetricsUpdater(metrics)
 
-  @transient protected lazy val finalPartitions: Seq[Partition] =
-    SparkShimLoader.getSparkShims
-      .orderPartitions(
+  @transient protected lazy val finalPartitions: Seq[Partition] = {
+    val orderedPartitions =
+      SparkShimLoader.getSparkShims.orderPartitions(
         this,
         scan,
         keyGroupedPartitioning,
@@ -184,10 +186,30 @@ abstract class BatchScanExecTransformerBase(
         commonPartitionValues,
         applyPartialClustering,
         replicatePartitions)
-      .zipWithIndex
-      .map {
-        case (inputPartitions, index) => new SparkDataSourceRDDPartition(index, inputPartitions)
+
+    val target = GlutenConfig.get.batchScanMaxInputPartitions
+    val taskPartitions =
+      if (
+        orderedPartitions.size > target &&
+        // Coalescing changes task boundaries. Only do it when Spark does not advertise a
+        // distribution whose partition groups must remain aligned, such as key-grouped
+        // partitioning used by storage-partitioned joins.
+        outputPartitioning.isInstanceOf[UnknownPartitioning]
+      ) {
+        Seq.tabulate(target) {
+          index =>
+            val from = index * orderedPartitions.size / target
+            val until = (index + 1) * orderedPartitions.size / target
+            orderedPartitions.slice(from, until).flatten
+        }
+      } else {
+        orderedPartitions
       }
+
+    taskPartitions.zipWithIndex.map {
+      case (inputPartitions, index) => new SparkDataSourceRDDPartition(index, inputPartitions)
+    }
+  }
 
   @transient override lazy val fileFormat: ReadFileFormat =
     BackendsApiManager.getSettings.getSubstraitReadFileFormatV2(scan)

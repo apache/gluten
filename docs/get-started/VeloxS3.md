@@ -63,6 +63,14 @@ You can change the S3 payload signing policy by setting the `spark.gluten.velox.
 ## Configuring S3 Log Location
 You can set the log location by setting the `spark.gluten.velox.s3LogLocation` configuration.
 
+## Configuring Async S3 Multipart Upload
+You can enable asynchronous multipart part upload by setting `spark.gluten.velox.s3UploadPartAsync` to `true`.
+Use `spark.gluten.velox.s3MaxConcurrentUploadNum` to control the maximum number of in-flight part uploads per file,
+and `spark.gluten.velox.s3UploadThreads` to control the shared upload thread pool size.
+These settings apply to all buckets by default. To override a single bucket, use Velox's bucket-specific S3 keys through
+Gluten's static backend pass-through prefix, for example
+`spark.gluten.velox.hive.s3.bucket.my-bucket.part-upload-async`.
+
 # Local Caching support
 
 Velox supports a local cache when reading data from S3 but not strictly tested and there are several limitations. Please refer [Velox Local Cache](VeloxLocalCache.md) part for more detailed configurations.
@@ -171,3 +179,6 @@ Gluten configures:
 |spark.gluten.velox.s3UseProxyFromEnv|false|
 |spark.gluten.velox.s3PayloadSigningPolicy|Never|
 |spark.gluten.velox.s3LogLocation|(none)|
+|spark.gluten.velox.s3UploadPartAsync|false|
+|spark.gluten.velox.s3MaxConcurrentUploadNum|4|
+|spark.gluten.velox.s3UploadThreads|16|

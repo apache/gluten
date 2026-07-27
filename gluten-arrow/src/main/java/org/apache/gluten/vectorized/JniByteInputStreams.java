@@ -19,6 +19,7 @@ package org.apache.gluten.vectorized;
 import org.apache.gluten.exception.GlutenException;
 
 import org.apache.spark.storage.BufferReleasingInputStream;
+import org.apache.spark.storage.GlutenBufferReleasingInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,6 +59,10 @@ public final class JniByteInputStreams {
 
   static InputStream unwrapSparkInputStream(InputStream in) {
     InputStream unwrapped = in;
+    if (unwrapped instanceof GlutenBufferReleasingInputStream) {
+      final GlutenBufferReleasingInputStream brin = (GlutenBufferReleasingInputStream) unwrapped;
+      unwrapped = brin.delegate();
+    }
     if (unwrapped instanceof BufferReleasingInputStream) {
       final BufferReleasingInputStream brin = (BufferReleasingInputStream) unwrapped;
       unwrapped =

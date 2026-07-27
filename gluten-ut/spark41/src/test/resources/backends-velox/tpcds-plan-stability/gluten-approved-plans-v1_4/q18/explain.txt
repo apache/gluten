@@ -289,7 +289,6 @@ Arguments: false
 
 (55) VeloxResizeBatches
 Input [20]: [hash_partition_key#68, i_item_id#28, ca_country#29, ca_state#30, ca_county#31, spark_grouping_id#32, sum#54, count#55, sum#56, count#57, sum#58, count#59, sum#60, count#61, sum#62, count#63, sum#64, count#65, sum#66, count#67]
-Arguments: 1024, 2147483647, 10485760
 
 (56) ColumnarExchange
 Input [20]: [hash_partition_key#68, i_item_id#28, ca_country#29, ca_state#30, ca_county#31, spark_grouping_id#32, sum#54, count#55, sum#56, count#57, sum#58, count#59, sum#60, count#61, sum#62, count#63, sum#64, count#65, sum#66, count#67]

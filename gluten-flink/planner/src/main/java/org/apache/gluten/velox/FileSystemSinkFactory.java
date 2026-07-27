@@ -123,9 +123,15 @@ public class FileSystemSinkFactory implements VeloxSourceSinkFactory {
             getSinkDescription());
     GlutenOneInputOperatorFactory<RowData, ?> operatorFactory =
         new GlutenOneInputOperatorFactory<>(onewInputOperator);
+    // StreamingFileWriter is fully offloaded to the velox file writer, which never consults
+    // StreamRecord.timestamp for partition / roll / commit. Remove any native
+    // StreamRecordTimestampInserter from the input chain.
+    Transformation<RowData> veloxFileWriterInput =
+        GlutenRowtimeInserterHelper.processTransformation(
+            (Transformation<RowData>) fileWriterTransformation.getInputs().get(0), false);
     OneInputTransformation<RowData, ?> veloxFileWriterTransformation =
         new OneInputTransformation(
-            fileWriterTransformation.getInputs().get(0),
+            veloxFileWriterInput,
             fileWriterTransformation.getName(),
             operatorFactory,
             fileWriterTransformation.getOutputType(),

@@ -16,11 +16,15 @@
  */
 package org.apache.gluten.extension.columnar
 
+import org.apache.gluten.execution.GlutenPlan
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
+import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{SortExec, SparkPlan}
+import org.apache.spark.sql.execution.{ColumnarWriteFilesExec, SortExec, SparkPlan}
+import org.apache.spark.sql.execution.datasources.WriteFilesExec
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * This rule is similar with `EnsureRequirements` but only handle local `SortExec`.
@@ -33,25 +37,61 @@ import org.apache.spark.sql.execution.{SortExec, SparkPlan}
 object EnsureLocalSortRequirements extends Rule[SparkPlan] {
   private lazy val transform: HeuristicTransform = HeuristicTransform.static()
 
+  private def numStaticPartitionCols(writeFiles: WriteFilesExec): Int = {
+    // HadoopFs writes include static partition columns in partitionColumns, while Hive writes may
+    // only include the partition columns that are present in the write query.
+    val resolver = SQLConf.get.resolver
+    val staticPartitionNames = writeFiles.staticPartitions.keys
+    writeFiles.partitionColumns.takeWhile {
+      partitionColumn => staticPartitionNames.exists(resolver(_, partitionColumn.name))
+    }.size
+  }
+
+  private def requiredChildOrdering(plan: SparkPlan): Seq[Seq[SortOrder]] = {
+    plan match {
+      // V1Writes assumes that the logical ordering it prepared is preserved in the physical plan,
+      // so WriteFilesExec does not expose requiredChildOrdering itself. Gluten may invalidate that
+      // ordering when it replaces a SortAggregateExec with a hash aggregate.
+      case writeFiles: WriteFilesExec
+          if ColumnarWriteFilesExec.OnNoopLeafPath.unapply(writeFiles).isEmpty =>
+        Seq(
+          SparkShimLoader.getSparkShims.getV1WriteRequiredOrdering(
+            writeFiles.child.output,
+            writeFiles.partitionColumns,
+            writeFiles.bucketSpec,
+            writeFiles.options,
+            numStaticPartitionCols(writeFiles)))
+      case _ => plan.requiredChildOrdering
+    }
+  }
+
   private def addLocalSort(
+      plan: SparkPlan,
       originalChild: SparkPlan,
       requiredOrdering: Seq[SortOrder]): SparkPlan = {
     // FIXME: HeuristicTransform is costly. Re-applying it may cause performance issues.
     val newChild = SortExec(requiredOrdering, global = false, child = originalChild)
-    transform.apply(newChild)
+    (plan, originalChild) match {
+      case (_, child: GlutenPlan) if child.supportsColumnar =>
+        transform.apply(newChild)
+      case (parent: GlutenPlan, _) if parent.supportsColumnar =>
+        transform.apply(newChild)
+      case _ =>
+        newChild
+    }
   }
 
   override def apply(plan: SparkPlan): SparkPlan = {
     plan.transformUp {
       case p =>
-        val newChildren = p.children.zip(p.requiredChildOrdering).map {
+        val newChildren = p.children.zip(requiredChildOrdering(p)).map {
           case (child, requiredOrdering) =>
             // If child.outputOrdering already satisfies the requiredOrdering,
             // we do not need to sort.
             if (SortOrder.orderingSatisfies(child.outputOrdering, requiredOrdering)) {
               child
             } else {
-              addLocalSort(child, requiredOrdering)
+              addLocalSort(p, child, requiredOrdering)
             }
         }
         p.withNewChildren(newChildren)

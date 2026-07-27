@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.extension.DeltaPostTransformRules
+
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.types._
@@ -792,6 +794,62 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         _ =>
       }
       checkAnswer(df, Row(0, null) :: Row(101, Seq(Row("a", 1), null)) :: Nil)
+    }
+  }
+
+  test("post-transform rules are no-op on non-Delta plans") {
+    withTempPath {
+      p =>
+        val path = p.getCanonicalPath
+        spark.range(100).selectExpr("id", "id * 2 as value").write.parquet(path)
+        val df = spark.read.parquet(path)
+        val plan = df.queryExecution.executedPlan
+
+        // Apply only the Delta-specific rules (skip RemoveTransitions which is generic)
+        val deltaRules = DeltaPostTransformRules.rules.tail
+        val transformed = deltaRules.foldLeft(plan)((p, rule) => rule(p))
+        // No DeltaScanTransformer in the plan, so rules should return the same object (early-exit)
+        assert(transformed eq plan, "Delta rules should return the exact same plan instance")
+    }
+  }
+
+  test("Delta scan is offloaded to DeltaScanTransformer") {
+    withTempPath {
+      p =>
+        import testImplicits._
+        val path = p.getCanonicalPath
+        Seq(1, 2, 3, 4, 5).toDF("id").coalesce(1).write.format("delta").save(path)
+        val df = spark.read.format("delta").load(path)
+        val plan = df.queryExecution.executedPlan
+
+        // Delta scan should be offloaded to DeltaScanTransformer
+        val deltaScans = plan.collect { case s: DeltaScanTransformer => s }
+        assert(deltaScans.nonEmpty, "Delta plan should contain DeltaScanTransformer")
+    }
+  }
+
+  test("scanFilters returns consistent results on repeated access") {
+    withTempPath {
+      p =>
+        import testImplicits._
+        val path = p.getCanonicalPath
+        Seq((1, "a"), (2, "b"), (3, "c")).toDF("id", "value")
+          .coalesce(1)
+          .write
+          .format("delta")
+          .save(path)
+        val df = spark.read.format("delta").load(path).where("id > 1")
+        val plan = df.queryExecution.executedPlan
+        val scans = plan.collect { case s: DeltaScanTransformer => s }
+
+        assert(scans.nonEmpty, "Delta plan should contain DeltaScanTransformer")
+        val scan = scans.head
+        // scanFilters is now a lazy val; repeated calls should return the same instance
+        val first = scan.scanFilters
+        val second = scan.scanFilters
+        val third = scan.scanFilters
+        assert(first eq second, "scanFilters should return the same cached instance")
+        assert(second eq third, "scanFilters should return the same cached instance")
     }
   }
 }
