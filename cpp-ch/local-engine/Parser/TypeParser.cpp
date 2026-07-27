@@ -153,10 +153,10 @@ DB::DataTypePtr TypeParser::parseType(const substrait::Type & substrait_type, st
         ch_type = std::make_shared<DB::DataTypeFloat64>();
         ch_type = tryWrapNullable(substrait_type.fp64().nullability(), ch_type);
     }
-    else if (substrait_type.has_timestamp_tz())
+    else if (substrait_type.has_precision_timestamp_tz())
     {
         ch_type = std::make_shared<DB::DataTypeDateTime64>(6);
-        ch_type = tryWrapNullable(substrait_type.timestamp_tz().nullability(), ch_type);
+        ch_type = tryWrapNullable(substrait_type.precision_timestamp_tz().nullability(), ch_type);
     }
     else if (substrait_type.has_date())
     {

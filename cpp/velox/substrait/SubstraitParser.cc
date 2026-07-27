@@ -75,9 +75,9 @@ TypePtr SubstraitParser::parseType(const ::substrait::Type& substraitType, bool 
       return UNKNOWN();
     case ::substrait::Type::KindCase::kDate:
       return DATE();
-    case ::substrait::Type::KindCase::kTimestampTz:
+    case ::substrait::Type::KindCase::kPrecisionTimestampTz:
       return TIMESTAMP();
-    case ::substrait::Type::KindCase::kTimestamp:
+    case ::substrait::Type::KindCase::kPrecisionTimestamp:
       return TIMESTAMP_UTC();
     case ::substrait::Type::KindCase::kDecimal: {
       auto precision = substraitType.decimal().precision();
