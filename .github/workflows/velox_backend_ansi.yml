@@ -101,7 +101,7 @@ jobs:
     if: (inputs.mode || needs.check-comment.outputs.mode) != 'analyze-only'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Get Ccache
@@ -144,7 +144,7 @@ jobs:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
@@ -216,7 +216,7 @@ jobs:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
@@ -298,7 +298,7 @@ jobs:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
@@ -370,7 +370,7 @@ jobs:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
@@ -459,7 +459,7 @@ jobs:
       pull-requests: write
       models: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download spark41 test reports
@@ -504,7 +504,7 @@ jobs:
       pull-requests: write
       models: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Find latest ANSI workflow run with artifacts

@@ -43,7 +43,7 @@ jobs:
   build-native-lib:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Get Ccache
@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-22.04
     container: centos:8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Download All Artifacts
