@@ -94,8 +94,14 @@ SBT_LOG="/tmp/sbt-spark-test-shard-${SHARD_ID}.log"
 # report, and since we ignore sbt's exit code the gate would only judge the
 # suites that DID report -- so the main flow fails the shard when this exists.
 WATCHDOG_KILL_MARKER="/tmp/sbt-watchdog-killed-shard-${SHARD_ID}"
+# Marker the main flow touches when sbt returns, to stop this shard's watchdog.
+# Shard-scoped like the log and kill marker above: shards get their own container
+# in CI, but a shared /tmp (parallel local runs) would otherwise let the first
+# shard to finish disarm every other shard's watchdog and silently lose hang
+# detection for them.
+SBT_DONE_MARKER="/tmp/sbt-done-shard-${SHARD_ID}"
 : > "$SBT_LOG"
-rm -f /tmp/sbt-done "$WATCHDOG_KILL_MARKER"
+rm -f "$SBT_DONE_MARKER" "$WATCHDOG_KILL_MARKER"
 (
   # CRITICAL: the step shell runs with `bash -eo pipefail`, which the
   # subshell inherits. Without `set +e` here, ANY non-zero command --
@@ -132,7 +138,7 @@ rm -f /tmp/sbt-done "$WATCHDOG_KILL_MARKER"
   }
   echo "HANG WATCHDOG armed: dumps the test JVM after ${silent_limit}s of output silence"
   hb=0
-  while [ ! -f /tmp/sbt-done ]; do
+  while [ ! -f "$SBT_DONE_MARKER" ]; do
     sleep 60
     [ -f "$SBT_LOG" ] || continue
     now=$(date +%s)
@@ -219,7 +225,7 @@ WATCHDOG_PID=$!
   'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
   "spark/test" 2>&1 | tee "$SBT_LOG"
 SBT_EXIT=${PIPESTATUS[0]}
-touch /tmp/sbt-done
+touch "$SBT_DONE_MARKER"
 kill "$WATCHDOG_PID" 2>/dev/null || true
 set -e
 echo "sbt spark/test exited with ${SBT_EXIT}"
