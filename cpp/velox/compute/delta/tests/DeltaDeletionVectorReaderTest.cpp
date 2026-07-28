@@ -49,7 +49,7 @@ class DeltaDeletionVectorReaderTest : public ::testing::Test {
     pool_ = memory::memoryManager()->addLeafPool();
   }
 
-  std::string createSerializedPayload(const std::vector<int64_t>& deletedRows) {
+  std::string createSerializedPayload(const std::vector<uint64_t>& deletedRows) {
     RoaringBitmapArray bitmap;
     for (auto row : deletedRows) {
       bitmap.addSafe(row);
@@ -184,8 +184,8 @@ TEST_F(DeltaDeletionVectorReaderTest, CardinalityValidationMismatchThrows) {
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, LargeCardinalityValidation) {
-  std::vector<int64_t> deletedRows;
-  for (int64_t i = 0; i < 10000; i += 10) {
+  std::vector<uint64_t> deletedRows;
+  for (uint64_t i = 0; i < 10000; i += 10) {
     deletedRows.push_back(i);
   }
 
@@ -195,8 +195,8 @@ TEST_F(DeltaDeletionVectorReaderTest, LargeCardinalityValidation) {
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, BatchFilteringPartialOverlap) {
-  std::vector<int64_t> deletedRows;
-  for (int64_t i = 45; i <= 55; ++i) {
+  std::vector<uint64_t> deletedRows;
+  for (uint64_t i = 45; i <= 55; ++i) {
     deletedRows.push_back(i);
   }
 
@@ -216,4 +216,188 @@ TEST_F(DeltaDeletionVectorReaderTest, BatchFilteringPartialOverlap) {
   for (int i = 16; i < 20; ++i) {
     EXPECT_FALSE(bits::isBitSet(rawBitmap, i));
   }
+}
+
+// --- Corner-case tests for iterator-based applyDeletionFilter ---
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterAllRowsDeleted) {
+  // Every row in the batch is deleted.
+  std::vector<uint64_t> deletedRows;
+  for (uint64_t i = 0; i < 100; ++i) {
+    deletedRows.push_back(i);
+  }
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(createSerializedPayload(deletedRows));
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
+  reader.applyDeletionFilter(0, 100, deleteBitmap);
+
+  auto* rawBitmap = deleteBitmap->as<uint64_t>();
+  for (int i = 0; i < 100; ++i) {
+    EXPECT_TRUE(bits::isBitSet(rawBitmap, i)) << "Row " << i << " should be deleted";
+  }
+  EXPECT_GT(deleteBitmap->size(), 0);
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterNoRowsDeleted) {
+  // The DV has deletions but none overlap with the batch range.
+  auto payload = createSerializedPayload({1000, 2000, 3000});
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(payload);
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
+  reader.applyDeletionFilter(0, 100, deleteBitmap);
+
+  auto* rawBitmap = deleteBitmap->as<uint64_t>();
+  for (int i = 0; i < 100; ++i) {
+    EXPECT_FALSE(bits::isBitSet(rawBitmap, i));
+  }
+  EXPECT_EQ(deleteBitmap->size(), 0);
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterFirstAndLastRow) {
+  // Only the first and last row of the batch are deleted.
+  auto payload = createSerializedPayload({100, 199});
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(payload);
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
+  reader.applyDeletionFilter(100, 100, deleteBitmap);
+
+  auto* rawBitmap = deleteBitmap->as<uint64_t>();
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 0));
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 99));
+  for (int i = 1; i < 99; ++i) {
+    EXPECT_FALSE(bits::isBitSet(rawBitmap, i));
+  }
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterLargeOffset) {
+  // Test with large row offsets (beyond 32-bit boundary) to exercise
+  // multi-bucket Roaring64Map behavior.
+  const uint64_t largeBase = static_cast<uint64_t>(3) << 32;
+  std::vector<uint64_t> deletedRows = {largeBase + 10, largeBase + 50, largeBase + 99};
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(createSerializedPayload(deletedRows));
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
+  reader.applyDeletionFilter(largeBase, 100, deleteBitmap);
+
+  auto* rawBitmap = deleteBitmap->as<uint64_t>();
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 10));
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 50));
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 99));
+  EXPECT_FALSE(bits::isBitSet(rawBitmap, 0));
+  EXPECT_FALSE(bits::isBitSet(rawBitmap, 11));
+  EXPECT_FALSE(bits::isBitSet(rawBitmap, 49));
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterSingleRowBatch) {
+  // Batch of size 1 where the single row is deleted.
+  auto payload = createSerializedPayload({42});
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(payload);
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(1), pool_.get());
+  reader.applyDeletionFilter(42, 1, deleteBitmap);
+
+  auto* rawBitmap = deleteBitmap->as<uint64_t>();
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 0));
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterSingleRowBatchNotDeleted) {
+  // Batch of size 1 where the single row is NOT deleted.
+  auto payload = createSerializedPayload({42});
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(payload);
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(1), pool_.get());
+  reader.applyDeletionFilter(43, 1, deleteBitmap);
+
+  EXPECT_EQ(deleteBitmap->size(), 0);
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterDenseSparseMixed) {
+  // Dense cluster at start, sparse in middle, dense at end.
+  std::vector<uint64_t> deletedRows;
+  // Dense: rows 0-49
+  for (uint64_t i = 0; i < 50; ++i) {
+    deletedRows.push_back(i);
+  }
+  // Sparse: every 100th row from 100-900
+  for (uint64_t i = 100; i < 1000; i += 100) {
+    deletedRows.push_back(i);
+  }
+  // Dense: rows 950-999
+  for (uint64_t i = 950; i < 1000; ++i) {
+    deletedRows.push_back(i);
+  }
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(createSerializedPayload(deletedRows));
+
+  // Test middle sparse region
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(200), pool_.get());
+  reader.applyDeletionFilter(100, 200, deleteBitmap);
+
+  auto* rawBitmap = deleteBitmap->as<uint64_t>();
+  // Should have rows 100 and 200 marked (every 100th from our sparse set)
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 0)); // row 100
+  EXPECT_TRUE(bits::isBitSet(rawBitmap, 100)); // row 200
+  EXPECT_FALSE(bits::isBitSet(rawBitmap, 1)); // row 101
+  EXPECT_FALSE(bits::isBitSet(rawBitmap, 99)); // row 199
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterBatchBeyondAllDeletions) {
+  // Batch starts after all deletions.
+  auto payload = createSerializedPayload({1, 2, 3, 4, 5});
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(payload);
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
+  reader.applyDeletionFilter(1000, 100, deleteBitmap);
+
+  EXPECT_EQ(deleteBitmap->size(), 0);
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterBatchBeforeAllDeletions) {
+  // Batch ends before any deletions start.
+  auto payload = createSerializedPayload({500, 600, 700});
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(payload);
+
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
+  reader.applyDeletionFilter(0, 100, deleteBitmap);
+
+  EXPECT_EQ(deleteBitmap->size(), 0);
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, ApplyDeletionFilterOverflowProtection) {
+  // Verify that baseReadOffset near UINT64_MAX does not overflow rangeEnd.
+  // RoaringBitmapArray only supports row indices up to kMaxRepresentableValue,
+  // so we test with low-value bitmap entries but call applyDeletionFilter with
+  // a baseReadOffset that would cause baseReadOffset + size to overflow.
+  auto payload = createSerializedPayload({10, 20, 30});
+
+  DeltaDeletionVectorReader reader;
+  reader.loadSerializedDeletionVector(payload);
+
+  // Request a batch of 100 starting near UINT64_MAX — this would overflow
+  // without the saturation guard (nearMax + 100 > UINT64_MAX).
+  // No deletions exist in this range, so we just verify no crash and empty
+  // result.
+  const uint64_t nearMax = UINT64_MAX - 50;
+  auto deleteBitmap = AlignedBuffer::allocate<uint64_t>(bits::nwords(100), pool_.get());
+  reader.applyDeletionFilter(nearMax, 100, deleteBitmap);
+
+  // No rows in bitmap are near UINT64_MAX, so result should be empty.
+  EXPECT_EQ(deleteBitmap->size(), 0);
 }

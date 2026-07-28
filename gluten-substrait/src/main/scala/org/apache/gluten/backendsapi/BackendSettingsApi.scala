@@ -81,8 +81,6 @@ trait BackendSettingsApi {
 
   def enableJoinKeysRewrite(): Boolean = true
 
-  def enableHashTableBuildOncePerExecutor(): Boolean = true
-
   def supportHashBuildJoinTypeOnLeft: JoinType => Boolean = {
     case _: InnerLike | RightOuter | FullOuter => true
     case _ => false
@@ -170,4 +168,16 @@ trait BackendSettingsApi {
 
   /** Whether the backend supports columnar shuffle with empty schema. */
   def supportEmptySchemaColumnarShuffle(): Boolean = true
+
+  /**
+   * Backend-specific non-prefixed session configs that should be forwarded to native runtime /
+   * memory manager creation.
+   */
+  def extraNativeSessionConfKeys(): Set[String] = Set.empty
+
+  /**
+   * Backend-specific non-prefixed backend initialization configs that should be forwarded during
+   * native backend initialization.
+   */
+  def extraNativeBackendConfKeys(): Set[String] = Set.empty
 }

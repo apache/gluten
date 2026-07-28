@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution.utils
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
 import org.apache.gluten.config.ShuffleWriterType
+import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
@@ -172,6 +173,9 @@ object ExecUtil {
       // range partitioning fall back to row-based partition id computation
       case RangePartitioning(orders, n) =>
         new NativePartitioning(GlutenShuffleUtils.RangePartitioningShortName, n)
+      case other =>
+        throw new GlutenNotSupportException(
+          s"Partitioning $other is not supported by native shuffle")
     }
 
     val isRoundRobin = newPartitioning.isInstanceOf[RoundRobinPartitioning] &&

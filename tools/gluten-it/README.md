@@ -22,7 +22,7 @@ mvn clean package -P{Spark-Version}
 sbin/gluten-it.sh
 ```
 
-Note: **Spark-Version** can only be **spark-3.2**, **spark-3.3**, **spark-3.4** or **spark-3.5**.
+Note: **Spark-Version** can only be **spark-3.3**, **spark-3.4** or **spark-3.5**.
 
 ## Usage
 

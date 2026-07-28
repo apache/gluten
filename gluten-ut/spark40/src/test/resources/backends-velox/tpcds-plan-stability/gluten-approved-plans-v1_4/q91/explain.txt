@@ -282,7 +282,6 @@ Arguments: false
 
 (53) VeloxResizeBatches
 Input [7]: [hash_partition_key#25, cc_call_center_id#2, cc_name#3, cc_manager#4, cd_marital_status#18, cd_education_status#19, sum#24]
-Arguments: 1024, 2147483647, 10485760
 
 (54) ColumnarExchange
 Input [7]: [hash_partition_key#25, cc_call_center_id#2, cc_name#3, cc_manager#4, cd_marital_status#18, cd_education_status#19, sum#24]
@@ -311,7 +310,6 @@ Arguments: false
 
 (60) VeloxResizeBatches
 Input [4]: [Call_Center#27, Call_Center_Name#28, Manager#29, Returns_Loss#30]
-Arguments: 1024, 2147483647, 10485760
 
 (61) ColumnarExchange
 Input [4]: [Call_Center#27, Call_Center_Name#28, Manager#29, Returns_Loss#30]

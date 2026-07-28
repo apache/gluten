@@ -772,6 +772,10 @@ message FunctionOption {
 }
 
 message Expression {
+  reserved 10;
+
+  reserved "enum";
+
   oneof rex_type {
     Literal literal = 1;
     FieldReference selection = 2;
@@ -784,24 +788,6 @@ message Expression {
     Cast cast = 11;
     Subquery subquery = 12;
     Nested nested = 13;
-
-    // deprecated: enum literals are only sensible in the context of
-    // function arguments, for which FunctionArgument should now be
-    // used
-    Enum enum = 10 [deprecated = true];
-  }
-
-  message Enum {
-    option deprecated = true;
-
-    oneof enum_kind {
-      string specified = 1;
-      Empty unspecified = 2;
-    }
-
-    message Empty {
-      option deprecated = true;
-    }
   }
 
   message Literal {

@@ -252,8 +252,8 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
     return false;
   }
 
-  // Limited support for Timestamp to X.
-  if (fromType->isTimestamp()) {
+  // Limited support for Timestamp from/to X.
+  if (fromType->equivalent(*TIMESTAMP())) {
     if (toType->isDecimal()) {
       return false;
     }
@@ -266,11 +266,12 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
       return true;
     }
 
+    if (toType->equivalent(*TIMESTAMP_UTC())) {
+      return true;
+    }
     return false;
   }
-
-  // Limited support for X to Timestamp.
-  if (toType->isTimestamp()) {
+  if (toType->equivalent(*TIMESTAMP())) {
     if (fromType->isDecimal()) {
       return false;
     }
@@ -287,6 +288,22 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
         fromType->isDouble() || fromType->isReal()) {
       return true;
     }
+    if (fromType->equivalent(*TIMESTAMP_UTC())) {
+      return true;
+    }
+    return false;
+  }
+
+  // Limited support for TimestampNTZ from/to X
+  // Casts between Timestamp and TimestampNTZ are handled in from/to timestamp.
+  if (fromType->equivalent(*TIMESTAMP_UTC())) {
+    if (toType->isVarchar() || toType->isVarbinary()) {
+      return true;
+    }
+    return false;
+  }
+  if (toType->equivalent(*TIMESTAMP_UTC())) {
+    // Only supports from Timestamp to TimestampNTZ.
     return false;
   }
 

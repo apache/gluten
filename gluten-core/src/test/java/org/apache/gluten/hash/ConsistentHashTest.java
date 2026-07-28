@@ -20,6 +20,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -113,6 +115,66 @@ public class ConsistentHashTest {
     for (ConsistentHash.Node node : allocateAllNodes) {
       Assert.assertTrue(nodes.contains(node));
     }
+  }
+
+  @Test
+  public void testRingHashesOnNodeKeyNotToString() {
+    // A node whose key() differs from toString(). The ring must hash partitions by key() so the
+    // distribution is stable/reproducible; relying on toString() would silently break any Node
+    // that overrides only the contractual key().
+    final List<String> hashedKeys = new ArrayList<>();
+    ConsistentHash.Hasher recordingHasher =
+        (key, seed) -> {
+          hashedKeys.add(key);
+          return key.hashCode() + seed;
+        };
+    ConsistentHash<ConsistentHash.Node> ring = new ConsistentHash<>(REPLICAS, recordingHasher);
+
+    ConsistentHash.Node node =
+        new ConsistentHash.Node() {
+          @Override
+          public String key() {
+            return "logical-key";
+          }
+
+          @Override
+          public String toString() {
+            return "DISPLAY-ONLY";
+          }
+        };
+    ring.addNode(node);
+
+    // Every partition key fed to the hasher must derive from key(), never from toString().
+    Assert.assertEquals(REPLICAS, hashedKeys.size());
+    Assert.assertTrue(hashedKeys.stream().allMatch(k -> k.startsWith("logical-key:")));
+    Assert.assertTrue(hashedKeys.stream().noneMatch(k -> k.contains("DISPLAY-ONLY")));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testAddNodeRejectsNullKey() {
+    // The ring hashes on key(); a null key would silently collapse distinct nodes onto identical
+    // hash inputs, so it must fail fast.
+    consistentHash.addNode(
+        new ConsistentHash.Node() {
+          @Override
+          public String key() {
+            return null;
+          }
+        });
+  }
+
+  @Test
+  public void testGetPartitionReturnsDefensiveCopy() {
+    HostNode node = new HostNode("executor-1");
+    consistentHash.addNode(node);
+
+    Set<ConsistentHash.Partition<ConsistentHash.Node>> partitions =
+        consistentHash.getPartition(node);
+    Assert.assertEquals(REPLICAS, partitions.size());
+
+    // Mutating the returned set must not affect the ring's internal state.
+    partitions.clear();
+    Assert.assertEquals(REPLICAS, consistentHash.getPartition(node).size());
   }
 
   private static class HostNode implements ConsistentHash.Node {

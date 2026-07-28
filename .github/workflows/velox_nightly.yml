@@ -51,6 +51,7 @@ jobs:
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
+            export CCACHE_MAXSIZE=1G
             bash dev/ci-velox-buildstatic-centos-7.sh
             ccache -s
             mkdir -p /work/.m2/repository/org/apache/arrow/
@@ -197,6 +198,7 @@ jobs:
         run: |
           df -a
           export ARM_BUILD_TARGET=false
+          export CCACHE_MAXSIZE=1G
           bash dev/ci-velox-buildstatic-centos-8.sh
           ccache -s
           mkdir -p $GITHUB_WORKSPACE/.m2/repository/org/apache/arrow/

@@ -21,6 +21,8 @@ on:
       - '.github/workflows/flink.yml'
       - 'build/mvn'
       - 'gluten-flink/**'
+  schedule:
+    - cron: '0 18 * * *'
 
 env:
   MAVEN_OPTS: >-
@@ -36,6 +38,8 @@ env:
     --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
     --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED
+    --add-opens=java.base/sun.reflect.generics.repository=ALL-UNNAMED
   JAVA_TOOL_OPTIONS: >-
     --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED
     --add-opens=java.base/sun.nio.ch=org.apache.arrow.memory.core,ALL-UNNAMED
@@ -48,6 +52,9 @@ env:
     --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
     --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED
+    --add-opens=java.base/sun.reflect.generics.repository=ALL-UNNAMED
+  CCACHE_DIR: "${{ github.workspace }}/.ccache"
 
 jobs:
   flink-test:
@@ -55,10 +62,21 @@ jobs:
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-flink-centos8
+          restore-keys: |
+            ccache-flink-centos8
+      - name: Prepare and build velox4j
         run: |
           source /opt/rh/gcc-toolset-11/enable
-          sudo dnf install -y patchelf
+          sudo dnf install -y patchelf ccache
+          export CCACHE_DIR=${CCACHE_DIR}
+          export CCACHE_MAXSIZE=2G
+          mkdir -p ${CCACHE_DIR}
+          ccache -sz
           sudo yum install https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/tzdata-2026a-1.el9.noarch.rpm -y
           sudo .github/workflows/util/install-flink-deps.sh
           # Remove system fmt v11 from the CI image to avoid header conflicts with
@@ -70,18 +88,30 @@ jobs:
           export fmt_SOURCE=BUNDLED
           export folly_SOURCE=BUNDLED
           git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
-          cd velox4j && git reset --hard 115edf79d265a61c30d45dfcc6ce932ad92378ca
+          cd velox4j && git reset --hard 95e9afe64c38d2e5ba962eee7949ef629fe50197
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..
+          ccache -s
+      - name: Save ccache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-flink-centos8
+      - name: Build nexmark
+        if: github.event_name != 'schedule'
+        run: |
           git clone https://github.com/nexmark/nexmark.git
           cd nexmark
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests
       - name: Build Gluten Flink
+        if: github.event_name != 'schedule'
         run: |
           cd $GITHUB_WORKSPACE/gluten-flink
           $GITHUB_WORKSPACE/build/mvn clean package -Dmaven.test.skip=true
       - name: Run Unit Tests
+        if: github.event_name != 'schedule'
         run: |
           cd $GITHUB_WORKSPACE/gluten-flink
           $GITHUB_WORKSPACE/build/mvn test

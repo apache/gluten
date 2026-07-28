@@ -31,6 +31,7 @@
 
 #include "jni/JniHashTable.h"
 #include "memory/VeloxMemoryManager.h"
+#include "shuffle/ReaderThreadPool.h"
 
 namespace gluten {
 
@@ -49,6 +50,8 @@ class VeloxBackend {
   static VeloxBackend* get();
 
   facebook::velox::cache::AsyncDataCache* getAsyncDataCache() const;
+
+  ReaderThreadPool* getReaderThreadPool();
 
   std::shared_ptr<facebook::velox::config::ConfigBase> getBackendConf() const {
     return backendConf_;
@@ -71,6 +74,10 @@ class VeloxBackend {
   }
 
   std::shared_ptr<facebook::velox::connector::Connector> createHiveConnector(
+      const std::string& connectorId,
+      folly::Executor* ioExecutor) const;
+
+  std::shared_ptr<facebook::velox::connector::Connector> createIcebergConnector(
       const std::string& connectorId,
       folly::Executor* ioExecutor) const;
 
@@ -126,6 +133,8 @@ class VeloxBackend {
   std::string cacheFilePrefix_;
 
   std::shared_ptr<facebook::velox::config::ConfigBase> backendConf_;
+
+  std::unique_ptr<ReaderThreadPool> readerThreadPool_;
 };
 
 } // namespace gluten

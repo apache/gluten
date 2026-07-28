@@ -217,13 +217,29 @@ std::shared_ptr<const core::FieldAccessTypedExpr> SubstraitVeloxExprConverter::t
       auto inputColumnType = inputType;
       for (;;) {
         auto idx = tmp->field();
-        fieldAccess = makeFieldAccessExpr(inputColumnType->nameOf(idx), inputColumnType->childAt(idx), fieldAccess);
+        VELOX_USER_CHECK(
+            idx >= 0 && static_cast<uint32_t>(idx) < inputColumnType->size(),
+            "Field reference index {} is out of range for the {}-field row type.",
+            idx,
+            inputColumnType->size());
+        const TypePtr childType = inputColumnType->childAt(idx);
+        fieldAccess = makeFieldAccessExpr(inputColumnType->nameOf(idx), childType, fieldAccess);
 
         if (!tmp->has_child()) {
           break;
         }
 
-        inputColumnType = asRowType(inputColumnType->childAt(idx));
+        // Descending into a nested field is only valid when the current child is
+        // itself a struct/row. For array/map/primitive children (e.g. a field
+        // nested under an array, as in Delta's "updating array type" case)
+        // asRowType() returns null; previously the next loop iteration
+        // dereferenced that null RowType and crashed the process with a SIGSEGV.
+        // Throw a user error instead so plan validation fails cleanly and the
+        // query falls back to vanilla execution.
+        inputColumnType = asRowType(childType);
+        VELOX_USER_CHECK_NOT_NULL(
+            inputColumnType,
+            "Nested field reference into a non-struct type (e.g. an array or map element) is not supported.");
         tmp = &tmp->child().struct_field();
       }
       return fieldAccess;

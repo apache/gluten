@@ -406,7 +406,8 @@ trait SparkPlanExecApi {
   /** Determine whether to use sort-based shuffle based on shuffle partitioning and output. */
   def getShuffleWriterType(
       partitioning: Partitioning,
-      output: Seq[Attribute]): ShuffleWriterType = {
+      output: Seq[Attribute],
+      executionMode: Option[StageExecutionMode] = None): ShuffleWriterType = {
     HashShuffleWriterType
   }
 
@@ -437,7 +438,10 @@ trait SparkPlanExecApi {
       child: SparkPlan,
       numOutputRows: SQLMetric,
       dataSize: SQLMetric,
-      buildThreads: SQLMetric = null): BuildSideRelation
+      buildThreads: SQLMetric = null,
+      buildHashTableTimeMetric: SQLMetric = null,
+      serializeHashTableTimeMetric: SQLMetric = null,
+      serializedHashTableSizeMetric: SQLMetric = null): BuildSideRelation
 
   def doCanonicalizeForBroadcastMode(mode: BroadcastMode): BroadcastMode = {
     mode.canonicalized

@@ -65,11 +65,11 @@ body:
       label: Spark version
       description: Please provide the spark version in your environment.
       options:
-        - Spark-3.2.x
         - Spark-3.3.x
         - Spark-3.4.x
         - Spark-3.5.x
-        - spark-4.0.x
+        - Spark-4.0.x
+        - Spark-4.1.x
     validations:
       required: false
 

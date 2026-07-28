@@ -157,9 +157,6 @@ install_centos_8() {
 
     pip3 install --upgrade pip
 
-    # Requires cmake >= 3.28.3
-    pip3 install cmake==3.28.3
-
     dnf -y --enablerepo=powertools install autoconf-archive ninja-build
 
     install_maven_from_source
@@ -175,8 +172,6 @@ install_centos_9() {
 
     pip3 install --upgrade pip
 
-    # Requires cmake >= 3.28.3
-    pip3 install cmake==3.28.3
 
     dnf -y --enablerepo=crb install autoconf-archive ninja-build
 
@@ -207,7 +202,7 @@ install_openeuler_24.03() {
         gcc g++ cmake ninja-build perl-IPC-Cmd autoconf autoconf-archive automake libtool \
         java-1.8.0-openjdk java-1.8.0-openjdk-devel python3-devel python3-pip libstdc++-static
 
-    pip install cmake==3.28.3
+    pip install cmake==3.31.4
 
     install_maven_from_source
 }

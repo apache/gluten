@@ -87,7 +87,7 @@ case class CheckOverflowTransformer(
       context,
       substraitExprName,
       child.doTransform(context),
-      original.child.dataType,
+      child.dataType,
       original.dataType,
       original.nullable,
       original.nullOnOverflow)

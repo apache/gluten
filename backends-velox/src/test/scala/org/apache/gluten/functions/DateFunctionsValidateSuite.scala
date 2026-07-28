@@ -603,6 +603,14 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
         runQueryAndCompare("select hour(ts) from view") {
           checkGlutenPlan[ProjectExecTransformer]
         }
+        // minute(timestamp_ntz) runs natively; output is int (no NTZ propagation).
+        runQueryAndCompare("select minute(ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // second(timestamp_ntz) runs natively; output is int (no NTZ propagation).
+        runQueryAndCompare("select second(ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
     }
   }
 }

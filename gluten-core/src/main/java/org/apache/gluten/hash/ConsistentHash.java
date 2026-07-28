@@ -162,7 +162,10 @@ public class ConsistentHash<T extends ConsistentHash.Node> {
   public Set<Partition<T>> getPartition(T node) {
     lock.readLock().lock();
     try {
-      return nodes.get(node);
+      // Return a defensive copy: the map value is internal mutable state, and getNodes() copies
+      // for the same reason. Callers get a snapshot they can't use to mutate the ring.
+      Set<Partition<T>> partitions = nodes.get(node);
+      return partitions == null ? null : new HashSet<>(partitions);
     } finally {
       lock.readLock().unlock();
     }
@@ -199,28 +202,34 @@ public class ConsistentHash<T extends ConsistentHash.Node> {
   }
 
   private boolean add(T node) {
-    boolean added = false;
-    if (node != null && !nodes.containsKey(node)) {
-      Set<Partition<T>> partitions =
-          IntStream.range(0, replicate)
-              .mapToObj(idx -> new Partition<T>(node, idx))
-              .collect(Collectors.toSet());
-      nodes.put(node, partitions);
-
-      // allocate slot.
-      for (Partition<T> partition : partitions) {
-        long slot;
-        int seed = 0;
-        do {
-          slot = this.hasher.hash(partition.getPartitionKey(), seed++);
-        } while (ring.containsKey(slot));
-
-        partition.setSlot(slot);
-        ring.put(slot, partition);
-      }
-      added = true;
+    if (node == null) {
+      return false;
     }
-    return added;
+    // Validate the key before any map lookup: nodes.containsKey() invokes the node's
+    // hashCode()/equals(), which may themselves dereference key() and NPE on a null key, masking
+    // the intended fail-fast here.
+    Preconditions.checkArgument(node.key() != null, "Node key must not be null: %s", node);
+    if (nodes.containsKey(node)) {
+      return false;
+    }
+    Set<Partition<T>> partitions =
+        IntStream.range(0, replicate)
+            .mapToObj(idx -> new Partition<T>(node, idx))
+            .collect(Collectors.toSet());
+    nodes.put(node, partitions);
+
+    // allocate slot.
+    for (Partition<T> partition : partitions) {
+      long slot;
+      int seed = 0;
+      do {
+        slot = this.hasher.hash(partition.getPartitionKey(), seed++);
+      } while (ring.containsKey(slot));
+
+      partition.setSlot(slot);
+      ring.put(slot, partition);
+    }
+    return true;
   }
 
   public static class Partition<T extends ConsistentHash.Node> {
@@ -228,22 +237,32 @@ public class ConsistentHash<T extends ConsistentHash.Node> {
 
     private final int index;
 
+    // Hash the node by its logical key() so the ring is stable and reproducible across JVMs (avoid
+    // node.toString(), which may fall back to the identity hash). Computed once: the key is
+    // immutable and re-read on every collision-retry in add().
+    private final String partitionKey;
+
     private long slot;
 
     public Partition(T node, int index) {
       this.node = node;
       this.index = index;
+      this.partitionKey = node.key() + ":" + index;
     }
 
     public String getPartitionKey() {
-      return String.format("%s:%d", node, index);
+      return partitionKey;
     }
 
     public T getNode() {
       return node;
     }
 
-    public void setSlot(long slot) {
+    // Non-public on purpose: only ConsistentHash.add() assigns the slot, during ring construction
+    // (accessible as a nestmate). Keeping it out of the public API stops callers of getPartition()
+    // from mutating ring state through a returned Partition (e.g. changing a slot so removeNode()
+    // drops the wrong entry).
+    private void setSlot(long slot) {
       this.slot = slot;
     }
 
@@ -254,6 +273,12 @@ public class ConsistentHash<T extends ConsistentHash.Node> {
 
   /** Base interface for the node in the ring. */
   public interface Node {
+    /**
+     * A stable, non-null identifier for this node. The ring hashes each virtual node by this key,
+     * so it MUST be deterministic across JVMs and process restarts (e.g. derived from a host or
+     * executor id) and consistent with {@link Object#equals}: two equal nodes must return the same
+     * key. Returning identity- or {@code toString()}-based values breaks ring stability.
+     */
     String key();
   }
 

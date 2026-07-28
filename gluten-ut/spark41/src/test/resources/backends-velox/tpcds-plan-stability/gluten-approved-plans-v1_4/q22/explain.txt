@@ -151,7 +151,6 @@ Arguments: false
 
 (28) VeloxResizeBatches
 Input [8]: [hash_partition_key#22, i_product_name#13, i_brand#14, i_class#15, i_category#16, spark_grouping_id#17, sum#20, count#21]
-Arguments: 1024, 2147483647, 10485760
 
 (29) ColumnarExchange
 Input [8]: [hash_partition_key#22, i_product_name#13, i_brand#14, i_class#15, i_category#16, spark_grouping_id#17, sum#20, count#21]

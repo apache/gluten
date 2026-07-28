@@ -110,7 +110,9 @@ public class RexCallConverterFactory {
           Map.entry("LOWER", Arrays.asList(() -> new DefaultRexCallConverter("lower"))),
           Map.entry("count_char", Arrays.asList(() -> new DefaultRexCallConverter("count_char"))),
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
-          Map.entry("IS TRUE", Arrays.asList(() -> new IsTrueRexCallConverter())));
+          Map.entry("IS TRUE", Arrays.asList(() -> new IsTrueRexCallConverter())),
+          Map.entry("CONCAT", Arrays.asList(() -> new DefaultRexCallConverter("concat"))),
+          Map.entry("CONCAT_WS", Arrays.asList(() -> new DefaultRexCallConverter("concat_ws"))));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {
     String operatorName = callNode.getOperator().getName();

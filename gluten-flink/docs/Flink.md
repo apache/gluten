@@ -48,7 +48,7 @@ As some features have not been committed to upstream, you have to use the follow
 ## fetch velox4j code
 git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
 cd velox4j
-git reset --hard 115edf79d265a61c30d45dfcc6ce932ad92378ca
+git reset --hard 95e9afe64c38d2e5ba962eee7949ef629fe50197
 mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
 ```
 **Get gluten**
@@ -98,8 +98,8 @@ export FLINK_HOME=
 cd $FLINK_HOME
 mkdir -p gluten_lib
 ln -s $VELOX4J_HOME/target/velox4j-0.1.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar
-ln -s $GLUTEN_FLINK_HOME/runtime/target/gluten-flink-runtime-1.7.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/gluten-flink-runtime-1.6.0.jar
-ln -s $GLUTEN_FLINK_HOME/loader/target/gluten-flink-loader-1.7.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/gluten-flink-loader-1.6.0.jar
+ln -s $GLUTEN_FLINK_HOME/runtime/target/gluten-flink-runtime-1.8.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/gluten-flink-runtime-1.8.0-SNAPSHOT.jar
+ln -s $GLUTEN_FLINK_HOME/loader/target/gluten-flink-loader-1.8.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/gluten-flink-loader-1.8.0-SNAPSHOT.jar
 ```
 
 And make them loaded before flink libraries.
@@ -110,7 +110,7 @@ Gluten classes need to be loaded first in Flink,
 you can modify the constructFlinkClassPath function in `$FLINK_HOME/bin/config.sh` like this: 
 
 ```
-GLUTEN_JAR="$FLINK_HOME/gluten_lib/gluten-flink-loader-1.6.0.jar:$FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/gluten-flink-runtime-1.6.0.jar:"
+GLUTEN_JAR="$FLINK_HOME/gluten_lib/gluten-flink-loader-1.8.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/gluten-flink-runtime-1.8.0-SNAPSHOT.jar:"
 echo "$GLUTEN_JAR""$FLINK_CLASSPATH""$FLINK_DIST"
 ```
 
@@ -156,7 +156,7 @@ make rocksdbjava -i
     ```
 - modify `${FLINK_HOME}/bin/config.sh` as follows
     ```
-    GLUTEN_JAR="$FLINK_HOME/gluten_lib/gluten-flink-loader-1.6.0.jar:$FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/gluten-flink-runtime-1.6.0.jar:$FLINK_HOME/gluten_lib/rocksdbjni-6.20.3-linux64.jar"
+    GLUTEN_JAR="$FLINK_HOME/gluten_lib/gluten-flink-loader-1.8.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/gluten-flink-runtime-1.8.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/rocksdbjni-6.20.3-linux64.jar"
     echo "$GLUTEN_JAR""$FLINK_CLASSPATH""$FLINK_DIST"
     ```
 - set rocksdb config in `${FLINK_HOME}/conf/config.yaml`

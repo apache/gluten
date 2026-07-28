@@ -129,8 +129,14 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashProbeSpilledPartitions += hashProbeMetrics.spilledPartitions
     hashProbeSpilledFiles += hashProbeMetrics.spilledFiles
     hashProbeReplacedWithDynamicFilterRows += hashProbeMetrics.numReplacedWithDynamicFilterRows
-    hashProbeDynamicFiltersProduced += hashProbeMetrics.numDynamicFiltersProduced
-    bloomFilterBlocksByteSize += hashProbeMetrics.bloomFilterBlocksByteSize
+
+    // Only skip these metrics when this join actually reuses a pre-built serialized
+    // hash table from driver-side build. Fallbacks still build on executors and
+    // must accumulate native probe metrics here.
+    if (!joinParams.usesDriverSideSerializedHashTable) {
+      hashProbeDynamicFiltersProduced += hashProbeMetrics.numDynamicFiltersProduced
+      bloomFilterBlocksByteSize += hashProbeMetrics.bloomFilterBlocksByteSize
+    }
     idx += 1
 
     // HashBuild
@@ -175,7 +181,7 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
         hashBuildMetrics.spilledBytes)
     }
 
-    loadLazyVectorTime += joinMetrics.asScala.last.loadLazyVectorTime
+    loadLazyVectorTime += joinMetrics.asScala.map(_.loadLazyVectorTime).sum
   }
 }
 

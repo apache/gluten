@@ -24,7 +24,7 @@
   </parent>
   <groupId>org.apache.gluten</groupId>
   <artifactId>gluten-parent</artifactId>
-  <version>1.7.0-SNAPSHOT</version>
+  <version>1.8.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>Gluten Parent Pom</name>
@@ -140,7 +140,7 @@
     <!-- plugin version-->
     <build-helper-maven-plugin.version>3.6.0</build-helper-maven-plugin.version>
     <scala.compiler.version>4.9.2</scala.compiler.version>
-    <maven.compiler.plugin>3.14.1</maven.compiler.plugin>
+    <maven.compiler.plugin>3.15.0</maven.compiler.plugin>
     <maven.jar.plugin>3.2.2</maven.jar.plugin>
     <scalastyle.version>1.0.0</scalastyle.version>
     <scalatest-maven-plugin.version>2.2.0</scalatest-maven-plugin.version>
@@ -577,7 +577,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-surefire-plugin</artifactId>
-          <version>3.3.0</version>
+          <version>3.5.6</version>
           <configuration>
             <argLine>${argLine} ${extraJavaTestArgs}</argLine>
             <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
@@ -945,6 +945,22 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-enforcer-plugin</artifactId>
         <executions>
+          <execution>
+            <id>enforce-spark-profile</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <requireActiveProfile>
+                  <!-- Spark 4.0 requires Java 17+ -->
+                  <profiles>spark-3.3,spark-3.4,spark-3.5,spark-4.0,spark-4.1</profiles>
+                  <all>false</all>
+                  <message>Missing spark version profile: -Pspark-&lt;version&gt;</message>
+                </requireActiveProfile>
+              </rules>
+            </configuration>
+          </execution>
           <execution>
             <id>enforce-versions</id>
             <goals>
@@ -2290,15 +2306,6 @@
         <arch>ppc64le</arch>
         <os.full.name>${platform}_${arch}</os.full.name>
       </properties>
-    </profile>
-    <profile>
-      <id>disaggregated-shuffle</id>
-      <activation>
-        <activeByDefault>false</activeByDefault>
-      </activation>
-      <modules>
-        <module>gluten-disaggregated-shuffle</module>
-      </modules>
     </profile>
   </profiles>
 </project>

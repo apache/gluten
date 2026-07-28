@@ -17,8 +17,10 @@
 
 #include "IcebergWriter.h"
 
+#include "IcebergNestedField.pb.h"
 #include "IcebergPartitionSpec.pb.h"
 #include "compute/ProtobufUtils.h"
+#include "compute/VeloxBackend.h"
 #include "compute/iceberg/IcebergFormat.h"
 #include "config/VeloxConfig.h"
 #include "utils/ConfigExtractor.h"
@@ -44,6 +46,7 @@ class GlutenIcebergFileNameGenerator : public connector::hive::FileNameGenerator
       std::optional<uint32_t> bucketId,
       const std::shared_ptr<const connector::hive::HiveInsertTableHandle> insertTableHandle,
       const connector::ConnectorQueryCtx& connectorQueryCtx,
+      uint32_t maxNumBuckets,
       bool commitRequired) const override {
     auto targetFileName = insertTableHandle->locationHandle()->targetFileName();
     if (targetFileName.empty()) {
@@ -99,9 +102,9 @@ class GlutenIcebergFileNameGenerator : public connector::hive::FileNameGenerator
   mutable int32_t fileCount_;
 };
 
-iceberg::IcebergNestedField convertToIcebergNestedField(const gluten::IcebergNestedField& protoField) {
-  IcebergNestedField result;
-  result.id = protoField.id();
+parquet::ParquetFieldId convertToIcebergNestedField(const gluten::IcebergNestedField& protoField) {
+  parquet::ParquetFieldId result;
+  result.fieldId = protoField.id();
 
   // Recursively convert children
   result.children.reserve(protoField.children_size());
@@ -121,7 +124,7 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
     int64_t taskId,
     const std::string& operationId,
     std::shared_ptr<const IcebergPartitionSpec> spec,
-    const iceberg::IcebergNestedField& nestedField,
+    const parquet::ParquetFieldId& nestedField,
     facebook::velox::memory::MemoryPool* pool) {
   std::vector<std::shared_ptr<const iceberg::IcebergColumnHandle>> columnHandles;
 
@@ -139,13 +142,11 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
           columnNames.at(i),
           connector::hive::HiveColumnHandle::ColumnType::kPartitionKey,
           columnTypes.at(i),
-          columnTypes.at(i),
           nestedField.children[i]));
     } else {
       columnHandles.push_back(std::make_shared<iceberg::IcebergColumnHandle>(
           columnNames.at(i),
           connector::hive::HiveColumnHandle::ColumnType::kRegular,
-          columnTypes.at(i),
           columnTypes.at(i),
           nestedField.children[i]));
     }
@@ -157,17 +158,17 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
   std::shared_ptr<const connector::hive::LocationHandle> locationHandle =
       std::make_shared<connector::hive::LocationHandle>(
           outputDirectoryPath, outputDirectoryPath, connector::hive::LocationHandle::TableType::kExisting);
-  const std::vector<IcebergSortingColumn> sortedBy;
   const std::unordered_map<std::string, std::string> serdeParameters;
+  auto writeKind = connector::hive::iceberg::IcebergInsertTableHandle::WriteKind::kData;
   return std::make_shared<connector::hive::iceberg::IcebergInsertTableHandle>(
       columnHandles,
       locationHandle,
-      spec,
-      pool,
       fileFormat,
-      sortedBy,
+      spec,
       compressionKind,
       serdeParameters,
+      writeKind,
+      std::unordered_map<std::string, connector::hive::iceberg::IcebergInsertTableHandle::ExistingDeletionVector>{},
       fileNameGenerator);
 }
 
@@ -200,20 +201,36 @@ IcebergWriter::IcebergWriter(
   connectorSessionProperties_ = createHiveConnectorSessionConfig(veloxCfg);
   connectorConfig_ =
       std::make_shared<facebook::velox::connector::hive::HiveConfig>(createHiveConnectorConfig(veloxCfg));
+  std::unordered_map<std::string, std::shared_ptr<facebook::velox::config::ConfigBase>> connectorConfigs;
+  connectorConfigs[kHiveConnectorId] = connectorSessionProperties_;
+  auto queryConfigBase =
+      std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(sparkConfs));
+  queryCtx_ = facebook::velox::core::QueryCtx::create(
+      nullptr,
+      facebook::velox::core::QueryConfig{facebook::velox::core::QueryConfig::ConfigTag{}, queryConfigBase},
+      connectorConfigs,
+      nullptr, // cache
+      pool_,
+      nullptr, // spillExecutor
+      "IcebergWriter");
+
+  auto expressionEvaluator =
+      std::make_unique<facebook::velox::exec::SimpleExpressionEvaluator>(queryCtx_.get(), pool_.get());
+
   connectorQueryCtx_ = std::make_unique<connector::ConnectorQueryCtx>(
       pool_.get(),
       connectorPool_.get(),
       connectorSessionProperties_.get(),
       nullptr,
       common::PrefixSortConfig(),
-      nullptr,
+      std::move(expressionEvaluator),
       nullptr,
       "query.IcebergDataSink",
       "task.IcebergDataSink",
       "planNodeId.IcebergDataSink",
       0,
       "");
-
+  auto icebergConfig = std::make_shared<facebook::velox::connector::hive::iceberg::IcebergConfig>(veloxCfg);
   dataSink_ = std::make_unique<IcebergDataSink>(
       rowType_,
       createIcebergInsertTableHandle(
@@ -229,24 +246,29 @@ IcebergWriter::IcebergWriter(
           pool_.get()),
       connectorQueryCtx_.get(),
       facebook::velox::connector::CommitStrategy::kNoCommit,
-      connectorConfig_);
+      connectorConfig_,
+      icebergConfig);
 }
 
 void IcebergWriter::write(const VeloxColumnarBatch& batch) {
   auto inputRowVector = batch.getRowVector();
   auto inputRowType = asRowType(inputRowVector->type());
 
+  const auto& children = inputRowVector->children();
+
+  std::vector<VectorPtr> dataColumns;
+  dataColumns.reserve(rowType_->size());
+
   if (inputRowType->size() != rowType_->size()) {
-    const auto& children = inputRowVector->children();
-    std::vector<VectorPtr> dataColumns(children.begin() + 1, children.begin() + 1 + rowType_->size());
-
-    auto filteredRowVector = std::make_shared<RowVector>(
-        pool_.get(), rowType_, inputRowVector->nulls(), inputRowVector->size(), std::move(dataColumns));
-
-    dataSink_->appendData(filteredRowVector);
+    dataColumns.insert(dataColumns.end(), children.begin() + 1, children.begin() + 1 + rowType_->size());
   } else {
-    dataSink_->appendData(inputRowVector);
+    dataColumns.insert(dataColumns.end(), children.begin(), children.end());
   }
+
+  auto rowVector = std::make_shared<RowVector>(
+      pool_.get(), rowType_, inputRowVector->nulls(), inputRowVector->size(), std::move(dataColumns));
+
+  dataSink_->appendData(rowVector);
 }
 
 std::vector<std::string> IcebergWriter::commit() {

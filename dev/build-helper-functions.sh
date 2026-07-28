@@ -174,15 +174,23 @@ function cmake_install {
   fi
   mkdir -p "${BINARY_DIR}"
   CPU_TARGET="${CPU_TARGET:-unknown}"
-  COMPILER_FLAGS=$(get_cxx_flags $CPU_TARGET)
+  # EXTRA_CMAKE_CXX_FLAGS lets a caller append dependency-specific compiler flags
+  # for a single cmake_install invocation without affecting other dependencies.
+  COMPILER_FLAGS="$(get_cxx_flags $CPU_TARGET) ${EXTRA_CMAKE_CXX_FLAGS:-}"
 
   local MACOS_ISOLATION_FLAGS=""
   if [[ "$(uname)" == "Darwin" ]]; then
-    if [[ "${INSTALL_PREFIX:-}" == "/usr/local" || "${INSTALL_PREFIX:-}" == /usr/local/* ]]; then
+    if [[ -z "${INSTALL_PREFIX:-}" ]]; then
+      :
+    elif [[ "${INSTALL_PREFIX:-}" == "/usr/local" || "${INSTALL_PREFIX:-}" == /usr/local/* ]]; then
       echo "INFO: INSTALL_PREFIX=${INSTALL_PREFIX} is under /usr/local; keeping /usr/local visible to CMake." >&2
     else
-      MACOS_ISOLATION_FLAGS="-DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON \
-        -DCMAKE_IGNORE_PREFIX_PATH=/usr/local \
+      # CMake ignore paths only affect package discovery. AppleClang still adds
+      # /usr/local/include to the default header search path unless an SDK
+      # sysroot is selected, so pin SDKROOT here too for callers that invoke
+      # cmake_install directly (e.g. build-arrow.sh) without exporting it.
+      export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path)}"
+      MACOS_ISOLATION_FLAGS="-DCMAKE_IGNORE_PREFIX_PATH=/usr/local \
         -DCMAKE_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake \
         -DCMAKE_SYSTEM_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake"
     fi

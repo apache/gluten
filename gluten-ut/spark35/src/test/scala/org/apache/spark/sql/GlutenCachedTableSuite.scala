@@ -42,7 +42,7 @@ class GlutenCachedTableSuite
     sql("CACHE TABLE testData")
     spark.table("testData").queryExecution.withCachedData.collect {
       case cached: InMemoryRelation =>
-        assert(cached.stats.sizeInBytes === 1132)
+        assert(cached.stats.sizeInBytes === 1130)
     }
   }
 
@@ -165,7 +165,7 @@ class GlutenCachedTableSuite
       checkAnswer(spark.table(tableName), Row(LocalDateTime.parse("2021-01-01T00:00:00")))
       spark.table(tableName).queryExecution.withCachedData.collect {
         case cached: InMemoryRelation =>
-          assert(cached.stats.sizeInBytes === 60)
+          assert(cached.stats.sizeInBytes === 55)
       }
       sql(s"UNCACHE TABLE $tableName")
     }

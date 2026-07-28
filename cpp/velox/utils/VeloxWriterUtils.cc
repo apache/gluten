@@ -38,7 +38,8 @@ const int32_t kGzipWindowBits4k = 12;
 const int32_t kZSTDDefaultCompressionLevel = 3;
 } // namespace
 
-std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<std::string, std::string>& sparkConfs) {
+std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOption(
+    const std::unordered_map<std::string, std::string>& sparkConfs) {
   int64_t maxRowGroupBytes = 134217728; // 128MB
   int64_t maxRowGroupRows = 100000000; // 100M
   if (auto it = sparkConfs.find(kParquetBlockSize); it != sparkConfs.end()) {
@@ -47,8 +48,24 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
   if (auto it = sparkConfs.find(kParquetBlockRows); it != sparkConfs.end()) {
     maxRowGroupRows = std::stoll(it->second);
   }
-  auto writeOption = std::make_unique<WriterOptions>();
-  writeOption->parquetWriteTimestampUnit = TimestampPrecision::kMicroseconds /*micro*/;
+
+  auto writeOption = std::make_shared<facebook::velox::dwio::common::WriterOptions>();
+  auto parquetOptions = std::make_shared<ParquetWriterOptions>();
+  parquetOptions->parquetWriteTimestampUnit = TimestampPrecision::kMicroseconds /*micro*/;
+  bool writeLegacyParquetFormat = false;
+  if (auto it = sparkConfs.find(kParquetStoreDecimalAsInteger); it != sparkConfs.end()) {
+    writeLegacyParquetFormat = boost::iequals(it->second, "true");
+  }
+  // Maps spark.sql.parquet.writeLegacyFormat to Velox enableStoreDecimalAsInteger (inverted).
+  // Controls how DECIMAL values are stored by the Writer:
+  // - true (default when legacy format is off): store as integer using INT32/INT64 for short
+  //   DECIMAL precisions; higher precisions use FIXED_LEN_BYTE_ARRAY.
+  // - false (when spark.sql.parquet.writeLegacyFormat is true): store as FIXED_LEN_BYTE_ARRAY
+  //   regardless of precision (Spark legacy Parquet decimal layout).
+  // TODO: Only DECIMAL is handled here. Spark's writeLegacyFormat also changes ARRAY (bag/array
+  // vs list/element) and MAP (map vs key_value) physical layouts, which are not yet supported
+  // in Gluten native Parquet write.
+  parquetOptions->enableStoreDecimalAsInteger = !writeLegacyParquetFormat;
   auto compressionCodec = CompressionKind::CompressionKind_SNAPPY;
   if (auto it = sparkConfs.find(kParquetCompressionCodec); it != sparkConfs.end()) {
     auto compressionCodecStr = it->second;
@@ -62,7 +79,7 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
         if (parquetGzipWindowSizeStr == kGzipWindowSize4k) {
           auto codecOptions = std::make_shared<parquet::arrow::util::GZipCodecOptions>();
           codecOptions->windowBits = kGzipWindowBits4k;
-          writeOption->codecOptions = std::move(codecOptions);
+          parquetOptions->codecOptions = std::move(codecOptions);
         }
       }
     } else if (boost::iequals(compressionCodecStr, "lzo")) {
@@ -71,14 +88,14 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
       // please make sure `brotli` is enabled when compiling
       throw GlutenException("Gluten+velox does not support write parquet using brotli.");
     } else if (boost::iequals(compressionCodecStr, "lz4")) {
-      compressionCodec = CompressionKind::CompressionKind_LZ4;
+      compressionCodec = CompressionKind::CompressionKind_LZ4_HADOOP;
     } else if (boost::iequals(compressionCodecStr, "zstd")) {
       compressionCodec = CompressionKind::CompressionKind_ZSTD;
       auto codecOptions = std::make_shared<parquet::arrow::util::CodecOptions>();
       auto it = sparkConfs.find(kParquetZSTDCompressionLevel);
       auto compressionLevel = it != sparkConfs.end() ? std::stoi(it->second) : kZSTDDefaultCompressionLevel;
       codecOptions->compressionLevel = compressionLevel;
-      writeOption->codecOptions = std::move(codecOptions);
+      parquetOptions->codecOptions = std::move(codecOptions);
     } else if (boost::iequals(compressionCodecStr, "uncompressed")) {
       compressionCodec = CompressionKind::CompressionKind_NONE;
     } else if (boost::iequals(compressionCodecStr, "none")) {
@@ -90,28 +107,29 @@ std::unique_ptr<WriterOptions> makeParquetWriteOption(const std::unordered_map<s
     return std::make_unique<LambdaFlushPolicy>(maxRowGroupRows, maxRowGroupBytes, [&]() { return false; });
   };
   if (auto it = sparkConfs.find(kSessionTimezone); it != sparkConfs.end()) {
-    writeOption->parquetWriteTimestampTimeZone = normalizeSessionTimezone(it->second);
+    parquetOptions->parquetWriteTimestampTimeZone = normalizeSessionTimezone(it->second);
   }
-  writeOption->arrowMemoryPool =
+  parquetOptions->arrowMemoryPool =
       getDefaultMemoryManager()->getOrCreateArrowMemoryPool("VeloxParquetWrite.ArrowMemoryPool");
   if (auto it = sparkConfs.find(kParquetDataPageSize); it != sparkConfs.end()) {
     auto dataPageSize = std::stoll(it->second);
-    writeOption->dataPageSize = dataPageSize;
+    parquetOptions->dataPageSize = dataPageSize;
   }
   if (auto it = sparkConfs.find(kParquetWriterVersion); it != sparkConfs.end()) {
     auto parquetVersion = it->second;
     if (boost::iequals(parquetVersion, "v2")) {
-      writeOption->useParquetDataPageV2 = true;
+      parquetOptions->useParquetDataPageV2 = true;
     }
   }
   if (auto it = sparkConfs.find(kParquetEnableDictionary); it != sparkConfs.end()) {
     auto enableDictionary = it->second;
     if (boost::iequals(enableDictionary, "true")) {
-      writeOption->enableDictionary = true;
+      parquetOptions->enableDictionary = true;
     } else {
-      writeOption->enableDictionary = false;
+      parquetOptions->enableDictionary = false;
     }
   }
+  writeOption->formatSpecificOptions = std::move(parquetOptions);
   return writeOption;
 }
 

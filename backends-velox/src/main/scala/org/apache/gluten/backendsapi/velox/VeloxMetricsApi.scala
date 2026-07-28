@@ -17,7 +17,7 @@
 package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.MetricsApi
-import org.apache.gluten.config.{GpuHashShuffleWriterType, HashShuffleWriterType, RssSortShuffleWriterType, ShuffleWriterType, SortShuffleWriterType}
+import org.apache.gluten.config.{HashShuffleWriterType, RssSortShuffleWriterType, ShuffleWriterType, SortShuffleWriterType}
 import org.apache.gluten.metrics._
 import org.apache.gluten.substrait.{AggregationParams, JoinParams}
 
@@ -430,7 +430,7 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "peakBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak bytes allocated")
     )
     shuffleWriterType match {
-      case HashShuffleWriterType | GpuHashShuffleWriterType =>
+      case HashShuffleWriterType =>
         baseMetrics ++ Map(
           "splitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to split"),
           "avgDictionaryFields" -> SQLMetrics
@@ -599,7 +599,16 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
       "collectTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to collect"),
       "broadcastTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to broadcast"),
-      "buildThreads" -> SQLMetrics.createMetric(sparkContext, "build threads")
+      "buildThreads" -> SQLMetrics.createMetric(sparkContext, "build threads"),
+      "driverBuildHashTableTime" -> SQLMetrics.createTimingMetric(
+        sparkContext,
+        "time to build hash table on driver"),
+      "driverSerializeHashTableTime" -> SQLMetrics.createTimingMetric(
+        sparkContext,
+        "time to serialize hash table on driver"),
+      "serializedHashTableSize" -> SQLMetrics.createSizeMetric(
+        sparkContext,
+        "serialized hash table size")
     )
 
   override def genColumnarSubqueryBroadcastMetrics(
@@ -715,7 +724,13 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "time of loading lazy vectors"),
       "buildHashTableTime" -> SQLMetrics.createTimingMetric(
         sparkContext,
-        "time to build hash table")
+        "time to build hash table"),
+      "deserializeHashTableTime" -> SQLMetrics.createTimingMetric(
+        sparkContext,
+        "time to deserialize hash table"),
+      "hashTableMemorySize" -> SQLMetrics.createSizeMetric(
+        sparkContext,
+        "hash table memory size")
     )
 
   override def genHashJoinTransformerMetricsUpdater(

@@ -222,7 +222,9 @@ public abstract class CommonExecSink extends ExecNodeBase<Object>
             Configuration.class.getName(),
             streamExecEnv.getConfiguration(),
             ResolvedSchema.class.getName(),
-            schema));
+            schema,
+            VeloxSourceSinkFactory.FACTORY_CLASS_LOADER_KEY,
+            CommonExecSink.class.getClassLoader()));
     // --- End Gluten-specific code changes ---
   }
 

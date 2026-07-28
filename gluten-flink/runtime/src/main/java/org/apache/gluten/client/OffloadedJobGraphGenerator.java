@@ -16,8 +16,10 @@
  */
 package org.apache.gluten.client;
 
+import org.apache.gluten.streaming.api.operators.GlutenOneInputOperatorFactory;
 import org.apache.gluten.streaming.api.operators.GlutenOperator;
 import org.apache.gluten.streaming.api.operators.GlutenStreamSource;
+import org.apache.gluten.streaming.api.operators.GlutenTwoInputOperatorFactory;
 import org.apache.gluten.table.runtime.keyselector.GlutenKeySelector;
 import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.table.runtime.operators.GlutenSourceFunction;
@@ -185,14 +187,14 @@ public class OffloadedJobGraphGenerator {
       boolean supportsVectorOutput =
           supportsVectorOutput(sourceChainSlice, chainSliceGraph, jobVertex);
       Class<?> outClass = supportsVectorOutput ? StatefulRecord.class : RowData.class;
-      GlutenStreamSource newSourceOp =
-          new GlutenStreamSource(
-              new GlutenSourceFunction<>(
-                  planNode,
-                  sourceOperator.getOutputTypes(),
-                  sourceOperator.getId(),
-                  ((GlutenStreamSource) sourceOperator).getConnectorSplit(),
-                  outClass));
+      GlutenSourceFunction<?> newFn =
+          new GlutenSourceFunction<>(
+              planNode,
+              sourceOperator.getOutputTypes(),
+              sourceOperator.getId(),
+              ((GlutenStreamSource) sourceOperator).getConnectorSplit(),
+              outClass);
+      GlutenStreamSource newSourceOp = new GlutenStreamSource(newFn);
       offloadedOpConfig.setStreamOperator(newSourceOp);
       if (supportsVectorOutput) {
         setOffloadedOutputSerializer(offloadedOpConfig, sourceOperator);
@@ -241,7 +243,9 @@ public class OffloadedJobGraphGenerator {
     Class<?> outClass = supportsVectorOutput ? StatefulRecord.class : RowData.class;
     GlutenOneInputOperator<?, ?> newOneInputOp =
         sourceOperator.cloneWithInputOutputClasses(planNode, inClass, outClass);
-    offloadedOpConfig.setStreamOperator(newOneInputOp);
+    // setStreamOperator would wrap this in Flink's SimpleOperatorFactory and skip Gluten-specific
+    // mailbox binding performed by GlutenOneInputOperatorFactory.
+    offloadedOpConfig.setStreamOperatorFactory(new GlutenOneInputOperatorFactory<>(newOneInputOp));
     if (supportsVectorOutput) {
       setOffloadedOutputSerializer(offloadedOpConfig, sourceOperator);
     }
@@ -279,7 +283,10 @@ public class OffloadedJobGraphGenerator {
             sourceOperator.getOutputTypes(),
             inClass,
             outClass);
-    offloadedOpConfig.setStreamOperator(newTwoInputOp);
+    // setStreamOperator would wrap this in Flink's SimpleOperatorFactory, which only initializes
+    // ProcessingTimeService for Flink AbstractStreamOperator. GlutenTwoInputOperator uses
+    // GlutenAbstractStreamOperator so it needs the Gluten-specific factory.
+    offloadedOpConfig.setStreamOperatorFactory(new GlutenTwoInputOperatorFactory<>(newTwoInputOp));
     offloadedOpConfig.setStatePartitioner(0, new GlutenKeySelector());
     offloadedOpConfig.setStatePartitioner(1, new GlutenKeySelector());
     if (supportsVectorOutput) {

@@ -497,13 +497,6 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     return accessor.getBoolean(rowId);
   }
 
-  @Override
-  public boolean[] getBooleans(int rowId, int count) {
-    return accessor.getBooleans(rowId, count);
-  }
-
-  //
-
   //
   // APIs dealing with Bytes
   //
@@ -536,11 +529,6 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
   @Override
   public byte getByte(int rowId) {
     return accessor.getByte(rowId);
-  }
-
-  @Override
-  public byte[] getBytes(int rowId, int count) {
-    return accessor.getBytes(rowId, count);
   }
 
   @Override
@@ -577,11 +565,6 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     return accessor.getShort(rowId);
   }
 
-  @Override
-  public short[] getShorts(int rowId, int count) {
-    return accessor.getShorts(rowId, count);
-  }
-
   //
   // APIs dealing with Ints
   //
@@ -614,11 +597,6 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
   @Override
   public int getInt(int rowId) {
     return accessor.getInt(rowId);
-  }
-
-  @Override
-  public int[] getInts(int rowId, int count) {
-    return accessor.getInts(rowId, count);
   }
 
   /**
@@ -665,11 +643,6 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     return accessor.getLong(rowId);
   }
 
-  @Override
-  public long[] getLongs(int rowId, int count) {
-    return accessor.getLongs(rowId, count);
-  }
-
   //
   // APIs dealing with floats
   //
@@ -702,11 +675,6 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     return accessor.getFloat(rowId);
   }
 
-  @Override
-  public float[] getFloats(int rowId, int count) {
-    return accessor.getFloats(rowId, count);
-  }
-
   //
   // APIs dealing with doubles
   //
@@ -737,11 +705,6 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
   @Override
   public double getDouble(int rowId) {
     return accessor.getDouble(rowId);
-  }
-
-  @Override
-  public double[] getDoubles(int rowId, int count) {
-    return accessor.getDoubles(rowId, count);
   }
 
   //

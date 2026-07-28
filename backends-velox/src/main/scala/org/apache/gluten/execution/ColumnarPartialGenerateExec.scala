@@ -376,7 +376,9 @@ case class ColumnarPartialGenerateExec(generateExec: GenerateExec, child: SparkP
        |$formattedNodeName
        |${ExplainUtils.generateFieldString("Output", output)}
        |${ExplainUtils.generateFieldString("Input", child.output)}
-       |${ExplainUtils.generateFieldString("GenerateExec", generateExec)}
+       |${ExplainUtils.generateFieldString(
+        "GenerateExec",
+        generateExec.verboseStringWithOperatorId())}
        |""".stripMargin
   }
 

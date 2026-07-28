@@ -92,8 +92,7 @@ trait VeloxFormatWriterInjects extends GlutenFormatWriterInjectsBase {
         datasourceJniWrapper.close(dsHandle)
       }
 
-      // Do NOT add override keyword for compatibility on spark 3.1.
-      def path(): String = {
+      override def path(): String = {
         filePath
       }
     }

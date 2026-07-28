@@ -30,6 +30,7 @@
 #include "utils/qat/QatCodec.h"
 #endif
 #ifdef GLUTEN_ENABLE_GPU
+#include "cudf/GpuLock.h"
 #include "operators/plannodes/CudfVectorStream.h"
 #include "velox/experimental/cudf/CudfConfig.h"
 #include "velox/experimental/cudf/connectors/hive/CudfHiveConnector.h"
@@ -55,6 +56,7 @@
 #include "velox/connectors/hive/BufferedInputBuilder.h"
 #include "velox/connectors/hive/HiveConnector.h"
 #include "velox/connectors/hive/HiveDataSource.h"
+#include "velox/connectors/hive/iceberg/IcebergConnector.h"
 #include "velox/connectors/hive/storage_adapters/abfs/RegisterAbfsFileSystem.h" // @manual
 #include "velox/connectors/hive/storage_adapters/gcs/RegisterGcsFileSystem.h" // @manual
 #include "velox/connectors/hive/storage_adapters/hdfs/HdfsFileSystem.h"
@@ -193,13 +195,16 @@ void VeloxBackend::init(
 
 #ifdef GLUTEN_ENABLE_GPU
   if (backendConf_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
+    configureGpuTaskConcurrency(backendConf_->get<uint32_t>(kCudfConcurrentGpuTasks, kCudfConcurrentGpuTasksDefault));
     std::unordered_map<std::string, std::string> options = {
         {velox::cudf_velox::CudfConfig::kCudfEnabled, "true"},
         {velox::cudf_velox::CudfConfig::kCudfDebugEnabled, backendConf_->get(kDebugCudf, kDebugCudfDefault)},
         {velox::cudf_velox::CudfConfig::kCudfMemoryResource,
          backendConf_->get(kCudfMemoryResource, kCudfMemoryResourceDefault)},
         {velox::cudf_velox::CudfConfig::kCudfMemoryPercent,
-         backendConf_->get(kCudfMemoryPercent, kCudfMemoryPercentDefault)}};
+         backendConf_->get(kCudfMemoryPercent, kCudfMemoryPercentDefault)},
+        {velox::cudf_velox::CudfConfig::kCudfAllowCpuFallback,
+         backendConf_->get(kCudfAllowCpuFallback, kCudfAllowCpuFallbackDefault)}};
     auto& cudfConfig = velox::cudf_velox::CudfConfig::getInstance();
     cudfConfig.initialize(std::move(options));
     velox::cudf_velox::registerCudf();
@@ -298,6 +303,16 @@ facebook::velox::cache::AsyncDataCache* VeloxBackend::getAsyncDataCache() const 
   return asyncDataCache_.get();
 }
 
+ReaderThreadPool* VeloxBackend::getReaderThreadPool() {
+  static std::once_flag readerThreadPoolInit;
+  std::call_once(readerThreadPoolInit, [this] {
+    const auto numThreads =
+        backendConf_->get<int32_t>(kGpuAsyncShuffleReaderThreads, kGpuAsyncShuffleReaderThreadsDefault);
+    readerThreadPool_ = std::make_unique<ReaderThreadPool>(numThreads);
+  });
+  return readerThreadPool_.get();
+}
+
 // JNI-or-local filesystem, for spilling-to-heap if we have extra JVM heap spaces
 void VeloxBackend::initJolFilesystem() {
   int64_t maxSpillFileSize = backendConf_->get<int64_t>(kMaxSpillFileSize, kMaxSpillFileSizeDefault);
@@ -376,6 +391,13 @@ std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createDelta
     const std::string& connectorId,
     folly::Executor* ioExecutor) const {
   return std::make_shared<delta::DeltaConnector>(connectorId, hiveConnectorConfig_, ioExecutor);
+}
+
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createIcebergConnector(
+    const std::string& connectorId,
+    folly::Executor* ioExecutor) const {
+  return std::make_shared<velox::connector::hive::iceberg::IcebergConnector>(
+      connectorId, hiveConnectorConfig_, ioExecutor);
 }
 
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createValueStreamConnector(

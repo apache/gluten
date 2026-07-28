@@ -68,7 +68,7 @@ AggregateCompanion toAggregateCompanion(const core::AggregationNode::Aggregate& 
       return ::substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT;
     }
     default:
-      VELOX_UNSUPPORTED("Unsupported Aggregate Step '{}' in Substrait ", mapAggregationStepToName(step));
+      VELOX_UNSUPPORTED("Unsupported Aggregate Step '{}' in Substrait ", core::AggregationNode::toName(step));
   }
 }
 
@@ -103,7 +103,7 @@ AggregateCompanion toAggregateCompanion(const core::AggregationNode::Aggregate& 
   // Add unknown type in extension.
   auto unknownType = substraitPlan->add_extensions()->mutable_extension_type();
 
-  unknownType->set_extension_uri_reference(0);
+  unknownType->set_extension_urn_reference(0);
   unknownType->set_type_anchor(0);
   unknownType->set_name("UNKNOWN");
 

@@ -28,7 +28,7 @@ import org.apache.spark.sql.catalyst.plans.logical.{CommandResult, LogicalPlan}
 import org.apache.spark.sql.catalyst.util.StringUtils.PlanStringConcat
 import org.apache.spark.sql.classic.ClassicConversions._
 import org.apache.spark.sql.execution.ColumnarWriteFilesExec.NoopLeaf
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AQEShuffleReadExec, QueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AQEShuffleReadExec, ColumnarAQEShuffleReadExec, QueryStageExec}
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.execution.command.{DataWritingCommandExec, ExecutedCommandExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -163,6 +163,7 @@ object GlutenImplicits {
           }
           collect(i.relation.cachedPlan)
         case _: AQEShuffleReadExec => // Ignore
+        case _: ColumnarAQEShuffleReadExec => // Ignore
         case p: SparkPlan =>
           GlutenExplainUtils.handleVanillaSparkPlan(p, fallbackNodeToReason)
           p.innerChildren.foreach(collect)

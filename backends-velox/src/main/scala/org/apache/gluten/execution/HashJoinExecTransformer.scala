@@ -25,9 +25,10 @@ import org.apache.spark.rpc.GlutenDriverEndpoint
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.optimizer.{BuildRight, BuildSide}
 import org.apache.spark.sql.catalyst.plans._
-import org.apache.spark.sql.execution.{SparkPlan, SQLExecution}
+import org.apache.spark.sql.execution.{ColumnarBuildSideRelation, SerializedHashTableBroadcastRelation, SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.metric.SQLMetric
+import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import io.substrait.proto.JoinRel
@@ -105,7 +106,7 @@ case class BroadcastHashJoinExecTransformer(
     right,
     isNullAwareAntiJoin) {
 
-  // Unique ID for built table
+  // Unique ID for the build side
   lazy val buildBroadcastTableId: String = buildPlan.id.toString
 
   override protected lazy val substraitJoinType: JoinRel.JoinType = joinType match {
@@ -139,7 +140,7 @@ case class BroadcastHashJoinExecTransformer(
       GlutenDriverEndpoint.collectResources(executionId, buildBroadcastTableId)
     } else {
       logWarning(
-        s"Can not trace broadcast table data $buildBroadcastTableId" +
+        s"Cannot trace broadcast table data $buildBroadcastTableId" +
           s" because execution id is null." +
           s" Will clean up until expire time.")
     }
@@ -177,9 +178,74 @@ case class BroadcastHashJoinExecTransformer(
         buildBroadcastTableId,
         isNullAwareAntiJoin,
         bloomFilterPushdownSize,
-        metrics.get("buildHashTableTime")
+        metrics.get("buildHashTableTime"),
+        metrics.get("serializeHashTableTime"),
+        metrics.get("deserializeHashTableTime"),
+        metrics.get("serializedHashTableSize"),
+        metrics.get("hashTableMemorySize")
       )
-    val broadcastRDD = VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
+
+    // Check the type of broadcast relation to determine the approach
+    val broadcastRDD = broadcast.value match {
+      case serializedRelation: SerializedHashTableBroadcastRelation =>
+        joinParamsForMetrics.foreach(_.usesDriverSideSerializedHashTable = true)
+        // Hash table was already built and serialized in BroadcastExchangeExec.
+        // Reuse the existing broadcast variable (no re-broadcast).
+        logInfo(
+          s"Using pre-built serialized hash table from BroadcastExchangeExec " +
+            s"for $buildBroadcastTableId")
+
+        val rdd = VeloxSerializedBroadcastRDD(sparkContext, broadcast, context)
+
+        // Update bloom filter metrics
+        val (bloomFilterSize, dynamicFiltersProduced) = rdd.getBloomFilterMetrics
+        metrics.get("bloomFilterBlocksByteSize").foreach(_.set(bloomFilterSize))
+        metrics.get("hashProbeDynamicFiltersProduced").foreach(_.set(dynamicFiltersProduced))
+
+        // Update size metric from the pre-built hash table
+        val (_, sizeInBytes, _, _) = serializedRelation.getMetrics
+        metrics.get("serializedHashTableSize").foreach(_.set(sizeInBytes))
+
+        rdd
+
+      case columnar: ColumnarBuildSideRelation =>
+        joinParamsForMetrics.foreach(_.usesDriverSideSerializedHashTable = false)
+        // Legacy path: ColumnarBuildSideRelation from BroadcastExchangeExec.
+        // Hash table is built on each executor from broadcast data.
+        val canOffload = columnar.offload
+
+        if (!canOffload) {
+          logWarning(
+            s"Build side cannot be offloaded for $buildBroadcastTableId, " +
+              "falling back to executor-side build")
+        } else {
+          logInfo(s"Using executor-side broadcast hash table build for $buildBroadcastTableId")
+        }
+        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
+
+      case unsafe: UnsafeColumnarBuildSideRelation =>
+        joinParamsForMetrics.foreach(_.usesDriverSideSerializedHashTable = false)
+        // Similar to ColumnarBuildSideRelation
+        val canOffload = unsafe.isOffload
+
+        if (!canOffload) {
+          logWarning(
+            s"Build side cannot be offloaded for $buildBroadcastTableId, " +
+              "falling back to executor-side build")
+        } else {
+          logInfo(s"Using executor-side broadcast hash table build for $buildBroadcastTableId")
+        }
+        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
+
+      case other =>
+        joinParamsForMetrics.foreach(_.usesDriverSideSerializedHashTable = false)
+        // Fallback for unknown types
+        logWarning(
+          s"Unknown broadcast relation type: ${other.getClass.getName}, " +
+            "using executor-side build")
+        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
+    }
+
     // FIXME: Do we have to make build side a RDD?
     streamedRDD :+ broadcastRDD
   }
@@ -197,4 +263,15 @@ case class BroadcastHashJoinContext(
     buildHashTableId: String,
     isNullAwareAntiJoin: Boolean = false,
     bloomFilterPushdownSize: Long,
-    buildHashTableTimeMetric: Option[SQLMetric] = None)
+    buildHashTableTimeMetric: Option[SQLMetric] = None,
+    serializeHashTableTimeMetric: Option[SQLMetric] = None,
+    deserializeHashTableTimeMetric: Option[SQLMetric] = None,
+    serializedHashTableSizeMetric: Option[SQLMetric] = None,
+    hashTableMemorySizeMetric: Option[SQLMetric] = None) {
+  def droppedDuplicates: Boolean = {
+    !hasMixedFiltCondition && (
+      substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI ||
+        substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI
+    )
+  }
+}

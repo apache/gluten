@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.vectorized;
 
+import org.apache.gluten.execution.CPUStageMode;
 import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.RuntimeAware;
 
@@ -35,19 +36,52 @@ public class ShuffleReaderJniWrapper implements RuntimeAware {
     return runtime.getHandle();
   }
 
-  public native long make(
+  public long make(
+      String shuffleWriterType,
       long cSchema,
       String compressionType,
       String compressionCodecBackend,
       int batchSize,
       long readerBufferSize,
       long deserializerBufferSize,
-      String shuffleWriterType,
-      boolean enableHashShuffleReaderStreamMerge);
+      boolean enableHashShuffleReaderStreamMerge) {
+    return make(
+        shuffleWriterType,
+        cSchema,
+        compressionType,
+        compressionCodecBackend,
+        batchSize,
+        readerBufferSize,
+        deserializerBufferSize,
+        enableHashShuffleReaderStreamMerge,
+        false,
+        0L);
+  }
 
-  public native long read(long shuffleReaderHandle, ShuffleStreamReader streamReader);
+  public native long make(
+      String shuffleWriterType,
+      long cSchema,
+      String compressionType,
+      String compressionCodecBackend,
+      int batchSize,
+      long readerBufferSize,
+      long deserializerBufferSize,
+      boolean enableHashShuffleReaderStreamMerge,
+      boolean enableGpuAsyncReader,
+      long gpuAsyncReaderMaxPrefetchBytes);
+
+  public native long read(
+      long shuffleReaderHandle, ShuffleStreamReader streamReader, int executionMode);
+
+  public long read(long shuffleReaderHandle, ShuffleStreamReader streamReader) {
+    return read(shuffleReaderHandle, streamReader, CPUStageMode.id());
+  }
 
   public native void populateMetrics(long shuffleReaderHandle, ShuffleReaderMetrics metrics);
+
+  // Stop the native shuffle reader from reading and deserializing streams
+  // when the deserializer is closed.
+  public native void stop(long shuffleReaderHandle);
 
   public native void close(long shuffleReaderHandle);
 }

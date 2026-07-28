@@ -252,7 +252,6 @@ Arguments: false
 
 (47) VeloxResizeBatches
 Input [5]: [hash_partition_key#25, nation#18, o_year#19, sum#23, isEmpty#24]
-Arguments: 1024, 2147483647, 10485760
 
 (48) ColumnarExchange
 Input [5]: [hash_partition_key#25, nation#18, o_year#19, sum#23, isEmpty#24]
@@ -277,7 +276,6 @@ Arguments: false
 
 (53) VeloxResizeBatches
 Input [3]: [nation#18, o_year#19, sum_profit#27]
-Arguments: 1024, 2147483647, 10485760
 
 (54) ColumnarExchange
 Input [3]: [nation#18, o_year#19, sum_profit#27]
