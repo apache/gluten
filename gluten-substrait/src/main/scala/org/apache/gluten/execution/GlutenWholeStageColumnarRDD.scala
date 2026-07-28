@@ -101,6 +101,14 @@ class GlutenWholeStageColumnarRDD(
   }
 
   override protected def getPartitions: Array[Partition] = {
+    rdds.getPartitionLengthOption.foreach {
+      inputPartitionCount =>
+        require(
+          inputPartitionCount == inputPartitions.size,
+          s"Whole-stage partition count ${inputPartitions.size} does not match " +
+            s"input RDD partition count $inputPartitionCount"
+        )
+    }
     inputPartitions.zipWithIndex
       .map {
         case (partition, i) => FirstZippedPartitionsPartition(i, partition, rdds.getPartitions(i))

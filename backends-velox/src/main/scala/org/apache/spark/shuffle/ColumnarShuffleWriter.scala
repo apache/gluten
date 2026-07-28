@@ -18,7 +18,7 @@ package org.apache.spark.shuffle
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
-import org.apache.gluten.config.{GlutenConfig, GpuHashShuffleWriterType, HashShuffleWriterType, SortShuffleWriterType}
+import org.apache.gluten.config.{GlutenConfig, HashShuffleWriterType, SortShuffleWriterType}
 import org.apache.gluten.memory.memtarget.{MemoryTarget, Spiller}
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.vectorized._
@@ -44,7 +44,7 @@ class ColumnarShuffleWriter[K, V](
   private val dep = handle.dependency.asInstanceOf[ColumnarShuffleDependency[K, V, V]]
 
   dep.shuffleWriterType match {
-    case HashShuffleWriterType | SortShuffleWriterType | GpuHashShuffleWriterType =>
+    case HashShuffleWriterType | SortShuffleWriterType =>
     // Valid shuffle writer types
     case _ =>
       throw new IllegalArgumentException(
@@ -172,17 +172,6 @@ class ColumnarShuffleWriter[K, V](
               conf.get(SHUFFLE_DISK_WRITE_BUFFER_SIZE).toInt,
               conf.get(SHUFFLE_SORT_INIT_BUFFER_SIZE).toInt,
               conf.get(SHUFFLE_SORT_USE_RADIXSORT),
-              partitionWriterHandle
-            )
-          } else if (dep.shuffleWriterType == GpuHashShuffleWriterType) {
-            shuffleWriterJniWrapper.createGpuHashShuffleWriter(
-              numPartitions,
-              dep.nativePartitioning.getShortName,
-              GlutenShuffleUtils.getStartPartitionId(
-                dep.nativePartitioning,
-                taskContext.partitionId),
-              nativeBufferSize,
-              reallocThreshold,
               partitionWriterHandle
             )
           } else {

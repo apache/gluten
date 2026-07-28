@@ -13,7 +13,7 @@ spark.gluten.sql.columnar.backend.velox.memCacheSize      // the total size of i
 spark.gluten.sql.columnar.backend.velox.ssdCachePath      // the folder to store the cache files, default is "/tmp".
 spark.gluten.sql.columnar.backend.velox.ssdCacheSize      // the total size of the SSD cache, default is 128MB. Velox will do in-mem cache only if this value is 0.
 spark.gluten.sql.columnar.backend.velox.ssdCacheShards    // the shards of the SSD cache, default is 1.
-spark.gluten.sql.columnar.backend.velox.ssdCacheIOThreads // the IO threads for cache promoting, default is 1. Velox will try to do "read-ahead" if this value is bigger than 1 
+spark.gluten.sql.columnar.backend.velox.ssdCacheIOThreads // the number of IO threads for SSD cache read/write operations, default is 4. Velox will try to do "read-ahead" if this value is bigger than 1
 spark.gluten.sql.columnar.backend.velox.ssdODirect        // enable or disable O_DIRECT on cache write, default false.
 ```
 

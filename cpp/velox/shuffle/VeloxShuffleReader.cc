@@ -967,8 +967,7 @@ void VeloxShuffleReader::createDeserializer(
     const std::shared_ptr<StreamReader>& streamReader,
     const OutputType& outputType) {
   switch (options_->shuffleWriterType) {
-    case ShuffleWriterType::kHashShuffle:
-    case ShuffleWriterType::kGpuHashShuffle: {
+    case ShuffleWriterType::kHashShuffle: {
       if (outputType == OutputType::kCudfTable) {
 #ifdef GLUTEN_ENABLE_GPU
         VELOX_CHECK(!hasComplexType_);

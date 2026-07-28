@@ -24,7 +24,6 @@ namespace {
 const std::string kHashShuffleName = "hash";
 const std::string kSortShuffleName = "sort";
 const std::string kRssSortShuffleName = "rss_sort";
-const std::string kGpuHashShuffleName = "gpu_hash";
 } // namespace
 
 ShuffleWriterType ShuffleWriter::stringToType(const std::string& typeString) {
@@ -37,9 +36,6 @@ ShuffleWriterType ShuffleWriter::stringToType(const std::string& typeString) {
   if (typeString == kRssSortShuffleName) {
     return ShuffleWriterType::kRssSortShuffle;
   }
-  if (typeString == kGpuHashShuffleName) {
-    return ShuffleWriterType::kGpuHashShuffle;
-  }
   throw GlutenException("Unrecognized shuffle writer type: " + typeString);
 }
 
@@ -51,8 +47,6 @@ std::string ShuffleWriter::typeToString(ShuffleWriterType type) {
       return kSortShuffleName;
     case ShuffleWriterType::kRssSortShuffle:
       return kRssSortShuffleName;
-    case ShuffleWriterType::kGpuHashShuffle:
-      return kGpuHashShuffleName;
   }
   GLUTEN_UNREACHABLE();
 }

@@ -139,7 +139,7 @@ const std::string kVeloxSsdCachePathDefault = "/tmp/";
 const std::string kVeloxSsdCacheShards = "spark.gluten.sql.columnar.backend.velox.ssdCacheShards";
 const uint32_t kVeloxSsdCacheShardsDefault = 1;
 const std::string kVeloxSsdCacheIOThreads = "spark.gluten.sql.columnar.backend.velox.ssdCacheIOThreads";
-const uint32_t kVeloxSsdCacheIOThreadsDefault = 1;
+const uint32_t kVeloxSsdCacheIOThreadsDefault = 4;
 const std::string kVeloxSsdODirectEnabled = "spark.gluten.sql.columnar.backend.velox.ssdODirect";
 const std::string kVeloxSsdCheckpointIntervalBytes =
     "spark.gluten.sql.columnar.backend.velox.ssdCheckpointIntervalBytes";
@@ -162,7 +162,16 @@ const std::string kVeloxUdfLibraryPaths = "spark.gluten.sql.columnar.backend.vel
 const std::string kVeloxShuffleReaderPrintFlag = "spark.gluten.velox.shuffleReaderPrintFlag";
 
 const std::string kVeloxFileHandleCacheEnabled = "spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled";
-const bool kVeloxFileHandleCacheEnabledDefault = false;
+const bool kVeloxFileHandleCacheEnabledDefault = true;
+
+const std::string kVeloxNumCacheFileHandles = "spark.gluten.sql.columnar.backend.velox.numCacheFileHandles";
+const int32_t kVeloxNumCacheFileHandlesDefault = 10000;
+
+const std::string kVeloxFileHandleExpirationDurationMs =
+    "spark.gluten.sql.columnar.backend.velox.fileHandleExpirationDurationMs";
+// 10 minutes default TTL — ensures stale handles (e.g., expired HDFS leases,
+// closed remote connections) are evicted from the cache.
+const int64_t kVeloxFileHandleExpirationDurationMsDefault = 600000;
 
 /* configs for file read in velox*/
 const std::string kDirectorySizeGuess = "spark.gluten.sql.columnar.backend.velox.directorySizeGuess";

@@ -24,7 +24,8 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryArithmetic, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, RaiseError, UnBase64}
+import org.apache.spark.sql.catalyst.catalog.BucketSpec
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryArithmetic, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, RaiseError, SortOrder, UnBase64}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -128,6 +129,16 @@ trait SparkShims {
   }
 
   def enableNativeWriteFilesByDefault(): Boolean = false
+
+  // Planned V1 writes were introduced in Spark 3.4. Older versions do not expose a required
+  // ordering utility and keep the default empty ordering.
+  // TODO: Remove this shim after dropping Spark 3.3 support.
+  def getV1WriteRequiredOrdering(
+      outputColumns: Seq[Attribute],
+      partitionColumns: Seq[Attribute],
+      bucketSpec: Option[BucketSpec],
+      options: Map[String, String],
+      numStaticPartitionCols: Int): Seq[SortOrder] = Seq.empty
 
   def broadcastInternal[T: ClassTag](sc: SparkContext, value: T): Broadcast[T] = {
     // Since Spark 3.4, the `sc.broadcast` has been optimized to use `sc.broadcastInternal`.
