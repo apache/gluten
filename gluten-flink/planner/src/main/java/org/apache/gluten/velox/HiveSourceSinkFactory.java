@@ -168,28 +168,16 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
     if (compression == null) {
       return null;
     }
-    switch (compression.trim().toLowerCase()) {
-      case "snappy":
-        return "snappy";
-      case "gzip":
-        return "gzip";
-      case "zstd":
-      case "zstandard":
-        return "zstd";
-      case "lz4":
-        return "lz4";
-      case "lzo":
-        return "lzo";
-      case "zlib":
-      case "deflate":
-        return "zlib";
-      case "":
-      case "none":
-      case "no":
-      case "false":
-      case "uncompressed":
-      default:
-        return null;
-    }
+    final Map<String, String> supportedCompressionKinds =
+        Map.ofEntries(
+            Map.entry("snappy", "snappy"),
+            Map.entry("gzip", "gzip"),
+            Map.entry("zstd", "zstd"),
+            Map.entry("zstandard", "zstd"),
+            Map.entry("lz4", "lz4"),
+            Map.entry("lzo", "lzo"),
+            Map.entry("zlib", "zlib"),
+            Map.entry("deflate", "zlib"));
+    return supportedCompressionKinds.getOrDefault(compression.trim().toLowerCase(), null);
   }
 }
