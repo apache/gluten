@@ -17,8 +17,8 @@
 package org.apache.gluten.component
 
 import org.apache.gluten.backendsapi.velox.VeloxBackend
-import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.{DeltaPostTransformRules, OffloadDeltaFilter, OffloadDeltaProject, OffloadDeltaScan}
+import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
+import org.apache.gluten.extension.{DeltaCDFScanStrategy, DeltaPostTransformRules, OffloadDeltaFilter, OffloadDeltaProject, OffloadDeltaScan}
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
@@ -35,6 +35,12 @@ class VeloxDeltaComponent extends Component {
   }
 
   override def injectRules(injector: Injector): Unit = {
+    injector.spark.injectPlannerStrategy(
+      spark =>
+        DeltaCDFScanStrategy(
+          spark,
+          () => new VeloxDeltaConfig(spark.sessionState.conf).enableChangeDataFeedScan))
+
     val legacy = injector.gluten.legacy
     // Deletion-vector scans need no Gluten-side logical preprocessing: Delta's own
     // PreprocessTableWithDVsStrategy injects the skip-row column and filter during physical

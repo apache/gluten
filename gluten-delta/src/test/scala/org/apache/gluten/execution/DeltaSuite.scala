@@ -19,7 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.extension.DeltaPostTransformRules
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SparkVersionUtil
 
@@ -349,6 +349,207 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
       }
     }
   }
+
+  test("delta: change data feed read") {
+    withTable("delta_cdf") {
+      spark.sql(s"""
+                   |create table delta_cdf (id int, name string) using delta
+                   |tblproperties ("delta.enableChangeDataFeed" = "true")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |insert into delta_cdf values (1, "v1"), (2, "v2")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |update delta_cdf set name = "v2_updated" where id = 2
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |delete from delta_cdf where id = 1
+                   |""".stripMargin)
+
+      val tableChangesFromZeroDF = runAndCompare(
+        s"""
+           |select id, name, _change_type, _commit_version
+           |from table_changes('delta_cdf', 0)
+           |order by _commit_version, id, name, _change_type
+           |""".stripMargin)
+      checkCDFRead(tableChangesFromZeroDF)
+
+      val tableChangesDF = runAndCompare(
+        s"""
+           |select id, name, _change_type, _commit_version
+           |from table_changes('delta_cdf', 1)
+           |order by _commit_version, id, name, _change_type
+           |""".stripMargin)
+      checkCDFRead(tableChangesDF)
+
+      val filteredCDF = runAndCompare(
+        s"""
+           |select id, name, _change_type, _commit_version
+           |from table_changes('delta_cdf', 1)
+           |where _commit_version = 2 and id = 2
+           |order by name, _change_type
+           |""".stripMargin)
+      checkCDFRead(
+        filteredCDF,
+        Seq(
+          Row(2, "v2", "update_preimage", 2L),
+          Row(2, "v2_updated", "update_postimage", 2L)))
+      assert(
+        collect(filteredCDF.queryExecution.executedPlan) {
+          case scan: DeltaScanTransformer =>
+            scan.dataFilters.exists(_.references.exists(_.name == "id"))
+        }.contains(true),
+        filteredCDF.queryExecution.executedPlan
+      )
+
+      val boundedCDF = runAndCompare(
+        s"""
+           |select id, name, _change_type, _commit_version
+           |from table_changes('delta_cdf', 1, 2)
+           |order by _commit_version, id, name, _change_type
+           |""".stripMargin)
+      checkCDFRead(
+        boundedCDF,
+        Seq(
+          Row(1, "v1", "insert", 1L),
+          Row(2, "v2", "insert", 1L),
+          Row(2, "v2", "update_preimage", 2L),
+          Row(2, "v2_updated", "update_postimage", 2L)))
+
+      val readChangeFeedDF = compareCDFDataFrame(
+        () =>
+          spark.read
+            .format("delta")
+            .option("readChangeFeed", "true")
+            .option("startingVersion", "1")
+            .table("delta_cdf")
+            .selectExpr("id", "name", "_change_type", "_commit_version")
+            .orderBy("_commit_version", "id", "name", "_change_type"))
+      checkCDFRead(readChangeFeedDF)
+    }
+  }
+
+  test("delta: change data feed read with column mapping") {
+    withTable("delta_cdf_cm") {
+      spark.sql(s"""
+                   |create table delta_cdf_cm (id int, name string) using delta
+                   |tblproperties (
+                   |  "delta.enableChangeDataFeed" = "true",
+                   |  "delta.columnMapping.mode" = "name")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |insert into delta_cdf_cm values (1, "v1"), (2, "v2")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |update delta_cdf_cm set name = "v2_updated" where id = 2
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |delete from delta_cdf_cm where id = 1
+                   |""".stripMargin)
+
+      val df = runAndCompare(
+        s"""
+           |select id, name, _change_type, _commit_version
+           |from table_changes('delta_cdf_cm', 1)
+           |order by _commit_version, id, name, _change_type
+           |""".stripMargin)
+      checkCDFRead(df)
+    }
+  }
+
+  testWithMinSparkVersion("delta: change data feed read with deletion vectors", "3.4") {
+    withTable("delta_cdf_dv") {
+      spark.sql(s"""
+                   |create table delta_cdf_dv (id int, name string) using delta
+                   |tblproperties (
+                   |  "delta.enableChangeDataFeed" = "true",
+                   |  "delta.enableDeletionVectors" = "true")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |insert into delta_cdf_dv values (1, "v1"), (2, "v2"), (3, "v3")
+                   |""".stripMargin)
+
+      // Enabling DV writes does not mean this CDF range contains a DV. The insert-only range must
+      // still be eligible for native scan offload.
+      val insertOnlyDF = runAndCompare(
+        s"""
+           |select id, name, _change_type
+           |from table_changes('delta_cdf_dv', 0, 1)
+           |order by id, name, _change_type
+           |""".stripMargin)
+      assert(
+        collect(insertOnlyDF.queryExecution.executedPlan) {
+          case _: DeltaScanTransformer => true
+        }.nonEmpty,
+        insertOnlyDF.queryExecution.executedPlan)
+      checkAnswer(
+        insertOnlyDF,
+        Seq(
+          Row(1, "v1", "insert"),
+          Row(2, "v2", "insert"),
+          Row(3, "v3", "insert")))
+
+      spark.sql(s"""
+                   |delete from delta_cdf_dv where id = 2
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |alter table delta_cdf_dv set tblproperties (
+                   |  "delta.enableDeletionVectors" = "false")
+                   |""".stripMargin)
+
+      // Disabling future DV writes does not remove existing DVs. This range contains the DV-backed
+      // delete, so Gluten keeps the whole CDF read on Spark and lets Delta perform row-level
+      // reconciliation. Still-live rows must not be surfaced as `delete` change rows.
+      val df = runAndCompare(
+        s"""
+           |select id, name, _change_type
+           |from table_changes('delta_cdf_dv', 0)
+           |order by id, name, _change_type
+           |""".stripMargin)
+      assert(
+        collect(df.queryExecution.executedPlan) { case d: DeltaScanTransformer => d }.isEmpty,
+        df.queryExecution.executedPlan)
+      checkAnswer(
+        df,
+        Seq(
+          Row(1, "v1", "insert"),
+          Row(2, "v2", "delete"),
+          Row(2, "v2", "insert"),
+          Row(3, "v3", "insert")))
+    }
+  }
+
+  private def compareCDFDataFrame(dataframe: () => DataFrame): DataFrame = {
+    var expected: Seq[Row] = null
+    withSQLConf(vanillaSparkConfs(): _*) {
+      expected = dataframe().collect()
+    }
+    val df = dataframe()
+    checkAnswer(df, expected)
+    df
+  }
+
+  private def checkCDFRead(
+      df: DataFrame,
+      expectedRows: Seq[Row] = allCDFRows): Unit = {
+    // Delta CDF expansion can keep a Spark-side branch for synthesized change rows; this PR
+    // verifies the Delta file scans in the expanded plan are transformed.
+    checkLengthAndPlan(df, expectedRows.length)
+    checkAnswer(
+      df,
+      expectedRows)
+    assert(
+      collect(df.queryExecution.executedPlan) { case _: DeltaScanTransformer => true }.nonEmpty,
+      df.queryExecution.executedPlan)
+  }
+
+  private def allCDFRows: Seq[Row] =
+    Seq(
+      Row(1, "v1", "insert", 1L),
+      Row(2, "v2", "insert", 1L),
+      Row(2, "v2", "update_preimage", 2L),
+      Row(2, "v2_updated", "update_postimage", 2L),
+      Row(1, "v1", "delete", 3L))
 
   test("column mapping with complex type") {
     withTable("t1") {

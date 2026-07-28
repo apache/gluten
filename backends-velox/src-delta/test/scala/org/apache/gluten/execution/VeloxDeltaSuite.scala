@@ -16,4 +16,37 @@
  */
 package org.apache.gluten.execution
 
-class VeloxDeltaSuite extends DeltaSuite
+import org.apache.gluten.config.VeloxDeltaConfig
+
+import org.apache.spark.sql.Row
+
+class VeloxDeltaSuite extends DeltaSuite {
+  testWithMinSparkVersion("delta: change data feed scan offload can be disabled", "3.2") {
+    withTable("delta_cdf_disabled") {
+      spark.sql("""
+                  |create table delta_cdf_disabled (id int, name string) using delta
+                  |tblproperties ("delta.enableChangeDataFeed" = "true")
+                  |""".stripMargin)
+      spark.sql("""
+                  |insert into delta_cdf_disabled values (1, "v1"), (2, "v2")
+                  |""".stripMargin)
+
+      withSQLConf(VeloxDeltaConfig.ENABLE_CHANGE_DATA_FEED_SCAN.key -> "false") {
+        val df = spark.sql("""
+                             |select id, name, _change_type, _commit_version
+                             |from table_changes('delta_cdf_disabled', 1)
+                             |""".stripMargin)
+        checkAnswer(
+          df,
+          Seq(
+            Row(1, "v1", "insert", 1L),
+            Row(2, "v2", "insert", 1L)))
+        assert(
+          df.queryExecution.executedPlan.collect {
+            case scan: DeltaScanTransformer => scan
+          }.isEmpty,
+          df.queryExecution.executedPlan)
+      }
+    }
+  }
+}
