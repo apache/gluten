@@ -43,7 +43,7 @@ jobs:
   build-native-lib:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Get Ccache
@@ -65,13 +65,13 @@ jobs:
             cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
           "
       - name: Upload native libs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: ./cpp/build/releases/
           name: velox-native-lib-${{github.sha}}
           retention-days: 1
       - name: Upload Artifact Arrow Jar
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: ${{ github.workspace }}/.m2/repository/org/apache/arrow/
           name: velox-arrow-jar-centos-7-${{github.sha}}
@@ -81,16 +81,16 @@ jobs:
     runs-on: ubuntu-22.04
     container: centos:8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -104,7 +104,7 @@ jobs:
           cd $GITHUB_WORKSPACE/ && \
           ./build/mvn clean install -P${{ github.event.inputs.spark }} -Dhadoop.version=${{ github.event.inputs.hadoop }} -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gluten-velox-bundle-package
           path: package/target/gluten-velox-bundle-*.jar

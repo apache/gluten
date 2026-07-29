@@ -27,6 +27,7 @@
 #include <Parser/AdvancedParametersParseUtil.h>
 #include <Parser/ExpressionParser.h>
 #include <Parser/SerializedPlanParser.h>
+#include <Parser/SubstraitParserUtils.h>
 #include <Parsers/ASTIdentifier.h>
 #include <Processors/QueryPlan/ExpressionStep.h>
 #include <Processors/QueryPlan/FilterStep.h>
@@ -168,7 +169,7 @@ void CrossRelParser::renamePlanColumns(DB::QueryPlan & left, DB::QueryPlan & rig
 DB::QueryPlanPtr CrossRelParser::parseJoin(const substrait::CrossRel & join, DB::QueryPlanPtr left, DB::QueryPlanPtr right)
 {
     google::protobuf::StringValue optimization_info;
-    optimization_info.ParseFromString(join.advanced_extension().optimization().value());
+    optimization_info.ParseFromString(firstOptimizationOrDefault(join.advanced_extension()).value());
     auto join_opt_info = JoinOptimizationInfo::parse(optimization_info.value());
     const auto & storage_join_key = join_opt_info.storage_join_key;
     auto storage_join = !storage_join_key.empty() ? BroadcastJoinBuilder::getJoin(storage_join_key) : nullptr;

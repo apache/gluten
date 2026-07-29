@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-8-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:

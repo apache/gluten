@@ -34,7 +34,7 @@ jobs:
           - check: 'cpp-ch'
             exclude: ''
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run clang-format style check for C/C++ programs.
         uses: jidicula/clang-format-action@v4.11.0
         with:
@@ -54,7 +54,7 @@ jobs:
           apt install git python3-pip -y
           pip3 install --user cmake-format
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check CMake format
         run: |
           git config --global --add safe.directory $GITHUB_WORKSPACE

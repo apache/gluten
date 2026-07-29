@@ -44,7 +44,7 @@ jobs:
     permissions: write-all
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Sleep for Dev PR workflow done
         run: |
           sleep 15

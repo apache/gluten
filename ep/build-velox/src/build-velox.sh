@@ -134,6 +134,10 @@ function compile {
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PREFIX_PATH=/usr/local"
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_SYSTEM_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
+    # Force fmt to build from source via FetchContent: Homebrew's fmt config file
+    # at /opt/homebrew/lib/cmake/fmt/ wins the AUTO find_package probe ahead of
+    # INSTALL_PREFIX, producing a version mismatch. BUNDLED skips find_package.
+    COMPILE_OPTION="$COMPILE_OPTION -Dfmt_SOURCE=BUNDLED"
   fi
   if [ $BUILD_TEST_UTILS == "ON" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_BUILD_TEST_UTILS=ON"

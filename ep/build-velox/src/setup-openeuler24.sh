@@ -83,7 +83,7 @@ function install_velox_deps_from_dnf {
 function install_gflags {
   # Remove an older version if present.
   dnf remove -y gflags
-  wget_and_untar https://github.com/gflags/gflags/archive/v2.2.2.tar.gz gflags
+  wget_and_untar https://github.com/gflags/gflags/archive/v2.3.0.tar.gz gflags
   cmake_install_dir gflags -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DBUILD_gflags_LIB=ON -DLIB_SUFFIX=64
 }
 

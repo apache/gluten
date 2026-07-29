@@ -55,7 +55,7 @@ jobs:
   build-native-lib-centos-7:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
@@ -91,7 +91,7 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-enhanced-centos7-release-default-${{github.sha}}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases/
@@ -102,9 +102,9 @@ jobs:
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-8-jdk8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases
@@ -130,13 +130,13 @@ jobs:
           -DargLine="-Dspark.test.home=$SPARK_HOME"
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-test-log
           path: |
@@ -145,7 +145,7 @@ jobs:
             **/gluten-ut/**/core.*
       - name: Upload golden files
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-golden-files
           path: /tmp/tpch-approved-plan/**
@@ -158,9 +158,9 @@ jobs:
       LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases
@@ -183,13 +183,13 @@ jobs:
           -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-test-log
           path: |
@@ -208,9 +208,9 @@ jobs:
       SPARK_TESTING: true
     container: apache/gluten:centos-8-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases/
@@ -249,13 +249,13 @@ jobs:
           fi
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark40-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark40-group${{ matrix.group }}-test-log
           path: |
