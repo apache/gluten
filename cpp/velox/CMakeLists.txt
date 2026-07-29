@@ -466,8 +466,8 @@ if(DEFINED VCPKG_INSTALLED_DIR
   )
   target_link_libraries(
     velox
-    PUBLIC ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
-           ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
+    PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
+            ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
 else()
   set(THRIFT_LIBRARY_DIRS)
   if(CMAKE_INSTALL_PREFIX)
