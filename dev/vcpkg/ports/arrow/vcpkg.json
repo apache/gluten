@@ -9,8 +9,6 @@
     "boost-filesystem",
     "boost-multiprecision",
     "boost-system",
-    "brotli",
-    "bzip2",
     "gflags",
     "lz4",
     "openssl",
