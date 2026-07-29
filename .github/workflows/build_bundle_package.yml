@@ -85,12 +85,12 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/

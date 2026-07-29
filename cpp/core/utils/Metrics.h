@@ -17,7 +17,9 @@
 
 #pragma once
 
-#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
 
 namespace gluten {
 
@@ -25,96 +27,17 @@ struct Metrics {
   unsigned int numMetrics = 0;
   long veloxToArrow = 0;
 
-  // The underlying memory buffer.
-  std::unique_ptr<long[]> array;
-
-  // Point to array.get() after the above unique_ptr created.
-  long* arrayRawPtr = nullptr;
-
+  // Structured metrics payload produced by the backend and decoded on JVM side.
+  std::string json;
   // Optional stats string.
   std::optional<std::string> stats = std::nullopt;
 
-  enum TYPE {
-    // Begin from 0.
-    kBegin = 0,
-
-    kInputRows = kBegin,
-    kInputVectors,
-    kInputBytes,
-
-    kRawInputRows,
-    kRawInputBytes,
-
-    kOutputRows,
-    kOutputVectors,
-    kOutputBytes,
-
-    // CpuWallTiming.
-    kCpuCount,
-    kWallNanos,
-
-    kPeakMemoryBytes,
-    kNumMemoryAllocations,
-
-    // Spill.
-    kSpilledInputBytes,
-    kSpilledBytes,
-    kSpilledRows,
-    kSpilledPartitions,
-    kSpilledFiles,
-
-    // Runtime metrics.
-    kNumDynamicFiltersProduced,
-    kNumDynamicFiltersAccepted,
-    kNumReplacedWithDynamicFilterRows,
-    kNumDynamicFilterInputRows,
-    kFlushRowCount,
-    kAbandonedPartialAggregationRows,
-    kLoadedToValueHook,
-    kBloomFilterBlocksByteSize,
-    kScanTime,
-    kSkippedSplits,
-    kProcessedSplits,
-    kSkippedStrides,
-    kProcessedStrides,
-    kRemainingFilterTime,
-    kIoWaitTime,
-    kStorageReadBytes,
-    kStorageReads,
-    kLocalReadBytes,
-    kRamReadBytes,
-    kPreloadSplits,
-    kPageLoadTime,
-    kDataSourceAddSplitWallNanos,
-    kDataSourceReadWallNanos,
-
-    // Write metrics.
-    kPhysicalWrittenBytes,
-    kWriteIOTime,
-    kNumWrittenFiles,
-
-    // Load lazy vector.
-    kLoadLazyVectorTime,
-
-    // The end of enum items.
-    kEnd,
-    kNum = kEnd - kBegin
-  };
-
-  Metrics(unsigned int numMetrics) : numMetrics(numMetrics), array(new long[numMetrics * kNum]) {
-    arrayRawPtr = array.get();
-  }
+  Metrics(unsigned int numMetrics, std::string json) : numMetrics(numMetrics), json(std::move(json)) {}
 
   Metrics(const Metrics&) = delete;
   Metrics(Metrics&&) = delete;
   Metrics& operator=(const Metrics&) = delete;
   Metrics& operator=(Metrics&&) = delete;
-
-  long* get(TYPE type) {
-    assert(static_cast<int>(type) >= static_cast<int>(kBegin) && static_cast<int>(type) < static_cast<int>(kEnd));
-    auto offset = (static_cast<int>(type) - static_cast<int>(kBegin)) * numMetrics;
-    return &arrayRawPtr[offset];
-  }
 };
 
 } // namespace gluten

@@ -84,7 +84,7 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
         sql("SELECT 1 / 0").collect()
       }
     } else {
-      // Spark 3.2 and 3.3 don't throw exception for division by zero in ANSI mode
+      // Spark 3.3 doesn't throw exception for division by zero in ANSI mode
       sql("SELECT 1 / 0").collect()
     }
   }

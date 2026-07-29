@@ -148,7 +148,7 @@ jobs:
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
@@ -220,7 +220,7 @@ jobs:
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
@@ -302,7 +302,7 @@ jobs:
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
@@ -374,7 +374,7 @@ jobs:
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
@@ -463,17 +463,17 @@ jobs:
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download spark41 test reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: spark-test-*-ansi-report
           path: ./test-reports/
       - name: Download all test logs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: spark-test-*-logs
           path: ./test-logs/
       - name: Download spark41 offload data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: ansi-offload-spark41
           path: ./ansi-offload/

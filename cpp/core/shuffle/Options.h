@@ -23,6 +23,7 @@
 
 #include <arrow/ipc/options.h>
 #include <arrow/util/compression.h>
+#include <thread>
 
 namespace gluten {
 
@@ -45,7 +46,7 @@ static constexpr int64_t kDefaultShuffleFileBufferSize = 32 << 10;
 static constexpr bool kDefaultEnableDictionary = false;
 static constexpr bool kDefaultEnableTypeAwareCompress = false;
 
-enum class ShuffleWriterType { kHashShuffle, kSortShuffle, kRssSortShuffle, kGpuHashShuffle };
+enum class ShuffleWriterType { kHashShuffle, kSortShuffle, kRssSortShuffle };
 
 enum class PartitionWriterType { kLocal, kRss };
 
@@ -68,6 +69,10 @@ struct ShuffleReaderOptions {
   // Whether to enable the reader-side raw payload merge fast path for plain hash shuffle payloads within one input
   // stream.
   bool enableHashShuffleReaderStreamMerge = false;
+
+  // GPU shuffle reader.
+  bool enableGpuAsyncReader = false;
+  int64_t gpuAsyncReaderMaxPrefetchBytes = 1 << 30;
 };
 
 struct ShuffleWriterOptions {
@@ -154,25 +159,6 @@ struct RssSortShuffleWriterOptions : ShuffleWriterOptions {
         splitBufferSize(splitBufferSize),
         sortBufferMaxSize(sortBufferMaxSize),
         compressionType(compressionType) {}
-};
-
-struct GpuHashShuffleWriterOptions : HashShuffleWriterOptions {
-  int32_t splitBufferSize = kDefaultShuffleWriterBufferSize;
-  double splitBufferReallocThreshold = kDefaultSplitBufferReallocThreshold;
-
-  GpuHashShuffleWriterOptions() : HashShuffleWriterOptions(ShuffleWriterType::kGpuHashShuffle) {}
-
-  GpuHashShuffleWriterOptions(
-      Partitioning partitioning,
-      int32_t startPartitionId,
-      int32_t partitionBufferSize,
-      double partitionBufferReallocThreshold)
-      : HashShuffleWriterOptions(
-            ShuffleWriterType::kGpuHashShuffle,
-            partitioning,
-            startPartitionId,
-            partitionBufferSize,
-            partitionBufferReallocThreshold) {}
 };
 
 struct LocalPartitionWriterOptions {

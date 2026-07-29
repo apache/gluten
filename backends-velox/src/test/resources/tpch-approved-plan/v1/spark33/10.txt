@@ -109,7 +109,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [8]: [hash_partition_key#X, c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X]
-Arguments: X, X, X
 
 (6) ColumnarExchange
 Input [8]: [hash_partition_key#X, c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X]
@@ -146,7 +145,6 @@ Arguments: false
 
 (14) VeloxResizeBatches
 Input [3]: [hash_partition_key#X, o_orderkey#X, o_custkey#X]
-Arguments: X, X, X
 
 (15) ColumnarExchange
 Input [3]: [hash_partition_key#X, o_orderkey#X, o_custkey#X]
@@ -177,7 +175,6 @@ Arguments: false
 
 (22) VeloxResizeBatches
 Input [9]: [hash_partition_key#X, c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, o_orderkey#X]
-Arguments: X, X, X
 
 (23) ColumnarExchange
 Input [9]: [hash_partition_key#X, c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, o_orderkey#X]
@@ -214,7 +211,6 @@ Arguments: false
 
 (31) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, l_orderkey#X, l_extendedprice#X, l_discount#X]
-Arguments: X, X, X
 
 (32) ColumnarExchange
 Input [4]: [hash_partition_key#X, l_orderkey#X, l_extendedprice#X, l_discount#X]
@@ -245,7 +241,6 @@ Arguments: false
 
 (39) VeloxResizeBatches
 Input [10]: [hash_partition_key#X, c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, l_extendedprice#X, l_discount#X]
-Arguments: X, X, X
 
 (40) ColumnarExchange
 Input [10]: [hash_partition_key#X, c_custkey#X, c_name#X, c_address#X, c_nationkey#X, c_phone#X, c_acctbal#X, c_comment#X, l_extendedprice#X, l_discount#X]
@@ -282,7 +277,6 @@ Arguments: false
 
 (48) VeloxResizeBatches
 Input [3]: [hash_partition_key#X, n_nationkey#X, n_name#X]
-Arguments: X, X, X
 
 (49) ColumnarExchange
 Input [3]: [hash_partition_key#X, n_nationkey#X, n_name#X]
@@ -324,7 +318,6 @@ Arguments: false
 
 (58) VeloxResizeBatches
 Input [10]: [hash_partition_key#X, c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
-Arguments: X, X, X
 
 (59) ColumnarExchange
 Input [10]: [hash_partition_key#X, c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]

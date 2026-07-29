@@ -75,7 +75,6 @@ Arguments: false
 
 (9) VeloxResizeBatches
 Input [5]: [hash_partition_key#7, sr_item_sk#1, sr_customer_sk#2, sr_ticket_number#3, sr_returned_date_sk#4]
-Arguments: 1024, 2147483647, 10485760
 
 (10) ColumnarExchange
 Input [5]: [hash_partition_key#7, sr_item_sk#1, sr_customer_sk#2, sr_ticket_number#3, sr_returned_date_sk#4]
@@ -109,7 +108,6 @@ Arguments: false
 
 (17) VeloxResizeBatches
 Input [6]: [hash_partition_key#13, ss_item_sk#8, ss_customer_sk#9, ss_store_sk#10, ss_ticket_number#11, ss_sold_date_sk#12]
-Arguments: 1024, 2147483647, 10485760
 
 (18) ColumnarExchange
 Input [6]: [hash_partition_key#13, ss_item_sk#8, ss_customer_sk#9, ss_store_sk#10, ss_ticket_number#11, ss_sold_date_sk#12]
@@ -218,7 +216,6 @@ Arguments: false
 
 (42) VeloxResizeBatches
 Input [16]: [hash_partition_key#41, s_store_name#16, s_company_id#17, s_street_number#18, s_street_name#19, s_street_type#20, s_suite_number#21, s_city#22, s_county#23, s_state#24, s_zip#25, sum#36, sum#37, sum#38, sum#39, sum#40]
-Arguments: 1024, 2147483647, 10485760
 
 (43) ColumnarExchange
 Input [16]: [hash_partition_key#41, s_store_name#16, s_company_id#17, s_street_number#18, s_street_name#19, s_street_type#20, s_suite_number#21, s_city#22, s_county#23, s_state#24, s_zip#25, sum#36, sum#37, sum#38, sum#39, sum#40]

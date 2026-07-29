@@ -522,7 +522,9 @@ class VeloxAdaptiveQueryExecSuite extends AdaptiveQueryExecSuite with GlutenSQLT
     withSQLConf(
       SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
       SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "20000000",
-      SQLConf.SUBQUERY_REUSE_ENABLED.key -> "false") {
+      SQLConf.ADAPTIVE_OPTIMIZER_EXCLUDED_RULES.key -> AQEPropagateEmptyRelation.ruleName,
+      SQLConf.SUBQUERY_REUSE_ENABLED.key -> "false"
+    ) {
       val (plan, adaptivePlan) = runAdaptiveAndVerifyResult(
         "SELECT a FROM testData join testData2 ON key = a " +
           "where value >= (" +

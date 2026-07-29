@@ -68,7 +68,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [8]: [hash_partition_key#12, cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
-Arguments: 1024, 2147483647, 10485760
 
 (6) ColumnarExchange
 Input [8]: [hash_partition_key#12, cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
@@ -96,7 +95,6 @@ Arguments: false
 
 (12) VeloxResizeBatches
 Input [3]: [hash_partition_key#16, cs_warehouse_sk#13, cs_order_number#14]
-Arguments: 1024, 2147483647, 10485760
 
 (13) ColumnarExchange
 Input [3]: [hash_partition_key#16, cs_warehouse_sk#13, cs_order_number#14]
@@ -134,7 +132,6 @@ Arguments: false
 
 (21) VeloxResizeBatches
 Input [2]: [hash_partition_key#19, cr_order_number#17]
-Arguments: 1024, 2147483647, 10485760
 
 (22) ColumnarExchange
 Input [2]: [hash_partition_key#19, cr_order_number#17]
@@ -350,7 +347,6 @@ Arguments: false
 
 (65) VeloxResizeBatches
 Input [1]: [buf#39]
-Arguments: 1024, 2147483647, 10485760
 
 (66) ColumnarExchange
 Input [1]: [buf#39]
@@ -416,7 +412,6 @@ Arguments: false
 
 (77) VeloxResizeBatches
 Input [1]: [buf#44]
-Arguments: 1024, 2147483647, 10485760
 
 (78) ColumnarExchange
 Input [1]: [buf#44]
@@ -482,7 +477,6 @@ Arguments: false
 
 (89) VeloxResizeBatches
 Input [1]: [buf#49]
-Arguments: 1024, 2147483647, 10485760
 
 (90) ColumnarExchange
 Input [1]: [buf#49]

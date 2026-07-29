@@ -80,6 +80,32 @@ public class GlutenStreamTwoInputWatermarkStatusTest extends GlutenStreamJoinOpe
   }
 
   @Test
+  public void testIdleInputExcludedFromMinWatermark() throws Exception {
+    // When one input is idle, its watermark is excluded from the combined min-watermark
+    // calculation. The other active input's watermark can advance freely.
+    GlutenTwoInputOperator operator = createGlutenJoinOperator(FlinkJoinType.INNER);
+
+    try (TwoInputStreamOperatorTestHarness<StatefulRecord, StatefulRecord, StatefulRecord> harness =
+        new TwoInputStreamOperatorTestHarness<>(operator)) {
+      harness.setup();
+      harness.open();
+
+      harness.processWatermark1(new Watermark(100L));
+      harness.processWatermark2(new Watermark(90L));
+      assertThat(harness.getOutput()).containsExactly(new Watermark(90L));
+
+      harness.processWatermarkStatus1(WatermarkStatus.IDLE);
+      // Input 1 (watermark=100) is idle and excluded. Combined = input 2 (90). No change.
+      assertThat(harness.getOutput()).containsExactly(new Watermark(90L));
+
+      // Input 2 advances to 120. Since input 1 is idle and excluded, combined = 120.
+      // If input 1 were still active, combined would be min(100, 120) = 100.
+      harness.processWatermark2(new Watermark(120L));
+      assertThat(harness.getOutput()).containsExactly(new Watermark(90L), new Watermark(120L));
+    }
+  }
+
+  @Test
   public void testWatermarksUseNativeTwoInputMinimum() throws Exception {
     // While both inputs are active, native execution should combine indexed input watermarks by
     // forwarding only monotonically increasing minimum watermarks downstream.

@@ -34,6 +34,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.noop.GlutenNoopWriterRule
+import org.apache.spark.util.SparkVersionUtil
 
 class VeloxRuleApi extends RuleApi {
   import VeloxRuleApi._
@@ -99,10 +100,12 @@ object VeloxRuleApi {
       Seq(
         RewriteIn,
         RewriteMultiChildrenCount,
-        RewriteJoin,
-        PullOutPreProject,
-        PullOutPostProject,
-        ProjectColumnPruning)
+        RewriteJoin) ++
+        (if (SparkVersionUtil.eqSpark33) Seq(AlignExpandOutputTypes) else Seq.empty) ++
+        Seq(
+          PullOutPreProject,
+          PullOutPostProject,
+          ProjectColumnPruning)
     injector.injectTransform(
       c =>
         HeuristicTransform.WithRewrites(
@@ -112,7 +115,6 @@ object VeloxRuleApi {
 
     // Legacy: Post-transform rules.
     injector.injectPostTransform(c => AppendBatchResizeForShuffleInputAndOutput(c.caller.isAqe()))
-    injector.injectPostTransform(_ => GpuBufferBatchResizeForShuffleInputOutput())
     injector.injectPostTransform(_ => UnionTransformerRule())
     injector.injectPostTransform(_ => PartialFallbackRules())
     injector.injectPostTransform(_ => RemoveNativeWriteFilesSortAndProject())
@@ -147,6 +149,8 @@ object VeloxRuleApi {
       c => PreventBatchTypeMismatchInTableCache(c.caller.isCache(), Set(VeloxBatchType)))
     injector.injectFinal(
       c => GlutenAutoAdjustStageResourceProfile(new GlutenConfig(c.sqlConf), c.session))
+    injector.injectFinal(
+      c => AdjustStageExecutionMode(new GlutenConfig(c.sqlConf), c.session, c.caller.isAqe()))
     injector.injectFinal(c => GlutenFallbackReporter(new GlutenConfig(c.sqlConf), c.session))
     injector.injectFinal(_ => RemoveFallbackTagRule())
   }

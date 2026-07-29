@@ -207,6 +207,23 @@ class GlutenHiveUDFSuite extends GlutenQueryComparisonTest with SQLTestUtils {
     }
   }
 
+  test("partial generate verbose string includes generate exec verbose output") {
+    withTempFunction("testUDTF") {
+      sql(s"CREATE TEMPORARY FUNCTION testUDTF AS '${classOf[CustomerUDTF].getName}';")
+      val df = sql(
+        "select l_partkey, col0, col1 from lineitem lateral view" +
+          " testUDTF(l_partkey, l_comment) as col0, col1")
+      val partialGenerate = getExecutedPlan(df)
+        .collectFirst { case exec: ColumnarPartialGenerateExec => exec }
+        .getOrElse(fail("Expected ColumnarPartialGenerateExec in executed plan"))
+
+      val partialGenerateVerbose = partialGenerate.verboseStringWithOperatorId()
+      assert(partialGenerateVerbose.contains("GenerateExec"))
+      assert(
+        partialGenerateVerbose.contains(partialGenerate.generateExec.verboseStringWithOperatorId()))
+    }
+  }
+
   test("child of GenerateExec is not offloadable") {
     withTempFunction("testUDTF") {
       val plusOne = udf((x: Long) => x + 1)

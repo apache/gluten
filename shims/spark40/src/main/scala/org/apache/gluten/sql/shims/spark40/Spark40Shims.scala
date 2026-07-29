@@ -27,6 +27,7 @@ import org.apache.spark.paths.SparkPath
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.{ExtendedAnalysisException, InternalRow}
 import org.apache.spark.sql.catalyst.analysis.DecimalPrecisionTypeCoercion
+import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.{JoinType, LeftSingle}
@@ -50,6 +51,7 @@ import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleEx
 import org.apache.spark.sql.execution.window.{Final, Partial, _}
 import org.apache.spark.sql.internal.{LegacyBehaviorPolicy, SQLConf}
 import org.apache.spark.sql.types._
+import org.apache.spark.storage.{GlutenShuffleBlockFetcherIterator, GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.parquet.hadoop.metadata.{CompressionCodecName, ParquetMetadata}
@@ -252,6 +254,20 @@ class Spark40Shims extends SparkShims {
   }
 
   override def enableNativeWriteFilesByDefault(): Boolean = true
+
+  override def getV1WriteRequiredOrdering(
+      outputColumns: Seq[Attribute],
+      partitionColumns: Seq[Attribute],
+      bucketSpec: Option[BucketSpec],
+      options: Map[String, String],
+      numStaticPartitionCols: Int): Seq[SortOrder] = {
+    V1WritesUtils.getSortOrder(
+      outputColumns,
+      partitionColumns,
+      bucketSpec,
+      options,
+      numStaticPartitionCols)
+  }
 
   override def broadcastInternal[T: ClassTag](sc: SparkContext, value: T): Broadcast[T] = {
     SparkContextUtils.broadcastInternal(sc, value)
@@ -651,4 +667,28 @@ class Spark40Shims extends SparkShims {
 
   override def isBinaryCollationString(dt: StringType): Boolean =
     dt.collationId == CollationFactory.UTF8_BINARY_COLLATION_ID
+
+  override def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
+      : GlutenShuffleBlockFetcherIteratorBase = {
+    new GlutenShuffleBlockFetcherIterator(
+      params.context,
+      params.shuffleClient,
+      params.blockManager,
+      params.mapOutputTracker,
+      params.blocksByAddress,
+      params.streamWrapper,
+      params.maxBytesInFlight,
+      params.maxReqsInFlight,
+      params.maxBlocksInFlightPerAddress,
+      params.maxReqSizeShuffleToMem,
+      params.maxAttemptsOnNettyOOM,
+      params.detectCorrupt,
+      params.detectCorruptUseExtraMemory,
+      params.checksumEnabled,
+      params.checksumAlgorithm,
+      params.shuffleMetrics,
+      params.doBatchFetch,
+      params.clock
+    )
+  }
 }

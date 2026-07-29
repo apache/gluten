@@ -46,6 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import scala.annotation.nowarn
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.util.control.NonFatal
 
 class ColumnarArrowPythonRunner(
     funcs: Seq[(ChainedPythonFunctions, Long)],
@@ -58,6 +59,9 @@ class ColumnarArrowPythonRunner(
   extends BasePythonRunnerShim(funcs, evalType, argMetas, pythonMetrics) {
 
   override val simplifiedTraceback: Boolean = SQLConf.get.pysparkSimplifiedTraceback
+
+  // Keep this source compatible with older Spark profiles where PythonEvalType differs.
+  private val SQL_ARROW_BATCHED_UDF = 101
 
   override val bufferSize: Int = SQLConf.get.pandasUDFBufferSize
   require(
@@ -150,6 +154,9 @@ class ColumnarArrowPythonRunner(
           PythonRDD.writeUTF(k, dataOut)
           PythonRDD.writeUTF(v, dataOut)
         }
+        if (SparkVersionUtil.gteSpark41 && evalType == SQL_ARROW_BATCHED_UDF) {
+          PythonRDD.writeUTF(schema.json, dataOut)
+        }
         ColumnarArrowPythonRunner.this.writeUdf(dataOut, argMetas)
       }
 
@@ -162,7 +169,75 @@ class ColumnarArrowPythonRunner(
       // For Spark 4.0. It overrides the corresponding abstract method in Writer class.
       // We omitted the override keyword for compatibility consideration.
       def writeNextInputToStream(dataOut: DataOutputStream): Boolean = {
-        writeToStreamHelper(dataOut)
+        writeNextInputToStreamHelper(dataOut)
+      }
+
+      private var nextInputRoot: VectorSchemaRoot = _
+      private var nextInputLoader: VectorLoader = _
+      private var nextInputWriter: ArrowStreamWriter = _
+      private var nextInputWriterClosed = false
+
+      context.addTaskCompletionListener[Unit] {
+        _ =>
+          try {
+            closeNextInputWriter()
+          } catch {
+            case NonFatal(_) =>
+          }
+      }
+
+      private def ensureNextInputWriter(dataOut: DataOutputStream): Unit = {
+        if (nextInputWriter == null) {
+          val arrowSchema = SparkSchemaUtil.toArrowSchema(schema, timeZoneId)
+          val allocator = ArrowBufferAllocators.contextInstance()
+          nextInputRoot = VectorSchemaRoot.create(arrowSchema, allocator)
+          nextInputLoader = new VectorLoader(nextInputRoot)
+          nextInputWriter = new ArrowStreamWriter(nextInputRoot, null, dataOut)
+          nextInputWriter.start()
+        }
+      }
+
+      private def closeNextInputWriter(): Unit = {
+        if (!nextInputWriterClosed && nextInputRoot != null) {
+          try {
+            if (nextInputWriter != null) {
+              nextInputWriter.end()
+            }
+          } finally {
+            nextInputRoot.close()
+            nextInputWriterClosed = true
+          }
+        }
+      }
+
+      private def writeNextInputToStreamHelper(dataOut: DataOutputStream): Boolean = {
+        ensureNextInputWriter(dataOut)
+        if (!inputIterator.hasNext) {
+          closeNextInputWriter()
+          // See https://issues.apache.org/jira/browse/SPARK-44705:
+          // Starting from Spark 4.0, we should return false once the iterator is drained out,
+          // otherwise Spark won't stop calling this method repeatedly.
+          return false
+        }
+        val nextBatch = inputIterator.next()
+        val cols = (0 until nextBatch.numCols).toList.map(
+          i =>
+            nextBatch
+              .asInstanceOf[ColumnarBatch]
+              .column(i)
+              .asInstanceOf[ArrowWritableColumnVector]
+              .getValueVector)
+        val nextRecordBatch =
+          SparkVectorUtil.toArrowRecordBatch(nextBatch.numRows, cols)
+        try {
+          nextInputLoader.load(nextRecordBatch)
+          nextInputWriter.writeBatch()
+          true
+        } finally {
+          if (nextRecordBatch != null) {
+            nextRecordBatch.close()
+          }
+        }
       }
 
       def writeToStreamHelper(dataOut: DataOutputStream): Boolean = {

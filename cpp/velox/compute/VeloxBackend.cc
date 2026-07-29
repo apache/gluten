@@ -303,6 +303,16 @@ facebook::velox::cache::AsyncDataCache* VeloxBackend::getAsyncDataCache() const 
   return asyncDataCache_.get();
 }
 
+ReaderThreadPool* VeloxBackend::getReaderThreadPool() {
+  static std::once_flag readerThreadPoolInit;
+  std::call_once(readerThreadPoolInit, [this] {
+    const auto numThreads =
+        backendConf_->get<int32_t>(kGpuAsyncShuffleReaderThreads, kGpuAsyncShuffleReaderThreadsDefault);
+    readerThreadPool_ = std::make_unique<ReaderThreadPool>(numThreads);
+  });
+  return readerThreadPool_.get();
+}
+
 // JNI-or-local filesystem, for spilling-to-heap if we have extra JVM heap spaces
 void VeloxBackend::initJolFilesystem() {
   int64_t maxSpillFileSize = backendConf_->get<int64_t>(kMaxSpillFileSize, kMaxSpillFileSizeDefault);

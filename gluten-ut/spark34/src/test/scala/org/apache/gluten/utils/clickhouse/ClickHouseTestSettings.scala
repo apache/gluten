@@ -45,6 +45,7 @@ import org.apache.spark.sql.sources._
 // scalastyle:off line.size.limit
 
 class ClickHouseTestSettings extends BackendTestSettings {
+  import SuiteSettings._
 
   // disable tests that will break the whole UT
   override def shouldRun(suiteName: String, testName: String): Boolean = {
@@ -645,7 +646,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("to_timestamp_ntz")
     .exclude("to_timestamp exception mode")
     .exclude("SPARK-31896: Handle am-pm timestamp parsing when hour is missing")
-    .exclude("DATE_FROM_UNIX_DATE")
     .exclude("UNIX_SECONDS")
     .exclude("TIMESTAMP_SECONDS") // refer to https://github.com/ClickHouse/ClickHouse/issues/69280
     .exclude("TIMESTAMP_MICROS") // refer to https://github.com/apache/gluten/issues/7127
@@ -1715,9 +1715,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
     .exclude("create a table, drop it and create another one with the same name")
   enableSuite[GlutenDDLSourceLoadSuite]
-  enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite]
-    .disable(
-      "DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type")
+  disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
+    "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
   enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuiteAE]
   enableSuite[GlutenExternalCommandRunnerSuite]
   enableSuite[GlutenFilteredScanSuite]
@@ -1740,6 +1739,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
       "SELECT structFieldSimple.key, arrayFieldSimple[1] FROM tableWithSchema a where int_Field=1")
     .exclude("SELECT structFieldComplex.Value.`value_(2)` FROM tableWithSchema")
   enableSuite[GlutenSparkSessionExtensionSuite]
+    .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenHiveSQLQueryCHSuite]
   enableSuite[GlutenPercentileSuite]
   enableSuite[GlutenTryCastSuite]

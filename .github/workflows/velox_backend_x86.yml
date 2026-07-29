@@ -59,7 +59,14 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - name: Get Ccache
+      - name: Get Ccache from Apache Stash
+        id: ccache-stash
+        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from actions/cache (fallback on Stash miss)
+        if: steps.ccache-stash.outputs.stash-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -138,7 +145,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Native Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -255,7 +262,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Native Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -317,7 +324,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Native Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -371,7 +378,7 @@ jobs:
           df -h
       - uses: actions/checkout@v4
       - name: Download All Native Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -465,6 +472,7 @@ jobs:
       fail-fast: false
       matrix:
         spark: [ "spark-3.3" ]
+        shard: [ 1, 2, 3 ]
     runs-on: ubuntu-22.04
     steps:
       - name: Maximize build disk space
@@ -481,7 +489,7 @@ jobs:
           df -h
       - uses: actions/checkout@v4
       - name: Download All Native Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -494,17 +502,17 @@ jobs:
           echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
       - name: Build for Spark ${{ matrix.spark }}
         run: |
-          cd $GITHUB_WORKSPACE/ 
+          cd $GITHUB_WORKSPACE/
           $MVN_CMD clean install -P${{ matrix.spark }} -Pbackends-velox -DskipTests
           cd $GITHUB_WORKSPACE/tools/gluten-it
           $GITHUB_WORKSPACE/$MVN_CMD clean install -P${{ matrix.spark }}
           GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh data-gen-only --local --benchmark-type=ds -s=30.0 --threads=12
-      - name: TPC-DS SF30.0 Parquet local spark3.3 random kill tasks
+      - name: TPC-DS SF30.0 Parquet local spark3.3 random kill tasks (shard ${{ matrix.shard }}/3)
         run: |
           cd tools/gluten-it \
           && GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries \
             --local --preset=velox --benchmark-type=ds --error-on-memleak -s=30.0  --off-heap-size=8g --threads=12 --shuffle-partitions=72 --iterations=1 \
-            --data-gen=skip  --random-kill-tasks --no-session-reuse
+            --data-gen=skip  --random-kill-tasks --no-session-reuse --shard=${{ matrix.shard }}/3
 
   tpc-test-centos8-uniffle:
     needs: build-native-lib-centos-7
@@ -519,7 +527,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Native Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -565,7 +573,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Native Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -634,7 +642,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -689,7 +697,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -730,11 +738,15 @@ jobs:
   spark-test-spark34:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -745,7 +757,7 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.4.4 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Build and Run unit test for Spark 3.4.4 (other tests)
+      - name: Build and Run unit test for Spark 3.4.4 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.12
@@ -754,21 +766,31 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           export SPARK_HOME=/opt/shims/spark34/spark_home/
-          ls -l $SPARK_HOME
-          $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
-          -DargLine="-Dspark.test.home=$SPARK_HOME"
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest"
+          if [ "${{ matrix.group }}" = "1" ]; then
+            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+          elif [ "${{ matrix.group }}" = "2" ]; then
+            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
+            -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
+          else
+            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
+            -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
+          fi
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-report
+          name: spark-test-spark34-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-test-log
+          name: spark-test-spark34-group${{ matrix.group }}-test-log
           path: |
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log
@@ -777,12 +799,16 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-golden-files
+          name: spark-test-spark34-group${{ matrix.group }}-golden-files
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark34-slow:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [extended, slow-hive]
     env: #TODO remove after image update
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
@@ -790,7 +816,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -798,7 +824,7 @@ jobs:
         run: |
           rm -rf /opt/shims/spark34
           bash .github/workflows/util/install-spark-resources.sh 3.4
-      - name: Build and Run unit test for Spark 3.4.4 (slow tests)
+      - name: Build and Run unit test for Spark 3.4.4 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
           yum install -y java-17-openjdk-devel
@@ -806,24 +832,26 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           export SPARK_HOME=/opt/shims/spark34/spark_home/
-          ls -l $SPARK_HOME
-          $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
-          -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest \
-          -DargLine="-Dspark.test.home=$SPARK_HOME"
-          $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
-          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest \
-          -DargLine="-Dspark.test.home=$SPARK_HOME"
+          if [ "${{ matrix.suite }}" = "extended" ]; then
+            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest \
+            -DargLine="-Dspark.test.home=$SPARK_HOME"
+          else
+            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            -DtagsToInclude=org.apache.spark.tags.SlowHiveTest \
+            -DargLine="-Dspark.test.home=$SPARK_HOME"
+          fi
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-report
+          name: spark-test-spark34-slow-${{ matrix.suite }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-test-log
+          name: spark-test-spark34-slow-${{ matrix.suite }}-test-log
           path: |
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log
@@ -832,13 +860,17 @@ jobs:
   spark-test-spark35:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
     env:
       SPARK_TESTING: true
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -849,7 +881,7 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Build and Run unit test for Spark 3.5.5 (other tests)
+      - name: Build and Run unit test for Spark 3.5.5 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.12
@@ -857,20 +889,31 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest"
+          if [ "${{ matrix.group }}" = "1" ]; then
+            $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+          elif [ "${{ matrix.group }}" = "2" ]; then
+            $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
+          else
+            $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
+          fi
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-report
+          name: spark-test-spark35-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-test-log
+          name: spark-test-spark35-group${{ matrix.group }}-test-log
           path: |
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log
@@ -879,19 +922,23 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-golden-files
+          name: spark-test-spark35-group${{ matrix.group }}-golden-files
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark35-scala213:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
     env:
       SPARK_TESTING: true
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -902,7 +949,7 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Build and Run unit test for Spark 3.5.5 with scala-2.13 (other tests)
+      - name: Build and Run unit test for Spark 3.5.5 with scala-2.13 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.13
@@ -910,20 +957,31 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg \
-          -Pdelta -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark35-scala-2.13/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest"
+          if [ "${{ matrix.group }}" = "1" ]; then
+            $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark35-scala-2.13/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+          elif [ "${{ matrix.group }}" = "2" ]; then
+            $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark35-scala-2.13/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
+          else
+            $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark35-scala-2.13/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
+          fi
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-report
+          name: spark-test-spark35-scala213-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-test-log
+          name: spark-test-spark35-scala213-group${{ matrix.group }}-test-log
           path: |
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log
@@ -932,6 +990,10 @@ jobs:
   spark-test-spark35-slow:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [extended, slow-hive]
     env:
       SPARK_TESTING: true
       LANG: C.UTF-8 #TODO remove after image update
@@ -940,7 +1002,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -948,123 +1010,33 @@ jobs:
         run: |
           rm -rf /opt/shims/spark35
           bash .github/workflows/util/install-spark-resources.sh 3.5
-      - name: Build and Run unit test for Spark 3.5.5 (slow tests)
+      - name: Build and Run unit test for Spark 3.5.5 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
           yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
-          -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
-          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
+          if [ "${{ matrix.suite }}" = "extended" ]; then
+            $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
+            -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
+          else
+            $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
+            -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
+          fi
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-report
+          name: spark-test-spark35-slow-${{ matrix.suite }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-test-log
-          path: |
-            **/target/*.log
-            **/gluten-ut/**/hs_err_*.log
-            **/gluten-ut/**/core.*
-
-  spark-test-spark35-smj:
-    needs: build-native-lib-centos-7
-    runs-on: ubuntu-22.04
-    env:
-      SPARK_TESTING: true
-    container: apache/gluten:centos-8-jdk8
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
-      - name: Prepare
-        run: |
-          dnf module -y install python39 && \
-          alternatives --set python3 /usr/bin/python3.9 && \
-          pip3 install setuptools==77.0.3 && \
-          pip3 install pyspark==3.5.5 cython && \
-          pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Build and Run unit test for Spark 3.5.5 (other tests)
-        run: |
-          cd $GITHUB_WORKSPACE/
-          export SPARK_SCALA_VERSION=2.12
-          yum install -y java-17-openjdk-devel
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
-          export PATH=$JAVA_HOME/bin:$PATH
-          java -version
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Ppaimon -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.sql.columnar.forceShuffledHashJoin=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
-      - name: Upload test report
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ github.job }}-report
-          path: '**/surefire-reports/TEST-*.xml'
-      - name: Upload unit tests log files
-        if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ github.job }}-test-log
-          path: |
-            **/target/*.log
-            **/gluten-ut/**/hs_err_*.log
-            **/gluten-ut/**/core.*
-
-  spark-test-spark35-slow-smj:
-    needs: build-native-lib-centos-7
-    runs-on: ubuntu-22.04
-    env:
-      SPARK_TESTING: true
-      LANG: C.UTF-8 #TODO remove after image update
-      LC_ALL: C.UTF-8
-    container: apache/gluten:centos-8-jdk8
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
-      - name: Prepare Spark Resources for Spark 3.5.5 #TODO remove after image update
-        run: |
-          rm -rf /opt/shims/spark35
-          bash .github/workflows/util/install-spark-resources.sh 3.5
-      - name: Build and Run unit test for Spark 3.5.5 (slow tests)
-        run: |
-          cd $GITHUB_WORKSPACE/
-          yum install -y java-17-openjdk-devel
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
-          export PATH=$JAVA_HOME/bin:$PATH
-          java -version
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Ppaimon -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.sql.columnar.forceShuffledHashJoin=false" \
-          -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Ppaimon -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.sql.columnar.forceShuffledHashJoin=false" \
-          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
-      - name: Upload test report
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ github.job }}-report
-          path: '**/surefire-reports/TEST-*.xml'
-      - name: Upload unit tests log files
-        if: ${{ !success() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ github.job }}-test-log
+          name: spark-test-spark35-slow-${{ matrix.suite }}-test-log
           path: |
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log
@@ -1075,7 +1047,26 @@ jobs:
     container: apache/gluten:centos-9-jdk8
     steps:
       - uses: actions/checkout@v4
-      - name: Get Ccache
+      - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
+        run: |
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64) ARCH=arm64 ;;
+            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
+            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
+          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
+          chmod +x /usr/local/bin/jq
+          gh --version && jq --version
+      - name: Get Ccache from Apache Stash
+        id: ccache-stash
+        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from actions/cache (fallback on Stash miss)
+        if: steps.ccache-stash.outputs.stash-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -1145,7 +1136,14 @@ jobs:
       - run: df -h | sort -k 5 -nr # check disk space for debug
 
       - uses: actions/checkout@v4
-      - name: Get Ccache
+      - name: Get Ccache from Apache Stash
+        id: ccache-stash
+        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from actions/cache (fallback on Stash miss)
+        if: steps.ccache-stash.outputs.stash-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -1160,6 +1158,7 @@ jobs:
           df -a
           dnf autoremove -y && dnf clean all
           dnf remove -y cuda-toolkit-12* && dnf install -y cuda-toolkit-13-1
+          pip3 install cmake==4.3.2
           ls -l /usr/local/
           source /opt/rh/gcc-toolset-12/enable
 
@@ -1189,13 +1188,17 @@ jobs:
   spark-test-spark40:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
     env:
       SPARK_TESTING: true
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -1210,7 +1213,7 @@ jobs:
         run: |
           rm -rf /opt/shims/spark40
           bash .github/workflows/util/install-spark-resources.sh 4.0
-      - name: Build and Run unit test for Spark 4.0.0 with scala-2.13 (other tests)
+      - name: Build and Run unit test for Spark 4.0.0 with scala-2.13 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.13
@@ -1218,20 +1221,31 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon \
-          -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest"
+          if [ "${{ matrix.group }}" = "1" ]; then
+            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+          elif [ "${{ matrix.group }}" = "2" ]; then
+            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
+          else
+            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
+          fi
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-report
+          name: spark-test-spark40-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-test-log
+          name: spark-test-spark40-group${{ matrix.group }}-test-log
           path: |
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log
@@ -1240,6 +1254,10 @@ jobs:
   spark-test-spark40-slow:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [extended, slow-hive]
     env:
       SPARK_TESTING: true
       LANG: C.UTF-8 #TODO remove after image update
@@ -1248,7 +1266,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -1256,30 +1274,33 @@ jobs:
         run: |
           rm -rf /opt/shims/spark40
           bash .github/workflows/util/install-spark-resources.sh 4.0
-      - name: Build and Run unit test for Spark 4.0 (slow tests)
+      - name: Build and Run unit test for Spark 4.0 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
           yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
-          -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
-          $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
-          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
+          if [ "${{ matrix.suite }}" = "extended" ]; then
+            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
+            -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
+          else
+            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
+            -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
+          fi
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-report
+          name: spark-test-spark40-slow-${{ matrix.suite }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-test-log
+          name: spark-test-spark40-slow-${{ matrix.suite }}-test-log
           path: |
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log
@@ -1288,13 +1309,21 @@ jobs:
   spark-test-spark41:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Split tests into 3 groups to run in parallel and cut the ~2h wall-clock time.
+        #   group1 – streaming tests
+        #   group2 – execution / catalyst / errors / extension tests
+        #   group3 – top-level sql, connector, sources, hive and remaining tests
+        group: [1, 2, 3]
     env:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -1311,7 +1340,7 @@ jobs:
         run: |
           rm -rf /opt/shims/spark41
           bash .github/workflows/util/install-spark-resources.sh 4.1
-      - name: Build and Run unit test for Spark 4.1.0 with scala-2.13 (other tests)
+      - name: Build and Run unit test for Spark 4.1.0 with scala-2.13 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.13
@@ -1319,20 +1348,34 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
-          -Pspark-ut -Pdelta -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest"
+          if [ "${{ matrix.group }}" = "1" ]; then
+            # Group 1: streaming + gluten utils + top-level spark tests (~55 classes)
+            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+          elif [ "${{ matrix.group }}" = "2" ]; then
+            # Group 2: execution + catalyst + errors + extension tests (~140 classes)
+            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
+          else
+            # Group 3: top-level sql, connector, sources, hive and remaining tests (~205 classes)
+            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
+            -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
+          fi
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-report
+          name: spark-test-spark41-group${{ matrix.group }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-test-log
+          name: spark-test-spark41-group${{ matrix.group }}-test-log
           path: |
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log
@@ -1341,6 +1384,11 @@ jobs:
   spark-test-spark41-slow:
     needs: build-native-lib-centos-7
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Run ExtendedSQLTest and SlowHiveTest in parallel instead of sequentially.
+        suite: [extended, slow-hive]
     env:
       SPARK_TESTING: true
       LANG: C.UTF-8 #TODO remove after image update
@@ -1349,7 +1397,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -1357,30 +1405,33 @@ jobs:
         run: |
           rm -rf /opt/shims/spark41
           bash .github/workflows/util/install-spark-resources.sh 4.1
-      - name: Build and Run unit test for Spark 4.1 (slow tests)
+      - name: Build and Run unit test for Spark 4.1 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
           yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
-          -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
-          $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
-          -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
-          -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
+          if [ "${{ matrix.suite }}" = "extended" ]; then
+            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
+            -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
+          else
+            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+            -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
+            -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
+          fi
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-report
+          name: spark-test-spark41-slow-${{ matrix.suite }}-report
           path: '**/surefire-reports/TEST-*.xml'
       - name: Upload unit tests log files
         if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.job }}-test-log
+          name: spark-test-spark41-slow-${{ matrix.suite }}-test-log
           path: |
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log

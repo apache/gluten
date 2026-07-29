@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.extension.DeltaPostTransformRules
+
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.types._
@@ -64,8 +66,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // NameMapping is supported in Delta 2.0 (related to Spark3.2.0)
-  testWithMinSparkVersion("column mapping mode = name", "3.2") {
+  test("column mapping mode = name") {
     withTable("delta_cm2") {
       spark.sql(s"""
                    |create table delta_cm2 (id int, name string) using delta
@@ -108,9 +109,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
   // broke `PreparedDeltaFileIndex.matchingFiles` and silently returned all files.
   Seq("name", "id").foreach {
     mode =>
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with partition filter (single partition col)",
-        "3.2") {
+      test(s"column mapping mode = $mode with partition filter (single partition col)") {
         withTable("delta_cm_part") {
           spark.sql(s"""
                        |create table delta_cm_part (id int, name string) using delta
@@ -151,9 +150,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with partition filter (multi partition col)",
-        "3.2") {
+      test(s"column mapping mode = $mode with partition filter (multi partition col)") {
         withTable("delta_cm_part_multi") {
           spark.sql(s"""
                        |create table delta_cm_part_multi
@@ -183,9 +180,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with partition + data filter",
-        "3.2") {
+      test(s"column mapping mode = $mode with partition + data filter") {
         withTable("delta_cm_part_data") {
           spark.sql(s"""
                        |create table delta_cm_part_data (id int, name string, age int)
@@ -218,9 +213,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with IS [NOT] NULL on partition col",
-        "3.2") {
+      test(s"column mapping mode = $mode with IS [NOT] NULL on partition col") {
         withTable("delta_cm_part_null") {
           spark.sql(s"""
                        |create table delta_cm_part_null (id int, name string)
@@ -245,9 +238,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode partition filter survives column rename",
-        "3.2") {
+      test(s"column mapping mode = $mode partition filter survives column rename") {
         withTable("delta_cm_part_rename") {
           spark.sql(s"""
                        |create table delta_cm_part_rename (id int, name string)
@@ -270,9 +261,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode data column rename + filter (file skipping)",
-        "3.2") {
+      test(s"column mapping mode = $mode data column rename + filter (file skipping)") {
         withTable("delta_cm_data_rename") {
           spark.sql(s"""
                        |create table delta_cm_data_rename (id int, age int, name string)
@@ -322,7 +311,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: partition filters", "3.2") {
+  test("delta: partition filters") {
     withTable("delta_pf") {
       spark.sql(s"""
                    |create table delta_pf (id int, name string) using delta partitioned by (name)
@@ -341,7 +330,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("basic test with stats.skipping disabled", "3.2") {
+  test("basic test with stats.skipping disabled") {
     withTable("delta_test2") {
       withSQLConf("spark.databricks.delta.stats.skipping" -> "false") {
         spark.sql(s"""
@@ -361,7 +350,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("column mapping with complex type", "3.2") {
+  test("column mapping with complex type") {
     withTable("t1") {
       val simpleNestedSchema = new StructType()
         .add("a", StringType, true)
@@ -438,7 +427,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: push down input_file_name expression", "3.2") {
+  test("delta: push down input_file_name expression") {
     withTable("source_table") {
       withTable("target_table") {
         spark.sql(s"""
@@ -476,7 +465,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: need to validate delta expression before execution", "3.2") {
+  test("delta: need to validate delta expression before execution") {
     withTable("source_table") {
       withTable("target_table") {
         spark.sql(s"""
@@ -792,6 +781,62 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         _ =>
       }
       checkAnswer(df, Row(0, null) :: Row(101, Seq(Row("a", 1), null)) :: Nil)
+    }
+  }
+
+  test("post-transform rules are no-op on non-Delta plans") {
+    withTempPath {
+      p =>
+        val path = p.getCanonicalPath
+        spark.range(100).selectExpr("id", "id * 2 as value").write.parquet(path)
+        val df = spark.read.parquet(path)
+        val plan = df.queryExecution.executedPlan
+
+        // Apply only the Delta-specific rules (skip RemoveTransitions which is generic)
+        val deltaRules = DeltaPostTransformRules.rules.tail
+        val transformed = deltaRules.foldLeft(plan)((p, rule) => rule(p))
+        // No DeltaScanTransformer in the plan, so rules should return the same object (early-exit)
+        assert(transformed eq plan, "Delta rules should return the exact same plan instance")
+    }
+  }
+
+  test("Delta scan is offloaded to DeltaScanTransformer") {
+    withTempPath {
+      p =>
+        import testImplicits._
+        val path = p.getCanonicalPath
+        Seq(1, 2, 3, 4, 5).toDF("id").coalesce(1).write.format("delta").save(path)
+        val df = spark.read.format("delta").load(path)
+        val plan = df.queryExecution.executedPlan
+
+        // Delta scan should be offloaded to DeltaScanTransformer
+        val deltaScans = plan.collect { case s: DeltaScanTransformer => s }
+        assert(deltaScans.nonEmpty, "Delta plan should contain DeltaScanTransformer")
+    }
+  }
+
+  test("scanFilters returns consistent results on repeated access") {
+    withTempPath {
+      p =>
+        import testImplicits._
+        val path = p.getCanonicalPath
+        Seq((1, "a"), (2, "b"), (3, "c")).toDF("id", "value")
+          .coalesce(1)
+          .write
+          .format("delta")
+          .save(path)
+        val df = spark.read.format("delta").load(path).where("id > 1")
+        val plan = df.queryExecution.executedPlan
+        val scans = plan.collect { case s: DeltaScanTransformer => s }
+
+        assert(scans.nonEmpty, "Delta plan should contain DeltaScanTransformer")
+        val scan = scans.head
+        // scanFilters is now a lazy val; repeated calls should return the same instance
+        val first = scan.scanFilters
+        val second = scan.scanFilters
+        val third = scan.scanFilters
+        assert(first eq second, "scanFilters should return the same cached instance")
+        assert(second eq third, "scanFilters should return the same cached instance")
     }
   }
 }

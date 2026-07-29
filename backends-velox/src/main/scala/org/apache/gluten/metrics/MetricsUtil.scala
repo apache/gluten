@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.metrics
 
+import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.execution._
 import org.apache.gluten.substrait.{AggregationParams, JoinParams}
 
@@ -23,10 +24,124 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.metrics.TaskStatsAccumulator
 import org.apache.spark.sql.execution.SparkPlan
 
+import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
+
 import java.lang.{Long => JLong}
 import java.util.{ArrayList => JArrayList, List => JList, Map => JMap}
 
+import scala.collection.JavaConverters._
+
 object MetricsUtil extends Logging {
+  private val objectMapper = new ObjectMapper()
+
+  private def value(node: JsonNode, fieldName: String): Long =
+    Option(node.get(fieldName)).map(_.asLong()).getOrElse(0L)
+
+  private def customMetricSum(node: JsonNode, metricName: String): Long =
+    Option(node.get("customStats"))
+      .flatMap(customStats => Option(customStats.get(metricName)))
+      .flatMap(metric => Option(metric.get("sum")))
+      .map(_.asLong())
+      .getOrElse(0L)
+
+  private def customMetricCount(node: JsonNode, metricName: String): Long =
+    Option(node.get("customStats"))
+      .flatMap(customStats => Option(customStats.get(metricName)))
+      .flatMap(metric => Option(metric.get("count")))
+      .map(_.asLong())
+      .getOrElse(0L)
+
+  private def operatorMetricFromJson(node: JsonNode): OperatorMetrics = {
+    val metrics = new OperatorMetrics()
+    metrics.inputRows = value(node, "inputRows")
+    metrics.inputVectors = value(node, "inputVectors")
+    metrics.inputBytes = value(node, "inputBytes")
+    metrics.rawInputRows = value(node, "rawInputRows")
+    metrics.rawInputBytes = value(node, "rawInputBytes")
+    metrics.outputRows = value(node, "outputRows")
+    metrics.outputVectors = value(node, "outputVectors")
+    metrics.outputBytes = value(node, "outputBytes")
+    metrics.cpuCount = value(node, "cpuCount")
+    metrics.wallNanos = value(node, "wallNanos")
+    metrics.peakMemoryBytes = value(node, "peakMemoryBytes")
+    metrics.numMemoryAllocations = value(node, "numMemoryAllocations")
+    metrics.spilledInputBytes = value(node, "spilledInputBytes")
+    metrics.spilledBytes = value(node, "spilledBytes")
+    metrics.spilledRows = value(node, "spilledRows")
+    metrics.spilledPartitions = value(node, "spilledPartitions")
+    metrics.spilledFiles = value(node, "spilledFiles")
+    metrics.numDynamicFiltersProduced = customMetricSum(node, "dynamicFiltersProduced")
+    metrics.numDynamicFiltersAccepted = customMetricSum(node, "dynamicFiltersAccepted")
+    metrics.numReplacedWithDynamicFilterRows =
+      customMetricSum(node, "replacedWithDynamicFilterRows")
+    metrics.numDynamicFilterInputRows = customMetricSum(node, "dynamicFilterInputRows")
+    metrics.flushRowCount = customMetricSum(node, "flushRowCount")
+    metrics.abandonedPartialAggregationRows =
+      customMetricSum(node, "abandonedPartialAggregationRows")
+    metrics.loadedToValueHook = customMetricSum(node, "loadedToValueHook")
+    metrics.bloomFilterBlocksByteSize = customMetricSum(node, "bloomFilterSize")
+    metrics.scanTime = customMetricSum(node, "totalScanTime")
+    metrics.skippedSplits = customMetricSum(node, "skippedSplits")
+    metrics.processedSplits = customMetricSum(node, "processedSplits")
+    metrics.skippedStrides = customMetricSum(node, "skippedStrides")
+    metrics.processedStrides = customMetricSum(node, "processedStrides")
+    metrics.remainingFilterTime = customMetricSum(node, "totalRemainingFilterWallNanos")
+    metrics.ioWaitTime = customMetricSum(node, "ioWaitWallNanos")
+    metrics.storageReadBytes = customMetricSum(node, "storageReadBytes")
+    metrics.storageReads = customMetricCount(node, "storageReadBytes")
+    metrics.localReadBytes = customMetricSum(node, "localReadBytes")
+    metrics.ramReadBytes = customMetricSum(node, "ramReadBytes")
+    metrics.preloadSplits = customMetricSum(node, "readyPreloadedSplits")
+    metrics.pageLoadTime = customMetricSum(node, "pageLoadTimeNs")
+    metrics.dataSourceAddSplitTime = customMetricSum(node, "dataSourceAddSplitWallNanos") +
+      customMetricSum(node, "waitForPreloadSplitNanos")
+    metrics.dataSourceReadTime = customMetricSum(node, "dataSourceReadWallNanos")
+    metrics.physicalWrittenBytes = value(node, "physicalWrittenBytes")
+    metrics.writeIOTime = customMetricSum(node, "writeIOWallNanos")
+    metrics.numWrittenFiles = customMetricSum(node, "numWrittenFiles")
+    metrics
+  }
+
+  private def parseNativeOperatorMetrics(metrics: Metrics): JArrayList[OperatorMetrics] = {
+    val operatorMetrics = new JArrayList[OperatorMetrics]()
+    if (metrics.numMetrics == 0 || metrics.metricsJson == null || metrics.metricsJson.isEmpty) {
+      return operatorMetrics
+    }
+
+    val root = objectMapper.readTree(metrics.metricsJson)
+    val omittedNodeIds = root.path("omittedNodeIds").elements().asScala.map(_.asText()).toSet
+    val nodeStats = root.path("nodeStats")
+    val orderedNodeIds = root.path("orderedNodeIds")
+    orderedNodeIds.elements().asScala.foreach {
+      nodeIdNode =>
+        val nodeId = nodeIdNode.asText()
+        val node = nodeStats.get(nodeId)
+        if (node == null || node.isNull || node.isMissingNode) {
+          if (omittedNodeIds.contains(nodeId)) {
+            operatorMetrics.add(new OperatorMetrics())
+          } else {
+            throw new GlutenException(s"Node id cannot be found in native metrics: $nodeId.")
+          }
+        } else {
+          node.path("operatorStats").elements().asScala.foreach {
+            opStats => operatorMetrics.add(operatorMetricFromJson(opStats))
+          }
+        }
+    }
+
+    val loadLazyVectorMetricsIdx = operatorMetrics.size() - 1
+    if (loadLazyVectorMetricsIdx >= 0) {
+      operatorMetrics.get(loadLazyVectorMetricsIdx).loadLazyVectorTime =
+        root.path("loadLazyVectorTime").asLong(0L)
+    }
+
+    if (operatorMetrics.size() != metrics.numMetrics) {
+      throw new GlutenException(
+        s"Unexpected native metrics size. Expected ${metrics.numMetrics}, " +
+          s"got ${operatorMetrics.size()}.")
+    }
+    operatorMetrics
+  }
 
   /**
    * Generate the function which updates metrics fetched from certain iterator to transformers.
@@ -240,7 +355,8 @@ object MetricsUtil extends Logging {
       mutNode: MetricsUpdaterTree,
       relMap: JMap[JLong, JList[JLong]],
       operatorIdx: JLong,
-      metrics: Metrics,
+      nativeMetrics: JList[OperatorMetrics],
+      singleMetrics: Metrics.SingleMetric,
       metricsIdx: Int,
       joinParamsMap: JMap[JLong, JoinParams],
       aggParamsMap: JMap[JLong, AggregationParams]): (JLong, Int) = {
@@ -253,7 +369,7 @@ object MetricsUtil extends Logging {
       .get(operatorIdx)
       .forEach(
         _ => {
-          operatorMetrics.add(metrics.getOperatorMetrics(curMetricsIdx))
+          operatorMetrics.add(nativeMetrics.get(curMetricsIdx))
           curMetricsIdx -= 1
         })
 
@@ -264,22 +380,22 @@ object MetricsUtil extends Logging {
           p.postProjectionNeeded = false
           p
         }
-        smj.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
+        smj.updateJoinMetrics(operatorMetrics, singleMetrics, joinParams)
       case ju: JoinMetricsUpdaterBase =>
         // JoinRel and CrossRel output two suites of metrics respectively for build and probe.
         // Therefore, fetch one more suite of metrics here.
-        operatorMetrics.add(metrics.getOperatorMetrics(curMetricsIdx))
+        operatorMetrics.add(nativeMetrics.get(curMetricsIdx))
         curMetricsIdx -= 1
         val joinParams = Option(joinParamsMap.get(operatorIdx)).getOrElse {
           val p = JoinParams()
           p.postProjectionNeeded = false
           p
         }
-        ju.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
+        ju.updateJoinMetrics(operatorMetrics, singleMetrics, joinParams)
       case u: UnionMetricsUpdater =>
         // Union outputs two suites of metrics respectively.
         // Therefore, fetch one more suite of metrics here.
-        operatorMetrics.add(metrics.getOperatorMetrics(curMetricsIdx))
+        operatorMetrics.add(nativeMetrics.get(curMetricsIdx))
         curMetricsIdx -= 1
         u.updateUnionMetrics(operatorMetrics)
       case hau: HashAggregateMetricsUpdater =>
@@ -315,7 +431,8 @@ object MetricsUtil extends Logging {
           child,
           relMap,
           newOperatorIdx,
-          metrics,
+          nativeMetrics,
+          singleMetrics,
           newMetricsIdx,
           joinParamsMap,
           aggParamsMap)
@@ -354,7 +471,8 @@ object MetricsUtil extends Logging {
       taskStatsAccumulator: TaskStatsAccumulator): IMetrics => Unit = {
     imetrics =>
       val metrics = imetrics.asInstanceOf[Metrics]
-      val numNativeMetrics = metrics.inputRows.length
+      val nativeMetrics = parseNativeOperatorMetrics(metrics)
+      val numNativeMetrics = nativeMetrics.size()
       if (numNativeMetrics == 0) {
         ()
       } else {
@@ -362,7 +480,8 @@ object MetricsUtil extends Logging {
           mutNode,
           relMap,
           operatorIdx,
-          metrics,
+          nativeMetrics,
+          metrics.getSingleMetrics,
           numNativeMetrics - 1,
           joinParamsMap,
           aggParamsMap)

@@ -36,8 +36,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
-import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterParameters, GlutenShuffleReaderWrapper, GlutenShuffleWriterWrapper}
-import org.apache.spark.shuffle.utils.ShuffleUtil
+import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterParameters, GlutenShuffleReaderWrapper, GlutenShuffleWriterWrapper, VeloxShuffleUtils}
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
@@ -608,7 +607,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
   /** Determine whether to use sort-based shuffle based on shuffle partitioning and output. */
   override def getShuffleWriterType(
       partitioning: Partitioning,
-      output: Seq[Attribute]): ShuffleWriterType = {
+      output: Seq[Attribute],
+      executionMode: Option[StageExecutionMode] = None): ShuffleWriterType = {
+    if (executionMode.contains(GPUStageMode)) {
+      return HashShuffleWriterType
+    }
+
     val conf = GlutenConfig.get
     // todo: remove isUseCelebornShuffleManager here
     if (conf.isUseCelebornShuffleManager) {
@@ -644,12 +648,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
    */
   override def genColumnarShuffleWriter[K, V](
       parameters: GenShuffleWriterParameters[K, V]): GlutenShuffleWriterWrapper[K, V] = {
-    ShuffleUtil.genColumnarShuffleWriter(parameters)
+    VeloxShuffleUtils.genColumnarShuffleWriter(parameters)
   }
 
   override def genColumnarShuffleReader[K, C](
       parameters: GenShuffleReaderParameters[K, C]): GlutenShuffleReaderWrapper[K, C] = {
-    ShuffleUtil.genColumnarShuffleReader(parameters)
+    VeloxShuffleUtils.genColumnarShuffleReader(parameters)
   }
 
   override def createColumnarWriteFilesExec(

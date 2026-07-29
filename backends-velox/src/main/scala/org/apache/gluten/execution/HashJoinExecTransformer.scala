@@ -106,7 +106,7 @@ case class BroadcastHashJoinExecTransformer(
     right,
     isNullAwareAntiJoin) {
 
-  // Unique ID for the build side.
+  // Unique ID for the build side
   lazy val buildBroadcastTableId: String = buildPlan.id.toString
 
   override protected lazy val substraitJoinType: JoinRel.JoinType = joinType match {
@@ -181,7 +181,8 @@ case class BroadcastHashJoinExecTransformer(
         metrics.get("buildHashTableTime"),
         metrics.get("serializeHashTableTime"),
         metrics.get("deserializeHashTableTime"),
-        metrics.get("serializedHashTableSize")
+        metrics.get("serializedHashTableSize"),
+        metrics.get("hashTableMemorySize")
       )
 
     // Check the type of broadcast relation to determine the approach
@@ -265,7 +266,8 @@ case class BroadcastHashJoinContext(
     buildHashTableTimeMetric: Option[SQLMetric] = None,
     serializeHashTableTimeMetric: Option[SQLMetric] = None,
     deserializeHashTableTimeMetric: Option[SQLMetric] = None,
-    serializedHashTableSizeMetric: Option[SQLMetric] = None) {
+    serializedHashTableSizeMetric: Option[SQLMetric] = None,
+    hashTableMemorySizeMetric: Option[SQLMetric] = None) {
   def droppedDuplicates: Boolean = {
     !hasMixedFiltCondition && (
       substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI ||

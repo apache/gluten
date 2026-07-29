@@ -20,10 +20,6 @@
 #include "shuffle/VeloxRssSortShuffleWriter.h"
 #include "shuffle/VeloxSortShuffleWriter.h"
 
-#ifdef GLUTEN_ENABLE_GPU
-#include "VeloxGpuShuffleWriter.h"
-#endif
-
 namespace gluten {
 
 arrow::Result<std::shared_ptr<VeloxShuffleWriter>> VeloxShuffleWriter::create(
@@ -40,10 +36,6 @@ arrow::Result<std::shared_ptr<VeloxShuffleWriter>> VeloxShuffleWriter::create(
       return VeloxSortShuffleWriter::create(numPartitions, std::move(partitionWriter), options, memoryManager);
     case ShuffleWriterType::kRssSortShuffle:
       return VeloxRssSortShuffleWriter::create(numPartitions, std::move(partitionWriter), options, memoryManager);
-#ifdef GLUTEN_ENABLE_GPU
-    case ShuffleWriterType::kGpuHashShuffle:
-      return VeloxGpuHashShuffleWriter::create(numPartitions, std::move(partitionWriter), options, memoryManager);
-#endif
     default:
       return arrow::Status::Invalid("Unsupported shuffle writer type: ", typeToString(type));
   }

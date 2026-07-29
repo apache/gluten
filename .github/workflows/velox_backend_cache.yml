@@ -55,6 +55,12 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{github.sha}}
+      - name: Save Ccache to Apache Stash
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
 
   cache-native-lib-centos-8:
     if: ${{ startsWith(github.repository, 'apache/') }}
@@ -82,6 +88,12 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
+      - name: Save Ccache to Apache Stash
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos8-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
 
   cache-shared-lib-centos-9:
     if: ${{ startsWith(github.repository, 'apache/') }}
@@ -111,6 +123,12 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-release-shared-${{runner.arch}}-${{github.sha}}
+      - name: Save Ccache to Apache Stash
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
 
   cache-enhanced-native-lib-centos-7:
     if: ${{ startsWith(github.repository, 'apache/') }}
@@ -138,6 +156,12 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-enhanced-centos7-release-default-${{github.sha}}
+      - name: Save Ccache to Apache Stash
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-enhanced-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
 
   cache-shared-lib-centos-9-cudf:
     if: ${{ startsWith(github.repository, 'apache/') }}
@@ -166,6 +190,7 @@ jobs:
           df -a
           dnf autoremove -y && dnf clean all
           dnf remove -y cuda-toolkit-12* && dnf install -y cuda-toolkit-13-1
+          pip3 install cmake==4.3.2
           ls -l /usr/local/
           source /opt/rh/gcc-toolset-12/enable
 
@@ -188,3 +213,10 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{github.sha}}
+      - name: Save Ccache to Apache Stash
+        if: always()
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true

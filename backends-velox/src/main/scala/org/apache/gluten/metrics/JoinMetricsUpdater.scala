@@ -181,7 +181,7 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
         hashBuildMetrics.spilledBytes)
     }
 
-    loadLazyVectorTime += joinMetrics.asScala.last.loadLazyVectorTime
+    loadLazyVectorTime += joinMetrics.asScala.map(_.loadLazyVectorTime).sum
   }
 }
 

@@ -93,7 +93,6 @@ case class RowToCHNativeColumnarExec(child: SparkPlan)
     child.executeBroadcast[T]()
   }
 
-  // For spark 3.2.
   protected def withNewChildInternal(newChild: SparkPlan): RowToCHNativeColumnarExec =
     copy(child = newChild)
 }

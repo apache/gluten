@@ -143,7 +143,7 @@ case class HadoopMapReduceAdapter(sparkCommitter: HadoopMapReduceCommitProtocol)
       description: WriteJobDescription): (String, String) = {
     val stageDir = newTaskAttemptTempPath(description.path)
 
-    if (isBucketWrite(description)) {
+    if (description.bucketSpec.isDefined) {
       val filePart = getFilename(taskContext, FileNameSpec("", ""))
       val fileSuffix = CreateFileNameSpec(taskContext, description).suffix
       (stageDir, s"${filePart}_${FileNamePlaceHolder.BUCKET}$fileSuffix")
@@ -151,13 +151,6 @@ case class HadoopMapReduceAdapter(sparkCommitter: HadoopMapReduceCommitProtocol)
       val filename = getFilename(taskContext, CreateFileNameSpec(taskContext, description))
       (stageDir, filename)
     }
-  }
-
-  private def isBucketWrite(desc: WriteJobDescription): Boolean = {
-    // In Spark 3.2, bucketSpec is not defined, instead, it uses bucketIdExpression.
-    val bucketSpecField: Field = desc.getClass.getDeclaredField("bucketSpec")
-    bucketSpecField.setAccessible(true)
-    bucketSpecField.get(desc).asInstanceOf[Option[_]].isDefined
   }
 }
 
