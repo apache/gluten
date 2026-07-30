@@ -16,31 +16,9 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 
-abstract class IcebergSuite extends WholeStageTransformerSuite {
-  protected val rootPath: String = getClass.getResource("/").getPath
-  // FIXME: This folder doesn't exist in module gluten-iceberg so should be provided by
-  //  backend modules that rely on this suite.
-  override protected val resourcePath: String = "/tpch-data-parquet"
-  override protected val fileFormat: String = "parquet"
-
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
-      .set("spark.sql.files.maxPartitionBytes", "1g")
-      .set("spark.sql.shuffle.partitions", "1")
-      .set("spark.memory.offHeap.size", "2g")
-      .set("spark.unsafe.exceptionOnMemoryLeak", "true")
-      .set("spark.sql.autoBroadcastJoinThreshold", "-1")
-      .set(
-        "spark.sql.extensions",
-        "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
-      .set("spark.sql.catalog.spark_catalog", "org.apache.iceberg.spark.SparkCatalog")
-      .set("spark.sql.catalog.spark_catalog.type", "hadoop")
-      .set("spark.sql.catalog.spark_catalog.warehouse", s"file://$rootPath/tpch-data-iceberg-velox")
-  }
+abstract class IcebergSuite extends IcebergTestBase {
 
   test("iceberg transformer exists") {
     withTable("iceberg_tb") {
