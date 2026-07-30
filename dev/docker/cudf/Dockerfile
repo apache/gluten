@@ -15,23 +15,22 @@
 # limitations under the License.
 #
 
-FROM ghcr.io/facebookincubator/velox-dev:adapters
-ENV CUDA_ARCHITECTURES=70
+FROM quay.io/centos/centos:stream9
+ENV CUDA_ARCHITECTURES=75
 ENV LD_LIBRARY_PATH=/opt/gluten/ep/build-velox/build/velox_ep/_build/release/_deps/curl-build/lib:$LD_LIBRARY_PATH
+ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
+    CXX=/opt/rh/gcc-toolset-14/root/bin/g++
 
-
-RUN yum install -y sudo patch perl && \
-    dnf remove -y cuda-toolkit-12* && dnf install -y cuda-toolkit-13-1; \
+RUN dnf config-manager --add-repo "https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo"; \
+    dnf update; \
+    dnf install -y sudo patch maven perl git gcc-toolset-14 cuda-toolkit-13-1 && \
     dnf autoremove -y && dnf clean all; \
-    rm -rf /opt/rh/gcc-toolset-12 && ln -s /opt/rh/gcc-toolset-14 /opt/rh/gcc-toolset-12; \
-    ln -sf /usr/local/bin/cmake /usr/bin && \
-    git clone --depth=1 https://github.com/apache/gluten /opt/gluten && \
+    git clone --depth=1 https://github.com/apache/incubator-gluten /opt/gluten && \
     cd /opt/gluten && \
     source /opt/rh/gcc-toolset-14/enable && \
-    bash ./dev/buildbundle-veloxbe.sh --run_setup_script=OFF --build_arrow=ON --spark_version=3.4 --build_tests=ON --build_benchmarks=ON --enable_gpu=ON && \
+    bash ./dev/buildbundle-veloxbe.sh --run_setup_script=ON --build_arrow=ON --spark_version=3.5 --build_tests=ON --build_benchmarks=ON --enable_gpu=ON && \
     rm -rf /opt/gluten && \
-    rm -rf /root/.cache/ccache
-    
+    rm -rf /root/.cache/ccache   
 
 # You can try the data in folder backends-velox/src/test/resources/tpch-data-parquet
 

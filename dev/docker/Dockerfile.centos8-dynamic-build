@@ -30,7 +30,13 @@ RUN set -ex; \
     sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true; \
     sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true; \
     yum update -y && yum install -y epel-release sudo dnf && yum install -y ccache; \
-    dnf install -y --setopt=install_weak_deps=False gcc-toolset-11; \
+    dnf install -y centos-release-stream; \
+    sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-Stream-* || true; \
+    sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-Stream-* || true; \
+    dnf swap -y --allowerasing centos-{linux,stream}-repos; \
+    sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-Stream-* || true; \
+    sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-Stream-* || true; \
+    dnf install -y --setopt=install_weak_deps=False gcc-toolset-12; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     yum install -y java-${JAVA_VERSION}-openjdk-devel patch wget git perl; \
     mirror_host="https://www.apache.org/dyn/closer.lua"; \
@@ -45,12 +51,13 @@ RUN set -ex; \
     ./install-spark-resources.sh 3.5; \
     ./install-spark-resources.sh 3.5-scala2.13; \
     ./install-spark-resources.sh 4.0; \
+    ./install-spark-resources.sh 4.1; \
     ARCH=$(uname -m); \
     if [[ "$ARCH" == "aarch64" || "$ARCH" == "ppc64le" ]]; then \
         export CPU_TARGET="$ARCH"; \
     fi; \
     cd /opt/gluten; \
-    source /opt/rh/gcc-toolset-11/enable; \
+    source /opt/rh/gcc-toolset-12/enable; \
     export VELOX_BUILD_SHARED=ON; \
     ./dev/builddeps-veloxbe.sh --run_setup_script=ON build_arrow; \
     ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
