@@ -32,43 +32,31 @@
 name: Delta Spark UT (Gluten)
 
 on:
-  # Reusable workflow. velox_backend_x86.yml calls this (gated on Delta-relevant
-  # changes) and passes the native-lib artifact it already built, so the expensive
-  # native C++ build is NOT duplicated. That artifact lives in the CALLER's run (a
-  # called workflow runs as part of the caller run), so the jobs below download it
-  # by name. See velox_backend_x86.yml `delta-spark-ut`.
+  # Self-contained: this workflow owns the whole Delta pipeline, including its own
+  # native build, and is NOT called by velox_backend_x86.yml. A change confined to
+  # this pipeline's own files no longer drags in that workflow's ~50-job
+  # TPC-H/DS + Spark-UT matrix (measured: ~1750 runner-minutes per run that such a
+  # change cannot affect), and a Velox/core change no longer carries the Delta
+  # suite.
   #
-  # NOTE: the `pull_request` trigger was removed so this no longer runs as its own
-  # workflow on PRs (which would double-run the Delta suite). velox_backend_x86.yml
-  # is now the single PR entry point; `workflow_dispatch` keeps manual standalone
-  # runs working (those build the native lib themselves -- see build-native-lib).
-  workflow_call:
-    inputs:
-      native_lib_artifact:
-        description: 'Name of the cpp/build artifact uploaded by the caller'
-        type: string
-        required: true
-      delta_ref:
-        type: string
-        required: false
-        default: 'v4.2.0'
-      spark_version:
-        description: 'Spark version driving both the Gluten bundle profile (-Pspark-<v>) and Delta -DsparkVersion.'
-        type: string
-        required: false
-        default: '4.1'
-      test_parallelism:
-        type: string
-        required: false
-        default: '4'
-      update_baseline:
-        type: boolean
-        required: false
-        default: false
-      fail_on_fixed:
-        type: boolean
-        required: false
-        default: true
+  # Note the tradeoff: `gluten-delta/**` and `backends-velox/src-delta*/**` also
+  # match velox_backend_x86.yml's own filter (its spark-ut jobs build with
+  # -Pdelta), so a change there runs BOTH workflows and, now that the native lib
+  # is no longer shared between them, pays for the centos-7 build twice (~10 min).
+  # That is the price of decoupling, and it is small next to the case above.
+  #
+  # The `paths:` filter below IS the per-PR gate -- GitHub evaluates it before the
+  # run is created, so a non-Delta PR costs nothing at all. Changes to general
+  # Velox/core/native code can also affect Delta offload, but they are touched on
+  # most PRs; the nightly `schedule` run below is the safety net for those, and
+  # `workflow_dispatch` lets anyone run the suite against a branch on demand.
+  pull_request:
+    paths:
+      - '.github/workflows/delta_spark_ut.yml'
+      - '.github/workflows/util/delta-spark-ut/**'
+      - 'gluten-delta/**'
+      # Covers src-delta, src-delta33, src-delta40 and any future variant.
+      - 'backends-velox/src-delta*/**'
   workflow_dispatch:
     inputs:
       delta_ref:
@@ -93,12 +81,11 @@ on:
         type: boolean
         required: false
         default: true
-  # Nightly full run against the latest default branch. The per-PR entry point
-  # (velox_backend_x86.yml) now runs the Delta suite only when a PR touches
-  # Delta-relevant paths (or carries the opt-in label), to save GHA minutes; this
-  # scheduled run keeps full coverage once a day so rarer regressions are still
-  # caught. It builds its own native lib (build-native-lib-centos-7 below) since
-  # there is no caller to provide one, and uses the workflow's default inputs.
+  # Nightly full run against the latest default branch. Per-PR the `paths:` filter
+  # above runs the suite only for Delta-relevant changes, to save GHA minutes;
+  # this scheduled run keeps full coverage once a day so regressions from general
+  # Velox/core changes are still caught, and it enforces `fail_on_fixed` so the
+  # baseline stays honest.
   schedule:
     - cron: '0 5 * * *'
 
@@ -132,19 +119,19 @@ env:
   # force-failed in setup-delta.sh.
   DELTA_NUM_SHARDS: '4'
 
-# No `concurrency:` here on purpose. As a reusable workflow this runs inside the
-# caller's run, where `github.workflow` resolves to the CALLER's name -- a group
-# keyed on it would collide with the caller's own group and, with
-# cancel-in-progress, could cancel the parent run. The caller's concurrency
-# already governs cancellation. (A standalone workflow_dispatch run just won't
-# auto-cancel, which is fine for infrequent manual runs.)
+# Now that this is a standalone workflow (not called by velox_backend_x86.yml),
+# `github.workflow` resolves to THIS workflow, so a concurrency group is both safe
+# and necessary: without it every push to a PR branch stacks another full ~2.5 h
+# Delta run instead of superseding the previous one. Keyed on the branch for PRs
+# and the sha otherwise, matching velox_backend_x86.yml's group.
+concurrency:
+  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
   build-native-lib-centos-7:
-    # Standalone runs (workflow_dispatch + nightly schedule) build the native lib
-    # here. When called by velox_backend_x86.yml the caller already built it and
-    # passes it as an input, so this job is skipped and the duplicate build avoided.
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    # This workflow always builds its own native lib -- there is no caller to
+    # provide one, and the `paths:` filter already decided whether the run happens.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -184,9 +171,6 @@ jobs:
 
   build-gluten-bundle:
     needs: build-native-lib-centos-7
-    # Run whether the native lib was built here (dispatch -> success) or provided
-    # by the caller (workflow_call -> build-native-lib-centos-7 skipped).
-    if: ${{ always() && needs.build-native-lib-centos-7.result != 'failure' && needs.build-native-lib-centos-7.result != 'cancelled' }}
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk17
     steps:
@@ -194,7 +178,7 @@ jobs:
       - name: Download native artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ${{ inputs.native_lib_artifact || format('delta-spark-ut-native-lib-centos-7-{0}', github.sha) }}
+          name: delta-spark-ut-native-lib-centos-7-${{ github.sha }}
           path: ./cpp/build/
       - name: Cache Maven repository
         uses: actions/cache@v4
@@ -246,10 +230,9 @@ jobs:
 
   delta-spark-test:
     needs: build-gluten-bundle
-    # build-gluten-bundle runs via `if: always()` (its build-native-lib-centos-7 need
-    # is skipped on workflow_call), so this job needs an explicit condition too --
-    # otherwise GitHub's transitive skip propagation, seeing the skipped
-    # build-native-lib-centos-7 ancestor, would skip the whole shard matrix.
+    # Explicit condition rather than relying on default skip propagation: it keeps
+    # the matrix bounded to a genuinely successful bundle, and stays correct if the
+    # upstream jobs' conditions change again.
     if: ${{ !cancelled() && needs.build-gluten-bundle.result == 'success' }}
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk17
@@ -270,19 +253,24 @@ jobs:
 
       - name: Resolve workflow inputs
         id: resolve
-        # Surface the inputs as step outputs. workflow_call / workflow_dispatch
-        # supply them (with defaults); the nightly `schedule` event supplies NONE,
-        # so fall back to the same defaults here. The boolean inputs are rendered
-        # as explicit 'true'/'false' strings (never empty) via the `&&/||` form so
-        # a schedule run resolves cleanly: update_baseline=false (enforce) and
+        # Surface the inputs as step outputs. `workflow_dispatch` supplies them
+        # (with defaults); the `pull_request` and nightly `schedule` events supply
+        # NONE, so fall back to the same defaults here. The boolean inputs are
+        # rendered as explicit 'true'/'false' strings (never empty) via the `&&/||`
+        # form so those runs resolve cleanly: update_baseline=false (enforce) and
         # fail_on_fixed=true (so a now-passing baseline test turns the nightly red
         # -- our signal that the committed baseline needs refreshing).
         env:
           DELTA_REF: ${{ inputs.delta_ref || 'v4.2.0' }}
           SPARK_VERSION: ${{ inputs.spark_version || '4.1' }}
           TEST_PARALLELISM: ${{ inputs.test_parallelism || '4' }}
-          UPDATE_BASELINE: ${{ inputs.update_baseline && 'true' || 'false' }}
-          FAIL_ON_FIXED: ${{ github.event_name == 'schedule' && 'true' || (inputs.fail_on_fixed && 'true' || 'false') }}
+          UPDATE_BASELINE: ${{ github.event_name == 'workflow_dispatch' && (inputs.update_baseline && 'true' || 'false') || 'false' }}
+          # Defaults to true for pull_request and schedule: `inputs` only exists on
+          # workflow_dispatch, so a bare `inputs.fail_on_fixed` would silently
+          # resolve to false on those events and stop the now-passing check from
+          # being enforced -- the behaviour the removed workflow_call input used to
+          # provide via `default: true`.
+          FAIL_ON_FIXED: ${{ github.event_name == 'workflow_dispatch' && (inputs.fail_on_fixed && 'true' || 'false') || 'true' }}
         run: |
           set -euo pipefail
           {
@@ -429,7 +417,15 @@ jobs:
   # to bootstrap or refresh the baseline (see util/delta-spark-ut/README.md).
   delta-spark-aggregate:
     needs: delta-spark-test
-    if: always()
+    # Runs even when shards go red -- a partially-failing run still produces a
+    # useful refreshed baseline. Deliberately NOT `always()`: that also evaluates
+    # true while a run is being cancelled, and with `cancel-in-progress` above a
+    # superseded push would cancel the shards but still start this job, which then
+    # fails hard (by design) on finding no per-shard gate lists. `!cancelled()`
+    # drops that case, and the `!= 'skipped'` check drops the other one -- shards
+    # skipped because the bundle build failed -- so a single upstream failure
+    # doesn't surface as a second, misleading red job.
+    if: ${{ !cancelled() && needs.delta-spark-test.result != 'skipped' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4

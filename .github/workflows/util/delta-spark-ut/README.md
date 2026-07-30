@@ -72,24 +72,36 @@ double-counts.
 
 ## When it runs
 
-To keep GitHub Actions usage in check, the suite does **not** run on every PR:
+To keep GitHub Actions usage in check, the suite does **not** run on every PR.
+It lives in its own workflow (`delta_spark_ut.yml`) rather than as part of
+`velox_backend_x86.yml`, so a change confined to this pipeline's own files no
+longer drags in that workflow's ~50-job TPC-H/DS + Spark-UT matrix (~1750
+runner-minutes per run that such a change cannot affect), and a Velox/core change
+no longer carries the Delta suite.
 
-- **Per PR** — `velox_backend_x86.yml` runs the Delta suite only when the PR
+The tradeoff: `gluten-delta/**` and `backends-velox/src-delta*/**` also match
+`velox_backend_x86.yml`'s own filter (its spark-ut jobs build with `-Pdelta`), so
+a change there runs **both** workflows — and because the native library is no
+longer shared between them, those PRs pay for the centos-7 native build twice
+(~10 min). That is the price of decoupling the two pipelines.
+
+- **Per PR** — the workflow's own `paths:` filter runs the suite only when the PR
   touches a **high-signal Delta path**: the Delta integration code
   (`backends-velox/src-delta*`), the `gluten-delta` module, or this pipeline's
-  own files (`delta_spark_ut.yml`, `util/delta-spark-ut/**`,
-  `velox_backend_x86.yml`). Changes to general Velox/core/native code can also
-  affect Delta offload, but they're touched on most PRs, so per-PR they skip the
-  suite — the nightly run and the opt-in label are the safety nets. Add the
-  **`run-delta-ci`** label to force the suite on any PR (the label is read from
-  the triggering event, so apply it before/with a push).
-- **Nightly** — `delta_spark_ut.yml` runs the **full** suite against the latest
-  default branch on a `schedule` (05:00 UTC), so rarer regressions are still
-  caught daily. The nightly run enforces the baseline **and** fails on
+  own files (`delta_spark_ut.yml`, `util/delta-spark-ut/**`). GitHub evaluates
+  the filter before creating the run, so an unrelated PR costs nothing at all.
+  Changes to general Velox/core/native code can also affect Delta offload, but
+  they're touched on most PRs, so per-PR they skip the suite — the nightly run is
+  the safety net.
+- **Nightly** — the **full** suite runs against the latest default branch on a
+  `schedule` (05:00 UTC), so regressions from general Velox/core changes are
+  still caught daily. The nightly run enforces the baseline **and** fails on
   now-passing tests (`fail_on_fixed=true`), so baseline drift surfaces as a red
   nightly — the signal to refresh `known-failures.txt`.
 - **Manually** — **Actions → Delta Spark UT (Gluten) → Run workflow**
-  (`workflow_dispatch`), e.g. to refresh the baseline (see below).
+  (`workflow_dispatch`), e.g. to refresh the baseline (see below). This is also
+  how you validate a Velox/core change against Delta before merging: run it on
+  your branch (on your fork if you don't have write access here).
 
 ## Bootstrapping the baseline (first time)
 
