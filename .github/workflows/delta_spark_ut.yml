@@ -110,14 +110,28 @@ env:
   # Number of shards in the delta-spark-test matrix. Must equal the length of
   # the `shard` matrix below.
   #
-  # 4 shards x TEST_PARALLELISM_COUNT=4 gives ~16-way parallelism packed into 4
-  # runner jobs (4 forks each) rather than 16 single-fork jobs -- fewer concurrent
-  # runners for the same throughput. Sharding is by SUITE; total work
-  # (~1250 shard-minutes) is fixed. Each forked test JVM uses ~4G (2G heap + 2G
-  # off-heap), so 4 forks plus the sbt launcher sit close to the ~16G runner limit;
-  # this fits because the worst memory hog (DeletionVectorsSuite 2B-row) is
-  # force-failed in setup-delta.sh.
-  DELTA_NUM_SHARDS: '4'
+  # 8 shards x TEST_PARALLELISM_COUNT=4 gives ~32-way parallelism, which is also
+  # exactly what delta-io/delta's own spark_test.yaml uses (NUM_SHARDS: 8,
+  # shard: [0..7], TEST_PARALLELISM_COUNT=4), so we size the split the same way
+  # upstream does for the same suites.
+  #
+  # Sharding is by SUITE and the total work is fixed, so this trades runner count
+  # for wall clock: measured on a 4-shard run, a shard spent 9.1 min on fixed
+  # setup (clone Delta, apply patches, compile the test sources) and 134.5 min
+  # actually running tests, so ~91% of a shard shards away. Going 4 -> 8 takes the
+  # slowest shard from ~148 min to ~74 min for about +7% total runner-minutes (the
+  # fixed setup is paid 8 times instead of 4).
+  #
+  # Memory is per runner and therefore unaffected: each shard is its own job, so
+  # it is still 4 forks plus the sbt launcher against the ~16G limit, at ~4G per
+  # fork (2G heap + 2G off-heap). That fits because the worst memory hog
+  # (DeletionVectorsSuite 2B-row) is force-failed in setup-delta.sh.
+  #
+  # Further sharding has a floor: wall clock cannot drop below the longest single
+  # suite, which is ~18 min (DeleteSQLSQLPathBasedDVPredPushOffSuite). At 8 shards
+  # we are well above it, and with ~180 suites per shard there is ample
+  # granularity for the split to stay balanced.
+  DELTA_NUM_SHARDS: '8'
 
 # Now that this is a standalone workflow (not called by velox_backend_x86.yml),
 # `github.workflow` resolves to THIS workflow, so a concurrency group is both safe
@@ -243,7 +257,7 @@ jobs:
       fail-fast: false
       matrix:
         # Length of this list MUST equal env.DELTA_NUM_SHARDS.
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     env:
       # Mirror Delta's spark_test.yaml env vars used by run-tests.py /
       # TestParallelization.scala.
