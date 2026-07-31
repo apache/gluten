@@ -19,7 +19,10 @@ package org.apache.gluten.substrait.rel;
 import io.substrait.proto.ReadRel;
 import org.apache.iceberg.DeleteFile;
 
+import java.lang.reflect.InvocationTargetException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -96,16 +99,28 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
       deleteFileBuilder.setFilePath(delete.path().toString());
       deleteFileBuilder.setFileSize(delete.fileSizeInBytes());
       deleteFileBuilder.setRecordCount(delete.recordCount());
-      switch (delete.format()) {
-        case PARQUET:
+      switch (delete.format().name()) {
+        case "PARQUET":
           ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions parquetReadOptions =
               ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions.newBuilder().build();
           deleteFileBuilder.setParquet(parquetReadOptions);
           break;
-        case ORC:
+        case "ORC":
           ReadRel.LocalFiles.FileOrFiles.OrcReadOptions orcReadOptions =
               ReadRel.LocalFiles.FileOrFiles.OrcReadOptions.newBuilder().build();
           deleteFileBuilder.setOrc(orcReadOptions);
+          break;
+        case "PUFFIN":
+          ReadRel.LocalFiles.FileOrFiles.PuffinReadOptions puffinReadOptions =
+              ReadRel.LocalFiles.FileOrFiles.PuffinReadOptions.newBuilder().build();
+          deleteFileBuilder.setPuffin(puffinReadOptions);
+          setOptionalLong(deleteFileBuilder, delete, "contentOffset");
+          setOptionalLong(deleteFileBuilder, delete, "contentSizeInBytes");
+          String referencedDataFile =
+              (String) invokeOptionalDeleteFileMethod(delete, "referencedDataFile");
+          if (referencedDataFile != null) {
+            deleteFileBuilder.setReferencedDataFile(referencedDataFile);
+          }
           break;
         default:
           throw new UnsupportedOperationException(
@@ -114,8 +129,62 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
       if (delete.equalityFieldIds() != null && !delete.equalityFieldIds().isEmpty()) {
         deleteFileBuilder.addAllEqualityFieldIds(delete.equalityFieldIds());
       }
+      setBounds(deleteFileBuilder::setLowerBounds, delete.lowerBounds());
+      setBounds(deleteFileBuilder::setUpperBounds, delete.upperBounds());
+      if (delete.dataSequenceNumber() != null) {
+        deleteFileBuilder.setDataSequenceNumber(delete.dataSequenceNumber());
+      }
       icebergBuilder.addDeleteFiles(deleteFileBuilder);
     }
     fileBuilder.setIceberg(icebergBuilder);
+  }
+
+  private static void setOptionalLong(
+      ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.Builder builder,
+      DeleteFile delete,
+      String methodName) {
+    Long value = (Long) invokeOptionalDeleteFileMethod(delete, methodName);
+    if (value == null) {
+      return;
+    }
+    if ("contentOffset".equals(methodName)) {
+      builder.setContentOffset(value);
+    } else {
+      builder.setContentSizeInBytes(value);
+    }
+  }
+
+  private static Object invokeOptionalDeleteFileMethod(DeleteFile delete, String methodName) {
+    try {
+      return DeleteFile.class.getMethod(methodName).invoke(delete);
+    } catch (NoSuchMethodException e) {
+      // Iceberg 1.5 (Spark 3.3) does not expose V3 deletion-vector metadata.
+      return null;
+    } catch (IllegalAccessException | InvocationTargetException e) {
+      throw new IllegalStateException("Failed to read Iceberg delete-file metadata", e);
+    }
+  }
+
+  private interface BoundsSetter {
+    void set(ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.Map bounds);
+  }
+
+  private static void setBounds(BoundsSetter setter, Map<Integer, ByteBuffer> bounds) {
+    if (bounds == null || bounds.isEmpty()) {
+      return;
+    }
+    ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.Map.Builder mapBuilder =
+        ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.Map.newBuilder();
+    bounds.forEach(
+        (fieldId, value) -> {
+          ByteBuffer copy = value.duplicate();
+          byte[] bytes = new byte[copy.remaining()];
+          copy.get(bytes);
+          mapBuilder
+              .addKeyValuesBuilder()
+              .setKey(fieldId)
+              .setValue(Base64.getEncoder().encodeToString(bytes));
+        });
+    setter.set(mapBuilder.build());
   }
 }

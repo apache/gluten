@@ -25,15 +25,23 @@ public class DataFileJson {
 
   @JsonProperty public MetricsWrapper metrics;
 
-  @JsonProperty List<Long> splitOffsets;
+  @JsonProperty public List<Long> splitOffsets;
 
-  @JsonProperty String content;
+  @JsonProperty public String content;
 
-  @JsonProperty String referencedDataFile;
+  @JsonProperty public String referencedDataFile;
 
   @JsonProperty public Integer partitionSpecJson;
 
-  @JsonProperty String partitionDataJson;
+  @JsonProperty public String partitionDataJson;
+
+  @JsonProperty public String fileFormat;
+
+  @JsonProperty public Integer sortOrderId;
+
+  @JsonProperty public Long contentOffset;
+
+  @JsonProperty public Long contentSizeInBytes;
 
   @JsonProperty public long fileSizeInBytes = -1L;
 }

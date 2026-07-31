@@ -33,6 +33,7 @@ import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.types.{ArrayType, DataType, StructType}
 
+import io.substrait.proto.ReadRel
 import org.apache.iceberg.{BaseTable, MetadataColumns, SnapshotSummary, TableProperties}
 import org.apache.iceberg.avro.AvroSchemaUtil
 import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
@@ -42,6 +43,9 @@ import org.apache.iceberg.types.Type.TypeID
 import org.apache.iceberg.types.Types.{ListType, MapType, NestedField}
 
 import java.util.Locale
+
+import scala.collection.JavaConverters._
+import scala.util.control.NonFatal
 
 case class IcebergScanTransformer(
     override val output: Seq[AttributeReference],
@@ -151,15 +155,9 @@ case class IcebergScanTransformer(
     }
     val metadata = baseTable.operations().current()
     if (metadata.formatVersion() >= 3) {
-      val hasUnsupportedDelete = finalPartitions.exists {
-        case p: SparkDataSourceRDDPartition =>
-          GlutenIcebergSourceUtil.deleteExists(p)
-        case other =>
-          return ValidationResult.failed(
-            s"Unsupported partition type: ${other.getClass.getSimpleName}")
-      }
-      if (hasUnsupportedDelete) {
-        return ValidationResult.failed("Delete file format puffin is not supported")
+      validateDeleteFiles() match {
+        case Some(reason) => return ValidationResult.failed(reason)
+        case None =>
       }
     }
     // https://github.com/apache/gluten/issues/11135
@@ -168,6 +166,39 @@ case class IcebergScanTransformer(
     }
 
     ValidationResult.succeeded
+  }
+
+  private def validateDeleteFiles(): Option[String] = {
+    try {
+      finalPartitions.iterator
+        .map {
+          case p: SparkDataSourceRDDPartition if GlutenIcebergSourceUtil.deleteExists(p) =>
+            GlutenIcebergSourceUtil
+              .genSplitInfo(p, getPartitionSchema, Seq.empty)
+              .asInstanceOf[LocalFilesNode]
+              .toProtobuf
+              .getItemsList
+              .asScala
+              .iterator
+              .flatMap {
+                item =>
+                  item.getIceberg.getDeleteFilesList.asScala.iterator.flatMap(
+                    IcebergScanTransformer.validateDeleteFile(
+                      _,
+                      BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead(),
+                      Some(item.getUriFile)))
+              }
+              .toSeq
+              .headOption
+          case _: SparkDataSourceRDDPartition => None
+          case other =>
+            Some(s"Unsupported partition type: ${other.getClass.getSimpleName}")
+        }
+        .collectFirst { case Some(reason) => reason }
+    } catch {
+      case NonFatal(e) =>
+        Some(s"Unsupported Iceberg delete file: ${Option(e.getMessage).getOrElse(e.toString)}")
+    }
   }
 
   override lazy val getPartitionSchema: StructType =
@@ -326,6 +357,64 @@ object IcebergScanTransformer {
 
   def supportsBatchScan(scan: Scan): Boolean = {
     scan.getClass == GlutenIcebergSourceUtil.getClassOfSparkBatchQueryScan
+  }
+
+  private[execution] def validateDeleteFile(
+      deleteFile: ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile,
+      supportsEqualityDelete: Boolean,
+      dataFilePath: Option[String] = None): Option[String] = {
+    val content = deleteFile.getFileContent
+    val format = deleteFile.getFileFormatCase
+    if (
+      content ==
+        ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.FileContent.EQUALITY_DELETES &&
+        !supportsEqualityDelete
+    ) {
+      Some("Contains equality delete files")
+    } else if (
+      format ==
+        ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.FileFormatCase.PUFFIN
+    ) {
+      if (
+        content !=
+          ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.FileContent.POSITION_DELETES
+      ) {
+        Some("Puffin delete file must contain position deletes")
+      } else if (
+        deleteFile.getFilePath.isEmpty ||
+        deleteFile.getFileSize == 0 ||
+        deleteFile.getRecordCount == 0 ||
+        !deleteFile.hasContentOffset ||
+        deleteFile.getContentOffset < 0 ||
+        !deleteFile.hasContentSizeInBytes ||
+        deleteFile.getContentSizeInBytes <= 0 ||
+        deleteFile.getContentSizeInBytes > deleteFile.getFileSize ||
+        deleteFile.getContentOffset >
+          deleteFile.getFileSize - deleteFile.getContentSizeInBytes ||
+          !deleteFile.hasReferencedDataFile ||
+          deleteFile.getReferencedDataFile.isEmpty ||
+          !deleteFile.hasDataSequenceNumber ||
+          deleteFile.getDataSequenceNumber < 0
+      ) {
+        Some("Puffin deletion vector has incomplete metadata")
+      } else if (dataFilePath.exists(_ != deleteFile.getReferencedDataFile)) {
+        Some("Puffin deletion vector does not reference the scanned data file")
+      } else {
+        None
+      }
+    } else {
+      format match {
+        case ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.FileFormatCase.PARQUET |
+            ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.FileFormatCase.ORC =>
+          content match {
+            case ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.FileContent.POSITION_DELETES |
+                ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.FileContent.EQUALITY_DELETES =>
+              None
+            case _ => Some("Unsupported Iceberg delete-file content")
+          }
+        case _ => Some("Unsupported Iceberg delete-file format")
+      }
+    }
   }
 
   private def containsUuidOrFixedType(dataType: Type): Boolean = {
