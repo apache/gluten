@@ -8,10 +8,12 @@ vcpkg_extract_source_archive(
     SOURCE_PATH
     ARCHIVE ${ARCHIVE_PATH}
     PATCHES
+        # Patches inherited from the vcpkg Arrow 18.1.0 port.
         android.patch
         msvc-static-name.patch
         utf8proc.patch
         thrift.patch
+        # Patches required by Velox's static arrow_testing dependency.
         arrow-testing-boost.patch
         arrow-testing-static-boost.patch
 )
