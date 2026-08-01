@@ -139,6 +139,51 @@ object VeloxConfig extends ConfigRegistry {
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("1GB")
 
+  val COLUMNAR_VELOX_CACHE_PUSHBACK_ENABLED =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cache.pushback.enabled")
+      .doc("Enable Spark accounting (soft pushback) and periodic shrink for Velox memCache.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val COLUMNAR_VELOX_CACHE_PUSHBACK_CHECK_INTERVAL_MS =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cache.pushback.checkIntervalMs")
+      .doc("How often the cache capacity governor revisits how much memory Spark can spare.")
+      .longConf
+      .checkValue(_ > 0, "must be a positive number")
+      .createWithDefault(1000L)
+
+  val COLUMNAR_VELOX_CACHE_PUSHBACK_CACHE_RATIO =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cache.pushback.cacheRatio")
+      .doc(
+        "Share of Spark's storage pool the cache may occupy before it is considered under " +
+          "pressure and starts backing off. The pool is measured as the total less what " +
+          "execution holds, so it shrinks as execution takes more.")
+      .doubleConf
+      .checkValue(r => r > 0 && r < 1, "must be between 0 and 1, exclusive")
+      .createWithDefault(0.5)
+
+  val COLUMNAR_VELOX_CACHE_PUSHBACK_MIN_CACHE_SIZE =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cache.pushback.minCacheSize")
+      .doc(
+        "Floor for the cache capacity. Below roughly (concurrent readers * loadQuantum) the " +
+          "cache can hold nothing but pinned entries, and an allocation that cannot be satisfied " +
+          "fails the query with NO_CACHE_SPACE. The governor stops yielding at this floor.")
+      .bytesConf(ByteUnit.BYTE)
+      .checkValue(_ > 0, "must be a positive number")
+      .createWithDefaultString("512MB")
+
+  val COLUMNAR_VELOX_CACHE_PUSHBACK_STEP_SIZE =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cache.pushback.stepSize")
+      .doc(
+        "How much the cache reclaims each round while memory is not tight. Backing off halves " +
+          "the room above the floor, so it is fast; reclaiming a step at a time is deliberately " +
+          "slower, so a brief lull does not undo it. A back-off that would land within two " +
+          "steps of the floor goes the rest of the way, since creeping there costs a round of " +
+          "eviction and a turn of Spark's memory lock each time.")
+      .bytesConf(ByteUnit.BYTE)
+      .checkValue(_ > 0, "must be a positive number")
+      .createWithDefaultString("128MB")
+
   val COLUMNAR_VELOX_MEM_INIT_CAPACITY =
     buildConf("spark.gluten.sql.columnar.backend.velox.memInitCapacity")
       .doc("The initial memory capacity to reserve for a newly created Velox query memory pool.")
