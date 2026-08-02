@@ -5,7 +5,9 @@ nav_order: 7
 parent: Getting-Started
 ---
 
-Velox supports a local cache when reading data from HDFS/S3/ABFS. With this feature, Velox can asynchronously cache the data on local disk when reading from remote storage and future read requests on previously cached blocks will be serviced from local cache files. To enable the local caching feature, the following configurations are required:
+Velox supports local caching when reading data from HDFS/S3/ABFS. With this feature, Velox asynchronously caches data on
+local disk when reading from remote storage, and future read requests for previously cached blocks are served from the
+local cache files. To enable local caching, the following configurations are required:
 
 ```
 spark.gluten.sql.columnar.backend.velox.cacheEnabled      // Enable Velox cache. Default: false.
@@ -19,4 +21,7 @@ spark.gluten.sql.columnar.backend.velox.ssdODirect        // Enable O_DIRECT on 
 spark.gluten.soft-affinity.enabled                        // Enable Soft Affinity scheduling. Should be enabled together with Velox cache. Default: false.
 ```
 
-It's recommended to mount SSDs to the cache path to get the best performance of local caching. Cache files will be written to "spark.gluten.sql.columnar.backend.velox.ssdCachePath", with UUID based suffix, e.g. "/tmp/cache.13e8ab65-3af4-46ac-8d28-ff99b2a9ec9b0". Gluten cannot reuse older caches for now, and the old cache files are left after Spark context shutdown.
+It's recommended to mount SSDs to the cache path to get the best performance of local caching. Cache files will be written
+to "spark.gluten.sql.columnar.backend.velox.ssdCachePath", with UUID based suffix,
+e.g. "/tmp/cache.13e8ab65-3af4-46ac-8d28-ff99b2a9ec9b0". Gluten cannot reuse older caches for now, and the old cache files
+are left after Spark context shutdown.

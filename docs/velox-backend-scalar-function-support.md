@@ -211,7 +211,7 @@
 | map_concat        | MapConcat           | PS       |                                                                             |
 | map_contains_key  | MapContainsKey      | S        |                                                                             |
 | map_entries       | MapEntries          | S        |                                                                             |
-| map_from_arrays   | MapFromArrays       |          |                                                                             |
+| map_from_arrays   | MapFromArrays       | S        |                                                                             |
 | map_from_entries  | MapFromEntries      | S        |                                                                             |
 | map_keys          | MapKeys             | S        |                                                                             |
 | map_values        | MapValues           | S        |                                                                             |
@@ -281,8 +281,8 @@
 | sin               | Sin                    |          |                |
 | sinh              | Sinh                   | S        |                |
 | sqrt              | Sqrt                   | S        |                |
-| tan               | Tan                    |          |                |
-| tanh              | Tanh                   |          |                |
+| tan               | Tan                    | S        |                |
+| tanh              | Tanh                   | S        |                |
 | try_add           | TryAdd                 | PS       |                |
 | try_divide        | TryDivide              |          |                |
 | try_multiply      | TryMultiply            |          |                |
