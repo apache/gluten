@@ -16,7 +16,7 @@ spark.gluten.sql.columnar.backend.velox.ssdCachePath      // Folder to store cac
 spark.gluten.sql.columnar.backend.velox.ssdCacheSize      // SSD cache size. Memory-only caching is used when set to 0. Default: 128MB.
 spark.gluten.sql.columnar.backend.velox.ssdCacheShards    // Number of SSD cache shards. Default: 1.
 spark.gluten.sql.columnar.backend.velox.ssdCacheIOThreads // Number of IO threads for SSD cache read/write. Enables read-ahead when > 1. Default: 4.
-spark.gluten.sql.columnar.backend.velox.loadQuantum       // Load quantum size. Must be set to 8MB when Velox cache is enabled, otherwise Velox fails. Default: 256MB.
+spark.gluten.sql.columnar.backend.velox.loadQuantum       // Load quantum size. Must be at most 8MB when Velox cache is enabled, otherwise Velox fails. Default: 256MB.
 spark.gluten.sql.columnar.backend.velox.ssdODirect        // Enable O_DIRECT on cache write. Currently causes SSD cache writes to fail if enabled; see Velox issue #10597. Default: false.
 spark.gluten.soft-affinity.enabled                        // Enable Soft Affinity scheduling. Should be enabled together with Velox cache. Default: false.
 ```
