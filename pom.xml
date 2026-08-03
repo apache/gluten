@@ -77,7 +77,7 @@
     <delta.package.name>delta-spark</delta.package.name>
     <delta.version>3.3.2</delta.version>
     <delta.binary.version>33</delta.binary.version>
-    <aws-java-sdk-dynamodb.version>1.12.262</aws-java-sdk-dynamodb.version>
+    <aws-java-sdk-dynamodb.version>1.12.797</aws-java-sdk-dynamodb.version>
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
     <arrow.version>15.0.0</arrow.version>
