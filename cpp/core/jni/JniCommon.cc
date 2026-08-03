@@ -16,7 +16,6 @@
  */
 
 #include "JniCommon.h"
-#include <folly/system/ThreadName.h>
 
 #include "utils/ArrowStatus.h"
 
