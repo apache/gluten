@@ -233,7 +233,7 @@ object VeloxBackendSettings extends BackendSettingsApi {
     }
 
     def validateDataSchema(): Option[String] = {
-      if (VeloxConfig.get.parquetUseColumnNames && VeloxConfig.get.orcUseColumnNames) {
+      if (VeloxConfig.get.parquetUseColumnNames) {
         return None
       }
 

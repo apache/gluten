@@ -97,9 +97,6 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def cudfShuffleMaxPrefetchBytes: Long = getConf(CUDF_SHUFFLE_MAX_PREFETCH_BYTES)
 
-  def orcUseColumnNames: Boolean = getConf(ORC_USE_COLUMN_NAMES) &&
-    !conf.getConfString(GlutenConfig.SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, "false").toBoolean
-
   def parquetUseColumnNames: Boolean = getConf(PARQUET_USE_COLUMN_NAMES)
 
   def parquetPageSizeBytes: Long = getConf(PARQUET_PAGE_SIZE_BYTES)
@@ -902,12 +899,6 @@ object VeloxConfig extends ConfigRegistry {
           "instance per thread of execution.")
       .intConf
       .createWithDefault(100)
-
-  val ORC_USE_COLUMN_NAMES =
-    buildConf("spark.gluten.sql.columnar.backend.velox.orcUseColumnNames")
-      .doc("Maps table field names to file field names using names, not indices for ORC files.")
-      .booleanConf
-      .createWithDefault(true)
 
   val PARQUET_USE_COLUMN_NAMES =
     buildConf("spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames")
