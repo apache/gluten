@@ -61,7 +61,7 @@
     <java.version>1.8</java.version>
     <maven.compiler.source>${java.version}</maven.compiler.source>
     <maven.compiler.target>${java.version}</maven.compiler.target>
-    <caffeine.version>2.9.3</caffeine.version>
+    <caffeine.version>3.2.4</caffeine.version>
     <scala.binary.version>2.12</scala.binary.version>
     <scala.version>2.12.18</scala.version>
     <scala-xml.version>2.1.0</scala-xml.version>
