@@ -23,7 +23,7 @@ import org.apache.gluten.extension.DeltaDeletionVectorDmlUtils
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
-import org.apache.spark.sql.execution.{ColumnarToRowExec, FileSourceScanExec, FilterExec, ProjectExec, SparkPlan}
+import org.apache.spark.sql.execution.{ColumnarToRowExec, FileSourceScanExec, FilterExec, InputAdapter, ProjectExec, SparkPlan, WholeStageCodegenExec}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.tags.ExtendedSQLTest
@@ -74,6 +74,10 @@ class DeltaDeletionVectorHandoffSuite
   private def isDmlFallbackSubtree(plan: SparkPlan): Boolean = plan match {
     case scan: FileSourceScanExec => containsDmlFallbackScan(scan)
     case ColumnarToRowExec(child) => isDmlFallbackSubtree(child)
+    // Whole-stage codegen wraps the columnar scan in an InputAdapter that is invisible in
+    // treeString output; both wrappers must be traversed to reach the scan.
+    case InputAdapter(child) => isDmlFallbackSubtree(child)
+    case WholeStageCodegenExec(child) => isDmlFallbackSubtree(child)
     case ProjectExec(_, child) => isDmlFallbackSubtree(child)
     case FilterExec(_, child) => isDmlFallbackSubtree(child)
     case project: ProjectExecTransformerBase => isDmlFallbackSubtree(project.child)

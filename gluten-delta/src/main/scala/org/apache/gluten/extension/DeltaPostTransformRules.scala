@@ -105,18 +105,33 @@ object DeltaPostTransformRules {
    * native island without propagating fallback through joins, exchanges, or aggregations. The
    * BitmapAggregator and the rest of the DML plan remain eligible for native execution.
    */
-  val keepDmlRowIndexFallbackSubtreeOnSpark: Rule[SparkPlan] = (plan: SparkPlan) =>
-    plan.transformUp {
-      case project: ProjectExecTransformerBase
-          if isDmlRowIndexFallbackSubtree(project.child) =>
-        val sparkProject = ProjectExec(project.list, project.child)
-        sparkProject.copyTagsFrom(project)
-        sparkProject
-      case filter: FilterExecTransformerBase if isDmlRowIndexFallbackSubtree(filter.child) =>
-        val sparkFilter = FilterExec(filter.cond, filter.child)
-        sparkFilter.copyTagsFrom(filter)
-        sparkFilter
+  val keepDmlRowIndexFallbackSubtreeOnSpark: Rule[SparkPlan] = (plan: SparkPlan) => {
+    // The DeltaScanTransformer guard used by deltaSpecificRules would be wrong here: this rule
+    // fires precisely when the DML target scan did NOT offload, so the plan may contain no
+    // DeltaScanTransformer at all. Short-circuit on the tagged fallback scan instead, the exact
+    // leaf condition isDmlRowIndexFallbackSubtree bottoms out at.
+    val hasDmlRowIndexFallbackScan = plan.exists {
+      case scan: FileSourceScanExec =>
+        DeltaDeletionVectorDmlUtils.isDeletionVectorDmlRowIndexScan(scan) &&
+        FallbackTags.nonEmpty(scan)
+      case _ => false
     }
+    if (!hasDmlRowIndexFallbackScan) {
+      plan
+    } else {
+      plan.transformUp {
+        case project: ProjectExecTransformerBase
+            if isDmlRowIndexFallbackSubtree(project.child) =>
+          val sparkProject = ProjectExec(project.list, project.child)
+          sparkProject.copyTagsFrom(project)
+          sparkProject
+        case filter: FilterExecTransformerBase if isDmlRowIndexFallbackSubtree(filter.child) =>
+          val sparkFilter = FilterExec(filter.cond, filter.child)
+          sparkFilter.copyTagsFrom(filter)
+          sparkFilter
+      }
+    }
+  }
 
   /**
    * Spark Delta injects synthetic deletion-vector predicates and columns into the plan (via
