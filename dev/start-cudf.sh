@@ -41,4 +41,4 @@ sudo systemctl restart docker
 # Run the gpu example
 sudo docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
 # Then run this command to
-sudo docker run --name gpu_gluten_container --gpus all -itd apache/gluten:centos-9-jdk8-cudf
+sudo docker run --name gpu_gluten_container --gpus all -itd apache/gluten:centos-9-jdk17-cuda13.1-cudf
