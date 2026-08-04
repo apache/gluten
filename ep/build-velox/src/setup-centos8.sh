@@ -48,22 +48,31 @@ FMT_VERSION="11.2.0"
 FAST_FLOAT_VERSION="v8.0.2"
 BOOST_VERSION="boost-1.84.0"
 GEOS_VERSION="3.10.7"
+CCACHE_VERSION="4.11.3"
 
 function dnf_install {
   dnf install -y -q --setopt=install_weak_deps=False "$@"
 }
 
+function install_ccache {
+  curl -L "https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/ccache-${CCACHE_VERSION}-linux-x86_64.tar.xz" -o ccache.tar.xz
+  tar -xf ccache.tar.xz
+  ${SUDO:-} mv "ccache-${CCACHE_VERSION}-linux-x86_64/ccache" /usr/local/bin/ccache
+  rm -rf "ccache-${CCACHE_VERSION}-linux-x86_64" ccache.tar.xz
+}
+
 # Install packages required for build.
 function install_build_prerequisites {
   dnf update -y
-  dnf_install epel-release dnf-plugins-core # For ccache, ninja
+  dnf_install epel-release dnf-plugins-core # For ninja
   dnf config-manager --set-enabled powertools || true # For centos8, powertools is needed for some dependencies.
   dnf config-manager --set-enabled Stream-PowerTools || true
   dnf update -y
-  dnf_install ninja-build curl ccache gcc-toolset-12 git wget which expat-devel gettext-devel
+  dnf_install ninja-build curl gcc-toolset-12 git wget which expat-devel gettext-devel
   dnf_install yasm
   dnf_install autoconf automake python39 python39-devel python39-pip libtool
   pip3.9 install cmake==3.28.3
+  install_ccache
 }
 
 # Install dependencies from the package managers.

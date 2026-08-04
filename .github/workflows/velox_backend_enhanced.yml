@@ -108,7 +108,7 @@ jobs:
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases
-      - name: Prepare spark.test.home for Spark 3.5.5 (other tests)
+      - name: Prepare
         run: |
           dnf module -y install python39 && \
           alternatives --set python3 /usr/bin/python3.9 && \
@@ -164,10 +164,6 @@ jobs:
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}
           path: ./cpp/build/releases
-      - name: Prepare Spark Resources for Spark 3.5.5 #TODO remove after image update
-        run: |
-          rm -rf /opt/shims/spark35
-          bash .github/workflows/util/install-spark-resources.sh 3.5
       - name: Build and Run unit test for Spark 3.5.5 (slow tests)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -221,10 +217,6 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Prepare Spark Resources for Spark 4.0.1 #TODO remove after image update
-        run: |
-          rm -rf /opt/shims/spark40
-          bash .github/workflows/util/install-spark-resources.sh 4.0
       - name: Build and Run unit test for Spark 4.0.0 with scala-2.13 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/

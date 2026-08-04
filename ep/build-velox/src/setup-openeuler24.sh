@@ -52,21 +52,30 @@ DUCKDB_VERSION="v0.8.1"
 GEOS_VERSION="3.10.7"
 ABSEIL_VERSION="20240116.2"
 GRPC_VERSION="v1.48.1"
+CCACHE_VERSION="4.11.3"
 
 function dnf_install {
   dnf install -y -q --setopt=install_weak_deps=False "$@"
 }
 
+function install_ccache {
+  curl -L "https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/ccache-${CCACHE_VERSION}-linux-x86_64.tar.xz" -o ccache.tar.xz
+  tar -xf ccache.tar.xz
+  ${SUDO:-} mv "ccache-${CCACHE_VERSION}-linux-x86_64/ccache" /usr/local/bin/ccache
+  rm -rf "ccache-${CCACHE_VERSION}-linux-x86_64" ccache.tar.xz
+}
+
 # Install packages required for build.
 function install_build_prerequisites {
   dnf update -y
-  dnf_install dnf-plugins-core # For ccache, ninja
+  dnf_install dnf-plugins-core # For ninja
   dnf update -y
-  dnf_install ninja-build cmake ccache gcc g++ git wget which patch
+  dnf_install ninja-build cmake gcc g++ git wget which patch
   dnf_install autoconf automake python3-devel python3-pip libtool
   dnf_install libxml2-devel libgsasl-devel libuuid-devel
 
   pip install cmake==3.31.4
+  install_ccache
 }
 
 # Install dependencies from the package managers.
