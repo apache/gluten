@@ -108,6 +108,8 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
 
       shuffleReaders.foreach {
         reader =>
+          val canonicalized = reader.canonicalized
+          assert(canonicalized.children.forall(_.isInstanceOf[ColumnarShuffleExchangeExec]))
           assert(
             reader.executionMode == MockGPUStageMode,
             s"Expected GPU AQE shuffle reader, but got ${reader.executionMode}")
@@ -126,7 +128,6 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
         shuffleStage =>
           assert(shuffleStage.shuffle.isInstanceOf[ColumnarShuffleExchangeExec])
           val exchange = shuffleStage.shuffle.asInstanceOf[ColumnarShuffleExchangeExec]
-        exchange =>
           assert(
             !exchange.mapperStageMode.contains(MockGPUStageMode),
             s"Expected CPU mapper stage, but got ${exchange.mapperStageMode}")
