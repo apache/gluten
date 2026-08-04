@@ -1,7 +1,7 @@
 <img src="docs/image/gluten-logo.svg" alt="Gluten" width="260">
 
 
-**A Middle Layer for Offloading JVM-based SQL Engines' Execution to Native Engines**
+**A Middle Layer for Offloading JVM-Based SQL Execution to Native Engines**
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/8452/badge)](https://www.bestpractices.dev/projects/8452)
 
@@ -112,7 +112,7 @@ Welcome to contribute to the Gluten project! See [CONTRIBUTING.md](CONTRIBUTING.
 
 ## 6. Community
 
-Gluten became an Apache Incubator project in March 2024 and graduated as an Apache Top-Level Project in March 2026. Here are several ways to connect with the community.
+Here are several ways to connect with the community.
 
 ### GitHub
 
@@ -163,7 +163,8 @@ Gluten is licensed under [Apache License Version 2.0](https://www.apache.org/lic
 
 ## 10. Acknowledgements
 
-Gluten was initiated by Intel and Kyligence in 2022. Several other companies are also actively contributing to its development, including BIGO, Meituan, Alibaba Cloud, NetEase, Baidu, Microsoft, IBM, Google, and others.
+Gluten was initiated by Intel and Kyligence in 2022 and became an Apache Top-Level Project in March 2026.
+Several other companies are also actively contributing to its development, including BIGO, Meituan, Alibaba Cloud, NetEase, Baidu, Microsoft, IBM, Google, and others.
 
 <a href="https://github.com/apache/gluten/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=apache/gluten&columns=25" />
