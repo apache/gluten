@@ -120,6 +120,16 @@ ThreadManager* veloxThreadManagerFactory(const std::string& kind, std::unique_pt
 void veloxThreadManagerReleaser(ThreadManager* threadManager) {
   delete threadManager;
 }
+
+bool hasCudaRuntimeAndDevice() {
+#ifdef GLUTEN_ENABLE_GPU
+  int count = 0;
+  cudaError_t err = cudaGetDeviceCount(&count);
+  return err == cudaSuccess && count > 0;
+#else
+  return false;
+#endif
+}
 } // namespace
 
 void VeloxBackend::init(
@@ -194,7 +204,8 @@ void VeloxBackend::init(
 #endif
 
 #ifdef GLUTEN_ENABLE_GPU
-  if (backendConf_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
+  const auto enableCudf = backendConf_->get<bool>(kCudfEnabled, kCudfEnabledDefault) && hasCudaRuntimeAndDevice();
+  if (enableCudf) {
     configureGpuTaskConcurrency(backendConf_->get<uint32_t>(kCudfConcurrentGpuTasks, kCudfConcurrentGpuTasksDefault));
     std::unordered_map<std::string, std::string> options = {
         {velox::cudf_velox::CudfConfig::kCudfEnabled, "true"},
