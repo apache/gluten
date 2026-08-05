@@ -31,7 +31,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * ShuffleQueryStageExec if executionMode is set by the planner.
  *
  * @param delegate
- *   AQEShuffleReadExec or ShuffleQueryStageExec. Or ShuffleExchange during canonicalization.
+ *   AQEShuffleReadExec, ShuffleQueryStageExec, or (during canonicalization) ShuffleExchange.
  * @param executionMode
  *   The execution mode of the current AQE stage.
  */
@@ -78,17 +78,11 @@ case class ColumnarAQEShuffleReadExec(
       case _ =>
         // The child is Exchange during canonicalization.
         throw new IllegalStateException(
-          s"Cannot get aqeReader from delegate class ${delegate.getClass.getSimpleName}.")
+          s"Cannot get aqeReader from delegate node ${delegate.nodeName}.")
     }
   }
 
   @transient override lazy val metrics: Map[String, SQLMetric] = aqeReader.metrics
-
-  private def isCoalescedSpec(spec: ShufflePartitionSpec) = {
-    val method = classOf[AQEShuffleReadExec].getDeclaredMethod("isCoalescedSpec")
-    method.setAccessible(true)
-    method.invoke(aqeReader, spec).asInstanceOf[Boolean]
-  }
 
   private def shuffleStage = {
     val method = classOf[AQEShuffleReadExec].getDeclaredMethod("shuffleStage")

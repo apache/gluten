@@ -94,6 +94,8 @@ object AdjustStageExecutionMode extends Logging {
           .copy(mapperStageMode = Some(stageExecutionMode))
           .withNewChildren(Seq(adjustExecutionMode(shuffle.child, stageExecutionMode)))
       case r: VeloxResizeBatchesExec
+          // TODO: This should be removed after merging resize into native shuffle read.
+          // Only change the execution mode for shuffle reader.
           if r.child.isInstanceOf[ShuffleQueryStageExec] ||
             r.child.isInstanceOf[AQEShuffleReadExec] =>
         VeloxResizeBatchesExec(

@@ -2199,6 +2199,30 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       })
   }
 
+  test("Check VeloxResizeBatches is added in ShuffleRead when cuDF is enabled") {
+    withSQLConf(
+      GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> "true",
+      VeloxConfig.COLUMNAR_VELOX_RESIZE_BATCHES_SHUFFLE_OUTPUT.key -> "false",
+      SQLConf.SHUFFLE_PARTITIONS.key -> "10",
+      SQLConf.COALESCE_PARTITIONS_ENABLED.key -> "false"
+    ) {
+      runQueryAndCompare(
+        "SELECT l_orderkey, count(1) from lineitem group by l_orderkey".stripMargin) {
+        df =>
+          val executedPlan = getExecutedPlan(df)
+          // VeloxResizeBatches(ShuffleQueryStage(ColumnarShuffleExchange))
+          assert(executedPlan.sliding(3).exists {
+            case Seq(
+                  _: ColumnarShuffleExchangeExec,
+                  _: ShuffleQueryStageExec,
+                  _: VeloxResizeBatchesExec) =>
+              true
+            case _ => false
+          })
+      }
+    }
+  }
+
   test("RowToVeloxColumnar preferredBatchBytes") {
     Seq("1", "80", "100000000").foreach(
       preferredBatchBytes => {
