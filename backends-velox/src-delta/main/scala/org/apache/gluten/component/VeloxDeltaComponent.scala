@@ -18,7 +18,7 @@ package org.apache.gluten.component
 
 import org.apache.gluten.backendsapi.velox.VeloxBackend
 import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
-import org.apache.gluten.extension.{DeltaCDFScanStrategy, DeltaPostTransformRules, OffloadDeltaFilter, OffloadDeltaProject, OffloadDeltaScan}
+import org.apache.gluten.extension.{DeltaCDFScanRule, DeltaPostTransformRules, OffloadDeltaFilter, OffloadDeltaProject, OffloadDeltaScan}
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
@@ -35,9 +35,11 @@ class VeloxDeltaComponent extends Component {
   }
 
   override def injectRules(injector: Injector): Unit = {
-    injector.spark.injectPlannerStrategy(
+    // Expands Delta CDF relations while the plan is still logical, so the Delta file scans they
+    // read reach the offload rules below and Spark's optimizer handles their predicate pushdown.
+    injector.spark.injectPostHocResolutionRule(
       spark =>
-        DeltaCDFScanStrategy(
+        DeltaCDFScanRule(
           spark,
           () => new VeloxDeltaConfig(spark.sessionState.conf).enableChangeDataFeedScan))
 

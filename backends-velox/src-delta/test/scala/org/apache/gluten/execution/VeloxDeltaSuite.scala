@@ -21,7 +21,7 @@ import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.spark.sql.Row
 
 class VeloxDeltaSuite extends DeltaSuite {
-  testWithMinSparkVersion("delta: change data feed scan offload can be disabled", "3.2") {
+  test("delta: change data feed scan offload can be disabled") {
     withTable("delta_cdf_disabled") {
       spark.sql("""
                   |create table delta_cdf_disabled (id int, name string) using delta
