@@ -1,6 +1,6 @@
 # Scalar Functions Support Status
 
-**Out of 357 scalar functions in Spark 3.5, Gluten currently fully supports 242 functions and partially supports 25 functions.**
+**Out of 357 scalar functions in Spark 3.5, Gluten currently fully supports 245 functions and partially supports 27 functions.**
 
 ## Array Functions
 
@@ -220,6 +220,7 @@
 
 ## Mathematical Functions
 
+
 | Spark Functions   | Spark Expressions      | Status   | Restrictions   |
 |-------------------|------------------------|----------|----------------|
 | %                 | Remainder              | S        |                |
@@ -281,8 +282,8 @@
 | sin               | Sin                    |          |                |
 | sinh              | Sinh                   | S        |                |
 | sqrt              | Sqrt                   | S        |                |
-| tan               | Tan                    |          |                |
-| tanh              | Tanh                   |          |                |
+| tan               | Tan                    | S        |                |
+| tanh              | Tanh                   | S        |                |
 | try_add           | TryAdd                 | PS       |                |
 | try_divide        | TryDivide              |          |                |
 | try_multiply      | TryMultiply            |          |                |
