@@ -1384,12 +1384,13 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::FetchRel& fetchRel) {
   auto childNode = convertSingleInput<::substrait::FetchRel>(fetchRel);
-  return std::make_shared<core::LimitNode>(
-      nextPlanNodeId(),
-      static_cast<int32_t>(fetchRel.offset()),
-      static_cast<int32_t>(fetchRel.count()),
-      false /*isPartial*/,
-      childNode);
+  int32_t offset = fetchRel.has_offset_expr()
+      ? static_cast<int32_t>(SubstraitParser::getLiteralValue<int64_t>(fetchRel.offset_expr().literal()))
+      : 0;
+  int32_t count = fetchRel.has_count_expr()
+      ? static_cast<int32_t>(SubstraitParser::getLiteralValue<int64_t>(fetchRel.count_expr().literal()))
+      : 0;
+  return std::make_shared<core::LimitNode>(nextPlanNodeId(), offset, count, false /*isPartial*/, childNode);
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::TopNRel& topNRel) {

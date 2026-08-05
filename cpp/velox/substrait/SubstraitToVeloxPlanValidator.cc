@@ -482,7 +482,11 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::FetchRel& fetchR
     }
   }
 
-  if (fetchRel.offset() < 0 || fetchRel.count() < 0) {
+  int64_t offset =
+      fetchRel.has_offset_expr() ? SubstraitParser::getLiteralValue<int64_t>(fetchRel.offset_expr().literal()) : 0;
+  int64_t count =
+      fetchRel.has_count_expr() ? SubstraitParser::getLiteralValue<int64_t>(fetchRel.count_expr().literal()) : 0;
+  if (offset < 0 || count < 0) {
     LOG_VALIDATION_MSG("Offset and count should be valid in FetchRel.");
     return false;
   }

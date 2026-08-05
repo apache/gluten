@@ -319,12 +319,23 @@ message CrossRel {
 
 // The relational operator representing LIMIT/OFFSET or TOP type semantics.
 message FetchRel {
+  reserved 3, 4;
+  reserved "offset", "count";
+
   RelCommon common = 1;
   Rel input = 2;
-  // the offset expressed in number of records
-  int64 offset = 3;
-  // the amount of records to return
-  int64 count = 4;
+  // Expression evaluated into a non-negative integer specifying the number
+  // of records to skip. An expression evaluating to null is treated as 0.
+  // Evaluating to a negative integer should result in an error.
+  // Recommended type for offset is int64. Unset is treated as 0.
+  Expression offset_expr = 5;
+  // Expression evaluated into a non-negative integer specifying the number
+  // of records to return. An expression evaluating to null signals that ALL
+  // records should be returned.
+  // Evaluating to a negative integer should result in an error.
+  // Recommended type for count is int64. Unset signals that ALL records
+  // should be returned.
+  Expression count_expr = 6;
   substrait.extensions.AdvancedExtension advanced_extension = 10;
 }
 
