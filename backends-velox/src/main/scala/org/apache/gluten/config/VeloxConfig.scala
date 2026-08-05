@@ -113,6 +113,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def hashProbeBloomFilterBypassMinPct: Int = getConf(HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_PCT)
 
+  def scanBloomFilterPushdownEnabled: Boolean = getConf(SCAN_BLOOM_FILTER_PUSHDOWN_ENABLED)
+
   def enableTimestampNtzValidation: Boolean = getConf(ENABLE_TIMESTAMP_NTZ_VALIDATION)
 
   def enableDriverSideBroadcastHashTableBuild: Boolean =
@@ -549,6 +551,12 @@ object VeloxConfig extends ConfigRegistry {
       .intConf
       .checkValue(value => value >= 0 && value <= 100, "The percentage must be in [0, 100]")
       .createWithDefault(85)
+
+  val SCAN_BLOOM_FILTER_PUSHDOWN_ENABLED =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.scan.bloomFilterPushdown.enabled")
+      .doc("Whether to push Bloom filters into Velox scans.")
+      .booleanConf
+      .createWithDefault(false)
 
   val COLUMNAR_VELOX_FILE_HANDLE_CACHE_ENABLED =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled")
