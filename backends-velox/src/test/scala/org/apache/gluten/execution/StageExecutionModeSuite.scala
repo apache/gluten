@@ -22,6 +22,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.execution.ColumnarShuffleExchangeExec
 import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.internal.SQLConf
 
 class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
@@ -109,7 +110,8 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
       shuffleReaders.foreach {
         reader =>
           val canonicalized = reader.canonicalized
-          assert(canonicalized.children.forall(_.isInstanceOf[ColumnarShuffleExchangeExec]))
+          // canonicalized plan before applying query stage optimizer rules.
+          assert(canonicalized.children.forall(_.isInstanceOf[ShuffleExchangeExec]))
           assert(
             reader.executionMode == MockGPUStageMode,
             s"Expected GPU AQE shuffle reader, but got ${reader.executionMode}")
