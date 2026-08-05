@@ -382,7 +382,8 @@ object MetricsUtil extends Logging {
         }
         smj.updateJoinMetrics(operatorMetrics, singleMetrics, joinParams)
       case ju: JoinMetricsUpdaterBase =>
-        // JoinRel and CrossRel output two suites of metrics respectively for build and probe.
+        // JoinRel and NestedLoopJoinRel output two suites of metrics respectively for build and
+        // probe.
         // Therefore, fetch one more suite of metrics here.
         operatorMetrics.add(nativeMetrics.get(curMetricsIdx))
         curMetricsIdx -= 1

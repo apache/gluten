@@ -295,11 +295,21 @@ message CrossRel {
   RelCommon common = 1;
   Rel left = 2;
   Rel right = 3;
+
+  substrait.extensions.AdvancedExtension advanced_extension = 10;
+}
+
+// The nested loop join (NLJ) operator will hold the entire right input and iterate over it using the
+// left input, evaluating the join expression on the Cartesian product of all rows.
+message NestedLoopJoinRel {
+  RelCommon common = 1;
+  Rel left = 2;
+  Rel right = 3;
+  // optional, defaults to true (a cartesian join)
   Expression expression = 4;
 
   JoinType type = 5;
 
-  // TODO -- Remove this unnecessary type.
   enum JoinType {
     JOIN_TYPE_UNSPECIFIED = 0;
     JOIN_TYPE_INNER = 1;
@@ -307,11 +317,13 @@ message CrossRel {
     JOIN_TYPE_LEFT = 3;
     JOIN_TYPE_RIGHT = 4;
     JOIN_TYPE_LEFT_SEMI = 5;
-    JOIN_TYPE_LEFT_ANTI = 6;
-    JOIN_TYPE_LEFT_SINGLE = 7;
-    JOIN_TYPE_RIGHT_SEMI = 8;
-    JOIN_TYPE_RIGHT_ANTI = 9;
+    JOIN_TYPE_RIGHT_SEMI = 6;
+    JOIN_TYPE_LEFT_ANTI = 7;
+    JOIN_TYPE_RIGHT_ANTI = 8;
+    JOIN_TYPE_LEFT_SINGLE = 9;
     JOIN_TYPE_RIGHT_SINGLE = 10;
+    JOIN_TYPE_LEFT_MARK = 11;
+    JOIN_TYPE_RIGHT_MARK = 12;
   }
 
   substrait.extensions.AdvancedExtension advanced_extension = 10;
@@ -562,9 +574,10 @@ message Rel {
     ExpandRel expand = 15;
     WindowRel window = 16;
     GenerateRel generate = 17;
-    WriteRel write = 18;
-    TopNRel top_n = 19;
+    WriteRel write = 19;
+    TopNRel top_n = 23;
     WindowGroupLimitRel windowGroupLimit = 20;
+    NestedLoopJoinRel nested_loop_join = 18;
   }
 }
 

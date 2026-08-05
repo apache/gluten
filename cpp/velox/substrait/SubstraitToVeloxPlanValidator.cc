@@ -1097,38 +1097,38 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::JoinRel& joinRel
   return true;
 }
 
-bool SubstraitToVeloxPlanValidator::validate(const ::substrait::CrossRel& crossRel) {
-  if (crossRel.has_left() && !validate(crossRel.left())) {
-    logValidateMsg("Native validation failed due to: validation fails for cross join left input. ");
+bool SubstraitToVeloxPlanValidator::validate(const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel) {
+  if (nestedLoopJoinRel.has_left() && !validate(nestedLoopJoinRel.left())) {
+    logValidateMsg("Native validation failed due to: validation fails for nested loop join left input. ");
     return false;
   }
 
-  if (crossRel.has_right() && !validate(crossRel.right())) {
-    logValidateMsg("Native validation failed due to: validation fails for cross join right input. ");
+  if (nestedLoopJoinRel.has_right() && !validate(nestedLoopJoinRel.right())) {
+    logValidateMsg("Native validation failed due to: validation fails for nested loop join right input. ");
     return false;
   }
 
   // Validate input types.
-  if (!crossRel.has_advanced_extension()) {
-    logValidateMsg("Native validation failed due to: Input types are expected in CrossRel.");
+  if (!nestedLoopJoinRel.has_advanced_extension()) {
+    logValidateMsg("Native validation failed due to: Input types are expected in NestedLoopJoinRel.");
     return false;
   }
 
-  switch (crossRel.type()) {
-    case ::substrait::CrossRel_JoinType_JOIN_TYPE_INNER:
-    case ::substrait::CrossRel_JoinType_JOIN_TYPE_LEFT:
-    case ::substrait::CrossRel_JoinType_JOIN_TYPE_LEFT_SEMI:
+  switch (nestedLoopJoinRel.type()) {
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_INNER:
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT:
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT_SEMI:
       break;
     default:
-      LOG_VALIDATION_MSG("Unsupported Join type in CrossRel");
+      LOG_VALIDATION_MSG("Unsupported Join type in NestedLoopJoinRel");
       return false;
   }
 
-  const auto& extension = crossRel.advanced_extension();
+  const auto& extension = nestedLoopJoinRel.advanced_extension();
   TypePtr inputRowType;
   std::vector<TypePtr> types;
   if (!parseVeloxType(extension, inputRowType) || !flattenSingleLevel(inputRowType, types)) {
-    logValidateMsg("Native validation failed due to: Validation failed for input types in CrossRel");
+    logValidateMsg("Native validation failed due to: Validation failed for input types in NestedLoopJoinRel");
     return false;
   }
 
@@ -1140,11 +1140,11 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::CrossRel& crossR
   }
   auto rowType = std::make_shared<RowType>(std::move(names), std::move(types));
 
-  if (crossRel.has_expression()) {
-    if (!validateExpression(crossRel.expression(), rowType)) {
+  if (nestedLoopJoinRel.has_expression()) {
+    if (!validateExpression(nestedLoopJoinRel.expression(), rowType)) {
       return false;
     }
-    auto expression = exprConverter_->toVeloxExpr(crossRel.expression(), rowType);
+    auto expression = exprConverter_->toVeloxExpr(nestedLoopJoinRel.expression(), rowType);
     exec::ExprSet exprSet({std::move(expression)}, execCtx_.get());
   }
 
@@ -1424,8 +1424,8 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::Rel& rel) {
   if (rel.has_join()) {
     return validate(rel.join());
   }
-  if (rel.has_cross()) {
-    return validate(rel.cross());
+  if (rel.has_nested_loop_join()) {
+    return validate(rel.nested_loop_join());
   }
   if (rel.has_read()) {
     return validate(rel.read());

@@ -515,43 +515,43 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   }
 }
 
-core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::CrossRel& crossRel) {
-  // Support basic cross join without any filters
-  if (!crossRel.has_left()) {
-    VELOX_FAIL("Left Rel is expected in CrossRel.");
+core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel) {
+  // Support basic nested loop join without any filters
+  if (!nestedLoopJoinRel.has_left()) {
+    VELOX_FAIL("Left Rel is expected in NestedLoopJoinRel.");
   }
-  if (!crossRel.has_right()) {
-    VELOX_FAIL("Right Rel is expected in CrossRel.");
+  if (!nestedLoopJoinRel.has_right()) {
+    VELOX_FAIL("Right Rel is expected in NestedLoopJoinRel.");
   }
 
-  auto leftNode = toVeloxPlan(crossRel.left());
-  auto rightNode = toVeloxPlan(crossRel.right());
+  auto leftNode = toVeloxPlan(nestedLoopJoinRel.left());
+  auto rightNode = toVeloxPlan(nestedLoopJoinRel.right());
 
   // Map join type.
   core::JoinType joinType;
-  switch (crossRel.type()) {
-    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_INNER:
+  switch (nestedLoopJoinRel.type()) {
+    case ::substrait::NestedLoopJoinRel_JoinType::NestedLoopJoinRel_JoinType_JOIN_TYPE_INNER:
       joinType = core::JoinType::kInner;
       break;
-    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_LEFT:
+    case ::substrait::NestedLoopJoinRel_JoinType::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT:
       joinType = core::JoinType::kLeft;
       break;
-    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_LEFT_SEMI:
-      if (crossRel.has_advanced_extension() &&
-          SubstraitParser::configSetInOptimization(crossRel.advanced_extension(), "isExistenceJoin=")) {
+    case ::substrait::NestedLoopJoinRel_JoinType::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT_SEMI:
+      if (nestedLoopJoinRel.has_advanced_extension() &&
+          SubstraitParser::configSetInOptimization(nestedLoopJoinRel.advanced_extension(), "isExistenceJoin=")) {
         joinType = core::JoinType::kLeftSemiProject;
       } else {
-        VELOX_NYI("Unsupported Join type: {}", std::to_string(crossRel.type()));
+        VELOX_NYI("Unsupported Join type: {}", std::to_string(nestedLoopJoinRel.type()));
       }
       break;
     default:
-      VELOX_NYI("Unsupported Join type: {}", std::to_string(crossRel.type()));
+      VELOX_NYI("Unsupported Join type: {}", std::to_string(nestedLoopJoinRel.type()));
   }
 
   auto inputRowType = getJoinInputType(leftNode, rightNode);
   core::TypedExprPtr joinConditions;
-  if (crossRel.has_expression()) {
-    joinConditions = exprConverter_->toVeloxExpr(crossRel.expression(), inputRowType);
+  if (nestedLoopJoinRel.has_expression()) {
+    joinConditions = exprConverter_->toVeloxExpr(nestedLoopJoinRel.expression(), inputRowType);
   }
 
   return std::make_shared<core::NestedLoopJoinNode>(
@@ -1691,8 +1691,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     return toVeloxPlan(rel.filter());
   } else if (rel.has_join()) {
     return toVeloxPlan(rel.join());
-  } else if (rel.has_cross()) {
-    return toVeloxPlan(rel.cross());
+  } else if (rel.has_nested_loop_join()) {
+    return toVeloxPlan(rel.nested_loop_join());
   } else if (rel.has_read()) {
     return toVeloxPlan(rel.read());
   } else if (rel.has_sort()) {

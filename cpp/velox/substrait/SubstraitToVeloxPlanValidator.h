@@ -107,8 +107,8 @@ class SubstraitToVeloxPlanValidator {
   /// Used to validate Join.
   bool validate(const ::substrait::JoinRel& joinRel);
 
-  /// Used to validate Cartesian product.
-  bool validate(const ::substrait::CrossRel& crossRel);
+  /// Used to validate nested loop join.
+  bool validate(const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel);
 
   /// Used to validate whether the computing of this Read is supported.
   bool validate(const ::substrait::ReadRel& readRel);
