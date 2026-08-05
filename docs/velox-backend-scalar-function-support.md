@@ -1,6 +1,6 @@
 # Scalar Functions Support Status
 
-**Out of 357 scalar functions in Spark 3.5, Gluten currently fully supports 246 functions and partially supports 27 functions.**
+**Out of 357 scalar functions in Spark 3.5, Gluten currently fully supports 245 functions and partially supports 27 functions.**
 
 ## Array Functions
 
@@ -211,7 +211,7 @@
 | map_concat        | MapConcat           | PS       |                                                                             |
 | map_contains_key  | MapContainsKey      | S        |                                                                             |
 | map_entries       | MapEntries          | S        |                                                                             |
-| map_from_arrays   | MapFromArrays       | S        |                                                                             |
+| map_from_arrays   | MapFromArrays       |          |                                                                             |
 | map_from_entries  | MapFromEntries      | S        |                                                                             |
 | map_keys          | MapKeys             | S        |                                                                             |
 | map_values        | MapValues           | S        |                                                                             |
@@ -219,6 +219,7 @@
 | try_element_at    | TryElementAt        |          |                                                                             |
 
 ## Mathematical Functions
+
 
 | Spark Functions   | Spark Expressions      | Status   | Restrictions   |
 |-------------------|------------------------|----------|----------------|
