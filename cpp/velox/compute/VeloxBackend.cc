@@ -121,7 +121,7 @@ void veloxThreadManagerReleaser(ThreadManager* threadManager) {
   delete threadManager;
 }
 
-bool hasCudaRuntimeAndDevice() {
+bool hasCudaDevice() {
 #ifdef GLUTEN_ENABLE_GPU
   int count = 0;
   cudaError_t err = cudaGetDeviceCount(&count);
@@ -205,7 +205,7 @@ void VeloxBackend::init(
 
 #ifdef GLUTEN_ENABLE_GPU
   if (backendConf_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
-    if (hasCudaRuntimeAndDevice()) {
+    if (hasCudaDevice()) {
       configureGpuTaskConcurrency(backendConf_->get<uint32_t>(kCudfConcurrentGpuTasks, kCudfConcurrentGpuTasksDefault));
       std::unordered_map<std::string, std::string> options = {
           {velox::cudf_velox::CudfConfig::kCudfEnabled, "true"},
@@ -223,7 +223,7 @@ void VeloxBackend::init(
       velox::cudf_velox::registerSparkFunctions("");
       velox::cudf_velox::registerSparkAggregateFunctions("");
     } else {
-      LOG(WARNING) << "No Cuda runtime and device found. Skip Cudf initialization.";
+      LOG(WARNING) << "No Cuda device found. Skip Cudf initialization.";
     }
   }
 #endif
