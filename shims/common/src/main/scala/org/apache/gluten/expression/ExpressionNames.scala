@@ -76,6 +76,7 @@ object ExpressionNames {
   final val REGEXP_REPLACE = "regexp_replace"
   final val REGEXP_EXTRACT = "regexp_extract"
   final val REGEXP_EXTRACT_ALL = "regexp_extract_all"
+  final val REGEXP_INSTR = "regexp_instr"
   final val EQUAL = "equal"
   final val EQUAL_NULL_SAFE = "equal_null_safe"
   final val EQUAL_NULL = "equal_null"

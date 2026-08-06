@@ -73,7 +73,8 @@ class Spark35Shims extends SparkShims {
       Sig[ArrayAppend](ExpressionNames.ARRAY_APPEND),
       Sig[UrlEncode](ExpressionNames.URL_ENCODE),
       Sig[UrlDecode](ExpressionNames.URL_DECODE),
-      Sig[ToPrettyString](ExpressionNames.TO_PRETTY_STRING)
+      Sig[ToPrettyString](ExpressionNames.TO_PRETTY_STRING),
+      Sig[RegExpInStr](ExpressionNames.REGEXP_INSTR)
     )
   }
 

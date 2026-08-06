@@ -212,6 +212,7 @@ object CHExpressionUtil {
     VARCHAR_TYPE_WRITE_SIDE_CHECK -> DefaultValidator(),
     CHAR_TYPE_WRITE_SIDE_CHECK -> DefaultValidator(),
     READ_SIDE_PADDING -> DefaultValidator(),
-    DIV -> DefaultValidator()
+    DIV -> DefaultValidator(),
+    REGEXP_INSTR -> DefaultValidator()
   )
 }

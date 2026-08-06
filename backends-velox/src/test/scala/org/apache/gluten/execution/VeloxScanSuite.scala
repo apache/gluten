@@ -284,9 +284,13 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  test("ORC index based schema evolution") {
+  test("ORC positional schema evolution") {
+    // Vanilla Spark maps ORC columns by position (not by name) only when
+    // `orc.force.positional.evolution=true` or the file's physical names are all Hive placeholders
+    // (see OrcUtils.requestedColumnIds). Here the file has real names (a, b) but the table uses
+    // different names (c, d, e); positional mapping is forced so c<-a, d<-b, e<-missing.
     withSQLConf(
-      VeloxConfig.ORC_USE_COLUMN_NAMES.key -> "false") {
+      GlutenConfig.SPARK_ORC_FORCE_POSITIONAL_EVOLUTION -> "true") {
       withTempDir {
         dir =>
           val path = dir.getCanonicalPath

@@ -18,7 +18,7 @@ Note: Spark 4.0 and 4.1 require JDK 17+ and Scala 2.13 (build with `-Pspark-4.0`
 
 # Prerequisite
 
-Currently, with static build Gluten+Velox backend supports all the Linux OSes, but is only tested on **Ubuntu20.04/Ubuntu22.04/Centos7/Centos8**. With dynamic build, Gluten+Velox backend support **Ubuntu20.04/Ubuntu22.04/Centos7/Centos8** and their variants.
+Currently, the statically built Gluten+Velox backend supports all Linux OSes but is only tested on **Ubuntu 20.04/22.04/CentOS 7/8**. The dynamically built backend supports **Ubuntu 20.04/22.04/CentOS 7/8** and their variants.
 
 Currently, the officially supported Spark versions are 3.3.1, 3.4.4, 3.5.5, 4.0.2 and 4.1.1.
 
@@ -79,8 +79,8 @@ export CPU_TARGET="aarch64"
 
 **Step-by-step build**
 
-Alternative to the above one-step build, you can follow the below guide for step-by-step build.
-Currently, Gluten is using a [IBM Velox](https://github.com/IBM/velox) which is daily updated based on [upstream Velox](https://github.com/facebookincubator/velox).
+As an alternative to the above one-step build, you can follow the step-by-step guide below.
+Currently, Gluten uses an [IBM Velox fork](https://github.com/IBM/velox), which is updated daily based on [upstream Velox](https://github.com/facebookincubator/velox).
 
 ```bash
 
@@ -108,7 +108,7 @@ mvn clean package -Pbackends-velox -Pspark-4.1 -Pjava-17 -Pscala-2.13 -DskipTest
 
 Notes： Building Velox may fail caused by OOM. You can prevent this failure by adjusting `NUM_THREADS` (e.g., `export NUM_THREADS=4`) before building Gluten/Velox. The recommended minimal memory size is 64G.
 
-After the above build process, the Jar file will be generated under `package/target/`.
+After the above build process, the jar file will be generated under `package/target/`.
 
 Alternatively you may refer to [build in docker](../developers/velox-backend-build-in-docker.md) to build the gluten jar in docker.
 
@@ -151,8 +151,9 @@ This enables OpenSSL with FIPS features and requires OpenSSL shared libraries to
 
 ## HDFS support
 
-Gluten supports dynamically loading both libhdfs.so and libhdfs3.so at runtime by using dlopen, allowing the JVM to load the appropriate shared library file as needed. This means you do not need to set the library path during the compilation phase.
-To enable this functionality, you must set the JAVA_HOME and HADOOP_HOME environment variables. Gluten will then locate and load the ${HADOOP_HOME}/lib/native/libhdfs.so file at runtime. If you prefer to use libhdfs3.so instead, simply replace the ${HADOOP_HOME}/lib/native/libhdfs.so file with libhdfs3.so.
+Gluten supports dynamically loading libhdfs.so or libhdfs3.so at runtime via dlopen, so the library path does not need to be set at compile time.
+To enable this, set the JAVA_HOME and HADOOP_HOME environment variables. Gluten will then locate and load `${HADOOP_HOME}/lib/native/libhdfs.so` at runtime.
+To use libhdfs3.so instead, replace that path with libhdfs3.so.
 
 ### Build libhdfs3
 
@@ -382,13 +383,13 @@ Gluten with velox backend supports [Iceberg](https://iceberg.apache.org/) table.
 
 ### How to use
 
-First of all, compile gluten-iceberg module by a `iceberg` profile, as follows:
+First, compile the gluten-iceberg module with the `iceberg` profile, as follows:
 
 ```
 mvn clean package -Pbackends-velox -Pspark-3.3 -Piceberg -DskipTests
 ```
 
-Once built successfully, iceberg features will be included in gluten-velox-bundle-X jar. Then you can query iceberg table by gluten/velox without scan's fallback.
+Once built successfully, iceberg features will be included in the gluten-velox-bundle-X jar. You can then query iceberg tables via Gluten/Velox without falling back on scan.
 
 ## Hudi Support
 
@@ -406,17 +407,17 @@ Compile gluten-paimon module by a `paimon` profile, as follows:
 mvn clean package -Pbackends-velox -Pspark-3.5 -Ppaimon -DskipTests
 ```
 
-Once built successfully, paimon features will be included in gluten-velox-bundle-X jar. Then you can query paimon non-pk table by gluten/velox without scan's fallback.
+Once built successfully, paimon features will be included in the gluten-velox-bundle-X jar. You can then query paimon non-pk tables via Gluten/Velox without falling back on scan.
 
 ### How to use
 
-First of all, compile gluten-hudi module by a `hudi` profile, as follows:
+First, compile the gluten-hudi module with the `hudi` profile, as follows:
 
 ```
 mvn clean package -Pbackends-velox -Pspark-3.3 -Phudi -DskipTests
 ```
 
-Once built successfully, hudi features will be included in gluten-velox-bundle-X jar. Then you can query hudi **COW** table by gluten/velox without scan's fallback.
+Once built successfully, hudi features will be included in the gluten-velox-bundle-X jar. You can then query hudi **COW** tables via Gluten/Velox without falling back on scan.
 
 # Coverage
 
@@ -424,7 +425,7 @@ Spark3.5 has 400+ functions in total. ~240 are commonly used. To get the support
 
 > Velox doesn't support [ANSI mode](https://spark.apache.org/docs/latest/sql-ref-ansi-compliance.html)), so as Gluten. Once ANSI mode is enabled in Spark config, Gluten will fallback to Vanilla Spark.
 
-To identify what can be offloaded in a query and detailed fallback reasons, user can follow below steps to retrieve corresponding logs.
+To identify what can be offloaded in a query and see the detailed fallback reasons, follow the steps below to retrieve the corresponding logs.
 
 ```
 1) Enable Gluten by proper [configuration](https://github.com/apache/gluten/blob/main/docs/Configuration.md).
@@ -455,8 +456,8 @@ With above steps, you will get a physical plan output like:
 native validation failed due to: in ProjectRel, Scalar function name not registered: get_struct_field, called with arguments: (ROW<col_0:INTEGER,col_1:BIGINT,col_2:BIGINT>, INTEGER).
 ```
 
-In the above, the symbol `^` indicates a plan is offloaded to Velox in a stage. In Spark DAG, all such pipelined plans (consecutive plans marked with `^`) are plotted
-inside an umbrella node named `WholeStageCodegenTransformer` (It's not codegen node. The naming is just for making it well plotted like Spark Whole Stage Codegen).
+In the above, the symbol `^` indicates a plan is offloaded to Velox in a stage. In the Spark DAG, all such pipelined plans (consecutive plans marked with `^`) are plotted
+inside an umbrella node named `WholeStageCodegenTransformer`. Despite the name, this is not a codegen node; it's named this way simply to display similarly to Spark's Whole Stage Codegen.
 
 # Spill
 
@@ -535,8 +536,7 @@ Refer to [Gluten configuration](../Configuration.md) for more details.
 
 ## Performance
 
-Below table shows the TPC-H Q1 and Q6 Performance in a multiple-thread test (--num-executors 6 --executor-cores 6) for Velox and vanilla Spark.
-Both Parquet and ORC datasets are sf1024.
+The table below shows TPC-H Q1 and Q6 performance for Velox and vanilla Spark in a multi-thread test (`--num-executors 6 --executor-cores 6`), using scale factor 1024 datasets in both Parquet and ORC formats.
 
 | Query Performance (s) | Velox (ORC) | Vanilla Spark (Parquet) | Vanilla Spark (ORC) |
 |---------------- | ----------- | ------------- | ------------- |
@@ -564,8 +564,8 @@ cause the inconsistent results with a materialized query. However, we have no ch
 
 ## Native Plan in Spark's Explain Output
 
-Gluten supports inject native plan string into Spark explain with formatted mode by setting `--conf spark.gluten.sql.injectNativePlanStringToExplain=true`.
-Here is an example, how Gluten shows the native plan string.
+Gluten supports injecting the native plan string into Spark's explain output in formatted mode by setting `--conf spark.gluten.sql.injectNativePlanStringToExplain=true`.
+Here is an example of how Gluten shows the native plan string.
 
 ```
 (9) WholeStageCodegenTransformer (2)
@@ -612,7 +612,7 @@ To enable this feature, you can set the following Spark configuration:
 
 | Property                                                    | Default | Description                                                       |
 |-------------------------------------------------------------|---------|-------------------------------------------------------------------|
-| `spark.gluten.velox.offHeapBroadcastBuildRelation.enabled`  | `false` | Enable/disable off-heap storage for broadcast build relations.    |
+| `spark.gluten.velox.offHeapBroadcastBuildRelation.enabled`  | `false` | Whether to store broadcast build relations off-heap.              |
 
 This feature has been tested through a series of tests, and we are collecting more feedback from users. If you have memory problem on broadcast build relations, please try this feature and give more feedbacks.
 

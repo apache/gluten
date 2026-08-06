@@ -54,9 +54,14 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       localFilesNode: LocalFilesNode,
       fileSchema: StructType,
       fileFormat: ReadFileFormat): LocalFilesNode = {
+    // For ORC/DWRF, always attach the table schema so the native reader has a target to remap file
+    // columns to. It is needed both when the whole scan is mapped by position
+    // (orc.force.positional.evolution) and for the per-file fallback where a file whose physical
+    // schema is all Hive placeholder names (_col0, ...) is mapped by position even though ORC is
+    // read by name by default, matching vanilla Spark's OrcUtils.requestedColumnIds.
+    // For Parquet, keep the previous behavior (only attach when mapping by position).
     if (
-      ((fileFormat == ReadFileFormat.OrcReadFormat || fileFormat == ReadFileFormat.DwrfReadFormat)
-        && !VeloxConfig.get.orcUseColumnNames)
+      (fileFormat == ReadFileFormat.OrcReadFormat || fileFormat == ReadFileFormat.DwrfReadFormat)
       || (fileFormat == ReadFileFormat.ParquetReadFormat && !VeloxConfig.get.parquetUseColumnNames)
     ) {
       localFilesNode.setFileSchema(fileSchema)

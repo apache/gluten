@@ -45,4 +45,27 @@ package object component extends Logging {
     )
     logInfo(s"Components registered within order: ${components.map(_.name()).mkString(", ")}")
   }
+
+  /**
+   * Empties the component graph and re-arms the discovery latch, so the next call to
+   * [[Component.sorted]] runs classpath discovery again.
+   *
+   * Only the graph and the latch are reset. Values derived from an earlier [[Component.sorted]] are
+   * not: `BackendsApiManager.backend`, `GlutenCostModel.costModelRegistry` and the `graphCache`
+   * inside `Transition.factory` keep what they computed from the pre-clear component set. Neither
+   * are the per-vertex `TransitionGraph.Vertex.initialized` flags, so a re-registered component
+   * does not add its transition edges a second time. Rediscovery also constructs fresh component
+   * instances, so such a value can end up holding an instance that is no longer the one in the
+   * graph.
+   *
+   * Visible for testing. The graph and the latch are both JVM-global, so a suite that registers
+   * components of its own leaks them into every later suite in the same JVM. Such a suite must call
+   * this when it finishes.
+   */
+  private[gluten] def clearAllForTesting(): Unit = {
+    Component.clearForTesting()
+    // Re-arms discovery. Unobservable in gluten-core, whose test classpath carries no
+    // 'META-INF/gluten-components' file; the backend modules are the ones that need it.
+    allComponentsLoaded.set(false)
+  }
 }

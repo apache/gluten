@@ -19,6 +19,24 @@
 
 namespace gluten {
 
+namespace {
+
+using SubstraitDeleteBoundsMap = ::substrait::ReadRel_LocalFiles_FileOrFiles::IcebergReadOptions::DeleteFile::Map;
+
+std::unordered_map<int32_t, std::string> parseBounds(const SubstraitDeleteBoundsMap& bounds) {
+  std::unordered_map<int32_t, std::string> parsed;
+  parsed.reserve(bounds.key_values_size());
+
+  for (int i = 0; i < bounds.key_values_size(); ++i) {
+    const auto& kv = bounds.key_values(i);
+    parsed.emplace(kv.key(), kv.value());
+  }
+
+  return parsed;
+}
+
+} // namespace
+
 std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
     substrait::ReadRel_LocalFiles_FileOrFiles file,
     std::shared_ptr<SplitInfo> splitInfo) {
@@ -70,7 +88,14 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
           break;
       }
       deletes.emplace_back(IcebergDeleteFile(
-          fileContent, deleteFile.filepath(), format, deleteFile.recordcount(), deleteFile.filesize()));
+          fileContent,
+          deleteFile.filepath(),
+          format,
+          deleteFile.recordcount(),
+          deleteFile.filesize(),
+          {},
+          parseBounds(deleteFile.lowerbounds()),
+          parseBounds(deleteFile.upperbounds())));
     }
     icebergSplitInfo->deleteFilesVec.emplace_back(deletes);
   } else {
