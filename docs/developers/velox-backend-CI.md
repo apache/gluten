@@ -6,36 +6,36 @@ parent: Developer Overview
 ---
 # Velox Backend CI
 
-GHA workflows are defined under `.github/workflows/`.
+GitHub Actions (GHA) workflows are defined under `.github/workflows/`.
 
 ## Docker Build
-We have a weekly job defined in `docker_image.yml` to build docker images for CI verification. The docker files and images are listed below:
+A weekly job defined in `docker_image.yml` builds the Docker images used for CI verification. The Dockerfiles (under `dev/docker/`) and their corresponding images are listed below:
 
 file | images | comments
 -- | -- | --
-dev/docker/Dockerfile.centos7-static-build | apache/gluten:vcpkg-centos-7 | centos 7, static link, jdk8
-dev/docker/Dockerfile.centos8-static-build | apache/gluten:vcpkg-centos-8 | centos 8, static link, jdk8
-dev/docker/Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk8 | centos 8, dynamic link, jdk8
-dev/docker/Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk11 | centos 8, dynamic link, jdk11
-dev/docker/Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk17 | centos 8, dynamic link, jdk17
-dev/docker/cudf/Dockerfile | apache/gluten:centos-9-jdk8-cudf | centos 9, dynamic link, jdk8
+Dockerfile.centos7-gcc13-static-build | apache/gluten:vcpkg-centos-7-gcc13 | centos 7, static link, jdk8
+Dockerfile.centos8-gcc13-static-build | apache/gluten:vcpkg-centos-8-gcc13 | centos 8, static link, jdk8
+Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk8 | centos 8, dynamic link, jdk8
+Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk11 | centos 8, dynamic link, jdk11
+Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk17 | centos 8, dynamic link, jdk17
+cudf/Dockerfile | apache/gluten:centos-9-jdk8-cudf | centos 9, dynamic link, jdk8
 
-Docker images can be found from https://hub.docker.com/r/apache/gluten/tags
+The Docker images can be found at [https://hub.docker.com/r/apache/gluten/tags](https://hub.docker.com/r/apache/gluten/tags).
 
 ## Vcpkg Caching
-Gluten main branch is pulled down during static build in docker. And vcpkg will cache binary data of all dependencies defined under dev/vcpkg.
-These binary data is cached into `/var/cache/vcpkg` and CI job can re-use them in new build. By setting `VCPKG_BINARY_SOURCES=clear` in env.,
-reusing vcpkg cache can be disabled.
+The Gluten main branch is pulled during the static build in Docker, and vcpkg caches binary data for all dependencies defined under `dev/vcpkg`.
+This binary data is cached into `/var/cache/vcpkg`, and CI jobs can reuse it in later builds. Setting `VCPKG_BINARY_SOURCES=clear` in the
+environment disables reuse of the vcpkg cache.
 
 ## Arrow Libs Pre-installation
-Arrow libs are pre-installed in docker, assuming they are not actively changed, then not necessarily to be re-built every time.
+Arrow libs are pre-installed in the Docker image, since they don't change often and don't need to be rebuilt on every run.
 
-## .M2 cache
-The dependency libraries are pre installed in to /root/.m2 by `mvn dependency:go-offline` Spark is set to 3.5 by default.
+## .M2 Cache
+Dependency libraries are pre-installed into `/root/.m2` via `mvn dependency:go-offline`. Spark is set to 3.5 by default.
 
 ## Ccache
-Since the docker image is rebuilt weekly, the ccache mostly are outdated. So the cache is removed from the image.
+Since the Docker image is rebuilt weekly, the ccache is mostly outdated, so it is removed from the image.
 
-## Updating Docker Image
-Two GitHub secrets `DOCKERHUB_USER` & `DOCKERHUB_TOKEN` can be used to push docker image to docker hub: https://hub.docker.com/r/apache/gluten/tags.
-Note GitHub secrets are not retrievable in PR from forked repo.
+## Updating the Docker Image
+The GitHub secrets `DOCKERHUB_USER` and `DOCKERHUB_TOKEN` are used to push Docker images to [Docker Hub](https://hub.docker.com/r/apache/gluten/tags).
+Note that GitHub secrets are not accessible in PRs from forked repos.
