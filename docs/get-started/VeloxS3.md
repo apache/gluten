@@ -45,6 +45,8 @@ Note that `spark.hadoop.fs.s3a.iam.role.session.name` is optional.
 
 - [AWS temporary credential](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_request.html)
 
+## Known limitation
+
 ## Log granularity of AWS C++ SDK in velox
 
 You can change log granularity of AWS C++ SDK by setting the `spark.gluten.velox.awsSdkLogLevel` configuration. The Allowed values are:
@@ -70,6 +72,23 @@ and `spark.gluten.velox.s3UploadThreads` to control the shared upload thread poo
 These settings apply to all buckets by default. To override a single bucket, use Velox's bucket-specific S3 keys through
 Gluten's static backend pass-through prefix, for example
 `spark.gluten.velox.hive.s3.bucket.my-bucket.part-upload-async`.
+
+# Known Limitation: Cross-Region S3 Access
+
+If your S3 data and your configured endpoint are in different AWS regions — for example, your bucket is in `us-west-2` but you have set the endpoint to `us-east-1` (or left it unconfigured, causing requests to default to `us-east-1`) — you will encounter a runtime error.
+
+Unlike the Java S3 SDK used by `s3a://` (which often handles 301 cross-region redirects automatically), the AWS C++ SDK (`aws-sdk-cpp`) does **not** automatically follow 301 `PermanentRedirect` responses for S3 payload requests. It treats the redirect as a non-retriable error:
+
+```
+Error Type: SDK Error (100)
+Error: PermanentRedirect — The bucket you are attempting to access must be addressed using the specified endpoint.
+```
+
+**Resolution:** Set the endpoint explicitly to the region where your bucket resides, for example:
+
+```properties
+spark.hadoop.fs.s3a.endpoint=s3.us-west-2.amazonaws.com
+```
 
 # Local Caching support
 
