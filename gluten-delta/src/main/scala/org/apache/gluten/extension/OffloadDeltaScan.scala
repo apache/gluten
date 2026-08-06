@@ -47,15 +47,11 @@ case class OffloadDeltaScan(
         if shouldFallbackDeletionVectorScanWithoutMetadataRowIndex(scan) =>
       FallbackTags.add(scan, "fallback Delta DV scan without metadata row index")
       scan
-    case scan: FileSourceScanExec if isDeltaScan(scan) =>
+    case scan: FileSourceScanExec if DeltaScanUtils.isDeltaScan(scan) =>
       val transformer = DeltaScanTransformer(scan)
       DeltaDeletionVectorDmlUtils.copyDmlRowIndexScanTag(scan, transformer)
       transformer
     case other => other
-  }
-
-  private def isDeltaScan(scan: FileSourceScanExec): Boolean = {
-    DeltaDeletionVectorDmlUtils.isDeltaScan(scan)
   }
 
   private def shouldFallbackDeletionVectorDmlScan(scan: FileSourceScanExec): Boolean = {

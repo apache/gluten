@@ -21,8 +21,6 @@ import org.apache.spark.sql.catalyst.expressions.aggregation.BitmapAggregator
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.delta.DeltaParquetFileFormat
-import org.apache.spark.sql.delta.files.TahoeFileIndex
-import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.types.{DataType, StructType}
 
@@ -88,21 +86,6 @@ object DeltaDeletionVectorDmlUtils {
     }
   }
 
-  def isDeltaScan(scan: FileSourceScanExec): Boolean = {
-    isDeltaFileIndex(scan) || isDeltaParquetScan(scan)
-  }
-
-  def isDeltaParquetScan(scan: FileSourceScanExec): Boolean = {
-    val fileFormatClass = scan.relation.fileFormat.getClass
-    fileFormatClass == classOf[DeltaParquetFileFormat] ||
-    fileFormatClass.getSimpleName == "GlutenDeltaParquetFileFormat"
-  }
-
-  def isDeltaFileIndex(scan: FileSourceScanExec): Boolean = {
-    scan.relation.location.isInstanceOf[TahoeFileIndex] ||
-    scan.relation.location.isInstanceOf[PreparedDeltaFileIndex]
-  }
-
   def isDeletionVectorDmlRowIndexScan(scan: FileSourceScanExec): Boolean = {
     scan.getTagValue(DmlRowIndexScanTag).contains(true) &&
     hasDeletionVectorDmlRowIndexScanShape(scan)
@@ -118,7 +101,7 @@ object DeltaDeletionVectorDmlUtils {
    * executed-plan inspection must use the structured shape rather than the tag.
    */
   def hasDeletionVectorDmlRowIndexScanShape(scan: FileSourceScanExec): Boolean = {
-    if (!isDeltaScan(scan)) {
+    if (!DeltaScanUtils.isDeltaScan(scan)) {
       return false
     }
 
