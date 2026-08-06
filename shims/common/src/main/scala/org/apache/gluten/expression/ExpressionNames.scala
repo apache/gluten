@@ -228,6 +228,8 @@ object ExpressionNames {
   final val TIMESTAMP_DIFF = "timestampdiff"
   final val NEXT_DAY = "next_day"
   final val LAST_DAY = "last_day"
+  final val DAY_NAME = "dayname"
+  final val MONTH_NAME = "monthname"
   final val MONTHS_BETWEEN = "months_between"
   final val DATE_FROM_UNIX_DATE = "date_from_unix_date"
   final val UNIX_DATE = "unix_date"

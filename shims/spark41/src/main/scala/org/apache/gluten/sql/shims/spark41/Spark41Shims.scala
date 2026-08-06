@@ -78,7 +78,9 @@ class Spark41Shims extends SparkShims {
       Sig[UrlDecode](ExpressionNames.URL_DECODE),
       Sig[ToPrettyString](ExpressionNames.TO_PRETTY_STRING),
       Sig[RandStr](ExpressionNames.RANDSTR),
-      Sig[RegExpInStr](ExpressionNames.REGEXP_INSTR)
+      Sig[RegExpInStr](ExpressionNames.REGEXP_INSTR),
+      Sig[DayName](ExpressionNames.DAY_NAME),
+      Sig[MonthName](ExpressionNames.MONTH_NAME)
     )
   }
 

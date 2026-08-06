@@ -737,6 +737,18 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  testWithMinSparkVersion("dayname", "4.0") {
+    runQueryAndCompare("SELECT dayname(l_shipdate) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  testWithMinSparkVersion("monthname", "4.0") {
+    runQueryAndCompare("SELECT monthname(l_shipdate) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
   testWithMinSparkVersion("mask", "3.4") {
     runQueryAndCompare("SELECT mask(c_comment) FROM customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]

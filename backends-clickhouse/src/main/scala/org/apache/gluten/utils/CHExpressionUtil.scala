@@ -213,6 +213,8 @@ object CHExpressionUtil {
     CHAR_TYPE_WRITE_SIDE_CHECK -> DefaultValidator(),
     READ_SIDE_PADDING -> DefaultValidator(),
     DIV -> DefaultValidator(),
-    REGEXP_INSTR -> DefaultValidator()
+    REGEXP_INSTR -> DefaultValidator(),
+    DAY_NAME -> DefaultValidator(),
+    MONTH_NAME -> DefaultValidator()
   )
 }

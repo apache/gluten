@@ -646,7 +646,8 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           replaceWithExpressionTransformer0(expr.children.head, attributeSeq, expressionsMap),
           expr
         )
-      case _: GetDateField | _: GetTimeField =>
+      case e @ (_: GetDateField | _: GetTimeField)
+          if DateTimeExpressionsTransformer.EXTRACT_DATE_FIELD_MAPPING.contains(e.getClass) =>
         ExtractDateTransformer(
           substraitExprName,
           replaceWithExpressionTransformer0(expr.children.head, attributeSeq, expressionsMap),
