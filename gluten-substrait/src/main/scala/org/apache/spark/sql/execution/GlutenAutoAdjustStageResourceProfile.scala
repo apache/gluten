@@ -145,8 +145,9 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
 
     // case 2: check whether fallback exists and decide whether increase heap memory
     // and decrease offheap memory.
-    val fallenNodeCnt = planNodes.count(GlutenExplainUtils.isFallbackNode(_))
-    val totalCount = fallenNodeCnt + planNodes.count(_.isInstanceOf[GlutenPlan])
+    val countedPlanNodes = planNodes.filterNot(GlutenExplainUtils.isFallbackInsensitivePlan)
+    val fallenNodeCnt = countedPlanNodes.count(!_.isInstanceOf[GlutenPlan])
+    val totalCount = countedPlanNodes.size
 
     if (1.0 * fallenNodeCnt / totalCount >= glutenConf.autoAdjustStageFallenNodeThreshold) {
       val newMemoryAmount = memoryRequest.get.amount * glutenConf.autoAdjustStageRPHeapRatio

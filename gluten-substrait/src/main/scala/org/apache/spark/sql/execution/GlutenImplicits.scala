@@ -105,7 +105,7 @@ object GlutenImplicits {
       tmp.foreachUp {
         case cmd: CommandResultExec => collect(cmd.commandPhysicalPlan)
         case p: V2CommandExec
-            if GlutenExplainUtils.isFallbackNode(p) =>
+            if !GlutenExplainUtils.isFallbackInsensitivePlan(p) =>
           GlutenExplainUtils.handleVanillaSparkPlan(p, fallbackNodeToReason)
         case p: AdaptiveSparkPlanExec if isFinalAdaptivePlan(p) =>
           collect(p.executedPlan)
@@ -130,9 +130,6 @@ object GlutenImplicits {
           numGlutenNodes += innerNumGlutenNodes
           fallbackNodeToReason.++=(innerFallbackNodeToReason)
         case p: QueryStageExec => collect(p.plan)
-        case p: GlutenPlan =>
-          numGlutenNodes += 1
-          p.innerChildren.foreach(collect)
         case i: InMemoryTableScanExec =>
           if (PlanUtil.isGlutenTableCache(i)) {
             numGlutenNodes += 1
@@ -143,7 +140,10 @@ object GlutenImplicits {
               fallbackNodeToReason)
           }
           collect(i.relation.cachedPlan)
-        case p: SparkPlan if !GlutenExplainUtils.isFallbackNode(p) => // Ignore
+        case p: SparkPlan if GlutenExplainUtils.isFallbackInsensitivePlan(p) => // Ignore
+        case p: GlutenPlan =>
+          numGlutenNodes += 1
+          p.innerChildren.foreach(collect)
         case p: SparkPlan =>
           GlutenExplainUtils.handleVanillaSparkPlan(p, fallbackNodeToReason)
           p.innerChildren.foreach(collect)

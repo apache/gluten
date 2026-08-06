@@ -16,7 +16,7 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.gluten.execution.GlutenPlan
+import org.apache.gluten.execution.{GlutenPlan, WholeStageTransformer}
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.PlanUtil
@@ -46,32 +46,33 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
   type FallbackInfo = (Int, Map[String, String])
 
   /**
-   * Returns whether a plan is an actual Spark fallback operator.
+   * Returns whether a plan should be ignored when collecting fallback statistics.
    *
-   * Gluten operators, their implementation wrappers, and Spark execution-framework wrappers do not
-   * represent fallback work and return false.
+   * Such plans are structural wrappers rather than execution operators: they are neither fallback
+   * Spark operators nor native Gluten operators.
    */
-  def isFallbackNode(plan: SparkPlan): Boolean = plan match {
-    case _: GlutenPlan => false
-    case _: ExecutedCommandExec => false
-    case _: CommandResultExec => false
+  def isFallbackInsensitivePlan(plan: SparkPlan): Boolean = plan match {
+    case _: ExecutedCommandExec => true
+    case _: CommandResultExec => true
     case p: V2CommandExec =>
-      FallbackTags.nonEmpty(p) || p.logicalLink.exists(FallbackTags.getOption(_).nonEmpty)
-    case _: DataWritingCommandExec => false
-    case _: WholeStageCodegenExec => false
-    case _: InputAdapter => false
-    case _: ColumnarInputAdapter => false
-    case _: ColumnarToRowTransition => false
-    case _: RowToColumnarTransition => false
-    case _: ReusedExchangeExec => false
-    case _: NoopLeaf => false
-    case w: WriteFilesExec => !w.child.isInstanceOf[NoopLeaf]
-    case _: AdaptiveSparkPlanExec => false
-    case _: QueryStageExec => false
-    case _: AQEShuffleReadExec => false
-    case _: ColumnarAQEShuffleReadExec => false
-    case i: InMemoryTableScanExec => !PlanUtil.isGlutenTableCache(i)
-    case _ => true
+      !FallbackTags.nonEmpty(p) && p.logicalLink.forall(FallbackTags.getOption(_).isEmpty)
+    case _: DataWritingCommandExec => true
+    case _: WholeStageCodegenExec => true
+    case _: WholeStageTransformer => true
+    case _: InputAdapter => true
+    case _: ColumnarInputAdapter => true
+    case _: InputIteratorTransformer => true
+    case _: ColumnarToRowTransition => true
+    case _: RowToColumnarTransition => true
+    case _: ReusedExchangeExec => true
+    case _: NoopLeaf => true
+    case w: WriteFilesExec => w.child.isInstanceOf[NoopLeaf]
+    case _: AdaptiveSparkPlanExec => true
+    case _: QueryStageExec => true
+    case _: AQEShuffleReadExec => true
+    case _: ColumnarAQEShuffleReadExec => true
+    case i: InMemoryTableScanExec => PlanUtil.isGlutenTableCache(i)
+    case _ => false
   }
 
   def addFallbackNodeWithReason(
@@ -118,8 +119,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
    *   - native Gluten operator: invokes `onGluten`
    *   - vanilla Spark operator considered a fallback: invokes `onFallback` with the reason resolved
    *     from physical or logical [[FallbackTags]], or a synthetic default when no tag is present
-   *   - structural / non-operator nodes (commands, transitions, codegen wrappers, query stages, AQE
-   *     shuffle reads, reused exchanges, etc.): no callback
+   *   - [[isFallbackInsensitivePlan]] structural nodes: no callback
    *
    * Recurses into AQE subqueries and query stages, and into each visited operator's
    * `innerChildren`. Subqueries reached purely via expressions on a vanilla Spark plan are not
@@ -142,20 +142,20 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
       tmp.foreachUp {
         case cmd: CommandResultExec => visit(cmd.commandPhysicalPlan)
         case p: V2CommandExec
-            if isFallbackNode(p) =>
+            if !isFallbackInsensitivePlan(p) =>
           onFallback(p, fallbackReason(p))
         case sub: AdaptiveSparkPlanExec if sub.isSubquery => visit(sub.executedPlan)
         case p: QueryStageExec => visit(p.plan)
-        case p: GlutenPlan =>
-          onGluten(p)
-          p.innerChildren.foreach(visit)
         case i: InMemoryTableScanExec =>
           if (PlanUtil.isGlutenTableCache(i)) {
             onGluten(i)
           } else {
             onFallback(i, "Columnar table cache is disabled")
           }
-        case p: SparkPlan if !isFallbackNode(p) => // Ignore
+        case p: SparkPlan if isFallbackInsensitivePlan(p) => // Ignore
+        case p: GlutenPlan =>
+          onGluten(p)
+          p.innerChildren.foreach(visit)
         case p: SparkPlan =>
           onFallback(p, fallbackReason(p))
           p.innerChildren.foreach(visit)
