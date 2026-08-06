@@ -45,8 +45,6 @@ Note that `spark.hadoop.fs.s3a.iam.role.session.name` is optional.
 
 - [AWS temporary credential](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_request.html)
 
-## Known limitation
-
 ## Log granularity of AWS C++ SDK in velox
 
 You can change log granularity of AWS C++ SDK by setting the `spark.gluten.velox.awsSdkLogLevel` configuration. The Allowed values are:
