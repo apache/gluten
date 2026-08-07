@@ -16,9 +16,20 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.execution.GenerateExecTransformerBase
+
 import org.apache.spark.sql.internal.SQLConf
 
 class GlutenGeneratorFunctionSuite extends GeneratorFunctionSuite with GlutenSQLTestsTrait {
+  testGluten("stack is offloaded") {
+    val df = spark.range(2).selectExpr("stack(2, id, id + 1, id + 2)")
+    checkAnswer(df, Seq(Row(0L, 1L), Row(2L, null), Row(1L, 2L), Row(3L, null)))
+    assert(
+      df.queryExecution.executedPlan
+        .find(_.isInstanceOf[GenerateExecTransformerBase])
+        .isDefined)
+  }
+
   testGluten("SPARK-45171: Handle evaluated nondeterministic expression") {
     withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
       val df = sql("select explode(array(rand(0)))")

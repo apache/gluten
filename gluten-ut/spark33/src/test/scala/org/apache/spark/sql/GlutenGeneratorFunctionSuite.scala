@@ -16,4 +16,15 @@
  */
 package org.apache.spark.sql
 
-class GlutenGeneratorFunctionSuite extends GeneratorFunctionSuite with GlutenSQLTestsTrait {}
+import org.apache.gluten.execution.GenerateExecTransformerBase
+
+class GlutenGeneratorFunctionSuite extends GeneratorFunctionSuite with GlutenSQLTestsTrait {
+  testGluten("stack is offloaded") {
+    val df = spark.range(2).selectExpr("stack(2, id, id + 1, id + 2)")
+    checkAnswer(df, Seq(Row(0L, 1L), Row(2L, null), Row(1L, 2L), Row(3L, null)))
+    assert(
+      df.queryExecution.executedPlan
+        .find(_.isInstanceOf[GenerateExecTransformerBase])
+        .isDefined)
+  }
+}
