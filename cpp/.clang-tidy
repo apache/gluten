@@ -1,5 +1,18 @@
+# Single source of truth for the check list: a CLI `--checks` would override this key,
+# so `dev/run-clang-tidy.py` does not pass one.
+#
+# Allow-list rather than `*` minus exclusions, so a clang upgrade cannot silently add
+# checks and fail unrelated PRs.
 Checks: >
   -*,
+  bugprone-*,
+  -bugprone-branch-clone,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-narrowing-conversions,
+  clang-analyzer-core.*,
+  performance-*,
+  -performance-avoid-endl,
   readability-identifier-naming,
 
 CheckOptions:

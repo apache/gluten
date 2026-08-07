@@ -30,44 +30,6 @@ class string(str):
         return json.loads(self, object_hook=attrdict)
 
 
-CODE_CHECKS = """*
-    -abseil-*
-    -android-*
-    -cert-err58-cpp
-    -clang-analyzer-osx-*
-    -cppcoreguidelines-avoid-c-arrays
-    -cppcoreguidelines-avoid-magic-numbers
-    -cppcoreguidelines-pro-bounds-array-to-pointer-decay
-    -cppcoreguidelines-pro-bounds-pointer-arithmetic
-    -cppcoreguidelines-pro-type-reinterpret-cast
-    -cppcoreguidelines-pro-type-vararg
-    -fuchsia-*
-    -google-*
-    -hicpp-avoid-c-arrays
-    -hicpp-deprecated-headers
-    -hicpp-no-array-decay
-    -hicpp-use-equals-default
-    -hicpp-vararg
-    -llvmlibc-*
-    -llvm-header-guard
-    -llvm-include-order
-    -mpi-*
-    -misc-non-private-member-variables-in-classes
-    -misc-no-recursion
-    -misc-unused-parameters
-    -modernize-avoid-c-arrays
-    -modernize-deprecated-headers
-    -modernize-use-nodiscard
-    -modernize-use-trailing-return-type
-    -objc-*
-    -openmp-*
-    -readability-avoid-const-params-in-decls
-    -readability-convert-member-functions-to-static
-    -readability-magic-numbers
-    -zircon-*
-"""
-
-
 def run(command, compressed=False, **kwargs):
     if "input" in kwargs:
         input = kwargs["input"]
@@ -100,13 +62,6 @@ def run(command, compressed=False, **kwargs):
     return reply.returncode, stdout, stderr
 
 
-def check_list(check_string):
-    return ",".join([c.strip() for c in check_string.strip().splitlines() if c.strip()])
-
-
-CODE_CHECKS = check_list(CODE_CHECKS)
-
-
 def check_output_has_warnings(output):
     if not output:
         return False
@@ -128,12 +83,15 @@ def tidy(args):
     fix = "--fix" if args.fix == "fix" else ""
     files = args.files
 
+    # Checks come from 'cpp/.clang-tidy'; passing '--checks' here would override it.
+    # CLANG_TIDY_EXTRA_ARGS forwards toolchain details the compilation database omits.
+    extra_args = os.environ.get("CLANG_TIDY_EXTRA_ARGS", "").strip()
+
     cmd = (
-        "xargs clang-tidy -p={build} --format-style=file "
-        "--checks='{checks}' {fix} --quiet".format(
+        "xargs clang-tidy -p={build} --format-style=file {fix} {extra} --quiet".format(
             build=build_dir,
-            checks=CODE_CHECKS,
             fix=fix,
+            extra=extra_args,
         )
     )
 
