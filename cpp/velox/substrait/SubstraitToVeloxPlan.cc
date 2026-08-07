@@ -1393,10 +1393,21 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::TopNRel& topNRel) {
+  // validate(TopNRel) rejects everything checked below, but native validation can be turned off
+  // (spark.gluten.sql.enable.native.validation), and this converter is also reachable from the
+  // JSON-plan test and benchmark paths. Fail loudly rather than executing a plan whose OFFSET or
+  // WITH TIES semantics Velox's TopN cannot express and would silently drop.
+  VELOX_USER_CHECK(topNRel.mode() == ::substrait::FETCH_MODE_ROWS_ONLY, "TopNRel only supports FETCH_MODE_ROWS_ONLY.");
+  VELOX_USER_CHECK(!topNRel.has_offset(), "TopNRel does not support an offset.");
+  // TopNRel models the row limit as an `Expression count`; Gluten's producer always emits a
+  // positive i64 literal.
+  const auto count = SubstraitParser::getRowCount(topNRel.count());
+  VELOX_USER_CHECK(count.has_value(), "TopNRel count must be an i64 literal in the range [1, INT32_MAX].");
+
   auto childNode = convertSingleInput<::substrait::TopNRel>(topNRel);
   auto [sortingKeys, sortingOrders] = processSortField(topNRel.sorts(), childNode->outputType());
   return std::make_shared<core::TopNNode>(
-      nextPlanNodeId(), sortingKeys, sortingOrders, static_cast<int32_t>(topNRel.n()), false /*isPartial*/, childNode);
+      nextPlanNodeId(), sortingKeys, sortingOrders, count.value(), false /*isPartial*/, childNode);
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(

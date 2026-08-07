@@ -328,13 +328,37 @@ message FetchRel {
   substrait.extensions.AdvancedExtension advanced_extension = 10;
 }
 
-// The relational operator representing TOP N calculation
+// The top-N relational operator. A combination of a sort and fetch that only
+// maintains the number of records required to ensure a limited output.
 message TopNRel {
   RelCommon common = 1;
   Rel input = 2;
-  int64 n = 3;
-  repeated SortField sorts = 4;
-  substrait.extensions.AdvancedExtension advanced_extension = 10;
+
+  // List of one or more fields to sort by. At least one is required.
+  repeated SortField sorts = 3;
+
+  // Expression evaluating to a non-negative integer specifying the number of
+  // records to skip. Null is treated as 0. Recommended type is int64.
+  Expression offset = 4;
+
+  // Expression evaluating to a non-negative integer specifying the number of
+  // records to return. Null signals ALL. Recommended type is int64.
+  Expression count = 5;
+
+  // Determines how to handle rows tied with the last returned row.
+  FetchMode mode = 6;
+
+  substrait.extensions.AdvancedExtension advanced_extension = 7;
+}
+
+// Determines how a fetch operation handles rows tied with the last returned row.
+enum FetchMode {
+  // Unspecified. Producers must set one of the defined modes.
+  FETCH_MODE_UNSPECIFIED = 0;
+  // Only return the requested number of rows.
+  FETCH_MODE_ROWS_ONLY = 1;
+  // Include additional rows tied with the last row (per the sort fields).
+  FETCH_MODE_WITH_TIES = 2;
 }
 
 // The relational operator representing a GROUP BY Aggregate

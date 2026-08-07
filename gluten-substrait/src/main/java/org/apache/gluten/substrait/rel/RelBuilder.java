@@ -285,20 +285,20 @@ public class RelBuilder {
   }
 
   public static RelNode makeTopNRel(
-      RelNode input, Long n, List<SortField> sorts, SubstraitContext context, Long operatorId) {
+      RelNode input, Long count, List<SortField> sorts, SubstraitContext context, Long operatorId) {
     context.registerRelToOperator(operatorId);
-    return new TopNNode(input, n, sorts);
+    return new TopNNode(input, count, sorts);
   }
 
   public static RelNode makeTopNRel(
       RelNode input,
-      Long n,
+      Long count,
       List<SortField> sorts,
       AdvancedExtensionNode extensionNode,
       SubstraitContext context,
       Long operatorId) {
     context.registerRelToOperator(operatorId);
-    return new TopNNode(input, n, sorts, extensionNode);
+    return new TopNNode(input, count, sorts, extensionNode);
   }
 
   public static RelNode makeWindowRel(

@@ -511,8 +511,27 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::TopNRel& topNRel
     rowType = std::make_shared<RowType>(std::move(names), std::move(types));
   }
 
-  if (topNRel.n() < 0) {
-    LOG_VALIDATION_MSG("N should be valid in TopNRel.");
+  // Velox's TopN supports neither an OFFSET nor WITH TIES, and its row count is a positive int32.
+  // Reject anything else here so the query falls back instead of throwing during plan conversion.
+  // The mode is checked against an allow list: FETCH_MODE_UNSPECIFIED is the proto3 default and is
+  // not a valid producer choice, and a future mode must not be silently treated as ROWS_ONLY.
+  if (topNRel.mode() != ::substrait::FETCH_MODE_ROWS_ONLY) {
+    LOG_VALIDATION_MSG("Only FETCH_MODE_ROWS_ONLY is supported in TopNRel.");
+    return false;
+  }
+  if (topNRel.has_offset()) {
+    LOG_VALIDATION_MSG("Offset is not supported in TopNRel.");
+    return false;
+  }
+  if (!SubstraitParser::getRowCount(topNRel.count()).has_value()) {
+    LOG_VALIDATION_MSG("Count should be an i64 literal in the range [1, INT32_MAX] in TopNRel.");
+    return false;
+  }
+  // Substrait requires at least one sort field, and core::TopNNode asserts on an empty key list.
+  // The duplicate-key loop below is a no-op for an empty list, so reject here to fall back instead
+  // of throwing during plan conversion.
+  if (topNRel.sorts_size() == 0) {
+    LOG_VALIDATION_MSG("At least one sort field is required in TopNRel.");
     return false;
   }
 
