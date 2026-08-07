@@ -392,7 +392,7 @@
 | regexp_count       | RegExpCount                 |          |                                                         |
 | regexp_extract     | RegExpExtract               | PS       | Lookaround unsupported                                  |
 | regexp_extract_all | RegExpExtractAll            | PS       | Lookaround unsupported                                  |
-| regexp_instr       | RegExpInStr                 |          |                                                         |
+| regexp_instr       | RegExpInStr                 | PS       | Lookaround unsupported, group index ignored             |
 | regexp_replace     | RegExpReplace               | PS       | Lookaround unsupported                                  |
 | regexp_substr      | RegExpSubStr                |          |                                                         |
 | repeat             | StringRepeat                | S        |                                                         |

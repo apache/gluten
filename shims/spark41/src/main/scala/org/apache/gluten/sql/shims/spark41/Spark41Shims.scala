@@ -77,7 +77,8 @@ class Spark41Shims extends SparkShims {
       Sig[KnownNotContainsNull](ExpressionNames.KNOWN_NOT_CONTAINS_NULL),
       Sig[UrlDecode](ExpressionNames.URL_DECODE),
       Sig[ToPrettyString](ExpressionNames.TO_PRETTY_STRING),
-      Sig[RandStr](ExpressionNames.RANDSTR)
+      Sig[RandStr](ExpressionNames.RANDSTR),
+      Sig[RegExpInStr](ExpressionNames.REGEXP_INSTR)
     )
   }
 

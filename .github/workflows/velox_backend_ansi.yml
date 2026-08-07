@@ -160,10 +160,6 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Prepare Spark Resources
-        run: |
-          rm -rf /opt/shims/spark41
-          bash .github/workflows/util/install-spark-resources.sh 4.1
       - name: "Spark 4.1 backends-velox Tests (ANSI ON)"
         run: |
           set -o pipefail
@@ -232,10 +228,6 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Prepare Spark Resources
-        run: |
-          rm -rf /opt/shims/spark41
-          bash .github/workflows/util/install-spark-resources.sh 4.1
       - name: "Spark 4.1 spark-ut Tests (ANSI ON)"
         run: |
           set -o pipefail
@@ -314,10 +306,6 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Prepare Spark Resources
-        run: |
-          rm -rf /opt/shims/spark40
-          bash .github/workflows/util/install-spark-resources.sh 4.0
       - name: "Spark 4.0 backends-velox Tests (ANSI ON)"
         run: |
           set -o pipefail
@@ -386,10 +374,6 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Prepare Spark Resources
-        run: |
-          rm -rf /opt/shims/spark40
-          bash .github/workflows/util/install-spark-resources.sh 4.0
       - name: "Spark 4.0 spark-ut Tests (ANSI ON)"
         run: |
           set -o pipefail
