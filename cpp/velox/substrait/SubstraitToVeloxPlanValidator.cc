@@ -1252,10 +1252,11 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::AggregateRel& ag
     }
   }
 
-  // Validate groupings.
+  // Validate groupings. Grouping expressions live in the rel-level pool; each
+  // grouping references them by index.
   for (const auto& grouping : aggRel.groupings()) {
-    for (const auto& groupingExpr : grouping.grouping_expressions()) {
-      const auto& typeCase = groupingExpr.rex_type_case();
+    for (const auto& ref : grouping.expression_references()) {
+      const auto& typeCase = aggRel.grouping_expressions(ref).rex_type_case();
       switch (typeCase) {
         case ::substrait::Expression::RexTypeCase::kSelection:
           break;
@@ -1365,7 +1366,7 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::AggregateRel& ag
   if (aggRel.measures_size() == 0) {
     bool hasExpr = false;
     for (const auto& grouping : aggRel.groupings()) {
-      if (grouping.grouping_expressions().size() > 0) {
+      if (grouping.expression_references_size() > 0) {
         hasExpr = true;
         break;
       }

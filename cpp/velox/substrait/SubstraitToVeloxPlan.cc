@@ -573,7 +573,10 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   VELOX_CHECK(
       aggRel.groupings().size() <= 1, "At most one grouping is supported, but got {}.", aggRel.groupings().size());
   if (aggRel.groupings().size() == 1) {
-    for (const auto& groupingExpr : aggRel.groupings()[0].grouping_expressions()) {
+    // Grouping expressions live in the rel-level pool; each grouping references
+    // them by index.
+    for (const auto& ref : aggRel.groupings()[0].expression_references()) {
+      const auto& groupingExpr = aggRel.grouping_expressions(ref);
       // Velox's groupings are limited to be Field.
       veloxGroupingExprs.emplace_back(exprConverter_->toVeloxExpr(groupingExpr.selection(), inputType));
     }

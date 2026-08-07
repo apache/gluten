@@ -247,9 +247,12 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
   int64_t groupingKeySize = groupingKeys.size();
   ::substrait::AggregateRel_Grouping* aggGroupings = aggregateRel->add_groupings();
 
+  // Populate the rel-level grouping expression pool in declaration order and
+  // have the single grouping reference every entry by index.
   for (int64_t i = 0; i < groupingKeySize; i++) {
-    aggGroupings->add_grouping_expressions()->mutable_selection()->MergeFrom(
+    aggregateRel->add_grouping_expressions()->mutable_selection()->MergeFrom(
         exprConvertor_->toSubstraitExpr(arena, groupingKeys.at(i), inputType));
+    aggGroupings->add_expression_references(i);
   }
 
   // AggregatesSize should be equal to or greater than the aggregateMasks Size.

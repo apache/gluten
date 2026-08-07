@@ -344,16 +344,29 @@ message AggregateRel {
   // Input of the aggregation
   Rel input = 2;
 
-  // A list of expression grouping that the aggregation measured should be calculated for.
+  // A list of zero or more grouping sets that the aggregation measures should
+  // be calculated for. There must be at least one grouping set if there are no
+  // measures (but it can be the empty grouping set).
   repeated Grouping groupings = 3;
 
   // A list of one or more aggregate expressions along with an optional filter.
+  // Required if there are no groupings.
   repeated Measure measures = 4;
+
+  // A list of zero or more grouping expressions that grouping sets (i.e.,
+  // `Grouping` messages in the `groupings` field) can reference. Each
+  // expression in this list must be referred to by at least one
+  // `Grouping.expression_references`.
+  repeated Expression grouping_expressions = 5;
 
   substrait.extensions.AdvancedExtension advanced_extension = 10;
 
   message Grouping {
-    repeated Expression grouping_expressions = 1;
+    reserved 1;
+
+    // A list of zero or more references to grouping expressions, i.e., indices
+    // into the `grouping_expression` list.
+    repeated uint32 expression_references = 2;
   }
 
   message Measure {

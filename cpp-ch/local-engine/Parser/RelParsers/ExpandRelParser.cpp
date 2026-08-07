@@ -168,7 +168,7 @@ DB::QueryPlanPtr ExpandRelParser::lazyAggregateExpandParse(
     auto aggregate_rel = rel.expand().input().aggregate();
     auto aggregate_descriptions = buildAggregations(*input_header, expand_field, aggregate_rel);
 
-    size_t grouping_keys = aggregate_rel.groupings(0).grouping_expressions_size();
+    size_t grouping_keys = aggregate_rel.groupings(0).expression_references_size();
 
     auto expand_step
         = std::make_unique<AdvancedExpandStep>(getContext(), input_header, grouping_keys, aggregate_descriptions, expand_field);
