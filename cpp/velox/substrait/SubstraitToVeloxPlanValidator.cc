@@ -633,8 +633,7 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::ExpandRel& expan
 
 bool validateBoundType(::substrait::Expression_WindowFunction_Bound boundType) {
   switch (boundType.kind_case()) {
-    case ::substrait::Expression_WindowFunction_Bound::kUnboundedFollowing:
-    case ::substrait::Expression_WindowFunction_Bound::kUnboundedPreceding:
+    case ::substrait::Expression_WindowFunction_Bound::kUnbounded:
     case ::substrait::Expression_WindowFunction_Bound::kCurrentRow:
     case ::substrait::Expression_WindowFunction_Bound::kFollowing:
     case ::substrait::Expression_WindowFunction_Bound::kPreceding:
@@ -645,28 +644,28 @@ bool validateBoundType(::substrait::Expression_WindowFunction_Bound boundType) {
   return true;
 }
 
-bool SubstraitToVeloxPlanValidator::validate(const ::substrait::WindowRel& windowRel) {
+bool SubstraitToVeloxPlanValidator::validate(const ::substrait::ConsistentPartitionWindowRel& windowRel) {
   if (windowRel.has_input() && !validate(windowRel.input())) {
-    LOG_VALIDATION_MSG("WindowRel input fails to validate.");
+    LOG_VALIDATION_MSG("ConsistentPartitionWindowRel input fails to validate.");
     return false;
   }
 
   // Get and validate the input types from extension.
   if (!windowRel.has_advanced_extension()) {
-    LOG_VALIDATION_MSG("Input types are expected in WindowRel.");
+    LOG_VALIDATION_MSG("Input types are expected in ConsistentPartitionWindowRel.");
     return false;
   }
   const auto& extension = windowRel.advanced_extension();
   TypePtr inputRowType;
   std::vector<TypePtr> types;
   if (!parseVeloxType(extension, inputRowType) || !flattenSingleLevel(inputRowType, types)) {
-    LOG_VALIDATION_MSG("Validation failed for input types in WindowRel.");
+    LOG_VALIDATION_MSG("Validation failed for input types in ConsistentPartitionWindowRel.");
     return false;
   }
 
   if (types.empty()) {
     // See: https://github.com/apache/gluten/issues/7600.
-    LOG_VALIDATION_MSG("Validation failed for empty input schema in WindowRel.");
+    LOG_VALIDATION_MSG("Validation failed for empty input schema in ConsistentPartitionWindowRel.");
     return false;
   }
 
@@ -680,9 +679,8 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::WindowRel& windo
 
   // Validate WindowFunction
   std::vector<std::string> funcSpecs;
-  funcSpecs.reserve(windowRel.measures().size());
-  for (const auto& smea : windowRel.measures()) {
-    const auto& windowFunction = smea.measure();
+  funcSpecs.reserve(windowRel.window_functions().size());
+  for (const auto& windowFunction : windowRel.window_functions()) {
     funcSpecs.emplace_back(planConverter_->findFuncSpec(windowFunction.function_reference()));
     SubstraitParser::parseType(windowFunction.output_type());
     for (const auto& arg : windowFunction.arguments()) {
@@ -697,14 +695,14 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::WindowRel& windo
       }
     }
     // Validate BoundType and Frame Type
-    switch (windowFunction.window_type()) {
-      case ::substrait::WindowType::ROWS:
-      case ::substrait::WindowType::RANGE:
+    switch (windowFunction.bounds_type()) {
+      case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_ROWS:
+      case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_RANGE:
         break;
       default:
         LOG_VALIDATION_MSG(
-            "the window type only support ROWS and RANGE, and the input type is " +
-            std::to_string(windowFunction.window_type()));
+            "the bounds type only support ROWS and RANGE, and the input type is " +
+            std::to_string(windowFunction.bounds_type()));
         return false;
     }
 

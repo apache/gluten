@@ -87,7 +87,7 @@ class SubstraitToVeloxPlanValidator {
   bool validate(const ::substrait::SortRel& sortRel);
 
   /// Used to validate whether the computing of this Window is supported.
-  bool validate(const ::substrait::WindowRel& windowRel);
+  bool validate(const ::substrait::ConsistentPartitionWindowRel& windowRel);
 
   /// Used to validate whether the computing of this WindowGroupLimit is supported.
   bool validate(const ::substrait::WindowGroupLimitRel& windowGroupLimitRel);

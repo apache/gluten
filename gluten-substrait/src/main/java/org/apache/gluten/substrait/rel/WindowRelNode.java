@@ -20,10 +20,10 @@ import org.apache.gluten.substrait.expression.ExpressionNode;
 import org.apache.gluten.substrait.expression.WindowFunctionNode;
 import org.apache.gluten.substrait.extensions.AdvancedExtensionNode;
 
+import io.substrait.proto.ConsistentPartitionWindowRel;
 import io.substrait.proto.Rel;
 import io.substrait.proto.RelCommon;
 import io.substrait.proto.SortField;
-import io.substrait.proto.WindowRel;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -67,16 +67,14 @@ public class WindowRelNode implements RelNode, Serializable {
     RelCommon.Builder relCommonBuilder = RelCommon.newBuilder();
     relCommonBuilder.setDirect(RelCommon.Direct.newBuilder());
 
-    WindowRel.Builder windowBuilder = WindowRel.newBuilder();
+    ConsistentPartitionWindowRel.Builder windowBuilder = ConsistentPartitionWindowRel.newBuilder();
     windowBuilder.setCommon(relCommonBuilder.build());
     if (input != null) {
       windowBuilder.setInput(input.toProtobuf());
     }
 
     for (WindowFunctionNode windowFunctionNode : windowFunctionNodes) {
-      WindowRel.Measure.Builder measureBuilder = WindowRel.Measure.newBuilder();
-      measureBuilder.setMeasure(windowFunctionNode.toProtobuf());
-      windowBuilder.addMeasures(measureBuilder.build());
+      windowBuilder.addWindowFunctions(windowFunctionNode.toProtobuf());
     }
 
     for (int i = 0; i < partitionExpressions.size(); i++) {

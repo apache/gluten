@@ -1093,14 +1093,14 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 const core::WindowNode::Frame SubstraitToVeloxPlanConverter::createWindowFrame(
     const ::substrait::Expression_WindowFunction_Bound& lower_bound,
     const ::substrait::Expression_WindowFunction_Bound& upper_bound,
-    const ::substrait::WindowType& type,
+    const ::substrait::Expression_WindowFunction_BoundsType& type,
     const RowTypePtr& inputType) {
   core::WindowNode::Frame frame;
   switch (type) {
-    case ::substrait::WindowType::ROWS:
+    case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_ROWS:
       frame.type = core::WindowNode::WindowType::kRows;
       break;
-    case ::substrait::WindowType::RANGE:
+    case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_RANGE:
       frame.type = core::WindowNode::WindowType::kRange;
       break;
     default:
@@ -1121,14 +1121,17 @@ const core::WindowNode::Frame SubstraitToVeloxPlanConverter::createWindowFrame(
     }
   };
 
-  auto boundTypeConversion = [&](::substrait::Expression_WindowFunction_Bound boundType)
-      -> std::tuple<core::WindowNode::BoundType, core::TypedExprPtr> {
+  auto boundTypeConversion = [&](::substrait::Expression_WindowFunction_Bound boundType,
+                                 bool isLowerBound) -> std::tuple<core::WindowNode::BoundType, core::TypedExprPtr> {
     if (boundType.has_current_row()) {
       return std::make_tuple(core::WindowNode::BoundType::kCurrentRow, nullptr);
-    } else if (boundType.has_unbounded_following()) {
-      return std::make_tuple(core::WindowNode::BoundType::kUnboundedFollowing, nullptr);
-    } else if (boundType.has_unbounded_preceding()) {
-      return std::make_tuple(core::WindowNode::BoundType::kUnboundedPreceding, nullptr);
+    } else if (boundType.has_unbounded()) {
+      // Substrait 0.98 uses a single `unbounded` bound; the direction is inferred from position:
+      // an unbounded lower bound is the start of the partition, an unbounded upper bound is the end.
+      return std::make_tuple(
+          isLowerBound ? core::WindowNode::BoundType::kUnboundedPreceding
+                       : core::WindowNode::BoundType::kUnboundedFollowing,
+          nullptr);
     } else if (boundType.has_following()) {
       auto following = boundType.following();
       return std::make_tuple(
@@ -1143,29 +1146,29 @@ const core::WindowNode::Frame SubstraitToVeloxPlanConverter::createWindowFrame(
       VELOX_FAIL("The BoundType is not supported.");
     }
   };
-  std::tie(frame.startType, frame.startValue) = boundTypeConversion(lower_bound);
-  std::tie(frame.endType, frame.endValue) = boundTypeConversion(upper_bound);
+  std::tie(frame.startType, frame.startValue) = boundTypeConversion(lower_bound, /*isLowerBound=*/true);
+  std::tie(frame.endType, frame.endValue) = boundTypeConversion(upper_bound, /*isLowerBound=*/false);
   return frame;
 }
 
-core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::WindowRel& windowRel) {
+core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
+    const ::substrait::ConsistentPartitionWindowRel& windowRel) {
   core::PlanNodePtr childNode;
   if (windowRel.has_input()) {
     childNode = toVeloxPlan(windowRel.input());
   } else {
-    VELOX_FAIL("Child Rel is expected in WindowRel.");
+    VELOX_FAIL("Child Rel is expected in ConsistentPartitionWindowRel.");
   }
 
   const auto& inputType = childNode->outputType();
 
-  // Parse measures and get the window expressions.
-  // Each measure represents one window expression.
+  // Parse window functions and get the window expressions.
+  // Each window function represents one window expression.
   std::vector<core::WindowNode::Function> windowNodeFunctions;
   std::vector<std::string> windowColumnNames;
 
-  windowNodeFunctions.reserve(windowRel.measures().size());
-  for (const auto& smea : windowRel.measures()) {
-    const auto& windowFunction = smea.measure();
+  windowNodeFunctions.reserve(windowRel.window_functions().size());
+  for (const auto& windowFunction : windowRel.window_functions()) {
     std::string funcName = SubstraitParser::findVeloxFunction(functionMap_, windowFunction.function_reference());
     std::vector<core::TypedExprPtr> windowParams;
     auto& argumentList = windowFunction.arguments();
@@ -1185,7 +1188,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         windowVeloxType, std::move(windowParams), exec::sanitizeName(funcName));
     auto upperBound = windowFunction.upper_bound();
     auto lowerBound = windowFunction.lower_bound();
-    auto type = windowFunction.window_type();
+    auto type = windowFunction.bounds_type();
 
     windowColumnNames.push_back(windowFunction.column_name());
 
