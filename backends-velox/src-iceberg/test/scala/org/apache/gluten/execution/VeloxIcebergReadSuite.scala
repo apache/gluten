@@ -16,4 +16,4 @@
  */
 package org.apache.gluten.execution
 
-class VeloxIcebergSuite extends IcebergSuite
+class VeloxIcebergReadSuite extends IcebergSuite
