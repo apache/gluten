@@ -453,7 +453,7 @@ void WholeStageResultIterator::collectMetrics() {
       veloxCfg_->get<bool>(kShowTaskMetricsWhenFinished, kShowTaskMetricsWhenFinishedDefault)) {
     auto planWithStats = velox::exec::printPlanWithStats(*veloxPlan_.get(), taskStats, true);
     std::ostringstream oss;
-    oss << "Native Plan with stats for:  " << taskInfo_ << "\n";
+    oss << "Native Plan with stats for: " << taskInfo_ << "\n";
     oss << "TaskStats: totalTime: " << taskStats.executionEndTimeMs - taskStats.executionStartTimeMs
         << "; startTime: " << taskStats.executionStartTimeMs << "; endTime: " << taskStats.executionEndTimeMs;
     oss << "\n" << planWithStats << std::endl;
