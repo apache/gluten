@@ -1092,6 +1092,47 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("LATERAL VIEW OUTER stack followed by hash shuffle") {
+    // With OUTER, Velox's Unnest appends a trailing BOOLEAN marker column. The Stack path has
+    // no pullOutPostProject branch to consume that marker (unlike explode/posexplode/inline),
+    // so the native output is one column wider than the declared schema and every upstream
+    // column shifts by one. When the exploded key drives a hash-partition shuffle, the int32
+    // hash_partition_key that must sit at field 0 is displaced by the boolean marker and the
+    // columnar shuffle writer aborts.
+    //
+    // The shuffle must be a *hash-partition* exchange feeding a SortMergeJoin (not a partial
+    // aggregate, not a broadcast join) to reproduce the field-0 crash exactly as production
+    // does: broadcasting the dim table hits a different serializer error, and inserting a
+    // partial HashAggregate crashes earlier in the native input stream. Disable broadcast to
+    // force the SortMergeJoin.
+    withTempView("t1_stack", "t2_dim") {
+      sql("""SELECT * from values
+            |  (1, "james", 10, "lucy"),
+            |  (2, "bond", 20, "lily")
+            |as tbl(id, name, id1, name1)
+         """.stripMargin).createOrReplaceTempView("t1_stack")
+      sql("""SELECT * from values
+            |  (1, "a"), (2, "b"), (10, "c"), (20, "d")
+            |as tbl(k, tag)
+         """.stripMargin).createOrReplaceTempView("t2_dim")
+
+      withSQLConf("spark.sql.autoBroadcastJoinThreshold" -> "-1") {
+        runQueryAndCompare(s"""
+                              |SELECT j.eq_pos, t2.tag
+                              |FROM (
+                              |  SELECT eq_pos, val
+                              |  FROM t1_stack
+                              |  LATERAL VIEW OUTER stack(2, id, name, id1, name1) v AS eq_pos, val
+                              |) j
+                              |JOIN t2_dim t2 ON j.eq_pos = t2.k
+                              |ORDER BY j.eq_pos, t2.tag
+                              |""".stripMargin) {
+          checkGlutenPlan[GenerateExecTransformer]
+        }
+      }
+    }
+  }
+
   test("test inline function") {
     Seq(true, false).foreach {
       isOuter =>
