@@ -98,8 +98,8 @@ export FLINK_HOME=
 cd $FLINK_HOME
 mkdir -p gluten_lib
 ln -s $VELOX4J_HOME/target/velox4j-0.1.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar
-ln -s $GLUTEN_FLINK_HOME/runtime/target/gluten-flink-runtime-1.7.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/gluten-flink-runtime-1.6.0.jar
-ln -s $GLUTEN_FLINK_HOME/loader/target/gluten-flink-loader-1.7.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/gluten-flink-loader-1.6.0.jar
+ln -s $GLUTEN_FLINK_HOME/runtime/target/gluten-flink-runtime-1.7.0.jar $FLINK_HOME/gluten_lib/gluten-flink-runtime-1.7.0.jar
+ln -s $GLUTEN_FLINK_HOME/loader/target/gluten-flink-loader-1.7.0.jar $FLINK_HOME/gluten_lib/gluten-flink-loader-1.7.0.jar
 ```
 
 And make them loaded before flink libraries.
