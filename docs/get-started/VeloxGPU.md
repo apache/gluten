@@ -70,20 +70,134 @@ If building in the docker image, no need to set up script and build arrow.
 
 ---
 
-## **7. Dynamic Execution
+## **7. Dynamic Execution**
 
-The first stage contains TableScan operator which is IO bound stage, schedule to CPU node.
-The second stage that contains join which is computation intensive, schedule to GPU node.
+Gluten uses Spark's Adaptive Query Execution (AQE) framework to evaluate each stage
+independently at runtime and select the appropriate execution mode (CPU or GPU).
+
+### **How It Works**
+
+1. Gluten's `AdjustStageExecutionMode` optimizer rule runs for every AQE stage.
+2. For each stage it checks whether the `WholeStageTransformer` is fully CUDF-tagged
+   (i.e. all operators in the pipeline can run on GPU).
+3. If yes, the stage's `ColumnarAQEShuffleReadExec` is switched to `GPUStageMode` and
+   downstream `ColumnarShuffleExchangeExec` nodes are marked accordingly.
+
+### **Only offload join stage**
+
+By default, any fully CUDF-offloaded stage is routed to GPU. Setting
+`spark.gluten.sql.columnar.gpu.onlyOffloadJoinStage = true` restricts GPU offload to
+stages that contain a join operator. All other stages stay on CPU regardless of whether their operators support CUDF.
 
 ---
 
-## **8. Performance Validation**
+## **8. CPU/GPU Hybrid Execution**
+
+With hybrid execution enabled, GPU stages identified in §7 are assigned a dedicated GPU
+resource profile via `GlutenAutoAdjustStageResourceProfile`. Spark then schedules those
+tasks only on executors that advertise a GPU resource. Scan stages and other non-GPU stages
+continue to run on regular CPU executors.
+
+### **Configuration**
+
+Enable GPU acceleration and the hybrid scheduler together:
+
+```properties
+# Step 1 – enable CUDF operator replacement
+spark.gluten.sql.columnar.cudf = true
+
+# Step 2 – enable hybrid CPU/GPU execution
+spark.gluten.auto.adjustStageResource.enabled = true
+spark.gluten.sql.columnar.hybridExecution.enabled = true
+
+# Step 3 – tell Spark about the GPU resource on each executor
+spark.gluten.sql.columnar.hybridExecution.gpuResource.amountPerTask = 0.1 # fractional: 10 concurrent GPU tasks/executor
+```
+
+The full set of hybrid-execution knobs:
+
+| Configuration Key | Recommended Value | Description |
+|---|---|---|
+| `spark.gluten.sql.columnar.cudf` | `true` | Enable CUDF GPU operator replacement. Must be `true` for any GPU execution. |
+| `spark.gluten.auto.adjustStageResource.enabled` | `true` | Enable dynamic per-stage resource-profile adjustment. Required for hybrid execution to insert `ApplyResourceProfileExec` nodes. Must be combined with `spark.sql.adaptive.enabled=true`. |
+| `spark.gluten.sql.columnar.hybridExecution.enabled` | `true` | Enable CPU/GPU hybrid execution. Stages are scheduled to CPU or GPU nodes based on their execution mode. Requires AQE (`spark.sql.adaptive.enabled=true`). |
+| `spark.gluten.sql.columnar.hybridExecution.gpuResource.name` | `gpu` | The Spark custom-resource name for GPU. Must match `spark.executor.resource.<name>.*` and `spark.task.resource.<name>.*`. |
+| `spark.gluten.sql.columnar.hybridExecution.cpuResource.name` | `cpu` | The Spark custom-resource name for CPU. Must match `spark.executor.resource.<name>.*` and `spark.task.resource.<name>.*` for CPU-stage scheduling to take effect. |
+| `spark.gluten.sql.columnar.hybridExecution.gpuResource.amountPerTask` | `0.1` | Fractional GPU resource amount per task. Controls how many GPU tasks can run concurrently on a single executor (e.g. `0.1` → 10 tasks share 1 GPU). |
+| `spark.gluten.sql.columnar.gpu.onlyOffloadJoinStage` | `true` | When `true`, only stages that contain a join operator are offloaded to GPU. All other stages execute on CPU. Useful for workloads where only join-heavy stages benefit from GPU acceleration. |
+
+---
+
+## **9. Performance Tuning**
+
+### **9.1 Concurrent GPU Tasks**
+
+The `spark.gluten.sql.columnar.backend.velox.cudf.concurrentGpuTasks` setting controls how
+many Velox GPU pipelines are allowed to execute simultaneously on a single executor.
+
+```properties
+spark.gluten.sql.columnar.backend.velox.cudf.concurrentGpuTasks = 2
+```
+
+**Guidance**: Two settings jointly determine GPU utilisation on a single executor:
+
+- **Tasks per executor** (Spark level):
+  `spark.gluten.sql.columnar.hybridExecution.gpuResource.amountPerTask` is used for setting the resource profile for GPU stages. It controls how
+  many tasks Spark schedules on one executor:
+
+  `A = min(spark.executor.cores / spark.task.cpus, floor(1 / amountPerTask))`
+
+  It is a scheduling hint, not a hard GPU limit. Set it to a small value (e.g. `0.1`)
+  so that CPU work within a GPU stage(such as shuffle read) is not throttled by the task slot limit.
+
+- **GPU concurrency per executor** (Velox level):
+  `spark.gluten.sql.columnar.backend.velox.cudf.concurrentGpuTasks` is the maximum
+  number of cuDF operator pipelines that may run simultaneously on the device across all
+  tasks on that executor:
+
+  `total_gpu_concurrency = min(A, concurrentGpuTasks)`
+
+  Because GPU capacity is primarily bounded by device memory, start with
+  `concurrentGpuTasks = 2` and increase
+  gradually while monitoring GPU memory usage. Setting it too high can trigger
+  out-of-memory errors on the device.
+
+---
+
+### **9.2 Async Shuffle Read**
+
+In a CPU/GPU hybrid workload the shuffle read phase is typically the bottleneck:
+GPU tasks must wait for CPU-side decompression and deserialization of shuffle data
+before they can start executing on device. The **GPU async shuffle reader** overlaps
+CPU-side I/O with GPU execution, keeping the GPU busy while blocks are being fetched
+and decoded in a background thread pool.
+
+```properties
+# Enable the async reader
+spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.enabled = true
+
+# Size of the CPU-side thread pool used for decompression / deserialization (static)
+spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.threadPoolSize = 2
+
+# Maximum bytes buffered in CPU memory while the GPU task is running
+spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.maxPrefetchBytes = 2GB
+```
+
+Async shuffle read is recommended for all GPU execution. GPU operators are generally fast
+enough that the shuffle read and decompression on the CPU side becomes the bottleneck
+without it, leaving the GPU idle between batches.
+
+**Reference:** GPU async shuffle read design and PR [PR#12370](https://github.com/apache/gluten/pull/12370)
+
+---
+
+## **10. Performance Validation**
 
 GPU performs better on operator HashJoin and HashAggregation.
 Single Operator like Hash Agg shows 5x speedup.
 
 ---
 
-## **9. Relevant Resources**
+## **11. Relevant Resources**
 1. [CUDF Docs](https://docs.rapids.ai/api/cudf/stable/libcudf_docs/) - GPU operator APIs.
 2. [Gluten GPU Issue #9098](https://github.com/apache/gluten/issues/8851) - Development tracker.
