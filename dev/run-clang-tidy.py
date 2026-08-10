@@ -18,6 +18,7 @@ from __future__ import print_function
 import argparse
 import os
 import regex
+import shlex
 import subprocess
 import sys
 
@@ -85,7 +86,11 @@ def tidy(args):
 
     # Checks come from 'cpp/.clang-tidy'; passing '--checks' here would override it.
     # CLANG_TIDY_EXTRA_ARGS forwards toolchain details the compilation database omits.
-    extra_args = os.environ.get("CLANG_TIDY_EXTRA_ARGS", "").strip()
+    # The command below runs through a shell, so split and re-quote the value instead of
+    # interpolating it raw.
+    extra_args = " ".join(
+        shlex.quote(arg) for arg in shlex.split(os.environ.get("CLANG_TIDY_EXTRA_ARGS", ""))
+    )
 
     cmd = (
         "xargs clang-tidy -p={build} --format-style=file {fix} {extra} --quiet".format(
