@@ -41,7 +41,7 @@ The GitHub secrets `DOCKERHUB_USER` and `DOCKERHUB_TOKEN` are used to push Docke
 Note that GitHub secrets are not accessible in PRs from forked repos.
 
 ## Delta Spark UT
-`delta_spark_ut.yml` runs delta-io/delta's own `spark` test suite against a Gluten Velox bundle, so Gluten is validated against a real Delta release. Many of those tests are expected to fail today (Gluten does not offload every Delta code path), so the job does not gate on "any failure": it compares each run against a committed baseline of known failures in `.github/workflows/util/delta-spark-ut/known-failures.txt` and fails only on a **new** failure, or on a baseline test that starts **passing** (which means the baseline needs updating).
+`delta_spark_ut.yml` runs delta-io/delta's own `spark` test suite against a Gluten Velox bundle, so Gluten is validated against a real Delta release. A number of those tests fail today -- not because Gluten declines to offload a plan, which should fall back to vanilla Spark transparently, but because of real gaps: fallback not happening where it should, metrics that differ from vanilla, and native-side bugs. So the job does not gate on "any failure": it compares each run against a committed baseline of known failures in `.github/workflows/util/delta-spark-ut/known-failures.txt` and fails only on a **new** failure, or on a baseline test that starts **passing** (which means the baseline needs updating).
 
 It runs per PR only when Delta-relevant paths change (`gluten-delta/**`, `backends-velox/src-delta*/**`, or the pipeline's own files), nightly at 05:00 UTC for full coverage, and on demand via `workflow_dispatch` -- use the manual run to check a Velox/core change against Delta before merging.
 
