@@ -57,7 +57,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Prepare
         run: |
-          source /opt/rh/gcc-toolset-11/enable
+          source /opt/rh/gcc-toolset-12/enable
           sudo dnf install -y patchelf
           sudo yum install https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/Packages/tzdata-2026a-1.el9.noarch.rpm -y
           sudo .github/workflows/util/install-flink-deps.sh
