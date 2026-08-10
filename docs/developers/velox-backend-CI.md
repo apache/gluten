@@ -54,7 +54,8 @@ coverage, and on demand via `workflow_dispatch` -- use the manual run to check a
 change against Delta before merging.
 
 To refresh the baseline after fixing something, run the workflow with `update_baseline=true`,
-download the `delta-spark-ut-known-failures` artifact and commit it. See
+download the `delta-spark-ut-known-failures` artifact, and use the `known-failures.txt` it
+contains to replace `.github/workflows/util/delta-spark-ut/known-failures.txt` in the repo. See
 [.github/workflows/util/delta-spark-ut/README.md](https://github.com/apache/gluten/blob/main/.github/workflows/util/delta-spark-ut/README.md)
 for the gate, the flaky-test quarantine and baseline bootstrapping. Open follow-ups are tracked
 in [#12743](https://github.com/apache/gluten/issues/12743).
