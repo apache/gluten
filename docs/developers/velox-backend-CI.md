@@ -39,3 +39,22 @@ Since the Docker image is rebuilt weekly, the ccache is mostly outdated, so it i
 ## Updating the Docker Image
 The GitHub secrets `DOCKERHUB_USER` and `DOCKERHUB_TOKEN` are used to push Docker images to [Docker Hub](https://hub.docker.com/r/apache/gluten/tags).
 Note that GitHub secrets are not accessible in PRs from forked repos.
+
+## Delta Spark UT
+`delta_spark_ut.yml` runs delta-io/delta's own `spark` test suite against a Gluten Velox bundle,
+so Gluten is validated against a real Delta release. Many of those tests are expected to fail
+today (Gluten does not offload every Delta code path), so the job does not gate on "any failure":
+it compares each run against a committed baseline of known failures in
+`.github/workflows/util/delta-spark-ut/known-failures.txt` and fails only on a **new** failure,
+or on a baseline test that starts **passing** (which means the baseline needs updating).
+
+It runs per PR only when Delta-relevant paths change (`gluten-delta/**`,
+`backends-velox/src-delta*/**`, or the pipeline's own files), nightly at 05:00 UTC for full
+coverage, and on demand via `workflow_dispatch` -- use the manual run to check a Velox/core
+change against Delta before merging.
+
+To refresh the baseline after fixing something, run the workflow with `update_baseline=true`,
+download the `delta-spark-ut-known-failures` artifact and commit it. See
+[.github/workflows/util/delta-spark-ut/README.md](https://github.com/apache/gluten/blob/main/.github/workflows/util/delta-spark-ut/README.md)
+for the gate, the flaky-test quarantine and baseline bootstrapping. Open follow-ups are tracked
+in [#12743](https://github.com/apache/gluten/issues/12743).
