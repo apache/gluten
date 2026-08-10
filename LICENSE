@@ -212,15 +212,6 @@
    ./backends-clickhouse/src/main/scala/org/apache/spark/sql/execution/SparkWriteFilesCommitProtocol.scala
    ./cpp-ch/local-engine/Parser/aggregate_function_parser/BloomFilterAggParser.cpp
    ./gluten-substrait/src/main/scala/org/apache/spark/sql/execution/GlutenExplainUtils.scala
-   ./shims/spark32/src/main/scala/org/apache/spark/sql/execution/FileSourceScanExecShim.scala
-   ./shims/spark32/src/main/scala/org/apache/spark/sql/execution/datasources/FileFormatDataWriter.scala
-   ./shims/spark32/src/main/scala/org/apache/spark/sql/execution/datasources/FileFormatWriter.scala
-   ./shims/spark32/src/main/scala/org/apache/spark/sql/execution/datasources/WriteFiles.scala
-   ./shims/spark32/src/main/scala/org/apache/spark/sql/execution/datasources/orc/OrcFileFormat.scala
-   ./shims/spark32/src/main/scala/org/apache/spark/sql/execution/datasources/parquet/ParquetFileFormat.scala
-   ./shims/spark32/src/main/scala/org/apache/spark/sql/execution/datasources/v2/BatchScanExec.scala.deprecated
-   ./shims/spark32/src/main/scala/org/apache/spark/sql/execution/stat/StatFunctions.scala
-   ./shims/spark32/src/main/scala/org/apache/spark/sql/hive/execution/HiveFileFormat.scala
    ./shims/spark33/src/main/scala/org/apache/spark/sql/execution/FileSourceScanExecShim.scala
    ./shims/spark33/src/main/scala/org/apache/spark/sql/execution/datasources/WriteFiles.scala
    ./shims/spark33/src/main/scala/org/apache/spark/sql/execution/datasources/orc/OrcFileFormat.scala
