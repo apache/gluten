@@ -19,6 +19,8 @@
 
 #include <jni/JniCommon.h>
 #include <algorithm>
+#include <mutex>
+#include <unordered_map>
 #include "JniHashTable.h"
 #include "folly/String.h"
 #include "memory/ColumnarBatch.h"
@@ -166,19 +168,52 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
   return hashTableBuilder;
 }
 
+namespace {
+// Pre-built hash tables for processes with no JVM attached. Empty in an executor, where the JVM
+// side VeloxBroadcastBuildSideCache is the authority.
+std::mutex localHashTablesMutex;
+std::unordered_map<std::string, int64_t> localHashTables;
+} // namespace
+
+void registerLocalHashTable(const std::string& hashTableId, int64_t handle) {
+  GLUTEN_CHECK(!hashTableId.empty(), "Cannot register a hash table without an id");
+  // 0 is how getJoin() and the JVM side cache both report a miss, so a table stored under it could
+  // never be resolved. ObjectStore composes handles as (storeId << 32) + resourceId, so this is
+  // only reachable for the very first object of the very first store, but fail loudly rather than
+  // register a table that is silently invisible.
+  GLUTEN_CHECK(
+      handle != 0 && handle != kInvalidObjectHandle,
+      "Cannot register a hash table under a handle that is indistinguishable from a cache miss");
+
+  std::lock_guard<std::mutex> guard(localHashTablesMutex);
+  const auto [it, inserted] = localHashTables.emplace(hashTableId, handle);
+  GLUTEN_CHECK(inserted, "A hash table is already registered for cache key: " + hashTableId);
+}
+
 long getJoin(const std::string& hashTableId) {
   const auto handle = JniHashTableContext::getInstance().callJavaGet(hashTableId);
-  if (!handle.has_value()) {
-    // The JVM side VeloxBroadcastBuildSideCache holding the pre-built hash tables is unreachable,
-    // e.g. in the standalone micro benchmark. Report a miss, the same way that cache reports one,
-    // and let the caller build the hash table from the join's build side input instead.
-    LOG(WARNING) << "No JVM is attached to this process, cannot look up the pre-built hash table for cache key: "
-                 << hashTableId
-                 << ". A new hash table will be built from the build side input, which is empty unless the stage was "
-                    "dumped with spark.gluten.velox.buildHashTableOncePerExecutor.enabled=false.";
-    return 0;
+  if (handle.has_value()) {
+    return handle.value();
   }
-  return handle.value();
+
+  // The JVM side VeloxBroadcastBuildSideCache is unreachable, so this is a process with no JVM
+  // attached, e.g. the standalone micro benchmark. Fall back to the tables loaded into this
+  // process, if any.
+  {
+    std::lock_guard<std::mutex> guard(localHashTablesMutex);
+    const auto it = localHashTables.find(hashTableId);
+    if (it != localHashTables.end()) {
+      return it->second;
+    }
+  }
+
+  // Report a miss, the same way the JVM side cache reports one, and let the caller build the hash
+  // table from the join's build side input instead.
+  LOG(WARNING) << "No JVM is attached to this process and no hash table was loaded for cache key: " << hashTableId
+               << ". A new hash table will be built from the build side input, which is empty unless the stage was "
+                  "dumped with spark.gluten.velox.buildHashTableOncePerExecutor.enabled=false. Pass the dumped "
+                  "hashtable_*.bin files to --hash_table to replay the join against the real table.";
+  return 0;
 }
 
 size_t serializedHashTableSize(std::shared_ptr<HashTableBuilder> builder) {

@@ -20,6 +20,7 @@
 #include "config/GlutenConfig.h"
 #include "operators/reader/ParquetReaderIterator.h"
 #include "operators/writer/VeloxColumnarBatchWriter.h"
+#include "utils/HashTableDumpFile.h"
 
 namespace gluten {
 namespace {
@@ -113,6 +114,22 @@ void VeloxWholeStageDumper::dumpInputSplit(int32_t splitIndex, const std::string
   const auto fileName =
       fmt::format("split_{}_{}_{}_{}.json", taskInfo_.stageId, taskInfo_.partitionId, taskInfo_.vId, splitIndex);
   dumpToStorage(saveDir_, fileName, splitJson);
+}
+
+void VeloxWholeStageDumper::dumpHashTable(
+    const std::string& cacheKey,
+    bool ignoreNullKeys,
+    bool joinHasNullKeys,
+    const uint8_t* data,
+    size_t size) {
+  HashTableDump dump;
+  dump.cacheKey = cacheKey;
+  dump.ignoreNullKeys = ignoreNullKeys;
+  dump.joinHasNullKeys = joinHasNullKeys;
+  dump.payload.assign(data, data + size);
+
+  const auto fileName = hashTableDumpFileName(taskInfo_.stageId, taskInfo_.partitionId, taskInfo_.vId, cacheKey);
+  dumpToStorage(saveDir_, fileName, encodeHashTableDump(dump));
 }
 
 std::shared_ptr<ColumnarBatchIterator> VeloxWholeStageDumper::dumpInputIterator(

@@ -210,6 +210,7 @@ set(VELOX_SRCS
     utils/ConfigExtractor.cc
     utils/VeloxArrowUtils.cc
     utils/VeloxBatchResizer.cc
+    utils/HashTableDumpFile.cc
     utils/VeloxWholeStageDumper.cc
     utils/VeloxWriterUtils.cc)
 

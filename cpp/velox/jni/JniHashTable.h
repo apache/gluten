@@ -94,8 +94,18 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     std::vector<std::shared_ptr<ColumnarBatch>>& batches,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool);
 
+// Registers a pre-built hash table under the given id for processes with no JVM attached, where
+// the JVM side VeloxBroadcastBuildSideCache cannot be reached. The standalone micro benchmark uses
+// this to replay a broadcast hash join against a hash table dumped from a real run. `handle` must
+// come from getHashTableObjStore()->save(builder).
+//
+// Registering an id that is already registered is an error: the pre-built table a plan resolves to
+// must not change under it.
+void registerLocalHashTable(const std::string& hashTableId, int64_t handle);
+
 // Returns the handle of the pre-built hash table registered for the given id, or 0 if there is
-// none. Safe to call from a process with no JVM attached, in which case it always returns 0.
+// none. Safe to call from a process with no JVM attached, in which case it resolves against the
+// tables registered by registerLocalHashTable() and reports a miss if there are none.
 long getJoin(const std::string& hashTableId);
 
 // Return the exact serialized hash table size for direct buffer allocation.

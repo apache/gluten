@@ -155,35 +155,51 @@ or 4 types of dumped file:
 
 ### Broadcast hash join
 
-By default the build side of a BHJ never reaches the native operator as data. Its hash table is
-built once per executor (or on the driver and broadcast in serialized form) and handed to the join
-through a process-local cache keyed by a hash table id, so the build side input iterator yields no
-rows. The standalone benchmark has no such cache, so it would replay the stage with an empty build
-side and report timings for a join that produces no output.
+The build side of a BHJ never reaches the native operator as data. Its hash table is built once per
+executor, or on the driver and broadcast in serialized form, and handed to the join through a
+process-local cache keyed by a hash table id, so the build side input iterator yields no rows. A
+standalone benchmark process has no such cache.
 
-To dump a stage containing a BHJ, add this config to the dump run:
+The dump therefore also writes the pre-built hash table of every BHJ in the stage:
 
+- Hash table file(optional): binary, file name `hashtable_{stageId}_{partitionId}_{vId}_{cacheKey}.bin`.
+  One per BHJ that resolved to a pre-built table.
+
+Pass them to the benchmark with `--hash_table`:
+
+```shell
+./generic_benchmark \
+--plan /path/to/plan_{stageId}_{partitionId}_{vId}.json \
+--split /path/to/split_{stageId}_{partitionId}_{vId}_{splitIdx}.json \
+--hash_table /path/to/hashtable_{stageId}_{partitionId}_{vId}_{cacheKey}.bin \
+--threads 1 --noprint-result
 ```
---conf spark.gluten.velox.buildHashTableOncePerExecutor.enabled=false
-```
 
-This makes the build side stream to the native operator instead of being cached, so it should be
-dumped as its own `data_{stageId}_{partitionId}_{vId}_{iteratorIdx}.parquet` and the benchmark
-should replay the join against real data. Note that the replayed stage builds the hash table
-itself, so that time is included in the measurement, unlike the production run where the table is
-built once per executor.
+The join then probes the same hash table it probed in production, and the build side is not rebuilt,
+which is also what the production run does. Because the table is loaded before the plan is
+converted, the empty build side input costs nothing: an externally supplied table is already
+build-complete, so the build operator finishes without reading its input.
 
-> **This recipe has not been verified end to end.** It follows from how the build side relation is
-> constructed, but no one has yet dumped a BHJ stage this way and replayed it. Treat it as a
-> starting point rather than a known-good workflow, and please report back on
+Without `--hash_table` the join falls back to building a table from its build side input, which is
+empty, and the benchmark reports timings for a join that produces no output. It warns when this
+happens.
+
+> **Not verified end to end.** The pieces are covered by unit tests, but no one has yet dumped a
+> BHJ stage from a real query and replayed it. Please report back on
 > [#12504](https://github.com/apache/gluten/issues/12504).
 
-If the stage is dumped without that config, the build side iterator is empty and no parquet file
-can be written for it, since the writer takes its schema from the first batch. The dump leaves a
-`data_{stageId}_{partitionId}_{vId}_{iteratorIdx}.parquet.empty` marker in its place recording
-which iterator was empty. Mind the gap when passing `--data`: files are bound to iterator indexes
-by position, so a missing file shifts every later iterator onto the wrong input. The benchmark also
-warns that no JVM is attached and that a new hash table will be built from the build side input.
+An alternative to `--hash_table` is to dump with
+`--conf spark.gluten.velox.buildHashTableOncePerExecutor.enabled=false`, which streams the build
+side to the native operator so it lands in a regular
+`data_{stageId}_{partitionId}_{vId}_{iteratorIdx}.parquet`. That measures a different shape than
+production, since the replayed stage builds the hash table itself, and its time is included in the
+measurement.
+
+An empty input iterator produces no parquet file at all, since the writer takes its schema from the
+first batch. The dump leaves a `data_{stageId}_{partitionId}_{vId}_{iteratorIdx}.parquet.empty`
+marker in its place recording which iterator was empty. Mind the gap when passing `--data`: files
+are bound to iterator indexes by position, so a missing file shifts every later iterator onto the
+wrong input.
 
 Run benchmark. By default, the result will be printed to stdout. You can use `--noprint-result` to
 suppress this output.
