@@ -830,6 +830,9 @@ ExpressionParser::parseArrayJoin(const substrait::Expression_ScalarFunction & fu
 DB::ActionsDAG::NodeRawConstPtrs
 ExpressionParser::parseStack(const substrait::Expression_ScalarFunction & func, DB::ActionsDAG & actions_dag) const
 {
+    /// Spark stores stack values in row-major order. For example, stack(2, a, b, c, d) produces rows (a, b) and (c, d).
+    /// Build one array per output field ([a, c] and [b, d]), resize each array to num_rows with typed NULLs, zip the arrays
+    /// into row tuples, and expand them with ARRAY JOIN. A single output field skips arrayZip.
     const auto & pb_args = func.arguments();
     if (pb_args.size() < 2)
         throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "stack function requires at least 2 arguments");

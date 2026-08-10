@@ -27,4 +27,13 @@ class GlutenGeneratorFunctionSuite extends GeneratorFunctionSuite with GlutenSQL
         .find(_.isInstanceOf[GenerateExecTransformerBase])
         .isDefined)
   }
+
+  testGluten("stack without null padding is offloaded") {
+    val df = spark.range(2).selectExpr("stack(2, id, id + 1, id + 2, id + 3)")
+    checkAnswer(df, Seq(Row(0L, 1L), Row(2L, 3L), Row(1L, 2L), Row(3L, 4L)))
+    assert(
+      df.queryExecution.executedPlan
+        .find(_.isInstanceOf[GenerateExecTransformerBase])
+        .isDefined)
+  }
 }
