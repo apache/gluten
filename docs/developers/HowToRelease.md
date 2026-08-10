@@ -16,6 +16,52 @@ for a release of Apache Gluten project with the Velox backend.
 2. Linux
 3. Docker
 
+## Pre-release Checks
+
+Complete these before tagging an RC. Each one corresponds to an issue previously raised during a
+release vote, so skipping them tends to cost an extra release candidate.
+
+### Set the release version and remove leftover `-SNAPSHOT` strings
+
+```bash
+bash dev/release/bump-version.sh 1.7.0
+```
+
+`bump-version.sh` runs `versions:set` on the POMs under the repository root, `tools/gluten-it`,
+`tools/qualification-tool` and `gluten-flink`. It does **not** touch versions hardcoded elsewhere,
+for example `dev/info.sh` and the docs under `gluten-flink/docs/`. Check for anything it missed:
+
+```bash
+git grep -nIE '[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT'
+```
+
+Gluten's own version must not appear as `-SNAPSHOT` in the result. References to third-party
+snapshots, such as `velox4j` and `spark-sql-perf`, are expected to remain.
+
+A previous RC was voted `+0` because the source distribution still carried `-SNAPSHOT` versions,
+including stale ones left over from an earlier release. Clean up all of them, not just the current
+version.
+
+### Update `LICENSE-binary` and `NOTICE-binary`
+
+The bundle JAR statically links third-party code, and `package-release.sh` ships `LICENSE-binary`
+and `NOTICE-binary` inside each binary tarball as `LICENSE` and `NOTICE`. Whenever a bundled
+component is added or enabled, its copyright and license must be recorded there.
+
+A previous RC was voted `-1` because Hudi and Paimon had been enabled in the binaries without
+being added to `NOTICE-binary`.
+
+### Check license headers
+
+```bash
+# Requires the `regex` Python package: pip install regex
+python3 dev/check.py header main
+```
+
+Reviewers also run [Apache RAT](https://creadur.apache.org/rat/) against the source archive. Note
+that RAT flags `.ipynb` notebooks, which cannot carry a comment header; the convention is to place
+the license text in the notebook's first markdown cell.
+
 ## Steps to Create a Release
 
 A standard release distribution can be created following the below steps.
@@ -26,8 +72,8 @@ Pull and download the build environment docker image. The docker image is period
 built and uploaded to DockerHub by scheduled GitHub Actions jobs.
 
 ```bash
-docker pull apache/gluten:vcpkg-centos-7
-docker run -it apache/gluten:vcpkg-centos-7 bash
+docker pull apache/gluten:vcpkg-centos-7-gcc13
+docker run -it apache/gluten:vcpkg-centos-7-gcc13 bash
 ```
 
 ### Clone the repository
@@ -76,12 +122,24 @@ Confirm that all the needed sources and binaries are successfully created at the
 `$GLUTEN_HOME/release/`.
 
 ```bash
-[root@8de83f716f0f workspace]# ls -l release/
-total 481628
--rw-r--r--. 1 root root  74396439 Oct 14 14:19 apache-gluten-1.6.0-example-src.tar.gz
--rw-r--r--. 1 root root 104767582 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.3.tar.gz
--rw-r--r--. 1 root root 104625356 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.4.tar.gz
--rw-r--r--. 1 root root 104595103 Oct 14 14:19 apache-gluten-1.6.0-example-bin-spark-3.5.tar.gz
+[root@8de83f716f0f workspace]# ls -1 release/*.tar.gz
+release/apache-gluten-1.6.0-example-src.tar.gz
+release/apache-gluten-1.6.0-example-bin-spark-3.3.tar.gz
+release/apache-gluten-1.6.0-example-bin-spark-3.4.tar.gz
+release/apache-gluten-1.6.0-example-bin-spark-3.5.tar.gz
+release/apache-gluten-1.6.0-example-bin-spark-4.0.tar.gz
+release/apache-gluten-1.6.0-example-bin-spark-4.1.tar.gz
+```
+
+Each binary tarball contains a versioned top-level directory holding the bundle JAR along with
+the `LICENSE` and `NOTICE` that cover the third-party code statically linked into it.
+
+```bash
+[root@8de83f716f0f workspace]# tar -tzf release/apache-gluten-1.6.0-example-bin-spark-3.5.tar.gz
+apache-gluten-1.6.0-example-bin-spark-3.5/
+apache-gluten-1.6.0-example-bin-spark-3.5/LICENSE
+apache-gluten-1.6.0-example-bin-spark-3.5/NOTICE
+apache-gluten-1.6.0-example-bin-spark-3.5/gluten-velox-bundle-spark3.5_2.12-linux_amd64-1.6.0-example.jar
 ```
 
 <!--- Moved from https://github.com/apache/gluten-site/blob/main/_docs/v1.3.0/developers/HowToRelease.md --->
@@ -143,6 +201,10 @@ $ svn ci -m "add gpg key"
 $ for i in *.tar.gz; do echo $i; gpg --local-user xxxx --armor --output $i.asc --detach-sig $i ; done
 ```
 
+Note the KEYS file is appended in the **release** SVN directory, not the `dev` one, so that it is
+served from <https://downloads.apache.org/gluten/KEYS>. Do this **before** starting the vote and
+reference that URL in the vote email: a previous vote had to be corrected mid-thread because it
+pointed reviewers at a `dist.apache.org/repos/dist/dev/` KEYS link instead.
 
 #### How to Generate checksums for the release artifacts.
 
@@ -159,7 +221,7 @@ $ for i in *.tar.gz; do echo $i; sha512sum  $i > $i.sha512 ; done
 
 2. Create a directory for the release artifacts in the SVN repository.
    `https://dist.apache.org/repos/dist/dev/gluten/{release-version}`
-   release-version format: apache-gluten-#.#.#-rc#
+   release-version format: #.#.#-rc# (e.g. `1.7.0-rc0`)
 
 3. Upload the release artifacts to the SVN repository.
 ```bash
@@ -170,11 +232,15 @@ $ svn commit -m "add Apache Gluten release artifacts for {release-version}"
 ```
 
 4. After the upload, please visit the link `https://dist.apache.org/repos/dist/dev/gluten/{release-version}` to verify if the file upload is successful or not.
-   The upload release artifacts should be include
+   The uploaded artifacts should include the source archive and one binary archive per supported
+   Spark version, each with its `.asc` signature and `.sha512` checksum:
 ```bash
-* apache-gluten-#.#.#-src.tar.gz
-* apache-gluten-#.#.#-src.tar.gz.asc
-* apache-gluten-#.#.#-src.tar.gz.sha512
+* apache-gluten-#.#.#-src.tar.gz{,.asc,.sha512}
+* apache-gluten-#.#.#-bin-spark-3.3.tar.gz{,.asc,.sha512}
+* apache-gluten-#.#.#-bin-spark-3.4.tar.gz{,.asc,.sha512}
+* apache-gluten-#.#.#-bin-spark-3.5.tar.gz{,.asc,.sha512}
+* apache-gluten-#.#.#-bin-spark-4.0.tar.gz{,.asc,.sha512}
+* apache-gluten-#.#.#-bin-spark-4.1.tar.gz{,.asc,.sha512}
 ```
 
 
