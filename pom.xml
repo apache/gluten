@@ -1259,6 +1259,7 @@
         <antlr4.version>4.9.3</antlr4.version>
         <slf4j.version>2.0.7</slf4j.version>
         <log4j.version>2.20.0</log4j.version>
+        <arrow.version>18.1.0</arrow.version>
       </properties>
       <dependencies>
         <dependency>
