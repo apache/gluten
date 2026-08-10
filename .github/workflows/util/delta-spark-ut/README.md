@@ -23,9 +23,9 @@ a plan -- that should fall back to vanilla Spark and the test should still pass.
 Some are real gaps: fallback not happening where it should, metrics that differ
 from vanilla, and native-side bugs. Others are expected rather than defects: a
 test that asserts on the query plan sees a different plan once the scan or
-operators are offloaded. If CI simply
-went red on any failure, the signal would be useless and we could never tell a
-*new* breakage from the hundreds of already-known ones.
+operators are offloaded. If CI simply went red on any failure, the signal
+would be useless and we could never tell a *new* breakage from the hundreds of
+already-known ones.
 
 To make this manageable we keep a **baseline of known failures** and gate each
 run against it. The build is green when the only failing tests are ones already
