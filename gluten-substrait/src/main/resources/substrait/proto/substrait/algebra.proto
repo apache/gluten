@@ -645,41 +645,63 @@ message WriteRel {
   // The type of operation to perform
   WriteOp op = 4;
 
-  // The relation that determines the tuples to add/remove/modify
+  // The relation that determines the records to add/remove/modify
   // the schema must match with table_schema. Default values must be explicitly stated
   // in a ProjectRel at the top of the input. The match must also
   // occur in case of DELETE to ensure multi-engine plans are unequivocal.
   Rel input = 5;
 
+  CreateMode create_mode = 8; // Used with CTAS to determine what to do if the table already exists
+
   // Output mode determines what is the output of executing this rel
   OutputMode output = 6;
-
-  // The bucket spec for the writer.
-  BucketSpec bucket_spec = 7;
+  // Note: tag 7 previously held Gluten's local `bucket_spec` (now 1000). Both `BucketSpec` and
+  // `RelCommon` are length-delimited, so a JAR and a native library built from opposite sides of
+  // that move mis-read tag 7 silently instead of failing; they must be rebuilt together.
+  RelCommon common = 7;
 
   enum WriteOp {
     WRITE_OP_UNSPECIFIED = 0;
-    // The insert of new tuples in a table
+    // The insert of new records in a table
     WRITE_OP_INSERT = 1;
-    // The removal of tuples from a table
+    // The removal of records from a table
     WRITE_OP_DELETE = 2;
-    // The modification of existing tuples within a table
+    // The modification of existing records within a table
     WRITE_OP_UPDATE = 3;
-    // The Creation of a new table, and the insert of new tuples in the table
+    // The Creation of a new table, and the insert of new records in the table
     WRITE_OP_CTAS = 4;
+  }
+
+  enum CreateMode {
+    CREATE_MODE_UNSPECIFIED = 0;
+    CREATE_MODE_APPEND_IF_EXISTS = 1; // Append the data to the table if it already exists
+    CREATE_MODE_REPLACE_IF_EXISTS = 2; // Replace the table if it already exists ("OR REPLACE")
+    CREATE_MODE_IGNORE_IF_EXISTS = 3; // Ignore the request if the table already exists ("IF NOT EXISTS")
+    CREATE_MODE_ERROR_IF_EXISTS = 4; // Throw an error if the table already exists (default behavior)
   }
 
   enum OutputMode {
     OUTPUT_MODE_UNSPECIFIED = 0;
-    // return no tuples at all
+    // return no records at all
     OUTPUT_MODE_NO_OUTPUT = 1;
-    // this mode makes the operator return all the tuple INSERTED/DELETED/UPDATED by the operator.
+    // this mode makes the operator return all the record INSERTED/DELETED/UPDATED by the operator.
     // The operator returns the AFTER-image of any change. This can be further manipulated by operators upstreams
-    // (e.g., retunring the typical "count of modified tuples").
+    // (e.g., retunring the typical "count of modified records").
     // For scenarios in which the BEFORE image is required, the user must implement a spool (via references to
     // subplans in the body of the Rel input) and return those with anounter PlanRel.relations.
-    OUTPUT_MODE_MODIFIED_TUPLES = 2;
+    OUTPUT_MODE_MODIFIED_RECORDS = 2;
   }
+
+  // Note: Gluten's writer carries its configuration in `named_table.advanced_extension`, not in
+  // this field, and nothing on the native side reads this one.
+  substrait.extensions.AdvancedExtension advanced_extension = 9;
+
+  // Gluten addition (not in upstream Substrait): the bucket spec for the writer, used for
+  // Hive-compatible bucketed writes. This started at field 7, the next free number when Gluten's
+  // Substrait base was v0.23.0, and upstream 0.98 then claimed 7 for `common`. Numbering the
+  // graft from 1000 up keeps it clear of the range upstream allocates from (WriteRel currently
+  // ends at 9), so a future upstream field addition cannot collide with it again.
+  BucketSpec bucket_spec = 1000;
 
   // A container for bucketing information.
   message BucketSpec {
