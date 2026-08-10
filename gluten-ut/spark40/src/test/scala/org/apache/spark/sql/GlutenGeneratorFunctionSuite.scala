@@ -39,6 +39,15 @@ class GlutenGeneratorFunctionSuite extends GeneratorFunctionSuite with GlutenSQL
         .isDefined)
   }
 
+  testGluten("single-column stack with null padding is offloaded") {
+    val df = spark.range(2).selectExpr("stack(3, id, id + 1)")
+    checkAnswer(df, Seq(Row(0L), Row(1L), Row(null), Row(1L), Row(2L), Row(null)))
+    assert(
+      df.queryExecution.executedPlan
+        .find(_.isInstanceOf[GenerateExecTransformerBase])
+        .isDefined)
+  }
+
   testGluten("SPARK-45171: Handle evaluated nondeterministic expression") {
     withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
       val df = sql("select explode(array(rand(0)))")
