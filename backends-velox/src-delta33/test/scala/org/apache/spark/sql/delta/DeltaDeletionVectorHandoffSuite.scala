@@ -25,6 +25,7 @@ import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
 import org.apache.spark.sql.execution.{ColumnarToRowExec, FileSourceScanExec, FilterExec, InputAdapter, ProjectExec, SparkPlan, WholeStageCodegenExec}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.tags.ExtendedSQLTest
 import org.apache.spark.util.SparkVersionUtil
@@ -225,6 +226,60 @@ class DeltaDeletionVectorHandoffSuite
             val log = DeltaLog.forTable(spark, new Path(path))
             assert(log.update().allFiles.collect().exists(_.deletionVector != null))
             assertReadPlanAfterDmlFallback(path, useMetadataRowIndex)
+        }
+      }
+  }
+
+  // MERGE puts joins between the target scan and Delta's BitmapAggregator. With a shuffle join
+  // the scan lands in its own AQE query stage, where that aggregate is not visible, so this covers
+  // the shape a plan-shape-dependent tag alone would miss.
+  Seq(true, false).foreach {
+    broadcastJoin =>
+      test(
+        "Delta DV DML row-index scan should fall back for MERGE, " +
+          s"broadcast join=$broadcastJoin") {
+        assume(SparkVersionUtil.gteSpark35, "DML row-index scan fallback is Spark 3.5+ coverage")
+        withTempDir {
+          tempDir =>
+            val path = tempDir.getCanonicalPath
+            Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
+              .toDF("id", "value")
+              .coalesce(1)
+              .write
+              .format("delta")
+              .save(path)
+
+            spark.sql(
+              s"ALTER TABLE delta.`$path` SET TBLPROPERTIES " +
+                "('delta.enableDeletionVectors' = true)")
+
+            withTempView("merge_source") {
+              Seq((3, "c2"), (4, "d2")).toDF("id", "value").createOrReplaceTempView("merge_source")
+
+              var executedPlans: Seq[SparkPlan] = Seq.empty
+              withSQLConf(
+                SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key ->
+                  (if (broadcastJoin) "10485760" else "-1"),
+                DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "true",
+                VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key -> "false"
+              ) {
+                executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
+                  spark
+                    .sql(s"""MERGE INTO delta.`$path` AS t
+                            |USING merge_source AS s
+                            |ON t.id = s.id
+                            |WHEN MATCHED THEN DELETE""".stripMargin)
+                    .collect()
+                }.map(_.executedPlan)
+              }
+              assertSparkDmlFallback(executedPlans)
+
+              val log = DeltaLog.forTable(spark, new Path(path))
+              assert(log.update().allFiles.collect().exists(_.deletionVector != null))
+              checkAnswer(
+                spark.read.format("delta").load(path),
+                Seq((1, "a"), (2, "b")).toDF())
+            }
         }
       }
   }

@@ -21,6 +21,7 @@ import org.apache.spark.sql.catalyst.expressions.aggregation.BitmapAggregator
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.delta.DeltaParquetFileFormat
+import org.apache.spark.sql.delta.files.TahoeBatchFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.types.{DataType, StructType}
 
@@ -38,6 +39,8 @@ object DeltaDeletionVectorDmlUtils {
       "row_index",
       "rowIndexCol")
   private val filePathColumnNames = Set("file_path", "filePath")
+  // TahoeBatchFileIndex.actionType as set by Delta's DELETE, UPDATE and MERGE commands.
+  private val dmlActionTypes = Set("delete", "update", "merge")
 
   val tagDmlRowIndexScans: Rule[SparkPlan] = (plan: SparkPlan) => {
     def visit(
@@ -87,8 +90,29 @@ object DeltaDeletionVectorDmlUtils {
   }
 
   def isDeletionVectorDmlRowIndexScan(scan: FileSourceScanExec): Boolean = {
-    scan.getTagValue(DmlRowIndexScanTag).contains(true) &&
-    hasDeletionVectorDmlRowIndexScanShape(scan)
+    hasDeletionVectorDmlRowIndexScanShape(scan) &&
+    (isDmlTargetScan(scan) || scan.getTagValue(DmlRowIndexScanTag).contains(true))
+  }
+
+  /**
+   * Returns whether the scan reads a DML command's target files, from the scan alone.
+   *
+   * The tagging rule can only recognize a target scan that has Delta's BitmapAggregator as an
+   * ancestor of the same plan tree. Under AQE, columnar rules see one query stage at a time, so a
+   * shuffle join between the target scan and that aggregate -- the usual MERGE shape -- leaves the
+   * scan in a stage of its own where the aggregate is not visible. Delta builds every DML target
+   * relation over a [[TahoeBatchFileIndex]] carrying the command name, which survives stage splits
+   * and arbitrary join placement, so recognize the scan by that instead.
+   *
+   * This stays paired with the row-index/file-path shape check: DML that rewrites whole files
+   * (rather than writing deletion vectors) reads its target through the same file index, and those
+   * scans have no row-index column and remain eligible for native execution.
+   */
+  private def isDmlTargetScan(scan: FileSourceScanExec): Boolean = {
+    scan.relation.location match {
+      case index: TahoeBatchFileIndex => dmlActionTypes.contains(index.actionType)
+      case _ => false
+    }
   }
 
   def isDeletionVectorDmlRowIndexScan(plan: SparkPlan): Boolean = {
