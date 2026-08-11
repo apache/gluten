@@ -124,9 +124,11 @@ From the next run onward the gate enforces the baseline.
 - **You fixed Gluten and some Delta tests now pass.** CI will flag them as
   *now-passing*. Delete those lines from `known-failures.txt` in your PR. That
   is the whole point — the baseline only ever shrinks as coverage improves.
-- **You intentionally added a new expected failure** (e.g. a test that hits a
-  known fallback or native-side gap). Add the exact `Suite#test` line(s) the gate prints under
-  *Regressions* to `known-failures.txt`, ideally with a comment explaining why.
+- **You intentionally added a new expected failure** (e.g. a test that asserts
+  on a query plan that legitimately differs once Gluten offloads, or one that
+  hits a tracked bug you are not fixing here). Add the exact `Suite#test`
+  line(s) the gate prints under *Regressions* to `known-failures.txt`, ideally
+  with a comment explaining why.
 - **A genuine regression.** Fix it; do **not** add it to the baseline.
 
 The error log prints copy-pasteable `Suite#test` lines for both regressions and
