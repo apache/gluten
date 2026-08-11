@@ -113,7 +113,7 @@ install_centos_7() {
         wget -q --max-redirect 3 -O - "${FLEX_URL}" | tar -xz -C /tmp/flex --strip-components=1
         cd /tmp/flex
         ./autogen.sh
-        ./configure
+        ./configure --prefix=/usr
         make install
         cd
         rm -rf /tmp/flex

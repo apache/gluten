@@ -62,7 +62,7 @@ trait CHFormatWriterInjects extends GlutenFormatWriterInjectsBase {
           .setAdvancedExtension(
             AdvancedExtension
               .newBuilder()
-              .setOptimization(Any.pack(createNativeWrite(outputPath, context)))
+              .addOptimization(Any.pack(createNativeWrite(outputPath, context)))
               .build())
           .build())
       .build()

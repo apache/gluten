@@ -37,7 +37,7 @@ jobs:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Get Ccache
         uses: actions/cache/restore@v4
         with:
@@ -58,13 +58,13 @@ jobs:
             cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
           "
       - name: Upload native libs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: ./cpp/build/releases/
           name: velox-native-lib-${{github.sha}}
           retention-days: 1
       - name: Upload Artifact Arrow Jar
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: .m2/repository/org/apache/arrow/
           name: velox-arrow-jar-centos-7-${{github.sha}}
@@ -75,14 +75,14 @@ jobs:
     runs-on: ubuntu-22.04
     container: centos:8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -101,7 +101,7 @@ jobs:
           ./build/mvn clean install -Pspark-3.4 -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-3.5 -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-gluten-velox-bundle-package-jdk8-x86-${{ steps.date.outputs.date }}
           path: package/target/gluten-velox-bundle-*.jar
@@ -113,14 +113,14 @@ jobs:
     runs-on: ubuntu-22.04
     container: centos:8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -139,7 +139,7 @@ jobs:
           ./build/mvn clean install -Pspark-3.5 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-gluten-velox-bundle-package-jdk17-x86-${{ steps.date.outputs.date }}
           path: package/target/gluten-velox-bundle-*.jar
@@ -151,14 +151,14 @@ jobs:
     runs-on: ubuntu-22.04
     container: quay.io/centos/centos:stream9
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-7-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -174,7 +174,7 @@ jobs:
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-gluten-velox-bundle-package-jdk21-x86-${{ steps.date.outputs.date }}
           path: package/target/gluten-velox-bundle-*.jar
@@ -186,7 +186,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     container: apache/gluten:vcpkg-centos-8-gcc13
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Get Ccache
         uses: actions/cache/restore@v4
         with:
@@ -209,12 +209,12 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velox-arrow-jar-centos-8-${{github.sha}}
           path: .m2/repository/org/apache/arrow/
@@ -226,14 +226,14 @@ jobs:
     runs-on: ubuntu-22.04-arm
     container: centos:8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-8-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -252,7 +252,7 @@ jobs:
           ./build/mvn clean install -Pspark-3.4 -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-3.5 -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-gluten-velox-bundle-package-jdk8-arm64-${{ steps.date.outputs.date }}
           path: package/target/gluten-velox-bundle-*.jar
@@ -264,14 +264,14 @@ jobs:
     runs-on: ubuntu-22.04-arm
     container: centos:8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-8-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -291,7 +291,7 @@ jobs:
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-gluten-velox-bundle-package-jdk17-arm64-${{ steps.date.outputs.date }}
           path: package/target/gluten-velox-bundle-*.jar
@@ -303,14 +303,14 @@ jobs:
     runs-on: ubuntu-22.04-arm
     container: quay.io/centos/centos:stream9
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-8-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -326,7 +326,7 @@ jobs:
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-21 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-gluten-velox-bundle-package-jdk21-arm64-${{ steps.date.outputs.date }}
           path: package/target/gluten-velox-bundle-*.jar
@@ -342,12 +342,12 @@ jobs:
         id: date
         run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
       - name: Download ARM JDK8 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk8-arm64-${{ steps.date.outputs.date }}
           path: package/
       - name: Download X86 JDK8 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk8-x86-${{ steps.date.outputs.date }}
           path: package/
@@ -371,12 +371,12 @@ jobs:
         id: date
         run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
       - name: Download ARM JDK17 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk17-arm64-${{ steps.date.outputs.date }}
           path: package/
       - name: Download X86 JDK17 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk17-x86-${{ steps.date.outputs.date }}
           path: package/
@@ -400,12 +400,12 @@ jobs:
         id: date
         run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
       - name: Download ARM JDK21 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk21-arm64-${{ steps.date.outputs.date }}
           path: package/
       - name: Download X86 JDK21 Package Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-gluten-velox-bundle-package-jdk21-x86-${{ steps.date.outputs.date }}
           path: package/
@@ -426,7 +426,7 @@ jobs:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Get Ccache
         uses: actions/cache/restore@v4
         with:
@@ -446,13 +446,13 @@ jobs:
             cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
           "
       - name: Upload native libs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: ./cpp/build/releases/
           name: velox-native-lib-enhanced-${{github.sha}}
           retention-days: 1
       - name: Upload Artifact Arrow Jar
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: .m2/repository/org/apache/arrow/
           name: velox-arrow-jar-centos-7-enhanced-${{github.sha}}
@@ -463,14 +463,14 @@ jobs:
     runs-on: ubuntu-22.04
     container: centos:8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-enhanced-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-arrow-jar-centos-7-enhanced-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
@@ -491,7 +491,7 @@ jobs:
           # iceberg/hudi support for spark-4.1 with java-17 is not avaiable, skip it first
           ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Pdelta -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-gluten-velox-bundle-package-jdk17-${{ steps.date.outputs.date }}
           path: package/target/gluten-velox-bundle-*.jar

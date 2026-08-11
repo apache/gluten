@@ -41,6 +41,7 @@ RUN set -ex; \
     ./install-spark-resources.sh 3.5; \
     ./install-spark-resources.sh 3.5-scala2.13; \
     ./install-spark-resources.sh 4.0; \
+    ./install-spark-resources.sh 4.1; \
     ARCH=$(uname -m); \
     if [[ "$ARCH" == "aarch64" || "$ARCH" == "ppc64le" ]]; then \
         export CPU_TARGET="$ARCH"; \

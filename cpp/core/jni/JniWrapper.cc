@@ -27,7 +27,6 @@
 #include "shuffle/ShuffleReader.h"
 #include "shuffle/ShuffleWriter.h"
 #include "shuffle/Utils.h"
-#include "utils/ArrowStatus.h"
 #include "utils/StringUtil.h"
 
 #include <arrow/c/bridge.h>
@@ -51,11 +50,6 @@ jmethodID jniUnsafeByteBufferAllocate;
 jmethodID jniUnsafeByteBufferAddress;
 jmethodID jniUnsafeByteBufferSize;
 
-jclass jniByteInputStreamClass;
-jmethodID jniByteInputStreamRead;
-jmethodID jniByteInputStreamTell;
-jmethodID jniByteInputStreamClose;
-
 jclass splitResultClass;
 jmethodID splitResultConstructor;
 
@@ -68,9 +62,6 @@ jclass shuffleReaderMetricsClass;
 jmethodID shuffleReaderMetricsSetDecompressTime;
 jmethodID shuffleReaderMetricsSetDeserializeTime;
 
-jclass shuffleStreamReaderClass;
-jmethodID shuffleStreamReaderNextStream;
-
 jbyteArray toJByteArray(JNIEnv* env, const std::vector<uint8_t>& bytes, const std::string& context) {
   GLUTEN_CHECK(
       bytes.size() <= static_cast<size_t>(std::numeric_limits<jsize>::max()),
@@ -81,82 +72,6 @@ jbyteArray toJByteArray(JNIEnv* env, const std::vector<uint8_t>& bytes, const st
   }
   return out;
 }
-
-class JavaInputStreamAdaptor final : public arrow::io::InputStream {
- public:
-  JavaInputStreamAdaptor(JNIEnv* env, arrow::MemoryPool* pool, jobject jniIn) : pool_(pool) {
-    // IMPORTANT: DO NOT USE LOCAL REF IN DIFFERENT THREAD
-    if (env->GetJavaVM(&vm_) != JNI_OK) {
-      std::string errorMessage = "Unable to get JavaVM instance";
-      throw GlutenException(errorMessage);
-    }
-    jniIn_ = env->NewGlobalRef(jniIn);
-  }
-
-  ~JavaInputStreamAdaptor() override {
-    try {
-      auto status = JavaInputStreamAdaptor::Close();
-      if (!status.ok()) {
-        LOG(WARNING) << __func__ << " call JavaInputStreamAdaptor::Close() failed, status:" << status.ToString();
-      }
-    } catch (std::exception& e) {
-      LOG(WARNING) << __func__ << " call JavaInputStreamAdaptor::Close() got exception:" << e.what();
-    }
-  }
-
-  // not thread safe
-  arrow::Status Close() override {
-    if (closed_) {
-      return arrow::Status::OK();
-    }
-    JNIEnv* env;
-    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-    env->CallVoidMethod(jniIn_, jniByteInputStreamClose);
-    checkException(env);
-    env->DeleteGlobalRef(jniIn_);
-    // Do NOT call DetachCurrentThread() here.
-    // libhdfs.so caches JNIEnv* in thread-local storage after AttachCurrentThread.
-    // If we detach, libhdfs's TLS cache becomes stale — the next HDFS call via
-    // libhdfs returns the stale env, causing SIGSEGV in jni_NewStringUTF.
-    // Daemon-attached threads are safe to leave attached; they won't block JVM shutdown.
-    closed_ = true;
-    return arrow::Status::OK();
-  }
-
-  arrow::Result<int64_t> Tell() const override {
-    JNIEnv* env;
-    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-    jlong told = env->CallLongMethod(jniIn_, jniByteInputStreamTell);
-    checkException(env);
-    return told;
-  }
-
-  bool closed() const override {
-    return closed_;
-  }
-
-  arrow::Result<int64_t> Read(int64_t nbytes, void* out) override {
-    JNIEnv* env;
-    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-    jlong read = env->CallLongMethod(jniIn_, jniByteInputStreamRead, reinterpret_cast<jlong>(out), nbytes);
-    checkException(env);
-    return read;
-  }
-
-  arrow::Result<std::shared_ptr<arrow::Buffer>> Read(int64_t nbytes) override {
-    GLUTEN_ASSIGN_OR_THROW(auto buffer, arrow::AllocateResizableBuffer(nbytes, pool_))
-    GLUTEN_ASSIGN_OR_THROW(int64_t bytes_read, Read(nbytes, buffer->mutable_data()))
-    GLUTEN_THROW_NOT_OK(buffer->Resize(bytes_read, false));
-    buffer->ZeroPadding();
-    return std::move(buffer);
-  }
-
- private:
-  arrow::MemoryPool* pool_;
-  JavaVM* vm_;
-  jobject jniIn_;
-  bool closed_ = false;
-};
 
 /// Internal backend consists of empty implementations of Runtime API and MemoryManager API.
 /// The backend is used for saving contextual objects only.
@@ -238,39 +153,6 @@ void internalRuntimeReleaser(Runtime* runtime) {
   delete runtime;
 }
 
-class ShuffleStreamReader : public StreamReader {
- public:
-  ShuffleStreamReader(JNIEnv* env, jobject reader) {
-    if (env->GetJavaVM(&vm_) != JNI_OK) {
-      throw GlutenException("Unable to get JavaVM instance");
-    }
-    ref_ = env->NewGlobalRef(reader);
-  }
-
-  ~ShuffleStreamReader() override {
-    JNIEnv* env = nullptr;
-    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-    env->DeleteGlobalRef(ref_);
-  }
-
-  std::shared_ptr<arrow::io::InputStream> readNextStream(arrow::MemoryPool* pool) override {
-    JNIEnv* env = nullptr;
-    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-
-    jobject jniIn = env->CallObjectMethod(ref_, shuffleStreamReaderNextStream);
-    checkException(env);
-    if (jniIn == nullptr) {
-      return nullptr; // No more streams to read
-    }
-    std::shared_ptr<arrow::io::InputStream> in = std::make_shared<JavaInputStreamAdaptor>(env, pool, jniIn);
-    return in;
-  }
-
- private:
-  JavaVM* vm_;
-  jobject ref_;
-};
-
 } // namespace
 
 #ifdef __cplusplus
@@ -298,11 +180,6 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   jniUnsafeByteBufferAddress = env->GetMethodID(jniUnsafeByteBufferClass, "address", "()J");
   jniUnsafeByteBufferSize = env->GetMethodID(jniUnsafeByteBufferClass, "size", "()J");
 
-  jniByteInputStreamClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/JniByteInputStream;");
-  jniByteInputStreamRead = getMethodIdOrError(env, jniByteInputStreamClass, "read", "(JJ)J");
-  jniByteInputStreamTell = getMethodIdOrError(env, jniByteInputStreamClass, "tell", "()J");
-  jniByteInputStreamClose = getMethodIdOrError(env, jniByteInputStreamClass, "close", "()V");
-
   splitResultClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/GlutenSplitResult;");
   splitResultConstructor = getMethodIdOrError(env, splitResultClass, "<init>", "(JJJJJJJJJJDJ[J[J[J)V");
 
@@ -322,18 +199,12 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   shuffleReaderMetricsSetDeserializeTime =
       getMethodIdOrError(env, shuffleReaderMetricsClass, "setDeserializeTime", "(J)V");
 
-  shuffleStreamReaderClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/ShuffleStreamReader;");
-  shuffleStreamReaderNextStream = getMethodIdOrError(
-      env, shuffleStreamReaderClass, "nextStream", "()Lorg/apache/gluten/vectorized/JniByteInputStream;");
-
   return jniVersion;
 }
 
 void JNI_OnUnload(JavaVM* vm, void* reserved) {
   JNIEnv* env;
   vm->GetEnv(reinterpret_cast<void**>(&env), jniVersion);
-  env->DeleteGlobalRef(jniByteInputStreamClass);
   env->DeleteGlobalRef(splitResultClass);
   env->DeleteGlobalRef(nativeColumnarToRowInfoClass);
   env->DeleteGlobalRef(byteArrayClass);
@@ -566,7 +437,7 @@ Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeCreateKernelWith
     inputIters.reserve(itersLen);
     for (int idx = 0; idx < itersLen; idx++) {
       jobject iter = env->GetObjectArrayElement(batchItrArray, idx);
-      auto arrayIter = std::make_unique<JniColumnarBatchIterator>(env, iter, ctx, idx);
+      auto arrayIter = createJniInputIterator(env, iter, ctx, idx);
       auto resultIter = std::make_shared<ResultIterator>(std::move(arrayIter));
       inputIters.push_back(std::move(resultIter));
     }

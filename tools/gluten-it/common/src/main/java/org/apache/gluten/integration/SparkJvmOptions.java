@@ -16,28 +16,12 @@
  */
 package org.apache.gluten.integration;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import org.apache.spark.launcher.JavaModuleOptions;
 
 public class SparkJvmOptions {
-  private static final String MODULE_OPTIONS_CLASS_NAME =
-      "org.apache.spark.launcher.JavaModuleOptions";
 
   public static String read() {
-    try {
-      final Class<?> clazz = Class.forName(MODULE_OPTIONS_CLASS_NAME);
-      final Method method = clazz.getMethod("defaultModuleOptions");
-      return (String) method.invoke(null);
-    } catch (ClassNotFoundException
-        | NoSuchMethodException
-        | InvocationTargetException
-        | IllegalAccessException e) {
-      throw new RuntimeException(
-          "Failed to read Spark JVM module options via "
-              + MODULE_OPTIONS_CLASS_NAME
-              + "#defaultModuleOptions",
-          e);
-    }
+    return JavaModuleOptions.defaultModuleOptions();
   }
 
   public static void main(String[] args) {

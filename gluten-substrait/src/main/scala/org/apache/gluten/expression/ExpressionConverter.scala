@@ -570,6 +570,19 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           ),
           r
         )
+      case instr: TernaryExpression if instr.getClass.getSimpleName.equals("RegExpInStr") =>
+        // Spark's RegExpInStr carries a third `idx` child but ignores it during
+        // evaluation (it always returns the start position of the whole match).
+        // Velox's regexp_instr only takes (subject, regexp), so drop the idx child.
+        // Matched by class name because RegExpInStr does not exist in Spark 3.3.
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(
+            replaceWithExpressionTransformer0(instr.first, attributeSeq, expressionsMap),
+            replaceWithExpressionTransformer0(instr.second, attributeSeq, expressionsMap)
+          ),
+          instr
+        )
       case size: Size =>
         // Covers Spark ArraySize which is replaced by Size(child, false).
         val child =
@@ -633,7 +646,8 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           replaceWithExpressionTransformer0(expr.children.head, attributeSeq, expressionsMap),
           expr
         )
-      case _: GetDateField | _: GetTimeField =>
+      case e @ (_: GetDateField | _: GetTimeField)
+          if DateTimeExpressionsTransformer.EXTRACT_DATE_FIELD_MAPPING.contains(e.getClass) =>
         ExtractDateTransformer(
           substraitExprName,
           replaceWithExpressionTransformer0(expr.children.head, attributeSeq, expressionsMap),

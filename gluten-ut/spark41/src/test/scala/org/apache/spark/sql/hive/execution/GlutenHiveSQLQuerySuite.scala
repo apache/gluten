@@ -149,6 +149,68 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
     }
   }
 
+  testGluten(
+    "GLUTEN: Hive ORC files with _col* names read by position without positional flag") {
+    // Regression for the case where two ORC tables must use OPPOSITE column
+    // mapping modes in the same query: one with real column names (by name) and
+    // one written by old Hive with placeholder _col* names (by position). The
+    // native reader must decide the mode per file (matching vanilla Spark's
+    // OrcUtils.requestedColumnIds), so a _col* file reads correctly even though
+    // orc.force.positional.evolution is NOT set (ORC is read by name by
+    // default). Without the fix the _col* columns would read back as NULL.
+    val hiveClient: HiveClient =
+      spark.sharedState.externalCatalog.unwrapped.asInstanceOf[HiveExternalCatalog].client
+
+    withSQLConf("spark.sql.hive.convertMetastoreOrc" -> "false") {
+      withTempDir {
+        dir =>
+          val colStarLoc = s"file:///$dir/test_orc_colstar"
+          val namedLoc = s"file:///$dir/test_orc_named"
+          withTable("test_orc_colstar", "test_orc_colstar_renamed", "test_orc_named") {
+            // Naming the columns literally _col0/_col1 guarantees the physical
+            // ORC field names are placeholders, independent of the Hive
+            // version (mirrors Spark's SPARK-34897 setup).
+            hiveClient.runSqlHive(
+              s"create table test_orc_colstar(`_col0` int, `_col1` string) " +
+                s"stored as orc location '$colStarLoc'")
+            hiveClient.runSqlHive("insert into test_orc_colstar select 7, 'a'")
+
+            // A second table over the SAME files but with real names. By name,
+            // id/name are absent from the _col* files; only position mapping
+            // can read them -- and it must happen WITHOUT the positional flag.
+            hiveClient.runSqlHive(
+              s"create table test_orc_colstar_renamed(id int, name string) " +
+                s"stored as orc location '$colStarLoc'")
+
+            // A table with real physical column names, read by name.
+            hiveClient.runSqlHive(
+              s"create table test_orc_named(uid int, label string) " +
+                s"stored as orc location '$namedLoc'")
+            hiveClient.runSqlHive("insert into test_orc_named select 7, 'b'")
+
+            // No positional flag set. The _col* table read via real names must
+            // still return the values (positional fallback).
+            val colStar = sql("select id, name from test_orc_colstar_renamed")
+            checkAnswer(colStar, Seq(Row(7, "a")))
+            checkOperatorMatch[HiveTableScanExecTransformer](colStar)
+
+            // The real-name table still reads correctly by name in the same
+            // session (opposite mapping mode).
+            val named = sql("select uid, label from test_orc_named")
+            checkAnswer(named, Seq(Row(7, "b")))
+            checkOperatorMatch[HiveTableScanExecTransformer](named)
+
+            // Both in one query (the original failure folded the join to an
+            // empty LocalTableScan). The join must return a non-empty result.
+            val joined = sql(
+              "select c.name, n.label from test_orc_colstar_renamed c " +
+                "join test_orc_named n on c.id = n.uid")
+            checkAnswer(joined, Seq(Row("a", "b")))
+          }
+      }
+    }
+  }
+
   test("GLUTEN-11062: Supports mixed input format for partitioned Hive table") {
     val hiveClient: HiveClient =
       spark.sharedState.externalCatalog.unwrapped.asInstanceOf[HiveExternalCatalog].client

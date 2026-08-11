@@ -16,8 +16,11 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.config.GlutenIcebergConfig
+
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 
 abstract class IcebergSuite extends WholeStageTransformerSuite {
   protected val rootPath: String = getClass.getResource("/").getPath
@@ -715,6 +718,54 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
       assert(
         e.getMessage.contains("null") || e.getMessage.contains("NOT_NULL") ||
           e.getCause != null && e.getCause.getMessage.contains("null"))
+    }
+  }
+
+  test("iceberg scan falls back when native read is disabled") {
+    withTable("iceberg_read_switch_tb") {
+      spark.sql("""
+                  |create table iceberg_read_switch_tb using iceberg as
+                  |(select 1 as col1, 2 as col2)
+                  |""".stripMargin)
+
+      withSQLConf(GlutenIcebergConfig.ENABLE_NATIVE_READ.key -> "false") {
+        val df = spark.sql("select * from iceberg_read_switch_tb")
+        checkSparkPlan[BatchScanExec](df)
+        assert(
+          !getExecutedPlan(df).exists(_.isInstanceOf[IcebergScanTransformer]),
+          "Iceberg scan should not be offloaded when native read is disabled")
+        checkAnswer(df, Seq(Row(1, 2)))
+      }
+
+      // The switch is dynamic: offload resumes once it is back to the default.
+      runQueryAndCompare("select * from iceberg_read_switch_tb") {
+        checkGlutenPlan[IcebergScanTransformer]
+      }
+    }
+  }
+
+  test("disabling iceberg native read keeps other scans offloaded") {
+    withTable("iceberg_read_switch_tb") {
+      spark.sql("""
+                  |create table iceberg_read_switch_tb using iceberg as
+                  |(select 1 as col1)
+                  |""".stripMargin)
+
+      withTempPath {
+        path =>
+          spark.range(5).toDF("col1").write.parquet(path.getCanonicalPath)
+
+          withSQLConf(GlutenIcebergConfig.ENABLE_NATIVE_READ.key -> "false") {
+            val icebergDf = spark.sql("select * from iceberg_read_switch_tb")
+            assert(
+              !getExecutedPlan(icebergDf).exists(_.isInstanceOf[IcebergScanTransformer]),
+              "Iceberg scan should fall back")
+
+            val parquetDf = spark.read.parquet(path.getCanonicalPath)
+            checkGlutenPlan[FileSourceScanExecTransformer](parquetDf)
+            assert(parquetDf.count() == 5)
+          }
+      }
     }
   }
 }
