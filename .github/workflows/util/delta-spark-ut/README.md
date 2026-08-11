@@ -92,8 +92,9 @@ longer shared between them, those PRs pay for the centos-7 native build twice
 - **Per PR** — the workflow's own `paths:` filter runs the suite only when the PR
   touches a **high-signal Delta path**: the Delta integration code
   (`backends-velox/src-delta*`), the `gluten-delta` module, or this pipeline's
-  own files (`delta_spark_ut.yml`, `util/delta-spark-ut/**`). GitHub evaluates
-  the filter before creating the run, so an unrelated PR costs nothing at all.
+  own files (`delta_spark_ut.yml`, `util/delta-spark-ut/**`, excluding Markdown
+  there — editing this README does not run the suite). GitHub evaluates the
+  filter before creating the run, so an unrelated PR costs nothing at all.
   Changes to general Velox/core/native code can also affect Delta offload, but
   they're touched on most PRs, so per-PR they skip the suite — the nightly run is
   the safety net.
