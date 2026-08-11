@@ -38,11 +38,20 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 /**
- * This rule is used to dynamic adjust stage resource profile for following purposes:
- *   1. Decrease offheap and increase onheap memory size when whole stage fallback happened; 2.
- *      Increase executor heap memory if stage contains gluten operator and spark operator at the
- *      same time. Note: we don't support set resource profile for final stage now. Todo: will
- *      support it.
+ * This rule dynamically adjusts the resource profile of each AQE query stage. It handles three
+ * cases:
+ *
+ *   1. CPU/GPU hybrid execution: if every `WholeStageTransformer` in the stage is fully
+ *      cuDF-offloaded, the stage is assigned a GPU resource profile so that Spark schedules its
+ *      tasks on GPU-equipped executors.
+ *   2. Whole-stage fallback: if a stage contains no native Gluten operators (or only
+ *      columnar-to-row conversion nodes), heap memory is increased and off-heap memory is reduced,
+ *      since the stage runs entirely on the JVM.
+ *   3. Partial fallback: if the ratio of fallen (non-Gluten) nodes in a stage exceeds
+ *      `spark.gluten.auto.adjustStageResources.fallenNode.ratio.threshold`, heap memory is
+ *      increased and off-heap memory is decreased proportionally.
+ *
+ * * Note: Case 2 and 3 are not applied to final (non-Exchange) stages yet.
  */
 @Experimental
 case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark: SparkSession)
@@ -279,14 +288,14 @@ object GlutenAutoAdjustStageResourceProfile extends Logging {
     val cpuResourceName = glutenConf.cpuResourceName
     val gpuResourceName = glutenConf.gpuResourceName
 
+    executorResource.remove(glutenConf.cpuResourceName)
     taskResource.remove(cpuResourceName)
+
+    executorResource.put(gpuResourceName, new ExecutorResourceRequest(gpuResourceName, 1))
     // The gpu task resource limits how many tasks can be launched in one executor.
     taskResource.put(
       gpuResourceName,
       new TaskResourceRequest(gpuResourceName, glutenConf.gpuResourceAmountPerTask))
-
-    executorResource.remove(glutenConf.cpuResourceName)
-    executorResource.put(gpuResourceName, new ExecutorResourceRequest(gpuResourceName, 1))
 
     applyNewResourceProfile(
       plan,

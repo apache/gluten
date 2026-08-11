@@ -1740,7 +1740,7 @@ object GlutenConfig extends ConfigRegistry {
     buildStaticConf("spark.gluten.sql.columnar.hybridExecution.cpuResource.name")
       .experimental()
       .doc(
-        "The CPU resource name (Spark custom resource)." +
+        "The CPU resource name (Spark custom resource). " +
           "This must match the resource name configured via spark.executor.resource.<name>.* / " +
           "spark.task.resource.<name>.* for CPU-stage scheduling to take effect."
       )
@@ -1751,7 +1751,7 @@ object GlutenConfig extends ConfigRegistry {
     buildStaticConf("spark.gluten.sql.columnar.hybridExecution.gpuResource.name")
       .experimental()
       .doc(
-        "The GPU resource name (Spark custom resource)." +
+        "The GPU resource name (Spark custom resource). " +
           "This must match the resource name configured via spark.executor.resource.<name>.* / " +
           "spark.task.resource.<name>.* for GPU-stage scheduling to take effect."
       )
