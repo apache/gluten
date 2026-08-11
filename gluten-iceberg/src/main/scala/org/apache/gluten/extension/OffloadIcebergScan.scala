@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.extension
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, GlutenIcebergConfig}
 import org.apache.gluten.execution.IcebergScanTransformer
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
@@ -27,10 +27,15 @@ import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 
 case class OffloadIcebergScan() extends OffloadSingleNode {
-  override def offload(plan: SparkPlan): SparkPlan = plan match {
-    case scan: BatchScanExec if IcebergScanTransformer.supportsBatchScan(scan.scan) =>
-      IcebergScanTransformer(scan)
-    case other => other
+  override def offload(plan: SparkPlan): SparkPlan = {
+    if (!GlutenIcebergConfig.get.enableNativeRead) {
+      return plan
+    }
+    plan match {
+      case scan: BatchScanExec if IcebergScanTransformer.supportsBatchScan(scan.scan) =>
+        IcebergScanTransformer(scan)
+      case other => other
+    }
   }
 }
 

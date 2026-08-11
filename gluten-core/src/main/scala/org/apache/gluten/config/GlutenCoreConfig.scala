@@ -76,8 +76,6 @@ object GlutenCoreConfig extends ConfigRegistry {
   val SPARK_OFFHEAP_SIZE_KEY = "spark.memory.offHeap.size"
   val SPARK_OFFHEAP_ENABLED_KEY = "spark.memory.offHeap.enabled"
 
-  val SPARK_ONHEAP_SIZE_KEY = "spark.executor.memory"
-
   val GLUTEN_ENABLED =
     buildConf("spark.gluten.enabled")
       .doc(
