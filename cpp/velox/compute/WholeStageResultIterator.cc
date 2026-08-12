@@ -491,16 +491,17 @@ void WholeStageResultIterator::collectMetrics() {
             "count", customMetric.second.count)("min", customMetric.second.min)("max", customMetric.second.max);
       }
 
-      operatorStats.push_back(folly::dynamic::object("inputRows", opStats->inputRows)(
-          "inputVectors", opStats->inputVectors)("inputBytes", opStats->inputBytes)(
-          "rawInputRows", opStats->rawInputRows)("rawInputBytes", opStats->rawInputBytes)(
-          "outputRows", opStats->outputRows)("outputVectors", opStats->outputVectors)(
-          "outputBytes", opStats->outputBytes)("cpuCount", opStats->cpuWallTiming.count)(
-          "wallNanos", opStats->cpuWallTiming.wallNanos)("peakMemoryBytes", opStats->peakMemoryBytes)(
-          "numMemoryAllocations", opStats->numMemoryAllocations)("spilledInputBytes", opStats->spilledInputBytes)(
-          "spilledBytes", opStats->spilledBytes)("spilledRows", opStats->spilledRows)(
-          "spilledPartitions", opStats->spilledPartitions)("spilledFiles", opStats->spilledFiles)(
-          "physicalWrittenBytes", opStats->physicalWrittenBytes)("customStats", customStats));
+      operatorStats.push_back(
+          folly::dynamic::object("inputRows", opStats->inputRows)("inputVectors", opStats->inputVectors)(
+              "inputBytes", opStats->inputBytes)("rawInputRows", opStats->rawInputRows)(
+              "rawInputBytes", opStats->rawInputBytes)("outputRows", opStats->outputRows)(
+              "outputVectors", opStats->outputVectors)("outputBytes", opStats->outputBytes)(
+              "cpuCount", opStats->cpuWallTiming.count)("wallNanos", opStats->cpuWallTiming.wallNanos)(
+              "peakMemoryBytes", opStats->peakMemoryBytes)("numMemoryAllocations", opStats->numMemoryAllocations)(
+              "spilledInputBytes", opStats->spilledInputBytes)("spilledBytes", opStats->spilledBytes)(
+              "spilledRows", opStats->spilledRows)("spilledPartitions", opStats->spilledPartitions)(
+              "spilledFiles", opStats->spilledFiles)("physicalWrittenBytes", opStats->physicalWrittenBytes)(
+              "customStats", customStats));
     }
 
     statsNum += static_cast<unsigned int>(operatorStats.size());
@@ -580,6 +581,8 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     configs[velox::core::QueryConfig::kMaxSpillLevel] = std::to_string(veloxCfg_->get<int32_t>(kMaxSpillLevel, 4));
     configs[velox::core::QueryConfig::kMaxSpillFileSize] =
         std::to_string(veloxCfg_->get<uint64_t>(kMaxSpillFileSize, 1L * 1024 * 1024 * 1024));
+    configs[velox::core::QueryConfig::kSpillNumMaxMergeFiles] =
+        std::to_string(veloxCfg_->get<uint32_t>(kSpillNumMaxMergeFiles, 0));
     configs[velox::core::QueryConfig::kMaxSpillRunRows] =
         std::to_string(veloxCfg_->get<uint64_t>(kMaxSpillRunRows, 3L * 1024 * 1024));
     configs[velox::core::QueryConfig::kMaxSpillBytes] =
