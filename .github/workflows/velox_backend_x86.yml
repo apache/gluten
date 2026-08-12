@@ -1026,6 +1026,10 @@ jobs:
     container: apache/gluten:centos-9-jdk8
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 'check.py tidy commit' diffs HEAD^..HEAD, which a depth-1 clone lacks: the
+          # diff comes back empty and the check passes without inspecting anything.
+          fetch-depth: 2
       - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
         run: |
           case "$(uname -m)" in
@@ -1057,6 +1061,36 @@ jobs:
           df -a
           bash dev/ci-velox-buildshared-centos-9.sh
           ccache -s
+      # Runs in this job because clang-tidy needs the compilation database and header tree
+      # the build just produced; only 'cpp/build/' is uploaded, so shipping
+      # 'compile_commands.json' to another job leaves its '-I' paths dangling.
+      - name: Check Clang Tidy
+        # Advisory until observed green: clang-tidy re-parses a database written by
+        # gcc-toolset-12, so toolchain-level diagnostics are still possible.
+        continue-on-error: true
+        env:
+          # Make the GCC-generated database clang-safe: point clang at the libstdc++ the
+          # build used, and mirror the '-Wno-' flags cpp/CMakeLists.txt adds on its Clang
+          # branch, which the database lacks while still carrying '-Werror'.
+          CLANG_TIDY_EXTRA_ARGS: >-
+            --extra-arg=--gcc-toolchain=/opt/rh/gcc-toolset-12/root/usr
+            --extra-arg=-Wno-error
+            --extra-arg=-Wno-unknown-warning-option
+            --extra-arg=-Wno-implicit-int-float-conversion
+            --extra-arg=-Wno-nullability-completeness
+            --extra-arg=-Wno-mismatched-tags
+        run: |
+          # check.py shells out to git; the workspace is owned by another UID.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Skip the toolchain install when no C++ changed; check.py itself already no-ops.
+          if ! git diff --name-only HEAD^ HEAD | grep -qE '^cpp/.*\.(cc|cpp|h)$'; then
+            echo "No C++ changes in this pull request; skipping clang-tidy."
+            exit 0
+          fi
+          dnf install -y clang-tools-extra # TODO remove after image update
+          pip3 install regex
+          clang-tidy --version # log the version so finding changes trace to a clang bump
+          python3 dev/check.py tidy commit
       - name: Run CPP unit test
         run: |
           cd ./cpp/build && ctest -V
