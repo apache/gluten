@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.config.GlutenConfig
+
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{AnalysisException, Row}
 import org.apache.spark.sql.internal.SQLConf
@@ -75,8 +77,12 @@ class VeloxInsertSuite extends VeloxWholeStageTransformerSuite {
         createTableWithValue("store_assignment_legacy_src", "STRING", "'2147483648'")
         createTable("store_assignment_legacy", "INT")
 
+        // Disable the whole-plan ANSI fallback so the legacy store-assignment cast
+        // gets a chance to offload while the session runs in ANSI mode.
         withSQLConf(
-          SQLConf.STORE_ASSIGNMENT_POLICY.key -> SQLConf.StoreAssignmentPolicy.LEGACY.toString) {
+          SQLConf.STORE_ASSIGNMENT_POLICY.key -> SQLConf.StoreAssignmentPolicy.LEGACY.toString,
+          GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false"
+        ) {
           val insert = insertIntoFrom("store_assignment_legacy", "store_assignment_legacy_src")
           insert.collect()
           checkGlutenPlan[ProjectExecTransformer](insert)
@@ -116,10 +122,12 @@ class VeloxInsertSuite extends VeloxWholeStageTransformerSuite {
       fromType: String,
       toType: String)(f: => Unit): Unit = {
     val exception = intercept[AnalysisException](f)
-    val message = exceptionMessages(exception)
-    assert(message.contains(fromType), message)
-    assert(message.contains(toType), message)
-    assert(message.contains("cast") || message.contains("Cast"), message)
+    // Older Spark versions report the types in lower case, e.g. "string to int",
+    // while newer ones quote them in upper case, e.g. "STRING" to "INT".
+    val message = exceptionMessages(exception).toLowerCase()
+    assert(message.contains(fromType.toLowerCase()), message)
+    assert(message.contains(toType.toLowerCase()), message)
+    assert(message.contains("cast"), message)
   }
 
   private def exceptionMessages(e: Throwable): String = {

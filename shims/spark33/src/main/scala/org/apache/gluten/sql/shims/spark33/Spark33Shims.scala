@@ -212,7 +212,9 @@ class Spark33Shims extends SparkShims {
 
   override def withAnsiEvalMode(expr: Expression): Boolean = {
     expr match {
-      case _: Cast => SQLConf.get.ansiEnabled
+      // Use the cast's own flag rather than the session conf: store-assignment casts
+      // can carry ansiEnabled = false even when the session runs in ANSI mode.
+      case c: Cast => c.ansiEnabled
       case _ => false
     }
   }
