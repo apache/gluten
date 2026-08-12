@@ -491,17 +491,16 @@ void WholeStageResultIterator::collectMetrics() {
             "count", customMetric.second.count)("min", customMetric.second.min)("max", customMetric.second.max);
       }
 
-      operatorStats.push_back(
-          folly::dynamic::object("inputRows", opStats->inputRows)("inputVectors", opStats->inputVectors)(
-              "inputBytes", opStats->inputBytes)("rawInputRows", opStats->rawInputRows)(
-              "rawInputBytes", opStats->rawInputBytes)("outputRows", opStats->outputRows)(
-              "outputVectors", opStats->outputVectors)("outputBytes", opStats->outputBytes)(
-              "cpuCount", opStats->cpuWallTiming.count)("wallNanos", opStats->cpuWallTiming.wallNanos)(
-              "peakMemoryBytes", opStats->peakMemoryBytes)("numMemoryAllocations", opStats->numMemoryAllocations)(
-              "spilledInputBytes", opStats->spilledInputBytes)("spilledBytes", opStats->spilledBytes)(
-              "spilledRows", opStats->spilledRows)("spilledPartitions", opStats->spilledPartitions)(
-              "spilledFiles", opStats->spilledFiles)("physicalWrittenBytes", opStats->physicalWrittenBytes)(
-              "customStats", customStats));
+      operatorStats.push_back(folly::dynamic::object("inputRows", opStats->inputRows)(
+          "inputVectors", opStats->inputVectors)("inputBytes", opStats->inputBytes)(
+          "rawInputRows", opStats->rawInputRows)("rawInputBytes", opStats->rawInputBytes)(
+          "outputRows", opStats->outputRows)("outputVectors", opStats->outputVectors)(
+          "outputBytes", opStats->outputBytes)("cpuCount", opStats->cpuWallTiming.count)(
+          "wallNanos", opStats->cpuWallTiming.wallNanos)("peakMemoryBytes", opStats->peakMemoryBytes)(
+          "numMemoryAllocations", opStats->numMemoryAllocations)("spilledInputBytes", opStats->spilledInputBytes)(
+          "spilledBytes", opStats->spilledBytes)("spilledRows", opStats->spilledRows)(
+          "spilledPartitions", opStats->spilledPartitions)("spilledFiles", opStats->spilledFiles)(
+          "physicalWrittenBytes", opStats->physicalWrittenBytes)("customStats", customStats));
     }
 
     statsNum += static_cast<unsigned int>(operatorStats.size());
