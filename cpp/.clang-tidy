@@ -1,5 +1,29 @@
+# Single source of truth for the check list: a CLI `--checks` would override this key,
+# so `dev/run-clang-tidy.py` does not pass one.
+#
+# Report only on the changed translation unit, never on included headers. The check is
+# diff-scoped, so header diagnostics would blame a pull request for pre-existing findings
+# in every header it happens to include, and generated protobuf headers under `cpp/build`
+# dominate the output. '^$' matches no file name; an empty value does not filter.
+#
+# 'bugprone-throwing-static-initialization' is off because it flags the project-wide
+# 'const std::string kFoo = "..."' idiom (~160 sites), rejecting new code written
+# consistently with its neighbours. Re-enable after migrating to 'constexpr string_view'.
+HeaderFilterRegex: '^$'
+#
+# Allow-list rather than `*` minus exclusions, so a clang upgrade cannot silently add
+# checks and fail unrelated PRs.
 Checks: >
   -*,
+  bugprone-*,
+  -bugprone-branch-clone,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-narrowing-conversions,
+  -bugprone-throwing-static-initialization,
+  clang-analyzer-core.*,
+  performance-*,
+  -performance-avoid-endl,
   readability-identifier-naming,
 
 CheckOptions:
