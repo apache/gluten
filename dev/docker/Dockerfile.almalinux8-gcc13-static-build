@@ -1,0 +1,67 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# vcpkg-based static build image for Gluten on AlmaLinux 8 + GCC 13.
+# Produces the apache/gluten:vcpkg-almalinux-8-gcc13 image.
+#
+# AlmaLinux 8 is a 1:1 RHEL 8 binary-compatible rebuild that replaces CentOS 8
+# (EOL Dec 2021). glibc 2.28 allows Velox's modern Folly/FBThrift/MVFST stack
+# to build without the socket.h workaround required on CentOS 7 (glibc 2.17).
+#
+# Modelled on dev/docker/Dockerfile.centos7-gcc13-static-build, which is the
+# reference requested in https://github.com/apache/gluten/issues/12412.
+
+FROM almalinux:8
+
+ENV JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+# An actual path used for vcpkg cache.
+ENV VCPKG_PATH=/var/cache/vcpkg
+# Set vcpkg cache path.
+ENV VCPKG_BINARY_SOURCES=clear;files,${VCPKG_PATH},readwrite
+
+RUN set -ex; \
+    # AlmaLinux 8 repos are live — no mirror fixup needed. \
+    dnf update -y; \
+    dnf install -y epel-release sudo; \
+    # ccache is in EPEL — install after epel-release is registered. \
+    dnf install -y ccache; \
+    # gcc-toolset-13 ships GCC 13 on RHEL8-family via Red Hat Software Collections. \
+    dnf install -y --setopt=install_weak_deps=False gcc-toolset-13; \
+    dnf install -y java-1.8.0-openjdk-devel patch git wget perl python3 automake libtool flex; \
+    dnf -y --enablerepo=powertools install autoconf-archive ninja-build; \
+    # Install a recent CMake binary — the version in EPEL 8 is too old for Velox. \
+    wget https://github.com/Kitware/CMake/releases/download/v3.31.12/cmake-3.31.12-linux-$(uname -m).sh; \
+    chmod +x cmake-3.31.12-linux-$(uname -m).sh; \
+    ./cmake-3.31.12-linux-$(uname -m).sh --skip-license --prefix=/usr/local; \
+    rm -f cmake-3.31.12-linux-$(uname -m).sh; \
+    echo "check_certificate = off" >> ~/.wgetrc; \
+    dnf clean all; \
+    git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
+    mkdir -p ${VCPKG_PATH}; \
+    echo "Build arrow, then install the native libs to system paths and jar package to .m2/ directory."; \
+    if [ "$(uname -m)" = "aarch64" ]; then \
+        export CPU_TARGET="aarch64"; \
+        export VCPKG_FORCE_SYSTEM_BINARIES=1; \
+    fi; \
+    source /opt/rh/gcc-toolset-13/enable; \
+    cd /opt/gluten; \
+    export SSL_VERIFY=false; \
+    bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --enable_s3=ON --enable_gcs=ON \
+                                    --enable_hdfs=ON --enable_abfs=ON  build_arrow; \
+    ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
+    rm -rf /opt/gluten; \
+    rm -rf /root/.cache/ccache;
