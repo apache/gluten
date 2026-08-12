@@ -796,11 +796,6 @@ std::shared_ptr<CudfHiveInsertTableHandle> makeCudfHiveInsertTableHandle(
 #endif
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::WriteRel& writeRel) {
-  // emit would remap the written columns, which the writer below does not apply
-  if (writeRel.has_common()) {
-    VELOX_USER_CHECK(!writeRel.common().has_emit(), "Emit not supported for WriteRel.");
-  }
-
   core::PlanNodePtr childNode;
   if (writeRel.has_input()) {
     childNode = toVeloxPlan(writeRel.input());
