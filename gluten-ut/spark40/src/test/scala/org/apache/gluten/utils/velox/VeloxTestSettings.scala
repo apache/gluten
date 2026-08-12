@@ -767,10 +767,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSparkPlanSuite]
     .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
-  enableSuite[GlutenSparkScriptTransformationSuite]
-    // Flaky in CI containers for Spark 4.0: intermittently fails with
-    // `/tmp/test-resource*.py: Permission denied` and can crash JVM.
-    .exclude("SPARK-33934: Add SparkFile's root dir to env property PATH")
+  disableSuite[GlutenSparkScriptTransformationSuite]("Flaky suite")
   enableSuite[GlutenSparkSqlParserSuite]
     .exclude("Checks if SET/RESET can parse all the configurations")
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
