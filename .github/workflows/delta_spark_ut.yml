@@ -57,12 +57,8 @@ on:
       - 'gluten-delta/**'
       # Covers src-delta, src-delta33, src-delta40 and any future variant.
       - 'backends-velox/src-delta*/**'
-      # Documentation can't change what the suite does, and this job costs ~10
-      # runner-hours, so don't spend that on a README edit. `**/*.md` is the
-      # documented spelling for "a .md file anywhere under this directory" and
-      # covers both the README and any nested notes. Negated patterns are
-      # evaluated in order and override the positives above, so this must stay
-      # last. (`paths` and `paths-ignore` cannot both be used, hence the `!`.)
+      # Negated patterns are evaluated in order and override the positives
+      # above, so this must stay last.
       - '!.github/workflows/util/delta-spark-ut/**/*.md'
   workflow_dispatch:
     inputs:
