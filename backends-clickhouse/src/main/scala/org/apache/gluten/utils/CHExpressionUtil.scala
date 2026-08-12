@@ -202,7 +202,6 @@ object CHExpressionUtil {
     BITMAP_CONSTRUCT_AGG -> DefaultValidator(),
     TO_UTC_TIMESTAMP -> UtcTimestampValidator(),
     FROM_UTC_TIMESTAMP -> UtcTimestampValidator(),
-    STACK -> DefaultValidator(),
     RAISE_ERROR -> DefaultValidator(),
     WIDTH_BUCKET -> DefaultValidator(),
     MAKE_DATE -> DefaultValidator(),
