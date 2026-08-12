@@ -25,8 +25,13 @@ import org.apache.flink.table.data.RowData;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 
 public class HiveSourceSinkFactory extends FileSystemSinkFactory {
+  private static final String COMPRESSION_KIND = "sink.file.compression";
+  private static final String[] SUPPORTED_COMPRESSION_TABLE_KEYS = {
+    "orc.compress", "parquet.compression", "parquet.compression.codec", "parquet.compression-codec"
+  };
 
   @Override
   public boolean match(Transformation<RowData> transformation) {
@@ -42,8 +47,10 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
     Configuration tableOptions = getTableOptions(partitionCommitter, fileWriterOperator);
     Map<String, String> tableParams = new HashMap<>(tableOptions.toMap());
     tableParams.put("path", getLocationPath(partitionCommitter, fileWriterOperator));
-    tableParams.putIfAbsent("format", resolveWriteFormat(fileWriterOperator));
+    Object bucketsBuilder = getBucketsBuilder(fileWriterOperator);
+    tableParams.putIfAbsent("format", resolveWriteFormat(bucketsBuilder));
     tableParams.put("connector", "hive");
+    addHiveCompressionParams(bucketsBuilder, tableParams);
     return tableParams;
   }
 
@@ -57,15 +64,21 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
     return "hive";
   }
 
+  private String resolveWriteFormat(Object bucketsBuilder) {
+    String format = resolveFormatFromBucketsBuilder(bucketsBuilder);
+    if (format != null) {
+      return format;
+    }
+    return getDefaultFormat();
+  }
+
   @Override
-  protected String resolveFormatFromHadoopBulkWriterFactory(Object writerFactory) {
-    Class<?> factoryClass = writerFactory.getClass();
-    if (factoryClass.getName().contains("HiveBulkWriterFactory")) {
-      Object hiveWriterFactory =
-          ReflectUtils.getObjectField(factoryClass, writerFactory, "factory");
+  protected String resolveFormatFromBucketsBuilder(Object bucketsBuilder) {
+    Object hiveWriterFactory = getHiveWriterFactoryFromBucketsBuilder(bucketsBuilder);
+    if (hiveWriterFactory != null) {
       return resolveFormatFromHiveWriterFactory(hiveWriterFactory);
     }
-    return super.resolveFormatFromHadoopBulkWriterFactory(writerFactory);
+    return super.resolveFormatFromBucketsBuilder(bucketsBuilder);
   }
 
   private String resolveFormatFromHiveWriterFactory(Object hiveWriterFactory) {
@@ -95,5 +108,76 @@ public class HiveSourceSinkFactory extends FileSystemSinkFactory {
         (Class<?>)
             ReflectUtils.getObjectField(factoryClass, hiveWriterFactory, "hiveOutputFormatClz");
     return inferFormatFromClassName(outputFormatClz.getName());
+  }
+
+  private void addHiveCompressionParams(Object bucketsBuilder, Map<String, String> tableParams) {
+    Object hiveWriterFactory = getHiveWriterFactoryFromBucketsBuilder(bucketsBuilder);
+    if (hiveWriterFactory == null) {
+      return;
+    }
+    Properties tableProperties =
+        (Properties) ReflectUtils.tryGetObjectField(hiveWriterFactory, "tableProperties");
+    addNativeCompressionParamFromTableProperties(tableProperties, tableParams);
+  }
+
+  private Object getBucketsBuilder(OneInputStreamOperator<?, ?> fileWriterOperator) {
+    return ReflectUtils.getObjectField(
+        ABSTRACT_STREAMING_WRITER_CLASS, fileWriterOperator, "bucketsBuilder");
+  }
+
+  private Object getHiveWriterFactoryFromBucketsBuilder(Object bucketsBuilder) {
+    Object writerFactory = ReflectUtils.tryGetObjectField(bucketsBuilder, "writerFactory");
+    if (writerFactory == null
+        || !writerFactory.getClass().getName().contains("HiveBulkWriterFactory")) {
+      return null;
+    }
+    return ReflectUtils.getObjectField(writerFactory.getClass(), writerFactory, "factory");
+  }
+
+  static void addNativeCompressionParamFromTableProperties(
+      Properties tableProperties, Map<String, String> tableParams) {
+    if (!isParquetFormat(tableParams.get("format"))) {
+      tableParams.remove(COMPRESSION_KIND);
+      return;
+    }
+    if (tableProperties == null) {
+      return;
+    }
+
+    String compressionKind = resolveCompressionKind(tableProperties);
+    if (compressionKind != null) {
+      tableParams.put(COMPRESSION_KIND, compressionKind);
+    }
+  }
+
+  private static boolean isParquetFormat(String format) {
+    return format != null && "parquet".equalsIgnoreCase(format.trim());
+  }
+
+  private static String resolveCompressionKind(Properties tableProperties) {
+    for (String key : SUPPORTED_COMPRESSION_TABLE_KEYS) {
+      String compressionKind = normalizeCompressionKind(tableProperties.getProperty(key));
+      if (compressionKind != null) {
+        return compressionKind;
+      }
+    }
+    return null;
+  }
+
+  static String normalizeCompressionKind(String compression) {
+    if (compression == null) {
+      return null;
+    }
+    final Map<String, String> supportedCompressionKinds =
+        Map.ofEntries(
+            Map.entry("snappy", "snappy"),
+            Map.entry("gzip", "gzip"),
+            Map.entry("zstd", "zstd"),
+            Map.entry("zstandard", "zstd"),
+            Map.entry("lz4", "lz4"),
+            Map.entry("lzo", "lzo"),
+            Map.entry("zlib", "zlib"),
+            Map.entry("deflate", "zlib"));
+    return supportedCompressionKinds.getOrDefault(compression.trim().toLowerCase(), null);
   }
 }

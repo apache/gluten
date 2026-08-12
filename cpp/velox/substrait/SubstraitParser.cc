@@ -279,9 +279,9 @@ std::string SubstraitParser::mapToVeloxFunction(const std::string& substraitFunc
 bool SubstraitParser::configSetInOptimization(
     const ::substrait::extensions::AdvancedExtension& extension,
     const std::string& config) {
-  if (extension.has_optimization()) {
+  if (extension.optimization_size() > 0) {
     google::protobuf::StringValue msg;
-    extension.optimization().UnpackTo(&msg);
+    extension.optimization(0).UnpackTo(&msg);
     std::size_t pos = msg.value().find(config);
     if ((pos != std::string::npos) && (msg.value().substr(pos + config.size(), 1) == "1")) {
       return true;
@@ -294,9 +294,9 @@ bool SubstraitParser::checkWindowFunction(
     const ::substrait::extensions::AdvancedExtension& extension,
     const std::string& targetFunction) {
   const std::string config = "window_function=";
-  if (extension.has_optimization()) {
+  if (extension.optimization_size() > 0) {
     google::protobuf::StringValue msg;
-    extension.optimization().UnpackTo(&msg);
+    extension.optimization(0).UnpackTo(&msg);
     std::size_t pos = msg.value().find(config);
     if ((pos != std::string::npos) && (msg.value().size() >= targetFunction.size()) &&
         (msg.value().substr(pos + config.size(), targetFunction.size()) == targetFunction)) {

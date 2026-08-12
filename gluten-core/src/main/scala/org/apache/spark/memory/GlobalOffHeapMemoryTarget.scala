@@ -35,7 +35,7 @@ class GlobalOffHeapMemoryTarget private[memory]
   with Logging {
   private val targetName = MemoryTargetUtil.toUniqueName("GlobalOffHeap")
   private val recorder: MemoryUsageRecorder = new SimpleMemoryUsageRecorder()
-  private val mode: MemoryMode = {
+  private def mode: MemoryMode = {
     val enabled = Option(SparkEnv.get)
       .map(_.conf.getBoolean(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED.key, false))
       .getOrElse(false)

@@ -129,7 +129,7 @@ void AggregateRelParser::setup(DB::QueryPlanPtr query_plan, const substrait::Rel
     has_complete_stage = phase_set.contains(substrait::AggregationPhase::AGGREGATION_PHASE_INITIAL_TO_RESULT);
     bool next_step_is_agg = false;
     google::protobuf::StringValue raw_extra_params;
-    raw_extra_params.ParseFromString(aggregate_rel->advanced_extension().optimization().value());
+    raw_extra_params.ParseFromString(firstOptimizationOrDefault(aggregate_rel->advanced_extension()).value());
     auto extra_params = AggregateOptimizationInfo::parse(raw_extra_params.value());
     if (aggregate_rel->measures().empty())
     {

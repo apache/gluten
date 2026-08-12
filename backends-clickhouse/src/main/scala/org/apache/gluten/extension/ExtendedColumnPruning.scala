@@ -21,7 +21,6 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateFunction
 import org.apache.spark.sql.catalyst.optimizer.GeneratorNestedColumnAliasing.canPruneGenerator
 import org.apache.spark.sql.catalyst.optimizer.NestedColumnAliasing
 import org.apache.spark.sql.catalyst.plans.logical._
@@ -30,16 +29,14 @@ import org.apache.spark.sql.catalyst.trees.AlwaysProcess
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
-import scala.collection.mutable
-
 object ExtendedGeneratorNestedColumnAliasing {
   def unapply(plan: LogicalPlan): Option[LogicalPlan] = plan match {
     case pj @ Project(projectList, f @ Filter(condition, g: Generate))
         if canPruneGenerator(g.generator) &&
           GlutenConfig.get.enableExtendedColumnPruning &&
           (SQLConf.get.nestedPruningOnExpressions || SQLConf.get.nestedSchemaPruningEnabled) =>
-      val attrToExtractValues =
-        getAttributeToExtractValues(projectList ++ g.generator.children :+ condition, Seq.empty)
+      val attrToExtractValues = NestedColumnAliasing
+        .getAttributeToExtractValues(projectList ++ g.generator.children :+ condition, Seq.empty)
       if (attrToExtractValues.isEmpty) {
         return None
       }
@@ -63,10 +60,9 @@ object ExtendedGeneratorNestedColumnAliasing {
         return Some(pushedThrough)
       }
 
-      // In spark3.2, we could not reuse [[NestedColumnAliasing.getAttributeToExtractValues]]
-      // which only accepts 2 arguments. Instead we redefine it in current file to avoid moving
-      // this rule to gluten-shims
-      attrToExtractValuesOnGenerator = getAttributeToExtractValues(
+      // Use a Gluten-specific extractor to collect nested `GetStructField`s over generator
+      // outputs; the vanilla extractor only surfaces top-level [[ExtractValue]]s.
+      attrToExtractValuesOnGenerator = NestedColumnAliasing.getAttributeToExtractValues(
         attrToExtractValuesOnGenerator.flatMap(_._2).toSeq,
         Seq.empty,
         collectNestedGetStructFields)
@@ -138,109 +134,6 @@ object ExtendedGeneratorNestedColumnAliasing {
       }
     case _ =>
       None
-  }
-
-  /**
-   * Returns two types of expressions:
-   *   - Root references that are individually accessed
-   *   - [[GetStructField]] or [[GetArrayStructFields]] on top of other [[ExtractValue]]s or special
-   *     expressions.
-   */
-  private def collectRootReferenceAndExtractValue(e: Expression): Seq[Expression] = e match {
-    case _: AttributeReference => Seq(e)
-    case GetStructField(_: ExtractValue | _: AttributeReference, _, _) => Seq(e)
-    case GetArrayStructFields(
-          _: MapValues | _: MapKeys | _: ExtractValue | _: AttributeReference,
-          _,
-          _,
-          _,
-          _) =>
-      Seq(e)
-    case es if es.children.nonEmpty => es.children.flatMap(collectRootReferenceAndExtractValue)
-    case _ => Seq.empty
-  }
-
-  /**
-   * Creates a map from root [[Attribute]]s to non-redundant nested [[ExtractValue]]s. Nested field
-   * accessors of `exclusiveAttrs` are not considered in nested fields aliasing.
-   */
-  private def getAttributeToExtractValues(
-      exprList: Seq[Expression],
-      exclusiveAttrs: Seq[Attribute],
-      extractor: (Expression) => Seq[Expression] = collectRootReferenceAndExtractValue)
-      : Map[Attribute, Seq[ExtractValue]] = {
-
-    val nestedFieldReferences = new mutable.ArrayBuffer[ExtractValue]()
-    val otherRootReferences = new mutable.ArrayBuffer[AttributeReference]()
-    exprList.foreach {
-      e =>
-        extractor(e).foreach {
-          // we can not alias the attr from lambda variable whose expr id is not available
-          case ev: ExtractValue if ev.find(_.isInstanceOf[NamedLambdaVariable]).isEmpty =>
-            if (ev.references.size == 1) {
-              nestedFieldReferences.append(ev)
-            }
-          case ar: AttributeReference => otherRootReferences.append(ar)
-          case _ => // ignore
-        }
-    }
-    val exclusiveAttrSet = AttributeSet(exclusiveAttrs ++ otherRootReferences)
-
-    // Remove cosmetic variations when we group extractors by their references
-    nestedFieldReferences
-      .filter(!_.references.subsetOf(exclusiveAttrSet))
-      .groupBy(_.references.head.canonicalized.asInstanceOf[Attribute])
-      .flatMap {
-        case (attr: Attribute, nestedFields: collection.Seq[ExtractValue]) =>
-          // Check if `ExtractValue` expressions contain any aggregate functions in their tree.
-          // Those that do should not have an alias generated as it can lead to pushing the
-          // aggregate down into a projection.
-          def containsAggregateFunction(ev: ExtractValue): Boolean =
-            ev.find(_.isInstanceOf[AggregateFunction]).isDefined
-
-          // Remove redundant [[ExtractValue]]s if they share the same parent nest field.
-          // For example, when `a.b` and `a.b.c` are in project list, we only need to alias `a.b`.
-          // Because `a.b` requires all of the inner fields of `b`, we cannot prune `a.b.c`.
-          val dedupNestedFields = nestedFields
-            .filter {
-              // See [[collectExtractValue]]: we only need to deal with [[GetArrayStructFields]] and
-              // [[GetStructField]]
-              case e @ (_: GetStructField | _: GetArrayStructFields) =>
-                val child = e.children.head
-                nestedFields.forall(f => child.find(_.semanticEquals(f)).isEmpty)
-              case _ => true
-            }
-            .distinct
-            // Discard [[ExtractValue]]s that contain aggregate functions.
-            .filterNot(containsAggregateFunction)
-
-          // If all nested fields of `attr` are used, we don't need to introduce new aliases.
-          // By default, the [[ColumnPruning]] rule uses `attr` already.
-          // Note that we need to remove cosmetic variations first, so we only count a
-          // nested field once.
-          val numUsedNestedFields = dedupNestedFields
-            .map(_.canonicalized)
-            .distinct
-            .map(nestedField => totalFieldNum(nestedField.dataType))
-            .sum
-          if (dedupNestedFields.nonEmpty && numUsedNestedFields < totalFieldNum(attr.dataType)) {
-            Some((attr, dedupNestedFields.toSeq))
-          } else {
-            None
-          }
-      }
-  }
-
-  /**
-   * Return total number of fields of this type. This is used as a threshold to use nested column
-   * pruning. It's okay to underestimate. If the number of reference is bigger than this, the parent
-   * reference is used instead of nested field references.
-   */
-  private def totalFieldNum(dataType: DataType): Int = dataType match {
-    case StructType(fields) => fields.map(f => totalFieldNum(f.dataType)).sum
-    case ArrayType(elementType, _) => totalFieldNum(elementType)
-    case MapType(keyType, valueType, _) => totalFieldNum(keyType) + totalFieldNum(valueType)
-    case _ => 1 // UDT and others
   }
 
   private def replaceGetStructField(

@@ -18,11 +18,10 @@ package org.apache.gluten.substrait.rel;
 
 import io.substrait.proto.ReadRel;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.nio.ByteBuffer;
+import java.util.*;
 
 public class IcebergLocalFilesNode extends LocalFilesNode {
   private final List<List<DeleteFile>> deleteFilesList;
@@ -96,6 +95,10 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
       deleteFileBuilder.setFilePath(delete.path().toString());
       deleteFileBuilder.setFileSize(delete.fileSizeInBytes());
       deleteFileBuilder.setRecordCount(delete.recordCount());
+      if (delete.content() == FileContent.POSITION_DELETES) {
+        deleteFileBuilder.setLowerBounds(encodeBounds(delete.lowerBounds()));
+        deleteFileBuilder.setUpperBounds(encodeBounds(delete.upperBounds()));
+      }
       switch (delete.format()) {
         case PARQUET:
           ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions parquetReadOptions =
@@ -117,5 +120,33 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
       icebergBuilder.addDeleteFiles(deleteFileBuilder);
     }
     fileBuilder.setIceberg(icebergBuilder);
+  }
+
+  private static ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.Map encodeBounds(
+      Map<Integer, ByteBuffer> bounds) {
+    ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.Map.Builder builder =
+        ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.Map.newBuilder();
+
+    if (bounds == null || bounds.isEmpty()) {
+      return builder.build();
+    }
+
+    for (Map.Entry<Integer, ByteBuffer> entry : bounds.entrySet()) {
+      if (entry.getValue() == null) {
+        continue;
+      }
+
+      ByteBuffer duplicate = entry.getValue().asReadOnlyBuffer();
+      byte[] bytes = new byte[duplicate.remaining()];
+      duplicate.get(bytes);
+
+      builder.addKeyValues(
+          ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile.Map.KeyValue.newBuilder()
+              .setKey(entry.getKey())
+              .setValue(Base64.getEncoder().encodeToString(bytes))
+              .build());
+    }
+
+    return builder.build();
   }
 }

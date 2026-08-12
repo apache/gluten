@@ -186,6 +186,7 @@ private object FallbackStrategiesSuite {
       transformBuilders: Seq[ColumnarRuleCall => Rule[SparkPlan]]): HeuristicApplier = {
     new HeuristicApplier(
       spark,
+      Nil,
       transformBuilders,
       List(c => p => ExpandFallbackPolicy(c.caller.isAqe(), p)),
       List(

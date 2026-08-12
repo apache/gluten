@@ -174,7 +174,6 @@ Arguments: false
 
 (24) VeloxResizeBatches
 Input [4]: [hash_partition_key#23, wr_returning_customer_sk#17, wr_returning_addr_sk#18, wr_return_amt#19]
-Arguments: 1024, 2147483647, 10485760
 
 (25) ColumnarExchange
 Input [4]: [hash_partition_key#23, wr_returning_customer_sk#17, wr_returning_addr_sk#18, wr_return_amt#19]
@@ -207,7 +206,6 @@ Arguments: false
 
 (32) VeloxResizeBatches
 Input [3]: [hash_partition_key#26, ca_address_sk#24, ca_state#25]
-Arguments: 1024, 2147483647, 10485760
 
 (33) ColumnarExchange
 Input [3]: [hash_partition_key#26, ca_address_sk#24, ca_state#25]
@@ -246,7 +244,6 @@ Arguments: false
 
 (41) VeloxResizeBatches
 Input [4]: [hash_partition_key#30, wr_returning_customer_sk#17, ca_state#25, sum#29]
-Arguments: 1024, 2147483647, 10485760
 
 (42) ColumnarExchange
 Input [4]: [hash_partition_key#30, wr_returning_customer_sk#17, ca_state#25, sum#29]
@@ -320,7 +317,6 @@ Arguments: false
 
 (58) VeloxResizeBatches
 Input [4]: [hash_partition_key#40, wr_returning_customer_sk#35, wr_returning_addr_sk#36, wr_return_amt#37]
-Arguments: 1024, 2147483647, 10485760
 
 (59) ColumnarExchange
 Input [4]: [hash_partition_key#40, wr_returning_customer_sk#35, wr_returning_addr_sk#36, wr_return_amt#37]
@@ -368,7 +364,6 @@ Arguments: false
 
 (70) VeloxResizeBatches
 Input [4]: [hash_partition_key#46, wr_returning_customer_sk#35, ca_state#42, sum#45]
-Arguments: 1024, 2147483647, 10485760
 
 (71) ColumnarExchange
 Input [4]: [hash_partition_key#46, wr_returning_customer_sk#35, ca_state#42, sum#45]
@@ -408,7 +403,6 @@ Arguments: false
 
 (79) VeloxResizeBatches
 Input [4]: [hash_partition_key#53, ctr_state#47, sum#51, count#52]
-Arguments: 1024, 2147483647, 10485760
 
 (80) ColumnarExchange
 Input [4]: [hash_partition_key#53, ctr_state#47, sum#51, count#52]

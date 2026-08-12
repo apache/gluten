@@ -46,6 +46,7 @@ class GlutenInjector private[injector] (control: InjectorControl) {
 
 object GlutenInjector {
   class LegacyInjector {
+    private val preBuilders = mutable.Buffer.empty[ColumnarRuleCall => Rule[SparkPlan]]
     private val preTransformBuilders = mutable.Buffer.empty[ColumnarRuleCall => Rule[SparkPlan]]
     private val transformBuilders = mutable.Buffer.empty[ColumnarRuleCall => Rule[SparkPlan]]
     private val postTransformBuilders = mutable.Buffer.empty[ColumnarRuleCall => Rule[SparkPlan]]
@@ -54,6 +55,10 @@ object GlutenInjector {
     private val postBuilders = mutable.Buffer.empty[ColumnarRuleCall => Rule[SparkPlan]]
     private val finalBuilders = mutable.Buffer.empty[ColumnarRuleCall => Rule[SparkPlan]]
     private val ruleWrappers = mutable.Buffer.empty[Rule[SparkPlan] => Rule[SparkPlan]]
+
+    def injectPre(builder: ColumnarRuleCall => Rule[SparkPlan]): Unit = {
+      preBuilders += builder
+    }
 
     def injectPreTransform(builder: ColumnarRuleCall => Rule[SparkPlan]): Unit = {
       preTransformBuilders += builder
@@ -86,6 +91,7 @@ object GlutenInjector {
     private[injector] def createApplier(session: SparkSession): ColumnarRuleApplier = {
       new HeuristicApplier(
         session,
+        preBuilders.toSeq,
         (preTransformBuilders ++ Seq(
           c => createHeuristicTransform(c)) ++ postTransformBuilders).toSeq,
         fallbackPolicyBuilders.toSeq,

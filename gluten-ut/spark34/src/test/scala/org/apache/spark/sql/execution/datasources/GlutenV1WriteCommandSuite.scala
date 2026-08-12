@@ -98,6 +98,41 @@ class GlutenV1WriteCommandSuite
   with GlutenV1WriteCommandSuiteBase
   with GlutenSQLTestsBaseTrait {
 
+  testGluten("GLUTEN-12474: preserve ordering for dynamic partition writes") {
+    withSQLConf(
+      "spark.sql.maxConcurrentOutputFileWriters" -> "0",
+      "spark.sql.sources.partitionOverwriteMode" -> "DYNAMIC") {
+      withTable("gluten_12474_src", "gluten_12474_tgt") {
+        sql(
+          """
+            |CREATE TABLE gluten_12474_src USING ORC AS
+            |SELECT concat('k', id) AS k, format_string('v%02d', id) AS v,
+            |  if(id % 2 = 1, '2026-06-01', '2026-06-02') AS day
+            |FROM range(0, 10)
+            |""".stripMargin)
+
+        sql(
+          """
+            |CREATE TABLE gluten_12474_tgt (k STRING, m STRING)
+            |USING ORC
+            |PARTITIONED BY (day STRING)
+            |""".stripMargin)
+
+        sql(
+          """
+            |INSERT OVERWRITE TABLE gluten_12474_tgt PARTITION (day)
+            |SELECT k, max(v) AS m, day
+            |FROM gluten_12474_src
+            |GROUP BY day, k
+            |""".stripMargin)
+
+        checkAnswer(
+          sql("SELECT k, m, day FROM gluten_12474_tgt"),
+          sql("SELECT k, v, day FROM gluten_12474_src"))
+      }
+    }
+  }
+
   testGluten(
     "SPARK-41914: v1 write with AQE and in-partition sorted - non-string partition column") {
     withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true") {

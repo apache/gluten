@@ -54,12 +54,6 @@ case object RssSortShuffleWriterType extends ShuffleWriterType {
   override val requiresResizingShuffleOutput: Boolean = false
 }
 
-case object GpuHashShuffleWriterType extends ShuffleWriterType {
-  override val name: String = ReservedKeys.GLUTEN_GPU_HASH_SHUFFLE_WRITER
-  override val requiresResizingShuffleInput: Boolean = true
-  override val requiresResizingShuffleOutput: Boolean = true
-}
-
 /*
  * Note: Gluten configiguration.md is automatically generated from this code.
  * Make sure to run dev/gen-all-config-docs.sh after making changes to this file.
@@ -75,6 +69,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def enableNativeValidation: Boolean = getConf(NATIVE_VALIDATION_ENABLED)
 
   def enableColumnarBatchScan: Boolean = getConf(COLUMNAR_BATCHSCAN_ENABLED)
+
+  def batchScanMaxInputPartitions: Int = getConf(COLUMNAR_BATCHSCAN_MAX_INPUT_PARTITIONS)
 
   def enableColumnarFileScan: Boolean = getConf(COLUMNAR_FILESCAN_ENABLED)
 
@@ -597,16 +593,19 @@ object GlutenConfig extends ConfigRegistry {
       .foreach { case (k, v) => nativeConfMap.put(k, v) }
 
     // When `orc.force.positional.evolution=true`, vanilla Spark maps ORC columns by
-    // position rather than by name (see OrcUtils.requestedColumnIds). The Velox ORC reader
-    // must do the same, otherwise name-based matching against a mismatched file schema
-    // reads columns back as null/empty. Override the (Velox) orcUseColumnNames session conf
-    // so native reads ORC by position too. Harmless for backends that ignore this key.
+    // position rather than by name (see OrcUtils.requestedColumnIds). Forward the flag to
+    // the native (Velox) reader so it maps ORC/DWRF files by position too, otherwise
+    // name-based matching against a mismatched file schema reads columns back as null/empty.
+    // The native reader still decides per file (files with all-`_col*` physical names are
+    // always mapped by position). Harmless for backends that ignore this key.
     // String literal is used because gluten-substrait cannot depend on backends-velox.
     if (
       backendName == "velox" &&
       conf.getOrElse(SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, "false").toBoolean
     ) {
-      nativeConfMap.put("spark.gluten.sql.columnar.backend.velox.orcUseColumnNames", "false")
+      nativeConfMap.put(
+        "spark.gluten.sql.columnar.backend.velox.orcForcePositionalEvolution",
+        "true")
     }
 
     // Pass the latest tokens to native
@@ -653,7 +652,9 @@ object GlutenConfig extends ConfigRegistry {
       ("spark.hadoop.dfs.client.log.severity", "INFO"),
       ("spark.sql.orc.compression.codec", "snappy"),
       ("spark.sql.decimalOperations.allowPrecisionLoss", "true"),
-      ("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled", "false"),
+      ("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled", "true"),
+      ("spark.gluten.sql.columnar.backend.velox.numCacheFileHandles", "10000"),
+      ("spark.gluten.sql.columnar.backend.velox.fileHandleExpirationDurationMs", "600000"),
       ("spark.gluten.velox.awsSdkLogLevel", "FATAL"),
       ("spark.gluten.velox.s3UseProxyFromEnv", "false"),
       ("spark.gluten.velox.s3PayloadSigningPolicy", "Never"),
@@ -853,6 +854,14 @@ object GlutenConfig extends ConfigRegistry {
       .doc("Enable or disable columnar batchscan.")
       .booleanConf
       .createWithDefault(true)
+
+  val COLUMNAR_BATCHSCAN_MAX_INPUT_PARTITIONS =
+    buildConf("spark.gluten.sql.columnar.batchscan.maxInputPartitions")
+      .doc(
+        "Maximum number of Spark task partitions for supported DataSource V2 batch scans. ")
+      .intConf
+      .checkValue(_ > 0, s"must be positive.")
+      .createWithDefault(Int.MaxValue)
 
   val COLUMNAR_FILESCAN_ENABLED =
     buildConf("spark.gluten.sql.columnar.filescan")

@@ -202,7 +202,6 @@ Arguments: false
 
 (21) VeloxResizeBatches
 Input [5]: [hash_partition_key#17, _groupingexpression#14, i_item_sk#12, d_date#11, count#16]
-Arguments: 1024, 2147483647, 10485760
 
 (22) ColumnarExchange
 Input [5]: [hash_partition_key#17, _groupingexpression#14, i_item_sk#12, d_date#11, count#16]
@@ -263,7 +262,6 @@ Arguments: false
 
 (36) VeloxResizeBatches
 Input [5]: [hash_partition_key#21, cs_bill_customer_sk#1, cs_quantity#3, cs_list_price#4, cs_sold_date_sk#5]
-Arguments: 1024, 2147483647, 10485760
 
 (37) ColumnarExchange
 Input [5]: [hash_partition_key#21, cs_bill_customer_sk#1, cs_quantity#3, cs_list_price#4, cs_sold_date_sk#5]
@@ -342,7 +340,6 @@ Arguments: false
 
 (54) VeloxResizeBatches
 Input [4]: [hash_partition_key#32, c_customer_sk#26, sum#30, isEmpty#31]
-Arguments: 1024, 2147483647, 10485760
 
 (55) ColumnarExchange
 Input [4]: [hash_partition_key#32, c_customer_sk#26, sum#30, isEmpty#31]
@@ -396,7 +393,6 @@ Arguments: false
 
 (66) VeloxResizeBatches
 Input [4]: [hash_partition_key#39, c_customer_sk#36, c_first_name#37, c_last_name#38]
-Arguments: 1024, 2147483647, 10485760
 
 (67) ColumnarExchange
 Input [4]: [hash_partition_key#39, c_customer_sk#36, c_first_name#37, c_last_name#38]
@@ -498,7 +494,6 @@ Arguments: false
 
 (91) VeloxResizeBatches
 Input [5]: [hash_partition_key#46, c_last_name#38, c_first_name#37, sum#44, isEmpty#45]
-Arguments: 1024, 2147483647, 10485760
 
 (92) ColumnarExchange
 Input [5]: [hash_partition_key#46, c_last_name#38, c_first_name#37, sum#44, isEmpty#45]
@@ -558,7 +553,6 @@ Arguments: false
 
 (105) VeloxResizeBatches
 Input [5]: [hash_partition_key#55, ws_bill_customer_sk#50, ws_quantity#51, ws_list_price#52, ws_sold_date_sk#53]
-Arguments: 1024, 2147483647, 10485760
 
 (106) ColumnarExchange
 Input [5]: [hash_partition_key#55, ws_bill_customer_sk#50, ws_quantity#51, ws_list_price#52, ws_sold_date_sk#53]
@@ -655,7 +649,6 @@ Arguments: false
 
 (129) VeloxResizeBatches
 Input [5]: [hash_partition_key#71, c_last_name#64, c_first_name#63, sum#69, isEmpty#70]
-Arguments: 1024, 2147483647, 10485760
 
 (130) ColumnarExchange
 Input [5]: [hash_partition_key#71, c_last_name#64, c_first_name#63, sum#69, isEmpty#70]
@@ -839,7 +832,6 @@ Arguments: false
 
 (163) VeloxResizeBatches
 Input [4]: [hash_partition_key#89, c_customer_sk#82, sum#87, isEmpty#88]
-Arguments: 1024, 2147483647, 10485760
 
 (164) ColumnarExchange
 Input [4]: [hash_partition_key#89, c_customer_sk#82, sum#87, isEmpty#88]

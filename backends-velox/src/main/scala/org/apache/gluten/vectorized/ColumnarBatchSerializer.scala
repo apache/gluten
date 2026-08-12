@@ -18,6 +18,7 @@ package org.apache.gluten.vectorized
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.{GlutenConfig, ShuffleWriterType, VeloxConfig}
+import org.apache.gluten.execution.{CPUStageMode, StageExecutionMode}
 import org.apache.gluten.iterator.ClosableIterator
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
@@ -136,18 +137,20 @@ private class ColumnarBatchSerializerInstanceImpl(
 
   // `deserializeStream` is currently still used by uniffle shuffle reader.
   override def deserializeStream(in: InputStream): DeserializationStream = {
-    new TaskDeserializationStream(Iterator((null, in)))
+    new TaskDeserializationStream(Iterator((null, in)), None, CPUStageMode)
   }
 
-  override def deserializeStreams(
+  def deserializeStreams(
       streams: Iterator[(BlockId, InputStream)],
-      onComplete: () => Unit): DeserializationStream = {
-    new TaskDeserializationStream(streams, Some(onComplete))
+      onComplete: () => Unit,
+      executionMode: StageExecutionMode = CPUStageMode): DeserializationStream = {
+    new TaskDeserializationStream(streams, Some(onComplete), executionMode)
   }
 
   private class TaskDeserializationStream(
       streams: Iterator[(BlockId, InputStream)],
-      onComplete: Option[() => Unit] = None)
+      onComplete: Option[() => Unit],
+      executionMode: StageExecutionMode)
     extends DeserializationStream
     with TaskResource {
     private val streamReader = ShuffleStreamReader(streams)
@@ -155,7 +158,7 @@ private class ColumnarBatchSerializerInstanceImpl(
     private val wrappedOut: ClosableIterator[ColumnarBatch] = new ColumnarBatchOutIterator(
       runtime,
       jniWrapper
-        .read(shuffleReaderHandle, streamReader))
+        .read(shuffleReaderHandle, streamReader, executionMode.id))
 
     private var cb: ColumnarBatch = _
 

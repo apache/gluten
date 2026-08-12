@@ -75,6 +75,18 @@ object VeloxRuleApi {
    * columnar query planning.
    */
   private def injectLegacy(injector: LegacyInjector): Unit = {
+    // Registered at injectPre rather than injectPreTransform so the rewrite is baked into the
+    // plan that ExpandFallbackPolicy reverts to when it promotes a stage fallback to a
+    // whole-stage fallback (GLUTEN-12013). A rewrite applied at injectPreTransform is stripped
+    // by that reversion, which can leave a vanilla-reverted stage producing Spark-format bloom
+    // filter bytes while another stage still consumes them as Velox-format, crashing with
+    // "Unsupported BloomFilter version".
+    injector.injectPre(
+      c =>
+        BloomFilterMightContainJointRewriteRule.apply(
+          c.session,
+          c.caller.isBloomFilterStatFunction()))
+
     // Legacy: Pre-transform rules.
     injector.injectPreTransform(_ => RemoveTransitions)
     injector.injectPreTransform(_ => PushDownInputFileExpression.PreOffload)
@@ -82,11 +94,6 @@ object VeloxRuleApi {
     injector.injectPreTransform(c => FallbackMultiCodegens.apply(c.session))
     injector.injectPreTransform(c => MergeTwoPhasesHashBaseAggregate(c.session))
     injector.injectPreTransform(_ => RewriteSubqueryBroadcast())
-    injector.injectPreTransform(
-      c =>
-        BloomFilterMightContainJointRewriteRule.apply(
-          c.session,
-          c.caller.isBloomFilterStatFunction()))
     injector.injectPreTransform(_ => EliminateRedundantGetTimestamp)
 
     // Legacy: The legacy transform rule.
@@ -112,7 +119,6 @@ object VeloxRuleApi {
 
     // Legacy: Post-transform rules.
     injector.injectPostTransform(c => AppendBatchResizeForShuffleInputAndOutput(c.caller.isAqe()))
-    injector.injectPostTransform(_ => GpuBufferBatchResizeForShuffleInputOutput())
     injector.injectPostTransform(_ => UnionTransformerRule())
     injector.injectPostTransform(_ => PartialFallbackRules())
     injector.injectPostTransform(_ => RemoveNativeWriteFilesSortAndProject())
@@ -147,6 +153,8 @@ object VeloxRuleApi {
       c => PreventBatchTypeMismatchInTableCache(c.caller.isCache(), Set(VeloxBatchType)))
     injector.injectFinal(
       c => GlutenAutoAdjustStageResourceProfile(new GlutenConfig(c.sqlConf), c.session))
+    injector.injectFinal(
+      c => AdjustStageExecutionMode(new GlutenConfig(c.sqlConf), c.session, c.caller.isAqe()))
     injector.injectFinal(c => GlutenFallbackReporter(new GlutenConfig(c.sqlConf), c.session))
     injector.injectFinal(_ => RemoveFallbackTagRule())
   }

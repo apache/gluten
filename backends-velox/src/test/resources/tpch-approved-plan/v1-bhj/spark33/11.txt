@@ -162,7 +162,6 @@ Arguments: false
 
 (25) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, ps_partkey#X, sum#X, isEmpty#X]
-Arguments: X, X, X
 
 (26) ColumnarExchange
 Input [4]: [hash_partition_key#X, ps_partkey#X, sum#X, isEmpty#X]
@@ -195,7 +194,6 @@ Arguments: false
 
 (33) VeloxResizeBatches
 Input [2]: [ps_partkey#X, value#X]
-Arguments: X, X, X
 
 (34) ColumnarExchange
 Input [2]: [ps_partkey#X, value#X]
@@ -431,7 +429,6 @@ Arguments: false
 
 (77) VeloxResizeBatches
 Input [2]: [sum#X, isEmpty#X]
-Arguments: X, X, X
 
 (78) ColumnarExchange
 Input [2]: [sum#X, isEmpty#X]

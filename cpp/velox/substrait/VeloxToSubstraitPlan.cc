@@ -103,7 +103,7 @@ AggregateCompanion toAggregateCompanion(const core::AggregationNode::Aggregate& 
   // Add unknown type in extension.
   auto unknownType = substraitPlan->add_extensions()->mutable_extension_type();
 
-  unknownType->set_extension_uri_reference(0);
+  unknownType->set_extension_urn_reference(0);
   unknownType->set_type_anchor(0);
   unknownType->set_name("UNKNOWN");
 
@@ -282,7 +282,7 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
         substrait::extensions::AdvancedExtension ae{};
         google::protobuf::StringValue msg;
         msg.set_value("allowFlush=1");
-        ae.mutable_optimization()->PackFrom(msg);
+        ae.add_optimization()->PackFrom(msg);
         aggregateRel->mutable_advanced_extension()->MergeFrom(ae);
         break;
       }

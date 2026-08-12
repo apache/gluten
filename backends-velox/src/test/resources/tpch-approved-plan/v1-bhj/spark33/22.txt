@@ -97,7 +97,6 @@ Arguments: false
 
 (14) VeloxResizeBatches
 Input [5]: [hash_partition_key#X, cntrycode#X, count#X, sum#X, isEmpty#X]
-Arguments: X, X, X
 
 (15) ColumnarExchange
 Input [5]: [hash_partition_key#X, cntrycode#X, count#X, sum#X, isEmpty#X]
@@ -126,7 +125,6 @@ Arguments: false
 
 (21) VeloxResizeBatches
 Input [3]: [cntrycode#X, numcust#X, totacctbal#X]
-Arguments: X, X, X
 
 (22) ColumnarExchange
 Input [3]: [cntrycode#X, numcust#X, totacctbal#X]
@@ -265,7 +263,6 @@ Arguments: false
 
 (46) VeloxResizeBatches
 Input [2]: [sum#X, count#X]
-Arguments: X, X, X
 
 (47) ColumnarExchange
 Input [2]: [sum#X, count#X]

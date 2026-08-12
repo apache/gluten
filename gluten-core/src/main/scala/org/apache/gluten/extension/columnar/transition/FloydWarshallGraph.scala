@@ -89,12 +89,10 @@ object FloydWarshallGraph {
   private object Builder {
     private class Impl[V <: AnyRef, E <: AnyRef]() extends Builder[V, E] {
       private val pathTable: mutable.Map[V, mutable.Map[V, Path[E]]] = mutable.Map()
-      private var graph: Option[FloydWarshallGraph[V, E]] = None
 
       override def addVertex(v: V): Builder[V, E] = {
         assert(!pathTable.contains(v), s"Vertex $v already exists in graph")
         pathTable.getOrElseUpdate(v, mutable.Map()).getOrElseUpdate(v, Path(Nil))
-        graph = None
         this
       }
 
@@ -104,7 +102,6 @@ object FloydWarshallGraph {
         assert(pathTable.contains(to), s"Vertex $to not exists in graph")
         assert(!hasPath(from, to), s"Path from $from to $to already exists in graph")
         pathTable(from) += to -> Path(Seq(edge))
-        graph = None
         this
       }
 

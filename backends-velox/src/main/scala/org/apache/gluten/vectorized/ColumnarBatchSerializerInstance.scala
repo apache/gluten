@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.vectorized
 
+import org.apache.gluten.execution.{CPUStageMode, StageExecutionMode}
+
 import org.apache.spark.serializer.{DeserializationStream, SerializationStream, SerializerInstance}
 import org.apache.spark.storage.BlockId
 
@@ -30,7 +32,8 @@ abstract class ColumnarBatchSerializerInstance extends SerializerInstance {
   // onComplete is called when the deserialization is completed.
   def deserializeStreams(
       streams: Iterator[(BlockId, InputStream)],
-      onComplete: () => Unit): DeserializationStream
+      onComplete: () => Unit,
+      executionMode: StageExecutionMode = CPUStageMode): DeserializationStream
 
   override def serialize[T: ClassTag](t: T): ByteBuffer = {
     throw new UnsupportedOperationException

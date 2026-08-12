@@ -36,9 +36,7 @@ function start() {
   DRIVER_OPTIONS="${DRIVER_OPTIONS} $(cat ${GLUTEN_HOME}/conf/gluten.properties | grep "^spark.driver.extraJavaOptions" | cut -d "=" -f 2)"
 
   GLUTEN_JARS=
-  if [ "${SPARK_MAJOR_MINOR_VERSION}" == "3.2" ]; then
-      GLUTEN_JARS=${GLUTEN_HOME}/jars/spark32/*
-  elif [ "${SPARK_MAJOR_MINOR_VERSION}" == "3.3" ]; then
+  if [ "${SPARK_MAJOR_MINOR_VERSION}" == "3.3" ]; then
       GLUTEN_JARS=${GLUTEN_HOME}/jars/spark33/*
   else
       echo "Unsupported spark version: ${SPARK_MAJOR_MINOR_VERSION}"

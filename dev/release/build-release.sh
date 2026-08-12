@@ -62,7 +62,6 @@ do
                     -Piceberg,delta,hudi,paimon -DskipTests
 done
 
-for spark_version in 4.0
-do
-  ${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-${spark_version} -Piceberg,paimon -DskipTests
-done
+${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-4.0 -Piceberg,paimon -DskipTests
+
+${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-4.1 -Piceberg -DskipTests
