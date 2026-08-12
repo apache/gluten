@@ -32,16 +32,19 @@ import scala.util.control.NonFatal
  * relation as a `RowDataSourceScanExec` whose file scans are hidden inside an RDD, and no columnar
  * rule can reach them.
  *
- * This runs as a logical rule at post-hoc resolution, i.e. before the optimizer. Only an
- * output-restoring projection is needed: the replacement keeps the original relation's expression
- * IDs, and Spark's own optimizer then pushes the surrounding filters into the expanded file scans.
- * Expanding later -- during physical planning -- would require re-running the optimizer out of band
- * and hand-preserving expression IDs against operators that were already planned, which is fragile
- * (a collapsed alias there surfaces as `Couldn't find <attr>` at shuffle binding time).
+ * This runs as a logical optimizer rule. Only an output-restoring projection is needed: the
+ * replacement keeps the original relation's expression IDs, and because the rule participates in
+ * the operator optimization batch, Spark's own optimizer then pushes the surrounding filters into
+ * the expanded file scans. Expanding later -- during physical planning -- would require re-running
+ * the optimizer out of band and hand-preserving expression IDs against operators that were already
+ * planned, which is fragile (a collapsed alias there surfaces as `Couldn't find <attr>` at shuffle
+ * binding time).
  *
- * One consequence of the earlier phase: an open-ended CDF range (no ending version) is resolved
- * when the Dataset is analyzed rather than at scan time, so commits landing between Dataset
- * creation and the first action are not included. This matches batch-read snapshot semantics.
+ * The phase also has to be no earlier than the optimizer. Analysis runs eagerly when a Dataset is
+ * created, while optimization is deferred to the first action, and Delta resolves an open-ended CDF
+ * range (no ending version) to the latest version at execution time. Expanding during analysis
+ * would snapshot that range at Dataset creation and silently drop commits made before the action --
+ * see `DeltaCDCSQLSuite."ending version not specified resolves to latest at execution time"`.
  */
 case class DeltaCDFScanRule(spark: SparkSession, offloadEnabled: () => Boolean)
   extends Rule[LogicalPlan] {
@@ -51,10 +54,12 @@ case class DeltaCDFScanRule(spark: SparkSession, offloadEnabled: () => Boolean)
       return plan
     }
 
-    // resolveOperatorsUp, not transformUp: this rule runs inside the analyzer, where transformUp
-    // is asserted against (it throws under spark.testing). resolveOperatorsUp also legalizes the
-    // nested analysis in expand() and skips already-analyzed subtrees, so expansion cannot rerun.
-    plan.resolveOperatorsUp {
+    // transformUp, not resolveOperatorsUp: by the optimizer the plan is already marked analyzed,
+    // and resolveOperatorsUp skips analyzed subtrees, so it would never reach the relation. The
+    // analyzer's assertion against transformUp does not apply outside the analyzer. Expansion is
+    // idempotent -- the replacement holds no DeltaCDFRelation -- so re-running the operator
+    // optimization batch to fixed point cannot expand twice.
+    plan.transformUp {
       case relation: LogicalRelation =>
         relation.relation match {
           case cdfRelation: CDCReader.DeltaCDFRelation =>
