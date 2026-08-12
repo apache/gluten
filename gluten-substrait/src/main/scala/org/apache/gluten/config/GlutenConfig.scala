@@ -416,6 +416,7 @@ object GlutenConfig extends ConfigRegistry {
   val PARQUET_ZSTD_COMPRESSION_LEVEL: String = "parquet.compression.codec.zstd.level"
   val PARQUET_DATAPAGE_SIZE: String = "parquet.page.size"
   val PARQUET_ENABLE_DICTIONARY: String = "parquet.enable.dictionary"
+  val PARQUET_ENABLE_PAGE_INDEX: String = "parquet.enable.page.index"
   val PARQUET_WRITER_VERSION: String = "parquet.writer.version"
   // Hadoop config
   val HADOOP_PREFIX = "spark.hadoop."
