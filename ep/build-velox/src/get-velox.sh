@@ -212,6 +212,7 @@ function setup_linux {
     "$LINUX_DISTRIBUTION" == "almalinux" ]]; then
     case "${LINUX_VERSION_ID%%.*}" in
       9) ;;
+      8) ;;
       *)
         echo "Unsupported ${LINUX_DISTRIBUTION} version: $LINUX_VERSION_ID"
         exit 1
