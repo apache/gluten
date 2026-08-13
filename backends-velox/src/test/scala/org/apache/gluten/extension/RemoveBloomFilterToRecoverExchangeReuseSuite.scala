@@ -285,8 +285,9 @@ class RemoveBloomFilterToRecoverExchangeReuseSuite
     })
 
   private def countBloomFilterMightContain(plan: SparkPlan): Int = {
-    plan.collectWithSubqueries(PartialFunction[
-      SparkPlan,
-      Seq[Expression]](collectBloomFilterExprs)).map(_.size).sum
+    // A partial-function literal rather than PartialFunction[SparkPlan, Seq[Expression]](f):
+    // the latter does not compile under Scala 2.13, where `PartialFunction` in an expression
+    // position is the companion object and cannot be type-applied.
+    plan.collectWithSubqueries { case p => collectBloomFilterExprs(p).size }.sum
   }
 }
