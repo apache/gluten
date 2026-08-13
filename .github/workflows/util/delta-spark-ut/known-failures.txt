@@ -73,6 +73,19 @@ org.apache.spark.sql.delta.DeltaAlterTableByNameIdColumnMappingSuite#CHANGE COLU
 org.apache.spark.sql.delta.DeltaAlterTableByNameNameColumnMappingSuite#CHANGE COLUMN - case insensitive - column mapping name mode
 org.apache.spark.sql.delta.DeltaAlterTableByNameNameColumnMappingSuite#CHANGE COLUMN - move to first (nested) - column mapping name mode
 org.apache.spark.sql.delta.DeltaArbitraryColumnNameSuite#create table
+org.apache.spark.sql.delta.DeltaCDCIdColumnMappingSuite#filters with special characters in name should be pushed down - column mapping id mode
+org.apache.spark.sql.delta.DeltaCDCNameColumnMappingSuite#filters with special characters in name should be pushed down - column mapping name mode
+org.apache.spark.sql.delta.DeltaCDCSQLIdColumnMappingSuite#filters with special characters in name should be pushed down - column mapping id mode
+org.apache.spark.sql.delta.DeltaCDCSQLNameColumnMappingSuite#filters with special characters in name should be pushed down - column mapping name mode
+org.apache.spark.sql.delta.DeltaCDCSQLSuite#select individual column should push down filters
+org.apache.spark.sql.delta.DeltaCDCSQLWithCatalogOwnedBatch100Suite#select individual column should push down filters
+org.apache.spark.sql.delta.DeltaCDCSQLWithCatalogOwnedBatch1Suite#select individual column should push down filters
+org.apache.spark.sql.delta.DeltaCDCSQLWithCatalogOwnedBatch2Suite#select individual column should push down filters
+org.apache.spark.sql.delta.DeltaCDCScalaSuite#filters should be pushed down
+org.apache.spark.sql.delta.DeltaCDCScalaWithCatalogOwnedBatch100Suite#filters should be pushed down
+org.apache.spark.sql.delta.DeltaCDCScalaWithCatalogOwnedBatch1Suite#filters should be pushed down
+org.apache.spark.sql.delta.DeltaCDCScalaWithCatalogOwnedBatch2Suite#filters should be pushed down
+org.apache.spark.sql.delta.DeltaCDCScalaWithDeletionVectorsSuite#filters should be pushed down
 org.apache.spark.sql.delta.DeltaCDCStreamDeletionVectorSuite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamSuite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch100Suite#cdc streams with noop merge
