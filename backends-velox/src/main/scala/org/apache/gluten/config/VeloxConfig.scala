@@ -117,6 +117,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableGpuAsyncShuffleReader: Boolean = getConf(ENABLE_GPU_ASYNC_SHUFFLE_READER)
 
   def gpuAsyncReaderMaxPrefetchBytes: Long = getConf(GPU_ASYNC_SHUFFLE_READER_MAX_PREFETCH_BYTES)
+
+  def removeBloomFilterToRecoverExchangeReuse: Boolean =
+    getConf(REMOVE_BLOOM_FILTER_TO_RECOVER_EXCHANGE_REUSE)
 }
 
 object VeloxConfig extends ConfigRegistry {
@@ -954,4 +957,18 @@ object VeloxConfig extends ConfigRegistry {
       .bytesConf(ByteUnit.BYTE)
       .checkValue(_ > 0, "The max prefetch bytes must be greater than 0.")
       .createWithDefaultString("1GB")
+
+  val REMOVE_BLOOM_FILTER_TO_RECOVER_EXCHANGE_REUSE =
+    buildConf("spark.gluten.sql.columnar.backend.velox.removeBloomFilterToRecoverExchangeReuse")
+      .doc(
+        "When true, if two join inputs that read the same tables and produce the same output " +
+          "carry a different number of Spark runtime BloomFilters, the extra BloomFilters are " +
+          "removed from the side that has more of them, so that both sides canonicalize to the " +
+          "same plan and Spark can reuse one exchange instead of scanning the table twice. This " +
+          "trades away some BloomFilter pruning for one less scan of a large table, which is a " +
+          "win for queries like TPC-DS Q24a/Q24b. Set to false to always keep every BloomFilter " +
+          "Spark injected. Has no effect when " +
+          "spark.sql.optimizer.runtime.bloomFilter.enabled is false.")
+      .booleanConf
+      .createWithDefault(true)
 }
