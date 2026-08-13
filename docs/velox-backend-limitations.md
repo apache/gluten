@@ -144,17 +144,10 @@ Gluten's.
 
   Only reading with INT96 and dictionary encoding is supported. When reading INT64 represented millisecond/microsecond timestamps, or INT96 represented timestamps of other encodings, exceptions can occur.
 
-- Complex types
-  - Parquet scan of nested array with struct or array as element type is not supported in Velox (fallback behavior).
-  - Parquet scan of nested map with struct as key type, or array type as value type is not supported in Velox (fallback behavior).
-
-### CSV Read
-The header option should be true. And now we only support DatasourceV1, i.e., user should set `spark.sql.sources.useV1SourceList=csv`. User defined read option is not supported, which will make CSV read fall back to vanilla Spark in most case.
-CSV read will also fall back to vanilla Spark and log warning when user specifies schema is different with file schema.
-
 ### Utilizing Map Type as Hash Keys in ColumnarShuffleExchange
-Spark uses the `spark.sql.legacy.allowHashOnMapType` configuration to support hash map key functions. 
-Gluten enables this configuration during the creation of ColumnarShuffleExchange, as shown in the code [link](https://github.com/apache/gluten/blob/0dacac84d3bf3d2759a5dd7e0735147852d2845d/backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxSparkPlanExecApi.scala#L355-L363). 
-This method bypasses Spark's unresolved checks and creates projects with the hash(mapType) operator before ColumnarShuffleExchange. 
-However, if `spark.sql.legacy.allowHashOnMapType` is disabled in a test environment, projects using the hash(mapType) expression may throw an `Invalid call to dataType on unresolved object` exception during validation, causing them to fallback to vanilla Spark, as referenced in the code [link](https://github.com/apache/spark/blob/de5fa426e23b84fc3c2bddeabcd2e1eda515abd5/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/hash.scala#L291-L296).
- Enabling this configuration allows the project to be offloaded to Velox.
+Spark's `spark.sql.legacy.allowHashOnMapType` configuration controls whether hashing is allowed on map-type keys.
+Gluten enables this configuration when creating `ColumnarShuffleExchange`, as shown [here](https://github.com/apache/gluten/blob/0dacac84d3bf3d2759a5dd7e0735147852d2845d/backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxSparkPlanExecApi.scala#L355-L363).
+This bypasses Spark's unresolved-expression checks and lets projects using the `hash(mapType)` operator be created before `ColumnarShuffleExchange`.
+However, if `spark.sql.legacy.allowHashOnMapType` is disabled in a test environment, projects using the `hash(mapType)` expression may throw an
+`Invalid call to dataType on unresolved object` exception during validation, causing them to fall back to vanilla Spark, as referenced [here](https://github.com/apache/spark/blob/de5fa426e23b84fc3c2bddeabcd2e1eda515abd5/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/hash.scala#L291-L296).
+Enabling this configuration allows the project to be offloaded to Velox.

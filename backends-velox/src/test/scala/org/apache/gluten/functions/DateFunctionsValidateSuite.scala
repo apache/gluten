@@ -611,6 +611,10 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
         runQueryAndCompare("select second(ts) from view") {
           checkGlutenPlan[ProjectExecTransformer]
         }
+        // timestampadd(timestamp_ntz) runs natively; output stays timestamp_ntz.
+        runQueryAndCompare("select timestampadd(hour, 1, ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
     }
   }
 }

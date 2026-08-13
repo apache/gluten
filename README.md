@@ -1,8 +1,7 @@
-<img src="docs/image/gluten-logo.svg" alt="Gluten" width="200">
+<img src="docs/image/gluten-logo.svg" alt="Gluten" width="260">
 
-# Apache Gluten
 
-**A Middle Layer for Offloading JVM-based SQL Engines' Execution to Native Engines**
+**A Middle Layer for Offloading JVM-Based SQL Execution to Native Engines**
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/8452/badge)](https://www.bestpractices.dev/projects/8452)
 
@@ -27,7 +26,7 @@ data processing, these engines can outperform Spark’s JVM-based SQL engine. Ho
 
 The basic design principle is to reuse Spark’s control flow, while offloading compute-intensive data processing to the native side. More specifically:
 
-* Transform Spark’s physical plan to Substrait plan, then transform it to native engine's plan.
+* Transform Spark’s physical plan into a Substrait plan, then transform it into the native engine's plan.
 * Offload performance-critical data processing to native engine.
 * Define clear JNI interfaces for native SQL engines.
 * Allow easy switching between available native backends.
@@ -47,7 +46,7 @@ and Spark’s Columnar API (introduced in Spark 3.0) is used during execution. G
 <p align="center">
 <img src="https://user-images.githubusercontent.com/47296334/199617207-1140698a-4d53-462d-9bc7-303d14be060b.png" width="700">
 </p>
-Currently, Gluten supports only ClickHouse and Velox backends. Velox is a C++ database acceleration library which provides reusable, extensible and high-performance data processing components. In addition, Gluten is designed to be extensible,
+Currently, Gluten supports only the ClickHouse and Velox backends. Velox is a C++ database acceleration library that provides reusable, extensible, and high-performance data processing components. In addition, Gluten is designed to be extensible,
 allowing support for additional backends in the future.
 
 Gluten's key components:
@@ -79,7 +78,7 @@ There are two ways to acquire Gluten jar for the above configuration.
 
 ### Use Released JAR
 
-Please download the tar package [here](https://gluten.apache.org/downloads/), then extract Gluten JAR from it.
+Please download the tar package [here](https://gluten.apache.org/downloads/), then extract the Gluten JAR from it.
 Additionally, Gluten provides nightly builds based on the main branch for early testing. The nightly build JARs are available at [Apache Gluten Nightlies](https://nightlies.apache.org/gluten/).
 They have been verified on Centos 7/8/9, Ubuntu 20.04/22.04.
 
@@ -113,7 +112,7 @@ Welcome to contribute to the Gluten project! See [CONTRIBUTING.md](CONTRIBUTING.
 
 ## 6. Community
 
-Gluten successfully became an Apache Incubator project in March 2024 and graduated as an Apache Top-Level Project in March 2026. Here are several ways to connect with the community.
+Here are several ways to connect with the community.
 
 ### GitHub
 
@@ -164,7 +163,8 @@ Gluten is licensed under [Apache License Version 2.0](https://www.apache.org/lic
 
 ## 10. Acknowledgements
 
-Gluten was initiated by Intel and Kyligence in 2022. Several other companies are also actively contributing to its development, including BIGO, Meituan, Alibaba Cloud, NetEase, Baidu, Microsoft, IBM, Google, etc.
+Gluten was initiated by Intel and Kyligence in 2022 and became an Apache Top-Level Project in March 2026.
+Several other companies are also actively contributing to its development, including BIGO, Meituan, Alibaba Cloud, NetEase, Baidu, Microsoft, IBM, Google, and others.
 
 <a href="https://github.com/apache/gluten/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=apache/gluten&columns=25" />

@@ -77,8 +77,17 @@ object SparkResourceUtil extends Logging {
 
   def getTaskSlots(conf: SparkConf): Int = {
     val executorCores = SparkResourceUtil.getExecutorCores(conf)
+    // spark.task.cpus is read raw here, which bypasses Spark's own checkValue(_ > 0) (and on
+    // Spark < 4.2 that positivity check does not exist at all). getTaskSlots runs during driver
+    // plugin init, before Spark validates the value, so fail fast on a non-positive setting rather
+    // than dividing by it: a zero would throw an opaque "/ by zero" ArithmeticException and a
+    // negative would silently produce negative task slots and off-heap budgets.
     val taskCores = conf.getInt("spark.task.cpus", 1)
-    executorCores / taskCores
+    require(taskCores > 0, s"spark.task.cpus should be positive, but was $taskCores")
+    // Floor at one slot. spark.task.cpus > executor cores is an invalid combination that Spark
+    // rejects later with a dedicated message, but callers divide by the slot count during init, so
+    // a 0 quotient would throw before Spark can report the real misconfiguration.
+    Math.max(executorCores / taskCores, 1)
   }
 
   def isLocalMaster(conf: SparkConf): Boolean = {
@@ -96,9 +105,40 @@ object SparkResourceUtil extends Logging {
       val executorMemMib = conf.get(EXECUTOR_MEMORY)
       val factor =
         conf.getDouble(MEMORY_OVERHEAD_FACTOR, 0.1d)
-      val minMib = conf.getLong(MIN_MEMORY_OVERHEAD, 384L)
+      // spark.executor.minMemoryOverhead is a size string, MiB unless suffixed, so getLong would
+      // fail to parse anything carrying a unit. getSizeAsMb keeps the value in MiB, which is what
+      // the max below compares against.
+      val minMib = conf.getSizeAsMb(MIN_MEMORY_OVERHEAD, "384m")
       (executorMemMib * factor).toLong.max(minMib)
     }
-    ByteUnit.MiB.toBytes(overheadMib)
+    mibToBytes(overheadMib)
+  }
+
+  /**
+   * Returns spark.executor.memory in bytes.
+   *
+   * Spark declares the config as bytesConf(ByteUnit.MiB), so a value without a size suffix means
+   * MiB, and SparkConf#getSizeAsBytes must not be used to read it. This matches how Spark itself
+   * reads the config on YARN and K8s. Standalone and local-cluster differ: there Spark resolves it
+   * through the executor-memory-in-MiB path (SparkContext#executorMemoryInMb on Spark 3.4+), which
+   * treats a suffix-less value as bytes.
+   */
+  def getExecutorMemorySize(conf: SparkConf): Long = {
+    val memoryMib = conf.get(EXECUTOR_MEMORY)
+    require(memoryMib >= 0, s"${EXECUTOR_MEMORY.key} should not be negative, but was $memoryMib")
+    mibToBytes(memoryMib)
+  }
+
+  /**
+   * Converts a MiB-valued Spark memory amount to bytes.
+   *
+   * ByteUnit#toBytes rejects a negative input but wraps silently on overflow, while
+   * ByteUnit#convertTo raises on overflow but passes a negative through, so guard the sign here and
+   * let convertTo guard the magnitude. Callers that can name the offending config add their own
+   * require first so that the more specific message wins.
+   */
+  def mibToBytes(memoryMib: Long): Long = {
+    require(memoryMib >= 0, s"Memory size in MiB should not be negative, but was $memoryMib")
+    ByteUnit.MiB.convertTo(memoryMib, ByteUnit.BYTE)
   }
 }

@@ -556,6 +556,10 @@ if(ENABLE_GPU)
     ${VELOX_BUILD_PATH}/velox/experimental/cudf/expression/libvelox_cudf_expression.a
   )
   import_library(
+    facebook::velox::velox_cudf_expression_registry
+    ${VELOX_BUILD_PATH}/velox/experimental/cudf/expression/libvelox_cudf_expression_registry.a
+  )
+  import_library(
     facebook::velox::velox_cudf_exec
     ${VELOX_BUILD_PATH}/velox/experimental/cudf/exec/libvelox_cudf_exec.a)
   import_library(
@@ -585,6 +589,7 @@ if(ENABLE_GPU)
            facebook::velox::velox_cudf_iceberg_connector
            facebook::velox::velox_cudf_hive_connector
            facebook::velox::velox_cudf_expression
+           facebook::velox::velox_cudf_expression_registry
            cudf::cudf
            velox_curl)
 endif()

@@ -316,27 +316,23 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
       format =>
         Seq("true", "false").foreach {
           parquetUseColumnNames =>
-            Seq("true", "false").foreach {
-              orcUseColumnNames =>
-                withSQLConf(
-                  VeloxConfig.PARQUET_USE_COLUMN_NAMES.key -> parquetUseColumnNames,
-                  VeloxConfig.ORC_USE_COLUMN_NAMES.key -> orcUseColumnNames
-                ) {
-                  withTable("test") {
-                    spark
-                      .range(100)
-                      .selectExpr("to_timestamp_ntz(from_unixtime(id % 3)) as c1", "id as c2")
-                      .write
-                      .format(format)
-                      .saveAsTable("test")
+            withSQLConf(
+              VeloxConfig.PARQUET_USE_COLUMN_NAMES.key -> parquetUseColumnNames
+            ) {
+              withTable("test") {
+                spark
+                  .range(100)
+                  .selectExpr("to_timestamp_ntz(from_unixtime(id % 3)) as c1", "id as c2")
+                  .write
+                  .format(format)
+                  .saveAsTable("test")
 
-                    runQueryAndCompare(query) {
-                      df =>
-                        val plan = df.queryExecution.executedPlan
-                        assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
-                    }
-                  }
+                runQueryAndCompare(query) {
+                  df =>
+                    val plan = df.queryExecution.executedPlan
+                    assert(collect(plan) { case g: GlutenPlan => g }.nonEmpty)
                 }
+              }
             }
         }
     }

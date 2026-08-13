@@ -29,6 +29,8 @@ ENV LC_ALL=C.UTF-8
 RUN set -ex; \
     yum update -y && yum install -y epel-release sudo dnf && yum install -y ccache; \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-12 gcc-toolset-13; \
+    # clang-tidy, installed here so its version is pinned to the image, not to each CI run.
+    dnf install -y --setopt=install_weak_deps=False clang-tools-extra; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     yum install -y java-${JAVA_VERSION}-openjdk-devel patch wget git perl; \
     mirror_host="https://www.apache.org/dyn/closer.lua"; \
@@ -41,6 +43,7 @@ RUN set -ex; \
     ./install-spark-resources.sh 3.5; \
     ./install-spark-resources.sh 3.5-scala2.13; \
     ./install-spark-resources.sh 4.0; \
+    ./install-spark-resources.sh 4.1; \
     ARCH=$(uname -m); \
     if [[ "$ARCH" == "aarch64" || "$ARCH" == "ppc64le" ]]; then \
         export CPU_TARGET="$ARCH"; \

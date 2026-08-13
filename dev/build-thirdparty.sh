@@ -31,7 +31,14 @@ function process_setup_ubuntu_2004 {
 }
 
 function process_setup_ubuntu_2204 {
-  cp /usr/lib/${ARCH}-linux-gnu/{libre2.so.9,libdouble-conversion.so.3,libglog.so.0,libgflags.so.2.2,libevent-2.1.so.7,libsnappy.so.1,libunwind.so.8,libcurl.so.4,libxml2.so.2,libicui18n.so.70,libicuuc.so.70,libnghttp2.so.14,libldap-2.5.so.0,liblber-2.5.so.0,librtmp.so.1,libsasl2.so.2,libssh.so.4,libicudata.so.70} $THIRDPARTY_LIB/
+  cp /usr/lib/${ARCH}-linux-gnu/{libre2.so.9,libdouble-conversion.so.3,libglog.so.0,libevent-2.1.so.7,libsnappy.so.1,libunwind.so.8,libcurl.so.4,libxml2.so.2,libicui18n.so.70,libicuuc.so.70,libnghttp2.so.14,libldap-2.5.so.0,liblber-2.5.so.0,librtmp.so.1,libsasl2.so.2,libssh.so.4,libicudata.so.70} $THIRDPARTY_LIB/
+  cp /usr/local/lib/libgflags.so.2.3 $THIRDPARTY_LIB/
+  find /usr/ -name "libboost_context.so.1.84.0" -exec cp {} $THIRDPARTY_LIB/ \; 2>/dev/null
+  find /usr/ -name "libboost_regex.so.1.84.0" -exec cp {} $THIRDPARTY_LIB/ \; 2>/dev/null
+}
+function process_setup_ubuntu_2404 {
+  cp /usr/lib/${ARCH}-linux-gnu/{libre2.so.10,libdouble-conversion.so.3,libglog.so.1,libevent-2.1.so.7,libsnappy.so.1,libunwind.so.8,libcurl.so.4,libxml2.so.2,libnghttp2.so.14,libldap.so.2,liblber.so.2,librtmp.so.1,libsasl2.so.2,libssh.so.4,libsodium.so.23,libssl.so.3,libcrypto.so.3,libgssapi_krb5.so.2,libkrb5.so.3,libk5crypto.so.3,libkrb5support.so.0,libkeyutils.so.1,libbrotlidec.so.1,libbrotlicommon.so.1,libidn2.so.0} $THIRDPARTY_LIB/
+  cp /usr/local/lib/libgflags.so.2.3 $THIRDPARTY_LIB/
   find /usr/ -name "libboost_context.so.1.84.0" -exec cp {} $THIRDPARTY_LIB/ \; 2>/dev/null
   find /usr/ -name "libboost_regex.so.1.84.0" -exec cp {} $THIRDPARTY_LIB/ \; 2>/dev/null
 }
@@ -39,7 +46,7 @@ function process_setup_ubuntu_2204 {
 function process_setup_centos_9 {
   cp /lib64/{libre2.so.9,libdouble-conversion.so.3,libevent-2.1.so.7,libdwarf.so.0,libicudata.so.67,libicui18n.so.67,libicuuc.so.67,libsodium.so.23} $THIRDPARTY_LIB/
   cp /usr/local/lib/{libboost_context.so.1.84.0,libboost_filesystem.so.1.84.0,libboost_program_options.so.1.84.0,libboost_regex.so.1.84.0,libboost_system.so.1.84.0,libboost_thread.so.1.84.0,libboost_atomic.so.1.84.0} $THIRDPARTY_LIB/
-  cp /usr/local/lib/libgflags.so.2.2 $THIRDPARTY_LIB/
+  cp /usr/local/lib/libgflags.so.2.3 $THIRDPARTY_LIB/
   find /usr/local/lib /usr/local/lib64 -name "libglog.so.1" -exec cp {} $THIRDPARTY_LIB/ \; 2>/dev/null
   find /usr/local/lib /usr/local/lib64 -name "libgeos.so.3.10.7" -exec cp {} $THIRDPARTY_LIB/ \; 2>/dev/null
 }
@@ -47,29 +54,23 @@ function process_setup_centos_9 {
 function process_setup_centos_8 {
   cp /usr/lib64/{libre2.so.0,libdouble-conversion.so.3,libevent-2.1.so.6,libdwarf.so.1,libicudata.so.60,libicui18n.so.60,libicuuc.so.60,libsodium.so.23} $THIRDPARTY_LIB/
   cp /usr/local/lib/{libboost_context.so.1.84.0,libboost_filesystem.so.1.84.0,libboost_program_options.so.1.84.0,libboost_regex.so.1.84.0,libboost_system.so.1.84.0,libboost_thread.so.1.84.0,libboost_atomic.so.1.84.0} $THIRDPARTY_LIB/
-  cp /usr/local/lib64/{libgflags.so.2.2,libglog.so.1,libgeos.so.3.10.7} $THIRDPARTY_LIB/
-}
-
-function process_setup_centos_7 {
-  cp /usr/local/lib64/{libgflags.so.2.2,libglog.so.0,libgeos.so.3.10.7} $THIRDPARTY_LIB/
-  cp /usr/lib64/{libdouble-conversion.so.1,libevent-2.0.so.5,libzstd.so.1,libntlm.so.0,libgsasl.so.7,liblz4.so.1} $THIRDPARTY_LIB/
-  cp /usr/local/lib/{libre2.so.10,libboost_context.so.1.84.0,libboost_filesystem.so.1.84.0,libboost_program_options.so.1.84.0,libboost_system.so.1.84.0,libboost_thread.so.1.84.0,libboost_regex.so.1.84.0,libboost_atomic.so.1.84.0} $THIRDPARTY_LIB/
+  cp /usr/local/lib64/{libgflags.so.2.3,libglog.so.1,libgeos.so.3.10.7} $THIRDPARTY_LIB/
 }
 
 function process_setup_debian_11 {
-  cp /usr/lib/x86_64-linux-gnu/{libre2.so.9,libthrift-0.13.0.so,libdouble-conversion.so.3,libevent-2.1.so.7,libgflags.so.2.2,libglog.so.0,libsnappy.so.1,libunwind.so.8,libcurl.so.4,libicui18n.so.67,libicuuc.so.67,libnghttp2.so.14,librtmp.so.1,libssh2.so.1,libpsl.so.5,libldap_r-2.4.so.2,liblber-2.4.so.2,libbrotlidec.so.1,libicudata.so.67,libsasl2.so.2,libbrotlicommon.so.1} $THIRDPARTY_LIB/
+  cp /usr/lib/x86_64-linux-gnu/{libre2.so.9,libthrift-0.13.0.so,libdouble-conversion.so.3,libevent-2.1.so.7,libgflags.so.2.3,libglog.so.0,libsnappy.so.1,libunwind.so.8,libcurl.so.4,libicui18n.so.67,libicuuc.so.67,libnghttp2.so.14,librtmp.so.1,libssh2.so.1,libpsl.so.5,libldap_r-2.4.so.2,liblber-2.4.so.2,libbrotlidec.so.1,libicudata.so.67,libsasl2.so.2,libbrotlicommon.so.1} $THIRDPARTY_LIB/
   cp /usr/local/lib/{libboost_context.so.1.84.0,libboost_regex.so.1.84.0} $THIRDPARTY_LIB/
 }
 
 function process_setup_debian_12 {
-  cp /usr/lib/x86_64-linux-gnu/{libthrift-0.17.0.so,libdouble-conversion.so.3,libevent-2.1.so.7,libgflags.so.2.2,libglog.so.1,libsnappy.so.1,libunwind.so.8,libcurl.so.4,libicui18n.so.72,libicuuc.so.72,libnghttp2.so.14,librtmp.so.1,libssh2.so.1,libpsl.so.5,libldap-2.5.so.0,liblber-2.5.so.0,libbrotlidec.so.1,libicudata.so.72,libsasl2.so.2,libbrotlicommon.so.1,libcrypto.so.3,libssl.so.3,libgssapi_krb5.so.2,libkrb5.so.3,libk5crypto.so.3,libkrb5support.so.0,libkeyutils.so.1} $THIRDPARTY_LIB/
+  cp /usr/lib/x86_64-linux-gnu/{libthrift-0.17.0.so,libdouble-conversion.so.3,libevent-2.1.so.7,libgflags.so.2.3,libglog.so.1,libsnappy.so.1,libunwind.so.8,libcurl.so.4,libicui18n.so.72,libicuuc.so.72,libnghttp2.so.14,librtmp.so.1,libssh2.so.1,libpsl.so.5,libldap-2.5.so.0,liblber-2.5.so.0,libbrotlidec.so.1,libicudata.so.72,libsasl2.so.2,libbrotlicommon.so.1,libcrypto.so.3,libssl.so.3,libgssapi_krb5.so.2,libkrb5.so.3,libk5crypto.so.3,libkrb5support.so.0,libkeyutils.so.1} $THIRDPARTY_LIB/
   cp /usr/local/lib/{libboost_context.so.1.84.0,libboost_regex.so.1.84.0} $THIRDPARTY_LIB/
 }
 
 function process_setup_openeuler_24 {
   cp /usr/lib64/{libre2.so.11,libdouble-conversion.so.3,libevent-2.1.so.7,libdwarf.so.0,libgsasl.so.7,libicudata.so.74,libicui18n.so.74,libicuuc.so.74,libidn.so.12,libntlm.so.0,libsodium.so.26} $THIRDPARTY_LIB/
   cp /usr/local/lib/{libboost_context.so.1.84.0,libboost_filesystem.so.1.84.0,libboost_program_options.so.1.84.0,libboost_regex.so.1.84.0,libboost_system.so.1.84.0,libboost_thread.so.1.84.0,libboost_atomic.so.1.84.0} $THIRDPARTY_LIB/
-  cp /usr/local/lib64/{libgflags.so.2.2,libglog.so.1} $THIRDPARTY_LIB/
+  cp /usr/local/lib64/{libgflags.so.2.3,libglog.so.1} $THIRDPARTY_LIB/
 }
 
 if [[ "$LINUX_OS" == "ubuntu" || "$LINUX_OS" == "pop" ]]; then
@@ -77,6 +78,8 @@ if [[ "$LINUX_OS" == "ubuntu" || "$LINUX_OS" == "pop" ]]; then
     process_setup_ubuntu_2004
   elif [ "$VERSION" == "22.04" ]; then
     process_setup_ubuntu_2204
+  elif [ "$VERSION" == "24.04" ]; then
+    process_setup_ubuntu_2404
   fi
 elif [ "$LINUX_OS" == "centos" ]; then
   if [ "$VERSION" == "9" ]; then

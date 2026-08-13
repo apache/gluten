@@ -66,8 +66,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // NameMapping is supported in Delta 2.0 (related to Spark3.2.0)
-  testWithMinSparkVersion("column mapping mode = name", "3.2") {
+  test("column mapping mode = name") {
     withTable("delta_cm2") {
       spark.sql(s"""
                    |create table delta_cm2 (id int, name string) using delta
@@ -110,9 +109,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
   // broke `PreparedDeltaFileIndex.matchingFiles` and silently returned all files.
   Seq("name", "id").foreach {
     mode =>
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with partition filter (single partition col)",
-        "3.2") {
+      test(s"column mapping mode = $mode with partition filter (single partition col)") {
         withTable("delta_cm_part") {
           spark.sql(s"""
                        |create table delta_cm_part (id int, name string) using delta
@@ -153,9 +150,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with partition filter (multi partition col)",
-        "3.2") {
+      test(s"column mapping mode = $mode with partition filter (multi partition col)") {
         withTable("delta_cm_part_multi") {
           spark.sql(s"""
                        |create table delta_cm_part_multi
@@ -185,9 +180,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with partition + data filter",
-        "3.2") {
+      test(s"column mapping mode = $mode with partition + data filter") {
         withTable("delta_cm_part_data") {
           spark.sql(s"""
                        |create table delta_cm_part_data (id int, name string, age int)
@@ -220,9 +213,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with IS [NOT] NULL on partition col",
-        "3.2") {
+      test(s"column mapping mode = $mode with IS [NOT] NULL on partition col") {
         withTable("delta_cm_part_null") {
           spark.sql(s"""
                        |create table delta_cm_part_null (id int, name string)
@@ -247,9 +238,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode partition filter survives column rename",
-        "3.2") {
+      test(s"column mapping mode = $mode partition filter survives column rename") {
         withTable("delta_cm_part_rename") {
           spark.sql(s"""
                        |create table delta_cm_part_rename (id int, name string)
@@ -272,9 +261,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode data column rename + filter (file skipping)",
-        "3.2") {
+      test(s"column mapping mode = $mode data column rename + filter (file skipping)") {
         withTable("delta_cm_data_rename") {
           spark.sql(s"""
                        |create table delta_cm_data_rename (id int, age int, name string)
@@ -324,7 +311,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: partition filters", "3.2") {
+  test("delta: partition filters") {
     withTable("delta_pf") {
       spark.sql(s"""
                    |create table delta_pf (id int, name string) using delta partitioned by (name)
@@ -343,7 +330,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("basic test with stats.skipping disabled", "3.2") {
+  test("basic test with stats.skipping disabled") {
     withTable("delta_test2") {
       withSQLConf("spark.databricks.delta.stats.skipping" -> "false") {
         spark.sql(s"""
@@ -363,7 +350,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("column mapping with complex type", "3.2") {
+  test("column mapping with complex type") {
     withTable("t1") {
       val simpleNestedSchema = new StructType()
         .add("a", StringType, true)
@@ -440,7 +427,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: push down input_file_name expression", "3.2") {
+  test("delta: push down input_file_name expression") {
     withTable("source_table") {
       withTable("target_table") {
         spark.sql(s"""
@@ -478,7 +465,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: need to validate delta expression before execution", "3.2") {
+  test("delta: need to validate delta expression before execution") {
     withTable("source_table") {
       withTable("target_table") {
         spark.sql(s"""
