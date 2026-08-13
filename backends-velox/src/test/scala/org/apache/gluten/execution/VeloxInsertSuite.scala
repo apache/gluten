@@ -122,8 +122,9 @@ class VeloxInsertSuite extends VeloxWholeStageTransformerSuite {
       fromType: String,
       toType: String)(f: => Unit): Unit = {
     val exception = intercept[AnalysisException](f)
-    // Older Spark versions report the types in lower case, e.g. "string to int",
-    // while newer ones quote them in upper case, e.g. "STRING" to "INT".
+    // Spark 3.3/3.4 report the types in lower case, e.g. "string to int". Since Spark 3.5,
+    // the types in the exception message are quoted in upper case, e.g. "STRING" to "INT".
+    // The case conversion can be removed once Spark 3.4 and earlier are no longer supported.
     val message = exceptionMessages(exception).toLowerCase()
     assert(message.contains(fromType.toLowerCase()), message)
     assert(message.contains(toType.toLowerCase()), message)
