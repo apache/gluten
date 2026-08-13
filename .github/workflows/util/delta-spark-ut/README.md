@@ -18,10 +18,14 @@ limitations under the License.
 # Delta Spark UT (Gluten) — managing expected failures
 
 Running delta-io/delta's `spark` ScalaTest suite against the Gluten Velox
-bundle produces **many expected failures**: Gluten does not yet offload every
-Delta code path, and falls back or behaves differently in places. If CI simply
-went red on any failure, the signal would be useless and we could never tell a
-*new* breakage from the hundreds of already-known ones.
+bundle produces **many failures** today. Not because Gluten declines to offload
+a plan -- that should fall back to vanilla Spark and the test should still pass.
+Some are real gaps: fallback not happening where it should, metrics that differ
+from vanilla, and native-side bugs. Others are expected rather than defects: a
+test that asserts on the query plan sees a different plan once the scan or
+operators are offloaded. If CI simply went red on any failure, the signal
+would be useless and we could never tell a *new* breakage from the hundreds of
+already-known ones.
 
 To make this manageable we keep a **baseline of known failures** and gate each
 run against it. The build is green when the only failing tests are ones already
@@ -88,8 +92,9 @@ longer shared between them, those PRs pay for the centos-7 native build twice
 - **Per PR** — the workflow's own `paths:` filter runs the suite only when the PR
   touches a **high-signal Delta path**: the Delta integration code
   (`backends-velox/src-delta*`), the `gluten-delta` module, or this pipeline's
-  own files (`delta_spark_ut.yml`, `util/delta-spark-ut/**`). GitHub evaluates
-  the filter before creating the run, so an unrelated PR costs nothing at all.
+  own files (`delta_spark_ut.yml`, `util/delta-spark-ut/**`, excluding Markdown
+  there — editing this README does not run the suite). GitHub evaluates the
+  filter before creating the run, so an unrelated PR costs nothing at all.
   Changes to general Velox/core/native code can also affect Delta offload, but
   they're touched on most PRs, so per-PR they skip the suite — the nightly run is
   the safety net.
@@ -120,9 +125,11 @@ From the next run onward the gate enforces the baseline.
 - **You fixed Gluten and some Delta tests now pass.** CI will flag them as
   *now-passing*. Delete those lines from `known-failures.txt` in your PR. That
   is the whole point — the baseline only ever shrinks as coverage improves.
-- **You intentionally added a new expected failure** (e.g. a Delta path Gluten
-  can't offload yet). Add the exact `Suite#test` line(s) the gate prints under
-  *Regressions* to `known-failures.txt`, ideally with a comment explaining why.
+- **You intentionally added a new expected failure** (e.g. a test that asserts
+  on a query plan that legitimately differs once Gluten offloads, or one that
+  hits a tracked bug you are not fixing here). Add the exact `Suite#test`
+  line(s) the gate prints under *Regressions* to `known-failures.txt`, ideally
+  with a comment explaining why.
 - **A genuine regression.** Fix it; do **not** add it to the baseline.
 
 The error log prints copy-pasteable `Suite#test` lines for both regressions and
@@ -132,7 +139,8 @@ now-passing tests, and each run's job summary shows the full breakdown.
 
 After a Delta version bump or a large Gluten change, regenerate from scratch the
 same way as bootstrapping: run the workflow with `update_baseline=true`, download
-the `delta-spark-ut-known-failures` artifact, and commit it. The aggregate job
+the `delta-spark-ut-known-failures` artifact, and replace `known-failures.txt`
+with the file it contains. The aggregate job
 also lists **stale** entries you can prune.
 
 The aggregate job passes `--expected-shards` (the shard count), so if a shard
