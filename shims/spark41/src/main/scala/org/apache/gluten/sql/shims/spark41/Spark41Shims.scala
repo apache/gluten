@@ -198,6 +198,11 @@ class Spark41Shims extends SparkShims {
     case _ => false
   }
 
+  override def isEmptyRelationExec(plan: SparkPlan): Boolean = plan match {
+    case _: EmptyRelationExec => true
+    case _ => false
+  }
+
   override def getWindowGroupLimitExecShim(plan: SparkPlan): WindowGroupLimitExecShim = {
     val windowGroupLimitPlan = plan.asInstanceOf[WindowGroupLimitExec]
     val mode = windowGroupLimitPlan.mode match {

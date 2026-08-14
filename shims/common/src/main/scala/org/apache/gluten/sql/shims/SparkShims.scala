@@ -107,6 +107,12 @@ trait SparkShims {
 
   def isWindowGroupLimitExec(plan: SparkPlan): Boolean = false
 
+  /**
+   * Whether the given plan is an EmptyRelationExec. The node only exists on Spark 4.0+
+   * (SPARK-47217) so the default implementation returns false; Spark 4.0+ shims override it.
+   */
+  def isEmptyRelationExec(plan: SparkPlan): Boolean = false
+
   def getWindowGroupLimitExecShim(plan: SparkPlan): WindowGroupLimitExecShim = null
 
   def getWindowGroupLimitExec(windowGroupLimitExecShim: WindowGroupLimitExecShim): SparkPlan = null

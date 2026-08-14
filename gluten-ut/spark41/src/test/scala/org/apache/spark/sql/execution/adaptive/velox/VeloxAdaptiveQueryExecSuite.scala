@@ -1557,4 +1557,21 @@ class VeloxAdaptiveQueryExecSuite extends AdaptiveQueryExecSuite with GlutenSQLT
         }
     }
   }
+
+  // Gluten offloads EmptyRelationExec to EmptyRelationExecTransformer, so the upstream
+  // `instanceof EmptyRelationExec` assertion no longer holds. Accept either node.
+  testGluten("SPARK-35585: empty relation is correctly handled") {
+    withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true") {
+      val df = spark.sql("SELECT * FROM testData WHERE key < 0 INTERSECT SELECT * FROM testData")
+      df.collect()
+      val plan = df.queryExecution.executedPlan
+      val emptyNodes = collectWithSubqueries(plan) {
+        case e: EmptyRelationExec => e
+        case e: EmptyRelationExecTransformer => e
+      }
+      assert(
+        emptyNodes.nonEmpty,
+        "Expected EmptyRelationExec or EmptyRelationExecTransformer in plan:\n" + plan.treeString)
+    }
+  }
 }

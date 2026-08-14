@@ -315,6 +315,10 @@ object OffloadOthers {
             child)
         case plan: RDDScanExec if RDDScanTransformer.isSupportRDDScanExec(plan) =>
           RDDScanTransformer.getRDDScanTransform(plan)
+        case plan
+            if SparkShimLoader.getSparkShims.isEmptyRelationExec(plan) &&
+              EmptyRelationExecTransformer.isSupportEmptyRelationExec(plan) =>
+          EmptyRelationExecTransformer.getEmptyRelationExecTransform(plan)
         case p if !p.isInstanceOf[GlutenPlan] =>
           logDebug(s"Transformation for ${p.getClass} is currently not supported.")
           p

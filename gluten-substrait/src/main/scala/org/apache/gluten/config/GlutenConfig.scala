@@ -95,6 +95,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableColumnarWindowGroupLimit: Boolean = getConf(COLUMNAR_WINDOW_GROUP_LIMIT_ENABLED)
 
+  def enableColumnarEmptyRelation: Boolean = getConf(COLUMNAR_EMPTY_RELATION_ENABLED)
+
   def enableAppendData: Boolean = getConf(COLUMNAR_APPEND_DATA_ENABLED)
 
   def enableReplaceData: Boolean = getConf(COLUMNAR_REPLACE_DATA_ENABLED)
@@ -932,6 +934,16 @@ object GlutenConfig extends ConfigRegistry {
   val COLUMNAR_WINDOW_GROUP_LIMIT_ENABLED =
     buildConf("spark.gluten.sql.columnar.window.group.limit")
       .doc("Enable or disable columnar window group limit.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val COLUMNAR_EMPTY_RELATION_ENABLED =
+    buildConf("spark.gluten.sql.columnar.emptyRelation")
+      .doc(
+        "Enable or disable native columnar execution of EmptyRelationExec (Spark 4.0+). When " +
+          "true, Gluten replaces EmptyRelationExec (a leaf node AQE creates when it proves a " +
+          "subtree produces no output) with a columnar transformer, avoiding unnecessary " +
+          "ColumnarToRow / RowToColumnar transitions around the empty relation.")
       .booleanConf
       .createWithDefault(true)
 

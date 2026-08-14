@@ -1423,6 +1423,19 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     VeloxColumnarToCarrierRowExec.enforce(plan)
   }
 
+  override def isSupportEmptyRelationExec(plan: SparkPlan): Boolean = {
+    if (!GlutenConfig.get.enableColumnarEmptyRelation) {
+      logDebug(
+        "EmptyRelationExec offload skipped: " +
+          s"${GlutenConfig.COLUMNAR_EMPTY_RELATION_ENABLED.key}=false")
+      return false
+    }
+    true
+  }
+
+  override def getEmptyRelationExecTransform(plan: SparkPlan): EmptyRelationExecTransformer =
+    EmptyRelationExecTransformer(plan.output)
+
   override def genTimestampAddTransformer(
       substraitExprName: String,
       left: ExpressionTransformer,
