@@ -54,8 +54,7 @@ object NativeMemoryManager {
       ConfigUtil.serialize(
         GlutenConfig
           .getNativeSessionConf(backendName, GlutenConfigUtil.parseConfig(SQLConf.get.getAllConfs))
-          .asJava)
-    )
+          .asJava))
     spillers.append(new Spiller() {
       override def spill(self: MemoryTarget, phase: Spiller.Phase, size: Long): Long = phase match {
         case Spiller.Phase.SHRINK => // Only respond for shrinking.

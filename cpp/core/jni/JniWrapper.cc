@@ -19,6 +19,11 @@
 #include "config/GlutenConfig.h"
 #include "jni/JniCommon.h"
 #include "jni/JniError.h"
+
+#include <arrow/c/bridge.h>
+#include <google/protobuf/stubs/common.h>
+#include <optional>
+#include <string>
 #include "memory/AllocationListener.h"
 #include "memory/SplitAwareColumnarBatchIterator.h"
 #include "operators/serializer/ColumnarBatchSerializer.h"

@@ -13,6 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+if(ENABLE_BOLT)
+  include(bolt.CMakeLists.cmake)
+  return()
+endif()
+
 cmake_minimum_required(VERSION 3.16)
 message(STATUS "Building using CMake version: ${CMAKE_VERSION}")
 
@@ -259,6 +264,9 @@ endif()
 
 # Subdirectories
 add_subdirectory(core)
+if(GLUTEN_PREFIX_INCLUDE_DIRS)
+  target_include_directories(gluten BEFORE PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
+endif()
 
 if(BUILD_VELOX_BACKEND)
   add_subdirectory(velox)

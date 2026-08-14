@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package gluten;
+
+option java_package = "org.apache.gluten.proto";
+option java_multiple_files = true;
+
+enum TransformType {
+  IDENTITY = 0;
+  YEAR = 1;
+  MONTH = 2;
+  DAY = 3;
+  HOUR = 4;
+  BUCKET = 5;
+  TRUNCATE = 6;
+}
+
+message IcebergPartitionField {
+  int32 source_id = 1;
+  string name = 2;
+  TransformType transform = 3;
+  optional int32 parameter = 4;  // Optional parameter for transform config
+}
+
+message IcebergPartitionSpec {
+  int32 spec_id = 1;  // Field name uses snake_case per protobuf conventions
+  repeated IcebergPartitionField fields = 2;
+}

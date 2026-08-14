@@ -209,6 +209,20 @@ message ReadRel {
         bytes serialized_deletion_vector = 4;
       }
 
+      message PaimonReadOptions {
+        int32 bucket = 1;
+        int64 first_row_id = 2;
+        int64 max_sequence_number = 3;
+        int32 split_group = 4;
+        oneof file_format {
+          ParquetReadOptions parquet = 5;
+          OrcReadOptions orc = 6;
+        }
+        bool use_hive_split = 7;
+        bool raw_convertible = 8;
+        repeated string primary_keys = 9;
+      }
+
       // File reading options
       oneof file_format {
         ParquetReadOptions parquet = 9;
@@ -220,6 +234,7 @@ message ReadRel {
         JsonReadOptions json = 15;
         IcebergReadOptions iceberg = 16;
         DeltaReadOptions delta = 22;
+        PaimonReadOptions paimon = 23;
       }
 
       message partitionColumn {

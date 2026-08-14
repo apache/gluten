@@ -1,0 +1,581 @@
+== Physical Plan ==
+AdaptiveSparkPlan (109)
++- == Final Plan ==
+   BoltColumnarToRow (69)
+   +- TakeOrderedAndProjectExecTransformer (68)
+      +- ^ RegularHashAggregateExecTransformer (66)
+         +- ^ ProjectExecTransformer (65)
+            +- ^ ShuffledHashJoinExecTransformer Inner BuildLeft (64)
+               :- ^ InputIteratorTransformer (46)
+               :  +- ShuffleQueryStage (44)
+               :     +- ColumnarExchange (43)
+               :        +- BoltResizeBatches (42)
+               :           +- ^ ProjectExecTransformer (40)
+               :              +- ^ ShuffledHashJoinExecTransformer Inner BuildRight (39)
+               :                 :- ^ InputIteratorTransformer (9)
+               :                 :  +- ShuffleQueryStage (7)
+               :                 :     +- ColumnarExchange (6)
+               :                 :        +- BoltResizeBatches (5)
+               :                 :           +- ^ ProjectExecTransformer (3)
+               :                 :              +- ^ FilterExecTransformer (2)
+               :                 :                 +- ^ ScanTransformer parquet  (1)
+               :                 +- ^ InputIteratorTransformer (38)
+               :                    +- ShuffleQueryStage (36)
+               :                       +- ColumnarExchange (35)
+               :                          +- BoltResizeBatches (34)
+               :                             +- ^ ProjectExecTransformer (32)
+               :                                +- ^ ShuffledHashJoinExecTransformer LeftSemi BuildRight (31)
+               :                                   :- ^ InputIteratorTransformer (18)
+               :                                   :  +- ShuffleQueryStage (16)
+               :                                   :     +- ColumnarExchange (15)
+               :                                   :        +- BoltResizeBatches (14)
+               :                                   :           +- ^ ProjectExecTransformer (12)
+               :                                   :              +- ^ FilterExecTransformer (11)
+               :                                   :                 +- ^ ScanTransformer parquet  (10)
+               :                                   +- ^ ProjectExecTransformer (30)
+               :                                      +- ^ FilterExecTransformer (29)
+               :                                         +- ^ RegularHashAggregateExecTransformer (28)
+               :                                            +- ^ InputIteratorTransformer (27)
+               :                                               +- ShuffleQueryStage (25)
+               :                                                  +- ColumnarExchange (24)
+               :                                                     +- BoltResizeBatches (23)
+               :                                                        +- ^ ProjectExecTransformer (21)
+               :                                                           +- ^ FlushableHashAggregateExecTransformer (20)
+               :                                                              +- ^ ScanTransformer parquet  (19)
+               +- ^ ShuffledHashJoinExecTransformer LeftSemi BuildRight (63)
+                  :- ^ InputIteratorTransformer (55)
+                  :  +- ShuffleQueryStage (53)
+                  :     +- ColumnarExchange (52)
+                  :        +- BoltResizeBatches (51)
+                  :           +- ^ ProjectExecTransformer (49)
+                  :              +- ^ FilterExecTransformer (48)
+                  :                 +- ^ ScanTransformer parquet  (47)
+                  +- ^ ProjectExecTransformer (62)
+                     +- ^ FilterExecTransformer (61)
+                        +- ^ RegularHashAggregateExecTransformer (60)
+                           +- ^ InputIteratorTransformer (59)
+                              +- ShuffleQueryStage (57)
+                                 +- ReusedExchange (56)
++- == Initial Plan ==
+   TakeOrderedAndProject (108)
+   +- HashAggregate (107)
+      +- HashAggregate (106)
+         +- Project (105)
+            +- SortMergeJoin Inner (104)
+               :- Sort (91)
+               :  +- Exchange (90)
+               :     +- Project (89)
+               :        +- SortMergeJoin Inner (88)
+               :           :- Sort (73)
+               :           :  +- Exchange (72)
+               :           :     +- Filter (71)
+               :           :        +- Scan parquet (70)
+               :           +- Sort (87)
+               :              +- Exchange (86)
+               :                 +- SortMergeJoin LeftSemi (85)
+               :                    :- Sort (77)
+               :                    :  +- Exchange (76)
+               :                    :     +- Filter (75)
+               :                    :        +- Scan parquet (74)
+               :                    +- Sort (84)
+               :                       +- Project (83)
+               :                          +- Filter (82)
+               :                             +- HashAggregate (81)
+               :                                +- Exchange (80)
+               :                                   +- HashAggregate (79)
+               :                                      +- Scan parquet (78)
+               +- SortMergeJoin LeftSemi (103)
+                  :- Sort (95)
+                  :  +- Exchange (94)
+                  :     +- Filter (93)
+                  :        +- Scan parquet (92)
+                  +- Sort (102)
+                     +- Project (101)
+                        +- Filter (100)
+                           +- HashAggregate (99)
+                              +- Exchange (98)
+                                 +- HashAggregate (97)
+                                    +- Scan parquet (96)
+
+
+(1) ScanTransformer parquet 
+Output [2]: [c_custkey#X, c_name#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(c_custkey)]
+ReadSchema: struct<c_custkey:bigint,c_name:string>
+
+(2) FilterExecTransformer
+Input [2]: [c_custkey#X, c_name#X]
+Arguments: isnotnull(c_custkey#X)
+
+(3) ProjectExecTransformer
+Output [3]: [hash(c_custkey#X, 42) AS hash_partition_key#X, c_custkey#X, c_name#X]
+Input [2]: [c_custkey#X, c_name#X]
+
+(4) WholeStageCodegenTransformer (X)
+Input [3]: [hash_partition_key#X, c_custkey#X, c_name#X]
+Arguments: false
+
+(5) BoltResizeBatches
+Input [3]: [hash_partition_key#X, c_custkey#X, c_name#X]
+Arguments: X, X
+
+(6) ColumnarExchange
+Input [3]: [hash_partition_key#X, c_custkey#X, c_name#X]
+Arguments: hashpartitioning(c_custkey#X, 1), ENSURE_REQUIREMENTS, [c_custkey#X, c_name#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(7) ShuffleQueryStage
+Output [2]: [c_custkey#X, c_name#X]
+Arguments: X
+
+(8) InputAdapter
+Input [2]: [c_custkey#X, c_name#X]
+
+(9) InputIteratorTransformer
+Input [2]: [c_custkey#X, c_name#X]
+
+(10) ScanTransformer parquet 
+Output [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(o_custkey), IsNotNull(o_orderkey)]
+ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint,o_totalprice:decimal(12,2),o_orderdate:date>
+
+(11) FilterExecTransformer
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: (isnotnull(o_custkey#X) AND isnotnull(o_orderkey#X))
+
+(12) ProjectExecTransformer
+Output [5]: [hash(o_orderkey#X, 42) AS hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+
+(13) WholeStageCodegenTransformer (X)
+Input [5]: [hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: false
+
+(14) BoltResizeBatches
+Input [5]: [hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: X, X
+
+(15) ColumnarExchange
+Input [5]: [hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: hashpartitioning(o_orderkey#X, 1), ENSURE_REQUIREMENTS, [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(16) ShuffleQueryStage
+Output [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: X
+
+(17) InputAdapter
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+
+(18) InputIteratorTransformer
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+
+(19) ScanTransformer parquet 
+Output [2]: [l_orderkey#X, l_quantity#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+ReadSchema: struct<l_orderkey:bigint,l_quantity:decimal(12,2)>
+
+(20) FlushableHashAggregateExecTransformer
+Input [2]: [l_orderkey#X, l_quantity#X]
+Keys [1]: [l_orderkey#X]
+Functions [1]: [partial_sum(l_quantity#X)]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [3]: [l_orderkey#X, sum#X, isEmpty#X]
+
+(21) ProjectExecTransformer
+Output [4]: [hash(l_orderkey#X, 42) AS hash_partition_key#X, l_orderkey#X, sum#X, isEmpty#X]
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+
+(22) WholeStageCodegenTransformer (X)
+Input [4]: [hash_partition_key#X, l_orderkey#X, sum#X, isEmpty#X]
+Arguments: false
+
+(23) BoltResizeBatches
+Input [4]: [hash_partition_key#X, l_orderkey#X, sum#X, isEmpty#X]
+Arguments: X, X
+
+(24) ColumnarExchange
+Input [4]: [hash_partition_key#X, l_orderkey#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(l_orderkey#X, 1), ENSURE_REQUIREMENTS, [l_orderkey#X, sum#X, isEmpty#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(25) ShuffleQueryStage
+Output [3]: [l_orderkey#X, sum#X, isEmpty#X]
+Arguments: X
+
+(26) InputAdapter
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+
+(27) InputIteratorTransformer
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+
+(28) RegularHashAggregateExecTransformer
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+Keys [1]: [l_orderkey#X]
+Functions [1]: [sum(l_quantity#X)]
+Aggregate Attributes [1]: [sum(l_quantity#X)#X]
+Results [2]: [l_orderkey#X, sum(l_quantity#X)#X AS sum(l_quantity#X)#X]
+
+(29) FilterExecTransformer
+Input [2]: [l_orderkey#X, sum(l_quantity#X)#X]
+Arguments: (isnotnull(sum(l_quantity#X)#X) AND (sum(l_quantity#X)#X > 300.00))
+
+(30) ProjectExecTransformer
+Output [1]: [l_orderkey#X]
+Input [2]: [l_orderkey#X, sum(l_quantity#X)#X]
+
+(31) ShuffledHashJoinExecTransformer
+Left keys [1]: [o_orderkey#X]
+Right keys [1]: [l_orderkey#X]
+Join condition: None
+
+(32) ProjectExecTransformer
+Output [5]: [hash(o_custkey#X, 42) AS hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+
+(33) WholeStageCodegenTransformer (X)
+Input [5]: [hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: false
+
+(34) BoltResizeBatches
+Input [5]: [hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: X, X
+
+(35) ColumnarExchange
+Input [5]: [hash_partition_key#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: hashpartitioning(o_custkey#X, 1), ENSURE_REQUIREMENTS, [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(36) ShuffleQueryStage
+Output [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: X
+
+(37) InputAdapter
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+
+(38) InputIteratorTransformer
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+
+(39) ShuffledHashJoinExecTransformer
+Left keys [1]: [c_custkey#X]
+Right keys [1]: [o_custkey#X]
+Join condition: None
+
+(40) ProjectExecTransformer
+Output [6]: [hash(o_orderkey#X, 42) AS hash_partition_key#X, c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
+Input [6]: [c_custkey#X, c_name#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+
+(41) WholeStageCodegenTransformer (X)
+Input [6]: [hash_partition_key#X, c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: false
+
+(42) BoltResizeBatches
+Input [6]: [hash_partition_key#X, c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: X, X
+
+(43) ColumnarExchange
+Input [6]: [hash_partition_key#X, c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: hashpartitioning(o_orderkey#X, 1), ENSURE_REQUIREMENTS, [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(44) ShuffleQueryStage
+Output [5]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: X
+
+(45) InputAdapter
+Input [5]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
+
+(46) InputIteratorTransformer
+Input [5]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
+
+(47) ScanTransformer parquet 
+Output [2]: [l_orderkey#X, l_quantity#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(l_orderkey)]
+ReadSchema: struct<l_orderkey:bigint,l_quantity:decimal(12,2)>
+
+(48) FilterExecTransformer
+Input [2]: [l_orderkey#X, l_quantity#X]
+Arguments: isnotnull(l_orderkey#X)
+
+(49) ProjectExecTransformer
+Output [3]: [hash(l_orderkey#X, 42) AS hash_partition_key#X, l_orderkey#X, l_quantity#X]
+Input [2]: [l_orderkey#X, l_quantity#X]
+
+(50) WholeStageCodegenTransformer (X)
+Input [3]: [hash_partition_key#X, l_orderkey#X, l_quantity#X]
+Arguments: false
+
+(51) BoltResizeBatches
+Input [3]: [hash_partition_key#X, l_orderkey#X, l_quantity#X]
+Arguments: X, X
+
+(52) ColumnarExchange
+Input [3]: [hash_partition_key#X, l_orderkey#X, l_quantity#X]
+Arguments: hashpartitioning(l_orderkey#X, 1), ENSURE_REQUIREMENTS, [l_orderkey#X, l_quantity#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(53) ShuffleQueryStage
+Output [2]: [l_orderkey#X, l_quantity#X]
+Arguments: X
+
+(54) InputAdapter
+Input [2]: [l_orderkey#X, l_quantity#X]
+
+(55) InputIteratorTransformer
+Input [2]: [l_orderkey#X, l_quantity#X]
+
+(56) ReusedExchange [Reuses operator id: 24]
+Output [3]: [l_orderkey#X, sum#X, isEmpty#X]
+
+(57) ShuffleQueryStage
+Output [3]: [l_orderkey#X, sum#X, isEmpty#X]
+Arguments: X
+
+(58) InputAdapter
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+
+(59) InputIteratorTransformer
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+
+(60) RegularHashAggregateExecTransformer
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+Keys [1]: [l_orderkey#X]
+Functions [1]: [sum(l_quantity#X)]
+Aggregate Attributes [1]: [sum(l_quantity#X)#X]
+Results [2]: [l_orderkey#X, sum(l_quantity#X)#X AS sum(l_quantity#X)#X]
+
+(61) FilterExecTransformer
+Input [2]: [l_orderkey#X, sum(l_quantity#X)#X]
+Arguments: (isnotnull(sum(l_quantity#X)#X) AND (sum(l_quantity#X)#X > 300.00))
+
+(62) ProjectExecTransformer
+Output [1]: [l_orderkey#X]
+Input [2]: [l_orderkey#X, sum(l_quantity#X)#X]
+
+(63) ShuffledHashJoinExecTransformer
+Left keys [1]: [l_orderkey#X]
+Right keys [1]: [l_orderkey#X]
+Join condition: None
+
+(64) ShuffledHashJoinExecTransformer
+Left keys [1]: [o_orderkey#X]
+Right keys [1]: [l_orderkey#X]
+Join condition: None
+
+(65) ProjectExecTransformer
+Output [6]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X, l_quantity#X]
+Input [7]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X, l_orderkey#X, l_quantity#X]
+
+(66) RegularHashAggregateExecTransformer
+Input [6]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X, l_quantity#X]
+Keys [5]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X]
+Functions [1]: [sum(l_quantity#X)]
+Aggregate Attributes [1]: [sum(l_quantity#X)#X]
+Results [6]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum(l_quantity#X)#X AS sum(l_quantity)#X]
+
+(67) WholeStageCodegenTransformer (X)
+Input [6]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum(l_quantity)#X]
+Arguments: false
+
+(68) TakeOrderedAndProjectExecTransformer
+Input [6]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum(l_quantity)#X]
+Arguments: X, [o_totalprice#X DESC NULLS LAST, o_orderdate#X ASC NULLS FIRST], [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum(l_quantity)#X], 0
+
+(69) BoltColumnarToRow
+Input [6]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum(l_quantity)#X]
+
+(70) Scan parquet
+Output [2]: [c_custkey#X, c_name#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(c_custkey)]
+ReadSchema: struct<c_custkey:bigint,c_name:string>
+
+(71) Filter
+Input [2]: [c_custkey#X, c_name#X]
+Condition : isnotnull(c_custkey#X)
+
+(72) Exchange
+Input [2]: [c_custkey#X, c_name#X]
+Arguments: hashpartitioning(c_custkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(73) Sort
+Input [2]: [c_custkey#X, c_name#X]
+Arguments: [c_custkey#X ASC NULLS FIRST], false, 0
+
+(74) Scan parquet
+Output [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(o_custkey), IsNotNull(o_orderkey)]
+ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint,o_totalprice:decimal(12,2),o_orderdate:date>
+
+(75) Filter
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Condition : (isnotnull(o_custkey#X) AND isnotnull(o_orderkey#X))
+
+(76) Exchange
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: hashpartitioning(o_orderkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(77) Sort
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: [o_orderkey#X ASC NULLS FIRST], false, 0
+
+(78) Scan parquet
+Output [2]: [l_orderkey#X, l_quantity#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+ReadSchema: struct<l_orderkey:bigint,l_quantity:decimal(12,2)>
+
+(79) HashAggregate
+Input [2]: [l_orderkey#X, l_quantity#X]
+Keys [1]: [l_orderkey#X]
+Functions [1]: [partial_sum(l_quantity#X)]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [3]: [l_orderkey#X, sum#X, isEmpty#X]
+
+(80) Exchange
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(l_orderkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(81) HashAggregate
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+Keys [1]: [l_orderkey#X]
+Functions [1]: [sum(l_quantity#X)]
+Aggregate Attributes [1]: [sum(l_quantity#X)#X]
+Results [2]: [l_orderkey#X, sum(l_quantity#X)#X AS sum(l_quantity#X)#X]
+
+(82) Filter
+Input [2]: [l_orderkey#X, sum(l_quantity#X)#X]
+Condition : (isnotnull(sum(l_quantity#X)#X) AND (sum(l_quantity#X)#X > 300.00))
+
+(83) Project
+Output [1]: [l_orderkey#X]
+Input [2]: [l_orderkey#X, sum(l_quantity#X)#X]
+
+(84) Sort
+Input [1]: [l_orderkey#X]
+Arguments: [l_orderkey#X ASC NULLS FIRST], false, 0
+
+(85) SortMergeJoin
+Left keys [1]: [o_orderkey#X]
+Right keys [1]: [l_orderkey#X]
+Join condition: None
+
+(86) Exchange
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: hashpartitioning(o_custkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(87) Sort
+Input [4]: [o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: [o_custkey#X ASC NULLS FIRST], false, 0
+
+(88) SortMergeJoin
+Left keys [1]: [c_custkey#X]
+Right keys [1]: [o_custkey#X]
+Join condition: None
+
+(89) Project
+Output [5]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
+Input [6]: [c_custkey#X, c_name#X, o_orderkey#X, o_custkey#X, o_totalprice#X, o_orderdate#X]
+
+(90) Exchange
+Input [5]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: hashpartitioning(o_orderkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(91) Sort
+Input [5]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X]
+Arguments: [o_orderkey#X ASC NULLS FIRST], false, 0
+
+(92) Scan parquet
+Output [2]: [l_orderkey#X, l_quantity#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(l_orderkey)]
+ReadSchema: struct<l_orderkey:bigint,l_quantity:decimal(12,2)>
+
+(93) Filter
+Input [2]: [l_orderkey#X, l_quantity#X]
+Condition : isnotnull(l_orderkey#X)
+
+(94) Exchange
+Input [2]: [l_orderkey#X, l_quantity#X]
+Arguments: hashpartitioning(l_orderkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(95) Sort
+Input [2]: [l_orderkey#X, l_quantity#X]
+Arguments: [l_orderkey#X ASC NULLS FIRST], false, 0
+
+(96) Scan parquet
+Output [2]: [l_orderkey#X, l_quantity#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+ReadSchema: struct<l_orderkey:bigint,l_quantity:decimal(12,2)>
+
+(97) HashAggregate
+Input [2]: [l_orderkey#X, l_quantity#X]
+Keys [1]: [l_orderkey#X]
+Functions [1]: [partial_sum(l_quantity#X)]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [3]: [l_orderkey#X, sum#X, isEmpty#X]
+
+(98) Exchange
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(l_orderkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(99) HashAggregate
+Input [3]: [l_orderkey#X, sum#X, isEmpty#X]
+Keys [1]: [l_orderkey#X]
+Functions [1]: [sum(l_quantity#X)]
+Aggregate Attributes [1]: [sum(l_quantity#X)#X]
+Results [2]: [l_orderkey#X, sum(l_quantity#X)#X AS sum(l_quantity#X)#X]
+
+(100) Filter
+Input [2]: [l_orderkey#X, sum(l_quantity#X)#X]
+Condition : (isnotnull(sum(l_quantity#X)#X) AND (sum(l_quantity#X)#X > 300.00))
+
+(101) Project
+Output [1]: [l_orderkey#X]
+Input [2]: [l_orderkey#X, sum(l_quantity#X)#X]
+
+(102) Sort
+Input [1]: [l_orderkey#X]
+Arguments: [l_orderkey#X ASC NULLS FIRST], false, 0
+
+(103) SortMergeJoin
+Left keys [1]: [l_orderkey#X]
+Right keys [1]: [l_orderkey#X]
+Join condition: None
+
+(104) SortMergeJoin
+Left keys [1]: [o_orderkey#X]
+Right keys [1]: [l_orderkey#X]
+Join condition: None
+
+(105) Project
+Output [6]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X, l_quantity#X]
+Input [7]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X, l_orderkey#X, l_quantity#X]
+
+(106) HashAggregate
+Input [6]: [c_custkey#X, c_name#X, o_orderkey#X, o_totalprice#X, o_orderdate#X, l_quantity#X]
+Keys [5]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X]
+Functions [1]: [partial_sum(l_quantity#X)]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [7]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum#X, isEmpty#X]
+
+(107) HashAggregate
+Input [7]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum#X, isEmpty#X]
+Keys [5]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X]
+Functions [1]: [sum(l_quantity#X)]
+Aggregate Attributes [1]: [sum(l_quantity#X)#X]
+Results [6]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum(l_quantity#X)#X AS sum(l_quantity)#X]
+
+(108) TakeOrderedAndProject
+Input [6]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum(l_quantity)#X]
+Arguments: X, [o_totalprice#X DESC NULLS LAST, o_orderdate#X ASC NULLS FIRST], [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum(l_quantity)#X]
+
+(109) AdaptiveSparkPlan
+Output [6]: [c_name#X, c_custkey#X, o_orderkey#X, o_orderdate#X, o_totalprice#X, sum(l_quantity)#X]
+Arguments: isFinalPlan=true
