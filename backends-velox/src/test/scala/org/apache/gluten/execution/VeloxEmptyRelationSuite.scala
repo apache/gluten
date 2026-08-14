@@ -53,10 +53,10 @@ class VeloxEmptyRelationSuite extends VeloxWholeStageTransformerSuite with Adapt
   }
 
   private def countTransformers(plan: org.apache.spark.sql.execution.SparkPlan): Int =
-    collect(plan) { case _: EmptyRelationExecTransformer => true }.size
+    collectWithSubqueries(plan) { case _: EmptyRelationExecTransformer => true }.size
 
   private def countRawEmptyRelations(plan: org.apache.spark.sql.execution.SparkPlan): Int =
-    collect(plan) {
+    collectWithSubqueries(plan) {
       case p if SparkShimLoader.getSparkShims.isEmptyRelationExec(p) => true
     }.size
 
@@ -121,21 +121,31 @@ class VeloxEmptyRelationSuite extends VeloxWholeStageTransformerSuite with Adapt
 
   test("EmptyRelationExec is offloaded to the columnar transformer") {
     assume(isSparkVersionGE("4.0"))
-    val df = spark.sql("SELECT l_orderkey, l_partkey FROM lineitem WHERE 1 = 0")
-    assert(df.collect().isEmpty)
-    val plan = df.queryExecution.executedPlan
-    assert(
-      countTransformers(plan) > 0,
-      "Expected EmptyRelationExecTransformer in plan:\n" + plan.treeString)
-    assert(
-      countRawEmptyRelations(plan) == 0,
-      "EmptyRelationExec should be fully offloaded to the transformer:\n" + plan.treeString)
+    // A statically-empty predicate (e.g. WHERE 1 = 0) is folded to an empty LocalRelation by the
+    // logical optimizer and never becomes an EmptyRelationExec. That node is produced by AQE's
+    // Propagate Empty Relations optimization when a materialized query stage turns out to be empty
+    // at runtime, so drive it through an AQE INTERSECT whose left side is empty only at runtime.
+    withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true") {
+      val df =
+        spark.sql("SELECT * FROM lineitem WHERE l_orderkey < 0 INTERSECT SELECT * FROM lineitem")
+      assert(df.collect().isEmpty)
+      val plan = df.queryExecution.executedPlan
+      assert(
+        countTransformers(plan) > 0,
+        "Expected EmptyRelationExecTransformer in plan:\n" + plan.treeString)
+      assert(
+        countRawEmptyRelations(plan) == 0,
+        "EmptyRelationExec should be fully offloaded to the transformer:\n" + plan.treeString)
+    }
   }
 
   test("EmptyRelationExec is not offloaded when the config is disabled") {
     assume(isSparkVersionGE("4.0"))
-    withSQLConf(GlutenConfig.COLUMNAR_EMPTY_RELATION_ENABLED.key -> "false") {
-      val df = spark.sql("SELECT l_orderkey, l_partkey FROM lineitem WHERE 1 = 0")
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+      GlutenConfig.COLUMNAR_EMPTY_RELATION_ENABLED.key -> "false") {
+      val df =
+        spark.sql("SELECT * FROM lineitem WHERE l_orderkey < 0 INTERSECT SELECT * FROM lineitem")
       assert(df.collect().isEmpty)
       val plan = df.queryExecution.executedPlan
       assert(
