@@ -88,11 +88,11 @@ jobs:
 
       - name: "Save ccache"
         if: always()
-        uses: actions/cache/save@v4
-        id: ccache
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos7-release-default-${{github.sha}}
+          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
       - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
