@@ -20,6 +20,7 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.Row
 import org.apache.spark.sql.execution.EmptyRelationExecTransformer
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.internal.SQLConf
@@ -108,8 +109,9 @@ class VeloxEmptyRelationSuite extends VeloxWholeStageTransformerSuite with Adapt
 
   test("empty result matches vanilla Spark") {
     val query = "SELECT l_orderkey, l_partkey, l_quantity FROM lineitem WHERE 1 = 0"
-    val vanillaResult = withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
-      spark.sql(query).collect()
+    var vanillaResult: Seq[Row] = Seq.empty
+    withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+      vanillaResult = spark.sql(query).collect().toSeq
     }
     assert(vanillaResult.isEmpty)
     checkAnswer(spark.sql(query), vanillaResult)
