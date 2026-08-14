@@ -939,6 +939,12 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           substraitExprName,
           replaceWithExpressionTransformer0(errorMessage, attributeSeq, expressionsMap),
           re)
+      case fn: FormatNumber =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genFormatNumberTransformer(
+          substraitExprName,
+          fn.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          fn
+        )
       case expr =>
         GenericExpressionTransformer(
           substraitExprName,

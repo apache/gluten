@@ -17,9 +17,10 @@
 package org.apache.gluten.execution
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.catalyst.expressions.{Alias, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Alias, FormatNumber, Literal}
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
 import org.apache.spark.sql.classic.ClassicColumn
+import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.StringType
 
@@ -677,5 +678,88 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
     runQueryAndCompare(
       s"select l_orderkey, unbase64(base64(l_comment)) " +
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+  }
+
+  // format_number integration tests
+
+  private def formatNumberInProject(
+      p: org.apache.spark.sql.execution.SparkPlan): Boolean =
+    p.expressions.exists(_.exists(_.isInstanceOf[FormatNumber]))
+
+  // Asserts format_number WAS offloaded to Velox: a ProjectExecTransformer must carry the
+  // FormatNumber expression (proving native offload, not merely that some unrelated
+  // transformer exists in the plan).
+  private def assertFormatNumberOffloaded(df: org.apache.spark.sql.DataFrame): Unit = {
+    val plan = stripAQEPlan(df.queryExecution.executedPlan)
+    assert(
+      collectWithSubqueries(plan) {
+        case p: ProjectExecTransformer if formatNumberInProject(p) => p
+      }.nonEmpty,
+      "format_number should be offloaded to a ProjectExecTransformer")
+  }
+
+  // Asserts format_number was NOT offloaded to Velox: no ProjectExecTransformer may carry a
+  // FormatNumber expression, and a vanilla Spark ProjectExec must (proving genuine fallback
+  // rather than the expression merely being absent from the projection).
+  private def assertFormatNumberFallsBack(df: org.apache.spark.sql.DataFrame): Unit = {
+    val plan = stripAQEPlan(df.queryExecution.executedPlan)
+    assert(
+      collectWithSubqueries(plan) {
+        case p: ProjectExecTransformer if formatNumberInProject(p) => p
+      }.isEmpty,
+      "format_number must not be offloaded to a ProjectExecTransformer")
+    assert(
+      collectWithSubqueries(plan) { case p: ProjectExec if formatNumberInProject(p) => p }.nonEmpty,
+      "format_number should execute in a vanilla Spark ProjectExec")
+  }
+
+  test("format_number executes natively for integer input") {
+    runQueryAndCompare(
+      s"select l_orderkey, format_number(l_orderkey, 2) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(assertFormatNumberOffloaded)
+  }
+
+  test("format_number executes natively for double input") {
+    runQueryAndCompare(
+      s"select l_orderkey, format_number(CAST(l_orderkey AS DOUBLE), 4) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(assertFormatNumberOffloaded)
+  }
+
+  test("format_number executes natively for float input") {
+    runQueryAndCompare(
+      s"select l_orderkey, format_number(CAST(l_orderkey AS FLOAT), 3) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(assertFormatNumberOffloaded)
+  }
+
+  test("format_number executes natively for bigint input") {
+    runQueryAndCompare(
+      s"select l_orderkey, format_number(CAST(l_orderkey AS BIGINT), 0) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(assertFormatNumberOffloaded)
+  }
+
+  test("format_number executes natively with zero decimal places") {
+    runQueryAndCompare(
+      s"select l_orderkey, format_number(l_orderkey, 0) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(assertFormatNumberOffloaded)
+  }
+
+  test("format_number falls back for string format pattern") {
+    runQueryAndCompare(
+      s"select l_orderkey, format_number(CAST(l_orderkey AS DOUBLE), '#,##0.00') " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(assertFormatNumberFallsBack)
+  }
+
+  test("format_number falls back for DecimalType input") {
+    runQueryAndCompare(
+      s"select l_orderkey, format_number(CAST(l_orderkey AS DECIMAL(10,2)), 2) " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(assertFormatNumberFallsBack)
+  }
+
+  test("format_number falls back when the feature is disabled") {
+    withSQLConf("spark.gluten.sql.columnar.formatNumber" -> "false") {
+      runQueryAndCompare(
+        s"select l_orderkey, format_number(l_orderkey, 2) " +
+          s"from $LINEITEM_TABLE limit $LENGTH")(assertFormatNumberFallsBack)
+    }
   }
 }

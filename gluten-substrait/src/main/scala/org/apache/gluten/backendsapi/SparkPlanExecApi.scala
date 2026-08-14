@@ -532,6 +532,20 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, exprs, original)
   }
 
+  /**
+   * Hook for native `format_number(numeric, int)` lowering. The default implementation throws
+   * [[GlutenNotSupportException]] so backends that do not support a native path cleanly fall back
+   * to vanilla Spark. Backends that do support the function (e.g., Velox) override this and may
+   * additionally enforce gating and type whitelisting.
+   */
+  def genFormatNumberTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      original: FormatNumber): ExpressionTransformer = {
+    throw new GlutenNotSupportException(
+      "format_number native path is not supported by this backend")
+  }
+
   /** Define backend-specific expression mappings. */
   def extraExpressionMappings: Seq[Sig] = Seq.empty
 

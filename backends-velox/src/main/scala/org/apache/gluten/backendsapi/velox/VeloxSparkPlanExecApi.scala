@@ -576,6 +576,36 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     VeloxHashExpressionTransformer(substraitExprName, exprs, original)
   }
 
+  override def genFormatNumberTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      original: FormatNumber): ExpressionTransformer = {
+    if (!GlutenConfig.get.enableColumnarFormatNumber) {
+      throw new GlutenNotSupportException(
+        "Native format_number is disabled by spark.gluten.sql.columnar.formatNumber")
+    }
+    // Velox's format_number only supports an integer decimal-places second argument.
+    // Spark also accepts a Java DecimalFormat pattern STRING (e.g., '#,##0.00') which
+    // Velox does not implement -- fall back to vanilla Spark for that overload.
+    original.right.dataType match {
+      case StringType =>
+        throw new GlutenNotSupportException(
+          "format_number with string format pattern is not supported in native path")
+      case _ => // IntegerType -- supported
+    }
+    // DecimalType inputs require full-precision BigDecimal formatting which Velox does
+    // not support natively. Casting to Double would lose precision for values with >15
+    // significant digits. Fall back to Spark for DecimalType inputs.
+    original.left.dataType match {
+      case _: DecimalType =>
+        throw new GlutenNotSupportException(
+          "format_number with DecimalType input is not supported in native path " +
+            "(would lose precision when casting to Double)")
+      case _ => // Integer and floating-point types -- supported
+    }
+    GenericExpressionTransformer(substraitExprName, children, original)
+  }
+
   /**
    * Generate ShuffleDependency for ColumnarShuffleExchangeExec.
    *

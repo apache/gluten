@@ -95,6 +95,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableColumnarWindowGroupLimit: Boolean = getConf(COLUMNAR_WINDOW_GROUP_LIMIT_ENABLED)
 
+  def enableColumnarFormatNumber: Boolean = getConf(COLUMNAR_FORMAT_NUMBER_ENABLED)
+
   def enableAppendData: Boolean = getConf(COLUMNAR_APPEND_DATA_ENABLED)
 
   def enableReplaceData: Boolean = getConf(COLUMNAR_REPLACE_DATA_ENABLED)
@@ -940,6 +942,16 @@ object GlutenConfig extends ConfigRegistry {
   val COLUMNAR_WINDOW_GROUP_LIMIT_ENABLED =
     buildConf("spark.gluten.sql.columnar.window.group.limit")
       .doc("Enable or disable columnar window group limit.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val COLUMNAR_FORMAT_NUMBER_ENABLED =
+    buildConf("spark.gluten.sql.columnar.formatNumber")
+      .doc(
+        "Enable or disable native execution of format_number(numeric, int) via Velox. " +
+          "Enabled by default. When enabled, integer and floating-point inputs are lowered " +
+          "to the Velox native implementation; the format-pattern STRING overload (e.g., " +
+          "'#,##0.00') and DecimalType inputs are unsupported and always fall back to Spark.")
       .booleanConf
       .createWithDefault(true)
 
