@@ -656,9 +656,9 @@ trait SparkPlanExecApi {
     throw new GlutenNotSupportException("RDDScanExec is not supported")
 
   /**
-   * Whether the backend supports offloading the given empty-relation plan to native. Typed as
-   * [[SparkPlan]] because EmptyRelationExec only exists on Spark 4.0+; callers must first confirm
-   * the type through `SparkShims.isEmptyRelationExec`.
+   * Whether the backend supports offloading the given empty-relation plan to a columnar
+   * transformer. Typed as [[SparkPlan]] because EmptyRelationExec only exists on Spark 4.0+;
+   * callers must first confirm the type through `SparkShims.isEmptyRelationExec`.
    */
   def isSupportEmptyRelationExec(plan: SparkPlan): Boolean = false
 

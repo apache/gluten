@@ -55,9 +55,9 @@ case class EmptyRelationExecTransformer(output: Seq[Attribute]) extends Validata
 object EmptyRelationExecTransformer {
 
   /**
-   * Whether the backend supports offloading the given empty-relation plan to native. The plan is
-   * typed as [[SparkPlan]] because EmptyRelationExec only exists on Spark 4.0+; callers must first
-   * confirm the type through `SparkShims.isEmptyRelationExec`.
+   * Whether the backend supports offloading the given empty-relation plan to a columnar
+   * transformer. The plan is typed as [[SparkPlan]] because EmptyRelationExec only exists on Spark
+   * 4.0+; callers must first confirm the type through `SparkShims.isEmptyRelationExec`.
    */
   def isSupportEmptyRelationExec(plan: SparkPlan): Boolean =
     BackendsApiManager.getSparkPlanExecApiInstance.isSupportEmptyRelationExec(plan)

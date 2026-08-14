@@ -940,7 +940,7 @@ object GlutenConfig extends ConfigRegistry {
   val COLUMNAR_EMPTY_RELATION_ENABLED =
     buildConf("spark.gluten.sql.columnar.emptyRelation")
       .doc(
-        "Enable or disable native columnar execution of EmptyRelationExec (Spark 4.0+). When " +
+        "Enable or disable columnar execution of EmptyRelationExec (Spark 4.0+). When " +
           "true, Gluten replaces EmptyRelationExec (a leaf node AQE creates when it proves a " +
           "subtree produces no output) with a columnar transformer, avoiding unnecessary " +
           "ColumnarToRow / RowToColumnar transitions around the empty relation.")
