@@ -97,7 +97,7 @@ class DeltaSplitReader : public DeltaSplitReaderBase {
 
   void prepareSplit(
       std::shared_ptr<common::MetadataFilter> metadataFilter,
-      dwio::common::RuntimeStatistics& runtimeStats,
+      dwio::common::RuntimeStats& runtimeStats,
       const folly::F14FastMap<std::string, std::string>& fileReadOps = {}) override;
 
   uint64_t next(uint64_t size, VectorPtr& output) override;
