@@ -139,7 +139,8 @@ Each worker type needs a discovery script that reports its available resources t
 **CPU workers** — `getCpuResources.sh`:
 ```bash
 #!/usr/bin/env bash
-echo {"name": "cpu", "addresses":["0"]}
+
+echo {\"name\": \"cpu\", \"addresses\":[\"0\"]}
 ```
 > **Note**: This is a dummy script that doesn't report the actual number of cores on the worker. Its purpose is to register the `cpu` custom resource on CPU-only
 nodes so that Spark's scheduler can identify them. CPU stages whose resource profile
@@ -149,9 +150,9 @@ scheduled on GPU workers (which do not register the `cpu` resource).
 **GPU workers** — `getGpuResources.sh`:
 ```bash
 #!/usr/bin/env bash
-ADDRS=$(nvidia-smi --query-gpu=index --format=csv,noheader \
-        | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/","/g')
-echo {"name": "gpu", "addresses":["$ADDRS"]}
+
+ADDRS=`nvidia-smi --query-gpu=index --format=csv,noheader | sed -e ':a' -e 'N' -e'$!ba' -e 's/\n/","/g'`
+echo {\"name\": \"gpu\", \"addresses\":[\"$ADDRS\"]}
 ```
 
 #### **Worker properties files**
@@ -162,13 +163,13 @@ resource and discovery script. (via `--properties-file $PROPERTIES_FILE`)
 **cpu-worker.conf** (placed on every CPU-only node):
 ```properties
 spark.worker.resource.cpu.amount             = 1
-spark.worker.resource.cpu.discoveryScript    /path/to/getCpuResources.sh
+spark.worker.resource.cpu.discoveryScript    = /path/to/getCpuResources.sh
 ```
 
 **gpu-worker.conf** (placed on every GPU node):
 ```properties
 spark.worker.resource.gpu.amount             = 1
-spark.worker.resource.gpu.discoveryScript    /path/to/getGpuResources.sh
+spark.worker.resource.gpu.discoveryScript    = /path/to/getGpuResources.sh
 ```
 
 > **Note**: With `amount = 1`, Spark allows only one executor per worker node for that
@@ -202,7 +203,7 @@ spark.gluten.sql.columnar.backend.velox.cudf.concurrentGpuTasks = 3
 # Enable async shuffle read(recommended for all GPU execution)
 spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.enabled = true
 spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.threadPoolSize = 8
-gpuAsyncShuffleReader.maxPrefetchBytes = 2GB
+spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.maxPrefetchBytes = 2GB
 
 ```
 
