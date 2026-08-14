@@ -31,7 +31,9 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * unnecessary ColumnarToRow / RowToColumnar transitions when AQE propagates an empty relation
  * through the plan.
  */
-case class EmptyRelationExecTransformer(output: Seq[Attribute]) extends ValidatablePlan {
+case class EmptyRelationExecTransformer(output: Seq[Attribute])
+  extends LeafExecNode
+  with ValidatablePlan {
 
   override def rowType(): Convention.RowType = Convention.RowType.None
 
@@ -45,11 +47,6 @@ case class EmptyRelationExecTransformer(output: Seq[Attribute]) extends Validata
 
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] =
     sparkContext.emptyRDD[ColumnarBatch]
-
-  override def children: Seq[SparkPlan] = Seq.empty
-
-  override protected def withNewChildrenInternal(
-      newChildren: IndexedSeq[SparkPlan]): SparkPlan = this
 }
 
 object EmptyRelationExecTransformer {
