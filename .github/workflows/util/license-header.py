@@ -28,6 +28,7 @@ import util
 
 SCRIPTS = util.script_path()
 
+
 class attrdict(dict):
     __getattr__ = dict.__getitem__
     __setattr__ = dict.__setitem__
@@ -35,7 +36,9 @@ class attrdict(dict):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Update license headers")
-    parser.add_argument("--header", default=f"{SCRIPTS}/license.header", help="license header file")
+    parser.add_argument(
+        "--header", default=f"{SCRIPTS}/license.header", help="license header file"
+    )
     parser.add_argument(
         "--extra",
         default=80,
@@ -56,8 +59,11 @@ def parse_args():
     parser.add_argument(
         "-v", default=False, action="store_true", dest="verbose", help="verbose output"
     )
-    parser.add_argument("--excluded_copyright_files", default=f"{SCRIPTS}/excluded_copyright_files.txt",
-                        help="Files that should be excluded")
+    parser.add_argument(
+        "--excluded_copyright_files",
+        default=f"{SCRIPTS}/excluded_copyright_files.txt",
+        help="Files that should be excluded",
+    )
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -98,6 +104,7 @@ def wrapper_chpp(header, args):
 
 def wrapper_hash(header, args):
     return wrapper("", "#", "\n", header)
+
 
 def wrapper_tilde(header, args):
     return wrapper("<!--\n", "  ~", "\n  -->\n", header)
@@ -173,6 +180,7 @@ def get_wrapper(filename):
 def message(file, string):
     if file:
         print(string, file=file)
+
 
 def check_license_header(files, license_header, args):
     global fail
@@ -275,7 +283,9 @@ def process_license_header(files, args):
 
     need_check_copyright_files = []
     for file in files:
-        if any([fnmatch.fnmatch(file, glob) for glob in excluded_copyright_files_globs]):
+        if any(
+            [fnmatch.fnmatch(file, glob) for glob in excluded_copyright_files_globs]
+        ):
             continue
         else:
             need_check_copyright_files.append(file)
@@ -283,8 +293,11 @@ def process_license_header(files, args):
     license_header = file_lines(args.header)
     check_license_header(need_check_copyright_files, license_header, args)
 
+
 fail = False
 log_to = None
+
+
 def main():
     global fail
     global log_to
