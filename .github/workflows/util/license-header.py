@@ -110,7 +110,8 @@ file_types = OrderedDict(
         "*.cpp": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.cc": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.c": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
-        "*.dockerfile": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
+        # Matches 'Dockerfile' and suffixed variants such as 'Dockerfile.centos9-static-build'.
+        "Dockerfile*": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
         "*.h": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.hpp": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.inc": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
@@ -156,7 +157,17 @@ def get_wrapper(filename):
     if filename in file_types:
         return file_types[filename]
 
-    return file_types["*" + get_fileextn(filename)]
+    extension = "*" + get_fileextn(filename)
+    if extension in file_types:
+        return file_types[extension]
+
+    # Fall back to glob matching, for keys such as 'Dockerfile*' that are neither an
+    # exact name nor an extension.
+    for pattern, attributes in file_types.items():
+        if fnmatch.fnmatch(filename, pattern):
+            return attributes
+
+    return None
 
 
 def message(file, string):
