@@ -254,10 +254,10 @@ std::string SubstraitParser::findVeloxFunction(
       break;
     }
   }
-  return mapToVeloxFunction(funcName, isDecimal);
+  return mapToVeloxFunction(funcName, isDecimal, types.size());
 }
 
-std::string SubstraitParser::mapToVeloxFunction(const std::string& substraitFunction, bool isDecimal) {
+std::string SubstraitParser::mapToVeloxFunction(const std::string& substraitFunction, bool isDecimal, size_t numArgs) {
   auto it = substraitVeloxFunctionMap_.find(substraitFunction);
   if (isDecimal) {
     if (substraitFunction == "lt" || substraitFunction == "lte" || substraitFunction == "gt" ||
@@ -266,6 +266,13 @@ std::string SubstraitParser::mapToVeloxFunction(const std::string& substraitFunc
     }
     if (substraitFunction == "round") {
       return "decimal_round";
+    }
+    // Spark RoundCeil / RoundFloor are emitted with substrait names "ceil"
+    // and "floor" but require dispatch to the 2-arg decimal special forms.
+    // The unary forms `ceil(decimal)` / `floor(decimal)` keep their original
+    // name (handled by simple-function registration).
+    if (numArgs == 2 && (substraitFunction == "ceil" || substraitFunction == "floor")) {
+      return "decimal_" + substraitFunction;
     }
   }
   if (it != substraitVeloxFunctionMap_.end()) {

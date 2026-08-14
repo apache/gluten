@@ -394,6 +394,18 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           substraitExprName,
           replaceWithExpressionTransformer0(r.child, attributeSeq, expressionsMap),
           r)
+      case rc: RoundCeil if rc.child.dataType.isInstanceOf[DecimalType] =>
+        DecimalCeilFloorTransformer(
+          substraitExprName,
+          replaceWithExpressionTransformer0(rc.child, attributeSeq, expressionsMap),
+          rc,
+          rc.scale)
+      case rf: RoundFloor if rf.child.dataType.isInstanceOf[DecimalType] =>
+        DecimalCeilFloorTransformer(
+          substraitExprName,
+          replaceWithExpressionTransformer0(rf.child, attributeSeq, expressionsMap),
+          rf,
+          rf.scale)
       case t: ToUnixTimestamp =>
         BackendsApiManager.getSparkPlanExecApiInstance.genToUnixTimestampTransformer(
           substraitExprName,
