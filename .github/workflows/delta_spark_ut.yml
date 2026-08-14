@@ -153,7 +153,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Get Ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-delta-spark-ut-centos7-release-default-${{github.sha}}
@@ -176,7 +176,7 @@ jobs:
           "
       - name: Save Ccache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-delta-spark-ut-centos7-release-default-${{github.sha}}
@@ -198,7 +198,7 @@ jobs:
           name: delta-spark-ut-native-lib-centos-7-${{ github.sha }}
           path: ./cpp/build/
       - name: Cache Maven repository
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /root/.m2/repository
           key: m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-${{ hashFiles('pom.xml', '**/pom.xml') }}
@@ -320,7 +320,7 @@ jobs:
           curl --version | head -n 1
 
       - name: Cache sbt / Ivy / Coursier
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             /root/.sbt

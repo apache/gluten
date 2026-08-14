@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{github.sha}}
@@ -50,7 +50,7 @@ jobs:
             bash dev/ci-velox-buildstatic-centos-7.sh
           "
       - name: Save Ccache
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v6
         id: ccache
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -72,7 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
@@ -83,7 +83,7 @@ jobs:
           export CCACHE_MAXSIZE=1G
           bash dev/ci-velox-buildstatic-centos-9.sh
       - name: Save Ccache
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v6
         id: ccache
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -105,7 +105,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-release-shared-${{runner.arch}}-${{github.sha}}
@@ -118,7 +118,7 @@ jobs:
           bash dev/ci-velox-buildshared-centos-9.sh
           ccache -s
       - name: Save Ccache
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v6
         id: ccache
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -136,7 +136,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-enhanced-centos7-release-default-${{github.sha}}
@@ -151,7 +151,7 @@ jobs:
             bash dev/ci-velox-buildstatic-centos-7-enhanced-features.sh
           "
       - name: Save Ccache
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v6
         id: ccache
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -177,7 +177,7 @@ jobs:
           sudo docker builder prune -a
       - uses: actions/checkout@v7
       - name: Get Ccache
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{github.sha}}
@@ -208,7 +208,7 @@ jobs:
           "
       - name: Save Ccache
         if: always()
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v6
         id: ccache
         with:
           path: '${{ env.CCACHE_DIR }}'

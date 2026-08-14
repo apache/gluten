@@ -47,7 +47,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Get Ccache
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{github.sha}}

@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{github.sha}}
@@ -188,7 +188,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
@@ -204,7 +204,7 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/.m2/repository/org/apache/arrow/
           cp -r /root/.m2/repository/org/apache/arrow/* $GITHUB_WORKSPACE/.m2/repository/org/apache/arrow/
       - name: "Save ccache"
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         id: ccache
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -428,7 +428,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-enhanced-centos7-release-default-${{github.sha}}

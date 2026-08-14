@@ -63,7 +63,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Restore ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-flink-centos8
@@ -95,7 +95,7 @@ jobs:
           ccache -s
       - name: Save ccache
         if: success()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-flink-centos8
