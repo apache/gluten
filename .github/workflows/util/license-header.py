@@ -99,6 +99,9 @@ def wrapper_chpp(header, args):
 def wrapper_hash(header, args):
     return wrapper("", "#", "\n", header)
 
+def wrapper_tilde(header, args):
+    return wrapper("<!--\n", "  ~", "\n  -->\n", header)
+
 
 file_types = OrderedDict(
     {
@@ -107,7 +110,7 @@ file_types = OrderedDict(
         "*.cpp": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.cc": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.c": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
-        "*.dockfile": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
+        "*.dockerfile": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
         "*.h": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.hpp": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.inc": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
@@ -119,6 +122,16 @@ file_types = OrderedDict(
         "*.sh": attrdict({"wrapper": wrapper_hash, "hashbang": True}),
         "*.thrift": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.yml": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
+        "*.yaml": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
+        # The XML declaration must stay the first thing in the document, so the header
+        # goes after it rather than at the top of the file.
+        "*.xml": attrdict(
+            {
+                "wrapper": wrapper_tilde,
+                "hashbang": False,
+                "prologue": r"^<\?xml.*?\?>[ \t]*\n",
+            }
+        ),
     }
 )
 
@@ -222,16 +235,17 @@ def check_license_header(files, license_header, args):
         #
         content = content[0:start] + content[end:]
 
-        if wrap.hashbang:
-            search = regex.search("^#!.*\n", content)
-            if search:
-                content = (
-                    content[search.start() : search.end()]
-                    + header_comment
-                    + content[search.end() :]
-                )
-            else:
-                content = header_comment + content
+        # Some formats require a line to stay first: a shebang for scripts, or the
+        # declaration for XML. Insert the header after it when present.
+        prologue = r"^#!.*\n" if wrap.hashbang else wrap.get("prologue")
+        search = regex.search(prologue, content) if prologue else None
+
+        if search:
+            content = (
+                content[search.start() : search.end()]
+                + header_comment
+                + content[search.end() :]
+            )
         else:
             content = header_comment + content
 
