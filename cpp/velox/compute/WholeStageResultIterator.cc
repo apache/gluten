@@ -607,6 +607,10 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
         std::to_string(veloxCfg_->get<bool>(kHashProbeDynamicFilterPushdownEnabled, true));
     configs[velox::core::QueryConfig::kHashProbeBloomFilterPushdownMaxSize] =
         std::to_string(veloxCfg_->get<uint64_t>(kHashProbeBloomFilterPushdownMaxSize, 0));
+    configs[velox::core::QueryConfig::kBypassHashProbeBloomFilterMinRows] = std::to_string(
+        veloxCfg_->get<int32_t>(kHashProbeBloomFilterBypassMinRows, kHashProbeBloomFilterBypassMinRowsDefault));
+    configs[velox::core::QueryConfig::kBypassHashProbeBloomFilterMinPct] = std::to_string(
+        veloxCfg_->get<int32_t>(kHashProbeBloomFilterBypassMinPct, kHashProbeBloomFilterBypassMinPctDefault));
 
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterExpectedNumItems)) {
       configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterExpectedNumItems)] = opt.value();
