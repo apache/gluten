@@ -344,6 +344,7 @@ org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATC
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
+org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DOUBLE, targetType: BIGINT followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
@@ -378,6 +379,7 @@ org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE ov
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
+org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: DOUBLE, targetType: BIGINT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
@@ -751,6 +753,8 @@ org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#unsupported 
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#unsupported type changes TIMESTAMP_NTZ -> DATE, partitioned=false
 org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - always automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - automatic type widening DATE -> TIMESTAMP_NTZ
+org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - never automatic type widening DECIMAL(9,2) -> DECIMAL(18,2)
+org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - never automatic type widening DECIMAL(9,2) -> DECIMAL(19,3)
 org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - unsupported automatic type widening TIMESTAMP_NTZ -> DATE
 org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - unsupported automatic type widening TIMESTAMP_NTZ -> DATE
