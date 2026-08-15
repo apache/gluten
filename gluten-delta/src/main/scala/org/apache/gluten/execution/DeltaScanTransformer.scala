@@ -29,6 +29,7 @@ import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NameMapping, NoMapping}
 import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeFileIndex, TahoeRemoveFileIndex}
+import org.apache.spark.sql.delta.files.TahoeChangeFileIndex
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.{FilePartition, HadoopFsRelation}
@@ -263,6 +264,20 @@ case class DeltaScanTransformer(
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BasicScanExecTransformer =
     copy(pushDownFilters = Some(filters))
+
+  // Vanilla Delta CDF translates V1 filters with nested-predicate pushdown disabled.
+  override protected def supportNestedPredicatePushdownForDisplay: Boolean = {
+    if (isCdfScan) {
+      false
+    } else {
+      super.supportNestedPredicatePushdownForDisplay
+    }
+  }
+
+  private def isCdfScan: Boolean = relation.location match {
+    case _: CdcAddFileIndex | _: TahoeRemoveFileIndex | _: TahoeChangeFileIndex => true
+    case _ => false
+  }
 }
 
 object DeltaScanTransformer {
