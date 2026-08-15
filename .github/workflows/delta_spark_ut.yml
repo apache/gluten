@@ -60,6 +60,16 @@ on:
       # Negated patterns are evaluated in order and override the positives
       # above, so this must stay last.
       - '!.github/workflows/util/delta-spark-ut/**/*.md'
+  # Escape hatch from the `paths:` filter: comment `/delta-test` on a PR to force
+  # a full run. A Velox/core/native change does not match the filter but can
+  # still break Delta offload, and the nightly is not always soon enough.
+  #
+  # A comment rather than a label, because labelling needs write/triage
+  # permission -- a PR author on a fork, the person who most needs this, cannot
+  # apply one. And an ADDITIONAL `on:` key rather than a change to the trigger
+  # above, so PRs that do not ask for a run still cost zero jobs.
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       delta_ref:
@@ -92,10 +102,23 @@ on:
   schedule:
     - cron: '0 5 * * *'
 
+# Unlike `pull_request`, an `issue_comment` run is a base-repo run with a
+# base-repo token, and the jobs below build and execute code from the PR. Nothing
+# here needs write access, so pin the default to read-only.
+permissions:
+  contents: read
+
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
   MVN_CMD: 'build/mvn -ntp'
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
+  # What every job below checks out. Empty on all events except `issue_comment`,
+  # whose run is created against the DEFAULT BRANCH -- so without this a
+  # `/delta-test` comment would test main, not the PR. An empty `ref` is exactly
+  # what actions/checkout does by default, so the other events are unaffected.
+  # The merge ref is what `pull_request` tests too; a conflicted PR has none, and
+  # checkout then fails with a clear git error.
+  DELTA_CHECKOUT_REF: ${{ github.event.issue.number && format('refs/pull/{0}/merge', github.event.issue.number) || '' }}
   # Gluten profile / bundle naming for the build-gluten-bundle and
   # delta-spark-test jobs. `spark_version` is the single source of truth for the
   # Spark version: it drives the Gluten bundle profile (-Pspark-<v>), the bundle
@@ -139,19 +162,63 @@ env:
 # Now that this is a standalone workflow (not called by velox_backend_x86.yml),
 # `github.workflow` resolves to THIS workflow, so a concurrency group is both safe
 # and necessary: without it every push to a PR branch stacks another full ~2.5 h
-# Delta run instead of superseding the previous one. Keyed on the branch for PRs
-# and the sha otherwise, matching velox_backend_x86.yml's group.
+# Delta run instead of superseding the previous one. Keyed on the PR number when
+# there is one, so a `pull_request` run and a `/delta-test` run on the same PR
+# supersede each other -- `github.head_ref` is empty on `issue_comment`, which
+# would otherwise lump every commented-on PR into one shared group.
 concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  group: ${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.head_ref || github.sha }}-${{ github.workflow }}
   cancel-in-progress: true
 
 jobs:
+  # Gate + acknowledgement for `/delta-test`, and nothing else: the ref to check
+  # out is computed in `env.DELTA_CHECKOUT_REF` above, so this job has no outputs
+  # and the rest of the pipeline just hangs off it via `needs`.
+  #
+  # Every other event passes straight through (the `if` short-circuits), leaving
+  # their behaviour unchanged.
+  #
+  # Kept as its own job so that `pull-requests: write` -- needed to comment back
+  # -- is never granted to a job that builds and runs the PR's code.
+  delta-test-requested:
+    # The PR author (the whole point: a fork author cannot label their own PR,
+    # but can always comment on it) or anyone with write access. `startsWith`,
+    # not `contains`, so quoting the command while discussing it does not spend
+    # ~11 job-hours.
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+       startsWith(github.event.comment.body, '/delta-test') &&
+       (github.event.comment.user.login == github.event.issue.user.login ||
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
+    runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: write
+    steps:
+      # An `issue_comment` run belongs to the default branch, so GitHub cannot
+      # attach it to the PR's Checks tab. Leave a link, or the contributor sees
+      # nothing happen for ~2.5 h.
+      - name: Acknowledge the request
+        if: ${{ github.event_name == 'issue_comment' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          TRIGGER_USER: ${{ github.event.comment.user.login }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body \
+            "🔄 Delta Spark UT started by @${TRIGGER_USER} (~2.5 h). [View run](${RUN_URL})"
+
   build-native-lib-centos-7:
+    needs: delta-test-requested
     # This workflow always builds its own native lib -- there is no caller to
     # provide one, and the `paths:` filter already decided whether the run happens.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Get Ccache from Apache Stash
         uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
@@ -172,7 +239,15 @@ jobs:
             ccache -s
           "
       - name: Save Ccache to Apache Stash
-        if: always()
+        # A stash is saved as an artifact named `<key>-<github.ref_name>`, and is
+        # restored by matching `head_branch` + `head_repository_id` -- so the
+        # scope is the branch, exactly as with actions/cache. On `issue_comment`
+        # that branch is the DEFAULT BRANCH, not the PR, and these jobs execute
+        # the PR's code; with the save action's `overwrite: true` default a
+        # comment-triggered run would *replace* main's stash, which the nightly
+        # then restores. So comment runs restore but never save. Same for the
+        # Maven and sbt stashes below.
+        if: ${{ always() && github.event_name != 'issue_comment' }}
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -190,6 +265,8 @@ jobs:
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Download native artifacts
         uses: actions/download-artifact@v4
         with:
@@ -232,6 +309,8 @@ jobs:
             -Pbackends-velox -Pdelta \
             -DskipTests -Dmaven.compiler.release=17
       - name: Save Maven repository to Apache Stash
+        # Trusted runs only -- see the Save Ccache step above.
+        if: ${{ github.event_name != 'issue_comment' }}
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: /root/.m2/repository
@@ -282,6 +361,8 @@ jobs:
       SHARD_ID: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
 
       - name: Resolve workflow inputs
         id: resolve
@@ -394,8 +475,9 @@ jobs:
 
       - name: Save sbt / Ivy / Coursier to Apache Stash
         # All shards have the same dependencies; one writer avoids matrix jobs
-        # overwriting the same stash artifact.
-        if: ${{ success() && matrix.shard == 0 }}
+        # overwriting the same stash artifact. Trusted runs only -- see the Save
+        # Ccache step in build-native-lib-centos-7.
+        if: ${{ success() && matrix.shard == 0 && github.event_name != 'issue_comment' }}
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: |
@@ -478,6 +560,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Download per-shard gate lists
         uses: actions/download-artifact@v4
         continue-on-error: true

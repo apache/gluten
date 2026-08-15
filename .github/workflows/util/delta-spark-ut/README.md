@@ -97,12 +97,26 @@ longer shared between them, those PRs pay for the centos-7 native build twice
   filter before creating the run, so an unrelated PR costs nothing at all.
   Changes to general Velox/core/native code can also affect Delta offload, but
   they're touched on most PRs, so per-PR they skip the suite — the nightly run is
-  the safety net.
+  the safety net, and `/delta-test` below forces a run on any PR the filter
+  skipped.
 - **Nightly** — the **full** suite runs against the latest default branch on a
   `schedule` (05:00 UTC), so regressions from general Velox/core changes are
   still caught daily. The nightly run enforces the baseline **and** fails on
   now-passing tests (`fail_on_fixed=true`), so baseline drift surfaces as a red
   nightly — the signal to refresh `known-failures.txt`.
+- **On demand, from a PR** — comment **`/delta-test`** (as the first thing in the
+  comment) to force a full run on a PR the `paths:` filter skipped. The **PR
+  author** — including from a fork, which is why this is a comment and not a
+  label — or anyone with write access can use it. It runs the PR's merge ref with
+  the default settings and the baseline **enforced**; `update_baseline` stays
+  reachable only from `workflow_dispatch`, so no comment can rewrite the
+  baseline. The workflow replies with a link to the run, because an
+  `issue_comment` run belongs to the default branch and so cannot appear in the
+  PR's Checks tab. Two consequences: `/delta-test` reads the workflow file from
+  the default branch (so it cannot test changes to this pipeline itself — those
+  match the `paths:` filter anyway), and comment-triggered runs **restore but
+  never save** the ccache/Maven/sbt caches, since their cache scope is the
+  default branch and they execute the PR's code.
 - **Manually** — **Actions → Delta Spark UT (Gluten) → Run workflow**
   (`workflow_dispatch`), e.g. to refresh the baseline (see below). This is also
   how you validate a Velox/core change against Delta before merging: run it on
