@@ -104,18 +104,19 @@ longer shared between them, those PRs pay for the centos-7 native build twice
   still caught daily. The nightly run enforces the baseline **and** fails on
   now-passing tests (`fail_on_fixed=true`), so baseline drift surfaces as a red
   nightly — the signal to refresh `known-failures.txt`.
-- **On demand, from a PR** — comment **`/delta-test`** (as the first thing in the
-  comment) to force a full run on a PR the `paths:` filter skipped. The **PR
-  author** — including from a fork, which is why this is a comment and not a
-  label — or anyone with write access can use it. It runs the PR's merge ref with
-  the default settings and the baseline **enforced**; `update_baseline` stays
-  reachable only from `workflow_dispatch`, so no comment can rewrite the
-  baseline. The workflow replies with a link to the run, because an
-  `issue_comment` run belongs to the default branch and so cannot appear in the
-  PR's Checks tab. Two consequences: `/delta-test` reads the workflow file from
-  the default branch (so it cannot test changes to this pipeline itself — those
-  match the `paths:` filter anyway), and comment-triggered runs **restore but
-  never save** the ccache/Maven/sbt caches, since their cache scope is the
+- **On demand, from a PR** — the **PR author** comments **`/delta-test`** (as the
+  first thing in the comment) to force a full run on a PR the `paths:` filter
+  skipped. Restricted to the author, who is the one this exists for: a fork
+  author cannot label their own PR, but can always comment on it. A maintainer
+  who wants a run on someone else's PR asks the author to comment. It runs the
+  PR's merge ref with the default settings and the baseline **enforced**;
+  `update_baseline` stays reachable only from `workflow_dispatch`, so no comment
+  can rewrite the baseline. The workflow replies with a link to the run, because
+  an `issue_comment` run belongs to the default branch and so cannot appear in
+  the PR's Checks tab. Two consequences: `/delta-test` reads the workflow file
+  from the default branch (so it cannot test changes to this pipeline itself —
+  those match the `paths:` filter anyway), and comment-triggered runs **restore
+  but never save** the ccache/Maven/sbt caches, since their cache scope is the
   default branch and they execute the PR's code.
 - **Manually** — **Actions → Delta Spark UT (Gluten) → Run workflow**
   (`workflow_dispatch`), e.g. to refresh the baseline (see below). This is also

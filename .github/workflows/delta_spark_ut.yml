@@ -60,9 +60,9 @@ on:
       # Negated patterns are evaluated in order and override the positives
       # above, so this must stay last.
       - '!.github/workflows/util/delta-spark-ut/**/*.md'
-  # Escape hatch from the `paths:` filter: comment `/delta-test` on a PR to force
-  # a full run. A Velox/core/native change does not match the filter but can
-  # still break Delta offload, and the nightly is not always soon enough.
+  # Escape hatch from the `paths:` filter: the PR author comments `/delta-test`
+  # to force a full run. A Velox/core/native change does not match the filter but
+  # can still break Delta offload, and the nightly is not always soon enough.
   #
   # A comment rather than a label, because labelling needs write/triage
   # permission -- a PR author on a fork, the person who most needs this, cannot
@@ -181,16 +181,25 @@ jobs:
   # Kept as its own job so that `pull-requests: write` -- needed to comment back
   # -- is never granted to a job that builds and runs the PR's code.
   delta-test-requested:
-    # The PR author (the whole point: a fork author cannot label their own PR,
-    # but can always comment on it) or anyone with write access. `startsWith`,
-    # not `contains`, so quoting the command while discussing it does not spend
-    # ~11 job-hours.
+    # Only the PR author may spend a run on their own PR -- which is exactly the
+    # gap this closes: a fork author cannot label their own PR, but can always
+    # comment on it.
+    #
+    # Deliberately NOT an `author_association` allow-list for maintainers: on an
+    # ASF repo write access comes from Gitbox, not from GitHub org/collaborator
+    # membership, so `COLLABORATOR` matches nobody here and all but two of the
+    # Gluten committers report `CONTRIBUTOR` -- an OWNER/MEMBER/COLLABORATOR list
+    # would reject nearly every maintainer while accepting any apache org member.
+    # A maintainer who wants a run on someone else's PR asks the author to
+    # comment.
+    #
+    # `startsWith`, not `contains`, so quoting the command while discussing it
+    # does not spend ~11 job-hours.
     if: >-
       github.event_name != 'issue_comment' ||
       (github.event.issue.pull_request &&
        startsWith(github.event.comment.body, '/delta-test') &&
-       (github.event.comment.user.login == github.event.issue.user.login ||
-        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
+       github.event.comment.user.login == github.event.issue.user.login)
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
