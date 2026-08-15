@@ -209,6 +209,10 @@ jobs:
       # nothing happen for ~2.5 h.
       - name: Acknowledge the request
         if: ${{ github.event_name == 'issue_comment' }}
+        # Purely informational: this job is what the whole pipeline hangs off, so
+        # a transient API failure here must not fail it and silently skip an
+        # authorised ~2.5 h run.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
