@@ -81,16 +81,18 @@ jobs:
             export CCACHE_DIR=/work/.ccache
             export CCACHE_MAXSIZE=1G
             mkdir -p /work/.ccache
+            ccache -sz
             bash dev/ci-velox-buildstatic-centos-7-enhanced-features.sh
             ccache -s
           "
 
       - name: "Save ccache"
-        uses: actions/cache/save@v4
-        id: ccache
+        if: always()
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-enhanced-centos7-release-default-${{github.sha}}
+          key: ccache-enhanced-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
       - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-enhanced-centos-7-${{github.sha}}

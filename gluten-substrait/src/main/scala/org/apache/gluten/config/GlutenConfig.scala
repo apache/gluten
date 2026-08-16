@@ -396,6 +396,14 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def maxBroadcastTableSize: Long =
     JavaUtils.byteStringAsBytes(conf.getConfString(SPARK_MAX_BROADCAST_TABLE_SIZE, "8GB"))
+
+  def enableHybridExecution: Boolean = getConf(ENABLE_HYBRID_EXECUTION)
+
+  def cpuResourceName: String = getConf(HYBRID_EXECUTION_CPU_RESOURCE_NAME)
+  def gpuResourceName: String = getConf(HYBRID_EXECUTION_GPU_RESOURCE_NAME)
+  def gpuResourceAmountPerTask: Double = getConf(HYBRID_EXECUTION_GPU_RESOURCE_AMOUNT_PER_TASK)
+
+  def gpuOnlyOffloadJoinStage: Boolean = getConf(GPU_ONLY_OFFLOAD_JOIN_STAGE)
 }
 
 object GlutenConfig extends ConfigRegistry {
@@ -1718,4 +1726,52 @@ object GlutenConfig extends ConfigRegistry {
           "total size of small files is below this threshold.")
       .doubleConf
       .createWithDefault(0.5)
+
+  val ENABLE_HYBRID_EXECUTION =
+    buildStaticConf("spark.gluten.sql.columnar.hybridExecution.enabled")
+      .experimental()
+      .doc(
+        "Enable CPU/GPU hybrid execution. At runtime, the execution will be scheduled to target " +
+          "nodes based on the selected execution mode.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val HYBRID_EXECUTION_CPU_RESOURCE_NAME =
+    buildStaticConf("spark.gluten.sql.columnar.hybridExecution.cpuResource.name")
+      .experimental()
+      .doc(
+        "The CPU resource name (Spark custom resource). " +
+          "This must match the resource name configured via spark.executor.resource.<name>.* / " +
+          "spark.task.resource.<name>.* for CPU-stage scheduling to take effect."
+      )
+      .stringConf
+      .createWithDefault("cpu")
+
+  val HYBRID_EXECUTION_GPU_RESOURCE_NAME =
+    buildStaticConf("spark.gluten.sql.columnar.hybridExecution.gpuResource.name")
+      .experimental()
+      .doc(
+        "The GPU resource name (Spark custom resource). " +
+          "This must match the resource name configured via spark.executor.resource.<name>.* / " +
+          "spark.task.resource.<name>.* for GPU-stage scheduling to take effect."
+      )
+      .stringConf
+      .createWithDefault("gpu")
+
+  val HYBRID_EXECUTION_GPU_RESOURCE_AMOUNT_PER_TASK =
+    buildStaticConf("spark.gluten.sql.columnar.hybridExecution.gpuResource.amountPerTask")
+      .experimental()
+      .doc(
+        "The GPU resource amount per task. This is used to limit GPU tasks to target nodes.")
+      .doubleConf
+      .createWithDefault(0.1)
+
+  val GPU_ONLY_OFFLOAD_JOIN_STAGE =
+    buildConf("spark.gluten.sql.columnar.gpu.onlyOffloadJoinStage")
+      .experimental()
+      .doc(
+        "If true, Gluten will only offload join stages to GPU." +
+          " Other stages will be executed on CPU.")
+      .booleanConf
+      .createWithDefault(false)
 }

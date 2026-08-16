@@ -22,7 +22,7 @@ import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
 import org.apache.spark.sql.delta.SnapshotDescriptor
 import org.apache.spark.sql.delta.commands.DeletionVectorUtils.deletionVectorsReadable
-import org.apache.spark.sql.delta.files.TahoeFileIndex
+import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeFileIndex, TahoeRemoveFileIndex}
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.util.SparkVersionUtil
@@ -104,6 +104,12 @@ case class OffloadDeltaScan(
 
   private def containsDeletionVector(scan: FileSourceScanExec): Boolean = {
     scan.relation.location match {
+      // CDF indexes expose the exact actions in the requested range. Use those instead of the
+      // table-level protocol capability so a DV-capable table can still offload DV-free ranges.
+      case index: TahoeRemoveFileIndex =>
+        index.filesByVersion.exists(_.actions.exists(_.deletionVector != null))
+      case index: CdcAddFileIndex =>
+        index.addFiles.exists(_.deletionVector != null)
       case preparedIndex: PreparedDeltaFileIndex =>
         preparedIndex.preparedScan.files.exists(_.deletionVector != null)
       case index: TahoeFileIndex =>

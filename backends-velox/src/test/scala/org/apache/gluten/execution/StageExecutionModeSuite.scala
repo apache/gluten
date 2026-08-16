@@ -78,6 +78,16 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
       .set(VeloxConfig.CUDF_ENABLE_TABLE_SCAN.key, "false")
   }
 
+  /**
+   * Collects all ColumnarAQEShuffleReadExec nodes from the executed plan of `df`, irrespective of
+   * plan nesting.
+   */
+  private def collectColumnarAQEReaders(
+      df: org.apache.spark.sql.DataFrame): Seq[ColumnarAQEShuffleReadExec] = {
+    val plan = getExecutedPlan(df)
+    plan.collect { case r: ColumnarAQEShuffleReadExec => r }
+  }
+
   test("CPU shuffle mapper and GPU shuffle reader with AQE") {
     withSQLConf(
       SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
@@ -99,15 +109,10 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
           Row(1, "left-1", "right-1"),
           Row(2, "left-2", "right-2")))
 
-      val plan = getExecutedPlan(df)
+      val readers = collectColumnarAQEReaders(df)
+      assert(readers.nonEmpty, "Expected at least one ColumnarAQEShuffleReadExec")
 
-      val shuffleReaders = plan.collect {
-        case reader: ColumnarAQEShuffleReadExec => reader
-      }
-
-      assert(shuffleReaders.nonEmpty)
-
-      shuffleReaders.foreach {
+      readers.foreach {
         reader =>
           val canonicalized = reader.canonicalized
           // canonicalized plan before applying query stage optimizer rules.
@@ -117,7 +122,7 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
             s"Expected GPU AQE shuffle reader, but got ${reader.executionMode}")
       }
 
-      val shuffleStages: Seq[ShuffleQueryStageExec] = shuffleReaders.map(_.delegate).map {
+      val shuffleStages: Seq[ShuffleQueryStageExec] = readers.map(_.delegate).map {
         case a: AQEShuffleReadExec =>
           assert(a.child.isInstanceOf[ShuffleQueryStageExec])
           a.child.asInstanceOf[ShuffleQueryStageExec]
@@ -134,6 +139,57 @@ class StageExecutionModeSuite extends VeloxWholeStageTransformerSuite {
             !exchange.mapperStageMode.contains(MockGPUStageMode),
             s"Expected CPU mapper stage, but got ${exchange.mapperStageMode}")
       }
+    }
+  }
+
+  test("with gpuOnlyOffloadJoinStage=true, join stage is offloaded to GPU") {
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+      SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+      GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> "true",
+      GlutenConfig.GPU_ONLY_OFFLOAD_JOIN_STAGE.key -> "true",
+      SQLConf.ANSI_ENABLED.key -> "false"
+    ) {
+      // A join query: the join stage should still be offloaded to GPU.
+      val df = sql(
+        s"""
+           |SELECT l.id, l.left_value, r.right_value
+           |FROM $leftTable l
+           |JOIN $rightTable r
+           |  ON l.id = r.id
+           |""".stripMargin)
+
+      checkAnswer(
+        df,
+        Seq(
+          Row(1, "left-1", "right-1"),
+          Row(2, "left-2", "right-2")))
+
+      val readers = collectColumnarAQEReaders(df)
+      assert(readers.nonEmpty, "Expected at least one ColumnarAQEShuffleReadExec for a join query")
+      readers.foreach {
+        reader =>
+          assert(
+            reader.executionMode == MockGPUStageMode,
+            s"Join stage should be GPU-offloaded, but got ${reader.executionMode}")
+      }
+    }
+  }
+
+  test("with gpuOnlyOffloadJoinStage=true, non-join stage is NOT offloaded to GPU") {
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+      SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+      GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> "true",
+      GlutenConfig.GPU_ONLY_OFFLOAD_JOIN_STAGE.key -> "true",
+      SQLConf.ANSI_ENABLED.key -> "false"
+    ) {
+      // A pure aggregation query (no join): the stage must NOT be GPU-offloaded.
+      val df = sql(s"SELECT id, count(*) FROM $leftTable GROUP BY id")
+      df.collect()
+
+      val readers = collectColumnarAQEReaders(df)
+      assert(readers.isEmpty, "Expected no ColumnarAQEShuffleReadExec")
     }
   }
 }

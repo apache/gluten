@@ -749,6 +749,36 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("format_number") {
+    // Integer / bigint input with different decimal places.
+    runQueryAndCompare("SELECT format_number(l_partkey, 0) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare("SELECT format_number(l_orderkey, 2) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Floating-point input, exercising HALF_EVEN rounding and thousands separators.
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_quantity as double), 1) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_discount as double), 3) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double.
+    // Decimal input has no matching signature, so it must fall back to vanilla Spark.
+    runQueryAndCompare("SELECT format_number(l_quantity, 1) FROM lineitem limit 50") {
+      checkSparkPlan[ProjectExec]
+    }
+    // Velox only implements the integer decimal-places form. The string-format form
+    // (e.g. '#,###.##') has no matching signature, so it must fall back to vanilla Spark.
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_quantity as double), '#,###.##') FROM lineitem limit 50") {
+      checkSparkPlan[ProjectExec]
+    }
+  }
+
   testWithMinSparkVersion("mask", "3.4") {
     runQueryAndCompare("SELECT mask(c_comment) FROM customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]

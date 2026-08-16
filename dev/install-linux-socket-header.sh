@@ -15,9 +15,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e
+set -euo pipefail
 
-export NUM_THREADS=2
-bash ./dev/install-linux-socket-header.sh
-./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_arrow=OFF --build_tests=ON --build_benchmarks=ON \
-                           --build_examples=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON --enable_enhanced_features=ON
+readonly LINUX_COMMIT="aad9c8c470f2a8321a99eb053630ce0e199558d6"
+readonly SOCKET_HEADER_SHA256="6ca32f00f1c64a1b75886b868a9e51a47d74720e777e5d6a0df30291c179a691"
+readonly SOCKET_HEADER_URL="https://raw.githubusercontent.com/torvalds/linux/${LINUX_COMMIT}/include/uapi/asm-generic/socket.h"
+readonly SOCKET_HEADER_PATH="${SOCKET_HEADER_PATH:-/usr/include/asm-generic/socket.h}"
+
+temp_file="$(mktemp)"
+trap 'rm -f "${temp_file}"' EXIT
+
+curl --fail --location --silent --show-error "${SOCKET_HEADER_URL}" --output "${temp_file}"
+echo "${SOCKET_HEADER_SHA256}  ${temp_file}" | sha256sum --check --status
+install --mode=0644 "${temp_file}" "${SOCKET_HEADER_PATH}"

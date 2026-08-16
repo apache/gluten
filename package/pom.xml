@@ -122,22 +122,31 @@
                   <pattern>org.apache.arrow</pattern>
                   <shadedPattern>${gluten.shade.packageName}.org.apache.arrow</shadedPattern>
                   <!--
-                    arrow's C and dataset wrappers refer to the original class
-                    path, so they must not be relocated. Their public APIs also
-                    take and return org.apache.arrow.memory.* and
-                    org.apache.arrow.vector.* types, so those packages must also
-                    stay unshaded — otherwise the bundled (unshaded)
-                    ArrowArrayStream/ArrowSchema get compiled against the
-                    relocated BufferAllocator/VectorSchemaRoot, producing
+                    arrow's C wrapper refers to the original class path, so it
+                    must not be relocated. Its public APIs also take and return
+                    org.apache.arrow.memory.* and org.apache.arrow.vector.*
+                    types, so those packages must also stay unshaded —
+                    otherwise the bundled (unshaded) ArrowArrayStream/ArrowSchema
+                    get compiled against the relocated
+                    BufferAllocator/VectorSchemaRoot, producing
                     `NoSuchMethodError` for any caller passing a vanilla
                     Apache Arrow allocator. See #12225.
+
+                    org.apache.arrow.util.** is the fourth and last package
+                    org.apache.arrow.c reaches: Preconditions.checkNotNull from
+                    the ArrowArray/ArrowSchema constructors, plus AutoCloseables
+                    and Collections2 from the import/export paths. It is not part
+                    of the public signature so it survived #12225, but the call
+                    sites live in the constant pool of the unshaded classes all
+                    the same, and there is no unshaded copy to bind to once
+                    arrow-memory-core stops being bundled.
                   -->
                   <excludes>
                     <exclude>org.apache.arrow.c.*</exclude>
                     <exclude>org.apache.arrow.c.jni.*</exclude>
                     <exclude>org.apache.arrow.memory.**</exclude>
                     <exclude>org.apache.arrow.vector.**</exclude>
-                    <exclude>org.apache.arrow.dataset.**</exclude>
+                    <exclude>org.apache.arrow.util.**</exclude>
                   </excludes>
                 </relocation>
                 <relocation>
@@ -163,6 +172,25 @@
                     <exclude>META-INF/NOTICE.txt</exclude>
                     <exclude>LICENSE.txt</exclude>
                     <exclude>NOTICE.txt</exclude>
+                    <!--
+                      Exclude DefaultAllocationManagerFactory from the shade bundle.
+                      Arrow 16.0.0+'s CheckAllocator inspects the URL of this class
+                      and throws "Unknown allocation manager type to infer" if the
+                      URL does not contain "memory-core", "memory-unsafe", or
+                      "memory-netty". When the class is bundled inside
+                      gluten-package.jar the URL does not match any of these
+                      patterns (in particular for Arrow <= 15.x where the class
+                      lives at org/apache/arrow/memory/DefaultAllocationManager
+                      Factory.class), breaking allocator initialization whenever
+                      the runtime Arrow version is >= 16.0.0 (e.g. Spark
+                      distributions that ship a newer Arrow than Gluten's
+                      build-time arrow.version). Defer to the upstream
+                      arrow-memory-unsafe / arrow-memory-netty jar which provides
+                      a recognizable URL.
+                    -->
+                    <exclude>org/apache/arrow/memory/DefaultAllocationManagerFactory.class</exclude>
+                    <exclude>org/apache/arrow/memory/unsafe/DefaultAllocationManagerFactory.class</exclude>
+                    <exclude>org/apache/arrow/memory/netty/DefaultAllocationManagerFactory.class</exclude>
                   </excludes>
                 </filter>
                 <filter>
@@ -322,6 +350,8 @@
               <executable>${project.basedir}/../dev/check-arrow-c-shading.sh</executable>
               <arguments>
                 <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
+                <argument>${gluten.shade.packageName}</argument>
+                <argument>${arrow.deps.scope}</argument>
               </arguments>
             </configuration>
           </execution>

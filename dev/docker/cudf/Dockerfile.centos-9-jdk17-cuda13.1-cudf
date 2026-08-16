@@ -16,21 +16,30 @@
 #
 
 FROM quay.io/centos/centos:stream9
+
+ARG JAVA_VERSION=17
+
+ENV JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-openjdk
+ENV PATH=$JAVA_HOME/bin:$PATH
 ENV CUDA_ARCHITECTURES=75
-ENV LD_LIBRARY_PATH=/opt/gluten/ep/build-velox/build/velox_ep/_build/release/_deps/curl-build/lib:$LD_LIBRARY_PATH
 ENV CC=/opt/rh/gcc-toolset-14/root/bin/gcc \
     CXX=/opt/rh/gcc-toolset-14/root/bin/g++
 
-RUN dnf config-manager --add-repo "https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo"; \
-    dnf update; \
-    dnf install -y sudo patch maven perl git gcc-toolset-14 cuda-toolkit-13-1 && \
-    dnf autoremove -y && dnf clean all; \
-    git clone --depth=1 https://github.com/apache/incubator-gluten /opt/gluten && \
-    cd /opt/gluten && \
-    source /opt/rh/gcc-toolset-14/enable && \
-    bash ./dev/buildbundle-veloxbe.sh --run_setup_script=ON --build_arrow=ON --spark_version=3.5 --build_tests=ON --build_benchmarks=ON --enable_gpu=ON && \
-    rm -rf /opt/gluten && \
-    rm -rf /root/.cache/ccache   
+RUN dnf config-manager --add-repo "https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo" && \
+    dnf update -y && \
+    dnf install -y sudo patch java-${JAVA_VERSION}-openjdk-devel maven perl git gcc-toolset-14 cuda-toolkit-13-1 && \
+    dnf autoremove -y && dnf clean all
 
-# You can try the data in folder backends-velox/src/test/resources/tpch-data-parquet
+RUN git clone --depth=1 https://github.com/apache/gluten /opt/gluten
+
+WORKDIR /opt/gluten
+
+RUN source /opt/rh/gcc-toolset-14/enable && \
+    bash ./dev/builddeps-veloxbe.sh --run_setup_script=ON --build_arrow=ON --spark_version=3.5 --build_tests=ON --build_benchmarks=ON --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON --enable_gpu=ON build_arrow
+
+RUN ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests
+
+WORKDIR /root
+
+RUN rm -rf /opt/gluten /root/.cache/ccache
 

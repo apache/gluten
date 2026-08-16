@@ -79,6 +79,69 @@
       <version>${project.version}</version>
       <scope>compile</scope>
     </dependency>
+    <!--
+      Re-declared here because `provided` scope is not transitive: when
+      ${arrow.deps.scope} is `provided` (Spark 4.x), gluten-arrow's Arrow
+      dependencies do not reach this module's compile classpath on their own.
+      Under `compile` (Spark 3.x) these are redundant but harmless.
+
+      The allocator implementation (${arrow-memory.artifact}) is the exception:
+      it is never compiled against, only discovered on the classpath at runtime,
+      so it uses ${arrow-memory.scope} (runtime on Spark 3.x, provided on 4.x)
+      rather than ${arrow.deps.scope}.
+    -->
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>${arrow-memory.artifact}</artifactId>
+      <version>${arrow.version}</version>
+      <scope>${arrow-memory.scope}</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-common</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-buffer</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-memory-core</artifactId>
+      <version>${arrow.version}</version>
+      <scope>${arrow.deps.scope}</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-common</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-buffer</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-vector</artifactId>
+      <version>${arrow.version}</version>
+      <scope>${arrow.deps.scope}</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-common</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-buffer</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>commons-codec</groupId>
+          <artifactId>commons-codec</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
     <dependency>
       <groupId>com.github.ben-manes.caffeine</groupId>
       <artifactId>caffeine</artifactId>
@@ -200,7 +263,7 @@
     <dependency>
       <groupId>com.google.jimfs</groupId>
       <artifactId>jimfs</artifactId>
-      <version>1.3.0</version>
+      <version>1.3.1</version>
       <scope>compile</scope>
     </dependency>
     <!-- Java Faker for generating random data -->

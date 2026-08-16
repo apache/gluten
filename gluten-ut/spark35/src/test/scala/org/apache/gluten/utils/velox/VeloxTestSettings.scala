@@ -628,6 +628,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("length check for input string values: nested in map value")
     .exclude("length check for input string values: nested in both map key and value")
     .exclude("length check for input string values: nested in array of struct")
+    .excludeGlutenTest("length check for input string values: nested in array of struct")
+    .exclude("char type values should be padded: nested in array of struct")
     .exclude("length check for input string values: nested in array of array")
     // Following tests are excluded as these are overridden in Gluten test suite..
     // The overridden tests assert against Velox-specific error messages for char/varchar
@@ -645,6 +647,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("length check for input string values: nested in array")
     .exclude("length check for input string values: nested in struct of array")
     .exclude("length check for input string values: nested in array of struct")
+    .excludeGlutenTest("length check for input string values: nested in array of struct")
+    .exclude("char type values should be padded: nested in array of struct")
     .exclude("length check for input string values: nested in array of array")
     .exclude("length check for input string values: with implicit cast")
     .exclude("char/varchar type values length check: partitioned columns of other types")

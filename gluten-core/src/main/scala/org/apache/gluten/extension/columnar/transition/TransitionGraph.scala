@@ -130,8 +130,13 @@ object TransitionGraph {
             if (diff != 0) {
               diff
             } else {
-              // To make the output order stable.
-              nodeNames1.mkString.hashCode - nodeNames2.mkString.hashCode
+              // Break the tie on the node names, so that as long as the names distinguish the two
+              // paths the same one wins on every JVM run. Integer.compare rather than a
+              // subtraction: hash codes far enough apart overflow Int, and a wrapped sign hands the
+              // tie to the other path of the same cost. Two distinct name sequences can still share
+              // a hash code, and mkString joins without a separator, so a tie remains possible; the
+              // winner then comes down to map iteration order, as it did before.
+              Integer.compare(nodeNames1.mkString.hashCode, nodeNames2.mkString.hashCode)
             }
         }
     }

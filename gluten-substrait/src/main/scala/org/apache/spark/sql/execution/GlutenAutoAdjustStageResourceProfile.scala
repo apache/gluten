@@ -17,7 +17,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig}
-import org.apache.gluten.execution.{ColumnarToRowExecBase, GlutenPlan}
+import org.apache.gluten.execution.{ColumnarToRowExecBase, CudfTag, GlutenPlan, WholeStageTransformer}
 import org.apache.gluten.logging.LogLevelUtil
 
 import org.apache.spark.SparkConf
@@ -38,11 +38,20 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 /**
- * This rule is used to dynamic adjust stage resource profile for following purposes:
- *   1. Decrease offheap and increase onheap memory size when whole stage fallback happened; 2.
- *      Increase executor heap memory if stage contains gluten operator and spark operator at the
- *      same time. Note: we don't support set resource profile for final stage now. Todo: will
- *      support it.
+ * This rule dynamically adjusts the resource profile of each AQE query stage. It handles three
+ * cases:
+ *
+ *   1. CPU/GPU hybrid execution: if every `WholeStageTransformer` in the stage is fully
+ *      cuDF-offloaded, the stage is assigned a GPU resource profile so that Spark schedules its
+ *      tasks on GPU-equipped executors.
+ *   2. Whole-stage fallback: if a stage contains no native Gluten operators (or only
+ *      columnar-to-row conversion nodes), heap memory is increased and off-heap memory is reduced,
+ *      since the stage runs entirely on the JVM.
+ *   3. Partial fallback: if the ratio of fallen (non-Gluten) nodes in a stage exceeds
+ *      `spark.gluten.auto.adjustStageResources.fallenNode.ratio.threshold`, heap memory is
+ *      increased and off-heap memory is decreased proportionally.
+ *
+ * * Note: Case 2 and 3 are not applied to final (non-Exchange) stages yet.
  */
 @Experimental
 case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark: SparkSession)
@@ -68,6 +77,32 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
       ResourceProfile.getOrCreateDefaultProfile(sparkConf),
       sparkConf,
       isDefaultProfile = true)
+
+    val rpManager = spark.sparkContext.resourceProfileManager
+    val defaultRP = rpManager.defaultResourceProfile
+
+    // initial resource profile config as default resource profile
+    val taskResource = mutable.Map.empty[String, TaskResourceRequest] ++= defaultRP.taskResources
+    val executorResource =
+      mutable.Map.empty[String, ExecutorResourceRequest] ++= defaultRP.executorResources
+
+    if (glutenConf.enableColumnarCudf && glutenConf.enableHybridExecution) {
+      val transformers = plan.collect { case t: WholeStageTransformer => t }
+      if (
+        transformers.nonEmpty && transformers.forall {
+          t => t.offloadCuda || t.getTagValue(CudfTag.CudfTestingTag).getOrElse(false)
+        }
+      ) {
+        return GlutenResourceProfile.setResourceProfileForGpu(
+          plan,
+          executorResource,
+          taskResource,
+          rpManager,
+          sparkConf,
+          glutenConf)
+      }
+    }
+
     if (!plan.isInstanceOf[Exchange]) {
       // todo: support set resource profile for final stage
       return plan
@@ -78,25 +113,18 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
     }
     log.info(s"detailPlanNodes ${planNodes.map(_.nodeName).mkString("Array(", ", ", ")")}")
 
-    // one stage is considered as fallback if all node is not GlutenPlan
-    // or all GlutenPlan node is C2R node.
-    val wholeStageFallback = planNodes
-      .filter(_.isInstanceOf[GlutenPlan])
-      .count(!_.isInstanceOf[ColumnarToRowExecBase]) == 0
-
-    val rpManager = spark.sparkContext.resourceProfileManager
-    val defaultRP = rpManager.defaultResourceProfile
-
-    // initial resource profile config as default resource profile
-    val taskResource = mutable.Map.empty[String, TaskResourceRequest] ++= defaultRP.taskResources
-    val executorResource =
-      mutable.Map.empty[String, ExecutorResourceRequest] ++= defaultRP.executorResources
     val memoryRequest = executorResource.get(ResourceProfile.MEMORY)
     val offheapRequest = executorResource.get(ResourceProfile.OFFHEAP_MEM)
     logInfo(s"default memory request $memoryRequest")
     logInfo(s"default offheap request $offheapRequest")
 
     // case 1: whole stage fallback to vanilla spark in such case we increase the heap
+    //
+    // one stage is considered as fallback if all node is not GlutenPlan
+    // or all GlutenPlan node is C2R node.
+    val wholeStageFallback = planNodes
+      .filter(_.isInstanceOf[GlutenPlan])
+      .count(!_.isInstanceOf[ColumnarToRowExecBase]) == 0
     if (wholeStageFallback) {
       val newMemoryAmount = memoryRequest.get.amount * glutenConf.autoAdjustStageRPHeapRatio
       val newExecutorMemory =
@@ -107,10 +135,10 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
         new ExecutorResourceRequest(ResourceProfile.OFFHEAP_MEM, offheapRequest.get.amount / 10)
       executorResource.put(ResourceProfile.OFFHEAP_MEM, newExecutorOffheap)
 
-      val newRP = new ResourceProfile(executorResource.toMap, taskResource.toMap)
-      return GlutenResourceProfile.applyNewResourceProfileIfPossible(
+      return GlutenResourceProfile.applyNewResourceProfile(
         plan,
-        newRP,
+        executorResource,
+        taskResource,
         rpManager,
         sparkConf)
     }
@@ -132,10 +160,10 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
         new ExecutorResourceRequest(ResourceProfile.OFFHEAP_MEM, newOffHeapMemoryAmount.toLong)
       executorResource.put(ResourceProfile.OFFHEAP_MEM, newExecutorOffheap)
 
-      val newRP = new ResourceProfile(executorResource.toMap, taskResource.toMap)
-      return GlutenResourceProfile.applyNewResourceProfileIfPossible(
+      return GlutenResourceProfile.applyNewResourceProfile(
         plan,
-        newRP,
+        executorResource,
+        taskResource,
         rpManager,
         sparkConf)
     }
@@ -228,17 +256,52 @@ object GlutenAutoAdjustStageResourceProfile extends Logging {
       (offHeapSize / taskSlots).toString)
   }
 
-  def applyNewResourceProfileIfPossible(
+  def applyNewResourceProfile(
       plan: SparkPlan,
-      rp: ResourceProfile,
+      executorResource: mutable.Map[String, ExecutorResourceRequest],
+      taskResource: mutable.Map[String, TaskResourceRequest],
       rpManager: ResourceProfileManager,
       sparkConf: SparkConf): SparkPlan = {
-    updateResourceSetting(rp, sparkConf)
-
+    val rp = new ResourceProfile(executorResource.toMap, taskResource.toMap)
     val finalRP = getFinalResourceProfile(rpManager, rp)
-    // Wrap the plan with ApplyResourceProfileExec so that we can apply new ResourceProfile
-    val wrapperPlan = ApplyResourceProfileExec(plan.children.head, finalRP)
-    logInfo(s"Apply resource profile $finalRP for plan ${wrapperPlan.nodeName}")
-    plan.withNewChildren(IndexedSeq(wrapperPlan))
+    updateResourceSetting(finalRP, sparkConf)
+
+    plan match {
+      case shuffle: Exchange =>
+        logInfo(s"Apply resource profile $finalRP for plan ${shuffle.child.nodeName}")
+        // Wrap the plan with ApplyResourceProfileExec so that we can apply new ResourceProfile
+        val wrapperPlan = ApplyResourceProfileExec(shuffle.child, finalRP)
+        shuffle.withNewChildren(Seq(wrapperPlan))
+      case other =>
+        logInfo(s"Apply resource profile $finalRP for plan ${other.nodeName}")
+        ApplyResourceProfileExec(other, finalRP)
+    }
+  }
+
+  def setResourceProfileForGpu(
+      plan: SparkPlan,
+      executorResource: mutable.Map[String, ExecutorResourceRequest],
+      taskResource: mutable.Map[String, TaskResourceRequest],
+      rpManager: ResourceProfileManager,
+      sparkConf: SparkConf,
+      glutenConf: GlutenConfig): SparkPlan = {
+    val cpuResourceName = glutenConf.cpuResourceName
+    val gpuResourceName = glutenConf.gpuResourceName
+
+    executorResource.remove(glutenConf.cpuResourceName)
+    taskResource.remove(cpuResourceName)
+
+    executorResource.put(gpuResourceName, new ExecutorResourceRequest(gpuResourceName, 1))
+    // The gpu task resource limits how many tasks can be launched in one executor.
+    taskResource.put(
+      gpuResourceName,
+      new TaskResourceRequest(gpuResourceName, glutenConf.gpuResourceAmountPerTask))
+
+    applyNewResourceProfile(
+      plan,
+      executorResource,
+      taskResource,
+      rpManager,
+      sparkConf)
   }
 }

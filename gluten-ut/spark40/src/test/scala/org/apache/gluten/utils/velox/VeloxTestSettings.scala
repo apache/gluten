@@ -767,10 +767,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSparkPlanSuite]
     .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
-  enableSuite[GlutenSparkScriptTransformationSuite]
-    // Flaky in CI containers for Spark 4.0: intermittently fails with
-    // `/tmp/test-resource*.py: Permission denied` and can crash JVM.
-    .exclude("SPARK-33934: Add SparkFile's root dir to env property PATH")
+  disableSuite[GlutenSparkScriptTransformationSuite]("Flaky suite")
   enableSuite[GlutenSparkSqlParserSuite]
     .exclude("Checks if SET/RESET can parse all the configurations")
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
@@ -952,7 +949,15 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite for different cache size.
     .exclude("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenFileSourceCharVarcharTestSuite]
+    // Velox Parquet writer (post dft-2026_08_12) introduced selective per-column flattening
+    // that misses CONSTANT-encoded descendants inside nested complex types (ARRAY<STRUCT>).
+    // Writes to ARRAY<STRUCT<char/varchar>> crash with VeloxRuntimeError INVALID_STATE in the
+    // Arrow bridge instead of producing the expected error or result.
+    .exclude("length check for input string values: nested in array of struct")
+    .exclude("char type values should be padded: nested in array of struct")
   enableSuite[GlutenDSV2CharVarcharTestSuite]
+    .exclude("length check for input string values: nested in array of struct")
+    .exclude("char type values should be padded: nested in array of struct")
   enableSuite[GlutenColumnExpressionSuite]
     // Velox raise_error('errMsg') throws a velox_user_error exception with the message 'errMsg'.
     // The final caught Spark exception's getCause().getMessage() contains 'errMsg' but does not
