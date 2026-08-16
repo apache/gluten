@@ -59,8 +59,8 @@ class VeloxDeltaComponent extends Component {
       c =>
         val offload = Seq(
           OffloadDeltaScan(
-            enableNativeDeletionVectorDmlRowIndexScanKey =
-              VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key
+            enableNativeDeletionVectorDmlRowIndexScan =
+              new VeloxDeltaConfig(c.sqlConf).enableNativeDmlRowIndexScan
           ),
           OffloadDeltaProject(),
           OffloadDeltaFilter()
