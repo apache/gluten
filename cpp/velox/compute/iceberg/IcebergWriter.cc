@@ -26,11 +26,33 @@
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/iceberg/IcebergDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergDeleteFile.h"
+#include "velox/dwio/common/WriterFactory.h"
+#include "velox/dwio/dwrf/writer/Writer.h"
 
 using namespace facebook::velox;
 using namespace facebook::velox::connector::hive;
 using namespace facebook::velox::connector::hive::iceberg;
 namespace {
+
+class IcebergOrcWriterFactory final : public dwio::common::WriterFactory {
+ public:
+  IcebergOrcWriterFactory() : WriterFactory(dwio::common::FileFormat::ORC) {}
+
+  std::unique_ptr<dwio::common::Writer> createWriter(
+      std::unique_ptr<dwio::common::FileSink> sink,
+      const std::shared_ptr<dwio::common::WriterOptions>& options) override {
+    auto orcOptions = std::dynamic_pointer_cast<dwrf::WriterOptions>(options);
+    VELOX_CHECK_NOT_NULL(orcOptions, "Iceberg ORC writer expected DWRF writer options.");
+    VELOX_CHECK_EQ(orcOptions->format, dwrf::DwrfFormat::kOrc);
+    return std::make_unique<dwrf::Writer>(std::move(sink), *orcOptions);
+  }
+
+  std::unique_ptr<dwio::common::WriterOptions> createWriterOptions() override {
+    auto options = std::make_unique<dwrf::WriterOptions>();
+    options->format = dwrf::DwrfFormat::kOrc;
+    return options;
+  }
+};
 
 // Custom Iceberg file name generator for Gluten
 class GlutenIcebergFileNameGenerator : public connector::hive::FileNameGenerator {
@@ -175,6 +197,10 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
 } // namespace
 
 namespace gluten {
+void registerIcebergOrcWriterFactory() {
+  dwio::common::registerWriterFactory(std::make_shared<IcebergOrcWriterFactory>());
+}
+
 IcebergWriter::IcebergWriter(
     const RowTypePtr& rowType,
     int32_t format,

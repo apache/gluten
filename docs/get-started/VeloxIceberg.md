@@ -168,7 +168,7 @@ The "Gluten Support" column is now ready to be populated with:
 
 | Spark option | Default | Description | Gluten Support |
 | --- | --- | --- | --- |
-| write-format | Table write.format.default | File format to use for this write operation; parquet, avro, or orc |⚠️ Parquet only|
+| write-format | Table write.format.default | File format to use for this write operation; parquet, avro, or orc |⚠️ Parquet and ORC|
 | target-file-size-bytes | As per table property | Overrides this table's write.target-file-size-bytes | |
 | check-nullability | true | Sets the nullable check on fields | |
 | snapshot-property.custom-key | null | Adds an entry with custom-key and corresponding value in the snapshot summary (the snapshot-property. prefix is only required for DSv2) | |
@@ -202,7 +202,7 @@ extracted from https://iceberg.apache.org/docs/latest/configuration/
 
 | Property | Default | Description | Gluten Support |
 | --- | --- | --- | --- |
-| write.format.default | parquet | Default file format for the table; parquet, avro, or orc |  |
+| write.format.default | parquet | Default file format for the table; parquet, avro, or orc |⚠️ Parquet and ORC|
 | write.delete.format.default | data file format | Default delete file format for the table; parquet, avro, or orc |  |
 | write.parquet.row-group-size-bytes | 134217728 (128 MB) | Parquet row group size |  |
 | write.parquet.page-size-bytes | 1048576 (1 MB) | Parquet page size |✅|
