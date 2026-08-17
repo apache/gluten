@@ -56,7 +56,7 @@ jobs:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{github.sha}}
       - name: Save Ccache to Apache Stash
-        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/save@273b783e1c02894d757b1905cf4ef3d0ebae745e
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
@@ -89,7 +89,7 @@ jobs:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
       - name: Save Ccache to Apache Stash
-        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/save@273b783e1c02894d757b1905cf4ef3d0ebae745e
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos8-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
@@ -124,7 +124,7 @@ jobs:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-release-shared-${{runner.arch}}-${{github.sha}}
       - name: Save Ccache to Apache Stash
-        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/save@273b783e1c02894d757b1905cf4ef3d0ebae745e
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
@@ -157,7 +157,7 @@ jobs:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-enhanced-centos7-release-default-${{github.sha}}
       - name: Save Ccache to Apache Stash
-        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/save@273b783e1c02894d757b1905cf4ef3d0ebae745e
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-enhanced-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
@@ -215,7 +215,7 @@ jobs:
           key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{github.sha}}
       - name: Save Ccache to Apache Stash
         if: always()
-        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/save@273b783e1c02894d757b1905cf4ef3d0ebae745e
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
