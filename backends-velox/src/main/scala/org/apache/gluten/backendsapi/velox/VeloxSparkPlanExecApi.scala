@@ -37,6 +37,7 @@ import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterParameters, GlutenShuffleReaderWrapper, GlutenShuffleWriterWrapper, VeloxShuffleUtils}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
@@ -1415,6 +1416,41 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
 
   override def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec =
     ColumnarRangeExec(rangeExec.range)
+
+  override def isSupportRDDScanExec(plan: RDDScanExec): Boolean = {
+    if (!VeloxConfig.get.enableRddScan) {
+      logDebug(
+        "RDDScan offload skipped: " +
+          s"${VeloxConfig.COLUMNAR_VELOX_RDD_SCAN_ENABLED.key}=false")
+      return false
+    }
+    // Exclude any scan planned within a Structured Streaming query (micro-batch or its
+    // foreachBatch callback). The per-batch source RDD is a materialized snapshot that
+    // otherwise slips past the plan-level logicalLink.isStreaming fallback, yet offloading
+    // it into a streaming/state-store pipeline can deadlock the micro-batch.
+    if (isWithinStreamingQuery) {
+      logDebug("RDDScan offload skipped: within a streaming query (micro-batch/foreachBatch)")
+      return false
+    }
+    true
+  }
+
+  /**
+   * Whether the current thread is planning/executing a Structured Streaming query -- including the
+   * `DataFrameWriter.foreachBatch` user callback, which Spark runs on the StreamExecution driver
+   * thread. That thread sets the `sql.streaming.queryId` local property
+   * (`StreamExecution.QUERY_ID_KEY`) for the whole lifetime of the query. We match on the literal
+   * key rather than referencing the class so this stays agnostic to the per-Spark-version package
+   * of `StreamExecution` across shims.
+   */
+  private def isWithinStreamingQuery: Boolean =
+    SparkSession.getActiveSession
+      .map(_.sparkContext)
+      .flatMap(sc => Option(sc.getLocalProperty("sql.streaming.queryId")))
+      .isDefined
+
+  override def getRDDScanTransform(plan: RDDScanExec): RDDScanTransformer =
+    VeloxRDDScanTransformer.replace(plan)
 
   override def genColumnarTailExec(limit: Int, child: SparkPlan): ColumnarCollectTailBaseExec =
     ColumnarCollectTailExec(limit, child)

@@ -89,6 +89,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def veloxPreferredBatchBytes: Long = getConf(COLUMNAR_VELOX_PREFERRED_BATCH_BYTES)
 
+  def enableRddScan: Boolean = getConf(COLUMNAR_VELOX_RDD_SCAN_ENABLED)
+
   def cudfEnableTableScan: Boolean = getConf(CUDF_ENABLE_TABLE_SCAN)
 
   def cudfEnableValidation: Boolean = getConf(CUDF_ENABLE_VALIDATION)
@@ -939,6 +941,16 @@ object VeloxConfig extends ConfigRegistry {
       .internal()
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("10MB")
+
+  val COLUMNAR_VELOX_RDD_SCAN_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.rddScan.enabled")
+      .doc(
+        "When true, offload RDDScanExec to Velox by converting the RDD[InternalRow] into" +
+          " columnar batches through the native row-to-columnar path. Schemas that are not" +
+          " supported by the Arrow export path (e.g. map or interval types) fall back to" +
+          " vanilla Spark.")
+      .booleanConf
+      .createWithDefault(true)
 
   val VELOX_MAX_COMPILED_REGEXES =
     buildConf("spark.gluten.sql.columnar.backend.velox.maxCompiledRegexes")
