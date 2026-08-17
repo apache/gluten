@@ -34,11 +34,11 @@ RUN set -ex; \
        -e 's/^#baseurl/baseurl/' \
        -e 's/mirror\.centos\.org/vault.centos.org/' \
        /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo; \
-    yum install -y git patch sudo java-1.8.0-openjdk-devel ccache; \
+    yum install -y git patch sudo java-1.8.0-openjdk-devel ccache curl; \
     git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     cd /opt/gluten; \
-    cp ep/build-velox/src/socket.h /usr/include/asm-generic/socket.h; \
+    bash ./dev/install-linux-socket-header.sh; \
     bash ./dev/vcpkg/setup-build-depends.sh; \
     yum remove gcc -y && yum clean all; \
     yes | cp -rf /usr/share/aclocal/* /usr/local/share/aclocal/; \

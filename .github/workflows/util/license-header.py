@@ -28,6 +28,7 @@ import util
 
 SCRIPTS = util.script_path()
 
+
 class attrdict(dict):
     __getattr__ = dict.__getitem__
     __setattr__ = dict.__setitem__
@@ -35,7 +36,9 @@ class attrdict(dict):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Update license headers")
-    parser.add_argument("--header", default=f"{SCRIPTS}/license.header", help="license header file")
+    parser.add_argument(
+        "--header", default=f"{SCRIPTS}/license.header", help="license header file"
+    )
     parser.add_argument(
         "--extra",
         default=80,
@@ -56,8 +59,11 @@ def parse_args():
     parser.add_argument(
         "-v", default=False, action="store_true", dest="verbose", help="verbose output"
     )
-    parser.add_argument("--excluded_copyright_files", default=f"{SCRIPTS}/excluded_copyright_files.txt",
-                        help="Files that should be excluded")
+    parser.add_argument(
+        "--excluded_copyright_files",
+        default=f"{SCRIPTS}/excluded_copyright_files.txt",
+        help="Files that should be excluded",
+    )
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -100,6 +106,10 @@ def wrapper_hash(header, args):
     return wrapper("", "#", "\n", header)
 
 
+def wrapper_tilde(header, args):
+    return wrapper("<!--\n", "  ~", "\n  -->\n", header)
+
+
 file_types = OrderedDict(
     {
         "CMakeLists.txt": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
@@ -107,7 +117,8 @@ file_types = OrderedDict(
         "*.cpp": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.cc": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.c": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
-        "*.dockfile": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
+        # Matches 'Dockerfile' and suffixed variants such as 'Dockerfile.centos9-static-build'.
+        "Dockerfile*": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
         "*.h": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.hpp": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.inc": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
@@ -119,6 +130,16 @@ file_types = OrderedDict(
         "*.sh": attrdict({"wrapper": wrapper_hash, "hashbang": True}),
         "*.thrift": attrdict({"wrapper": wrapper_chpp, "hashbang": False}),
         "*.yml": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
+        "*.yaml": attrdict({"wrapper": wrapper_hash, "hashbang": False}),
+        # The XML declaration must stay the first thing in the document, so the header
+        # goes after it rather than at the top of the file.
+        "*.xml": attrdict(
+            {
+                "wrapper": wrapper_tilde,
+                "hashbang": False,
+                "prologue": r"^<\?xml.*?\?>[ \t]*\n",
+            }
+        ),
     }
 )
 
@@ -143,12 +164,23 @@ def get_wrapper(filename):
     if filename in file_types:
         return file_types[filename]
 
-    return file_types["*" + get_fileextn(filename)]
+    extension = "*" + get_fileextn(filename)
+    if extension in file_types:
+        return file_types[extension]
+
+    # Fall back to glob matching, for keys such as 'Dockerfile*' that are neither an
+    # exact name nor an extension.
+    for pattern, attributes in file_types.items():
+        if fnmatch.fnmatch(filename, pattern):
+            return attributes
+
+    return None
 
 
 def message(file, string):
     if file:
         print(string, file=file)
+
 
 def check_license_header(files, license_header, args):
     global fail
@@ -222,16 +254,17 @@ def check_license_header(files, license_header, args):
         #
         content = content[0:start] + content[end:]
 
-        if wrap.hashbang:
-            search = regex.search("^#!.*\n", content)
-            if search:
-                content = (
-                    content[search.start() : search.end()]
-                    + header_comment
-                    + content[search.end() :]
-                )
-            else:
-                content = header_comment + content
+        # Some formats require a line to stay first: a shebang for scripts, or the
+        # declaration for XML. Insert the header after it when present.
+        prologue = r"^#!.*\n" if wrap.hashbang else wrap.get("prologue")
+        search = regex.search(prologue, content) if prologue else None
+
+        if search:
+            content = (
+                content[search.start() : search.end()]
+                + header_comment
+                + content[search.end() :]
+            )
         else:
             content = header_comment + content
 
@@ -250,7 +283,9 @@ def process_license_header(files, args):
 
     need_check_copyright_files = []
     for file in files:
-        if any([fnmatch.fnmatch(file, glob) for glob in excluded_copyright_files_globs]):
+        if any(
+            [fnmatch.fnmatch(file, glob) for glob in excluded_copyright_files_globs]
+        ):
             continue
         else:
             need_check_copyright_files.append(file)
@@ -258,8 +293,11 @@ def process_license_header(files, args):
     license_header = file_lines(args.header)
     check_license_header(need_check_copyright_files, license_header, args)
 
+
 fail = False
 log_to = None
+
+
 def main():
     global fail
     global log_to

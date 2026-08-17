@@ -57,6 +57,9 @@ on:
       - 'gluten-delta/**'
       # Covers src-delta, src-delta33, src-delta40 and any future variant.
       - 'backends-velox/src-delta*/**'
+      # Negated patterns are evaluated in order and override the positives
+      # above, so this must stay last.
+      - '!.github/workflows/util/delta-spark-ut/**/*.md'
   workflow_dispatch:
     inputs:
       delta_ref:

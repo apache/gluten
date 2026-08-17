@@ -234,6 +234,7 @@ function setup_linux {
   if [[ "$LINUX_DISTRIBUTION" == "ubuntu" || "$LINUX_DISTRIBUTION" == "debian" || "$LINUX_DISTRIBUTION" == "pop" ]]; then
     scripts/setup-ubuntu.sh
   elif [[ "$LINUX_DISTRIBUTION" == "centos" ]]; then
+    source scripts/setup-centos-adapters.sh 
     case "$LINUX_VERSION_ID" in
     9) scripts/setup-centos9.sh ;;
     8) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;

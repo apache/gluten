@@ -92,6 +92,14 @@ const std::string kHashProbeDynamicFilterPushdownEnabled =
 const std::string kHashProbeBloomFilterPushdownMaxSize =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterPushdown.maxSize";
 
+const std::string kHashProbeBloomFilterBypassMinRows =
+    "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilter.bypassMinRows";
+const int32_t kHashProbeBloomFilterBypassMinRowsDefault = 0;
+
+const std::string kHashProbeBloomFilterBypassMinPct =
+    "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilter.bypassMinPct";
+const int32_t kHashProbeBloomFilterBypassMinPctDefault = 85;
+
 const std::string kValueStreamDynamicFilterEnabled =
     "spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled";
 const bool kValueStreamDynamicFilterEnabledDefault = false;
