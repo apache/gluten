@@ -1324,7 +1324,7 @@
         <antlr4.version>4.13.1</antlr4.version>
         <guava.version>33.4.0-jre</guava.version>
         <slf4j.version>2.0.16</slf4j.version>
-        <log4j.version>2.24.3</log4j.version>
+        <log4j.version>2.26.1</log4j.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <arrow.version>18.1.0</arrow.version>
         <arrow.deps.scope>provided</arrow.deps.scope>
@@ -1407,7 +1407,7 @@
         <antlr4.version>4.13.1</antlr4.version>
         <guava.version>33.4.0-jre</guava.version>
         <slf4j.version>2.0.16</slf4j.version>
-        <log4j.version>2.24.3</log4j.version>
+        <log4j.version>2.26.1</log4j.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <arrow.version>18.3.0</arrow.version>
         <arrow.deps.scope>provided</arrow.deps.scope>
