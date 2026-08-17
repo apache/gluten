@@ -60,6 +60,31 @@ class VeloxEmptyRelationSuite extends VeloxWholeStageTransformerSuite with Adapt
       case p if SparkShimLoader.getSparkShims.isEmptyRelationExec(p) => true
     }.size
 
+  /**
+   * Number of RowToColumnar transitions placed directly on top of an EmptyRelationExecTransformer.
+   * Because the transformer is dual-mode (it produces both columnar batches and rows), a columnar
+   * consumer must read it directly; a RowToColumnar immediately wrapping it would mean the empty
+   * relation was executed in row mode and re-columnarized — exactly the ColumnarToRow /
+   * RowToColumnar sandwich this offload exists to remove. The expected count is always 0. AQE stage
+   * wrappers between the transition and the transformer are unwrapped so the adjacency check holds
+   * after query stages are materialized.
+   */
+  private def rowToColumnarAroundTransformer(
+      plan: org.apache.spark.sql.execution.SparkPlan): Int = {
+    def unwrap(p: org.apache.spark.sql.execution.SparkPlan)
+        : org.apache.spark.sql.execution.SparkPlan =
+      p match {
+        case stage: org.apache.spark.sql.execution.adaptive.QueryStageExec => unwrap(stage.plan)
+        case reused: org.apache.spark.sql.execution.ReusedExchangeExec => unwrap(reused.child)
+        case other => other
+      }
+    collectWithSubqueries(plan) {
+      case r2c: RowToColumnarExecBase
+          if unwrap(r2c.child).isInstanceOf[EmptyRelationExecTransformer] =>
+        true
+    }.size
+  }
+
   // --- Empty-result correctness (all supported Spark versions) --------------
 
   test("WHERE 1=0 produces empty result") {
@@ -136,6 +161,12 @@ class VeloxEmptyRelationSuite extends VeloxWholeStageTransformerSuite with Adapt
       assert(
         countRawEmptyRelations(plan) == 0,
         "EmptyRelationExec should be fully offloaded to the transformer:\n" + plan.treeString)
+      assert(
+        rowToColumnarAroundTransformer(plan) == 0,
+        "No RowToColumnar transition should wrap the empty-relation transformer; a dual-mode " +
+          "columnar leaf must be consumed directly without a ColumnarToRow/RowToColumnar " +
+          "sandwich:\n" + plan.treeString
+      )
     }
   }
 

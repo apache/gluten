@@ -17,7 +17,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.execution.{ValidatablePlan, ValidationResult}
+import org.apache.gluten.execution.GlutenPlan
 import org.apache.gluten.extension.columnar.transition.Convention
 
 import org.apache.spark.rdd.RDD
@@ -26,24 +26,28 @@ import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 /**
- * Columnar-aware replacement for Spark's EmptyRelationExec (Spark 4.0+). It produces an empty
- * RDD[ColumnarBatch] so that surrounding columnar operators do not need to be wrapped in
- * unnecessary ColumnarToRow / RowToColumnar transitions when AQE propagates an empty relation
- * through the plan.
+ * Columnar-aware replacement for Spark's EmptyRelationExec (Spark 4.0+).
+ *
+ * The node is dual-mode: it advertises both a columnar (primary backend batch) output and a vanilla
+ * row output, and implements execution for both. This lets the transition framework consume it
+ * directly from either a columnar or a row context, so an empty relation propagated by AQE never
+ * forces surrounding operators into ColumnarToRow / RowToColumnar transitions.
+ *
+ * It carries no data, so it deliberately extends [[GlutenPlan]] rather than
+ * [[org.apache.gluten.execution.ValidatablePlan]]: native schema validation is irrelevant for a
+ * relation that never sends rows to the backend, and applying it would needlessly force fallback
+ * whenever the (unused) output schema contains a type the backend cannot execute natively.
  */
 case class EmptyRelationExecTransformer(output: Seq[Attribute])
   extends LeafExecNode
-  with ValidatablePlan {
+  with GlutenPlan {
 
-  override def rowType(): Convention.RowType = Convention.RowType.None
+  override def rowType(): Convention.RowType = Convention.RowType.VanillaRowType
 
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
 
-  override protected def doValidateInternal(): ValidationResult = ValidationResult.succeeded
-
   override protected def doExecute(): RDD[InternalRow] =
-    throw new UnsupportedOperationException(
-      "EmptyRelationExecTransformer does not support row execution.")
+    sparkContext.emptyRDD[InternalRow]
 
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] =
     sparkContext.emptyRDD[ColumnarBatch]
