@@ -158,10 +158,6 @@ declare -A MODULE_MAP=(
   ["backends-velox"]="backends-velox:scala"
   ["backends-clickhouse"]="backends-clickhouse:scala"
 
-  # RAS modules
-  ["gluten-ras-common"]="gluten-ras/common:scala"
-  ["gluten-ras-planner"]="gluten-ras/planner:scala"
-
   # Shims modules (Java only, no scala subdirectory)
   ["spark-sql-columnar-shims-common"]="shims/common:java"
   ["spark-sql-columnar-shims-spark33"]="shims/spark33:java"
