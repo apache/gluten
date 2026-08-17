@@ -247,6 +247,33 @@ function build_velox {
                    --velox_home=$VELOX_HOME
 }
 
+# Retry a command with a short backoff. Dependency archives pulled in during the
+# CMake configure step (FetchContent of gtest/glog/gflags and the roaring git
+# clone, fetched from GitHub) occasionally fail on transient HTTP errors such as
+# 429 (Too Many Requests) or 503, which would otherwise abort the whole build.
+# Re-running configure is idempotent: CMake re-downloads missing archives and
+# verifies their checksums.
+function run_with_retry {
+  local max_attempts=3
+  local delay_seconds=15
+  local attempt=1
+  local exit_code=0
+  while true; do
+    if "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+    if [ "$attempt" -ge "$max_attempts" ]; then
+      echo "run_with_retry: '$*' failed after ${attempt} attempts (exit ${exit_code})" >&2
+      return "$exit_code"
+    fi
+    echo "run_with_retry: '$*' failed (exit ${exit_code}); retry $((attempt + 1))/${max_attempts} in ${delay_seconds}s" >&2
+    sleep "$delay_seconds"
+    attempt=$((attempt + 1))
+  done
+}
+
 function build_gluten_cpp {
   echo "Start to build Gluten CPP"
   cd $GLUTEN_DIR/cpp
@@ -285,7 +312,7 @@ function build_gluten_cpp {
     GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_CXX_FLAGS=-Wno-inconsistent-missing-override -Wno-macro-redefined")
   fi
 
-  cmake -G Ninja "${GLUTEN_CMAKE_OPTIONS[@]}" ..
+  run_with_retry cmake -G Ninja "${GLUTEN_CMAKE_OPTIONS[@]}" ..
   ninja -j $NUM_THREADS
 }
 
