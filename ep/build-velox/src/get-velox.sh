@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=branch-1.7-dft
-VELOX_ENHANCED_BRANCH=branch-1.7-enhanced
+VELOX_BRANCH=gluten-1.7.0-dft
+VELOX_ENHANCED_BRANCH=gluten-1.7.0-enhanced
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
