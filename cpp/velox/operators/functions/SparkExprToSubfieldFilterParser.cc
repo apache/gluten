@@ -41,7 +41,8 @@ VectorPtr toConstant(const core::TypedExprPtr& expr, core::ExpressionEvaluator* 
   VectorPtr result;
   try {
     evaluator->evaluate(exprSet.get(), rows, input, result);
-  } catch (const VeloxUserError&) {
+  } catch (const VeloxUserError& error) {
+    VLOG(1) << "Failed to evaluate constant expression for scan filter pushdown: " << error.what();
     return nullptr;
   }
   return result;
