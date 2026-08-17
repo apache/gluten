@@ -83,7 +83,7 @@ independently at runtime and select the appropriate execution mode (CPU or GPU).
 3. If yes, the stage's `ColumnarAQEShuffleReadExec` is switched to `GPUStageMode` and
    downstream `ColumnarShuffleExchangeExec` nodes are marked accordingly.
 
-### **7.2 Only offload join stage**
+### **7.2 Only offload join stages**
 
 By default, any fully CUDF-offloaded stage is routed to GPU. Setting
 `spark.gluten.sql.columnar.gpu.onlyOffloadJoinStage = true` restricts GPU offload to
@@ -100,12 +100,12 @@ continue to run on regular CPU executors.
 
 ### **8.1 Configuration**
 
-| Configuration Key | Recommended Value | Description |
-|---|---|---|
-| `spark.gluten.sql.columnar.hybridExecution.enabled` | `true` | Enable CPU/GPU hybrid execution. Stages are scheduled to CPU or GPU nodes based on their execution mode. Requires AQE (`spark.sql.adaptive.enabled=true`). |
-| `spark.gluten.sql.columnar.hybridExecution.cpuResource.name` | `cpu` | The Spark custom-resource name for CPU. Must match `spark.executor.resource.<name>.*` and `spark.task.resource.<name>.*` for CPU-stage scheduling to take effect. |
-| `spark.gluten.sql.columnar.hybridExecution.gpuResource.name` | `gpu` | The Spark custom-resource name for GPU. Must match `spark.executor.resource.<name>.*` and `spark.task.resource.<name>.*`. |
-| `spark.gluten.sql.columnar.hybridExecution.gpuResource.amountPerTask` | `0.1` | Fractional GPU resource amount per task. Controls how many GPU tasks can run concurrently on a single executor (e.g. `0.1` → 10 tasks share 1 GPU). |
+| Configuration Key | Recommended Value | Description                                                                                                                                          |
+|---|------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `spark.gluten.sql.columnar.hybridExecution.enabled` | `true`           | Enable CPU/GPU hybrid execution. Stages are scheduled to CPU or GPU nodes based on their execution mode.                                             |
+| `spark.gluten.sql.columnar.hybridExecution.cpuResource.name` | `cpu`            | The Spark custom-resource name for CPU. Must match `spark.worker.resource.<name>.*` for CPU-stage scheduling to take effect.                         |
+| `spark.gluten.sql.columnar.hybridExecution.gpuResource.name` | `gpu`            | The Spark custom-resource name for GPU. Must match `spark.worker.resource.<name>.*` for GPU-stage scheduling to take effect.                         |
+| `spark.gluten.sql.columnar.hybridExecution.gpuResource.amountPerTask` | `0.1`            | Fractional GPU resource amount per task. Controls how many GPU tasks can run concurrently on a single executor (e.g. `0.1` → 10 tasks share 1 GPU).  |
 
 ### **8.2 Cluster Setup for Hybrid Execution**
 
@@ -113,7 +113,7 @@ Hybrid execution requires a mixed cluster where CPU-only nodes and GPU-equipped 
 coexist. Spark's custom resource API is used to label each worker type so the scheduler
 can route CPU and GPU stages to the right nodes.
 
-#### **Worker resource discovery scripts**
+#### **Worker resource discovery scripts (Spark standalone mode)**
 
 Each worker type needs a discovery script that reports its available resources to Spark.
 
@@ -123,10 +123,10 @@ Each worker type needs a discovery script that reports its available resources t
 
 echo {\"name\": \"cpu\", \"addresses\":[\"0\"]}
 ```
-> **Note**: This is a dummy script that doesn't report the actual number of cores on the worker. Its purpose is to register the `cpu` custom resource on CPU-only
-nodes so that Spark's scheduler can identify them. CPU stages whose resource profile
-requires the `cpu` resource will then be restricted to these nodes and will not be
-scheduled on GPU workers (which do not register the `cpu` resource).
+> **Note**: Change the number of addresses to match the actual number of CPU cores on the worker.
+> This registers the `cpu` custom resource on CPU-only nodes so that Spark's scheduler can identify them.
+> CPU stages whose resource profile requires the `cpu` resource will then be restricted to these nodes
+> and will not be scheduled on GPU workers (which do not register the `cpu` resource).
 
 **GPU workers** — `getGpuResources.sh`:
 ```bash
@@ -143,17 +143,17 @@ resource and discovery script. (via `--properties-file $PROPERTIES_FILE`)
 
 **cpu-worker.conf** (placed on every CPU-only node):
 ```properties
-spark.worker.resource.cpu.amount             = 1
+spark.worker.resource.cpu.amount             = <number_of_cpu_cores>
 spark.worker.resource.cpu.discoveryScript    = /path/to/getCpuResources.sh
 ```
 
 **gpu-worker.conf** (placed on every GPU node):
 ```properties
-spark.worker.resource.gpu.amount             = 1
+spark.worker.resource.gpu.amount             = <number_of_gpus>
 spark.worker.resource.gpu.discoveryScript    = /path/to/getGpuResources.sh
 ```
 
-> **Note**: Increase `spark.worker.resource.<name>.amount`  to match the actual resource count 
+> **Note**: Set `spark.worker.resource.<name>.amount` to match the actual resource count
 > and update the discovery script to return the corresponding number of addresses.
 
 ### **8.3 Recommended Spark application settings for hybrid clusters**
@@ -240,7 +240,8 @@ In a CPU/GPU hybrid workload the shuffle read phase is typically the bottleneck:
 GPU tasks must wait for CPU-side decompression and deserialization of shuffle data
 before they can start executing on device. The GPU async shuffle reader overlaps
 CPU-side I/O with GPU execution, keeping the GPU busy while blocks are being fetched
-and decoded in a background thread pool. It's recommended to enable Async shuffle read for GPU execution.
+and decoded in a background thread pool.
+It is recommended to enable async shuffle read for GPU execution.
 
 **Reference:** GPU async shuffle read design and PR [PR#12370](https://github.com/apache/gluten/pull/12370)
 
