@@ -86,14 +86,17 @@ jobs:
         run: |
           df -a
           export CCACHE_MAXSIZE=1G
+          mkdir -p $GITHUB_WORKSPACE/.ccache
+          ccache -sz
           bash dev/ci-velox-buildstatic-centos-9.sh
           ccache -s
       - name: "Save ccache"
-        uses: actions/cache/save@v4
-        id: ccache
+        if: always()
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
+          key: ccache-centos8-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
       - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-centos-8-${{github.sha}}

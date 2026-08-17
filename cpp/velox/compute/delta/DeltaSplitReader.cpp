@@ -102,7 +102,7 @@ DeltaSplitReader::DeltaSplitReader(
 
 void DeltaSplitReader::prepareSplit(
     std::shared_ptr<common::MetadataFilter> metadataFilter,
-    dwio::common::RuntimeStatistics& runtimeStats,
+    dwio::common::RuntimeStats& runtimeStats,
     const folly::F14FastMap<std::string, std::string>& fileReadOps) {
   (void)fileReadOps;
 #if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
