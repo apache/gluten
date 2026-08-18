@@ -25,7 +25,13 @@ RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
 # Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID=""
+# TEMPORARY -- DO NOT MERGE. Pulls in the upstream fix for the defect that this
+# branch's Delta suite run is designed to expose, so that the same run goes
+# green:
+#   https://github.com/facebookincubator/velox/pull/18536
+# apache/gluten#12783 is this change without this line, and is expected to be
+# red. The pair is the before/after evidence for apache/gluten#12377.
+UPSTREAM_VELOX_PR_ID="18536"
 
 OS=`uname -s`
 
