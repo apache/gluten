@@ -55,6 +55,19 @@ trait DeltaSQLCommandTest extends SharedSparkSession {
       .set(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key, "true")
       .set("spark.databricks.delta.snapshotPartitions", "2")
       .set("spark.gluten.sql.fallbackUnexpectedMetadataParquet", "true")
+      // Validate every operator's output vector. A Delta deletion-vector write scans only
+      // synthesized columns with a pushed-down filter, and on that path Velox emits a
+      // RowVector whose row-index child has no rows; the child is then wrapped in a
+      // dictionary, and reading it goes out of bounds and yields arbitrary heap values.
+      // Without this the failure is intermittent and reports a meaningless row index, which
+      // is how it went unnoticed for so long. With it, the scan is caught the moment it
+      // produces the malformed vector, so the suite fails deterministically and names the
+      // operator responsible.
+      //   Velox issue: https://github.com/facebookincubator/velox/issues/18535
+      //   Velox fix:   https://github.com/facebookincubator/velox/pull/18536
+      // Remove this once that fix is picked up, at which point the suite must go green
+      // again -- which is what validates the fix.
+      .set("spark.gluten.sql.columnar.backend.velox.validateOutputFromOperators", "true")
   }
 }
 // spotless:on

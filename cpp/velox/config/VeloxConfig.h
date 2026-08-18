@@ -107,6 +107,14 @@ const std::string kValueStreamDynamicFilterEnabled =
     "spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled";
 const bool kValueStreamDynamicFilterEnabledDefault = false;
 
+/// Turns on Velox's per-operator output vector validation
+/// (`debug.validate_output_from_operators`). Every operator's output is checked for
+/// structural consistency -- among other things that a dictionary's indexes address rows its
+/// base vector actually has -- and the first operator to emit a malformed vector is named.
+/// Debugging aid only: it costs a pass over every output batch, so it is off by default.
+const std::string kValidateOutputFromOperators = "spark.gluten.sql.columnar.backend.velox.validateOutputFromOperators";
+const bool kValidateOutputFromOperatorsDefault = false;
+
 const std::string kShowTaskMetricsWhenFinished = "spark.gluten.sql.columnar.backend.velox.showTaskMetricsWhenFinished";
 const bool kShowTaskMetricsWhenFinishedDefault = false;
 

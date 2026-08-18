@@ -525,6 +525,8 @@ void WholeStageResultIterator::collectMetrics() {
 std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryContextConf() {
   std::unordered_map<std::string, std::string> configs = {};
   // Find batch size from Spark confs. If found, set the preferred and max batch size.
+  configs[velox::core::QueryConfig::kValidateOutputFromOperators] =
+      veloxCfg_->get<bool>(kValidateOutputFromOperators, kValidateOutputFromOperatorsDefault) ? "true" : "false";
   configs[velox::core::QueryConfig::kPreferredOutputBatchRows] =
       std::to_string(veloxCfg_->get<uint32_t>(kSparkBatchSize, 4096));
   configs[velox::core::QueryConfig::kMaxOutputBatchRows] =
