@@ -592,6 +592,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       if (substraitAggMask.ByteSizeLong() > 0) {
         mask = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(
             exprConverter_->toVeloxExpr(substraitAggMask, inputType));
+        VELOX_USER_CHECK_NOT_NULL(mask, "Aggregation Operator only supports a top-level field mask.");
       }
     }
     const auto& aggFunction = measure.measure();
