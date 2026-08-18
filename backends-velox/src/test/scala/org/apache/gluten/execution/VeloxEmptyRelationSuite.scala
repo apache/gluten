@@ -23,6 +23,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.execution.EmptyRelationExecTransformer
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -64,7 +65,7 @@ class VeloxEmptyRelationSuite extends VeloxWholeStageTransformerSuite with Adapt
    * Number of RowToColumnar transitions placed directly on top of an EmptyRelationExecTransformer.
    * Because the transformer is dual-mode (it produces both columnar batches and rows), a columnar
    * consumer must read it directly; a RowToColumnar immediately wrapping it would mean the empty
-   * relation was executed in row mode and re-columnarized — exactly the ColumnarToRow /
+   * relation was executed in row mode and re-columnarized -- exactly the ColumnarToRow /
    * RowToColumnar sandwich this offload exists to remove. The expected count is always 0. AQE stage
    * wrappers between the transition and the transformer are unwrapped so the adjacency check holds
    * after query stages are materialized.
@@ -75,7 +76,7 @@ class VeloxEmptyRelationSuite extends VeloxWholeStageTransformerSuite with Adapt
         : org.apache.spark.sql.execution.SparkPlan =
       p match {
         case stage: org.apache.spark.sql.execution.adaptive.QueryStageExec => unwrap(stage.plan)
-        case reused: org.apache.spark.sql.execution.ReusedExchangeExec => unwrap(reused.child)
+        case reused: ReusedExchangeExec => unwrap(reused.child)
         case other => other
       }
     collectWithSubqueries(plan) {
