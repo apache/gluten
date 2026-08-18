@@ -221,6 +221,16 @@ class VeloxRDDScanSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     assert(cnt.isEmpty, "MapType schema should fall back from VeloxRDDScanTransformer")
   }
 
+  test("RDDScan with an empty schema falls back to row-based") {
+    val plan = RDDScanExec(
+      Seq.empty,
+      spark.sparkContext.parallelize(Seq(InternalRow.empty)),
+      "OneRowRelation")
+    val transformer = RDDScanTransformer.getRDDScanTransform(plan)
+
+    assert(!transformer.doValidate().ok(), "Empty-schema RDDScan should not be offloaded")
+  }
+
   test("RDDScan with struct type") {
     val rdd = spark.sparkContext.parallelize(
       Seq(

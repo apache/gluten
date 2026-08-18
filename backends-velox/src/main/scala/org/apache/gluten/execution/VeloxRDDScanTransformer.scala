@@ -56,6 +56,9 @@ case class VeloxRDDScanTransformer(
   )
 
   override protected def doValidateInternal(): ValidationResult = {
+    if (schema.isEmpty) {
+      return ValidationResult.failed("RDDScan with an empty schema is not supported")
+    }
     for (field <- schema.fields) {
       val reason = VeloxValidatorApi.validateSchema(field.dataType)
       if (reason.isDefined) {
