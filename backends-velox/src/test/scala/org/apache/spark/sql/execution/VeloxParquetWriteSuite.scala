@@ -306,6 +306,57 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
         checkAnswer(parquetDf, spark.range(100).toDF("id"))
     }
   }
+
+  test("test write parquet with page index enabled/disabled/default") {
+    Seq(Some(true), Some(false), None).foreach {
+      enablePageIndex =>
+        withTempPath {
+          f =>
+            val writer = spark
+              .range(0, 100000, 1, 1)
+              .selectExpr("id", "cast(id % 100 as int) as v")
+              .write
+              .format("parquet")
+              .option(GlutenConfig.PARQUET_DATAPAGE_SIZE, (4 * 1024).toString)
+            enablePageIndex.foreach(
+              v => writer.option(GlutenConfig.PARQUET_ENABLE_PAGE_INDEX, v.toString))
+            writer.save(f.getCanonicalPath)
+
+            val expectPageIndex = enablePageIndex.getOrElse(true)
+            val parquetFiles = f.list((_, name) => name.contains("parquet"))
+            assert(parquetFiles.nonEmpty)
+            val indexRefs = parquetFiles.flatMap {
+              file =>
+                val path = new Path(f.getCanonicalPath, file)
+                val in = HadoopInputFile.fromPath(path, spark.sessionState.newHadoopConf())
+                Utils.tryWithResource(ParquetFileReader.open(in)) {
+                  reader =>
+                    reader.getFooter.getBlocks.asScala.flatMap {
+                      block =>
+                        block.getColumns.asScala.map {
+                          col =>
+                            (
+                              col.getColumnIndexReference != null,
+                              col.getOffsetIndexReference != null)
+                        }
+                    }
+                }
+            }
+            val hasColumnIndex = indexRefs.exists(_._1)
+            val hasOffsetIndex = indexRefs.exists(_._2)
+            assert(
+              hasColumnIndex == expectPageIndex,
+              s"expected column index present=$expectPageIndex but found $hasColumnIndex")
+            assert(
+              hasOffsetIndex == expectPageIndex,
+              s"expected offset index present=$expectPageIndex but found $hasOffsetIndex")
+
+            checkAnswer(
+              spark.read.parquet(f.getCanonicalPath),
+              spark.range(0, 100000, 1, 1).selectExpr("id", "cast(id % 100 as int) as v"))
+        }
+    }
+  }
 }
 
 class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite with WriteUtils {

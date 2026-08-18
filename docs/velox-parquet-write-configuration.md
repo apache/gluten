@@ -54,7 +54,7 @@ df.write.option("parquet.block.rows").save()
 	</tr>
 	<tr>
 		<td><code>page_index</code></td>
-		<td></td><td></td><td>false</td><td></td>
+		<td></td><td></td><td>true</td><td>parquet.enable.page.index</td>
 	</tr>
 	<tr>
 		<td><code>decimal_as_integer</code></td>
