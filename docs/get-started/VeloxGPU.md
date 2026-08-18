@@ -100,12 +100,12 @@ continue to run on regular CPU executors.
 
 ### **8.1 Configuration**
 
-| Configuration Key | Recommended Value | Description                                                                                                                                          |
-|---|------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `spark.gluten.sql.columnar.hybridExecution.enabled` | `true`           | Enable CPU/GPU hybrid execution. Stages are scheduled to CPU or GPU nodes based on their execution mode.                                             |
-| `spark.gluten.sql.columnar.hybridExecution.cpuResource.name` | `cpu`            | The Spark custom-resource name for CPU. Must match `spark.worker.resource.<name>.*` for CPU-stage scheduling to take effect.                         |
-| `spark.gluten.sql.columnar.hybridExecution.gpuResource.name` | `gpu`            | The Spark custom-resource name for GPU. Must match `spark.worker.resource.<name>.*` for GPU-stage scheduling to take effect.                         |
-| `spark.gluten.sql.columnar.hybridExecution.gpuResource.amountPerTask` | `0.1`            | Fractional GPU resource amount per task. Controls how many GPU tasks can run concurrently on a single executor (e.g. `0.1` → 10 tasks share 1 GPU).  |
+| Configuration Key | Recommended Value | Description                                                                                                                                         |
+|---|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `spark.gluten.sql.columnar.hybridExecution.enabled` | `true`           | Enable CPU/GPU hybrid execution. Stages are scheduled to CPU or GPU nodes based on their execution mode.                                            |
+| `spark.gluten.sql.columnar.hybridExecution.cpuResource.name` | `cpu`            | The Spark custom-resource name for CPU. Must match `spark.<component>.resource.<name>.*` for CPU-stage scheduling to take effect.                   |
+| `spark.gluten.sql.columnar.hybridExecution.gpuResource.name` | `gpu`            | The Spark custom-resource name for GPU. Must match `spark.<component>.resource.<name>.*` for GPU-stage scheduling to take effect.                        |
+| `spark.gluten.sql.columnar.hybridExecution.gpuResource.amountPerTask` | `0.1`            | Fractional GPU resource amount per task. Controls how many GPU tasks can run concurrently on a single executor (e.g. `0.1` → 10 tasks share 1 GPU). |
 
 ### **8.2 Cluster Setup for Hybrid Execution**
 

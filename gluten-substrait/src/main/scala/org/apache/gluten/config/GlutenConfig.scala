@@ -1741,7 +1741,7 @@ object GlutenConfig extends ConfigRegistry {
       .experimental()
       .doc(
         "The CPU resource name (Spark custom resource). " +
-          "This must match the resource name configured via spark.worker.resource.<name>.* " +
+          "This must match the resource name configured via spark.<component>.resource.<name>.* " +
           "for CPU-stage scheduling to take effect."
       )
       .stringConf
@@ -1752,7 +1752,7 @@ object GlutenConfig extends ConfigRegistry {
       .experimental()
       .doc(
         "The GPU resource name (Spark custom resource). " +
-          "This must match the resource name configured via spark.worker.resource.<name>.* " +
+          "This must match the resource name configured via spark.<component>.resource.<name>.* " +
           "for GPU-stage scheduling to take effect."
       )
       .stringConf
