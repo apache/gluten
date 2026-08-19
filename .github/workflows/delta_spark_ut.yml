@@ -178,7 +178,7 @@ jobs:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -254,7 +254,7 @@ jobs:
           fi
           cp "$jar" bundle-out/
           ls -lh bundle-out/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-gluten-bundle-${{github.sha}}
           path: bundle-out/gluten-velox-bundle-spark*_*-linux_amd64-*.jar
@@ -422,7 +422,7 @@ jobs:
 
       - name: Upload per-shard gate lists
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-gate-lists-shard-${{ matrix.shard }}
           path: gate-out/*.txt
@@ -430,7 +430,7 @@ jobs:
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-reports-shard-${{ matrix.shard }}
           path: |
@@ -440,7 +440,7 @@ jobs:
 
       - name: Upload hang watchdog thread dumps
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-threaddumps-shard-${{ matrix.shard }}
           path: /tmp/threaddump-shard-${{ matrix.shard }}-*.txt
@@ -448,7 +448,7 @@ jobs:
 
       - name: Upload JVM crash logs and other failure artifacts
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-failure-logs-shard-${{ matrix.shard }}
           path: |
@@ -497,7 +497,7 @@ jobs:
             --baseline-out aggregated/known-failures.txt
       - name: Upload refreshed baseline
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-known-failures
           path: aggregated/known-failures.txt
