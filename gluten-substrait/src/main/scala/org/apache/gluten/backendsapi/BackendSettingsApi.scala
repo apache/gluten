@@ -154,6 +154,12 @@ trait BackendSettingsApi {
 
   def supportIcebergInitialDefaultRead(): Boolean = false
 
+  /**
+   * Whether the backend reads the files of an Iceberg table with the credentials the catalog vended
+   * for it, carried in LocalFiles.read_properties.
+   */
+  def supportIcebergVendedCredentialsRead(): Boolean = false
+
   def reorderColumnsForPartitionWrite(): Boolean = false
 
   def enableEnhancedFeatures(): Boolean = false

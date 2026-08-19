@@ -103,8 +103,29 @@ the added column name is same to the deleted column, the scan will fall back.
 | --- | --- | --- |
 | spark.gluten.sql.columnar.iceberg.enableNativeRead | true | Enable offloading Iceberg scans to the native backend. When disabled, Iceberg scans fall back to vanilla Spark while scans of other formats stay offloaded. |
 | spark.gluten.sql.columnar.iceberg.enableNativeWrite | true | Enable offloading Iceberg writes to the native backend. When disabled, Iceberg writes fall back to vanilla Spark. Note the Velox backend additionally requires `spark.gluten.sql.enable.enhancedFeatures` to be enabled. |
+| spark.gluten.sql.columnar.iceberg.enableVendedCredentials | true | Pass the per-table S3 credentials an Iceberg REST catalog vends from the table's FileIO to the native backend, so that such tables can be scanned natively. When disabled, scans of tables read with vended credentials fall back to vanilla Spark. Tables whose files are readable with the process credentials are unaffected either way. |
 
-Both options are runtime modifiable, so they can be flipped per session with `SET`.
+All three options are runtime modifiable, so they can be flipped per session with `SET`.
+
+### Credential vending
+
+REST catalogs can be configured to vend credentials rather than let the compute
+use its own identity, for example Apache Polaris with
+
+```
+spark.sql.catalog.<catalog>.header.X-Iceberg-Access-Delegation=vended-credentials
+```
+
+In that case `loadTable` returns credentials scoped to one table, and only the
+JVM `FileIO` sees them. Gluten reads them from the scan table's `FileIO` at split
+planning time and passes them to the native reader with the split, which resolves
+them per table by matching the file path against the table locations. A query may
+therefore join tables that live in the same bucket but carry different
+credentials.
+
+The credentials are read once on the driver, so a scan has to start within the
+lifetime of the credentials the catalog vended; executors cannot ask the catalog
+for new ones.
 
 ### Catalogs
 All the catalog configurations are transparent to Gluten

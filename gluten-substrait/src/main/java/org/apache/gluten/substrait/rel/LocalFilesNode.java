@@ -59,6 +59,10 @@ public class LocalFilesNode implements SplitInfo {
   private Boolean iterAsInput = false;
   private StructType fileSchema;
   private Map<String, String> fileReadProperties;
+  // Table-scoped storage properties required to open this split's files
+  // natively, e.g. Iceberg catalog-vended S3 credentials. Serialized into
+  // ReadRel.LocalFiles.read_properties when non-empty.
+  private Map<String, String> readProperties;
 
   LocalFilesNode(
       Integer index,
@@ -112,6 +116,7 @@ public class LocalFilesNode implements SplitInfo {
     this.fileFormat = other.fileFormat;
     this.preferredLocations.addAll(other.preferredLocations);
     this.fileReadProperties = other.fileReadProperties;
+    this.readProperties = other.readProperties;
     this.iterAsInput = other.iterAsInput;
     this.fileSchema = other.fileSchema;
     this.otherMetadataColumns.addAll(otherMetadataColumns);
@@ -128,6 +133,10 @@ public class LocalFilesNode implements SplitInfo {
 
   public void setFileSchema(StructType schema) {
     this.fileSchema = schema;
+  }
+
+  public void setReadProperties(Map<String, String> readProperties) {
+    this.readProperties = readProperties;
   }
 
   private NamedStruct buildNamedStruct() {
@@ -283,6 +292,9 @@ public class LocalFilesNode implements SplitInfo {
       }
       processFileBuilder(fileBuilder, i);
       localFilesBuilder.addItems(fileBuilder.build());
+    }
+    if (readProperties != null && !readProperties.isEmpty()) {
+      localFilesBuilder.putAllReadProperties(readProperties);
     }
     return localFilesBuilder.build();
   }

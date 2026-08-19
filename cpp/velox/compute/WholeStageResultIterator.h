@@ -26,6 +26,7 @@
 #include "substrait/plan.pb.h"
 #include "utils/Metrics.h"
 #include "velox/common/config/Config.h"
+#include "velox/common/file/TokenProvider.h"
 #include "velox/connectors/hive/iceberg/IcebergSplit.h"
 #include "velox/core/PlanNode.h"
 #include "velox/exec/Cursor.h"
@@ -109,6 +110,11 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
 
   /// Create QueryCtx.
   std::shared_ptr<facebook::velox::core::QueryCtx> createNewVeloxQueryCtx();
+
+  /// The file system token provider built from the scans' table-scoped read
+  /// properties, e.g. the per-table S3 credentials an Iceberg REST catalog
+  /// vended. Null when no scan carries credentials, or when built without S3.
+  std::shared_ptr<facebook::velox::filesystems::TokenProvider> createFsTokenProvider() const;
 
   /// Get all the children plan node ids with postorder traversal.
   void getOrderedNodeIds(

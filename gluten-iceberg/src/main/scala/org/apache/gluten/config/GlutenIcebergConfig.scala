@@ -24,6 +24,8 @@ class GlutenIcebergConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def enableNativeRead: Boolean = getConf(ENABLE_NATIVE_READ)
 
   def enableNativeWrite: Boolean = getConf(ENABLE_NATIVE_WRITE)
+
+  def enableVendedCredentials: Boolean = getConf(ENABLE_VENDED_CREDENTIALS)
 }
 
 object GlutenIcebergConfig extends ConfigRegistry {
@@ -36,6 +38,17 @@ object GlutenIcebergConfig extends ConfigRegistry {
     buildConf("spark.gluten.sql.columnar.iceberg.enableNativeRead")
       .doc("Enable offloading Iceberg scans to the native backend. When disabled, Iceberg scans" +
         " fall back to vanilla Spark while scans of other formats stay offloaded.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val ENABLE_VENDED_CREDENTIALS: ConfigEntry[Boolean] =
+    buildConf("spark.gluten.sql.columnar.iceberg.enableVendedCredentials")
+      .doc("Pass the per-table S3 credentials an Iceberg REST catalog vends (e.g. Apache" +
+        " Polaris with 'X-Iceberg-Access-Delegation: vended-credentials') from the table's" +
+        " FileIO to the native backend, so that such tables can be scanned natively. When" +
+        " disabled, scans of tables read with vended credentials fall back to vanilla Spark," +
+        " which reads them through the JVM FileIO. Tables whose files are readable with the" +
+        " process credentials are unaffected either way.")
       .booleanConf
       .createWithDefault(true)
 
