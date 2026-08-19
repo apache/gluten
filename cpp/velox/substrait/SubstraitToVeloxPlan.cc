@@ -24,6 +24,7 @@
 #include "compute/iceberg/IcebergPlanConverter.h"
 #include "jni/JniHashTable.h"
 #include "operators/hashjoin/HashTableBuilder.h"
+#include "operators/plannodes/GlutenStrideNode.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "velox/connectors/hive/HiveDataSink.h"
 #include "velox/exec/TableWriter.h"
@@ -1384,6 +1385,15 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::FetchRel& fetchRel) {
   auto childNode = convertSingleInput<::substrait::FetchRel>(fetchRel);
+
+  // GlutenStride is encoded as a FetchRel carrying the stride in FetchRel.offset,
+  // with a "isGlutenStride=1" marker in AdvancedExtension.optimization[0].
+  if (fetchRel.has_advanced_extension() &&
+      SubstraitParser::configSetInOptimization(fetchRel.advanced_extension(), "isGlutenStride=")) {
+    const int64_t stride = static_cast<int64_t>(fetchRel.offset());
+    return std::make_shared<GlutenStrideNode>(nextPlanNodeId(), stride, childNode);
+  }
+
   return std::make_shared<core::LimitNode>(
       nextPlanNodeId(),
       static_cast<int32_t>(fetchRel.offset()),

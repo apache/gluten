@@ -388,4 +388,30 @@ public class RelBuilder {
     context.registerRelToOperator(operatorId);
     return new SetRelNode(inputs, setOp, extensionNode);
   }
+
+  // ---------------------------------------------------------------------------
+  // GlutenStride — custom Gluten-native operator: output every stride-th row.
+  // Encoded as FetchRel with AdvancedExtension marker "isGlutenStride=1".
+  // ---------------------------------------------------------------------------
+
+  /** Execution mode: no type-annotation; the native plan is run as-is. */
+  public static RelNode makeGlutenStrideRel(
+      RelNode input, long stride, SubstraitContext context, Long operatorId) {
+    context.registerRelToOperator(operatorId);
+    return new GlutenStrideRelNode(input, stride);
+  }
+
+  /**
+   * Validation mode: attach an AdvancedExtension enhancement carrying the input column types so
+   * that the native validator can type-check the plan node.
+   */
+  public static RelNode makeGlutenStrideRel(
+      RelNode input,
+      long stride,
+      AdvancedExtensionNode extensionNode,
+      SubstraitContext context,
+      Long operatorId) {
+    context.registerRelToOperator(operatorId);
+    return new GlutenStrideRelNode(input, stride, extensionNode);
+  }
 }

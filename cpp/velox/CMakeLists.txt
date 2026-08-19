@@ -178,6 +178,7 @@ set(VELOX_SRCS
     operators/functions/delta/DeltaBitmapAggregator.cc
     operators/functions/RowConstructorWithNull.cc
     operators/functions/SparkExprToSubfieldFilterParser.cc
+    operators/plannodes/GlutenStrideNode.cc
     operators/plannodes/RowVectorStream.cc
     operators/hashjoin/HashTableBuilder.cc
     operators/hashjoin/HashTableSerializer.cc

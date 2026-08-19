@@ -47,6 +47,7 @@
 #include "jni/JniFileSystem.h"
 #include "memory/GlutenBufferedInputBuilder.h"
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
+#include "operators/plannodes/GlutenStrideNode.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "shuffle/ArrowShuffleDictionaryWriter.h"
 #include "udf/UdfLoader.h"
@@ -227,6 +228,9 @@ void VeloxBackend::init(
     }
   }
 #endif
+
+  // Register Gluten-native custom operator translators.
+  facebook::velox::exec::Operator::registerOperator(std::make_unique<GlutenStrideTranslator>());
 
   const int32_t numTaskSlotsPerExecutor = [&]() {
     if (!backendConf_->valueExists(kNumTaskSlotsPerExecutor)) {
