@@ -246,6 +246,11 @@ endif()
 
 add_library(velox SHARED ${VELOX_SRCS})
 
+if(ENABLE_GLUTEN_VCPKG)
+  find_package(xxHash CONFIG REQUIRED)
+  target_link_libraries(velox PUBLIC xxHash::xxhash)
+endif()
+
 # Keep ABI sensitive Velox feature macros in sync
 set(GLUTEN_VELOX_CMAKE_CACHE "${VELOX_BUILD_PATH}/CMakeCache.txt")
 set(GLUTEN_VELOX_ENABLE_PARQUET ${VELOX_ENABLE_PARQUET})
@@ -343,11 +348,27 @@ if(BUILD_TESTS)
     facebook::velox::file_test_utils
     ${VELOX_BUILD_PATH}/velox/common/file/tests/libvelox_file_test_utils.a)
   import_library(
+    facebook::velox::vector_fuzzer_util
+    ${VELOX_BUILD_PATH}/velox/vector/fuzzer/libvelox_vector_fuzzer_util.a)
+  import_library(
+    facebook::velox::constrained_vector_generator
+    ${VELOX_BUILD_PATH}/velox/vector/fuzzer/libvelox_constrained_vector_generator.a
+  )
+  target_link_libraries(facebook::velox::constrained_vector_generator
+                        INTERFACE facebook::velox::vector_fuzzer_util)
+  import_library(
+    facebook::velox::vector_fuzzer
+    ${VELOX_BUILD_PATH}/velox/vector/fuzzer/libvelox_vector_fuzzer.a)
+  target_link_libraries(
+    facebook::velox::vector_fuzzer
+    INTERFACE facebook::velox::vector_fuzzer_util
+              facebook::velox::constrained_vector_generator)
+  import_library(
     facebook::velox::exec_test_lib
     ${VELOX_BUILD_PATH}/velox/exec/tests/utils/libvelox_exec_test_lib.a)
   target_link_libraries(
     facebook::velox::exec_test_lib
-    INTERFACE facebook::velox::vector_test_lib
+    INTERFACE facebook::velox::vector_test_lib facebook::velox::vector_fuzzer
               facebook::velox::dwio_common_test
               facebook::velox::file_test_utils)
   target_link_libraries(velox PUBLIC facebook::velox::exec_test_lib)
@@ -422,8 +443,10 @@ endif()
 target_link_libraries(velox PUBLIC Folly::folly)
 
 # Link thrift libraries - check vcpkg first, then fall back to system libraries
-# Determine vcpkg triplet directory based on architecture
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
+# Use the active vcpkg triplet when available, then fall back to architecture.
+if(VCPKG_TARGET_TRIPLET)
+  set(VCPKG_TRIPLET_DIR "${VCPKG_TARGET_TRIPLET}")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
   set(VCPKG_TRIPLET_DIR "x64-linux-avx")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(arm64)")
   set(VCPKG_TRIPLET_DIR "arm64-linux-neon")
@@ -443,8 +466,8 @@ if(DEFINED VCPKG_INSTALLED_DIR
   )
   target_link_libraries(
     velox
-    PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
-            ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
+    PUBLIC ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
+           ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
 else()
   set(THRIFT_LIBRARY_DIRS)
   if(CMAKE_INSTALL_PREFIX)

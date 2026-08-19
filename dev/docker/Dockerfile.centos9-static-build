@@ -33,15 +33,15 @@ RUN set -ex; \
     git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
     cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh; \
     mkdir -p ${VCPKG_PATH}; \
-    echo "Build arrow, then install the native libs to system paths and jar package to .m2/ directory."; \
+    echo "vcpkg installs the native dependencies and Maven resolves Java dependencies."; \
     if [ "$(uname -m)" = "aarch64" ]; then \
         export CPU_TARGET="aarch64"; \
         export VCPKG_FORCE_SYSTEM_BINARIES=1; \
     fi; \
     source /opt/rh/gcc-toolset-12/enable; \
     cd /opt/gluten; \
-    bash ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_tests=ON --enable_s3=ON --enable_gcs=ON \
-                                    --enable_hdfs=ON --enable_abfs=ON  build_arrow; \
+    bash -c 'source ./dev/vcpkg/env.sh --build_tests=ON --enable_s3=ON --enable_gcs=ON \
+                                    --enable_hdfs=ON --enable_abfs=ON'; \
     ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
     rm -rf /opt/gluten; \
     rm -rf /root/.cache/ccache;

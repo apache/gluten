@@ -29,6 +29,9 @@ export VCPKG="$SCRIPT_ROOT/.vcpkg/vcpkg"
 export VCPKG_TRIPLET=$([ "${CPU_TARGET:-}" = "aarch64" ] && echo "arm64-linux-neon" || echo "x64-linux-avx")
 export VCPKG_TRIPLET_INSTALL_DIR=${SCRIPT_ROOT}/vcpkg_installed/${VCPKG_TRIPLET}
 
+unset PKG_CONFIG_PATH
+export PKG_CONFIG_LIBDIR=${VCPKG_TRIPLET_INSTALL_DIR}/lib/pkgconfig:${VCPKG_TRIPLET_INSTALL_DIR}/share/pkgconfig
+
 ${SCRIPT_ROOT}/init.sh "$@"
 
 if [ "${GLUTEN_VCPKG_ENABLED:-}" != "${VCPKG_ROOT}" ]; then
@@ -45,9 +48,7 @@ if [ "${GLUTEN_VCPKG_ENABLED:-}" != "${VCPKG_ROOT}" ]; then
     export VCPKG_ROOT=${VCPKG_ROOT}
     export VCPKG_MANIFEST_DIR=${SCRIPT_ROOT}
     export VCPKG_TRIPLET=${VCPKG_TRIPLET}
-
     export CMAKE_TOOLCHAIN_FILE=${SCRIPT_ROOT}/toolchain.cmake
-    export PKG_CONFIG_PATH=${VCPKG_TRIPLET_INSTALL_DIR}/lib/pkgconfig:${VCPKG_TRIPLET_INSTALL_DIR}/share/pkgconfig:${PKG_CONFIG_PATH:-}
     export PATH="${EXPORT_TOOLS_PATH}:$PATH"
 
     export GLUTEN_VCPKG_ENABLED=${VCPKG_ROOT}
