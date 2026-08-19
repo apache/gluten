@@ -450,9 +450,7 @@ object VeloxConfig extends ConfigRegistry {
       .doc(
         "Set the max memory of partial aggregation in bytes. When this option is set to a " +
           "value greater than 0, it will override spark.gluten.sql.columnar.backend.velox." +
-          "maxPartialAggregationMemoryRatio. Note: this option only works when flushable " +
-          "partial aggregation is enabled. Ignored when spark.gluten.sql.columnar.backend." +
-          "velox.flushablePartialAggregation=false."
+          "maxPartialAggregationMemoryRatio. Used by flushable partial aggregation."
       )
       .bytesConf(ByteUnit.BYTE)
       .createOptional
@@ -461,9 +459,8 @@ object VeloxConfig extends ConfigRegistry {
     buildConf("spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemoryRatio")
       .doc(
         "Set the max memory of partial aggregation as "
-          + "maxPartialAggregationMemoryRatio of offheap size. Note: this option only works when " +
-          "flushable partial aggregation is enabled. Ignored when " +
-          "spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation=false."
+          + "maxPartialAggregationMemoryRatio of offheap size. Used by flushable partial " +
+          "aggregation."
       )
       .doubleConf
       .createWithDefault(0.1)
@@ -473,9 +470,7 @@ object VeloxConfig extends ConfigRegistry {
       .doc(
         "Set the max extended memory of partial aggregation in bytes. When this option is set " +
           "to a value greater than 0, it will override spark.gluten.sql.columnar.backend.velox." +
-          "maxExtendedPartialAggregationMemoryRatio. Note: this option only works when " +
-          "flushable partial aggregation is enabled. Ignored when " +
-          "spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation=false."
+          "maxExtendedPartialAggregationMemoryRatio. Used by flushable partial aggregation."
       )
       .bytesConf(ByteUnit.BYTE)
       .createOptional
@@ -484,9 +479,8 @@ object VeloxConfig extends ConfigRegistry {
     buildConf("spark.gluten.sql.columnar.backend.velox.maxExtendedPartialAggregationMemoryRatio")
       .doc(
         "Set the max extended memory of partial aggregation as "
-          + "maxExtendedPartialAggregationMemoryRatio of offheap size. Note: this option only " +
-          "works when flushable partial aggregation is enabled. Ignored when " +
-          "spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation=false."
+          + "maxExtendedPartialAggregationMemoryRatio of offheap size. Used by flushable " +
+          "partial aggregation."
       )
       .doubleConf
       .createWithDefault(0.15)
@@ -494,20 +488,16 @@ object VeloxConfig extends ConfigRegistry {
   val ABANDON_PARTIAL_AGGREGATION_MIN_PCT =
     buildConf("spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinPct")
       .doc(
-        "If partial aggregation aggregationPct greater than this value, "
-          + "partial aggregation may be early abandoned. Note: this option only works when " +
-          "flushable partial aggregation is enabled. Ignored when " +
-          "spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation=false.")
+        "If a partial aggregation's output-to-input percentage reaches this value, it may be " +
+          "abandoned. Used by flushable partial aggregation.")
       .intConf
       .createWithDefault(90)
 
   val ABANDON_PARTIAL_AGGREGATION_MIN_ROWS =
     buildConf("spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinRows")
       .doc(
-        "If partial aggregation input rows number greater than this value, "
-          + " partial aggregation may be early abandoned. Note: this option only works when " +
-          "flushable partial aggregation is enabled. Ignored when " +
-          "spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation=false.")
+        "A partial aggregation may be abandoned after its input-row count exceeds this value. " +
+          "Used by flushable partial aggregation.")
       .intConf
       .createWithDefault(100000)
 
