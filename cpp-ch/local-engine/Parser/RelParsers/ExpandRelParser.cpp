@@ -119,7 +119,7 @@ ExpandField ExpandRelParser::buildExpandField(const DB::Block & header, const su
                 // Keep that information in the Expand output type so the
                 // generated column contains a real null map.
                 if (field.isNull() && type && !type->isNullable())
-                    type = std::make_shared<DB::DataTypeNullable>(type);
+                    type = DB::makeNullable(type);
                 kinds.push_back(ExpandFieldKind::EXPAND_FIELD_KIND_LITERAL);
                 fields.push_back(field);
                 updateType(types[i], type);

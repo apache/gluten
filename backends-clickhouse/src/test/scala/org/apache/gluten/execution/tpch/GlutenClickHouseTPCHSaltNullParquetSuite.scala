@@ -891,7 +891,7 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
         |having msg_type is not null
         |order by msg_type, os, cnt
         |""".stripMargin
-    withSparkEnvAndSQLConf(CHConfig.runtimeConfig("enable_lazy_aggregate_expand"), "false") {
+    withSparkEnvConf(CHConfig.runtimeConfig("enable_lazy_aggregate_expand"), "false") {
       compareResultsAgainstVanillaSpark(
         sql,
         true,
@@ -921,7 +921,7 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
         |having msg_type is not null
         |order by msg_type, os, cnt
         |""".stripMargin
-    withSparkEnvAndSQLConf(CHConfig.runtimeConfig("enable_lazy_aggregate_expand"), "true") {
+    withSparkEnvConf(CHConfig.runtimeConfig("enable_lazy_aggregate_expand"), "true") {
       compareResultsAgainstVanillaSpark(
         sql,
         true,
@@ -938,12 +938,12 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
     }
   }
 
-  private def withSparkEnvAndSQLConf(key: String, value: String)(f: => Unit): Unit = {
+  private def withSparkEnvConf(key: String, value: String)(f: => Unit): Unit = {
     val sparkConf = SparkEnv.get.conf
     val previousValue = sparkConf.getOption(key)
     sparkConf.set(key, value)
     try {
-      withSQLConf(key -> value)(f)
+      f
     } finally {
       previousValue match {
         case Some(previous) => sparkConf.set(key, previous)
