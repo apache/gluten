@@ -116,8 +116,13 @@ longer shared between them, those PRs pay for the centos-7 native build twice
   the PR's Checks tab. Two consequences: `/delta-test` reads the workflow file
   from the default branch (so it cannot test changes to this pipeline itself —
   those match the `paths:` filter anyway), and comment-triggered runs **restore
-  but never save** the ccache/Maven/sbt caches, since their cache scope is the
-  default branch and they execute the PR's code.
+  but never save** the ccache/Maven/sbt stashes. A stash is stored as an
+  artifact named `<key>-<branch>` and looked up by branch, and for an
+  `issue_comment` run that branch is the **default branch**, not the PR — so a
+  save would overwrite (Stash defaults to `overwrite: true`) a stash that the
+  nightly restores. The ccache key is shared with `velox_backend_x86.yml`, so
+  that would reach beyond this pipeline. Reads are unaffected: a comment run
+  still restores `main`'s stashes, so it is no slower.
 - **Manually** — **Actions → Delta Spark UT (Gluten) → Run workflow**
   (`workflow_dispatch`), e.g. to refresh the baseline (see below). This is also
   how you validate a Velox/core change against Delta before merging: run it on

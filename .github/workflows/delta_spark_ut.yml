@@ -105,8 +105,16 @@ on:
 # Unlike `pull_request`, an `issue_comment` run is a base-repo run with a
 # base-repo token, and the jobs below build and execute code from the PR. Nothing
 # here needs write access, so pin the default to read-only.
+#
+# `actions: read` is required, not optional: setting this block at all sets every
+# unlisted scope to `none`, and the Apache Stash restore action reads the caches
+# through the artifacts REST API (`gh api repos/.../actions/artifacts` plus
+# `gh run download`), which 403s without it. The other Stash-using workflows here
+# declare no `permissions:` block and so inherit the repo default, which is why
+# they do not need to say this.
 permissions:
   contents: read
+  actions: read
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
