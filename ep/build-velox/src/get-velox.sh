@@ -154,7 +154,7 @@ function apply_provided_velox_patch {
 
 function apply_compilation_fixes {
   local SUDO_CMD=""
-  if [ "$OS" == "Linux" ]; then
+  if [ "$OS" == "Linux" ] && [ "${EUID:-$(id -u)}" -ne 0 ]; then
     SUDO_CMD="sudo"
   fi
   $SUDO_CMD cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
