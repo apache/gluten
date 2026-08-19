@@ -110,8 +110,10 @@ longer shared between them, those PRs pay for the centos-7 native build twice
   any text, but `/delta-test-arm` or `/delta-testers` will *not* match, so a
   future command that starts the same way cannot fire this one by accident.
   Restricted to the author, who is the one this exists for: a fork
-  author cannot label their own PR, but can always comment on it. A maintainer
-  who wants a run on someone else's PR asks the author to comment. It runs the
+  author cannot label their own PR, but can always comment on it, whereas a
+  maintainer can already start the suite from **Run workflow**
+  (`workflow_dispatch`). A maintainer who wants a run on someone else's PR uses
+  that, or asks the author to comment. It runs the
   PR's merge ref with the default settings and the baseline **enforced**;
   `update_baseline` stays reachable only from `workflow_dispatch`, so no comment
   can rewrite the baseline. The workflow replies with a link to the run, because

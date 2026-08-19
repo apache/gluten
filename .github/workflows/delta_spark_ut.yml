@@ -198,8 +198,18 @@ jobs:
     # membership, so `COLLABORATOR` matches nobody here and all but two of the
     # Gluten committers report `CONTRIBUTOR` -- an OWNER/MEMBER/COLLABORATOR list
     # would reject nearly every maintainer while accepting any apache org member.
-    # A maintainer who wants a run on someone else's PR asks the author to
-    # comment.
+    #
+    # Nor is there a `collaborators/{user}/permission` lookup, which WOULD be
+    # accurate: maintainers do not need one. They can already start this suite
+    # from Actions -> Run workflow (`workflow_dispatch`), which is precisely why
+    # the trigger is author-scoped -- the author is the only party that had no
+    # way in (labelling a PR needs write/triage, so a fork author cannot). A
+    # maintainer who wants a run on someone else's PR uses workflow_dispatch or
+    # asks the author to comment.
+    #
+    # This is stricter than the repo's other comment triggers -- velox_backend_ansi.yml
+    # (`/ansi-test`) and take.yml gate on nothing at all -- which is deliberate,
+    # given a run here costs ~11 job-hours.
     #
     # The command must be the FIRST TOKEN of the comment, so neither quoting it
     # while discussing it (`contains` would match) nor a longer command that
