@@ -2,6 +2,8 @@
 
 **Out of 357 scalar functions in Spark 3.5, Gluten currently fully supports 245 functions and partially supports 28 functions.**
 
+**Gluten also fully supports 2 additional functions introduced in Spark 4.0.**
+
 ## Array Functions
 
 | Spark Functions   | Spark Expressions   | Status   | Restrictions   |
@@ -115,6 +117,7 @@
 | datediff            | DateDiff                             | S        |                |
 | datepart            | DatePartExpressionBuilder            |          |                |
 | day                 | DayOfMonth                           | S        |                |
+| dayname             | DayName                              | S        | Spark 4.0+     |
 | dayofmonth          | DayOfMonth                           | S        |                |
 | dayofweek           | DayOfWeek                            | S        |                |
 | dayofyear           | DayOfYear                            | S        |                |
@@ -133,6 +136,7 @@
 | make_ym_interval    | MakeYMInterval                       | S        |                |
 | minute              | Minute                               | S        |                |
 | month               | Month                                | S        |                |
+| monthname           | MonthName                            | S        | Spark 4.0+     |
 | months_between      | MonthsBetween                        | S        |                |
 | next_day            | NextDay                              | S        |                |
 | now                 | Now                                  |          |                |
