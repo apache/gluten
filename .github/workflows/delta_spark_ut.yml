@@ -201,12 +201,21 @@ jobs:
     # A maintainer who wants a run on someone else's PR asks the author to
     # comment.
     #
-    # `startsWith`, not `contains`, so quoting the command while discussing it
-    # does not spend ~11 job-hours.
+    # The command must be the FIRST TOKEN of the comment, so neither quoting it
+    # while discussing it (`contains` would match) nor a longer command that
+    # merely starts the same way (`/delta-test-arm`, `/delta-testers` -- plain
+    # `startsWith` would match both) can spend ~11 job-hours. GHA expressions
+    # have no regex, so spell out the four ways the token can legally end:
+    # end-of-body, a space, or a newline (`fromJSON` is the only way to write a
+    # control character in an expression; GitHub stores comment bodies CRLF, and
+    # bare LF arrives via the API).
     if: >-
       github.event_name != 'issue_comment' ||
       (github.event.issue.pull_request &&
-       startsWith(github.event.comment.body, '/delta-test') &&
+       (github.event.comment.body == '/delta-test' ||
+        startsWith(github.event.comment.body, '/delta-test ') ||
+        startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\r"'))) ||
+        startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\n"')))) &&
        github.event.comment.user.login == github.event.issue.user.login)
     runs-on: ubuntu-22.04
     permissions:
