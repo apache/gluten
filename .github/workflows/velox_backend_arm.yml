@@ -50,7 +50,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Detect which parts of the codebase were modified so downstream jobs can
+  # skip work that is irrelevant to the change.
+  detect-changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      cpp:      ${{ steps.filter.outputs.cpp }}
+      java:     ${{ steps.filter.outputs.java }}
+      tools_it: ${{ steps.filter.outputs.tools_it }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed paths
+        id: filter
+        run: |
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.sha }}
+          changed=$(git diff --name-only "$BASE" "$HEAD")
+          echo "$changed"
+
+          match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
+
+          echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
+
   build-native-lib-centos-8:
+    needs: detect-changes
     runs-on: ubuntu-24.04-arm
     container: apache/gluten:vcpkg-centos-9
     steps:
@@ -103,7 +130,11 @@ jobs:
           if-no-files-found: error
 
   tpc-test-centos8:
-    needs: build-native-lib-centos-8
+    needs: [detect-changes, build-native-lib-centos-8]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -146,6 +177,8 @@ jobs:
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
 
   cpp-test-udf-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-24.04-arm
     container: apache/gluten:centos-9-jdk8
     steps:

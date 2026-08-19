@@ -51,7 +51,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Detect which parts of the codebase were modified so downstream jobs can
+  # skip work that is irrelevant to the change.
+  detect-changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      cpp:     ${{ steps.filter.outputs.cpp }}
+      java:    ${{ steps.filter.outputs.java }}
+      shims35: ${{ steps.filter.outputs.shims35 }}
+      shims40: ${{ steps.filter.outputs.shims40 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed paths
+        id: filter
+        run: |
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.sha }}
+          changed=$(git diff --name-only "$BASE" "$HEAD")
+          echo "$changed"
+
+          match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
+
+          echo "cpp=$(match     '^(cpp/|ep/build-velox/|dev/)')"                                             >> $GITHUB_OUTPUT
+          echo "java=$(match    '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "shims35=$(match '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                            >> $GITHUB_OUTPUT
+          echo "shims40=$(match '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                            >> $GITHUB_OUTPUT
+
   build-native-lib-centos-7:
+    needs: detect-changes
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -99,7 +128,11 @@ jobs:
           if-no-files-found: error
 
   spark-test-spark35:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims35 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-8-jdk8
     steps:
@@ -152,7 +185,11 @@ jobs:
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark35-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims35 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-8-jdk8
     steps:
@@ -192,7 +229,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark40:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims40 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false

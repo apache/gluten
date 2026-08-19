@@ -416,6 +416,7 @@ object GlutenConfig extends ConfigRegistry {
   val PARQUET_ZSTD_COMPRESSION_LEVEL: String = "parquet.compression.codec.zstd.level"
   val PARQUET_DATAPAGE_SIZE: String = "parquet.page.size"
   val PARQUET_ENABLE_DICTIONARY: String = "parquet.enable.dictionary"
+  val PARQUET_ENABLE_PAGE_INDEX: String = "parquet.enable.page.index"
   val PARQUET_WRITER_VERSION: String = "parquet.writer.version"
   // Hadoop config
   val HADOOP_PREFIX = "spark.hadoop."
@@ -1741,8 +1742,8 @@ object GlutenConfig extends ConfigRegistry {
       .experimental()
       .doc(
         "The CPU resource name (Spark custom resource). " +
-          "This must match the resource name configured via spark.executor.resource.<name>.* / " +
-          "spark.task.resource.<name>.* for CPU-stage scheduling to take effect."
+          "This must match the resource name configured via spark.<component>.resource.<name>.* " +
+          "for CPU-stage scheduling to take effect."
       )
       .stringConf
       .createWithDefault("cpu")
@@ -1752,8 +1753,8 @@ object GlutenConfig extends ConfigRegistry {
       .experimental()
       .doc(
         "The GPU resource name (Spark custom resource). " +
-          "This must match the resource name configured via spark.executor.resource.<name>.* / " +
-          "spark.task.resource.<name>.* for GPU-stage scheduling to take effect."
+          "This must match the resource name configured via spark.<component>.resource.<name>.* " +
+          "for GPU-stage scheduling to take effect."
       )
       .stringConf
       .createWithDefault("gpu")

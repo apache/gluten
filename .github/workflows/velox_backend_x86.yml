@@ -52,7 +52,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Detect which parts of the codebase were modified so downstream jobs can
+  # skip work that is irrelevant to the change (e.g. a Spark-3.3-shim-only change does
+  # not need to run spark-test-spark34/35/40/41; C++ changes still run spark-test-*
+  # jobs to validate JNI/native integration).
+  #
+  # Output flags:
+  #   cpp      – C++ sources, Velox build scripts, or dev tooling changed
+  #   java     – any cross-version Java/Scala/Maven source changed
+  #   shims33/34/35/40/41 – version-specific shim layer changed
+  #   tools_it – tools/gluten-it changed
+  #
+  # A job runs when ANY of the relevant flags is true, so:
+  #   • gluten-core change  → java=true  → all spark-test jobs run  ✓
+  #   • shims/spark35 only  → shims35=true → only spark35 jobs run  ✓
+  #   • pure cpp change     → cpp=true   → only native/tpc jobs run ✓
+  detect-changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      cpp:      ${{ steps.filter.outputs.cpp }}
+      java:     ${{ steps.filter.outputs.java }}
+      shims33:  ${{ steps.filter.outputs.shims33 }}
+      shims34:  ${{ steps.filter.outputs.shims34 }}
+      shims35:  ${{ steps.filter.outputs.shims35 }}
+      shims40:  ${{ steps.filter.outputs.shims40 }}
+      shims41:  ${{ steps.filter.outputs.shims41 }}
+      tools_it: ${{ steps.filter.outputs.tools_it }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed paths
+        id: filter
+        run: |
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.sha }}
+          changed=$(git diff --name-only "$BASE" "$HEAD")
+          echo "$changed"
+
+          match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
+
+          echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "shims33=$(match  '^(shims/(spark33|common)/|gluten-ut/spark33/)')"                           >> $GITHUB_OUTPUT
+          echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
+          echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
+          echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
+          echo "shims41=$(match  '^(shims/(spark41|common)/|gluten-ut/spark41/)')"                           >> $GITHUB_OUTPUT
+          echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
+
   build-native-lib-centos-7:
+    needs: detect-changes
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -99,7 +149,11 @@ jobs:
           if-no-files-found: error
 
   tpc-test-ubuntu:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -228,7 +282,11 @@ jobs:
           fi
 
   tpc-test-centos8:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -311,7 +369,11 @@ jobs:
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
 
   tpc-test-centos7:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -354,7 +416,11 @@ jobs:
           "
 
   tpc-test-ubuntu-oom:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -464,7 +530,11 @@ jobs:
             -d=IO_THREADS:0,spark.gluten.sql.columnar.backend.velox.IOThreads=0
 
   tpc-test-ubuntu-randomkill:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -512,7 +582,11 @@ jobs:
             --data-gen=skip  --random-kill-tasks --no-session-reuse --shard=${{ matrix.shard }}/3
 
   tpc-test-centos8-uniffle:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -558,7 +632,11 @@ jobs:
             --local --preset=velox-with-uniffle --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
 
   tpc-test-ubuntu-2204-celeborn:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -631,7 +709,11 @@ jobs:
           fi
 
   spark-test-spark33:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims33 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
@@ -684,7 +766,11 @@ jobs:
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark33-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims33 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
@@ -727,7 +813,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark34:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims34 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -794,7 +884,11 @@ jobs:
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark34-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims34 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -842,7 +936,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark35:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims35 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -910,7 +1008,11 @@ jobs:
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark35-scala213:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims35 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -972,7 +1074,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark35-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims35 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1021,6 +1127,8 @@ jobs:
             **/gluten-ut/**/core.*
 
   cpp-test-udf-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk8
     steps:
@@ -1138,6 +1246,8 @@ jobs:
           path: "**/target/*.log"
 
   build-cudf-centos-9:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     steps:
       - name: "node-cleanup" # by default the free runner does not have enough disk space
@@ -1188,6 +1298,10 @@ jobs:
           "
 
   build-fast-build-test:
+    needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-8-jdk17
     steps:
@@ -1198,7 +1312,11 @@ jobs:
           $MVN_CMD clean test-compile -Pspark-4.0 -Pscala-2.13 -Pbackends-velox -Pspark-ut -Piceberg,iceberg-test,delta,paimon -Pfast-build
 
   spark-test-spark40:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims40 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1260,7 +1378,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark40-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims40 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1309,7 +1431,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark41:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims41 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1380,7 +1506,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark41-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims41 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false

@@ -129,6 +129,14 @@ std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOp
       parquetOptions->enableDictionary = false;
     }
   }
+  // Write the Parquet page index (column index + offset index) by default to match
+  // Spark/parquet-mr (SPARK-26345); Velox's writer leaves it opt-in. Disable with
+  // parquet.enable.page.index=false.
+  bool enableWritePageIndex = true;
+  if (auto it = sparkConfs.find(kParquetEnablePageIndex); it != sparkConfs.end()) {
+    enableWritePageIndex = boost::iequals(it->second, "true");
+  }
+  parquetOptions->enableWritePageIndex = enableWritePageIndex;
   writeOption->formatSpecificOptions = std::move(parquetOptions);
   return writeOption;
 }
