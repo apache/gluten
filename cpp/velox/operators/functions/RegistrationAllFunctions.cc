@@ -33,6 +33,7 @@
 #include "velox/functions/sparksql/Rand.h"
 #include "velox/functions/sparksql/aggregates/Register.h"
 #include "velox/functions/sparksql/registration/Register.h"
+#include "velox/functions/sparksql/specialforms/SparkCastExpr.h"
 #include "velox/functions/sparksql/window/WindowFunctionsRegistration.h"
 
 using namespace facebook;
@@ -84,6 +85,7 @@ void registerFunctionOverwrite() {
 
 void registerAllFunctions() {
   velox::functions::sparksql::registerFunctions("");
+  velox::functions::sparksql::registerSparkCastModeSpecialForms();
   velox::aggregate::prestosql::registerAllAggregateFunctions(
       "", true /*registerCompanionFunctions*/, false /*onlyPrestoSignatures*/, true /*overwrite*/);
   velox::functions::aggregate::sparksql::registerAggregateFunctions(

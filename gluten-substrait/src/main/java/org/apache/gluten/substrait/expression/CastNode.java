@@ -23,15 +23,25 @@ import io.substrait.proto.Expression;
 import java.io.Serializable;
 
 public class CastNode implements ExpressionNode, Serializable {
+  public enum CastMode {
+    LEGACY,
+    ANSI,
+    TRY
+  }
+
   private final TypeNode typeNode;
   private final ExpressionNode expressionNode;
 
-  public final boolean isTryCast;
+  public final CastMode castMode;
 
   CastNode(TypeNode typeNode, ExpressionNode expressionNode, boolean isTryCast) {
+    this(typeNode, expressionNode, isTryCast ? CastMode.TRY : CastMode.ANSI);
+  }
+
+  CastNode(TypeNode typeNode, ExpressionNode expressionNode, CastMode castMode) {
     this.typeNode = typeNode;
     this.expressionNode = expressionNode;
-    this.isTryCast = isTryCast;
+    this.castMode = castMode;
   }
 
   @Override
@@ -39,12 +49,20 @@ public class CastNode implements ExpressionNode, Serializable {
     Expression.Cast.Builder castBuilder = Expression.Cast.newBuilder();
     castBuilder.setType(typeNode.toProtobuf());
     castBuilder.setInput(expressionNode.toProtobuf());
-    if (!isTryCast) {
-      // Throw exception on failure.
-      castBuilder.setFailureBehaviorValue(2);
-    } else {
-      // Return null on failure.
-      castBuilder.setFailureBehaviorValue(1);
+    switch (castMode) {
+      case ANSI:
+        // Throw exception on failure.
+        castBuilder.setFailureBehaviorValue(2);
+        break;
+      case TRY:
+        // Return null on failure.
+        castBuilder.setFailureBehaviorValue(1);
+        break;
+      case LEGACY:
+        // Leave failure behavior unspecified to preserve Spark legacy cast semantics.
+        break;
+      default:
+        throw new IllegalStateException("Unsupported cast mode: " + castMode);
     }
     Expression.Builder builder = Expression.newBuilder();
     builder.setCast(castBuilder.build());

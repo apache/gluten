@@ -71,10 +71,6 @@ declare -A MODULE_MAP=(
   ["backends-velox"]="backends-velox"
   ["backends-clickhouse"]="backends-clickhouse"
 
-  # RAS modules
-  ["gluten-ras/common"]="gluten-ras-common"
-  ["gluten-ras/planner"]="gluten-ras-planner"
-
   # Shims modules
   ["shims/common"]="spark-sql-columnar-shims-common"
   ["shims/spark33"]="spark-sql-columnar-shims-spark33"

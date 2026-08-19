@@ -17,6 +17,7 @@
 
 #include "SubstraitToVeloxExpr.h"
 #include "TypeUtils.h"
+#include "velox/functions/sparksql/specialforms/SparkCastExpr.h"
 #include "velox/type/Timestamp.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/VariantToVector.h"
@@ -24,6 +25,9 @@
 using namespace facebook::velox;
 
 namespace {
+constexpr const char* kSparkAnsiCast = "spark_ansi_cast";
+constexpr const char* kSparkLegacyCast = "spark_legacy_cast";
+
 ArrayVectorPtr makeArrayVector(const VectorPtr& elements) {
   BufferPtr offsets = allocateOffsets(1, elements->pool());
   BufferPtr sizes = allocateOffsets(1, elements->pool());
@@ -147,14 +151,20 @@ TypePtr getScalarType(const ::substrait::Expression::Literal& literal) {
   }
 }
 
-/// Whether is try cast.
-bool isTryCast(::substrait::Expression::Cast::FailureBehavior failureBehavior) {
+enum class SparkCastMode {
+  kLegacy,
+  kAnsi,
+  kTry,
+};
+
+SparkCastMode sparkCastMode(::substrait::Expression::Cast::FailureBehavior failureBehavior) {
   switch (failureBehavior) {
     case ::substrait::Expression_Cast_FailureBehavior_FAILURE_BEHAVIOR_UNSPECIFIED:
+      return SparkCastMode::kLegacy;
     case ::substrait::Expression_Cast_FailureBehavior_FAILURE_BEHAVIOR_THROW_EXCEPTION:
-      return false;
+      return SparkCastMode::kAnsi;
     case ::substrait::Expression_Cast_FailureBehavior_FAILURE_BEHAVIOR_RETURN_NULL:
-      return true;
+      return SparkCastMode::kTry;
     default:
       VELOX_NYI("The given failure behavior is NOT supported: '{}'", std::to_string(failureBehavior));
   }
@@ -581,7 +591,20 @@ core::TypedExprPtr SubstraitVeloxExprConverter::toVeloxExpr(
     const RowTypePtr& inputType) {
   auto type = SubstraitParser::parseType(castExpr.type());
   std::vector<core::TypedExprPtr> inputs{toVeloxExpr(castExpr.input(), inputType)};
-  return std::make_shared<core::CastTypedExpr>(type, inputs, isTryCast(castExpr.failure_behavior()));
+  switch (sparkCastMode(castExpr.failure_behavior())) {
+    case SparkCastMode::kLegacy:
+      return std::make_shared<const core::CallTypedExpr>(type, std::move(inputs), kSparkLegacyCast);
+    case SparkCastMode::kAnsi: {
+      const auto castName = functions::sparksql::SparkCastCallToSpecialForm::isAnsiSupported(inputs[0]->type(), type)
+          ? kSparkAnsiCast
+          : kSparkLegacyCast;
+      return std::make_shared<const core::CallTypedExpr>(type, std::move(inputs), castName);
+    }
+    case SparkCastMode::kTry:
+      return std::make_shared<core::CastTypedExpr>(type, std::move(inputs), true);
+    default:
+      VELOX_UNREACHABLE();
+  }
 }
 
 core::TypedExprPtr SubstraitVeloxExprConverter::toVeloxExpr(
