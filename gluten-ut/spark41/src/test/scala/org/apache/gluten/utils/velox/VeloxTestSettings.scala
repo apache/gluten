@@ -1019,6 +1019,10 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-27439: Explain result should match collected result after view change")
     // https://github.com/apache/gluten/issues/11570
     .exclude("getRows: binary")
+    // Velox does not reproduce Spark's guarantee that a seeded non-deterministic
+    // expression referenced multiple times yields row-wise equal values (rand/randn).
+    // Same class of difference as SPARK-9083. Not really an issue.
+    .exclude("SPARK-45216: Non-deterministic functions with seed")
   enableSuite[GlutenDataFrameTimeWindowingSuite]
   enableSuite[GlutenDataFrameTungstenSuite]
   enableSuite[GlutenDataFrameWindowFunctionsSuite]
