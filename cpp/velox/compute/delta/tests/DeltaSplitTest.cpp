@@ -34,6 +34,17 @@ TEST(DeltaSplitTest, DescriptorCarriesPayloadView) {
   EXPECT_TRUE(descriptor.hasMaterializedPayload());
 }
 
+TEST(DeltaSplitTest, DescriptorCarriesOnDiskRange) {
+  auto descriptor = DeltaDeletionVectorDescriptor::onDisk(3, "s3://bucket/dv.bin", 17, 91);
+
+  EXPECT_FALSE(descriptor.hasMaterializedPayload());
+  ASSERT_TRUE(descriptor.hasFileRange());
+  EXPECT_EQ(descriptor.fileRange->absolutePath, "s3://bucket/dv.bin");
+  EXPECT_EQ(descriptor.fileRange->offset, 17);
+  EXPECT_EQ(descriptor.fileRange->payloadSize, 91);
+  EXPECT_EQ(descriptor.cardinality, 3);
+}
+
 TEST(DeltaSplitTest, SplitCarriesDeletionVectorDescriptor) {
   const std::string payload = "serialized";
   gluten::SplitPayloadBufferView payloadView{

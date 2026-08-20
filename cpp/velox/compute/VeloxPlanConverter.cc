@@ -119,13 +119,29 @@ std::shared_ptr<DeltaSplitInfo> parseDeltaSplitInfo(
     return deltaSplitInfo;
   }
 
+  const auto cardinality = static_cast<uint64_t>(deltaReadOptions.deletion_vector_cardinality());
+  if (deltaReadOptions.has_deletion_vector_descriptor()) {
+    const auto& descriptor = deltaReadOptions.deletion_vector_descriptor();
+    VELOX_USER_CHECK(
+        deltaReadOptions.serialized_deletion_vector().empty(),
+        "Delta split has both a serialized deletion vector and an on-disk descriptor");
+    VELOX_USER_CHECK(!descriptor.absolute_path().empty(), "Delta deletion vector path is empty");
+    VELOX_USER_CHECK_GT(descriptor.payload_size(), 0, "Delta deletion vector payload size must be positive");
+    VELOX_USER_CHECK_LE(
+        descriptor.payload_size(),
+        std::numeric_limits<uint32_t>::max(),
+        "Delta deletion vector payload is too large for the stored format");
+    deltaSplitInfo->deletionVectors.emplace_back(delta::DeltaDeletionVectorDescriptor::onDisk(
+        cardinality, descriptor.absolute_path(), descriptor.offset(), descriptor.payload_size()));
+    return deltaSplitInfo;
+  }
+
   const auto& serializedPayload = deltaReadOptions.serialized_deletion_vector();
   VELOX_USER_CHECK(!serializedPayload.empty(), "Delta split has a deletion vector without a serialized payload");
   VELOX_USER_CHECK_LE(
       serializedPayload.size(),
       static_cast<size_t>(std::numeric_limits<int32_t>::max()),
       "Delta deletion vector serialized payload is too large");
-  const auto cardinality = static_cast<uint64_t>(deltaReadOptions.deletion_vector_cardinality());
   auto payload = std::make_shared<std::string>(serializedPayload);
   const SplitPayloadBufferView payloadView{
       reinterpret_cast<const uint8_t*>(payload->data()), static_cast<int32_t>(payload->size())};

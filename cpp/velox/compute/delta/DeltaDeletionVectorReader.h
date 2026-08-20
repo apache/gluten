@@ -33,9 +33,10 @@ using namespace facebook::velox;
 /// Reads and manages Delta Lake deletion vectors for filtering deleted rows
 /// during table scans.
 ///
-/// The JVM Delta side materializes the deletion vector and hands the serialized
-/// bitmap payload to native. This reader only deserializes that payload and
-/// applies row filtering during scan.
+/// The bitmap can arrive as an already materialized JVM payload or as a stored
+/// file range loaded by DeltaSplitReader through Velox buffered input. This
+/// class validates the Delta envelope, deserializes the bitmap, and applies row
+/// filtering during scan; it deliberately owns no filesystem client.
 ///
 /// Usage example:
 /// @code
@@ -56,6 +57,14 @@ class DeltaDeletionVectorReader {
   /// deserialized bitmap cardinality and fails loading on mismatch.
   void loadSerializedDeletionVector(
       std::string_view serializedPayload,
+      std::optional<uint64_t> expectedCardinality = std::nullopt);
+
+  /// Loads a complete on-disk Delta DV range:
+  /// [4-byte big-endian payload size][payload][4-byte big-endian CRC32].
+  void loadStoredDeletionVector(
+      std::string_view storedRange,
+      uint64_t expectedPayloadSize,
+      const std::string& debugName,
       std::optional<uint64_t> expectedCardinality = std::nullopt);
 
   /// Checks if a specific row position is marked as deleted.

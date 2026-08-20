@@ -17,6 +17,7 @@
 
 #include "compute/delta/DeltaDeletionVectorReader.h"
 #include "compute/delta/RoaringBitmapArray.h"
+#include "velox/common/base/Crc.h"
 #include "velox/common/base/tests/GTestUtils.h"
 
 #include <gtest/gtest.h>
@@ -46,6 +47,23 @@ class DeltaDeletionVectorReaderTest : public ::testing::Test {
     return std::string(buffer->as<char>(), serializedSize);
   }
 
+  std::string createStoredRange(const std::string& payload) {
+    auto appendBigEndian32 = [](std::string& out, uint32_t value) {
+      out.push_back(static_cast<char>((value >> 24) & 0xff));
+      out.push_back(static_cast<char>((value >> 16) & 0xff));
+      out.push_back(static_cast<char>((value >> 8) & 0xff));
+      out.push_back(static_cast<char>(value & 0xff));
+    };
+    std::string storedRange;
+    storedRange.reserve(payload.size() + 8);
+    appendBigEndian32(storedRange, payload.size());
+    storedRange.append(payload);
+    bits::Crc32 crc;
+    crc.process_bytes(payload.data(), payload.size());
+    appendBigEndian32(storedRange, crc.checksum());
+    return storedRange;
+  }
+
   std::shared_ptr<memory::MemoryPool> pool_;
 };
 
@@ -61,6 +79,32 @@ TEST_F(DeltaDeletionVectorReaderTest, LoadSerializedPayload) {
   EXPECT_FALSE(reader.isRowDeleted(0));
   EXPECT_FALSE(reader.isRowDeleted(3));
   EXPECT_FALSE(reader.isRowDeleted(20));
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, LoadStoredRange) {
+  const auto payload = createSerializedPayload({2, 7, 12});
+  const auto storedRange = createStoredRange(payload);
+
+  DeltaDeletionVectorReader reader;
+  reader.loadStoredDeletionVector(storedRange, payload.size(), "dv.bin@17", 3);
+
+  EXPECT_TRUE(reader.isRowDeleted(2));
+  EXPECT_TRUE(reader.isRowDeleted(7));
+  EXPECT_TRUE(reader.isRowDeleted(12));
+  EXPECT_FALSE(reader.isRowDeleted(8));
+}
+
+TEST_F(DeltaDeletionVectorReaderTest, StoredRangeRejectsLengthAndChecksumMismatch) {
+  const auto payload = createSerializedPayload({1, 4});
+  const auto storedRange = createStoredRange(payload);
+
+  DeltaDeletionVectorReader reader;
+  VELOX_ASSERT_THROW(
+      reader.loadStoredDeletionVector(storedRange, payload.size() + 1, "dv.bin", 2), "range size mismatch");
+
+  auto corrupted = storedRange;
+  corrupted[4] ^= 1;
+  VELOX_ASSERT_THROW(reader.loadStoredDeletionVector(corrupted, payload.size(), "dv.bin", 2), "checksum mismatch");
 }
 
 TEST_F(DeltaDeletionVectorReaderTest, LoadPortablePayload) {

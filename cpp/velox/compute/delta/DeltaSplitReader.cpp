@@ -17,9 +17,13 @@
 
 #include "compute/delta/DeltaSplitReader.h"
 
+#include <chrono>
+#include <limits>
 #include <string_view>
 
 #include "compute/delta/DeltaSplit.h"
+#include "velox/common/base/RuntimeMetrics.h"
+#include "velox/connectors/hive/BufferedInputBuilder.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/dwio/common/BufferUtil.h"
 
@@ -118,15 +122,86 @@ void DeltaSplitReader::prepareSplit(
     validateStatisticsForDeletionVectors(*deltaSplit->statistics, descriptor);
   }
 
-  VELOX_USER_CHECK(
-      descriptor.hasMaterializedPayload(),
-      "Delta deletion vector payload was not materialized on the JVM side for split {}",
-      hiveSplit_->filePath);
-
   deletionVectorReader_ = std::make_unique<DeltaDeletionVectorReader>();
-  const auto& payloadView = descriptor.serializedPayloadView.value();
-  deletionVectorReader_->loadSerializedDeletionVector(
-      std::string_view(reinterpret_cast<const char*>(payloadView.data), payloadView.size), descriptor.cardinality);
+  if (descriptor.hasFileRange()) {
+    loadDeletionVectorFromFile(descriptor);
+  } else {
+    VELOX_USER_CHECK(
+        descriptor.hasMaterializedPayload(),
+        "Delta deletion vector has neither a JVM payload nor an on-disk descriptor for split {}",
+        hiveSplit_->filePath);
+    const auto& payloadView = descriptor.serializedPayloadView.value();
+    deletionVectorReader_->loadSerializedDeletionVector(
+        std::string_view(reinterpret_cast<const char*>(payloadView.data), payloadView.size), descriptor.cardinality);
+  }
+}
+
+void DeltaSplitReader::loadDeletionVectorFromFile(const DeltaDeletionVectorDescriptor& descriptor) {
+  VELOX_USER_CHECK(descriptor.hasFileRange(), "Delta deletion vector file range is required");
+  const auto& fileRange = descriptor.fileRange.value();
+  constexpr uint64_t kStoredEnvelopeBytes = 8;
+  VELOX_USER_CHECK_LE(
+      fileRange.payloadSize,
+      std::numeric_limits<uint32_t>::max(),
+      "Delta deletion vector payload is too large for the stored format: {}",
+      fileRange.absolutePath);
+  VELOX_USER_CHECK_LE(
+      fileRange.payloadSize,
+      std::numeric_limits<uint64_t>::max() - kStoredEnvelopeBytes,
+      "Delta deletion vector payload size overflows its stored range for {}",
+      fileRange.absolutePath);
+  const auto storedRangeSize = fileRange.payloadSize + kStoredEnvelopeBytes;
+  VELOX_USER_CHECK_LE(
+      fileRange.offset,
+      std::numeric_limits<uint64_t>::max() - storedRangeSize,
+      "Delta deletion vector offset overflows its stored range for {}",
+      fileRange.absolutePath);
+
+  if (ioStats_) {
+    ioStats_->addCounter("deltaDeletionVectorReadAttempts", RuntimeCounter(1));
+  }
+  const auto startedAt = std::chrono::steady_clock::now();
+  auto recordReadTime = [&]() {
+    if (ioStats_) {
+      const auto elapsed =
+          std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - startedAt).count();
+      ioStats_->addCounter("deltaDeletionVectorReadWallNanos", RuntimeCounter(elapsed, RuntimeCounter::Unit::kNanos));
+    }
+  };
+
+  try {
+    const FileHandleKey fileHandleKey{
+        .filename = fileRange.absolutePath, .tokenProvider = connectorQueryCtx_->fsTokenProvider()};
+    auto fileHandle = fileHandleFactory_->generate(fileHandleKey);
+    VELOX_CHECK_NOT_NULL(fileHandle.get());
+    const auto fileSize = fileHandle->file->size();
+    VELOX_USER_CHECK_LE(
+        fileRange.offset + storedRangeSize,
+        fileSize,
+        "Delta deletion vector range [{}..{}) exceeds file size {} for {}",
+        fileRange.offset,
+        fileRange.offset + storedRangeSize,
+        fileSize,
+        fileRange.absolutePath);
+
+    auto input = BufferedInputBuilder::getInstance()->create(
+        *fileHandle, baseReaderOpts_, connectorQueryCtx_, dataIoStats_, ioStats_, ioExecutor_);
+    auto stream = input->enqueue({fileRange.offset, storedRangeSize});
+    input->load(LogType::FILE);
+    std::string storedRange(storedRangeSize, '\0');
+    stream->readFully(storedRange.data(), storedRange.size());
+    deletionVectorReader_->loadStoredDeletionVector(
+        storedRange, fileRange.payloadSize, fileRange.absolutePath, descriptor.cardinality);
+
+    if (ioStats_) {
+      ioStats_->addCounter(
+          "deltaDeletionVectorReadBytes", RuntimeCounter(storedRangeSize, RuntimeCounter::Unit::kBytes));
+    }
+    recordReadTime();
+  } catch (...) {
+    recordReadTime();
+    throw;
+  }
 }
 
 uint64_t DeltaSplitReader::next(uint64_t size, VectorPtr& output) {

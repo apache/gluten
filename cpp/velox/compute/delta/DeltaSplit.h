@@ -37,17 +37,33 @@ enum class DeltaRowIndexFilterType {
 };
 
 struct DeltaDeletionVectorDescriptor {
+  struct FileRange {
+    std::string absolutePath;
+    uint64_t offset;
+    uint64_t payloadSize;
+  };
+
   std::optional<uint64_t> cardinality;
   std::optional<SplitPayloadBufferView> serializedPayloadView;
+  std::optional<FileRange> fileRange;
 
   static DeltaDeletionVectorDescriptor serialized(
       std::optional<uint64_t> cardinality = std::nullopt,
       std::optional<SplitPayloadBufferView> serializedPayloadView = std::nullopt) {
-    return {cardinality, serializedPayloadView};
+    return {cardinality, serializedPayloadView, std::nullopt};
+  }
+
+  static DeltaDeletionVectorDescriptor
+  onDisk(std::optional<uint64_t> cardinality, std::string absolutePath, uint64_t offset, uint64_t payloadSize) {
+    return {cardinality, std::nullopt, FileRange{std::move(absolutePath), offset, payloadSize}};
   }
 
   bool hasMaterializedPayload() const {
     return serializedPayloadView.has_value();
+  }
+
+  bool hasFileRange() const {
+    return fileRange.has_value();
   }
 };
 

@@ -16,9 +16,10 @@
  */
 package org.apache.gluten.delta
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.DeltaLocalFilesNode
-import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeletionVectorPayload, DeltaFileReadOptions, InMemoryDeletionVectorPayload}
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeletionVectorPayload, DeltaFileReadOptions, InMemoryDeletionVectorPayload, NativeDeletionVectorDescriptor}
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.delta.DeltaParquetFileFormat
@@ -132,11 +133,20 @@ object DeltaDeletionVectorScanInfo {
   }
 
   private def toDeltaFileReadOptions(dvInfo: DeletionVectorInfo): DeltaFileReadOptions = {
-    new DeltaFileReadOptions(
-      toSubstraitRowIndexFilterType(dvInfo.rowIndexFilterType),
-      dvInfo.hasDeletionVector,
-      dvInfo.cardinality,
-      dvInfo.deletionVectorPayload)
+    dvInfo.deletionVectorPayload match {
+      case descriptor: NativeDeletionVectorDescriptor =>
+        new DeltaFileReadOptions(
+          toSubstraitRowIndexFilterType(dvInfo.rowIndexFilterType),
+          dvInfo.hasDeletionVector,
+          dvInfo.cardinality,
+          descriptor)
+      case payload =>
+        new DeltaFileReadOptions(
+          toSubstraitRowIndexFilterType(dvInfo.rowIndexFilterType),
+          dvInfo.hasDeletionVector,
+          dvInfo.cardinality,
+          payload)
+    }
   }
 
   private def toSubstraitRowIndexFilterType(
@@ -232,7 +242,16 @@ object DeltaDeletionVectorScanInfo {
       throw new IllegalStateException(
         "Unable to resolve Delta table path while preparing deletion vector payload")
     }
-    if (descriptor.storageType != "i") {
+    if (
+      descriptor.storageType != "i" &&
+      GlutenConfig.get.enableNativeDeltaDeletionVectorPayloadRead
+    ) {
+      val dvPath = descriptor.absolutePath(tablePath)
+      new NativeDeletionVectorDescriptor(
+        dvPath.toString,
+        requiredOffset(descriptor),
+        descriptor.sizeInBytes.toLong)
+    } else if (descriptor.storageType != "i") {
       val dvPath = descriptor.absolutePath(tablePath)
       new OnDiskDeletionVectorPayload(
         serializableHadoopConf,

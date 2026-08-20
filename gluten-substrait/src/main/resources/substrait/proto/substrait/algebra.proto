@@ -210,6 +210,15 @@ message ReadRel {
         bool has_deletion_vector = 2;
         uint64 deletion_vector_cardinality = 3;
         bytes serialized_deletion_vector = 4;
+        message DeletionVectorDescriptor {
+          // Authoritative absolute URI resolved by Delta on the JVM.
+          string absolute_path = 1;
+          // Offset of the 4-byte stored-payload length prefix.
+          uint64 offset = 2;
+          // Bitmap payload size, excluding the length prefix and CRC32.
+          uint64 payload_size = 3;
+        }
+        DeletionVectorDescriptor deletion_vector_descriptor = 5;
       }
 
       // File reading options

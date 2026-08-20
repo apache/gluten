@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.delta
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.DeltaScanTransformer
 
 import org.apache.spark.sql.QueryTest
@@ -70,6 +71,37 @@ class DeltaDeletionVectorHandoffSuite
         assert(metrics("dvPayloadReadAttempts").value == 1L)
         assert(metrics("dvPayloadReadBytes").value > 0L)
         assert(metrics("dvPayloadReadTime").value > 0L)
+    }
+  }
+
+  test("Spark 3.5 native Delta DV descriptor filters rows without JVM payload reads") {
+    withSQLConf(
+      GlutenConfig.DELTA_DELETION_VECTOR_NATIVE_PAYLOAD_READ_ENABLED.key -> "true") {
+      withTempDir {
+        tempDir =>
+          val path = tempDir.getCanonicalPath
+          Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
+            .toDF("id", "value")
+            .coalesce(1)
+            .write
+            .format("delta")
+            .save(path)
+          spark.sql(
+            s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+          spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)")
+
+          val df = spark.read.format("delta").load(path)
+          val nativeScans = df.queryExecution.executedPlan.collect {
+            case scan: DeltaScanTransformer => scan
+          }
+          assert(nativeScans.nonEmpty)
+          checkAnswer(df, Seq((1, "a"), (2, "b")).toDF())
+
+          val metrics = nativeScans.head.metrics
+          assert(metrics("dvDescriptorCount").value == 1L)
+          assert(metrics("dvPayloadReadAttempts").value == 0L)
+          assert(metrics("dvPayloadReadBytes").value == 0L)
+      }
     }
   }
 }

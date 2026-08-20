@@ -93,6 +93,8 @@ class DeltaSplitReader : public DeltaSplitReaderBase {
   /// Also validates that cardinality doesn't exceed numRecords.
   void validateStatisticsForDeletionVectors(const DeltaFileStatistics& stats, const DeltaDeletionVectorDescriptor& dv);
 
+  void loadDeletionVectorFromFile(const DeltaDeletionVectorDescriptor& descriptor);
+
   // Delta deletion vectors use file-global row positions, not split-relative
   // row numbers.
   uint64_t baseReadRowNumber_;

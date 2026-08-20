@@ -51,10 +51,18 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
             .setHasDeletionVector(options.hasDeletionVector());
 
     if (options.hasDeletionVector()) {
-      deltaBuilder
-          .setDeletionVectorCardinality(options.deletionVectorCardinality())
-          .setSerializedDeletionVector(
-              UnsafeByteOperations.unsafeWrap(options.serializedDeletionVector()));
+      deltaBuilder.setDeletionVectorCardinality(options.deletionVectorCardinality());
+      if (options.hasNativeDeletionVectorDescriptor()) {
+        NativeDeletionVectorDescriptor descriptor = options.nativeDeletionVectorDescriptor();
+        deltaBuilder.setDeletionVectorDescriptor(
+            ReadRel.LocalFiles.FileOrFiles.DeltaReadOptions.DeletionVectorDescriptor.newBuilder()
+                .setAbsolutePath(descriptor.absolutePath())
+                .setOffset(descriptor.offset())
+                .setPayloadSize(descriptor.payloadSize()));
+      } else {
+        deltaBuilder.setSerializedDeletionVector(
+            UnsafeByteOperations.unsafeWrap(options.serializedDeletionVector()));
+      }
     }
 
     fileBuilder.setDelta(deltaBuilder.build());
@@ -114,6 +122,53 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     }
   }
 
+  /** Immutable executor-native source for an on-disk deletion vector. */
+  public static final class NativeDeletionVectorDescriptor implements DeletionVectorPayload {
+    private static final long serialVersionUID = 1L;
+
+    private final String absolutePath;
+    private final long offset;
+    private final long payloadSize;
+
+    public NativeDeletionVectorDescriptor(String absolutePath, long offset, long payloadSize) {
+      if (absolutePath == null || absolutePath.isEmpty()) {
+        throw new IllegalArgumentException("absolutePath must not be empty");
+      }
+      if (offset < 0) {
+        throw new IllegalArgumentException("offset must be non-negative");
+      }
+      if (payloadSize <= 0) {
+        throw new IllegalArgumentException("payloadSize must be positive");
+      }
+      this.absolutePath = absolutePath;
+      this.offset = offset;
+      this.payloadSize = payloadSize;
+    }
+
+    public String absolutePath() {
+      return absolutePath;
+    }
+
+    public long offset() {
+      return offset;
+    }
+
+    public long payloadSize() {
+      return payloadSize;
+    }
+
+    @Override
+    public byte[] materialize() {
+      throw new IllegalStateException(
+          "Native deletion vector descriptors do not contain JVM payload bytes");
+    }
+
+    @Override
+    public boolean isMaterialized() {
+      return false;
+    }
+  }
+
   public static class DeltaFileReadOptions implements Serializable {
     private static final long serialVersionUID = 1L;
 
@@ -121,6 +176,7 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     private final boolean hasDeletionVector;
     private final long deletionVectorCardinality;
     private final DeletionVectorPayload deletionVectorPayload;
+    private final NativeDeletionVectorDescriptor nativeDeletionVectorDescriptor;
 
     public DeltaFileReadOptions(
         RowIndexFilterType rowIndexFilterType,
@@ -149,6 +205,29 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
       this.hasDeletionVector = hasDeletionVector;
       this.deletionVectorCardinality = deletionVectorCardinality;
       this.deletionVectorPayload = deletionVectorPayload;
+      this.nativeDeletionVectorDescriptor = null;
+    }
+
+    public DeltaFileReadOptions(
+        RowIndexFilterType rowIndexFilterType,
+        boolean hasDeletionVector,
+        long deletionVectorCardinality,
+        NativeDeletionVectorDescriptor nativeDeletionVectorDescriptor) {
+      if (rowIndexFilterType == null) {
+        throw new IllegalArgumentException("rowIndexFilterType must not be null");
+      }
+      if (!hasDeletionVector) {
+        throw new IllegalArgumentException(
+            "A native deletion vector descriptor requires hasDeletionVector=true");
+      }
+      if (nativeDeletionVectorDescriptor == null) {
+        throw new IllegalArgumentException("nativeDeletionVectorDescriptor must not be null");
+      }
+      this.rowIndexFilterType = rowIndexFilterType;
+      this.hasDeletionVector = hasDeletionVector;
+      this.deletionVectorCardinality = deletionVectorCardinality;
+      this.deletionVectorPayload = null;
+      this.nativeDeletionVectorDescriptor = nativeDeletionVectorDescriptor;
     }
 
     public RowIndexFilterType rowIndexFilterType() {
@@ -171,11 +250,23 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
      * modified because protobuf wraps it without copying.
      */
     public byte[] serializedDeletionVector() {
+      if (nativeDeletionVectorDescriptor != null) {
+        throw new IllegalStateException(
+            "Native deletion vector descriptors do not contain JVM payload bytes");
+      }
       return deletionVectorPayload.materialize();
     }
 
     public boolean isDeletionVectorPayloadMaterialized() {
-      return deletionVectorPayload.isMaterialized();
+      return deletionVectorPayload != null && deletionVectorPayload.isMaterialized();
+    }
+
+    public boolean hasNativeDeletionVectorDescriptor() {
+      return nativeDeletionVectorDescriptor != null;
+    }
+
+    public NativeDeletionVectorDescriptor nativeDeletionVectorDescriptor() {
+      return nativeDeletionVectorDescriptor;
     }
   }
 }

@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.delta
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeltaFileReadOptions, InMemoryDeletionVectorPayload}
 
 import org.apache.spark.sql.QueryTest
@@ -235,6 +236,43 @@ trait DeltaDeletionVectorDeferredReadTests {
         assert(readAttempts.value == 2L)
         assert(readBytes.value == payload.length.toLong)
         assert(readTime.value > 0L)
+    }
+  }
+
+  test("passes authoritative on-disk DV descriptors to native without JVM reads") {
+    withTempDir {
+      tempDir =>
+        val tablePath = new Path(tempDir.getCanonicalPath, "table")
+        Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
+          .toDF("id", "value")
+          .coalesce(1)
+          .write
+          .format("delta")
+          .save(tablePath.toString)
+        spark.sql(
+          s"ALTER TABLE delta.`$tablePath` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+        spark.sql(s"DELETE FROM delta.`$tablePath` WHERE id IN (3, 4)")
+
+        val dataFile = loadDeletionVectorFile(tablePath)
+        val partitionedFile = partitionedFileWithMetadata(
+          tablePath.toString,
+          dataFile.relativePath,
+          dataFile.fileSize,
+          deletionVectorMetadata(dataFile.encodedDescriptor)
+        )
+
+        withSQLConf(
+          GlutenConfig.DELTA_DELETION_VECTOR_NATIVE_PAYLOAD_READ_ENABLED.key -> "true") {
+          val options = normalizeDeletionVectorOptions(partitionedFile, tablePath)
+          assert(options.hasNativeDeletionVectorDescriptor)
+          assert(!options.isDeletionVectorPayloadMaterialized)
+          val descriptor = options.nativeDeletionVectorDescriptor
+          assert(descriptor.absolutePath == dataFile.absolutePath)
+          assert(descriptor.offset == dataFile.offset)
+          assert(descriptor.payloadSize == dataFile.payloadSize)
+          val error = intercept[IllegalStateException](options.serializedDeletionVector)
+          assert(error.getMessage.contains("do not contain JVM payload bytes"))
+        }
     }
   }
 

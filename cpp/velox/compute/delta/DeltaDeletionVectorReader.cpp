@@ -18,7 +18,9 @@
 #include "compute/delta/DeltaDeletionVectorReader.h"
 
 #include <cstring>
+#include <limits>
 #include "velox/common/base/BitUtil.h"
+#include "velox/common/base/Crc.h"
 #include "velox/common/base/Exceptions.h"
 
 namespace gluten::delta {
@@ -28,6 +30,7 @@ namespace {
 constexpr uint64_t kDeltaBitmapArrayMagicBytes = 4;
 constexpr uint64_t kDeltaNativeBitmapArrayLengthBytes = 4;
 constexpr uint64_t kDeltaStoredPayloadLengthBytes = 4;
+constexpr uint64_t kDeltaStoredChecksumBytes = 4;
 constexpr uint32_t kDeltaPortableBitmapArrayMagicNumber = 1681511377;
 constexpr uint32_t kDeltaNativeBitmapArrayMagicNumber = 1681511376;
 
@@ -35,6 +38,51 @@ uint32_t readUint32LittleEndian(const char* data) {
   const auto* bytes = reinterpret_cast<const uint8_t*>(data);
   return static_cast<uint32_t>(bytes[0]) | (static_cast<uint32_t>(bytes[1]) << 8) |
       (static_cast<uint32_t>(bytes[2]) << 16) | (static_cast<uint32_t>(bytes[3]) << 24);
+}
+
+uint32_t readUint32BigEndian(const char* data) {
+  const auto* bytes = reinterpret_cast<const uint8_t*>(data);
+  return (static_cast<uint32_t>(bytes[0]) << 24) | (static_cast<uint32_t>(bytes[1]) << 16) |
+      (static_cast<uint32_t>(bytes[2]) << 8) | static_cast<uint32_t>(bytes[3]);
+}
+
+std::string_view
+extractStoredPayload(std::string_view storedRange, uint64_t expectedPayloadSize, const std::string& debugName) {
+  VELOX_USER_CHECK_LE(
+      expectedPayloadSize,
+      std::numeric_limits<uint32_t>::max(),
+      "Deletion vector payload is too large for Delta stored format: {}",
+      debugName);
+  const auto expectedRangeSize = kDeltaStoredPayloadLengthBytes + expectedPayloadSize + kDeltaStoredChecksumBytes;
+  VELOX_USER_CHECK_EQ(
+      storedRange.size(),
+      expectedRangeSize,
+      "Deletion vector range size mismatch for {}: expected {}, got {}",
+      debugName,
+      expectedRangeSize,
+      storedRange.size());
+
+  const auto storedPayloadSize = readUint32BigEndian(storedRange.data());
+  VELOX_USER_CHECK_EQ(
+      storedPayloadSize,
+      expectedPayloadSize,
+      "Deletion vector payload size mismatch for {}: expected {}, got {}",
+      debugName,
+      expectedPayloadSize,
+      storedPayloadSize);
+
+  const auto payload = storedRange.substr(kDeltaStoredPayloadLengthBytes, expectedPayloadSize);
+  const auto storedChecksum = readUint32BigEndian(payload.data() + payload.size());
+  bits::Crc32 crc;
+  crc.process_bytes(payload.data(), payload.size());
+  VELOX_USER_CHECK_EQ(
+      crc.checksum(),
+      storedChecksum,
+      "Deletion vector checksum mismatch for {}: expected {}, got {}",
+      debugName,
+      storedChecksum,
+      crc.checksum());
+  return payload;
 }
 
 roaring::Roaring64Map deserializeDeltaBitmapArray(std::string_view serializedPayload, const std::string& dvPath) {
@@ -137,6 +185,19 @@ void DeltaDeletionVectorReader::loadSerializedDeletionVector(
     loadSerializedDeletionVectorInternal(serializedPayload, "serialized deletion vector", expectedCardinality);
   } catch (const std::exception& e) {
     VELOX_USER_FAIL("Failed to load serialized deletion vector: {}", e.what());
+  }
+}
+
+void DeltaDeletionVectorReader::loadStoredDeletionVector(
+    std::string_view storedRange,
+    uint64_t expectedPayloadSize,
+    const std::string& debugName,
+    std::optional<uint64_t> expectedCardinality) {
+  try {
+    loadSerializedDeletionVectorInternal(
+        extractStoredPayload(storedRange, expectedPayloadSize, debugName), debugName, expectedCardinality);
+  } catch (const std::exception& e) {
+    VELOX_USER_FAIL("Failed to load deletion vector from {}: {}", debugName, e.what());
   }
 }
 
