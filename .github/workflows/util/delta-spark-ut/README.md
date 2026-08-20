@@ -104,16 +104,14 @@ longer shared between them, those PRs pay for the centos-7 native build twice
   still caught daily. The nightly run enforces the baseline **and** fails on
   now-passing tests (`fail_on_fixed=true`), so baseline drift surfaces as a red
   nightly — the signal to refresh `known-failures.txt`.
-- **On demand, from a PR** — the **PR author** comments **`/delta-test`** to
+- **On demand, from a PR** — comment **`/delta-test`** to
   force a full run on a PR the `paths:` filter skipped. The command must be the
   comment's first token — it may be followed by a space or a newline and then
   any text, but `/delta-test-arm` or `/delta-testers` will *not* match, so a
   future command that starts the same way cannot fire this one by accident.
-  Restricted to the author, who is the one this exists for: a fork
-  author cannot label their own PR, but can always comment on it, whereas a
-  maintainer can already start the suite from **Run workflow**
-  (`workflow_dispatch`). A maintainer who wants a run on someone else's PR uses
-  that, or asks the author to comment. It runs the
+  Anyone can use it, as with `velox_backend_ansi.yml`'s `/ansi-test`; a comment
+  rather than a label because labelling needs write/triage permission, so a fork
+  author — the person who most needs this — cannot opt their own PR in. It runs the
   PR's merge ref with the default settings and the baseline **enforced**;
   `update_baseline` stays reachable only from `workflow_dispatch`, so no comment
   can rewrite the baseline. The workflow replies with a link to the run, because
