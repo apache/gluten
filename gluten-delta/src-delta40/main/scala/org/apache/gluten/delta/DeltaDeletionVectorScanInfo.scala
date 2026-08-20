@@ -30,7 +30,6 @@ import org.apache.spark.sql.execution.datasources.PartitionedFile
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
-import java.io.DataInputStream
 import java.util.{Map => JMap}
 
 import scala.collection.JavaConverters._
@@ -237,11 +236,16 @@ object DeltaDeletionVectorScanInfo {
       descriptor: DeletionVectorDescriptor): Array[Byte] = {
     val dvPath = descriptor.absolutePath(tablePath)
     val fs = dvPath.getFileSystem(hadoopConf)
-    val stream = new DataInputStream(fs.open(dvPath))
+    // Positioned absolute seek, matching Delta's own `HadoopFileSystemDVStore.read`. `seek` is a
+    // single positioned reposition (a ranged read on object stores), whereas `DataInputStream.
+    // skipBytes` is best-effort -- it can skip fewer bytes than requested without error, which would
+    // then fail the CRC check in `readRangeFromStream`. `FSDataInputStream` is a `DataInputStream`,
+    // so it is passed through directly.
+    val stream = fs.open(dvPath)
     try {
       val offset = descriptor.offset.getOrElse(0)
       if (offset > 0) {
-        stream.skipBytes(offset)
+        stream.seek(offset.toLong)
       }
       DeletionVectorStore.readRangeFromStream(stream, descriptor.sizeInBytes)
     } finally {
