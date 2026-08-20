@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.delta.DeltaDeletionVectorScanInfo
+import org.apache.gluten.delta.{DeletionVectorReadMetrics, DeltaDeletionVectorScanInfo}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.{DeltaLocalFilesBuilder, LocalFilesNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
@@ -30,6 +30,7 @@ import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NoMapping}
 import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeFileIndex, TahoeRemoveFileIndex}
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.{FilePartition, HadoopFsRelation}
+import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.collection.BitSet
 
@@ -61,6 +62,27 @@ case class DeltaScanTransformer(
   ) {
 
   override lazy val fileFormat: ReadFileFormat = ReadFileFormat.ParquetReadFormat
+
+  override protected def additionalScanMetrics: Map[String, SQLMetric] = Map(
+    "dvDescriptorPreparationTime" ->
+      SQLMetrics.createNanoTimingMetric(
+        sparkContext,
+        "Delta deletion vector descriptor preparation time"),
+    "dvDescriptorCount" ->
+      SQLMetrics.createMetric(sparkContext, "Delta deletion vector descriptor count"),
+    "dvPayloadReadTime" ->
+      SQLMetrics.createNanoTimingMetric(sparkContext, "Delta deletion vector payload read time"),
+    "dvPayloadReadBytes" ->
+      SQLMetrics.createSizeMetric(sparkContext, "Delta deletion vector payload bytes read"),
+    "dvPayloadReadAttempts" ->
+      SQLMetrics.createMetric(sparkContext, "Delta deletion vector payload read attempts")
+  )
+
+  @transient private lazy val deletionVectorReadMetrics =
+    DeletionVectorReadMetrics(
+      metrics("dvPayloadReadTime"),
+      metrics("dvPayloadReadBytes"),
+      metrics("dvPayloadReadAttempts"))
 
   // Delta CDF over a deletion-vector-enabled table needs DV-aware, row-level reconciliation that
   // the native scan path does not do yet: it would surface rows that are still live (not covered
@@ -129,10 +151,21 @@ case class DeltaScanTransformer(
         val tableRootPath = tahoe.path
         splitInfos.zip(partitions).map {
           case (localFiles: LocalFilesNode, (filePartition: FilePartition, _)) =>
-            DeltaDeletionVectorScanInfo
-              .normalize(filePartition.files.toSeq, tableRootPath)
+            val startedAt = System.nanoTime()
+            val normalized =
+              try {
+                DeltaDeletionVectorScanInfo.normalize(
+                  filePartition.files.toSeq,
+                  tableRootPath,
+                  Some(deletionVectorReadMetrics))
+              } finally {
+                metrics("dvDescriptorPreparationTime").add(System.nanoTime() - startedAt)
+              }
+            normalized
               .map {
                 case (otherMetadataColumns, deltaReadOptions) =>
+                  metrics("dvDescriptorCount")
+                    .add(deltaReadOptions.count(_.hasDeletionVector()).toLong)
                   DeltaLocalFilesBuilder.makeDeltaLocalFiles(
                     localFiles,
                     otherMetadataColumns.asJava,

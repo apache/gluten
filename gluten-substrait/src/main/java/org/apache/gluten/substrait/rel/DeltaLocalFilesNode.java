@@ -79,24 +79,76 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     IF_NOT_CONTAINED
   }
 
+  /**
+   * Serializable source for a deletion-vector payload.
+   *
+   * <p>The source travels inside a Spark input partition. Implementations may therefore defer
+   * remote I/O until {@link #materialize()} is called while the split is converted to protobuf on
+   * an executor. The returned byte array must not be modified: protobuf wraps it without copying.
+   */
+  public interface DeletionVectorPayload extends Serializable {
+    byte[] materialize();
+
+    /** Returns whether the payload bytes are already resident in this object. */
+    boolean isMaterialized();
+  }
+
+  /** A payload source for inline DVs and the eager compatibility path. */
+  public static final class SerializedDeletionVectorPayload implements DeletionVectorPayload {
+    private static final long serialVersionUID = 1L;
+
+    private final byte[] payload;
+
+    public SerializedDeletionVectorPayload(byte[] payload) {
+      this.payload = payload == null ? new byte[0] : payload;
+    }
+
+    @Override
+    public byte[] materialize() {
+      return payload;
+    }
+
+    @Override
+    public boolean isMaterialized() {
+      return true;
+    }
+  }
+
   public static class DeltaFileReadOptions implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private final RowIndexFilterType rowIndexFilterType;
     private final boolean hasDeletionVector;
     private final long deletionVectorCardinality;
-    private final byte[] serializedDeletionVector;
+    private final DeletionVectorPayload deletionVectorPayload;
 
     public DeltaFileReadOptions(
         RowIndexFilterType rowIndexFilterType,
         boolean hasDeletionVector,
         long deletionVectorCardinality,
         byte[] serializedDeletionVector) {
+      this(
+          rowIndexFilterType,
+          hasDeletionVector,
+          deletionVectorCardinality,
+          new SerializedDeletionVectorPayload(serializedDeletionVector));
+    }
+
+    public DeltaFileReadOptions(
+        RowIndexFilterType rowIndexFilterType,
+        boolean hasDeletionVector,
+        long deletionVectorCardinality,
+        DeletionVectorPayload deletionVectorPayload) {
+      if (rowIndexFilterType == null) {
+        throw new IllegalArgumentException("rowIndexFilterType must not be null");
+      }
+      if (deletionVectorPayload == null) {
+        throw new IllegalArgumentException("deletionVectorPayload must not be null");
+      }
       this.rowIndexFilterType = rowIndexFilterType;
       this.hasDeletionVector = hasDeletionVector;
       this.deletionVectorCardinality = deletionVectorCardinality;
-      this.serializedDeletionVector =
-          serializedDeletionVector == null ? new byte[0] : serializedDeletionVector;
+      this.deletionVectorPayload = deletionVectorPayload;
     }
 
     public RowIndexFilterType rowIndexFilterType() {
@@ -112,7 +164,11 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     }
 
     public byte[] serializedDeletionVector() {
-      return serializedDeletionVector;
+      return deletionVectorPayload.materialize();
+    }
+
+    public boolean isDeletionVectorPayloadMaterialized() {
+      return deletionVectorPayload.isMaterialized();
     }
   }
 }
