@@ -182,10 +182,10 @@ and blank lines allowed:
 ### Quarantine by error signature
 
 Some bugs surface on a **different test each run** — for example the native Delta
-DV bitmap row-index error (the aggregator gets a garbage row index during a MERGE
-that writes deletion vectors and aborts, e.g. `Delta RoaringBitmapArray row index
+DV bitmap row-index error (the aggregator got a garbage row index during a MERGE
+that writes deletion vectors and aborted, e.g. `Delta RoaringBitmapArray row index
 ... exceeds max representable value` or `Delta bitmap row index cannot be
-negative: ...`) lands on a different `*DVs*Suite` MERGE test every time. Chasing
+negative: ...`) landed on a different `*DVs*Suite` MERGE test every time. Chasing
 those by name is whack-a-mole, so quarantine them by **root cause** in
 **`flaky-error-patterns.txt`** instead: each line is a regex matched against a
 failed test's `<failure>`/`<error>` text. Any failure that matches is treated as
@@ -198,6 +198,11 @@ list so it can't leak into the baseline):
 Delta RoaringBitmapArray row index \d+ exceeds max representable value
 Delta bitmap row index cannot be negative: -?\d+
 ```
+
+That example is historical: the root cause was a Velox scan bug
+([velox#18535](https://github.com/facebookincubator/velox/issues/18535)), fixed
+upstream, so both patterns have since been removed and the suite is enforced
+again. It is kept here because it shows the shape of the mechanism.
 
 This is more precise than a name glob: a *different* real failure in the same
 suite is still caught, because only failures carrying the signature are ignored.
