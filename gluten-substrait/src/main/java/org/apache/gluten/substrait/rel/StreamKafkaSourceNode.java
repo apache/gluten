@@ -16,6 +16,9 @@
  */
 package org.apache.gluten.substrait.rel;
 
+import org.apache.gluten.proto.StreamKafka;
+import org.apache.gluten.utils.SubstraitUtil;
+
 import io.substrait.proto.ReadRel;
 
 import java.util.Collections;
@@ -59,11 +62,10 @@ public class StreamKafkaSourceNode implements SplitInfo {
   }
 
   @Override
-  public ReadRel.StreamKafka toProtobuf() {
-    ReadRel.StreamKafka.Builder builder = ReadRel.StreamKafka.newBuilder();
+  public ReadRel.ExtensionTable toProtobuf() {
+    StreamKafka.Builder builder = StreamKafka.newBuilder();
 
-    ReadRel.StreamKafka.TopicPartition.Builder topicPartition =
-        ReadRel.StreamKafka.TopicPartition.newBuilder();
+    StreamKafka.TopicPartition.Builder topicPartition = StreamKafka.TopicPartition.newBuilder();
     topicPartition.setTopic(topic);
     topicPartition.setPartition(partition);
 
@@ -75,6 +77,6 @@ public class StreamKafkaSourceNode implements SplitInfo {
     builder.setIncludeHeaders(includeHeaders);
     kafkaParams.forEach((k, v) -> builder.putParams(k, v.toString()));
 
-    return builder.build();
+    return SubstraitUtil.packExtensionTable(builder.build());
   }
 }
