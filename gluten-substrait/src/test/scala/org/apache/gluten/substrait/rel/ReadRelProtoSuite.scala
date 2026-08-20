@@ -21,12 +21,11 @@ import io.substrait.proto.ReadRel
 import org.scalatest.funsuite.AnyFunSuite
 
 /**
- * Pins the wire tags of the vendored `ReadRel.read_type` oneof after rebasing it onto upstream
- * Substrait v0.98.0: adding the official `iceberg_table = 9` and relocating Gluten's `stream_kafka`
- * graft off the field-9 collision into the 1000+ range. Producer and consumer share one schema, so
- * a renumber round-trips cleanly through the generated classes and cannot be caught by exercising
- * them; these assert on the descriptors instead. See docs/developers/SubstraitModifications.md for
- * the numbering convention.
+ * Pins the wire tags of the vendored `ReadRel.read_type` oneof to upstream Substrait v0.98.0,
+ * including the official `iceberg_table = 9`.
+ *
+ * Producer and consumer share one schema, so a renumber round-trips cleanly through the generated
+ * classes and cannot be caught by exercising them; these assert on the descriptors instead.
  */
 class ReadRelProtoSuite extends AnyFunSuite {
 
@@ -38,18 +37,15 @@ class ReadRelProtoSuite extends AnyFunSuite {
         assert(field.getNumber === number, s"${descriptor.getName} field $name changed its number")
     }
 
-  test("ReadRel.read_type field numbers match upstream v0.98.0 plus the relocated graft") {
+  test("ReadRel.read_type field numbers match upstream v0.98.0 verbatim") {
     assertFieldNumbers(
       ReadRel.getDescriptor,
       "virtual_table" -> 5,
       "local_files" -> 6,
       "named_table" -> 7,
       "extension_table" -> 8,
-      // Official Substrait 0.98 addition; must own field 9.
-      "iceberg_table" -> 9,
-      // Gluten-local graft, relocated off upstream's field 9 to the 1000+ range so that
-      // iceberg_table can take its 0.98 slot.
-      "stream_kafka" -> 1000
+      // Official Substrait 0.98 addition.
+      "iceberg_table" -> 9
     )
   }
 

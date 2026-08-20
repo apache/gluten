@@ -70,10 +70,6 @@ message ReadRel {
     NamedTable named_table = 7;
     ExtensionTable extension_table = 8;
     IcebergTable iceberg_table = 9;
-    // Gluten addition: streaming Kafka source. Relocated from field 9 to
-    // field 1000 so the official Substrait iceberg_table can occupy its
-    // 0.98 slot.
-    bool stream_kafka = 1000;
   }
 
   // A base table. The list of string is used to represent namespacing (e.g., mydb.mytable).
@@ -118,22 +114,6 @@ message ReadRel {
   // the specification.
   message ExtensionTable {
     google.protobuf.Any detail = 1;
-  }
-
-  // Used to KafkaBatch or KafkaContinuous source
-  message StreamKafka {
-    message TopicPartition {
-      string topic = 1;
-      int32 partition = 2;
-    }
-
-    TopicPartition topic_partition = 1;
-    int64 start_offset = 2;
-    int64 end_offset = 3;
-    map<string, string> params = 4;
-    int64 poll_timeout_ms = 5;
-    bool  fail_on_data_loss = 6;
-    bool include_headers = 7;
   }
 
   // Represents a list of files in input of a scan operation

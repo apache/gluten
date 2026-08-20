@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution.datasources.clickhouse;
 
-import org.apache.gluten.backendsapi.BackendsApiManager;
 import org.apache.gluten.substrait.rel.SplitInfo;
+import org.apache.gluten.utils.SubstraitUtil;
 
 import com.google.protobuf.StringValue;
 import io.substrait.proto.ReadRel;
@@ -59,10 +59,6 @@ public class ExtensionTableNode implements SplitInfo {
   }
 
   public static ReadRel.ExtensionTable toProtobuf(String result) {
-    ReadRel.ExtensionTable.Builder extensionTableBuilder = ReadRel.ExtensionTable.newBuilder();
-    StringValue extensionTable = StringValue.newBuilder().setValue(result).build();
-    extensionTableBuilder.setDetail(
-        BackendsApiManager.getTransformerApiInstance().packPBMessage(extensionTable));
-    return extensionTableBuilder.build();
+    return SubstraitUtil.packExtensionTable(StringValue.newBuilder().setValue(result).build());
   }
 }
