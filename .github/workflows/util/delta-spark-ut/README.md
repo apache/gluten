@@ -111,7 +111,7 @@ longer shared between them, those PRs pay for the centos-7 native build twice
   future command that starts the same way cannot fire this one by accident.
   Anyone can use it, as with `velox_backend_ansi.yml`'s `/ansi-test`; a comment
   rather than a label because labelling needs write/triage permission, so a fork
-  author — the person who most needs this — cannot opt their own PR in. It runs the
+  author — the person who most needs this — cannot opt into their own PR. It runs the
   PR's merge ref with the default settings and the baseline **enforced**;
   `update_baseline` stays reachable only from `workflow_dispatch`, so no comment
   can rewrite the baseline. The workflow replies with a link to the run, because

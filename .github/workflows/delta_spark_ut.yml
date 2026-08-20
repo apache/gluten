@@ -193,7 +193,7 @@ jobs:
     # Anyone may ask for a run, matching velox_backend_ansi.yml's `/ansi-test`
     # (and take.yml), which are the repo's existing comment triggers and gate on
     # the command alone. The PR author is the party this exists for -- labelling
-    # a PR needs write/triage, so a fork author cannot opt their own PR in --
+    # a PR needs write/triage, so a fork author cannot opt into their own PR --
     # but there is no reason to be stricter here than the pipeline next door.
     #
     # Note this makes the "restore but never save" cache guards below load
