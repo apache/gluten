@@ -20,6 +20,7 @@ import org.apache.gluten.extension.DeltaPostTransformRules
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.DeltaLog
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SparkVersionUtil
@@ -667,6 +668,56 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
               .nonEmpty)
         }
         checkAnswer(df, Seq((1, "a"), (4, "b"), (5, "a")).toDF("id", "region"))
+    }
+  }
+
+  testWithMinSparkVersion("deletion vector on shallow-cloned table", "3.4") {
+    withTable("dv_clone_source", "dv_clone_target") {
+      import testImplicits._
+      // Shallow clone is the case the old data-file walk-up got wrong. The clone's AddFile paths
+      // point ABSOLUTE into the source table, while its _delta_log (and the DV written by a DELETE
+      // on the clone) live under the clone root. Walking up from a data file therefore lands on the
+      // SOURCE table's _delta_log and resolves the wrong root, so the clone-root-relative "u" DV
+      // cannot be found. Sourcing the root from TahoeFileIndex.path fixes this. This pins the
+      // DeltaScanTransformer Tahoe arm on Spark 3.5 (the CloneTableScalaDeletionVectorSuite shards
+      // only run on delta40).
+      spark.sql(
+        "CREATE TABLE dv_clone_source (id INT, region STRING) USING delta " +
+          "TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+      Seq((1, "a"), (2, "a"), (3, "b"), (4, "b"), (5, "a"), (6, "b"))
+        .toDF("id", "region")
+        .write
+        .format("delta")
+        .mode("append")
+        .saveAsTable("dv_clone_source")
+      spark.sql("CREATE TABLE dv_clone_target SHALLOW CLONE dv_clone_source")
+      // DELETE on the clone writes a clone-root-relative UUID ("u") DV; the data files stay
+      // absolute into the source.
+      spark.sql("DELETE FROM dv_clone_target WHERE id IN (2, 3, 6)")
+      val targetLocation =
+        spark.sessionState.catalog.getTableMetadata(TableIdentifier("dv_clone_target")).location
+      val deletionVectors = DeltaLog
+        .forTable(spark, new Path(targetLocation))
+        .update()
+        .allFiles
+        .collect()
+        .flatMap(file => Option(file.deletionVector))
+      assert(deletionVectors.nonEmpty, "DELETE on the clone should produce deletion vectors")
+      assert(
+        deletionVectors.exists(_.storageType == "u"),
+        "DELETE on the clone should produce a clone-root-relative UUID deletion vector")
+      val df = spark.table("dv_clone_target")
+      if (SparkVersionUtil.gteSpark35) {
+        assert(
+          df.queryExecution.executedPlan
+            .collect { case _: DeltaScanTransformer => true }
+            .nonEmpty)
+      }
+      // The clone's DELETE must not affect the source table.
+      checkAnswer(
+        spark.table("dv_clone_source"),
+        Seq((1, "a"), (2, "a"), (3, "b"), (4, "b"), (5, "a"), (6, "b")).toDF("id", "region"))
+      checkAnswer(df, Seq((1, "a"), (4, "b"), (5, "a")).toDF("id", "region"))
     }
   }
 
