@@ -636,9 +636,13 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
       p =>
         import testImplicits._
         val path = p.getCanonicalPath
-        // Partitioned so data files live under partition subdirs (region=.../...). The DV path is
-        // resolved from the table root (TahoeFileIndex.path) regardless of partition nesting; this
-        // guards the removal of the old partition-count-based table-path walk-up.
+        // End-to-end DV read over a partitioned table: data files live under partition subdirs
+        // (region=.../...) while the DELETE writes table-root-relative ("u") UUID deletion vectors.
+        // This exercises the full native DV path -- resolving each DV against the table root
+        // (TahoeFileIndex.path) and applying it -- and asserts correct results. The root
+        // discrimination itself is unit-tested in DeltaDeletionVectorScanInfoSuite ("normalize
+        // materializes DV read options using the supplied table path"), which points a
+        // PartitionedFile at an unrelated directory.
         val data =
           Seq((1, "a"), (2, "a"), (3, "b"), (4, "b"), (5, "a"), (6, "b")).toDF("id", "region")
         data.write.format("delta").partitionBy("region").save(path)
