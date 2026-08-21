@@ -204,12 +204,9 @@
    This product bundles various third-party components also under the
    Apache Software License 2.0.
 
-   Apache DataFusion(https://github.com/apache/datafusion)
-   ./.github/workflows/take.yml
-
    Apache Spark(https://github.com/apache/spark)
    ./backends-clickhouse/src/main/scala/org/apache/spark/sql/execution/CHColumnarWrite.scala
-   ./backends-clickhouse/src/main/scala/org/apache/spark/sql/execution/SparkWriteFilesCommitProtocol.scala
+   ./backends-velox/src/main/scala/org/apache/spark/sql/execution/SparkWriteFilesCommitProtocol.scala
    ./cpp-ch/local-engine/Parser/aggregate_function_parser/BloomFilterAggParser.cpp
    ./gluten-substrait/src/main/scala/org/apache/spark/sql/execution/GlutenExplainUtils.scala
    ./shims/spark33/src/main/scala/org/apache/spark/sql/execution/FileSourceScanExecShim.scala
@@ -219,26 +216,26 @@
    ./tools/gluten-it/common/src/main/scala/org/apache/spark/sql/TestUtils.scala
 
    Delta Lake(https://github.com/delta-io/delta)
-   ./backends-clickhouse/src-delta-20/main/scala/org/apache/spark/sql/delta/DeltaLog.scala
-   ./backends-clickhouse/src-delta-20/main/scala/org/apache/spark/sql/delta/Snapshot.scala
-   ./backends-clickhouse/src-delta-20/main/scala/org/apache/spark/sql/delta/commands/DeleteCommand.scala
-   ./backends-clickhouse/src-delta-20/main/scala/org/apache/spark/sql/delta/commands/MergeIntoCommand.scala
-   ./backends-clickhouse/src-delta-20/main/scala/org/apache/spark/sql/delta/commands/OptimizeTableCommand.scala
-   ./backends-clickhouse/src-delta-20/main/scala/org/apache/spark/sql/delta/commands/UpdateCommand.scala
-   ./backends-clickhouse/src-delta-23/main/scala/org/apache/spark/sql/delta/DeltaLog.scala
-   ./backends-clickhouse/src-delta-23/main/scala/org/apache/spark/sql/delta/Snapshot.scala
-   ./backends-clickhouse/src-delta-23/main/scala/org/apache/spark/sql/delta/commands/DeleteCommand.scala
-   ./backends-clickhouse/src-delta-23/main/scala/org/apache/spark/sql/delta/commands/MergeIntoCommand.scala
-   ./backends-clickhouse/src-delta-23/main/scala/org/apache/spark/sql/delta/commands/OptimizeTableCommand.scala
-   ./backends-clickhouse/src-delta-23/main/scala/org/apache/spark/sql/delta/commands/UpdateCommand.scala
-   ./backends-clickhouse/src-delta-23/main/scala/org/apache/spark/sql/delta/commands/VacuumCommand.scala
-   ./backends-clickhouse/src-delta-23/main/scala/org/apache/spark/sql/delta/stats/PrepareDeltaScan.scala
-   ./backends-clickhouse/src-delta-33/main/scala/org/apache/spark/sql/delta/DeltaLog.scala
-   ./backends-clickhouse/src-delta-33/main/scala/org/apache/spark/sql/delta/PreprocessTableWithDVs.scala
-   ./backends-clickhouse/src-delta-33/main/scala/org/apache/spark/sql/delta/Snapshot.scala
-   ./backends-clickhouse/src-delta-33/main/scala/org/apache/spark/sql/delta/commands/DMLWithDeletionVectorsHelper.scala
-   ./backends-clickhouse/src-delta-33/main/scala/org/apache/spark/sql/delta/commands/VacuumCommand.scala
-   ./backends-clickhouse/src-delta-33/main/scala/org/apache/spark/sql/delta/commands/merge/MergeIntoMaterializeSource.scala
+   ./backends-clickhouse/src-delta20/main/scala/org/apache/spark/sql/delta/DeltaLog.scala
+   ./backends-clickhouse/src-delta20/main/scala/org/apache/spark/sql/delta/Snapshot.scala
+   ./backends-clickhouse/src-delta20/main/scala/org/apache/spark/sql/delta/commands/DeleteCommand.scala
+   ./backends-clickhouse/src-delta20/main/scala/org/apache/spark/sql/delta/commands/MergeIntoCommand.scala
+   ./backends-clickhouse/src-delta20/main/scala/org/apache/spark/sql/delta/commands/OptimizeTableCommand.scala
+   ./backends-clickhouse/src-delta20/main/scala/org/apache/spark/sql/delta/commands/UpdateCommand.scala
+   ./backends-clickhouse/src-delta23/main/scala/org/apache/spark/sql/delta/DeltaLog.scala
+   ./backends-clickhouse/src-delta23/main/scala/org/apache/spark/sql/delta/Snapshot.scala
+   ./backends-clickhouse/src-delta23/main/scala/org/apache/spark/sql/delta/commands/DeleteCommand.scala
+   ./backends-clickhouse/src-delta23/main/scala/org/apache/spark/sql/delta/commands/MergeIntoCommand.scala
+   ./backends-clickhouse/src-delta23/main/scala/org/apache/spark/sql/delta/commands/OptimizeTableCommand.scala
+   ./backends-clickhouse/src-delta23/main/scala/org/apache/spark/sql/delta/commands/UpdateCommand.scala
+   ./backends-clickhouse/src-delta23/main/scala/org/apache/spark/sql/delta/commands/VacuumCommand.scala
+   ./backends-clickhouse/src-delta23/main/scala/org/apache/spark/sql/delta/stats/PrepareDeltaScan.scala
+   ./backends-clickhouse/src-delta33/main/scala/org/apache/spark/sql/delta/DeltaLog.scala
+   ./backends-clickhouse/src-delta33/main/scala/org/apache/spark/sql/delta/PreprocessTableWithDVs.scala
+   ./backends-clickhouse/src-delta33/main/scala/org/apache/spark/sql/delta/Snapshot.scala
+   ./backends-clickhouse/src-delta33/main/scala/org/apache/spark/sql/delta/commands/DMLWithDeletionVectorsHelper.scala
+   ./backends-clickhouse/src-delta33/main/scala/org/apache/spark/sql/delta/commands/VacuumCommand.scala
+   ./backends-clickhouse/src-delta33/main/scala/org/apache/spark/sql/delta/commands/merge/MergeIntoMaterializeSource.scala
 
     The Velox Project(https://github.com/facebookincubator/velox)
    ./cpp/velox/udf/examples/MyUDAF.cc
