@@ -109,7 +109,7 @@ psutil==5.9.8
 ptyprocess==0.7.0
 pure-eval==0.2.2
 pyarrow==23.0.1
-pyasn1==0.6.3
+pyasn1==0.6.4
 pyasn1-modules==0.2.1
 pycparser==2.22
 Pygments>=2.15.0
