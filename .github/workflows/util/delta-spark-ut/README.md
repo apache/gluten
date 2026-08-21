@@ -97,35 +97,18 @@ longer shared between them, those PRs pay for the centos-7 native build twice
   filter before creating the run, so an unrelated PR costs nothing at all.
   Changes to general Velox/core/native code can also affect Delta offload, but
   they're touched on most PRs, so per-PR they skip the suite — the nightly run is
-  the safety net, and `/delta-test` below forces a run on any PR the filter
-  skipped.
+  the safety net.
 - **Nightly** — the **full** suite runs against the latest default branch on a
   `schedule` (05:00 UTC), so regressions from general Velox/core changes are
   still caught daily. The nightly run enforces the baseline **and** fails on
   now-passing tests (`fail_on_fixed=true`), so baseline drift surfaces as a red
   nightly — the signal to refresh `known-failures.txt`.
-- **On demand, from a PR** — comment **`/delta-test`** to
-  force a full run on a PR the `paths:` filter skipped. The command must be the
-  comment's first token — it may be followed by a space or a newline and then
-  any text, but `/delta-test-arm` or `/delta-testers` will *not* match, so a
-  future command that starts the same way cannot fire this one by accident.
-  Anyone can use it, as with `velox_backend_ansi.yml`'s `/ansi-test`; a comment
-  rather than a label because labelling needs write/triage permission, so a fork
-  author — the person who most needs this — cannot opt into their own PR. It runs the
-  PR's merge ref with the default settings and the baseline **enforced**;
-  `update_baseline` stays reachable only from `workflow_dispatch`, so no comment
-  can rewrite the baseline. The workflow replies with a link to the run, because
-  an `issue_comment` run belongs to the default branch and so cannot appear in
-  the PR's Checks tab. Two consequences: `/delta-test` reads the workflow file
-  from the default branch (so it cannot test changes to this pipeline itself —
-  those match the `paths:` filter anyway), and comment-triggered runs **restore
-  but never save** the ccache/Maven/sbt stashes. A stash is stored as an
-  artifact named `<key>-<branch>` and looked up by branch, and for an
-  `issue_comment` run that branch is the **default branch**, not the PR — so a
-  save would overwrite (Stash defaults to `overwrite: true`) a stash that the
-  nightly restores. The ccache key is shared with `velox_backend_x86.yml`, so
-  that would reach beyond this pipeline. Reads are unaffected: a comment run
-  still restores `main`'s stashes, so it is no slower.
+- **On demand, from a PR** — anyone can comment **`/delta-test`** as the first
+  token to run the default configuration against the PR merge ref. This covers
+  PRs skipped by `paths:` without requiring label permissions. The workflow
+  posts the run link on the PR and enforces the committed baseline. Comment runs
+  restore but never save main-scoped Stash caches; use `workflow_dispatch` for
+  custom inputs or baseline updates.
 - **Manually** — **Actions → Delta Spark UT (Gluten) → Run workflow**
   (`workflow_dispatch`), e.g. to refresh the baseline (see below). This is also
   how you validate a Velox/core change against Delta before merging: run it on
