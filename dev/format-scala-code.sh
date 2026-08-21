@@ -28,10 +28,11 @@ COMMAND=$1
 
 if [[ "$COMMAND" == "check" ]]; then
   echo "Checking Scala code style.."
-  ${MVN_CMD} -q spotless:check $PROFILES
+  ${MVN_CMD} -q spotless:check scalastyle:check $PROFILES
 elif [[ "$COMMAND" == "apply" ]] || [[ "$COMMAND" == "" ]]; then
   echo "Fixing Scala code style.."
-  ${MVN_CMD} -q spotless:apply $PROFILES
+  # scalastyle only reports violations (e.g. line length); it doesn't fix them.
+  ${MVN_CMD} -q spotless:apply scalastyle:check $PROFILES
 else
   echo "Unrecognized option."
   exit 1

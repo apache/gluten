@@ -19,6 +19,7 @@ on:
     paths:
       - '.github/workflows/scala_code_format.yml'
       - 'backends-velox/**'
+      - 'dev/format-scala-code.sh'
       - 'gluten-uniffle/**'
       - 'gluten-celeborn/**'
       - 'gluten-core/**'
