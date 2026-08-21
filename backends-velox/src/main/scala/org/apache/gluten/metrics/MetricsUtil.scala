@@ -95,7 +95,7 @@ object MetricsUtil extends Logging {
     metrics.localReadBytes = customMetricSum(node, "localReadBytes")
     metrics.ramReadBytes = customMetricSum(node, "ramReadBytes")
     metrics.preloadSplits = customMetricSum(node, "readyPreloadedSplits")
-    metrics.pageLoadTime = customMetricSum(node, "pageLoadTimeNs")
+    metrics.pageLoadTime = customMetricSum(node, "parquet.pageLoadTimeNanos")
     metrics.dataSourceAddSplitTime = customMetricSum(node, "dataSourceAddSplitWallNanos") +
       customMetricSum(node, "waitForPreloadSplitNanos")
     metrics.dataSourceReadTime = customMetricSum(node, "dataSourceReadWallNanos")

@@ -20,6 +20,7 @@
 #include <Columns/ColumnAggregateFunction.h>
 #include <Core/Block.h>
 #include <Core/ColumnWithTypeAndName.h>
+#include <DataTypes/DataTypeNullable.h>
 #include <Operator/AdvancedExpandStep.h>
 #include <Operator/ExpandStep.h>
 #include <Parser/RelParsers/RelParser.h>
@@ -113,6 +114,12 @@ ExpandField ExpandRelParser::buildExpandField(const DB::Block & header, const su
             else if (project_expr.has_literal())
             {
                 auto [type, field] = parseLiteral(project_expr.literal());
+                // A NULL literal is nullable even when the type carried by the
+                // Substrait literal does not explicitly encode nullability.
+                // Keep that information in the Expand output type so the
+                // generated column contains a real null map.
+                if (field.isNull() && type && !type->isNullable())
+                    type = DB::makeNullable(type);
                 kinds.push_back(ExpandFieldKind::EXPAND_FIELD_KIND_LITERAL);
                 fields.push_back(field);
                 updateType(types[i], type);
