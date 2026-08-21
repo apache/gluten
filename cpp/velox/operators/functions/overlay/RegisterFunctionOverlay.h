@@ -14,20 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.delta
 
-import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
+#pragma once
 
-import org.apache.spark.sql.execution.datasources.PartitionedFile
+namespace gluten {
 
-import org.apache.hadoop.fs.Path
+/// Registers all functions implemented in Gluten's function overlay
+/// (operators/functions/overlay). The overlay hosts function implementations
+/// managed on the Gluten side, either functions not yet available in Velox or
+/// Gluten-specific overrides of Velox functions. It is registered after all
+/// Velox functions, so a function registered here with the same name and
+/// signature takes precedence over the Velox implementation.
+void registerFunctionOverlay();
 
-import java.util.{Map => JMap}
-
-/** Reading deletion vectors natively requires Delta 3.3+, so there is nothing to materialize. */
-object DeltaDeletionVectorScanInfo {
-  def normalize(
-      partitionFiles: Seq[PartitionedFile],
-      tablePath: Path)
-      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = None
-}
+} // namespace gluten
