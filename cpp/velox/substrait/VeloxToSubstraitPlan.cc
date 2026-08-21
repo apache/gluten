@@ -187,13 +187,19 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
   ::substrait::ReadRel_VirtualTable* virtualTable = readRel->mutable_virtual_table();
 
   for (const auto& vector : valuesNode->values()) {
-    ::substrait::Expression_Literal_Struct* litValue = virtualTable->add_values();
-
+    // Substrait models a virtual table row group as an Expression.Nested.Struct laid out
+    // column-major; toSubstraitLiteral appends one Expression per value into it.
+    ::substrait::Expression_Nested_Struct* nested = virtualTable->add_expressions();
     for (const auto& column : vector->children()) {
-      ::substrait::Expression_Literal* substraitField =
-          google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
-
-      substraitField->MergeFrom(exprConvertor_->toSubstraitLiteral(arena, column, litValue));
+      const int expectedFields = nested->fields_size() + vector->size();
+      exprConvertor_->toSubstraitLiteral(arena, column, nested);
+      // Only scalar columns are appended; complex-typed ones are returned by value instead, which
+      // would silently shorten the row group and transpose the table the consumer decodes from it.
+      VELOX_USER_CHECK_EQ(
+          nested->fields_size(),
+          expectedFields,
+          "Unsupported virtual table column type: {}",
+          column->type()->toString());
     }
   }
 
