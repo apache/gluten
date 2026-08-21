@@ -196,13 +196,15 @@ list so it can't leak into the baseline):
 # regex matched against the failure message + stack (enforce mode).
 # one explicit pattern per known error, deliberately specific.
 Delta RoaringBitmapArray row index \d+ exceeds max representable value
-Delta bitmap row index cannot be negative: -?\d+
+Delta bitmap row index cannot be negative: -\d+
 ```
 
 That example is historical: the root cause was a Velox scan bug
 ([velox#18535](https://github.com/facebookincubator/velox/issues/18535)), fixed
-upstream, so both patterns have since been removed and the suite is enforced
-again. It is kept here because it shows the shape of the mechanism.
+by [velox#18536](https://github.com/facebookincubator/velox/pull/18536) and
+picked up by the `dft-2026_08_21` Velox pin, so both patterns were removed and
+the suite is enforced again. It is kept here because it shows the shape of the
+mechanism.
 
 This is more precise than a name glob: a *different* real failure in the same
 suite is still caught, because only failures carrying the signature are ignored.
