@@ -193,18 +193,20 @@ flaky regardless of which test it hit (and is dropped from the shard's failures
 list so it can't leak into the baseline):
 
 ```
+# HISTORICAL EXAMPLE -- no longer active; flaky-error-patterns.txt has no
+# entries. Do not copy these back in: the bug they matched is fixed.
 # regex matched against the failure message + stack (enforce mode).
 # one explicit pattern per known error, deliberately specific.
 Delta RoaringBitmapArray row index \d+ exceeds max representable value
 Delta bitmap row index cannot be negative: -\d+
 ```
 
-That example is historical: the root cause was a Velox scan bug
+The root cause was a Velox scan bug
 ([velox#18535](https://github.com/facebookincubator/velox/issues/18535)), fixed
 by [velox#18536](https://github.com/facebookincubator/velox/pull/18536) and
 picked up by the `dft-2026_08_21` Velox pin, so both patterns were removed and
-the suite is enforced again. It is kept here because it shows the shape of the
-mechanism.
+the suite is enforced again. The example is kept because it shows the shape of
+the mechanism.
 
 This is more precise than a name glob: a *different* real failure in the same
 suite is still caught, because only failures carrying the signature are ignored.
