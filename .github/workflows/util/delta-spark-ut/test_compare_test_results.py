@@ -15,11 +15,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPT = Path(__file__).with_name("compare-test-results.py")
 
@@ -64,31 +66,41 @@ class AggregatePrunedBaselineTest(unittest.TestCase):
 
             refreshed = root / "refreshed.txt"
             pruned = root / "pruned.txt"
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPT),
-                    "--mode",
-                    "aggregate",
-                    "--inputs-dir",
-                    str(inputs),
-                    "--expected-shards",
-                    "1",
-                    "--known-failures",
-                    str(baseline),
-                    "--flaky-tests",
-                    str(flaky),
-                    "--baseline-out",
-                    str(refreshed),
-                    "--pruned-baseline-out",
-                    str(pruned),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            job_summary = root / "job-summary.md"
+            job_summary.write_text("Existing job summary.\n", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(job_summary)}):
+                subprocess_env = os.environ.copy()
+                subprocess_env.pop("GITHUB_STEP_SUMMARY", None)
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(SCRIPT),
+                        "--mode",
+                        "aggregate",
+                        "--inputs-dir",
+                        str(inputs),
+                        "--expected-shards",
+                        "1",
+                        "--known-failures",
+                        str(baseline),
+                        "--flaky-tests",
+                        str(flaky),
+                        "--baseline-out",
+                        str(refreshed),
+                        "--pruned-baseline-out",
+                        str(pruned),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    env=subprocess_env,
+                )
 
             self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(
+                "Existing job summary.\n",
+                job_summary.read_text(encoding="utf-8"),
+            )
             self.assertEqual(
                 "# Keep this header verbatim.\n"
                 "suite.Expected#still fails\n"
