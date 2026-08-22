@@ -39,7 +39,8 @@ starts failing** (a regression).
 | `known-failures.txt` | Committed baseline: the tests currently expected to fail. One `<suite>#<test>` per line. |
 | `flaky-tests.txt` | Quarantine list by test name: tests whose pass/fail is non-deterministic. Ignored by the gate whether they pass or fail. `<suite-glob>#<test>` per line. |
 | `flaky-error-patterns.txt` | Quarantine list by error signature: regex patterns matched against a failure's text, for bugs that surface on a different test each run (e.g. the native DV bitmap row-index error). |
-| `compare-test-results.py` | Parses the JUnit XML from `sbt spark/test` and gates / seeds / aggregates against the baseline. Standard-library only. |
+| `compare-test-results.py` | Parses the JUnit XML from `sbt spark/test` and gates / seeds / aggregates against the baseline. It can also produce a deletion-only baseline for nightly automation. Standard-library only. |
+| `test_compare_test_results.py` | Focused standard-library tests for comparison and baseline-update safety. |
 | `run-delta-tests.sh` | The shard step's body: runs `sbt spark/test` (tuned JVM/heap flags) under a hang watchdog, prints memory forensics, then gates the results against the baseline via `compare-test-results.py`. |
 | `java-test-args.sh` | Shared JVM flags (`--add-opens` + Netty property) needed to run the suite on JDK 17 with the Gluten bundle. Sourced by `run-delta-tests.sh` and by local runs. |
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and patches `DeltaSQLCommandTest`. |
@@ -62,6 +63,9 @@ Each test shard:
 A final `aggregate` job merges every shard's results into a single, sorted,
 ready-to-commit `known-failures.txt` artifact and reports **stale** baseline
 entries (tests no longer present in any shard, e.g. after a Delta version bump).
+It also produces a safe, deletion-only variant that removes only baseline tests
+confirmed as passing. Unlike the full refresh artifact, that variant never adds
+new failures or removes tests that were skipped or not seen.
 
 Tests reported as `<skipped>` are tracked separately from tests that actually
 ran, so a baseline entry that was merely skipped this run is **not** mistaken
@@ -100,9 +104,11 @@ longer shared between them, those PRs pay for the centos-7 native build twice
   the safety net.
 - **Nightly** — the **full** suite runs against the latest default branch on a
   `schedule` (05:00 UTC), so regressions from general Velox/core changes are
-  still caught daily. The nightly run enforces the baseline **and** fails on
-  now-passing tests (`fail_on_fixed=true`), so baseline drift surfaces as a red
-  nightly — the signal to refresh `known-failures.txt`.
+  still caught daily. It reports now-passing tests without failing on them, then
+  opens or updates a `[MINOR][CI]` pull request that removes those entries from
+  `known-failures.txt`. The automated update is deliberately deletion-only:
+  regressions are still reported and fail the run, but are never added to the
+  baseline; skipped and unseen tests are left unchanged.
 - **On demand, from a PR** — anyone can comment **`/delta-test`** as the first
   token to run the default configuration against the PR merge ref. This covers
   PRs skipped by `paths:` without requiring label permissions. The workflow
@@ -130,7 +136,9 @@ From the next run onward the gate enforces the baseline.
 
 - **You fixed Gluten and some Delta tests now pass.** CI will flag them as
   *now-passing*. Delete those lines from `known-failures.txt` in your PR. That
-  is the whole point — the baseline only ever shrinks as coverage improves.
+  is the whole point — the baseline only ever shrinks as coverage improves. If
+  the fix reached the default branch without running Delta CI, the next nightly
+  run will propose the same removals automatically.
 - **You intentionally added a new expected failure** (e.g. a test that asserts
   on a query plan that legitimately differs once Gluten offloads, or one that
   hits a tracked bug you are not fixing here). Add the exact `Suite#test`

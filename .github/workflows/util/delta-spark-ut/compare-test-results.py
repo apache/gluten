@@ -54,6 +54,10 @@ This script has three modes:
     a skipped test is not evidence of a fix. Pass ``--expected-shards N``
     to fail when fewer than ``N`` shards contributed gate lists (a shard that
     died before writing them), so an incomplete baseline is never produced.
+    ``--pruned-baseline-out`` writes a second, automation-safe baseline that
+    removes only tests proven to pass. It preserves comments, stale/skipped
+    entries, and never adds new failures, so a nightly job can propose fixes
+    without silently accepting regressions.
 
 Flaky quarantine (``--flaky-tests``)
     Some Delta-on-Gluten failures are non-deterministic (e.g. a native bug that
@@ -267,6 +271,19 @@ def write_entries(path, entries, header=None):
             # Defensive: collapse any stray newlines so each entry stays on one line.
             safe_test = test.replace("\r", " ").replace("\n", " ")
             fh.write(format_entry(suite, safe_test) + "\n")
+
+
+def write_pruned_baseline(source_path, output_path, removed):
+    """Copy a baseline verbatim except for entries in ``removed``."""
+    with open(source_path, "r", encoding="utf-8") as source:
+        lines = source.readlines()
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as output:
+        for line in lines:
+            entry = parse_entry(line)
+            if entry is None or entry not in removed:
+                output.write(line)
 
 
 # --------------------------------------------------------------------------- #
@@ -601,6 +618,15 @@ def _shard_ids(files, prefix):
 
 
 def run_aggregate(args):
+    if args.pruned_baseline_out and (
+        not args.known_failures or not os.path.exists(args.known_failures)
+    ):
+        eprint(
+            "ERROR: --pruned-baseline-out requires an existing "
+            "--known-failures file."
+        )
+        return 2
+
     failure_files = sorted(
         glob.glob(os.path.join(args.inputs_dir, "**", "failures-*.txt"), recursive=True)
     )
@@ -681,6 +707,7 @@ def run_aggregate(args):
     # (otherwise it would trip the now-passing gate on the next run where it
     # passes). Flaky failures are tracked in flaky-tests.txt, not the baseline.
     baseline_body = {e for e in (union_failed | carried_skipped) if not flaky_is(e)}
+    fixed = {e for e in (prev_baseline & (union_ran - union_failed)) if not flaky_is(e)}
 
     header = (
         "# Known Delta-on-Gluten unit test failures.\n"
@@ -694,6 +721,10 @@ def run_aggregate(args):
     )
     if args.baseline_out:
         write_entries(args.baseline_out, baseline_body, header=header)
+    if args.pruned_baseline_out:
+        write_pruned_baseline(
+            args.known_failures, args.pruned_baseline_out, removed=fixed
+        )
 
     write, handle = _summary_sink()
     try:
@@ -711,11 +742,6 @@ def run_aggregate(args):
             if baseline:
                 regressions = {e for e in (union_failed - baseline) if not flaky_is(e)}
                 quarantined = {e for e in (union_failed - baseline) if flaky_is(e)}
-                fixed = {
-                    e
-                    for e in (baseline & (union_ran - union_failed))
-                    if not flaky_is(e)
-                }
                 stale = baseline - union_ran - union_skipped
                 skipped_baseline = baseline & union_skipped
                 write("| Baseline entries | {} |".format(len(baseline)))
@@ -821,6 +847,12 @@ def main(argv=None):
     )
     parser.add_argument(
         "--baseline-out", help="Write the merged baseline here (aggregate)."
+    )
+    parser.add_argument(
+        "--pruned-baseline-out",
+        help="Write a copy of --known-failures with only confirmed now-passing "
+        "entries removed (aggregate). Comments, skipped/stale entries, and all "
+        "other baseline entries are preserved; new failures are never added.",
     )
     parser.add_argument(
         "--fail-on-regression",
