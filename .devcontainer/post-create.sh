@@ -33,6 +33,31 @@ warn() { echo "WARNING: $*" >&2; }
 
 echo "Preparing the Gluten dev container..."
 
+# /workspaces persists across "Reopen in Container"/"Rebuild Container" and
+# across switching between the velox-dynamic and velox-static configs, but
+# ep/build-velox/build/velox_ep/_build and cpp/build bake in the vcpkg
+# toolchain choice (or its absence) at first CMake configure and CMake never
+# re-evaluates it. Reusing a build tree from the other variant does not error
+# clearly -- it silently resolves dependencies like zlib/zstd from the wrong
+# place and fails much later, e.g. "could not find SnappyConfig.cmake", deep
+# into a build that can take hours. Catch the mismatch up front instead.
+check_stale_build_tree() {
+    local cache="$1"
+    [ -f "$cache" ] || return 0
+    local has_toolchain=false
+    grep -q '^CMAKE_TOOLCHAIN_FILE:' "$cache" 2>/dev/null && has_toolchain=true
+
+    if [ "$DEV_CONTAINER_VARIANT" = "velox-static" ] && [ "$has_toolchain" = false ]; then
+        warn "$cache was configured without the vcpkg toolchain (looks like it came from the velox-dynamic container, or a build before --enable_vcpkg=ON). Remove stale build trees before building here: rm -rf ep/build-velox/build/velox_ep/_build cpp/build"
+    elif [ "$DEV_CONTAINER_VARIANT" = "velox-dynamic" ] && [ "$has_toolchain" = true ]; then
+        warn "$cache was configured with the vcpkg toolchain (looks like it came from the velox-static container). Remove stale build trees before building here: rm -rf ep/build-velox/build/velox_ep/_build cpp/build"
+    fi
+}
+
+for cache in ep/build-velox/build/velox_ep/_build/*/CMakeCache.txt cpp/build/CMakeCache.txt; do
+    check_stale_build_tree "$cache"
+done
+
 # vcpkg otherwise defaults to the x64 triplet on arm64.
 if [ "$DEV_CONTAINER_VARIANT" = "velox-static" ] &&
     [ "$(uname -m)" = "aarch64" ] &&
