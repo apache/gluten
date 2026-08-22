@@ -560,8 +560,14 @@ jobs:
           if-no-files-found: error
 
   delta-spark-update-baseline:
-    needs: delta-spark-aggregate
-    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.delta-spark-aggregate.result == 'success' }}
+    needs:
+      - delta-spark-test
+      - delta-spark-aggregate
+    # A complete aggregate is necessary but not sufficient: aggregation is
+    # deliberately allowed to succeed after shard regressions so it can still
+    # publish diagnostics. Only propose a baseline update from a fully clean
+    # nightly test matrix; scheduled runs do not fail on now-passing tests.
+    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.delta-spark-test.result == 'success' && needs.delta-spark-aggregate.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       actions: read
