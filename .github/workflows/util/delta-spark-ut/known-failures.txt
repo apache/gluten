@@ -735,10 +735,8 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.PartitionLikeDataSkippingColumnMappingSuite#partition-like data skipping for expression COALESCE: COALESCE(TO_DATE(S.b), c) = '1976-07-03' - column mapping id mode
 org.apache.spark.sql.delta.stats.StatsCollectionSuite#recompute stats multiple columns and files
-org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening BIGINT -> DECIMAL(20,0), partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DATE -> TIMESTAMP_NTZ, partitioned=false
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DATE -> TIMESTAMP_NTZ, partitioned=true
-org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DECIMAL(9,2) -> DECIMAL(19,3), partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening FLOAT -> DOUBLE, partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening INT -> DOUBLE, partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#unsupported type changes DOUBLE -> FLOAT, partitioned=true
