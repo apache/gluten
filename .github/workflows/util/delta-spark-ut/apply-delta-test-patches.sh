@@ -90,8 +90,7 @@ for patch in \
   cdf-pushed-filter-assertions.patch \
   mock-s3-fixture-writer.patch \
   parquet-fixture-row-groups.patch \
-  dv-predicate-pushdown-row-groups.patch \
-  dv-2b-row-fail-fast.patch; do
+  dv-predicate-pushdown-row-groups.patch; do
   echo "Applying $patch"
   if ! git -C "$DELTA_DIR" apply "$PATCH_DIR/$patch"; then
     echo "ERROR: Delta test patch '$patch' did not apply." >&2
@@ -146,23 +145,6 @@ fi
 echo "Capped predicate-pushdown DV fixture row groups at 500,000 rows."
 git -C "$DELTA_DIR" --no-pager diff -- \
   "spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala" || true
-echo "::endgroup::"
-
-echo "::group::Checking DeletionVectorsSuite 2B-row fail-fast guards"
-DVS="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala"
-if [ ! -f "$DVS" ]; then
-  echo "Expected file not found in Delta clone: $DVS" >&2
-  echo "The Delta directory layout for ref '${DELTA_REF}' may have changed." >&2
-  exit 1
-fi
-INJECTED=$(grep -c "Gluten CI] Force-failed" "$DVS" || true)
-if [ "$INJECTED" -ne 2 ]; then
-  echo "ERROR: expected to force-fail 2 DeletionVectorsSuite tests but injected ${INJECTED}." >&2
-  echo "Their test names likely changed in Delta ref '${DELTA_REF}'; update dv-2b-row-fail-fast.patch." >&2
-  exit 1
-fi
-echo "Force-failed 2 DeletionVectorsSuite 2B-row tests (read + delete)."
-git -C "$DELTA_DIR" --no-pager diff -- "spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala" || true
 echo "::endgroup::"
 
 echo "::group::Resulting temporary Delta test source diff"

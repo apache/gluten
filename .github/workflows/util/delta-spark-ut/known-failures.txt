@@ -340,8 +340,6 @@ org.apache.spark.sql.delta.SnapshotManagementWithCatalogManagedBatch2Suite#recov
 org.apache.spark.sql.delta.SnapshotManagementWithCatalogManagedBatch2Suite#should not recover when both the current and previous checkpoints are broken
 org.apache.spark.sql.delta.UpdateMetricsSuite#update-metrics: update one row per file - Partitioned = false, cdfEnabled = false
 org.apache.spark.sql.delta.coordinatedcommits.CoordinatedCommitsSuite#Incomplete backfills are handled properly by next commit after CC to FS conversion
-org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: delete a small number of rows from tables of 2B rows with DVs
-org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: read from tables of 2B rows with existing DV of many zeros
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Multiple delete statements. vectorizedReaderEnabled: false readColumnarBatchAsRows: false
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Multiple delete statements. vectorizedReaderEnabled: true readColumnarBatchAsRows: false
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Multiple delete statements. vectorizedReaderEnabled: true readColumnarBatchAsRows: true
