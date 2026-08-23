@@ -172,49 +172,6 @@ cherry_pick_delta_fix 46bd45d57eadd7e528002a0ae7bd36ce5a456eca "#7104 (ScanRepor
 cherry_pick_delta_fix 959e00e15f41f56afc1c9bb95d160c55c6dc7068 "#7105 (9 more test suites)"
 echo "::endgroup::"
 
-echo "::group::Force-failing memory-hog DeletionVectorsSuite 2B-row tests"
-# Two DeletionVectorsSuite tests read from / delete from a 2-billion-row table.
-# Under the Gluten Velox bundle they balloon the forked test JVM to ~13G of
-# NATIVE memory (row-index materialization) and the kernel/cgroup OOM-kills it.
-# The dead fork then wedges sbt, hanging the whole shard until the workflow's
-# hang-watchdog dumps threads and kills it (~16 min wasted, and every suite
-# QUEUED AFTER it in that fork is skipped) -- see delta_spark_ut.yml.
-#
-# Rather than silently `ignore` these (easy to forget), we make them FAIL FAST
-# with a clear message: the gap stays visible in the test reports / baseline
-# until the native memory blow-up is fixed, at which point this patch should be
-# removed. NOTE: making the suite complete also un-skips the rest of the shard's
-# suite queue, so the known-failures baseline must be refreshed after this.
-#
-# ORDER MATTERS: keep this sed AFTER the cherry-picks above. #7105 also edits
-# DeletionVectorsSuite.scala, and git cherry-pick aborts (exit 128) when the work
-# tree has uncommitted edits to a file it touches. It also relies on the clone
-# step's `checkout -f`: the sed appends after the declaration line, so without
-# that per-run reset a re-run injects duplicate `fail` lines and trips the
-# INJECTED != 2 check below.
-DVS="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala"
-if [ ! -f "$DVS" ]; then
-  echo "Expected file not found in Delta clone: $DVS" >&2
-  echo "The Delta directory layout for ref '${DELTA_REF}' may have changed." >&2
-  exit 1
-fi
-# Inject `fail(...)` as the first statement of each test body (the line ending
-# in `) {`). Delta sets no -Xfatal-warnings / dead-code warning, so the now-
-# unreachable original body compiles fine. Keep each injected line <100 chars:
-# Delta's scalastyle enforces a 100-char line length on test sources. The full
-# rationale lives in this comment, so the in-test message stays terse.
-sed -i 's#huge table: read from tables of 2B rows with existing DV of many zeros") {#&\n    fail("[Gluten CI] Force-failed: 2B-row DV read OOMs the test JVM; see setup-delta.sh")#' "$DVS"
-sed -i 's#number of rows from tables of 2B rows with DVs") {#&\n      fail("[Gluten CI] Force-failed: 2B-row DV delete OOMs the test JVM; see setup-delta.sh")#' "$DVS"
-INJECTED=$(grep -c "Gluten CI] Force-failed" "$DVS" || true)
-if [ "$INJECTED" -ne 2 ]; then
-  echo "ERROR: expected to force-fail 2 DeletionVectorsSuite tests but injected ${INJECTED}." >&2
-  echo "Their test names likely changed in Delta ref '${DELTA_REF}'; update setup-delta.sh." >&2
-  exit 1
-fi
-echo "Force-failed 2 DeletionVectorsSuite 2B-row tests (read + delete)."
-git -C "$DELTA_DIR" --no-pager diff -- "spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala" || true
-echo "::endgroup::"
-
 echo "::group::Disabling Delta scalastyle HeaderMatchesChecker"
 # Our reused DeltaSQLCommandTest carries Gluten's ASF-only license header, which
 # does not match Delta's HeaderMatchesChecker regex (the regex expects either a

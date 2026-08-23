@@ -462,8 +462,6 @@ org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#U
 org.apache.spark.sql.delta.concurrency.TransactionExecutionObserverSuite#Phase Locking - delete command
 org.apache.spark.sql.delta.coordinatedcommits.CoordinatedCommitsSuite#Incomplete backfills are handled properly by next commit after CC to FS conversion
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#DELETE with DVs with column mapping mode=id
-org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: delete a small number of rows from tables of 2B rows with DVs
-org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: read from tables of 2B rows with existing DV of many zeros
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#(It is not a test it is a sbt.testing.SuiteSelector)
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#<suite aborted>
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLNameBasedSuite#test delete on temp view - nontrivial projection - Dataset TempView

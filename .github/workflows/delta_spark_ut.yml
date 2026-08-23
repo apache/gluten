@@ -126,9 +126,8 @@ env:
   # fixed setup is paid 8 times instead of 4).
   #
   # Memory is per runner and therefore unaffected: each shard is its own job, so
-  # it is still 4 forks plus the sbt launcher against the ~16G limit, at ~4G per
-  # fork (2G heap + 2G off-heap). That fits because the worst memory hog
-  # (DeletionVectorsSuite 2B-row) is force-failed in setup-delta.sh.
+  # it is still 4 forks plus the sbt launcher against the ~16G limit, with each
+  # fork configured for 2G heap + 2G off-heap.
   #
   # Further sharding has a floor: wall clock cannot drop below the longest single
   # suite, which is ~18 min (DeleteSQLSQLPathBasedDVPredPushOffSuite). At 8 shards
