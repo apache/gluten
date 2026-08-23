@@ -37,6 +37,15 @@ warn() {
 
 echo "Preparing the Gluten dev container..."
 
+# The container runs as root while the bind-mounted workspace retains the host
+# user's ownership. Register only this repository so Git accepts that mismatch.
+WORKSPACE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+if ! git config --global --get-all safe.directory 2>/dev/null |
+    grep -Fqx "$WORKSPACE_DIR"; then
+    git config --global --add safe.directory "$WORKSPACE_DIR" ||
+        warn "could not mark $WORKSPACE_DIR as a safe Git directory."
+fi
+
 # /workspaces persists across "Reopen in Container"/"Rebuild Container" and
 # across switching between the velox-dynamic and velox-static configs, but
 # ep/build-velox/build/velox_ep/_build and cpp/build bake in the vcpkg
