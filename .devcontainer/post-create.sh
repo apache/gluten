@@ -29,7 +29,11 @@ NUM_THREADS_MARKER='# >>> gluten dev container num_threads >>>'
 STATIC_ARM_MARKER='# >>> gluten static dev container arm64 >>>'
 DEV_CONTAINER_VARIANT=${GLUTEN_DEV_CONTAINER_VARIANT:-velox-dynamic}
 
-warn() { echo "WARNING: $*" >&2; }
+WARNINGS=()
+warn() {
+    echo "WARNING: $*" >&2
+    WARNINGS+=("$*")
+}
 
 echo "Preparing the Gluten dev container..."
 
@@ -250,3 +254,16 @@ EOF
     exit 1
     ;;
 esac
+
+# Warnings logged with warn() above can easily scroll past unnoticed among all
+# the setup output, so repeat them here, in yellow, after everything else.
+if [ "${#WARNINGS[@]}" -gt 0 ]; then
+    YELLOW='\033[1;33m'
+    NO_COLOR='\033[0m'
+    echo -e "${YELLOW}============================================================================${NO_COLOR}" >&2
+    echo -e "${YELLOW}WARNINGS:${NO_COLOR}" >&2
+    for w in "${WARNINGS[@]}"; do
+        echo -e "${YELLOW}  - $w${NO_COLOR}" >&2
+    done
+    echo -e "${YELLOW}============================================================================${NO_COLOR}" >&2
+fi
