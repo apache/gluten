@@ -84,6 +84,9 @@ const std::string kSparkBloomFilterExpectedNumItems = "spark.sql.optimizer.runti
 const std::string kSparkBloomFilterNumBits = "spark.sql.optimizer.runtime.bloomFilter.numBits";
 const std::string kSparkBloomFilterMaxNumBits = "spark.sql.optimizer.runtime.bloomFilter.maxNumBits";
 const std::string kSparkBloomFilterMaxNumItems = "spark.sql.optimizer.runtime.bloomFilter.maxNumItems";
+const std::string kScanBloomFilterPushdownEnabled =
+    "spark.gluten.sql.columnar.backend.velox.scan.bloomFilterPushdown.enabled";
+const bool kScanBloomFilterPushdownEnabledDefault = false;
 const std::string kVeloxSplitPreloadPerDriver = "spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver";
 
 const std::string kHashProbeDynamicFilterPushdownEnabled =
@@ -91,6 +94,14 @@ const std::string kHashProbeDynamicFilterPushdownEnabled =
 
 const std::string kHashProbeBloomFilterPushdownMaxSize =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterPushdown.maxSize";
+
+const std::string kHashProbeBloomFilterBypassMinRows =
+    "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilter.bypassMinRows";
+const int32_t kHashProbeBloomFilterBypassMinRowsDefault = 0;
+
+const std::string kHashProbeBloomFilterBypassMinPct =
+    "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilter.bypassMinPct";
+const int32_t kHashProbeBloomFilterBypassMinPctDefault = 85;
 
 const std::string kValueStreamDynamicFilterEnabled =
     "spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled";
@@ -184,7 +195,7 @@ const std::string kMaxCoalescedBytes = "spark.gluten.sql.columnar.backend.velox.
 const std::string kCachePrefetchMinPct = "spark.gluten.sql.columnar.backend.velox.cachePrefetchMinPct";
 const std::string kMemoryPoolCapacityTransferAcrossTasks =
     "spark.gluten.sql.columnar.backend.velox.memoryPoolCapacityTransferAcrossTasks";
-const std::string kOrcUseColumnNames = "spark.gluten.sql.columnar.backend.velox.orcUseColumnNames";
+const std::string kOrcForcePositionalEvolution = "spark.gluten.sql.columnar.backend.velox.orcForcePositionalEvolution";
 const std::string kParquetUseColumnNames = "spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames";
 const std::string kAllowInt32Narrowing = "spark.gluten.sql.columnar.backend.velox.allowInt32Narrowing";
 

@@ -54,7 +54,7 @@ const char* extractFileName(const char* file) {
       reason))
 
 const std::unordered_set<std::string> kRegexFunctions =
-    {"regexp_extract", "regexp_extract_all", "regexp_replace", "rlike", "split"};
+    {"regexp_extract", "regexp_extract_all", "regexp_replace", "regexp_instr", "rlike", "split"};
 
 const std::unordered_set<std::string> kBlackList = {"split_part", "sequence", "approx_percentile", "map_from_arrays"};
 } // namespace
@@ -482,7 +482,11 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::FetchRel& fetchR
     }
   }
 
-  if (fetchRel.offset() < 0 || fetchRel.count() < 0) {
+  int64_t offset =
+      fetchRel.has_offset_expr() ? SubstraitParser::getLiteralValue<int64_t>(fetchRel.offset_expr().literal()) : 0;
+  int64_t count =
+      fetchRel.has_count_expr() ? SubstraitParser::getLiteralValue<int64_t>(fetchRel.count_expr().literal()) : 0;
+  if (offset < 0 || count < 0) {
     LOG_VALIDATION_MSG("Offset and count should be valid in FetchRel.");
     return false;
   }
@@ -511,8 +515,27 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::TopNRel& topNRel
     rowType = std::make_shared<RowType>(std::move(names), std::move(types));
   }
 
-  if (topNRel.n() < 0) {
-    LOG_VALIDATION_MSG("N should be valid in TopNRel.");
+  // Velox's TopN supports neither an OFFSET nor WITH TIES, and its row count is a positive int32.
+  // Reject anything else here so the query falls back instead of throwing during plan conversion.
+  // The mode is checked against an allow list: FETCH_MODE_UNSPECIFIED is the proto3 default and is
+  // not a valid producer choice, and a future mode must not be silently treated as ROWS_ONLY.
+  if (topNRel.mode() != ::substrait::FETCH_MODE_ROWS_ONLY) {
+    LOG_VALIDATION_MSG("Only FETCH_MODE_ROWS_ONLY is supported in TopNRel.");
+    return false;
+  }
+  if (topNRel.has_offset()) {
+    LOG_VALIDATION_MSG("Offset is not supported in TopNRel.");
+    return false;
+  }
+  if (!SubstraitParser::getRowCount(topNRel.count()).has_value()) {
+    LOG_VALIDATION_MSG("Count should be an i64 literal in the range [1, INT32_MAX] in TopNRel.");
+    return false;
+  }
+  // Substrait requires at least one sort field, and core::TopNNode asserts on an empty key list.
+  // The duplicate-key loop below is a no-op for an empty list, so reject here to fall back instead
+  // of throwing during plan conversion.
+  if (topNRel.sorts_size() == 0) {
+    LOG_VALIDATION_MSG("At least one sort field is required in TopNRel.");
     return false;
   }
 
@@ -633,8 +656,7 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::ExpandRel& expan
 
 bool validateBoundType(::substrait::Expression_WindowFunction_Bound boundType) {
   switch (boundType.kind_case()) {
-    case ::substrait::Expression_WindowFunction_Bound::kUnboundedFollowing:
-    case ::substrait::Expression_WindowFunction_Bound::kUnboundedPreceding:
+    case ::substrait::Expression_WindowFunction_Bound::kUnbounded:
     case ::substrait::Expression_WindowFunction_Bound::kCurrentRow:
     case ::substrait::Expression_WindowFunction_Bound::kFollowing:
     case ::substrait::Expression_WindowFunction_Bound::kPreceding:
@@ -645,28 +667,28 @@ bool validateBoundType(::substrait::Expression_WindowFunction_Bound boundType) {
   return true;
 }
 
-bool SubstraitToVeloxPlanValidator::validate(const ::substrait::WindowRel& windowRel) {
+bool SubstraitToVeloxPlanValidator::validate(const ::substrait::ConsistentPartitionWindowRel& windowRel) {
   if (windowRel.has_input() && !validate(windowRel.input())) {
-    LOG_VALIDATION_MSG("WindowRel input fails to validate.");
+    LOG_VALIDATION_MSG("ConsistentPartitionWindowRel input fails to validate.");
     return false;
   }
 
   // Get and validate the input types from extension.
   if (!windowRel.has_advanced_extension()) {
-    LOG_VALIDATION_MSG("Input types are expected in WindowRel.");
+    LOG_VALIDATION_MSG("Input types are expected in ConsistentPartitionWindowRel.");
     return false;
   }
   const auto& extension = windowRel.advanced_extension();
   TypePtr inputRowType;
   std::vector<TypePtr> types;
   if (!parseVeloxType(extension, inputRowType) || !flattenSingleLevel(inputRowType, types)) {
-    LOG_VALIDATION_MSG("Validation failed for input types in WindowRel.");
+    LOG_VALIDATION_MSG("Validation failed for input types in ConsistentPartitionWindowRel.");
     return false;
   }
 
   if (types.empty()) {
     // See: https://github.com/apache/gluten/issues/7600.
-    LOG_VALIDATION_MSG("Validation failed for empty input schema in WindowRel.");
+    LOG_VALIDATION_MSG("Validation failed for empty input schema in ConsistentPartitionWindowRel.");
     return false;
   }
 
@@ -680,9 +702,8 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::WindowRel& windo
 
   // Validate WindowFunction
   std::vector<std::string> funcSpecs;
-  funcSpecs.reserve(windowRel.measures().size());
-  for (const auto& smea : windowRel.measures()) {
-    const auto& windowFunction = smea.measure();
+  funcSpecs.reserve(windowRel.window_functions().size());
+  for (const auto& windowFunction : windowRel.window_functions()) {
     funcSpecs.emplace_back(planConverter_->findFuncSpec(windowFunction.function_reference()));
     SubstraitParser::parseType(windowFunction.output_type());
     for (const auto& arg : windowFunction.arguments()) {
@@ -697,14 +718,14 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::WindowRel& windo
       }
     }
     // Validate BoundType and Frame Type
-    switch (windowFunction.window_type()) {
-      case ::substrait::WindowType::ROWS:
-      case ::substrait::WindowType::RANGE:
+    switch (windowFunction.bounds_type()) {
+      case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_ROWS:
+      case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_RANGE:
         break;
       default:
         LOG_VALIDATION_MSG(
-            "the window type only support ROWS and RANGE, and the input type is " +
-            std::to_string(windowFunction.window_type()));
+            "the bounds type only support ROWS and RANGE, and the input type is " +
+            std::to_string(windowFunction.bounds_type()));
         return false;
     }
 
@@ -1097,38 +1118,38 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::JoinRel& joinRel
   return true;
 }
 
-bool SubstraitToVeloxPlanValidator::validate(const ::substrait::CrossRel& crossRel) {
-  if (crossRel.has_left() && !validate(crossRel.left())) {
-    logValidateMsg("Native validation failed due to: validation fails for cross join left input. ");
+bool SubstraitToVeloxPlanValidator::validate(const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel) {
+  if (nestedLoopJoinRel.has_left() && !validate(nestedLoopJoinRel.left())) {
+    logValidateMsg("Native validation failed due to: validation fails for nested loop join left input. ");
     return false;
   }
 
-  if (crossRel.has_right() && !validate(crossRel.right())) {
-    logValidateMsg("Native validation failed due to: validation fails for cross join right input. ");
+  if (nestedLoopJoinRel.has_right() && !validate(nestedLoopJoinRel.right())) {
+    logValidateMsg("Native validation failed due to: validation fails for nested loop join right input. ");
     return false;
   }
 
   // Validate input types.
-  if (!crossRel.has_advanced_extension()) {
-    logValidateMsg("Native validation failed due to: Input types are expected in CrossRel.");
+  if (!nestedLoopJoinRel.has_advanced_extension()) {
+    logValidateMsg("Native validation failed due to: Input types are expected in NestedLoopJoinRel.");
     return false;
   }
 
-  switch (crossRel.type()) {
-    case ::substrait::CrossRel_JoinType_JOIN_TYPE_INNER:
-    case ::substrait::CrossRel_JoinType_JOIN_TYPE_LEFT:
-    case ::substrait::CrossRel_JoinType_JOIN_TYPE_LEFT_SEMI:
+  switch (nestedLoopJoinRel.type()) {
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_INNER:
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT:
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT_SEMI:
       break;
     default:
-      LOG_VALIDATION_MSG("Unsupported Join type in CrossRel");
+      LOG_VALIDATION_MSG("Unsupported Join type in NestedLoopJoinRel");
       return false;
   }
 
-  const auto& extension = crossRel.advanced_extension();
+  const auto& extension = nestedLoopJoinRel.advanced_extension();
   TypePtr inputRowType;
   std::vector<TypePtr> types;
   if (!parseVeloxType(extension, inputRowType) || !flattenSingleLevel(inputRowType, types)) {
-    logValidateMsg("Native validation failed due to: Validation failed for input types in CrossRel");
+    logValidateMsg("Native validation failed due to: Validation failed for input types in NestedLoopJoinRel");
     return false;
   }
 
@@ -1140,11 +1161,11 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::CrossRel& crossR
   }
   auto rowType = std::make_shared<RowType>(std::move(names), std::move(types));
 
-  if (crossRel.has_expression()) {
-    if (!validateExpression(crossRel.expression(), rowType)) {
+  if (nestedLoopJoinRel.has_expression()) {
+    if (!validateExpression(nestedLoopJoinRel.expression(), rowType)) {
       return false;
     }
-    auto expression = exprConverter_->toVeloxExpr(crossRel.expression(), rowType);
+    auto expression = exprConverter_->toVeloxExpr(nestedLoopJoinRel.expression(), rowType);
     exec::ExprSet exprSet({std::move(expression)}, execCtx_.get());
   }
 
@@ -1252,10 +1273,11 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::AggregateRel& ag
     }
   }
 
-  // Validate groupings.
+  // Validate groupings. Grouping expressions live in the rel-level pool; each
+  // grouping references them by index.
   for (const auto& grouping : aggRel.groupings()) {
-    for (const auto& groupingExpr : grouping.grouping_expressions()) {
-      const auto& typeCase = groupingExpr.rex_type_case();
+    for (const auto& ref : grouping.expression_references()) {
+      const auto& typeCase = aggRel.grouping_expressions(ref).rex_type_case();
       switch (typeCase) {
         case ::substrait::Expression::RexTypeCase::kSelection:
           break;
@@ -1365,7 +1387,7 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::AggregateRel& ag
   if (aggRel.measures_size() == 0) {
     bool hasExpr = false;
     for (const auto& grouping : aggRel.groupings()) {
-      if (grouping.grouping_expressions().size() > 0) {
+      if (grouping.expression_references_size() > 0) {
         hasExpr = true;
         break;
       }
@@ -1424,8 +1446,8 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::Rel& rel) {
   if (rel.has_join()) {
     return validate(rel.join());
   }
-  if (rel.has_cross()) {
-    return validate(rel.cross());
+  if (rel.has_nested_loop_join()) {
+    return validate(rel.nested_loop_join());
   }
   if (rel.has_read()) {
     return validate(rel.read());

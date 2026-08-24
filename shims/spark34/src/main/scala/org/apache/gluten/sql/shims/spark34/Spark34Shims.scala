@@ -70,7 +70,8 @@ class Spark34Shims extends SparkShims {
       Sig[CheckOverflowInTableInsert](ExpressionNames.CHECK_OVERFLOW_IN_TABLE_INSERT),
       Sig[ArrayAppend](ExpressionNames.ARRAY_APPEND),
       Sig[UrlEncode](ExpressionNames.URL_ENCODE),
-      Sig[UrlDecode](ExpressionNames.URL_DECODE)
+      Sig[UrlDecode](ExpressionNames.URL_DECODE),
+      Sig[RegExpInStr](ExpressionNames.REGEXP_INSTR)
     )
   }
 
@@ -450,6 +451,7 @@ class Spark34Shims extends SparkShims {
       case s: Subtract => s.evalMode == EvalMode.ANSI
       case d: Divide => d.evalMode == EvalMode.ANSI
       case m: Multiply => m.evalMode == EvalMode.ANSI
+      case c: Cast => c.evalMode == EvalMode.ANSI
       case i: IntegralDivide => i.evalMode == EvalMode.ANSI
       case _ => false
     }

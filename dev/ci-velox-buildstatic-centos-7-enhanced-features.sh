@@ -18,6 +18,6 @@
 set -e
 
 export NUM_THREADS=2
-cp ep/build-velox/src/socket.h /usr/include/asm-generic/socket.h 
+bash ./dev/install-linux-socket-header.sh
 ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_arrow=OFF --build_tests=ON --build_benchmarks=ON \
                            --build_examples=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON --enable_enhanced_features=ON

@@ -202,7 +202,6 @@ object CHExpressionUtil {
     BITMAP_CONSTRUCT_AGG -> DefaultValidator(),
     TO_UTC_TIMESTAMP -> UtcTimestampValidator(),
     FROM_UTC_TIMESTAMP -> UtcTimestampValidator(),
-    STACK -> DefaultValidator(),
     RAISE_ERROR -> DefaultValidator(),
     WIDTH_BUCKET -> DefaultValidator(),
     MAKE_DATE -> DefaultValidator(),
@@ -212,6 +211,10 @@ object CHExpressionUtil {
     VARCHAR_TYPE_WRITE_SIDE_CHECK -> DefaultValidator(),
     CHAR_TYPE_WRITE_SIDE_CHECK -> DefaultValidator(),
     READ_SIDE_PADDING -> DefaultValidator(),
-    DIV -> DefaultValidator()
+    DIV -> DefaultValidator(),
+    REGEXP_INSTR -> DefaultValidator(),
+    DAY_NAME -> DefaultValidator(),
+    MONTH_NAME -> DefaultValidator(),
+    FORMAT_NUMBER -> DefaultValidator()
   )
 }

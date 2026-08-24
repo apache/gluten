@@ -714,6 +714,71 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  testWithMinSparkVersion("regexp_instr", "3.4") {
+    // Two-argument form.
+    runQueryAndCompare("SELECT regexp_instr(c_comment, '\\w+') FROM customer limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // No match returns 0.
+    runQueryAndCompare("SELECT regexp_instr(c_comment, '#[0-9]+#') FROM customer limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Three-argument form: Spark ignores the group index and Velox has no such
+    // argument, so the idx child must be dropped while staying result-consistent.
+    runQueryAndCompare("SELECT regexp_instr(c_comment, '(\\w)(\\w)', 1) FROM customer limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Three-argument form where the requested group starts at a different
+    // position than the whole match: the whole match "a1" starts at 1 while
+    // group 2 "1" starts at 2. Spark ignores idx and returns 1, so this guards
+    // against any future divergence if Spark starts honoring the group index.
+    runQueryAndCompare("SELECT regexp_instr('a1b2', '([a-z])([0-9])', 2)") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  testWithMinSparkVersion("dayname", "4.0") {
+    runQueryAndCompare("SELECT dayname(l_shipdate) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  testWithMinSparkVersion("monthname", "4.0") {
+    runQueryAndCompare("SELECT monthname(l_shipdate) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("format_number") {
+    // Integer / bigint input with different decimal places.
+    runQueryAndCompare("SELECT format_number(l_partkey, 0) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare("SELECT format_number(l_orderkey, 2) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Floating-point input, exercising HALF_EVEN rounding and thousands separators.
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_quantity as double), 1) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_discount as double), 3) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double.
+    // Decimal input has no matching signature, so it must fall back to vanilla Spark.
+    runQueryAndCompare("SELECT format_number(l_quantity, 1) FROM lineitem limit 50") {
+      checkSparkPlan[ProjectExec]
+    }
+    // Velox only implements the integer decimal-places form. The string-format form
+    // (e.g. '#,###.##') has no matching signature, so it must fall back to vanilla Spark.
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_quantity as double), '#,###.##') FROM lineitem limit 50") {
+      checkSparkPlan[ProjectExec]
+    }
+  }
+
   testWithMinSparkVersion("mask", "3.4") {
     runQueryAndCompare("SELECT mask(c_comment) FROM customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]

@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.iterator.Iterators
 
 import org.apache.spark.{broadcast, SparkContext}
@@ -38,7 +39,14 @@ case class VeloxBroadcastBuildSideRDD(
       case unsafe: UnsafeColumnarBuildSideRelation =>
         unsafe.isOffload
     }
-    val output = if (isBNL || !offload) {
+    // With cuDF enabled the hash join runs as CudfHashJoin, which builds its own GPU
+    // hash table from the build-side value stream and cannot consume the prebuilt CPU
+    // OpaqueHashTable. Feeding Iterator.empty here silently produces empty join
+    // results, so stream the broadcast batches instead (the same path shuffle joins
+    // use on GPU). Skipping the CPU cache build also keeps hybrid mode correct:
+    // VeloxBroadcastBuildSideCache.get finds no table, so the HashJoinNode carries no
+    // reusable table and a CPU-fallback join builds from this stream as usual.
+    val output = if (isBNL || !offload || GlutenConfig.get.enableColumnarCudf) {
       val relation = broadcasted.value.asReadOnlyCopy()
       Iterators
         .wrap(relation.deserialized)

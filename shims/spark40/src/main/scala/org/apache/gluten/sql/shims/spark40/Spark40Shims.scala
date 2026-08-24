@@ -67,6 +67,9 @@ import scala.reflect.ClassTag
 
 class Spark40Shims extends SparkShims {
 
+  override def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] =
+    plan.stream
+
   override def scalarExpressionMappings: Seq[Sig] = {
     Seq(
       Sig[Empty2Null](ExpressionNames.EMPTY2NULL),
@@ -78,7 +81,10 @@ class Spark40Shims extends SparkShims {
       Sig[KnownNotContainsNull](ExpressionNames.KNOWN_NOT_CONTAINS_NULL),
       Sig[UrlDecode](ExpressionNames.URL_DECODE),
       Sig[ToPrettyString](ExpressionNames.TO_PRETTY_STRING),
-      Sig[RandStr](ExpressionNames.RANDSTR)
+      Sig[RandStr](ExpressionNames.RANDSTR),
+      Sig[RegExpInStr](ExpressionNames.REGEXP_INSTR),
+      Sig[DayName](ExpressionNames.DAY_NAME),
+      Sig[MonthName](ExpressionNames.MONTH_NAME)
     )
   }
 

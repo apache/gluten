@@ -30,7 +30,6 @@ on:
       - 'tools/gluten-it/**'
       - 'cpp-ch/**'
       - 'gluten-delta/**'
-      - 'gluten-ras/**'
       - 'gluten-ui/**'
       - 'gluten-kafka/**'
       - '!shims/spark40/**'

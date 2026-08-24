@@ -907,7 +907,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHashUDAQueryWithControlledFallbackSuite]
   enableSuite[GlutenSQLQuerySuiteAE]
   enableSuite[GlutenWindowQuerySuite]
-  enableSuite[GlutenImplicitsTest]
   enableSuite[GlutenCollapseProjectExecTransformerSuite]
   enableSuite[GlutenSparkSessionExtensionSuite]
     .includeGlutenTest("customColumnarOp")

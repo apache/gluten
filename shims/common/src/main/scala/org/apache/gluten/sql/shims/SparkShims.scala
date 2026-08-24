@@ -250,6 +250,14 @@ trait SparkShims {
   /** Shim method for usages from GlutenExplainUtils.scala. */
   def unsetOperatorId(plan: QueryPlan[_]): Unit
 
+  /**
+   * Returns the streaming source associated with a [[LocalTableScanExec]], if any. The `stream`
+   * field only exists on Spark 4.0+ (where `LocalTableScanExec` mixes in
+   * `StreamSourceAwareSparkPlan`); on Spark 3.x local relations have no streaming concept, so the
+   * default implementation returns None.
+   */
+  def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] = None
+
   def isParquetFileEncrypted(footer: ParquetMetadata): Boolean
 
   def shouldFallbackForParquetVariantAnnotation(footer: ParquetMetadata): Boolean = false

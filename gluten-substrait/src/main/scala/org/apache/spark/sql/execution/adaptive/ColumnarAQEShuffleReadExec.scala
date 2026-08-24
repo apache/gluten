@@ -31,48 +31,58 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * ShuffleQueryStageExec if executionMode is set by the planner.
  *
  * @param delegate
- *   The AQEShuffleReadExec or ShuffleQueryStageExec.
+ *   AQEShuffleReadExec, ShuffleQueryStageExec, or (during canonicalization) ShuffleExchange.
  * @param executionMode
  *   The execution mode of the current AQE stage.
  */
 case class ColumnarAQEShuffleReadExec(
-    delegate: Either[AQEShuffleReadExec, ShuffleQueryStageExec],
+    delegate: SparkPlan,
     executionMode: StageExecutionMode) extends UnaryExecNode {
 
   override def nodeName: String = s"ColumnarAQEShuffleRead(${executionMode.name})"
 
-  private val isAQEShuffleRead = delegate.isLeft
+  override def supportsColumnar: Boolean = true
 
-  private val aqeReader: AQEShuffleReadExec = {
-    if (isAQEShuffleRead) {
-      delegate.left.get
-    } else {
-      // Wrap ShuffleQueryStageExe with dummy PartitionSpecs.
-      val queryStageExec = delegate.right.get
-      // Create CoalescedPartitionSpec for each partition.
-      val partitionSpecs =
-        Array.tabulate(queryStageExec.shuffle.numPartitions)(i => CoalescedPartitionSpec(i, i + 1))
-      AQEShuffleReadExec(queryStageExec, partitionSpecs)
+  override def child: SparkPlan = delegate match {
+    case AQEShuffleReadExec(c, _) => c
+    case _ => delegate
+  }
+
+  override def output: Seq[Attribute] = delegate.output
+
+  override lazy val outputPartitioning: Partitioning = delegate.outputPartitioning
+
+  override protected def stringArgs: Iterator[Any] = {
+    delegate match {
+      case a: AQEShuffleReadExec => a.stringArgs
+      case _ => super.stringArgs
     }
   }
 
-  override def supportsColumnar: Boolean = true
+  override protected def withNewChildInternal(newChild: SparkPlan): ColumnarAQEShuffleReadExec = {
+    delegate match {
+      case a: AQEShuffleReadExec => copy(delegate = a.withNewChildren(Seq(newChild)))
+      case _ => copy(delegate = newChild)
+    }
+  }
 
-  override def child: SparkPlan = aqeReader.child
-
-  override def output: Seq[Attribute] = aqeReader.child.output
-
-  override lazy val outputPartitioning: Partitioning = aqeReader.outputPartitioning
-
-  override def stringArgs: Iterator[Any] = aqeReader.stringArgs
+  private lazy val aqeReader: AQEShuffleReadExec = {
+    delegate match {
+      case a: AQEShuffleReadExec => a
+      case s: ShuffleQueryStageExec =>
+        // Wrap ShuffleQueryStageExec with dummy PartitionSpecs by creating CoalescedPartitionSpec
+        // for each partition.
+        val partitionSpecs =
+          Array.tabulate(s.shuffle.numPartitions)(i => CoalescedPartitionSpec(i, i + 1))
+        AQEShuffleReadExec(s, partitionSpecs)
+      case _ =>
+        // The child is Exchange during canonicalization.
+        throw new IllegalStateException(
+          s"Cannot get aqeReader from delegate node ${delegate.nodeName}.")
+    }
+  }
 
   @transient override lazy val metrics: Map[String, SQLMetric] = aqeReader.metrics
-
-  private def isCoalescedSpec(spec: ShufflePartitionSpec) = {
-    val method = classOf[AQEShuffleReadExec].getDeclaredMethod("isCoalescedSpec")
-    method.setAccessible(true)
-    method.invoke(aqeReader, spec).asInstanceOf[Boolean]
-  }
 
   private def shuffleStage = {
     val method = classOf[AQEShuffleReadExec].getDeclaredMethod("shuffleStage")
@@ -89,7 +99,8 @@ case class ColumnarAQEShuffleReadExec(
   private lazy val shuffleRDD: RDD[_] = {
     shuffleStage match {
       case Some(stage) =>
-        if (isAQEShuffleRead) {
+        // Only send driver metrics if it's a wrapper for AQEShuffleRead.
+        if (delegate.isInstanceOf[AQEShuffleReadExec]) {
           sendDriverMetrics()
         }
         stage.shuffle match {
@@ -107,16 +118,5 @@ case class ColumnarAQEShuffleReadExec(
 
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = {
     shuffleRDD.asInstanceOf[RDD[ColumnarBatch]]
-  }
-
-  override protected def withNewChildInternal(newChild: SparkPlan): ColumnarAQEShuffleReadExec = {
-    if (isAQEShuffleRead) {
-      copy(delegate =
-        Left(delegate.left.get.withNewChildren(Seq(newChild)).asInstanceOf[AQEShuffleReadExec]))
-    } else {
-      copy(delegate =
-        Right(
-          delegate.right.get.withNewChildren(Seq(newChild)).asInstanceOf[ShuffleQueryStageExec]))
-    }
   }
 }

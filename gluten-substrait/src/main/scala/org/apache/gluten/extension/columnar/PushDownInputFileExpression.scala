@@ -17,6 +17,7 @@
 package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.execution.{BatchScanExecTransformerBase, FileSourceScanExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.expression.ConverterUtils
 
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, NamedExpression}
 import org.apache.spark.sql.catalyst.optimizer.CollapseProjectShim
@@ -24,7 +25,6 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{DeserializeToObjectExec, FileSourceScanExec, FilterExec, LeafExecNode, ProjectExec, SerializeFromObjectExec, SparkPlan, UnionExec}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
-import org.apache.spark.sql.internal.SQLConf
 
 import scala.collection.mutable
 
@@ -54,11 +54,10 @@ object PushDownInputFileExpression {
   }
 
   def containsInputFileRelatedExpr(expr: Expression): Boolean = {
-    val resolver = SQLConf.get.resolver
     expr match {
       case _: InputFileName | _: InputFileBlockStart | _: InputFileBlockLength => true
       case a: AttributeReference =>
-        INPUT_FILE_ATTR_NAMES.exists(resolver(a.name, _))
+        INPUT_FILE_ATTR_NAMES.contains(ConverterUtils.normalizeColName(a.name))
       case _ => expr.children.exists(containsInputFileRelatedExpr)
     }
   }
