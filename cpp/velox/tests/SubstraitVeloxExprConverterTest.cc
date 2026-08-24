@@ -18,6 +18,7 @@
 #include "substrait/SubstraitToVeloxExpr.h"
 
 #include "velox/common/base/tests/GTestUtils.h"
+#include "velox/core/QueryConfig.h"
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
 #include "velox/exec/tests/utils/OperatorTestBase.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
@@ -123,8 +124,13 @@ TEST_F(SubstraitVeloxExprConverterExecutionTest, nestedFieldReferenceUsesOrdinal
   EXPECT_EQ(inputField->name(), "acc");
 
   auto plan = exec::test::PlanBuilder().values({input}).projectExpressions({expression}).planNode();
-  auto result = exec::test::AssertQueryBuilder(plan).copyResults(pool());
-  test::assertEqualVectors(makeFlatVector<bool>({false, true}), result->childAt(0));
+  for (const bool simplified : {false, true}) {
+    SCOPED_TRACE(simplified ? "simplified=true" : "simplified=false");
+    auto result = exec::test::AssertQueryBuilder(plan)
+                      .config(core::QueryConfig::kExprEvalSimplified, simplified ? "true" : "false")
+                      .copyResults(pool());
+    test::assertEqualVectors(makeFlatVector<bool>({false, true}), result->childAt(0));
+  }
 }
 
 } // namespace gluten

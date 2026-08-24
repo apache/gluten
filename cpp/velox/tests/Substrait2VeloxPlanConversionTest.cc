@@ -289,6 +289,69 @@ TEST_F(Substrait2VeloxPlanConversionTest, filterUpper) {
       planNode->toString(true, true));
 }
 
+TEST_F(Substrait2VeloxPlanConversionTest, expandSelectionMustBeTopLevelField) {
+  const auto makeExpandRel = [](bool nestedSelection) {
+    ::substrait::Rel rel;
+    auto* expand = rel.mutable_expand();
+    expand->mutable_common()->mutable_direct();
+
+    auto* read = expand->mutable_input()->mutable_read();
+    read->mutable_common()->mutable_direct();
+    auto* schema = read->mutable_base_schema();
+    for (const auto* name : {"nested", "mask", "value"}) {
+      schema->add_names(name);
+    }
+
+    auto* nestedType = schema->mutable_struct_()->add_types()->mutable_struct_();
+    nestedType->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    nestedType->add_names("");
+    nestedType->add_names("");
+    nestedType->add_types()->mutable_i64()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    nestedType->add_types()->mutable_bool_()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    schema->mutable_struct_()->add_types()->mutable_bool_()->set_nullability(
+        ::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    schema->mutable_struct_()->add_types()->mutable_i64()->set_nullability(
+        ::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+
+    auto* field = expand->add_fields()
+                      ->mutable_switching_field()
+                      ->add_duplicates()
+                      ->mutable_selection()
+                      ->mutable_direct_reference()
+                      ->mutable_struct_field();
+    field->set_field(nestedSelection ? 0 : 1);
+    if (nestedSelection) {
+      field->mutable_child()->mutable_struct_field()->set_field(1);
+    }
+    return rel;
+  };
+
+  const auto makeConverter = [&] {
+    return std::make_shared<SubstraitToVeloxPlanConverter>(
+        pool(),
+        veloxCfg_.get(),
+        std::vector<std::shared_ptr<ResultIterator>>{},
+        VeloxConnectorIds{.hive = facebook::velox::exec::test::kHiveConnectorId},
+        std::nullopt,
+        std::nullopt,
+        /*validationMode=*/true);
+  };
+
+  auto plan = makeConverter()->toVeloxPlan(makeExpandRel(/*nestedSelection=*/false));
+  auto expand = std::dynamic_pointer_cast<const core::ExpandNode>(plan);
+  ASSERT_NE(expand, nullptr);
+  ASSERT_EQ(expand->projections().size(), 1);
+  ASSERT_EQ(expand->projections().front().size(), 1);
+  auto field = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(expand->projections().front().front());
+  ASSERT_NE(field, nullptr);
+  EXPECT_TRUE(field->isInputColumn());
+  EXPECT_EQ(field->name(), "n0_1");
+
+  VELOX_ASSERT_USER_THROW(
+      makeConverter()->toVeloxPlan(makeExpandRel(/*nestedSelection=*/true)),
+      "Expand Operator only supports a top-level field or literal.");
+}
+
 TEST_F(Substrait2VeloxPlanConversionTest, aggregateMaskMustBeTopLevelField) {
   const auto makeAggregateRel = [](bool nestedMask) {
     ::substrait::Rel rel;

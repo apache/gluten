@@ -629,6 +629,11 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::ExpandRel& expan
         const auto& typeCase = projectExpr.rex_type_case();
         switch (typeCase) {
           case ::substrait::Expression::RexTypeCase::kSelection:
+            if (!SubstraitParser::isTopLevelFieldSelection(projectExpr)) {
+              LOG_VALIDATION_MSG("Expand Operator only supports a top-level field or literal.");
+              return false;
+            }
+            break;
           case ::substrait::Expression::RexTypeCase::kLiteral:
             break;
           default:
@@ -1296,13 +1301,9 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::AggregateRel& ag
     if (smea.has_filter()) {
       ::substrait::Expression aggRelMask = smea.filter();
       if (aggRelMask.ByteSizeLong() > 0) {
-        auto typeCase = aggRelMask.rex_type_case();
-        switch (typeCase) {
-          case ::substrait::Expression::RexTypeCase::kSelection:
-            break;
-          default:
-            LOG_VALIDATION_MSG("Only field is supported in aggregate filter expression.");
-            return false;
+        if (!SubstraitParser::isTopLevelFieldSelection(aggRelMask)) {
+          LOG_VALIDATION_MSG("Aggregation Operator only supports a top-level field mask.");
+          return false;
         }
       }
     }

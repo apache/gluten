@@ -52,6 +52,10 @@ class SubstraitParser {
   /// field.
   static bool parseReferenceSegment(const ::substrait::Expression::ReferenceSegment& refSegment, uint32_t& fieldIndex);
 
+  /// Return true if the expression selects a non-negative top-level field from
+  /// the input row.
+  static bool isTopLevelFieldSelection(const ::substrait::Expression& expression);
+
   /// Make names in the format of {prefix}_{index}.
   static std::vector<std::string> makeNames(const std::string& prefix, int size);
 
