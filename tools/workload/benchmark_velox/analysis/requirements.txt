@@ -36,9 +36,9 @@ fire==0.7.0
 fonttools==4.61.0
 fqdn==1.5.1
 gitdb==4.0.11
-GitPython==3.1.54
+GitPython==3.1.58
 greenlet==3.0.3
-httplib2==0.20.2
+httplib2==0.32.0
 hyperlink==21.0.0
 idna==3.15
 importlib-metadata==4.6.4
@@ -109,7 +109,7 @@ psutil==5.9.8
 ptyprocess==0.7.0
 pure-eval==0.2.2
 pyarrow==23.0.1
-pyasn1==0.6.3
+pyasn1==0.6.4
 pyasn1-modules==0.2.1
 pycparser==2.22
 Pygments>=2.15.0

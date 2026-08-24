@@ -61,7 +61,7 @@ size_t SortRelParser::parseLimit(std::list<const substrait::Rel *> & rel_stack_)
     if (last_rel.has_fetch())
     {
         const auto & fetch_rel = last_rel.fetch();
-        return fetch_rel.count();
+        return fetch_rel.has_count_expr() ? fetch_rel.count_expr().literal().i64() : 0;
     }
     return 0;
 }

@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution.enhanced
 
+import org.apache.gluten.config.GlutenIcebergConfig
 import org.apache.gluten.config.VeloxConfig.MAX_TARGET_FILE_SIZE_SESSION
 import org.apache.gluten.execution._
 import org.apache.gluten.tags.EnhancedFeaturesTest
@@ -773,6 +774,36 @@ class VeloxIcebergSuite extends IcebergSuite {
             s"size $defaultRowGroupBytes, but found ${finalRowGroup.compressedSize}"
         )
       }
+    }
+  }
+
+  test("iceberg write falls back when native write is disabled") {
+    withTable("iceberg_write_switch_tbl") {
+      spark.sql("CREATE TABLE iceberg_write_switch_tbl (a INT, b STRING) USING iceberg")
+
+      withSQLConf(GlutenIcebergConfig.ENABLE_NATIVE_WRITE.key -> "false") {
+        val df = spark.sql("INSERT INTO iceberg_write_switch_tbl VALUES (1, 'hello')")
+        val commandPlan =
+          df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
+        assert(
+          !commandPlan.isInstanceOf[VeloxIcebergAppendDataExec],
+          s"Iceberg write should not be offloaded when native write is disabled: $commandPlan")
+        assert(commandPlan.isInstanceOf[AppendDataExec])
+      }
+
+      // Reads stay offloaded: the write switch must not affect the read path.
+      runQueryAndCompare("SELECT * FROM iceberg_write_switch_tbl") {
+        checkGlutenPlan[IcebergScanTransformer]
+      }
+
+      // The switch is dynamic: offload resumes once it is back to the default.
+      TestUtils.checkExecutedPlanContains[VeloxIcebergAppendDataExec](
+        spark,
+        "INSERT INTO iceberg_write_switch_tbl VALUES (2, 'world')")
+
+      checkAnswer(
+        spark.sql("SELECT * FROM iceberg_write_switch_tbl ORDER BY a"),
+        Seq(Row(1, "hello"), Row(2, "world")))
     }
   }
 }

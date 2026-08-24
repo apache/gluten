@@ -23,7 +23,6 @@ on:
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
       - 'gluten-celeborn/**'
-      - 'gluten-ras/**'
       - 'gluten-core/**'
       - 'gluten-substrait/**'
       - 'gluten-arrow/**'
@@ -39,6 +38,17 @@ on:
       - 'cpp/**'
       - 'dev/**'
       - 'build/mvn'
+  # Nightly full run. PR runs trim the TPC matrices to representative JDKs and
+  # skip the OOM / random-kill chaos jobs unless native code changed (see
+  # detect-changes' `full_run` output); this scheduled run restores the full
+  # breadth once a day, so a combo dropped from the per-PR tier can stay broken
+  # for at most a day. It also gives the default branch a post-merge signal,
+  # which the per-PR-only trigger above never provided. 02:00 avoids the
+  # 00:00 velox_nightly.yml and 05:00 delta_spark_ut.yml slots.
+  schedule:
+    - cron: '0 2 * * *'
+  # On-demand full run (e.g. to re-check an extended combo before a release).
+  workflow_dispatch:
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
@@ -53,7 +63,91 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Detect which parts of the codebase were modified so downstream jobs can
+  # skip work that is irrelevant to the change (e.g. a Spark-3.3-shim-only change does
+  # not need to run spark-test-spark34/35/40/41; C++ changes still run spark-test-*
+  # jobs to validate JNI/native integration).
+  #
+  # Output flags:
+  #   cpp      – C++ sources, Velox build scripts, or dev tooling changed
+  #   java     – any cross-version Java/Scala/Maven source changed
+  #   shims33/34/35/40/41 – version-specific shim layer changed
+  #   tools_it – tools/gluten-it changed
+  #
+  # A job runs when ANY of the relevant flags is true, so:
+  #   • gluten-core change  → java=true  → all spark-test jobs run  ✓
+  #   • shims/spark35 only  → shims35=true → only spark35 jobs run  ✓
+  #   • pure cpp change     → cpp=true   → only native/tpc jobs run ✓
+  #
+  # The `full_run` flag is true on schedule/workflow_dispatch runs: those have no
+  # PR diff to filter on, so every path flag is forced true AND the jobs below
+  # widen their matrices to the extended combos that PR runs skip (alternative
+  # JDKs, older Celeborn, chaos tests on java-only changes).
+  detect-changes:
+    # Every job chains off this one, so the fork guard here skips the whole
+    # workflow: a fork with Actions enabled would otherwise burn ~1800 runner
+    # minutes nightly on a signal nobody reads.
+    if: github.event_name != 'schedule' || github.repository_owner == 'apache'
+    runs-on: ubuntu-22.04
+    outputs:
+      full_run: ${{ steps.filter.outputs.full_run }}
+      cpp:      ${{ steps.filter.outputs.cpp }}
+      java:     ${{ steps.filter.outputs.java }}
+      shims33:  ${{ steps.filter.outputs.shims33 }}
+      shims34:  ${{ steps.filter.outputs.shims34 }}
+      shims35:  ${{ steps.filter.outputs.shims35 }}
+      shims40:  ${{ steps.filter.outputs.shims40 }}
+      shims41:  ${{ steps.filter.outputs.shims41 }}
+      tools_it: ${{ steps.filter.outputs.tools_it }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed paths
+        id: filter
+        run: |
+          event="${{ github.event_name }}"
+          if [ "$event" = "schedule" ] || [ "$event" = "workflow_dispatch" ]; then
+            # schedule / workflow_dispatch: no PR diff to inspect.
+            # For scheduled runs, skip entirely when no commits landed in the
+            # last 24 hours — avoids burning runner minutes on idle days.
+            if [ "$event" = "schedule" ]; then
+              recent=$(git log --oneline --after="24 hours ago" HEAD | wc -l)
+              if [ "$recent" -eq 0 ]; then
+                echo "No commits in the last 24 hours -- skipping nightly run."
+                for flag in cpp java shims33 shims34 shims35 shims40 shims41 tools_it; do
+                  echo "$flag=false" >> $GITHUB_OUTPUT
+                done
+                echo "full_run=false" >> $GITHUB_OUTPUT
+                exit 0
+              fi
+            fi
+            # Run everything, including the extended matrices PR runs skip.
+            for flag in cpp java shims33 shims34 shims35 shims40 shims41 tools_it; do
+              echo "$flag=true" >> $GITHUB_OUTPUT
+            done
+            echo "full_run=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "full_run=false" >> $GITHUB_OUTPUT
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.sha }}
+          changed=$(git diff --name-only "$BASE" "$HEAD")
+          echo "$changed"
+
+          match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
+
+          echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "shims33=$(match  '^(shims/(spark33|common)/|gluten-ut/spark33/)')"                           >> $GITHUB_OUTPUT
+          echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
+          echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
+          echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
+          echo "shims41=$(match  '^(shims/(spark41|common)/|gluten-ut/spark41/)')"                           >> $GITHUB_OUTPUT
+          echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
+
   build-native-lib-centos-7:
+    needs: detect-changes
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -88,25 +182,39 @@ jobs:
 
       - name: "Save ccache"
         if: always()
-        uses: actions/cache/save@v4
-        id: ccache
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos7-release-default-${{github.sha}}
+          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
       - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
           if-no-files-found: error
+          retention-days: 1
 
   tpc-test-ubuntu:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
         os: [ "ubuntu:22.04" ]
         spark: [ "spark-3.3", "spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"  ]
-        java: [ "java-8", "java-11", "java-17", "java-21", "java-25" ]
+        # PR runs test the primary JDK per Spark line (8 for 3.x, 17 for 4.x --
+        # after the static excludes below that is 6 combos instead of 11). The
+        # alternative-JDK combos (11/21/25) validate build + TPC run under JDKs
+        # that Gluten changes rarely break in a JDK-specific way; the nightly
+        # full_run keeps covering them daily so a break surfaces within a day
+        # instead of costing ~75 runner-minutes on every PR.
+        java: >-
+          ${{ fromJSON(needs.detect-changes.outputs.full_run == 'true'
+          && '["java-8", "java-11", "java-17", "java-21", "java-25"]'
+          || '["java-8", "java-17"]') }}
         # Spark supports JDK17 since 3.3.
         exclude:
           - spark: spark-3.3
@@ -146,7 +254,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Setup tzdata
         run: |
           sed -i 's|http://archive|http://eu.archive|g' /etc/apt/sources.list
@@ -229,13 +337,28 @@ jobs:
           fi
 
   tpc-test-centos8:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
+      # This job's per-PR value is OS compatibility of the same native lib and
+      # TPC run that tpc-test-ubuntu already exercises combo-by-combo, so PRs
+      # test one representative combo per Spark line ({3.5, 4.1} x primary JDK
+      # = 2 jobs after the excludes below) and the nightly full_run restores
+      # the whole 7-combo fan-out.
       matrix:
         os: [ "centos:8" ]
-        spark: [ "spark-3.3", "spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1" ]
-        java: [ "java-8", "java-11", "java-17" ]
+        spark: >-
+          ${{ fromJSON(needs.detect-changes.outputs.full_run == 'true'
+          && '["spark-3.3", "spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"]'
+          || '["spark-3.5", "spark-4.1"]') }}
+        java: >-
+          ${{ fromJSON(needs.detect-changes.outputs.full_run == 'true'
+          && '["java-8", "java-11", "java-17"]'
+          || '["java-8", "java-17"]') }}
         # Spark supports JDK17 since 3.3.
         exclude:
           - spark: spark-3.4
@@ -263,7 +386,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Update mirror list
         run: |
           if [ "${{ matrix.os }}" = "centos:7" ] || [ "${{ matrix.os }}" = "centos:8" ]; then
@@ -312,7 +435,11 @@ jobs:
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
 
   tpc-test-centos7:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -325,7 +452,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Build and run TPCH/DS tests
         run: |
           docker pull centos:7
@@ -355,7 +482,14 @@ jobs:
           "
 
   tpc-test-ubuntu-oom:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    # Chaos/stress tier: this job probes native memory-pressure behaviour, so
+    # per-PR it only runs when native code changed (cpp=true). For java-only
+    # changes its ~60 runner-minutes rarely produce PR-specific signal; the
+    # nightly full_run still exercises it daily.
+    if: >-
+      needs.detect-changes.outputs.full_run == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -379,7 +513,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Setup java
         run: |
           sudo apt-get update
@@ -465,7 +599,14 @@ jobs:
             -d=IO_THREADS:0,spark.gluten.sql.columnar.backend.velox.IOThreads=0
 
   tpc-test-ubuntu-randomkill:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    # Chaos/stress tier (see tpc-test-ubuntu-oom): random task kills mainly
+    # probe native/JNI shutdown robustness, and at 3 shards this is the single
+    # most expensive TPC job (~190 runner-minutes). Per-PR only for native
+    # changes; nightly full_run covers the rest.
+    if: >-
+      needs.detect-changes.outputs.full_run == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -490,7 +631,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Setup java
         run: |
           sudo apt-get update
@@ -513,7 +654,11 @@ jobs:
             --data-gen=skip  --random-kill-tasks --no-session-reuse --shard=${{ matrix.shard }}/3
 
   tpc-test-centos8-uniffle:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -528,7 +673,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Install Uniffle ${{ matrix.uniffle }}
         run: |
           export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
@@ -559,12 +704,23 @@ jobs:
             --local --preset=velox-with-uniffle --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
 
   tpc-test-ubuntu-2204-celeborn:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
         spark: [ "spark-3.3" ]
-        celeborn: [ "celeborn-0.6.3", "celeborn-0.5.4"]
+        # Both shuffle writers stay per-PR (they exercise different Gluten
+        # writer code paths); the older Celeborn release is client-compat
+        # coverage that the nightly full_run re-checks daily instead of every
+        # PR paying for both versions.
+        celeborn: >-
+          ${{ fromJSON(needs.detect-changes.outputs.full_run == 'true'
+          && '["celeborn-0.6.3", "celeborn-0.5.4"]'
+          || '["celeborn-0.6.3"]') }}
         writer: ["sort", "hash"]
     runs-on: ubuntu-22.04
     container: centos:8
@@ -574,7 +730,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Update mirror list
         run: |
           sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
@@ -632,7 +788,11 @@ jobs:
           fi
 
   spark-test-spark33:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims33 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
@@ -643,7 +803,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -661,7 +821,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-3.3 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark33/spark_home/" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v7
@@ -685,7 +845,11 @@ jobs:
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark33-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims33 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
@@ -696,7 +860,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
 
       - name: Build and Run unit test for Spark 3.3.1 (slow tests)
         run: |
@@ -728,7 +892,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark34:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims34 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -741,7 +909,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Prepare spark.test.home for Spark 3.4.4 (other tests)
         run: |
           dnf module -y install python39 && \
@@ -758,7 +926,7 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           export SPARK_HOME=/opt/shims/spark34/spark_home/
-          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest"
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
             $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
@@ -795,7 +963,11 @@ jobs:
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark34-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims34 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -808,7 +980,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Build and Run unit test for Spark 3.4.4 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
@@ -843,7 +1015,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark35:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims35 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -858,7 +1034,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -874,7 +1050,7 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest"
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
             $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
@@ -911,7 +1087,11 @@ jobs:
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark35-scala213:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims35 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -926,7 +1106,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -942,7 +1122,7 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest"
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
             $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35-scala-2.13/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
@@ -973,7 +1153,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark35-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims35 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -988,7 +1172,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Build and Run unit test for Spark 3.5.5 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1022,10 +1206,16 @@ jobs:
             **/gluten-ut/**/core.*
 
   cpp-test-udf-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk8
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 'check.py tidy commit' diffs HEAD^..HEAD, which a depth-1 clone lacks: the
+          # diff comes back empty and the check passes without inspecting anything.
+          fetch-depth: 2
       - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
         run: |
           case "$(uname -m)" in
@@ -1057,6 +1247,36 @@ jobs:
           df -a
           bash dev/ci-velox-buildshared-centos-9.sh
           ccache -s
+      # Runs in this job because clang-tidy needs the compilation database and header tree
+      # the build just produced; only 'cpp/build/' is uploaded, so shipping
+      # 'compile_commands.json' to another job leaves its '-I' paths dangling.
+      - name: Check Clang Tidy
+        # Advisory until observed green: clang-tidy re-parses a database written by
+        # gcc-toolset-12, so toolchain-level diagnostics are still possible.
+        continue-on-error: true
+        env:
+          # Make the GCC-generated database clang-safe: point clang at the libstdc++ the
+          # build used, and mirror the '-Wno-' flags cpp/CMakeLists.txt adds on its Clang
+          # branch, which the database lacks while still carrying '-Werror'.
+          CLANG_TIDY_EXTRA_ARGS: >-
+            --extra-arg=--gcc-toolchain=/opt/rh/gcc-toolset-12/root/usr
+            --extra-arg=-Wno-error
+            --extra-arg=-Wno-unknown-warning-option
+            --extra-arg=-Wno-implicit-int-float-conversion
+            --extra-arg=-Wno-nullability-completeness
+            --extra-arg=-Wno-mismatched-tags
+        run: |
+          # check.py shells out to git; the workspace is owned by another UID.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Skip the toolchain install when no C++ changed; check.py itself already no-ops.
+          if ! git diff --name-only HEAD^ HEAD | grep -qE '^cpp/.*\.(cc|cpp|h)$'; then
+            echo "No C++ changes in this pull request; skipping clang-tidy."
+            exit 0
+          fi
+          dnf install -y clang-tools-extra # TODO remove after image update
+          pip3 install regex
+          clang-tidy --version # log the version so finding changes trace to a clang bump
+          python3 dev/check.py tidy commit
       - name: Run CPP unit test
         run: |
           cd ./cpp/build && ctest -V
@@ -1105,6 +1325,8 @@ jobs:
           path: "**/target/*.log"
 
   build-cudf-centos-9:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     steps:
       - name: "node-cleanup" # by default the free runner does not have enough disk space
@@ -1131,7 +1353,7 @@ jobs:
             ccache-centos9-cudf-release-shared-${{runner.arch}}
       - name: Build Gluten native libraries
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:centos-9-jdk8-cudf bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:centos-9-jdk17-cuda13.1-cudf bash -c "
           set -e
           rm -rf /opt/rh/gcc-toolset-12 && ln -s /opt/rh/gcc-toolset-14 /opt/rh/gcc-toolset-12 # hack to use gcc 14, should upgrade in Velox build script later
           df -a
@@ -1155,6 +1377,10 @@ jobs:
           "
 
   build-fast-build-test:
+    needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-8-jdk17
     steps:
@@ -1165,7 +1391,11 @@ jobs:
           $MVN_CMD clean test-compile -Pspark-4.0 -Pscala-2.13 -Pbackends-velox -Pspark-ut -Piceberg,iceberg-test,delta,paimon -Pfast-build
 
   spark-test-spark40:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims40 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1180,7 +1410,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -1196,7 +1426,7 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest"
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
             $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
@@ -1227,7 +1457,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark40-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims40 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1242,7 +1476,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Build and Run unit test for Spark 4.0 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1276,7 +1510,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark41:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims41 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1295,7 +1533,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Prepare
         run: |
           dnf install -y python3.11 python3.11-pip python3.11-devel && \
@@ -1313,7 +1551,7 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest"
+          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
             # Group 1: streaming + gluten utils + top-level spark tests (~55 classes)
             $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
@@ -1347,7 +1585,11 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark41-slow:
-    needs: build-native-lib-centos-7
+    needs: [detect-changes, build-native-lib-centos-7]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims41 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1363,7 +1605,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases/
       - name: Build and Run unit test for Spark 4.1 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/

@@ -34,15 +34,28 @@ RELEASE_VERSION=${TAG_VERSION%-rc*}
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 GLUTEN_HOME=${CURRENT_DIR}/../../
 if [ ! -d "$GLUTEN_HOME/release/" ]; then
-  echo "Release directory does not exist."
+  echo "Release directory $GLUTEN_HOME/release/ does not exist."
+  exit 1
 fi
+
+# The bundle JAR statically links third-party code, so per ASF policy the binary
+# distribution must ship the LICENSE/NOTICE that cover it.
+LICENSE_BINARY="${GLUTEN_HOME}/LICENSE-binary"
+NOTICE_BINARY="${GLUTEN_HOME}/NOTICE-binary"
+for f in "$LICENSE_BINARY" "$NOTICE_BINARY"; do
+  if [[ ! -f "$f" ]]; then
+    echo "Missing $f, required for the binary distribution."
+    exit 1
+  fi
+done
 
 pushd $GLUTEN_HOME/release/
 
-SPARK_VERSIONS="3.3 3.4 3.5 4.0"
+SPARK_VERSIONS="3.3 3.4 3.5 4.0 4.1"
 
 for v in $SPARK_VERSIONS; do
-  if [[ "$v" == "4.0" ]]; then
+  # Spark 4.x requires Scala 2.13; the spark-4.x Maven profiles enforce it.
+  if [[ "$v" == 4.* ]]; then
     SCALA="2.13"
   else
     SCALA="2.12"
@@ -56,8 +69,16 @@ for v in $SPARK_VERSIONS; do
   fi
 
   echo "Packaging for Spark $v (Scala $SCALA)..."
-  tar -czf apache-gluten-${RELEASE_VERSION}-bin-spark-${v}.tar.gz \
-      $JAR
+  # Stage a versioned top-level directory so extracting does not scatter files into the
+  # current directory, and so LICENSE/NOTICE travel with the JAR.
+  BIN_DIR="apache-gluten-${RELEASE_VERSION}-bin-spark-${v}"
+  rm -rf "${BIN_DIR}"
+  mkdir -p "${BIN_DIR}"
+  cp "$JAR" "${BIN_DIR}/"
+  cp "$LICENSE_BINARY" "${BIN_DIR}/LICENSE"
+  cp "$NOTICE_BINARY" "${BIN_DIR}/NOTICE"
+  tar -czf "${BIN_DIR}.tar.gz" "${BIN_DIR}"
+  rm -rf "${BIN_DIR}"
 done
 
 SRC_ZIP="${TAG}.zip"
@@ -69,6 +90,7 @@ unzip -q ${SRC_ZIP}
 
 # Rename folder to remove "rc*" for formal release.
 mv gluten-${TAG_VERSION} ${SRC_DIR}
+
 # Remove .git and .github and other unwanted files from the source dir.
 rm -rf ${SRC_DIR}/.git \
        ${SRC_DIR}/.github \
@@ -76,6 +98,10 @@ rm -rf ${SRC_DIR}/.git \
        ${SRC_DIR}/.gitignore \
        ${SRC_DIR}/.gitmodules \
        ${SRC_DIR}/.idea
+rm -f "${SRC_DIR}/dev/vcpkg/.gitignore" \
+      "${SRC_DIR}/gluten-uniffle/.gitkeep" \
+      "${SRC_DIR}/tools/qualification-tool/.gitignore"
+
 tar -czf apache-gluten-${RELEASE_VERSION}-src.tar.gz ${SRC_DIR}
 rm -r ${SRC_ZIP} ${SRC_DIR}
 

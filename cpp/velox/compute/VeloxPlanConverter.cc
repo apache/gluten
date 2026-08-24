@@ -137,9 +137,10 @@ std::shared_ptr<DeltaSplitInfo> parseDeltaSplitInfo(
 
 std::shared_ptr<SplitInfo> parseScanSplitInfo(
     const facebook::velox::config::ConfigBase* veloxCfg,
-    const google::protobuf::RepeatedPtrField<substrait::ReadRel_LocalFiles_FileOrFiles>& fileList) {
+    const substrait::ReadRel_LocalFiles& localFiles) {
   using SubstraitFileFormatCase = ::substrait::ReadRel_LocalFiles_FileOrFiles::FileFormatCase;
 
+  const auto& fileList = localFiles.items();
   auto splitInfo = std::make_shared<SplitInfo>();
   splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
   splitInfo->paths.reserve(fileList.size());
@@ -193,7 +194,8 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
         splitInfo->format = dwio::common::FileFormat::TEXT;
         break;
       case SubstraitFileFormatCase::kIceberg:
-        splitInfo = IcebergPlanConverter::parseIcebergSplitInfo(file, std::move(splitInfo));
+        splitInfo =
+            IcebergPlanConverter::parseIcebergSplitInfo(file, localFiles.advanced_extension(), std::move(splitInfo));
         break;
       case SubstraitFileFormatCase::kDelta:
         splitInfo = parseDeltaSplitInfo(file, std::move(splitInfo));
@@ -237,8 +239,7 @@ void parseLocalFileNodes(
   std::vector<std::shared_ptr<SplitInfo>> splitInfos;
   splitInfos.reserve(localFiles.size());
   for (const auto& localFile : localFiles) {
-    const auto& fileList = localFile.items();
-    splitInfos.push_back(parseScanSplitInfo(veloxCfg, fileList));
+    splitInfos.push_back(parseScanSplitInfo(veloxCfg, localFile));
   }
 
   planConverter->setSplitInfos(std::move(splitInfos));

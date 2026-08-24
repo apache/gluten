@@ -1423,6 +1423,31 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     VeloxColumnarToCarrierRowExec.enforce(plan)
   }
 
+  override def isSupportLocalTableScanExec(plan: LocalTableScanExec): Boolean = {
+    // `rows` is @transient, so it becomes null after Java serialization (e.g. an AQE sub-plan
+    // shipped across an RPC boundary). A null rows payload signals a deserialized plan that can
+    // no longer be executed natively, so offload must be skipped to avoid a later NPE.
+    if (plan.rows == null) {
+      logDebug("LocalTableScan offload skipped: deserialized plan with null transient rows")
+      return false
+    }
+    // A streaming source (Spark 4.0+ only) must keep vanilla execution.
+    if (SparkShimLoader.getSparkShims.getLocalTableScanStream(plan).isDefined) {
+      logDebug("LocalTableScan offload skipped: streaming source detected")
+      return false
+    }
+    if (!GlutenConfig.get.enableColumnarLocalTableScan) {
+      logDebug(
+        "LocalTableScan offload skipped: " +
+          s"${GlutenConfig.COLUMNAR_LOCAL_TABLE_SCAN_ENABLED.key}=false")
+      return false
+    }
+    true
+  }
+
+  override def getLocalTableScanTransform(plan: LocalTableScanExec): LocalTableScanTransformer =
+    VeloxLocalTableScanTransformer.replace(plan)
+
   override def genTimestampAddTransformer(
       substraitExprName: String,
       left: ExpressionTransformer,

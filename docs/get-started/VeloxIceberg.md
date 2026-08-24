@@ -98,6 +98,14 @@ Gluten uses column name to match the parquet file, so if the column is renamed o
 the added column name is same to the deleted column, the scan will fall back.
 
 ## Configuration
+### Gluten Options
+| Gluten option | Default | Description |
+| --- | --- | --- |
+| spark.gluten.sql.columnar.iceberg.enableNativeRead | true | Enable offloading Iceberg scans to the native backend. When disabled, Iceberg scans fall back to vanilla Spark while scans of other formats stay offloaded. |
+| spark.gluten.sql.columnar.iceberg.enableNativeWrite | true | Enable offloading Iceberg writes to the native backend. When disabled, Iceberg writes fall back to vanilla Spark. Note the Velox backend additionally requires `spark.gluten.sql.enable.enhancedFeatures` to be enabled. |
+
+Both options are runtime modifiable, so they can be flipped per session with `SET`.
+
 ### Catalogs
 All the catalog configurations are transparent to Gluten
 

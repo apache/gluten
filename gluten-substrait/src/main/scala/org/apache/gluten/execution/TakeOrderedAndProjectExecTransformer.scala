@@ -143,9 +143,9 @@ case class TakeOrderedAndProjectExecTransformer(
       } else {
         val limitStagePlan =
           WholeStageTransformer(limitBeforeShuffle)(transformStageCounter.incrementAndGet())
-        val cudfTag = child.getTagValue(CudfTag.CudfTag)
+        val cudfTag = child.getTagValue(CudfTag.CudfValidationTag)
         if (cudfTag.isDefined) {
-          limitStagePlan.setTagValue(CudfTag.CudfTag, cudfTag.get)
+          limitStagePlan.setTagValue(CudfTag.CudfValidationTag, cudfTag.get)
         }
         val shuffleExec = ShuffleExchangeExec(SinglePartition, limitStagePlan)
         val transformedShuffleExec =

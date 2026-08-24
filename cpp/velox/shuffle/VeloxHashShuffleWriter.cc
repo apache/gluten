@@ -893,9 +893,12 @@ inline bool VeloxHashShuffleWriter::beyondThreshold(uint32_t partitionId, uint32
 void VeloxHashShuffleWriter::calculateSimpleColumnBytes() {
   fixedWidthBufferBytes_ = 0;
   for (size_t col = 0; col < fixedWidthColumnCount_; ++col) {
-    auto colIdx = simpleColumnIndices_[col];
-    // `bool(1) >> 3` gets 0, so +7
-    fixedWidthBufferBytes_ += ((arrow::bit_width(arrowColumnTypes_[colIdx]->id()) + 7) >> 3);
+    // Reuse the same per-column sizing as the actual buffer allocation, otherwise this estimate can
+    // drift from it: `arrow::bit_width` mis-counts the types whose Arrow bit width differs from the
+    // width the partition buffer allocates, i.e. short decimal (allocated as int64, 8 bytes not 16)
+    // and timestamp (allocated as int128, 16 bytes not 8). Note bool is still rounded up to one byte
+    // per row.
+    fixedWidthBufferBytes_ += valueBufferSizeForFixedWidthArray(col, 1);
   }
   fixedWidthBufferBytes_ += kSizeOfStringLength * binaryColumnIndices_.size();
 }

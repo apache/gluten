@@ -23,7 +23,6 @@ on:
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
       - 'gluten-celeborn/**'
-      - 'gluten-ras/**'
       - 'gluten-core/**'
       - 'gluten-substrait/**'
       - 'gluten-arrow/**'
@@ -51,7 +50,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Detect which parts of the codebase were modified so downstream jobs can
+  # skip work that is irrelevant to the change.
+  detect-changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      cpp:      ${{ steps.filter.outputs.cpp }}
+      java:     ${{ steps.filter.outputs.java }}
+      tools_it: ${{ steps.filter.outputs.tools_it }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed paths
+        id: filter
+        run: |
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.sha }}
+          changed=$(git diff --name-only "$BASE" "$HEAD")
+          echo "$changed"
+
+          match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
+
+          echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
+
   build-native-lib-centos-8:
+    needs: detect-changes
     runs-on: ubuntu-24.04-arm
     container: apache/gluten:vcpkg-centos-9
     steps:
@@ -86,14 +112,17 @@ jobs:
         run: |
           df -a
           export CCACHE_MAXSIZE=1G
+          mkdir -p $GITHUB_WORKSPACE/.ccache
+          ccache -sz
           bash dev/ci-velox-buildstatic-centos-9.sh
           ccache -s
       - name: "Save ccache"
-        uses: actions/cache/save@v4
-        id: ccache
+        if: always()
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
+          key: ccache-centos8-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
       - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
@@ -101,7 +130,11 @@ jobs:
           if-no-files-found: error
 
   tpc-test-centos8:
-    needs: build-native-lib-centos-8
+    needs: [detect-changes, build-native-lib-centos-8]
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -144,6 +177,8 @@ jobs:
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
 
   cpp-test-udf-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-24.04-arm
     container: apache/gluten:centos-9-jdk8
     steps:

@@ -319,15 +319,8 @@ function setup_dependencies {
     echo "Unsupported kernel: $OS"
     exit 1
   fi
-  if [ $ENABLE_S3 == "ON" ]; then
-    install_aws_deps
-  fi
-  if [ $ENABLE_GCS == "ON" ]; then
-    install_gcs_sdk_cpp
-  fi
-  if [ $ENABLE_ABFS == "ON" ]; then
-    export AZURE_SDK_DISABLE_AUTO_VCPKG=ON
-    install_azure_storage_sdk_cpp
+  if [[ "$ENABLE_S3" == "ON" || "$ENABLE_GCS" == "ON" || "$ENABLE_HDFS" == "ON" || "$ENABLE_ABFS" == "ON" ]]; then
+    install_adapters
   fi
   popd
 }

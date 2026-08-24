@@ -50,17 +50,11 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
 
   override def init(sc: SparkContext, pluginContext: PluginContext): util.Map[String, String] = {
     val conf = pluginContext.conf()
-    // Spark SQL extensions
-    val extensionSeq = conf.get(SPARK_SESSION_EXTENSIONS).getOrElse(Seq.empty)
-    if (!extensionSeq.toSet.contains(GlutenSessionExtensions.GLUTEN_SESSION_EXTENSION_NAME)) {
-      conf.set(
-        SPARK_SESSION_EXTENSIONS,
-        extensionSeq :+ GlutenSessionExtensions.GLUTEN_SESSION_EXTENSION_NAME)
-    }
+    val components = Component.sorted()
+    configureSessionExtensions(conf, components)
 
     setPredefinedConfigs(conf)
 
-    val components = Component.sorted()
     printComponentInfo(components)
     setComponentInfoConfig(conf, components)
     components.foreach(_.onDriverStart(sc, pluginContext))
@@ -77,6 +71,19 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
 }
 
 private object GlutenDriverPlugin extends Logging {
+  private[gluten] def configureSessionExtensions(
+      conf: SparkConf,
+      components: Seq[Component]): Unit = {
+    val configuredExtensions = conf.get(SPARK_SESSION_EXTENSIONS).getOrElse(Seq.empty)
+    val requiredExtensions =
+      components.flatMap(_.sparkSessionExtensions()) :+
+        GlutenSessionExtensions.GLUTEN_SESSION_EXTENSION_NAME
+    val mergedExtensions = (configuredExtensions ++ requiredExtensions).distinct
+    if (mergedExtensions != configuredExtensions) {
+      conf.set(SPARK_SESSION_EXTENSIONS, mergedExtensions)
+    }
+  }
+
   private def checkOffHeapSettings(conf: SparkConf): Unit = {
     if (conf.get(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED)) {
       // When dynamic off-heap sizing is enabled, off-heap mode is not strictly required to be

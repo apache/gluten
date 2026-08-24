@@ -30,7 +30,6 @@ import org.apache.spark.sql.execution.datasources.PartitionedFile
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
-import java.io.DataInputStream
 import java.util.{Map => JMap}
 
 import scala.collection.JavaConverters._
@@ -65,22 +64,21 @@ object DeltaDeletionVectorScanInfo {
    * the DV bookkeeping keys stripped. Returns None when no file in the split carries a deletion
    * vector, so callers can keep the generic split representation.
    *
-   * Performance: resolves the table path once (using the first file) and reuses a single Hadoop
-   * Configuration instance across all files in the partition to avoid redundant filesystem I/O and
-   * object allocation.
+   * `tablePath` is the Delta table root, supplied by the caller from `TahoeFileIndex.path`, and is
+   * used to resolve on-disk DV locations. A single Hadoop Configuration is reused across all files
+   * in the partition.
    */
-  def normalize(partitionColumnCount: Int, partitionFiles: Seq[PartitionedFile])
+  def normalize(
+      partitionFiles: Seq[PartitionedFile],
+      tablePath: Path)
       : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
     if (partitionFiles.isEmpty) {
       return None
     }
     val spark = activeSparkSession
     val hadoopConf = spark.sessionState.newHadoopConf()
-    val cachedTablePath = resolveTablePath(hadoopConf, partitionColumnCount, partitionFiles.head)
 
-    val scanInfos = partitionFiles.map {
-      file => extract(partitionColumnCount, file, hadoopConf, cachedTablePath)
-    }
+    val scanInfos = partitionFiles.map(file => extract(file, hadoopConf, tablePath))
     if (scanInfos.exists(_.deletionVectorInfo.hasDeletionVector)) {
       Some(
         (
@@ -94,15 +92,13 @@ object DeltaDeletionVectorScanInfo {
   /** Public entry point for extracting DV info from a single file (used by tests). */
   def extract(
       spark: SparkSession,
-      partitionColumnCount: Int,
-      file: PartitionedFile): PartitionFileScanInfo = {
+      file: PartitionedFile,
+      tablePath: Path): PartitionFileScanInfo = {
     val hadoopConf = spark.sessionState.newHadoopConf()
-    val tablePath = resolveTablePath(hadoopConf, partitionColumnCount, file)
-    extract(partitionColumnCount, file, hadoopConf, tablePath)
+    extract(file, hadoopConf, tablePath)
   }
 
   private def extract(
-      partitionColumnCount: Int,
       file: PartitionedFile,
       hadoopConf: Configuration,
       tablePath: Path): PartitionFileScanInfo = {
@@ -240,11 +236,16 @@ object DeltaDeletionVectorScanInfo {
       descriptor: DeletionVectorDescriptor): Array[Byte] = {
     val dvPath = descriptor.absolutePath(tablePath)
     val fs = dvPath.getFileSystem(hadoopConf)
-    val stream = new DataInputStream(fs.open(dvPath))
+    // Positioned absolute seek, matching Delta's own `HadoopFileSystemDVStore.read`. `seek` is a
+    // single positioned reposition (a ranged read on object stores), whereas `DataInputStream.
+    // skipBytes` is best-effort -- it can skip fewer bytes than requested without error, which would
+    // then fail the CRC check in `readRangeFromStream`. `FSDataInputStream` is a `DataInputStream`,
+    // so it is passed through directly.
+    val stream = fs.open(dvPath)
     try {
       val offset = descriptor.offset.getOrElse(0)
       if (offset > 0) {
-        stream.skipBytes(offset)
+        stream.seek(offset.toLong)
       }
       DeletionVectorStore.readRangeFromStream(stream, descriptor.sizeInBytes)
     } finally {
@@ -252,60 +253,4 @@ object DeltaDeletionVectorScanInfo {
     }
   }
 
-  private def resolveTablePath(
-      hadoopConf: org.apache.hadoop.conf.Configuration,
-      partitionColumnCount: Int,
-      file: PartitionedFile): Path = {
-    val fileParent = new Path(unescapePathName(file.filePath.toString)).getParent
-    var tablePath = fileParent
-    for (_ <- 0 until partitionColumnCount) {
-      tablePath = tablePath.getParent
-    }
-    if (tablePath != null && isDeltaTablePath(hadoopConf, tablePath)) {
-      return tablePath
-    }
-
-    var candidate = fileParent
-    while (candidate != null && !isDeltaTablePath(hadoopConf, candidate)) {
-      candidate = candidate.getParent
-    }
-    if (candidate != null) candidate else tablePath
-  }
-
-  private def isDeltaTablePath(
-      hadoopConf: org.apache.hadoop.conf.Configuration,
-      tablePath: Path): Boolean = {
-    val deltaLogPath = new Path(tablePath, "_delta_log")
-    try {
-      deltaLogPath.getFileSystem(hadoopConf).exists(deltaLogPath)
-    } catch {
-      case NonFatal(_) => false
-    }
-  }
-
-  private def unescapePathName(path: String): String = {
-    if (path == null || path.indexOf('%') < 0) {
-      path
-    } else {
-      val builder = new StringBuilder(path.length)
-      var index = 0
-      while (index < path.length) {
-        if (path.charAt(index) == '%' && index + 2 < path.length) {
-          val high = Character.digit(path.charAt(index + 1), 16)
-          val low = Character.digit(path.charAt(index + 2), 16)
-          if (high >= 0 && low >= 0) {
-            builder.append(((high << 4) | low).toChar)
-            index += 3
-          } else {
-            builder.append(path.charAt(index))
-            index += 1
-          }
-        } else {
-          builder.append(path.charAt(index))
-          index += 1
-        }
-      }
-      builder.toString()
-    }
-  }
 }

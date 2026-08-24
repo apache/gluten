@@ -21,7 +21,6 @@ on:
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
       - 'gluten-celeborn/**'
-      - 'gluten-ras/**'
       - 'gluten-core/**'
       - 'gluten-substrait/**'
       - 'gluten-arrow/**'

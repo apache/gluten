@@ -70,7 +70,7 @@ case class ColumnarAQEShuffleReadExec(
     delegate match {
       case a: AQEShuffleReadExec => a
       case s: ShuffleQueryStageExec =>
-        // Wrap ShuffleQueryStageExe with dummy PartitionSpecs by creating CoalescedPartitionSpec
+        // Wrap ShuffleQueryStageExec with dummy PartitionSpecs by creating CoalescedPartitionSpec
         // for each partition.
         val partitionSpecs =
           Array.tabulate(s.shuffle.numPartitions)(i => CoalescedPartitionSpec(i, i + 1))
