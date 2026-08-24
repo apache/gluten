@@ -43,7 +43,6 @@ import org.apache.iceberg.types.Type.TypeID
 import org.apache.iceberg.types.Types.{ListType, MapType, NestedField}
 
 import java.util.{HashMap => JHashMap}
-import java.util.Locale
 
 case class IcebergScanTransformer(
     override val output: Seq[AttributeReference],
