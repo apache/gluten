@@ -29,7 +29,7 @@ import java.util.*;
 
 public class IcebergLocalFilesNode extends LocalFilesNode {
   private final List<List<DeleteFile>> deleteFilesList;
-  private final Map<String, Integer> fieldIds;
+  private final List<IcebergFieldId> fieldIds;
   private final Map<String, String> initialDefaults;
 
   IcebergLocalFilesNode(
@@ -42,7 +42,7 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
       List<String> preferredLocations,
       List<List<DeleteFile>> deleteFilesList,
       List<Map<String, String>> metadataColumns,
-      Map<String, Integer> fieldIds,
+      List<IcebergFieldId> fieldIds,
       Map<String, String> initialDefaults) {
     super(
         index,
@@ -65,7 +65,7 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
   @Override
   public ReadRel.LocalFiles toProtobuf() {
     ReadRel.LocalFiles localFiles = super.toProtobuf();
-    if (initialDefaults.isEmpty()) {
+    if (fieldIds.isEmpty() && initialDefaults.isEmpty()) {
       return localFiles;
     }
 

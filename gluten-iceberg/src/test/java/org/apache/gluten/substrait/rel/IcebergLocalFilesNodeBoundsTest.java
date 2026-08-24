@@ -60,7 +60,7 @@ public class IcebergLocalFilesNodeBoundsTest {
             Collections.emptyList(),
             Collections.singletonList(Collections.singletonList(deleteFile)),
             Collections.singletonList(Collections.emptyMap()),
-            Collections.emptyMap(),
+            Collections.emptyList(),
             Collections.emptyMap());
 
     ReadRel.LocalFiles.FileOrFiles.Builder fileBuilder =
