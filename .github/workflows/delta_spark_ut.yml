@@ -185,7 +185,7 @@ jobs:
     # provide one, and the `paths:` filter already decided whether the run happens.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Get Ccache from Apache Stash
@@ -226,7 +226,7 @@ jobs:
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Download native artifacts
@@ -321,7 +321,7 @@ jobs:
       # TestParallelization.scala.
       SHARD_ID: ${{ matrix.shard }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
 
@@ -519,7 +519,7 @@ jobs:
     if: ${{ !cancelled() && needs.delta-spark-test.result != 'skipped' }}
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Download per-shard gate lists
