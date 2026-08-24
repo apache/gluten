@@ -25,6 +25,7 @@ import org.apache.gluten.proto.{ConfigMap, IcebergReadExtension}
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode}
+import org.apache.gluten.substrait.rel.IcebergFieldId
 import org.apache.gluten.utils.PartitionsUtil
 import org.apache.gluten.vectorized.PlanEvaluatorJniWrapper
 
@@ -43,7 +44,7 @@ import org.apache.spark.util.collection.BitSet
 import com.google.protobuf.{Any, Message}
 import org.apache.commons.lang3.math.NumberUtils
 
-import java.util.{Map => JMap}
+import java.util.{List => JList, Map => JMap}
 
 import scala.collection.JavaConverters._
 
@@ -125,23 +126,18 @@ class VeloxTransformerApi extends TransformerApi with Logging {
   override def packPBMessage(message: Message): Any = Any.pack(message, "")
 
   override def packIcebergReadExtension(
-      fieldIds: JMap[String, Integer],
+      fieldIds: JList[IcebergFieldId],
       initialDefaults: JMap[String, String]): Any = {
     val extensionBuilder = IcebergReadExtension.newBuilder()
-    fieldIds.asScala.toSeq.sortBy(_._1).foreach {
-      case (name, fieldId) =>
-        extensionBuilder.addColumnFieldIds(
-          IcebergReadExtension.ColumnFieldId
-            .newBuilder()
-            .setName(name)
-            .setFieldId(fieldId))
+    fieldIds.asScala.sortBy(_.getName).foreach {
+      field => extensionBuilder.addColumnFieldIds(toColumnFieldId(field))
     }
+    val fieldIdsByName = fieldIds.asScala.map(field => field.getName -> field.getFieldId).toMap
     initialDefaults.asScala.toSeq.sortBy(_._1).foreach {
       case (name, initialDefault) =>
-        val fieldId = fieldIds.get(name)
-        if (fieldId == null) {
-          throw new IllegalArgumentException(s"Missing Iceberg field ID for column $name")
-        }
+        val fieldId = fieldIdsByName.getOrElse(
+          name,
+          throw new IllegalArgumentException(s"Missing Iceberg field ID for column $name"))
         extensionBuilder.addColumnDefaults(
           IcebergReadExtension.ColumnDefault
             .newBuilder()
@@ -150,6 +146,15 @@ class VeloxTransformerApi extends TransformerApi with Logging {
             .setInitialDefault(initialDefault))
     }
     packPBMessage(extensionBuilder.build())
+  }
+
+  private def toColumnFieldId(field: IcebergFieldId): IcebergReadExtension.ColumnFieldId = {
+    val builder = IcebergReadExtension.ColumnFieldId
+      .newBuilder()
+      .setName(field.getName)
+      .setFieldId(field.getFieldId)
+    field.getChildren.asScala.foreach(child => builder.addChildren(toColumnFieldId(child)))
+    builder.build()
   }
 
   override def invalidateSQLExecutionResource(executionId: String): Unit = {
