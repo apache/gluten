@@ -832,7 +832,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
       }
     }
   }
-  
+
   test("case-sensitive mode: data column named Input_File_Name is not confused with metadata") {
     // Regression test for the IcebergScanTransformer fix.
     // A user data column whose name equals "input_file_name" when lowercased must NOT be
