@@ -189,7 +189,12 @@ case class IcebergScanTransformer(
 
   override def getMetadataColumns(): Seq[AttributeReference] = {
     val extraMetadataColumns = inputFileRelatedMetadataColumns.filterNot {
-      metadataAttr => metadataColumns.exists(_.name.equalsIgnoreCase(metadataAttr.name))
+      metadataAttr =>
+        metadataColumns.exists {
+          existingAttr =>
+            ConverterUtils.normalizeColName(existingAttr.name) ==
+              ConverterUtils.normalizeColName(metadataAttr.name)
+        }
     }
     metadataColumns ++ extraMetadataColumns
   }

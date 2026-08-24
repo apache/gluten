@@ -17,6 +17,7 @@
 package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.execution.{BatchScanExecTransformerBase, FileSourceScanExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.expression.ConverterUtils
 
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, NamedExpression}
 import org.apache.spark.sql.catalyst.optimizer.CollapseProjectShim
@@ -24,8 +25,6 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{DeserializeToObjectExec, FileSourceScanExec, FilterExec, LeafExecNode, ProjectExec, SerializeFromObjectExec, SparkPlan, UnionExec}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
-
-import java.util.Locale
 
 import scala.collection.mutable
 
@@ -58,7 +57,7 @@ object PushDownInputFileExpression {
     expr match {
       case _: InputFileName | _: InputFileBlockStart | _: InputFileBlockLength => true
       case a: AttributeReference =>
-        INPUT_FILE_ATTR_NAMES.contains(a.name.toLowerCase(Locale.ROOT))
+        INPUT_FILE_ATTR_NAMES.contains(ConverterUtils.normalizeColName(a.name))
       case _ => expr.children.exists(containsInputFileRelatedExpr)
     }
   }
@@ -175,10 +174,10 @@ object PushDownInputFileExpression {
         val newProjectList = projectList.map {
           expr => rewriteExpr(expr, replacedExprs).asInstanceOf[NamedExpression]
         }
-        val existingNames = child.output.map(_.name.toLowerCase(Locale.ROOT)).toSet
+        val existingNames = child.output.map(a => ConverterUtils.normalizeColName(a.name)).toSet
         val inputFileAttrs = replacedExprs.values.toSeq
           .map(_.toAttribute.asInstanceOf[AttributeReference])
-          .filterNot(attr => existingNames.contains(attr.name.toLowerCase(Locale.ROOT)))
+          .filterNot(attr => existingNames.contains(ConverterUtils.normalizeColName(attr.name)))
         p.copy(
           projectList = newProjectList,
           child = child.withOutput(child.output ++ inputFileAttrs))

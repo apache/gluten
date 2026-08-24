@@ -814,11 +814,38 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // NOTE: querying both `Input_File_Name` (data column) and input_file_name() (metadata
-  // expression) in the same projection under caseSensitive=true triggers a pre-existing
-  // plan-binding issue in PushDownInputFileExpression.PostOffload (lines 178/181 of that
-  // file also use unconditional toLowerCase).  That is a separate follow-up item and is
-  // not regressed by this patch; the patch only fixes IcebergScanTransformer.
+  test("case-sensitive mode: Input_File_Name data column and input_file_name metadata") {
+    // Regression test for PushDownInputFileExpression.PostOffload. Under caseSensitive=true,
+    // the user data column `Input_File_Name` and generated metadata attribute `input_file_name`
+    // are distinct Spark attributes and both must remain available for binding.
+    withSQLConf("spark.sql.caseSensitive" -> "true") {
+      withTable("iceberg_input_file_projection") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_input_file_projection
+                    |  (id INT, `Input_File_Name` STRING)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_input_file_projection VALUES
+                    |(1, 'user-data-value'), (2, 'another-value')
+                    |""".stripMargin)
+
+        val df = runAndCompare("""
+                                 |SELECT id, `Input_File_Name`, input_file_name() AS fname
+                                 |FROM iceberg_input_file_projection
+                                 |ORDER BY id
+                                 |""".stripMargin)
+        checkGlutenPlan[IcebergScanTransformer](df)
+        val rows = df.collect()
+        assert(rows.length == 2, s"Expected 2 rows, got ${rows.length}")
+        assert(rows(0).getString(1) == "user-data-value")
+        assert(rows(1).getString(1) == "another-value")
+        assert(
+          rows.forall(r => !r.isNullAt(2) && r.getString(2).nonEmpty),
+          s"Expected non-empty input_file_name values, got: ${rows.mkString(", ")}")
+      }
+    }
+  }
 
   test("case-sensitive mode: lowercase input_file_name as data column is rejected by Iceberg") {
     // Iceberg reserves the field name "input_file_name" as a Spark metadata expression name.
