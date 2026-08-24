@@ -22,7 +22,7 @@ import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeletionVectorPayloa
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.delta.DeltaParquetFileFormat
-import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
+import org.apache.spark.sql.delta.actions.{AddFile, DeletionVectorDescriptor}
 import org.apache.spark.sql.delta.deletionvectors.{RoaringBitmapArrayFormat, StoredBitmap}
 import org.apache.spark.sql.delta.storage.dv.{DeletionVectorStore, HadoopFileSystemDVStore}
 import org.apache.spark.sql.execution.datasources.PartitionedFile
@@ -104,6 +104,60 @@ object DeltaDeletionVectorScanInfo {
     }
   }
 
+  /**
+   * Materializes normal-table DV options from the AddFiles selected by PreparedDeltaFileIndex.
+   * These are authoritative when a data file's DV is replaced by repeated DML; the corresponding
+   * PartitionedFile may still contain the previous descriptor in its constant metadata.
+   */
+  private[gluten] def buildAddFileLookup(
+      tablePath: Path,
+      addFiles: Seq[AddFile]): DeltaAddFileLookup = {
+    DeltaAddFileLookup(tablePath, addFiles, addFiles.exists(_.deletionVector != null))
+  }
+
+  private[gluten] def normalizeFromAddFiles(
+      partitionFiles: Seq[PartitionedFile],
+      tablePath: Path,
+      addFileLookup: DeltaAddFileLookup)
+      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
+    normalizeFromAddFiles(partitionFiles, tablePath, addFileLookup, None)
+  }
+
+  private[gluten] def normalizeFromAddFiles(
+      partitionFiles: Seq[PartitionedFile],
+      tablePath: Path,
+      addFileLookup: DeltaAddFileLookup,
+      readMetrics: Option[DeletionVectorReadMetrics])
+      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
+    if (partitionFiles.isEmpty) {
+      return None
+    }
+    val spark = activeSparkSession
+    val hadoopConf = spark.sessionState.newHadoopConf()
+    val serializableHadoopConf = new SerializableConfiguration(hadoopConf)
+    val hadDvMetadata = partitionFiles.exists {
+      file =>
+        val metadata = otherMetadataColumns(file)
+        metadata.contains(RowIndexFilterIdEncoded) || metadata.contains(RowIndexFilterTypeKey)
+    }
+    if (!hadDvMetadata && !addFileLookup.hasDeletionVector) {
+      return None
+    }
+    val scanInfos = partitionFiles.map {
+      file =>
+        val addFile = addFileLookup.find(file)
+        extract(file, hadoopConf, serializableHadoopConf, tablePath, addFile, readMetrics)
+    }
+    if (hadDvMetadata || scanInfos.exists(_.deletionVectorInfo.hasDeletionVector)) {
+      Some(
+        (
+          scanInfos.map(_.normalizedOtherMetadataColumns.asJava),
+          scanInfos.map(info => toDeltaFileReadOptions(info.deletionVectorInfo))))
+    } else {
+      None
+    }
+  }
+
   /** Public entry point for extracting DV info from a single file (used by tests). */
   def extract(
       spark: SparkSession,
@@ -128,6 +182,37 @@ object DeltaDeletionVectorScanInfo {
       serializableHadoopConf,
       tablePath,
       readMetrics)
+    PartitionFileScanInfo(normalizedMetadata, dvInfo)
+  }
+
+  private def extract(
+      file: PartitionedFile,
+      hadoopConf: Configuration,
+      serializableHadoopConf: SerializableConfiguration,
+      tablePath: Path,
+      addFile: AddFile,
+      readMetrics: Option[DeletionVectorReadMetrics]): PartitionFileScanInfo = {
+    val metadata = otherMetadataColumns(file)
+    val normalizedMetadata = metadata -- Seq(RowIndexFilterIdEncoded, RowIndexFilterTypeKey)
+    val dvInfo = Option(addFile.deletionVector) match {
+      case Some(descriptor) =>
+        DeletionVectorInfo(
+          true,
+          IF_CONTAINED,
+          descriptor.cardinality,
+          deletionVectorPayload(
+            hadoopConf,
+            serializableHadoopConf,
+            tablePath,
+            descriptor,
+            readMetrics))
+      case None =>
+        DeletionVectorInfo(
+          false,
+          KEEP_ALL,
+          0L,
+          new InMemoryDeletionVectorPayload(Array.emptyByteArray))
+    }
     PartitionFileScanInfo(normalizedMetadata, dvInfo)
   }
 
