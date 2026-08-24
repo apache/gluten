@@ -230,7 +230,7 @@ jobs:
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Download native artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: delta-spark-ut-native-lib-centos-7-${{ github.sha }}
           path: ./cpp/build/
@@ -356,7 +356,7 @@ jobs:
           } | tee -a "$GITHUB_OUTPUT"
 
       - name: Download Gluten bundle jar
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: delta-spark-ut-gluten-bundle-${{github.sha}}
           path: gluten-bundle
@@ -523,7 +523,7 @@ jobs:
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Download per-shard gate lists
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           pattern: delta-spark-ut-gate-lists-shard-*
