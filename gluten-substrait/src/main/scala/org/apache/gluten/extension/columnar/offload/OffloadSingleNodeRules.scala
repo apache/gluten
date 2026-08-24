@@ -314,6 +314,9 @@ object OffloadOthers {
             child)
         case plan: RDDScanExec if RDDScanTransformer.isSupportRDDScanExec(plan) =>
           RDDScanTransformer.getRDDScanTransform(plan)
+        case plan: LocalTableScanExec
+            if LocalTableScanTransformer.isSupportLocalTableScanExec(plan) =>
+          LocalTableScanTransformer.getLocalTableScanTransform(plan)
         case p if !p.isInstanceOf[GlutenPlan] =>
           logDebug(s"Transformation for ${p.getClass} is currently not supported.")
           p
