@@ -162,6 +162,9 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def scanFileSchemeValidationEnabled: Boolean =
     getConf(VELOX_SCAN_FILE_SCHEME_VALIDATION_ENABLED)
 
+  def cosStocatorFallbackEnabled: Boolean =
+    getConf(VELOX_COS_STOCATOR_FALLBACK_ENABLED)
+
   // Whether to use GlutenShuffleManager (experimental).
   def isUseGlutenShuffleManager: Boolean =
     conf
@@ -1614,6 +1617,16 @@ object GlutenConfig extends ConfigRegistry {
         "When true, enable file path scheme validation for scan. Validation will fail if" +
           " file scheme is not supported by registered file systems, which will cause scan " +
           " operator fall back.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val VELOX_COS_STOCATOR_FALLBACK_ENABLED =
+    buildConf("spark.gluten.sql.columnar.cosStocatorFallback.enabled")
+      .doc(
+        "When true, scan validation detects cos:// paths using the Stocator IBM Cloud Object " +
+          "Storage convention (bucket.serviceId, with a matching fs.cos.<serviceId>.* Hadoop " +
+          "config), which the native Velox S3 reader does not yet parse correctly, and falls " +
+          "back the scan to Spark's vanilla code path instead of failing at execution time.")
       .booleanConf
       .createWithDefault(true)
 

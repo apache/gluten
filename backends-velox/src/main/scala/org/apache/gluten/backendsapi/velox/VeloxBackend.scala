@@ -248,8 +248,20 @@ object VeloxBackendSettings extends BackendSettingsApi {
         None
       }
     }
+    def validateCosStocatorPath(): Option[String] = {
+      if (!GlutenConfig.get.cosStocatorFallbackEnabled) {
+        return None
+      }
+      distinctRootPaths(rootPaths).find(isIbmCosStocatorPath(_, hadoopConf)).map {
+        path =>
+          s"Path [$path] uses the IBM Cloud Object Storage Stocator bucket.serviceId " +
+            "convention, which the native Velox S3 reader does not yet support."
+      }
+    }
+
     val validationChecks = Seq(
       validateScheme(),
+      validateCosStocatorPath(),
       validateFormats(),
       validateMetadata(),
       validateDataSchema()
@@ -273,6 +285,26 @@ object VeloxBackendSettings extends BackendSettingsApi {
       .filter(_._1 != "file")
       .map(_._2.head._2)
       .toSeq
+  }
+
+  // Detects Stocator's IBM COS convention, cos://bucket.serviceId/... (see
+  // https://github.com/CODAIT/stocator#stocator-and-ibm-cloud-object-storage-ibm-cos). Requires
+  // a matching fs.cos.<serviceId>.* config too, since a dot alone is also valid in a real
+  // bucket name (e.g. for Tencent COS, which shares the cos:// scheme).
+  def isIbmCosStocatorPath(rootPath: String, hadoopConf: Configuration): Boolean = {
+    val uri = new Path(rootPath).toUri
+    if (uri.getScheme != "cos" || uri.getAuthority == null) {
+      return false
+    }
+    val authority = uri.getAuthority
+    val dotIndex = authority.indexOf('.')
+    if (dotIndex <= 0 || dotIndex == authority.length - 1) {
+      return false
+    }
+    val serviceId = authority.substring(dotIndex + 1)
+    Seq("endpoint", "access.key", "secret.key").exists {
+      suffix => hadoopConf.get(s"fs.cos.$serviceId.$suffix") != null
+    }
   }
 
   override def getSubstraitReadFileFormatV1(
