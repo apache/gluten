@@ -74,9 +74,6 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableColumnarFileScan: Boolean = getConf(COLUMNAR_FILESCAN_ENABLED)
 
-  def deferDeltaDeletionVectorPayloadRead: Boolean =
-    getConf(DELTA_DELETION_VECTOR_DEFER_PAYLOAD_READ_ENABLED)
-
   def enableColumnarHiveTableScan: Boolean = getConf(COLUMNAR_HIVETABLESCAN_ENABLED)
 
   def enableColumnarHiveTableScanNestedColumnPruning: Boolean =
@@ -880,16 +877,6 @@ object GlutenConfig extends ConfigRegistry {
   val COLUMNAR_FILESCAN_ENABLED =
     buildConf("spark.gluten.sql.columnar.filescan")
       .doc("Enable or disable columnar filescan.")
-      .booleanConf
-      .createWithDefault(true)
-
-  val DELTA_DELETION_VECTOR_DEFER_PAYLOAD_READ_ENABLED =
-    buildConf("spark.gluten.sql.columnar.delta.dv.deferPayloadRead.enabled")
-      .doc(
-        "When true, defer loading on-disk Delta deletion vector payloads until the native split " +
-          "is serialized on an executor. This removes remote deletion vector I/O from driver " +
-          "planning. Inline deletion vectors remain eagerly decoded because their bytes are " +
-          "already present in Delta metadata.")
       .booleanConf
       .createWithDefault(true)
 

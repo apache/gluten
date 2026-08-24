@@ -16,10 +16,11 @@
  */
 package org.apache.gluten.delta
 
-import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
 
 import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
+import org.apache.spark.sql.delta.deletionvectors.{RoaringBitmapArray, RoaringBitmapArrayFormat}
 import org.apache.spark.sql.execution.datasources.PartitionedFile
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.test.SharedSparkSession
@@ -51,6 +52,8 @@ trait DeltaDeletionVectorDeferredReadTests {
   protected def loadDeletionVectorFile(tablePath: Path): TestDeletionVectorFile
 
   protected def deletionVectorMetadata(encodedDescriptor: String): Map[String, Object]
+
+  protected def encodeDeletionVectorDescriptor(descriptor: DeletionVectorDescriptor): String
 
   protected def partitionedFileWithMetadata(
       tablePath: String,
@@ -136,14 +139,37 @@ trait DeltaDeletionVectorDeferredReadTests {
         assert(readAttempts.value == 1L)
         assert(readBytes.value == payloads.head.length.toLong)
         assert(readTime.value > 0L)
-
-        withSQLConf(
-          GlutenConfig.DELTA_DELETION_VECTOR_DEFER_PAYLOAD_READ_ENABLED.key -> "false") {
-          val eagerOptions = normalizeDeletionVectorOptions(partitionedFile, tablePath)
-          assert(eagerOptions.isDeletionVectorPayloadMaterialized)
-          assert(eagerOptions.serializedDeletionVector.nonEmpty)
-        }
     }
+  }
+
+  test("keeps inline DV payloads eager without filesystem access") {
+    val bitmap = new RoaringBitmapArray()
+    bitmap.add(3L)
+    bitmap.add(7L)
+    val expectedPayload = bitmap.serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
+    val descriptor = DeletionVectorDescriptor.inlineInLog(expectedPayload, cardinality = 2L)
+    val tablePath = new Path("unsupported-inline-dv-test://authority/table")
+    val partitionedFile = partitionedFileWithMetadata(
+      tablePath.toString,
+      "data.parquet",
+      fileSize = 0L,
+      metadata = deletionVectorMetadata(encodeDeletionVectorDescriptor(descriptor)))
+
+    val readTime = SQLMetrics.createNanoTimingMetric(spark.sparkContext, "DV read time")
+    val readBytes = SQLMetrics.createSizeMetric(spark.sparkContext, "DV read bytes")
+    val readAttempts = SQLMetrics.createMetric(spark.sparkContext, "DV read attempts")
+    val options = normalizeDeletionVectorOptions(
+      partitionedFile,
+      tablePath,
+      readTime,
+      readBytes,
+      readAttempts)
+
+    assert(options.isDeletionVectorPayloadMaterialized)
+    assert(options.serializedDeletionVector.sameElements(expectedPayload))
+    assert(readAttempts.value == 0L)
+    assert(readBytes.value == 0L)
+    assert(readTime.value == 0L)
   }
 
   test("does not cache failed deferred DV reads") {

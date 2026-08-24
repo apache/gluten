@@ -93,7 +93,7 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     boolean isMaterialized();
   }
 
-  /** A payload source for inline DVs and the eager compatibility path. */
+  /** A payload source for inline DVs whose bytes are already present in Delta metadata. */
   public static final class SerializedDeletionVectorPayload implements DeletionVectorPayload {
     private static final long serialVersionUID = 1L;
 

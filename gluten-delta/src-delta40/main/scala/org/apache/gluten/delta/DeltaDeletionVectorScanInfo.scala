@@ -16,7 +16,6 @@
  */
 package org.apache.gluten.delta
 
-import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.DeltaLocalFilesNode
 import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeletionVectorPayload, DeltaFileReadOptions, SerializedDeletionVectorPayload}
@@ -93,12 +92,7 @@ object DeltaDeletionVectorScanInfo {
     }
     val spark = activeSparkSession
     val hadoopConf = spark.sessionState.newHadoopConf()
-    val serializableHadoopConf =
-      if (GlutenConfig.get.deferDeltaDeletionVectorPayloadRead) {
-        Some(new SerializableConfiguration(hadoopConf))
-      } else {
-        None
-      }
+    val serializableHadoopConf = new SerializableConfiguration(hadoopConf)
 
     val scanInfos = partitionFiles.map {
       file => extract(file, hadoopConf, serializableHadoopConf, tablePath, readMetrics)
@@ -119,19 +113,14 @@ object DeltaDeletionVectorScanInfo {
       file: PartitionedFile,
       tablePath: Path): PartitionFileScanInfo = {
     val hadoopConf = spark.sessionState.newHadoopConf()
-    val serializableHadoopConf =
-      if (GlutenConfig.get.deferDeltaDeletionVectorPayloadRead) {
-        Some(new SerializableConfiguration(hadoopConf))
-      } else {
-        None
-      }
+    val serializableHadoopConf = new SerializableConfiguration(hadoopConf)
     extract(file, hadoopConf, serializableHadoopConf, tablePath, None)
   }
 
   private def extract(
       file: PartitionedFile,
       hadoopConf: Configuration,
-      serializableHadoopConf: Option[SerializableConfiguration],
+      serializableHadoopConf: SerializableConfiguration,
       tablePath: Path,
       readMetrics: Option[DeletionVectorReadMetrics]): PartitionFileScanInfo = {
     val metadata = otherMetadataColumns(file)
@@ -174,7 +163,7 @@ object DeltaDeletionVectorScanInfo {
   private def extractDeletionVectorInfo(
       metadata: Map[String, Object],
       hadoopConf: Configuration,
-      serializableHadoopConf: Option[SerializableConfiguration],
+      serializableHadoopConf: SerializableConfiguration,
       tablePath: Path,
       readMetrics: Option[DeletionVectorReadMetrics]): DeletionVectorInfo = {
     val descriptorValue = metadata.get(RowIndexFilterIdEncoded)
@@ -257,10 +246,10 @@ object DeltaDeletionVectorScanInfo {
     }
   }
 
-  /** Selects a deferred source for on-disk DVs and eager bytes for inline or rollback mode. */
+  /** Selects a deferred source for on-disk DVs and eager bytes for inline DVs. */
   private def deletionVectorPayload(
       hadoopConf: Configuration,
-      serializableHadoopConf: Option[SerializableConfiguration],
+      serializableHadoopConf: SerializableConfiguration,
       tablePath: Path,
       descriptor: DeletionVectorDescriptor,
       readMetrics: Option[DeletionVectorReadMetrics]): DeletionVectorPayload = {
@@ -268,16 +257,16 @@ object DeltaDeletionVectorScanInfo {
       throw new IllegalStateException(
         "Unable to resolve Delta table path while preparing deletion vector payload")
     }
-    if (descriptor.storageType != "i" && serializableHadoopConf.isDefined) {
+    if (descriptor.storageType != "i") {
       val dvPath = descriptor.absolutePath(tablePath)
       new OnDiskDeletionVectorPayload(
-        serializableHadoopConf.get,
+        serializableHadoopConf,
         dvPath.toString,
         requiredOffset(descriptor),
         descriptor.sizeInBytes,
         readMetrics)
     } else {
-      new SerializedDeletionVectorPayload(serializePayload(hadoopConf, tablePath, descriptor))
+      new SerializedDeletionVectorPayload(serializeInlinePayload(hadoopConf, tablePath, descriptor))
     }
   }
 
@@ -290,7 +279,10 @@ object DeltaDeletionVectorScanInfo {
       }
   }
 
-  private def serializePayload(
+  /**
+   * Decodes an inline DV already embedded in Delta metadata into Velox's portable bitmap format.
+   */
+  private def serializeInlinePayload(
       hadoopConf: Configuration,
       tablePath: Path,
       descriptor: DeletionVectorDescriptor): Array[Byte] = {
@@ -298,29 +290,11 @@ object DeltaDeletionVectorScanInfo {
       throw new IllegalStateException(
         "Unable to resolve Delta table path while materializing deletion vector payload")
     }
-    if (descriptor.storageType != "i") {
-      // On-disk DV: read raw bytes directly (already in Portable Roaring format).
-      readRawDvBytes(hadoopConf, tablePath, descriptor)
-    } else {
-      // Inline DV: bytes are in the descriptor metadata.
-      val dvStore = new HadoopFileSystemDVStore(hadoopConf)
-      StoredBitmap
-        .create(descriptor, tablePath)
-        .load(dvStore)
-        .serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
-    }
-  }
-
-  private def readRawDvBytes(
-      hadoopConf: Configuration,
-      tablePath: Path,
-      descriptor: DeletionVectorDescriptor): Array[Byte] = {
-    val dvPath = descriptor.absolutePath(tablePath)
-    readRawDvBytes(
-      hadoopConf,
-      dvPath,
-      requiredOffset(descriptor),
-      descriptor.sizeInBytes)
+    val dvStore = new HadoopFileSystemDVStore(hadoopConf)
+    StoredBitmap
+      .create(descriptor, tablePath)
+      .load(dvStore)
+      .serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
   }
 
   private def readRawDvBytes(

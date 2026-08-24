@@ -48,21 +48,6 @@ class GlutenRuntimeConfigSuite extends GlutenQueryTest with SharedSparkSession {
     }
   }
 
-  test("Delta deletion vector payload reads are deferred by default and configurable") {
-    val conf = SparkSession.active.conf
-    val key = GlutenConfig.DELTA_DELETION_VECTOR_DEFER_PAYLOAD_READ_ENABLED.key
-    val original = conf.get(key)
-    try {
-      assert(GlutenConfig.get.deferDeltaDeletionVectorPayloadRead)
-      conf.set(key, false)
-      assert(!GlutenConfig.get.deferDeltaDeletionVectorPayloadRead)
-      conf.set(key, true)
-      assert(GlutenConfig.get.deferDeltaDeletionVectorPayloadRead)
-    } finally {
-      conf.set(key, original)
-    }
-  }
-
   test("Memory manager capacity ratio config validation") {
 
     assert(GlutenConfig.MEMORY_MANAGER_CAPACITY_RATIO.defaultValue.get == 0.75)

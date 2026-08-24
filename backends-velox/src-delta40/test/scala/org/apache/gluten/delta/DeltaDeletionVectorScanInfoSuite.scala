@@ -213,6 +213,9 @@ class DeltaDeletionVectorScanInfoSuite
     )
   }
 
+  override protected def encodeDeletionVectorDescriptor(
+      descriptor: DeletionVectorDescriptor): String = descriptor.serializeToBase64()
+
   override protected def normalizeDeletionVectorOptions(
       partitionedFile: PartitionedFile,
       tablePath: Path,
