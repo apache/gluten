@@ -24,6 +24,7 @@ import org.apache.spark.paths.SparkPath
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.delta.{DeltaLog, GlutenDeltaParquetFileFormat}
+import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
 import org.apache.spark.sql.delta.catalog.DeltaCatalog
 import org.apache.spark.sql.delta.test.DeltaSQLTestUtils
 import org.apache.spark.sql.execution.datasources.PartitionedFile
