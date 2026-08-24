@@ -2287,7 +2287,11 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     Seq("1", "80", "100000000").foreach(
       preferredBatchBytes => {
         withSQLConf(
-          VeloxConfig.COLUMNAR_VELOX_PREFERRED_BATCH_BYTES.key -> preferredBatchBytes
+          VeloxConfig.COLUMNAR_VELOX_PREFERRED_BATCH_BYTES.key -> preferredBatchBytes,
+          // This test targets the RowToVeloxColumnarExec batching path, so the LocalTableScan
+          // offload must stay disabled here; otherwise the local scan produces columnar batches
+          // itself and no RowToVeloxColumnarExec node is inserted.
+          GlutenConfig.COLUMNAR_LOCAL_TABLE_SCAN_ENABLED.key -> "false"
         ) {
           val df = Seq(1, 2, 3, 4, 5, 6, 7, 8, 9, 10).toDF("Col").select($"Col".plus(1))
           assert(df.collect().length == 10)

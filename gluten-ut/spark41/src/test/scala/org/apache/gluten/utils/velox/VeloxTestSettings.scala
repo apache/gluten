@@ -932,15 +932,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenCacheTableInKryoSuite]
   enableSuite[GlutenFileSourceCharVarcharTestSuite]
-    // Velox Parquet writer (post dft-2026_08_12) introduced selective per-column flattening
-    // that misses CONSTANT-encoded descendants inside nested complex types (ARRAY<STRUCT>).
-    // Writes to ARRAY<STRUCT<char/varchar>> crash with VeloxRuntimeError INVALID_STATE in the
-    // Arrow bridge instead of producing the expected error or result.
-    .exclude("length check for input string values: nested in array of struct")
-    .exclude("char type values should be padded: nested in array of struct")
   enableSuite[GlutenDSV2CharVarcharTestSuite]
-    .exclude("length check for input string values: nested in array of struct")
-    .exclude("char type values should be padded: nested in array of struct")
   enableSuite[GlutenColumnExpressionSuite]
     // Velox raise_error('errMsg') throws a velox_user_error exception with the message 'errMsg'.
     // The final caught Spark exception's getCause().getMessage() contains 'errMsg' but does not
@@ -1033,6 +1025,12 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: fix on Spark-4.1 introduced by https://github.com/apache/spark/pull/47856
     .exclude(
       "SPARK-49386: Window spill with more than the inMemoryThreshold and spillSizeThreshold")
+    // The window orderBy has no tie-breaker, so rows tied in the window order can be emitted
+    // in any order. Velox TopNRowNumber orders peer rows differently than Spark's stable sort,
+    // making the running-frame collect_list result differ on tied rows. Both results are valid.
+    .exclude(
+      "SPARK-45543: InferWindowGroupLimit causes bug if the other window functions" +
+        " haven't the same window frame as the rank-like functions")
   enableSuite[GlutenDataFrameWindowFramesSuite]
   enableSuite[GlutenDataFrameWriterV2Suite]
   enableSuite[GlutenDatasetAggregatorSuite]
@@ -1060,10 +1058,14 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOn]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOnDisableScan]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffDisableScan]
+  enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOnDisableProject]
+  enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOffDisableProject]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOff]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOn]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOnDisableScan]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffDisableScan]
+  enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOnDisableProject]
+  enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOffDisableProject]
   enableSuite[GlutenExpressionsSchemaSuite]
   enableSuite[GlutenExtraStrategiesSuite]
   enableSuite[GlutenFileBasedDataSourceSuite]

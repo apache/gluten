@@ -152,14 +152,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - name: Get Ccache
-        uses: actions/cache/restore@v4
+      - name: Get Ccache from Apache Stash
+        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-delta-spark-ut-centos7-release-default-${{github.sha}}
-          restore-keys: |
-            ccache-delta-spark-ut-centos7-release-default
-            ccache-centos7-release-default
+          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Build Gluten native libraries
         run: |
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
@@ -174,12 +171,13 @@ jobs:
             bash dev/ci-velox-buildstatic-centos-7.sh
             ccache -s
           "
-      - name: Save Ccache
+      - name: Save Ccache to Apache Stash
         if: always()
-        uses: actions/cache/save@v4
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-delta-spark-ut-centos7-release-default-${{github.sha}}
+          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
       - uses: actions/upload-artifact@v4
         with:
           name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
@@ -197,14 +195,25 @@ jobs:
         with:
           name: delta-spark-ut-native-lib-centos-7-${{ github.sha }}
           path: ./cpp/build/
-      - name: Cache Maven repository
-        uses: actions/cache@v4
+      - name: Install Stash restore dependencies
+        run: |
+          set -euo pipefail
+          yum install -y python3
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64) ARCH=arm64 ;;
+            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
+            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
+          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
+          chmod +x /usr/local/bin/jq
+          python3 --version && gh --version && jq --version
+      - name: Get Maven repository from Apache Stash
+        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: /root/.m2/repository
           key: m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-${{ hashFiles('pom.xml', '**/pom.xml') }}
-          restore-keys: |
-            m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-
-            m2-delta-spark-ut-bundle-
       - name: Build Gluten Velox + Delta bundle
         run: |
           set -euo pipefail
@@ -222,6 +231,12 @@ jobs:
             -P${{ env.GLUTEN_JAVA_PROFILE }} \
             -Pbackends-velox -Pdelta \
             -DskipTests -Dmaven.compiler.release=17
+      - name: Save Maven repository to Apache Stash
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: /root/.m2/repository
+          key: m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-${{ hashFiles('pom.xml', '**/pom.xml') }}
+          include-hidden-files: true
       - name: Stage bundle jar
         run: |
           set -euo pipefail
@@ -304,7 +319,7 @@ jobs:
           name: delta-spark-ut-gluten-bundle-${{github.sha}}
           path: gluten-bundle
 
-      - name: Install minimal tools
+      - name: Install minimal tools and Stash restore dependencies
         run: |
           set -euo pipefail
           # apache/gluten:centos-9-jdk17 already has java-17, git, tar, a POSIX
@@ -313,27 +328,31 @@ jobs:
           # tests may need. We deliberately do NOT install the full `curl`
           # package -- it conflicts with the pre-installed curl-minimal.
           yum install -y java-17-openjdk-devel which findutils gzip python3
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64) ARCH=arm64 ;;
+            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
+            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
+          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
+          chmod +x /usr/local/bin/jq
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           git --version
           curl --version | head -n 1
+          python3 --version
+          gh --version
+          jq --version
 
-      - name: Cache sbt / Ivy / Coursier
-        uses: actions/cache@v4
+      - name: Get sbt / Ivy / Coursier from Apache Stash
+        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
-          path: |
-            /root/.sbt
-            /root/.ivy2
-            /root/.cache/coursier
-          # Intentionally NOT keyed by ${{ matrix.shard }} -- all shards share
-          # the same dependency tree, so a single shared cache (with parallel
-          # save races resolved by GH on a first-write-wins basis) gives the
-          # best storage / hit-rate tradeoff.
+          # Stash restore accepts one destination. The save step preserves the
+          # three selected cache paths relative to their common /root directory.
+          path: /root
           key: delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-${{ steps.resolve.outputs.spark_version }}-${{ env.DELTA_SCALA_VERSION }}
-          restore-keys: |
-            delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-${{ steps.resolve.outputs.spark_version }}-
-            delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-
 
       - name: Clone and patch Delta
         run: |
@@ -372,6 +391,19 @@ jobs:
           # Run the shard's Delta tests + hang watchdog + memory forensics, then
           # gate against the baseline. See util/delta-spark-ut/run-delta-tests.sh.
           bash "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/run-delta-tests.sh"
+
+      - name: Save sbt / Ivy / Coursier to Apache Stash
+        # All shards have the same dependencies; one writer avoids matrix jobs
+        # overwriting the same stash artifact.
+        if: ${{ success() && matrix.shard == 0 }}
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: |
+            /root/.sbt
+            /root/.ivy2
+            /root/.cache/coursier
+          key: delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-${{ steps.resolve.outputs.spark_version }}-${{ env.DELTA_SCALA_VERSION }}
+          include-hidden-files: true
 
       - name: Compress heap dumps (if any)
         if: ${{ failure() }}

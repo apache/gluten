@@ -114,7 +114,7 @@ void ExpandTransform::work()
             input_arg.column = input_column;
             input_arg.type = input_header.getByPosition(index).type;
             /// input_column maybe non-Nullable
-            columns[col_i] = DB::castColumn(input_arg, type);
+            columns[col_i] = DB::castColumn(input_arg, type)->convertToFullColumnIfConst();
         }
         else if (kind == EXPAND_FIELD_KIND_LITERAL)
         {

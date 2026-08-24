@@ -628,8 +628,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("length check for input string values: nested in map value")
     .exclude("length check for input string values: nested in both map key and value")
     .exclude("length check for input string values: nested in array of struct")
-    .excludeGlutenTest("length check for input string values: nested in array of struct")
-    .exclude("char type values should be padded: nested in array of struct")
     .exclude("length check for input string values: nested in array of array")
     // Following tests are excluded as these are overridden in Gluten test suite..
     // The overridden tests assert against Velox-specific error messages for char/varchar
@@ -647,8 +645,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("length check for input string values: nested in array")
     .exclude("length check for input string values: nested in struct of array")
     .exclude("length check for input string values: nested in array of struct")
-    .excludeGlutenTest("length check for input string values: nested in array of struct")
-    .exclude("char type values should be padded: nested in array of struct")
     .exclude("length check for input string values: nested in array of array")
     .exclude("length check for input string values: with implicit cast")
     .exclude("char/varchar type values length check: partitioned columns of other types")
@@ -757,6 +753,12 @@ class VeloxTestSettings extends BackendTestSettings {
     // rewrite `WindowExec -> WindowExecTransformer`
     .exclude(
       "SPARK-38237: require all cluster keys for child required distribution for window query")
+    // The window orderBy has no tie-breaker, so rows tied in the window order can be emitted
+    // in any order. Velox TopNRowNumber orders peer rows differently than Spark's stable sort,
+    // making the running-frame collect_list result differ on tied rows. Both results are valid.
+    .exclude(
+      "SPARK-45543: InferWindowGroupLimit causes bug if the other window functions" +
+        " haven't the same window frame as the rank-like functions")
   enableSuite[GlutenDataFrameWindowFramesSuite]
     // Local window fixes are not added.
     .exclude("range between should accept int/long values as boundary")
@@ -789,10 +791,14 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOn]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOnDisableScan]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffDisableScan]
+  enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOnDisableProject]
+  enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOffDisableProject]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOff]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOn]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOnDisableScan]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffDisableScan]
+  enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOnDisableProject]
+  enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOffDisableProject]
   enableSuite[GlutenExpressionsSchemaSuite]
   enableSuite[GlutenExtraStrategiesSuite]
   enableSuite[GlutenFileBasedDataSourceSuite]

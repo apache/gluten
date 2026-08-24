@@ -16,6 +16,7 @@
  */
 
 #include "SubstraitParser.h"
+#include <limits>
 #include "TypeUtils.h"
 #include "VeloxSubstraitSignature.h"
 #include "velox/common/base/Exceptions.h"
@@ -75,9 +76,9 @@ TypePtr SubstraitParser::parseType(const ::substrait::Type& substraitType, bool 
       return UNKNOWN();
     case ::substrait::Type::KindCase::kDate:
       return DATE();
-    case ::substrait::Type::KindCase::kTimestampTz:
+    case ::substrait::Type::KindCase::kPrecisionTimestampTz:
       return TIMESTAMP();
-    case ::substrait::Type::KindCase::kTimestamp:
+    case ::substrait::Type::KindCase::kPrecisionTimestamp:
       return TIMESTAMP_UTC();
     case ::substrait::Type::KindCase::kDecimal: {
       auto precision = substraitType.decimal().precision();
@@ -314,6 +315,17 @@ std::vector<TypePtr> SubstraitParser::sigToTypes(const std::string& signature) {
     types.emplace_back(VeloxSubstraitSignature::fromSubstraitSignature(typeStr));
   }
   return types;
+}
+
+std::optional<int32_t> SubstraitParser::getRowCount(const ::substrait::Expression& expression) {
+  if (!expression.has_literal() || !expression.literal().has_i64()) {
+    return std::nullopt;
+  }
+  const int64_t count = expression.literal().i64();
+  if (count <= 0 || count > std::numeric_limits<int32_t>::max()) {
+    return std::nullopt;
+  }
+  return static_cast<int32_t>(count);
 }
 
 template <typename T>

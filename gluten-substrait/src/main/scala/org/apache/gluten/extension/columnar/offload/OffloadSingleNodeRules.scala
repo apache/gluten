@@ -318,6 +318,9 @@ object OffloadOthers {
             if SparkShimLoader.getSparkShims.isEmptyRelationExec(plan) &&
               EmptyRelationExecTransformer.isSupportEmptyRelationExec(plan) =>
           EmptyRelationExecTransformer.getEmptyRelationExecTransform(plan)
+        case plan: LocalTableScanExec
+            if LocalTableScanTransformer.isSupportLocalTableScanExec(plan) =>
+          LocalTableScanTransformer.getLocalTableScanTransform(plan)
         case p if !p.isInstanceOf[GlutenPlan] =>
           logDebug(s"Transformation for ${p.getClass} is currently not supported.")
           p

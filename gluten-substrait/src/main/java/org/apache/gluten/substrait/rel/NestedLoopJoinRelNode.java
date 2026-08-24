@@ -19,7 +19,7 @@ package org.apache.gluten.substrait.rel;
 import org.apache.gluten.substrait.expression.ExpressionNode;
 import org.apache.gluten.substrait.extensions.AdvancedExtensionNode;
 
-import io.substrait.proto.CrossRel;
+import io.substrait.proto.NestedLoopJoinRel;
 import io.substrait.proto.Rel;
 import io.substrait.proto.RelCommon;
 
@@ -27,17 +27,17 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CrossRelNode implements RelNode, Serializable {
+public class NestedLoopJoinRelNode implements RelNode, Serializable {
   private final RelNode left;
   private final RelNode right;
-  private final CrossRel.JoinType joinType;
+  private final NestedLoopJoinRel.JoinType joinType;
   private final ExpressionNode expression;
   private final AdvancedExtensionNode extensionNode;
 
-  CrossRelNode(
+  NestedLoopJoinRelNode(
       RelNode left,
       RelNode right,
-      CrossRel.JoinType joinType,
+      NestedLoopJoinRel.JoinType joinType,
       ExpressionNode expression,
       AdvancedExtensionNode extensionNode) {
     this.left = left;
@@ -52,24 +52,24 @@ public class CrossRelNode implements RelNode, Serializable {
     RelCommon.Builder relCommonBuilder = RelCommon.newBuilder();
     relCommonBuilder.setDirect(RelCommon.Direct.newBuilder());
 
-    CrossRel.Builder crossRelBuilder = CrossRel.newBuilder();
-    crossRelBuilder.setCommon(relCommonBuilder.build());
+    NestedLoopJoinRel.Builder nestedLoopJoinRelBuilder = NestedLoopJoinRel.newBuilder();
+    nestedLoopJoinRelBuilder.setCommon(relCommonBuilder.build());
 
-    crossRelBuilder.setType(joinType);
+    nestedLoopJoinRelBuilder.setType(joinType);
 
     if (left != null) {
-      crossRelBuilder.setLeft(left.toProtobuf());
+      nestedLoopJoinRelBuilder.setLeft(left.toProtobuf());
     }
     if (right != null) {
-      crossRelBuilder.setRight(right.toProtobuf());
+      nestedLoopJoinRelBuilder.setRight(right.toProtobuf());
     }
     if (expression != null) {
-      crossRelBuilder.setExpression(expression.toProtobuf());
+      nestedLoopJoinRelBuilder.setExpression(expression.toProtobuf());
     }
     if (extensionNode != null) {
-      crossRelBuilder.setAdvancedExtension(extensionNode.toProtobuf());
+      nestedLoopJoinRelBuilder.setAdvancedExtension(extensionNode.toProtobuf());
     }
-    return Rel.newBuilder().setCross(crossRelBuilder.build()).build();
+    return Rel.newBuilder().setNestedLoopJoin(nestedLoopJoinRelBuilder.build()).build();
   }
 
   @Override
