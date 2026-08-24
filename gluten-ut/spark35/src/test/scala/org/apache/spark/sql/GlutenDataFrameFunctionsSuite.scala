@@ -49,4 +49,86 @@ class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenS
       false
     )
   }
+
+  testGluten("flatten function") {
+    // Test cases with a primitive type
+    val intDF = Seq(
+      (Seq(Seq(1, 2, 3), Seq(4, 5), Seq(6))),
+      (Seq(Seq(1, 2))),
+      (Seq(Seq(1), Seq.empty)),
+      (Seq(Seq.empty, Seq(1)))
+    ).toDF("i")
+
+    val intDFResult = Seq(Row(Seq(1, 2, 3, 4, 5, 6)), Row(Seq(1, 2)), Row(Seq(1)), Row(Seq(1)))
+
+    def testInt(): Unit = {
+      checkAnswer(intDF.select(flatten($"i")), intDFResult)
+      checkAnswer(intDF.selectExpr("flatten(i)"), intDFResult)
+    }
+
+    // Test with local relation, the Project will be evaluated without codegen
+    testInt()
+    // Test with cached relation, the Project will be evaluated with codegen
+    intDF.cache()
+    testInt()
+
+    // Test cases with non-primitive types
+    val strDF = Seq(
+      (Seq(Seq("a", "b"), Seq("c"), Seq("d", "e", "f"))),
+      (Seq(Seq("a", "b"))),
+      (Seq(Seq("a", null), Seq(null, "b"), Seq(null, null))),
+      (Seq(Seq("a"), Seq.empty)),
+      (Seq(Seq.empty, Seq("a")))
+    ).toDF("s")
+
+    val strDFResult = Seq(
+      Row(Seq("a", "b", "c", "d", "e", "f")),
+      Row(Seq("a", "b")),
+      Row(Seq("a", null, null, "b", null, null)),
+      Row(Seq("a")),
+      Row(Seq("a")))
+
+    def testString(): Unit = {
+      checkAnswer(strDF.select(flatten($"s")), strDFResult)
+      checkAnswer(strDF.selectExpr("flatten(s)"), strDFResult)
+    }
+
+    // Test with local relation, the Project will be evaluated without codegen
+    testString()
+    // Test with cached relation, the Project will be evaluated with codegen
+    strDF.cache()
+    testString()
+
+    val arrDF = Seq((1, "a", Seq(1, 2, 3))).toDF("i", "s", "arr")
+
+    def testArray(): Unit = {
+      checkAnswer(
+        arrDF.selectExpr("flatten(array(arr, array(null, 5), array(6, null)))"),
+        Seq(Row(Seq(1, 2, 3, null, 5, 6, null))))
+      checkAnswer(
+        arrDF.selectExpr("flatten(array(array(arr, arr), array(arr)))"),
+        Seq(Row(Seq(Seq(1, 2, 3), Seq(1, 2, 3), Seq(1, 2, 3)))))
+    }
+
+    // Test with local relation, the Project will be evaluated without codegen
+    testArray()
+    // Test with cached relation, the Project will be evaluated with codegen
+    arrDF.cache()
+    testArray()
+
+    // Error test cases
+    val oneRowDF = Seq((1, "a", Seq(1, 2, 3))).toDF("i", "s", "arr")
+    intercept[AnalysisException] {
+      oneRowDF.select(flatten($"arr"))
+    }
+    intercept[AnalysisException] {
+      oneRowDF.select(flatten($"i"))
+    }
+    intercept[AnalysisException] {
+      oneRowDF.select(flatten($"s"))
+    }
+    intercept[AnalysisException] {
+      oneRowDF.selectExpr("flatten(null)")
+    }
+  }
 }
