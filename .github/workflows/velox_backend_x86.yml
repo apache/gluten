@@ -144,7 +144,7 @@ jobs:
           echo "shims41=$(match  '^(shims/(spark41|common)/|gluten-ut/spark41/)')"                           >> $GITHUB_OUTPUT
           echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
 
-  build-native-lib-centos-7:
+  build-native-lib-centos-8:
     needs: detect-changes
     runs-on: ubuntu-22.04
     steps:
@@ -154,27 +154,27 @@ jobs:
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-centos8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
         if: steps.ccache-stash.outputs.stash-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos7-release-default-${{github.sha}}
+          key: ccache-centos8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-centos7-release-default
+            ccache-centos8-release-default
       - name: Build Gluten native libraries
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
             set -e
-            yum install tzdata -y
+            yum install tzdata bison -y
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
             export CCACHE_MAXSIZE=1G
             mkdir -p /work/.ccache
             ccache -sz
-            bash dev/ci-velox-buildstatic-centos-7.sh
+            bash dev/ci-velox-buildstatic-centos-8.sh
             ccache -s
           "
 
@@ -183,17 +183,17 @@ jobs:
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-centos8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
       - uses: actions/upload-artifact@v7
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
           if-no-files-found: error
           retention-days: 1
 
   tpc-test-ubuntu:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.cpp == 'true' ||
       needs.detect-changes.outputs.java == 'true' ||
@@ -245,7 +245,7 @@ jobs:
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Setup tzdata
         run: |
@@ -329,7 +329,7 @@ jobs:
           fi
 
   tpc-test-centos8:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.cpp == 'true' ||
       needs.detect-changes.outputs.java == 'true' ||
@@ -375,7 +375,7 @@ jobs:
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Update mirror list
         run: |
@@ -424,55 +424,8 @@ jobs:
           GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
 
-  tpc-test-centos7:
-    needs: [detect-changes, build-native-lib-centos-7]
-    if: >-
-      needs.detect-changes.outputs.cpp == 'true' ||
-      needs.detect-changes.outputs.java == 'true' ||
-      needs.detect-changes.outputs.tools_it == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        spark: [ "spark-3.5" ]
-        java: [ "java-8" ]
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v7
-      - name: Download All Native Artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: velox-native-lib-centos-7-${{github.sha}}
-          path: ./cpp/build/releases/
-      - name: Build and run TPCH/DS tests
-        run: |
-          docker pull centos:7
-          docker run -v $GITHUB_WORKSPACE:/work -v /$GITHUB_WORKSPACE/.m2:/root/.m2/ -w /work \
-          -e matrix.java=${{ matrix.java }} -e matrix.spark=${{ matrix.spark }} \
-          centos:7 \
-          bash -c "
-            set -e
-            sed -i -e 's|mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-* || true
-            sed -i -e 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-* || true
-
-            yum update -y && yum install -y java-1.8.0-openjdk-devel wget tzdata python3-pip
-            # Set environment variables
-            export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
-
-            # Build gluten
-            build/mvn -ntp clean install -P${{ matrix.spark }} -P${{ matrix.java }} -Pbackends-velox -DskipTests
-            # Build gluten-it
-            cd /work/tools/gluten-it
-            /work/build/mvn -ntp clean install -P${{ matrix.spark }} -P${{ matrix.java }}
-
-            # Run TPC-H / TPC-DS
-            GLUTEN_IT_JVM_ARGS=-Xmx5G sbin/gluten-it.sh queries-compare \
-              --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
-            GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
-              --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
-          "
-
   tpc-test-ubuntu-oom:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     # Chaos/stress tier: this job probes native memory-pressure behaviour, so
     # per-PR it only runs when native code changed (cpp=true). For java-only
     # changes its ~60 runner-minutes rarely produce PR-specific signal; the
@@ -502,7 +455,7 @@ jobs:
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Setup java
         run: |
@@ -589,7 +542,7 @@ jobs:
             -d=IO_THREADS:0,spark.gluten.sql.columnar.backend.velox.IOThreads=0
 
   tpc-test-ubuntu-randomkill:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     # Chaos/stress tier (see tpc-test-ubuntu-oom): random task kills mainly
     # probe native/JNI shutdown robustness, and at 3 shards this is the single
     # most expensive TPC job (~190 runner-minutes). Per-PR only for native
@@ -620,7 +573,7 @@ jobs:
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Setup java
         run: |
@@ -644,7 +597,7 @@ jobs:
             --data-gen=skip  --random-kill-tasks --no-session-reuse --shard=${{ matrix.shard }}/3
 
   tpc-test-centos8-uniffle:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.cpp == 'true' ||
       needs.detect-changes.outputs.java == 'true' ||
@@ -662,7 +615,7 @@ jobs:
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Install Uniffle ${{ matrix.uniffle }}
         run: |
@@ -694,7 +647,7 @@ jobs:
             --local --preset=velox-with-uniffle --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
 
   tpc-test-ubuntu-2204-celeborn:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.cpp == 'true' ||
       needs.detect-changes.outputs.java == 'true' ||
@@ -719,7 +672,7 @@ jobs:
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Update mirror list
         run: |
@@ -778,7 +731,7 @@ jobs:
           fi
 
   spark-test-spark34:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims34 == 'true' ||
@@ -794,7 +747,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Prepare spark.test.home for Spark 3.4.4 (other tests)
         run: |
@@ -849,7 +802,7 @@ jobs:
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark34-slow:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims34 == 'true' ||
@@ -865,7 +818,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Build and Run unit test for Spark 3.4.4 (slow tests, ${{ matrix.suite }})
         run: |
@@ -901,7 +854,7 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark35:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims35 == 'true' ||
@@ -919,7 +872,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Prepare
         run: |
@@ -973,7 +926,7 @@ jobs:
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark35-scala213:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims35 == 'true' ||
@@ -991,7 +944,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Prepare
         run: |
@@ -1039,7 +992,7 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark35-slow:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims35 == 'true' ||
@@ -1057,7 +1010,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Build and Run unit test for Spark 3.5.5 (slow tests, ${{ matrix.suite }})
         run: |
@@ -1277,7 +1230,7 @@ jobs:
           $MVN_CMD clean test-compile -Pspark-4.0 -Pscala-2.13 -Pbackends-velox -Pspark-ut -Piceberg,iceberg-test,delta,paimon -Pfast-build
 
   spark-test-spark40:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims40 == 'true' ||
@@ -1295,7 +1248,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Prepare
         run: |
@@ -1343,7 +1296,7 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark40-slow:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims40 == 'true' ||
@@ -1361,7 +1314,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Build and Run unit test for Spark 4.0 (slow tests, ${{ matrix.suite }})
         run: |
@@ -1396,7 +1349,7 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark41:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims41 == 'true' ||
@@ -1418,7 +1371,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Prepare
         run: |
@@ -1471,7 +1424,7 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark41-slow:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims41 == 'true' ||
@@ -1490,7 +1443,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-7-${{github.sha}}
+          name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Build and Run unit test for Spark 4.1 (slow tests, ${{ matrix.suite }})
         run: |
