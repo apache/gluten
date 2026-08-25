@@ -103,6 +103,12 @@ longer shared between them, those PRs pay for the centos-7 native build twice
   still caught daily. The nightly run enforces the baseline **and** fails on
   now-passing tests (`fail_on_fixed=true`), so baseline drift surfaces as a red
   nightly — the signal to refresh `known-failures.txt`.
+- **On demand, from a PR** — anyone can comment **`/delta-test`** as the first
+  token to run the default configuration against the PR merge ref. This covers
+  PRs skipped by `paths:` without requiring label permissions. The workflow
+  posts the run link on the PR and enforces the committed baseline. Comment runs
+  restore but never save main-scoped Stash caches; use `workflow_dispatch` for
+  custom inputs or baseline updates.
 - **Manually** — **Actions → Delta Spark UT (Gluten) → Run workflow**
   (`workflow_dispatch`), e.g. to refresh the baseline (see below). This is also
   how you validate a Velox/core change against Delta before merging: run it on

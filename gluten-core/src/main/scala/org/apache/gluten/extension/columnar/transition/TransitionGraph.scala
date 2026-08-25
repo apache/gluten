@@ -96,7 +96,7 @@ object TransitionGraph {
     }
   }
 
-  /** Reuse RAS cost to represent transition cost. */
+  /** Reuse Gluten cost to represent transition cost. */
   private case class TransitionCost(value: GlutenCost, nodeNames: Seq[String])
     extends FloydWarshallGraph.Cost
 
@@ -149,13 +149,13 @@ object TransitionGraph {
        * The calculation considers C2C's cost as half of C2R / R2C's cost. So query planner prefers
        * C2C than C2R / R2C.
        */
-      def rasCostOfPlan(plan: SparkPlan): GlutenCost = base.costOf(plan)
+      def costOfPlan(plan: SparkPlan): GlutenCost = base.costOf(plan)
       def nodeNamesOfPlan(plan: SparkPlan): Seq[String] = {
         plan.map(_.nodeName).reverse
       }
 
-      val leafCost = rasCostOfPlan(leaf)
-      val accumulatedCost = rasCostOfPlan(transited)
+      val leafCost = costOfPlan(leaf)
+      val accumulatedCost = costOfPlan(transited)
       val costDiff = base.diff(accumulatedCost, leafCost)
 
       val leafNodeNames = nodeNamesOfPlan(leaf)

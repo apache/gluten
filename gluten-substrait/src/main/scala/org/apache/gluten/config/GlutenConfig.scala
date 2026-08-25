@@ -95,6 +95,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableColumnarWindowGroupLimit: Boolean = getConf(COLUMNAR_WINDOW_GROUP_LIMIT_ENABLED)
 
+  def enableColumnarLocalTableScan: Boolean = getConf(COLUMNAR_LOCAL_TABLE_SCAN_ENABLED)
+
   def enableAppendData: Boolean = getConf(COLUMNAR_APPEND_DATA_ENABLED)
 
   def enableReplaceData: Boolean = getConf(COLUMNAR_REPLACE_DATA_ENABLED)
@@ -416,6 +418,7 @@ object GlutenConfig extends ConfigRegistry {
   val PARQUET_ZSTD_COMPRESSION_LEVEL: String = "parquet.compression.codec.zstd.level"
   val PARQUET_DATAPAGE_SIZE: String = "parquet.page.size"
   val PARQUET_ENABLE_DICTIONARY: String = "parquet.enable.dictionary"
+  val PARQUET_ENABLE_PAGE_INDEX: String = "parquet.enable.page.index"
   val PARQUET_WRITER_VERSION: String = "parquet.writer.version"
   // Hadoop config
   val HADOOP_PREFIX = "spark.hadoop."
@@ -924,6 +927,19 @@ object GlutenConfig extends ConfigRegistry {
       .doc("Enable or disable columnar filter.")
       .booleanConf
       .createWithDefault(true)
+
+  val COLUMNAR_LOCAL_TABLE_SCAN_ENABLED =
+    // NOTE: Disabled by default. When an offloaded local scan feeds an operator that falls back
+    // to vanilla row execution under the write path, the inserted columnar-to-row transition is
+    // not yet codegen-safe (VeloxColumnarToRowExec is not CodegenSupport), which can fail
+    // FileFormatWriter codegen. Flip the default to true once that path is handled.
+    buildConf("spark.gluten.sql.columnar.localTableScan")
+      .doc(
+        "Enable or disable native columnar execution of LocalTableScanExec. When true, Gluten " +
+          "attempts to replace LocalTableScanExec (a driver-side local collection) with a " +
+          "backend transformer that converts the rows into columnar batches natively.")
+      .booleanConf
+      .createWithDefault(false)
 
   val COLUMNAR_SORT_ENABLED =
     buildConf("spark.gluten.sql.columnar.sort")
@@ -1741,8 +1757,8 @@ object GlutenConfig extends ConfigRegistry {
       .experimental()
       .doc(
         "The CPU resource name (Spark custom resource). " +
-          "This must match the resource name configured via spark.executor.resource.<name>.* / " +
-          "spark.task.resource.<name>.* for CPU-stage scheduling to take effect."
+          "This must match the resource name configured via spark.<component>.resource.<name>.* " +
+          "for CPU-stage scheduling to take effect."
       )
       .stringConf
       .createWithDefault("cpu")
@@ -1752,8 +1768,8 @@ object GlutenConfig extends ConfigRegistry {
       .experimental()
       .doc(
         "The GPU resource name (Spark custom resource). " +
-          "This must match the resource name configured via spark.executor.resource.<name>.* / " +
-          "spark.task.resource.<name>.* for GPU-stage scheduling to take effect."
+          "This must match the resource name configured via spark.<component>.resource.<name>.* " +
+          "for GPU-stage scheduling to take effect."
       )
       .stringConf
       .createWithDefault("gpu")

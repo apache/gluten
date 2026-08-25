@@ -95,7 +95,7 @@ object MetricsUtil extends Logging {
     metrics.localReadBytes = customMetricSum(node, "localReadBytes")
     metrics.ramReadBytes = customMetricSum(node, "ramReadBytes")
     metrics.preloadSplits = customMetricSum(node, "readyPreloadedSplits")
-    metrics.pageLoadTime = customMetricSum(node, "pageLoadTimeNs")
+    metrics.pageLoadTime = customMetricSum(node, "parquet.pageLoadTimeNanos")
     metrics.dataSourceAddSplitTime = customMetricSum(node, "dataSourceAddSplitWallNanos") +
       customMetricSum(node, "waitForPreloadSplitNanos")
     metrics.dataSourceReadTime = customMetricSum(node, "dataSourceReadWallNanos")
@@ -395,7 +395,8 @@ object MetricsUtil extends Logging {
         }
         smj.updateJoinMetrics(operatorMetrics, singleMetrics, joinParams)
       case ju: JoinMetricsUpdaterBase =>
-        // JoinRel and CrossRel output two suites of metrics respectively for build and probe.
+        // JoinRel and NestedLoopJoinRel output two suites of metrics respectively for build and
+        // probe.
         // Therefore, fetch one more suite of metrics here.
         operatorMetrics.add(nativeMetrics.get(curMetricsIdx))
         curMetricsIdx -= 1

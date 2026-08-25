@@ -59,8 +59,6 @@ org.apache.spark.sql.delta.CloneTableSQLSuite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch100Suite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch1Suite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch2Suite#shallow clone across file systems
-org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#Cloning table with persistent DVs and absolute parquet paths
-org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#Shallow clone round-trip with DVs
 org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableScalaSuite#shallow clone across file systems
 org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#external tables use correct path scheme
@@ -335,7 +333,6 @@ org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATC
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: INT followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
@@ -365,7 +362,6 @@ org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATC
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: MAP<STRING, BIGINT>, targetType: MAP<STRING, INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: STRING, targetType: INT followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: STRING, targetType: INT followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: STRING, targetType: INT followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: STRING, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: STRING, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: Struct<value:BIGINT>, targetType: Struct<value:INT> followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
@@ -374,7 +370,6 @@ org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATC
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: Struct<value:BIGINT>, targetType: Struct<value:INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: BIGINT, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
@@ -390,7 +385,6 @@ org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE ov
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: INT, targetType: TINYINT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: MAP<STRING, BIGINT>, targetType: MAP<STRING, INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: MAP<STRING, BIGINT>, targetType: MAP<STRING, INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: STRING, targetType: INT followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: STRING, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: STRING, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: Struct<value:BIGINT>, targetType: Struct<value:INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
@@ -745,10 +739,8 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.PartitionLikeDataSkippingColumnMappingSuite#partition-like data skipping for expression COALESCE: COALESCE(TO_DATE(S.b), c) = '1976-07-03' - column mapping id mode
 org.apache.spark.sql.delta.stats.StatsCollectionSuite#recompute stats multiple columns and files
-org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening BIGINT -> DECIMAL(20,0), partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DATE -> TIMESTAMP_NTZ, partitioned=false
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DATE -> TIMESTAMP_NTZ, partitioned=true
-org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DECIMAL(9,2) -> DECIMAL(19,3), partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening FLOAT -> DOUBLE, partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening INT -> DOUBLE, partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#unsupported type changes DOUBLE -> FLOAT, partitioned=true

@@ -18,11 +18,17 @@
 #include "substrait/SubstraitToVeloxExpr.h"
 
 #include "velox/common/base/tests/GTestUtils.h"
+#include "velox/core/QueryConfig.h"
+#include "velox/exec/tests/utils/AssertQueryBuilder.h"
+#include "velox/exec/tests/utils/OperatorTestBase.h"
+#include "velox/exec/tests/utils/PlanBuilder.h"
 #include "velox/type/Type.h"
 
 using namespace facebook::velox;
 
 namespace gluten {
+
+class SubstraitVeloxExprConverterExecutionTest : public exec::test::OperatorTestBase {};
 
 // Regression test for a SIGSEGV in
 // SubstraitVeloxExprConverter::toVeloxExpr(Expression::FieldReference, ...).
@@ -64,6 +70,67 @@ TEST(SubstraitVeloxExprConverterTest, fieldReferenceIndexOutOfRangeThrows) {
   fieldReference.mutable_direct_reference()->mutable_struct_field()->set_field(5);
 
   VELOX_ASSERT_USER_THROW(SubstraitVeloxExprConverter::toVeloxExpr(fieldReference, inputType), "out of range");
+}
+
+TEST_F(SubstraitVeloxExprConverterExecutionTest, ordinalFieldReferenceIntoNonStructThrows) {
+  auto inputType = ROW({"arr"}, {ARRAY(INTEGER())});
+
+  ::substrait::Expression substraitExpr;
+  auto* structField = substraitExpr.mutable_selection()->mutable_direct_reference()->mutable_struct_field();
+  structField->set_field(0);
+  structField->mutable_child()->mutable_struct_field()->set_field(0);
+
+  const std::unordered_map<uint64_t, std::string> functionMap;
+  SubstraitVeloxExprConverter converter(pool(), functionMap);
+  VELOX_ASSERT_THROW(converter.toVeloxExpr(substraitExpr, inputType), "Nested field reference into a non-struct type");
+}
+
+TEST_F(SubstraitVeloxExprConverterExecutionTest, ordinalFieldReferenceIndexOutOfRangeThrows) {
+  auto inputType = ROW({"a", "b"}, {INTEGER(), INTEGER()});
+  const std::unordered_map<uint64_t, std::string> functionMap;
+  SubstraitVeloxExprConverter converter(pool(), functionMap);
+
+  for (const auto index : {-1, 5}) {
+    SCOPED_TRACE(index);
+    ::substrait::Expression substraitExpr;
+    substraitExpr.mutable_selection()->mutable_direct_reference()->mutable_struct_field()->set_field(index);
+    VELOX_ASSERT_USER_THROW(converter.toVeloxExpr(substraitExpr, inputType), "out of range");
+  }
+}
+
+TEST_F(SubstraitVeloxExprConverterExecutionTest, nestedFieldReferenceUsesOrdinalForUnnamedFields) {
+  auto accumulator = makeRowVector(
+      {"", ""}, {makeFlatVector<int128_t>({12345, 67890}, DECIMAL(22, 2)), makeFlatVector<bool>({false, true})});
+  auto input = makeRowVector({"acc"}, {accumulator});
+
+  // Nested ROW fields can have duplicate or empty names. A name-based lookup
+  // would bind both references to field 0 and return HUGEINT for field 1.
+  ::substrait::Expression substraitExpr;
+  auto* structField = substraitExpr.mutable_selection()->mutable_direct_reference()->mutable_struct_field();
+  structField->set_field(0);
+  structField->mutable_child()->mutable_struct_field()->set_field(1);
+
+  const std::unordered_map<uint64_t, std::string> functionMap;
+  SubstraitVeloxExprConverter converter(pool(), functionMap);
+  auto expression = converter.toVeloxExpr(substraitExpr, asRowType(input->type()));
+  auto dereference = std::dynamic_pointer_cast<const core::DereferenceTypedExpr>(expression);
+  ASSERT_NE(dereference, nullptr);
+  EXPECT_EQ(dereference->index(), 1);
+  EXPECT_EQ(dereference->type()->kind(), TypeKind::BOOLEAN);
+
+  auto inputField = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(dereference->inputs().front());
+  ASSERT_NE(inputField, nullptr);
+  EXPECT_TRUE(inputField->isInputColumn());
+  EXPECT_EQ(inputField->name(), "acc");
+
+  auto plan = exec::test::PlanBuilder().values({input}).projectExpressions({expression}).planNode();
+  for (const bool simplified : {false, true}) {
+    SCOPED_TRACE(simplified ? "simplified=true" : "simplified=false");
+    auto result = exec::test::AssertQueryBuilder(plan)
+                      .config(core::QueryConfig::kExprEvalSimplified, simplified ? "true" : "false")
+                      .copyResults(pool());
+    test::assertEqualVectors(makeFlatVector<bool>({false, true}), result->childAt(0));
+  }
 }
 
 } // namespace gluten

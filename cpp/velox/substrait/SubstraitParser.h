@@ -24,6 +24,8 @@
 
 #include <google/protobuf/wrappers.pb.h>
 
+#include <optional>
+
 #include "velox/connectors/hive/TableHandle.h"
 #include "velox/type/Type.h"
 
@@ -49,6 +51,10 @@ class SubstraitParser {
   /// Parse Substrait ReferenceSegment and extract the field index. Return false if the segment is not a valid unnested
   /// field.
   static bool parseReferenceSegment(const ::substrait::Expression::ReferenceSegment& refSegment, uint32_t& fieldIndex);
+
+  /// Return true if the expression selects a non-negative top-level field from
+  /// the input row.
+  static bool isTopLevelFieldSelection(const ::substrait::Expression& expression);
 
   /// Make names in the format of {prefix}_{index}.
   static std::vector<std::string> makeNames(const std::string& prefix, int size);
@@ -102,6 +108,12 @@ class SubstraitParser {
   // Get values for the different supported types.
   template <typename T>
   static T getLiteralValue(const ::substrait::Expression::Literal& /* literal */);
+
+  /// Extract a row count that Substrait models as an Expression, e.g. TopNRel::count. Velox row
+  /// counts are positive int32 values, so std::nullopt is returned when the expression is unset,
+  /// null, not an i64 literal, or out of the int32 range. Callers are expected to reject the plan
+  /// in that case rather than silently substituting a count.
+  static std::optional<int32_t> getRowCount(const ::substrait::Expression& expression);
 
  private:
   /// A map used for mapping Substrait function keywords into Velox functions'

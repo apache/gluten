@@ -172,7 +172,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
           -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee backends-velox-test-output.log
       - name: "Parse test results"
         if: always()
@@ -241,7 +241,7 @@ jobs:
           $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
           -DwildcardSuites='org.apache.spark.' -Dtest=none -DfailIfNoTests=false \
           -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee spark-ut-test-output.log
       - name: "Parse test results"
         if: always()
@@ -318,7 +318,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
           -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee backends-velox-spark40-test-output.log
       - name: "Parse test results"
         if: always()
@@ -387,7 +387,7 @@ jobs:
           $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
           -DwildcardSuites='org.apache.spark.' -Dtest=none -DfailIfNoTests=false \
           -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee spark-ut-spark40-test-output.log
       - name: "Parse test results"
         if: always()

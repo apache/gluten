@@ -247,9 +247,12 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
   int64_t groupingKeySize = groupingKeys.size();
   ::substrait::AggregateRel_Grouping* aggGroupings = aggregateRel->add_groupings();
 
+  // Populate the rel-level grouping expression pool in declaration order and
+  // have the single grouping reference every entry by index.
   for (int64_t i = 0; i < groupingKeySize; i++) {
-    aggGroupings->add_grouping_expressions()->mutable_selection()->MergeFrom(
+    aggregateRel->add_grouping_expressions()->mutable_selection()->MergeFrom(
         exprConvertor_->toSubstraitExpr(arena, groupingKeys.at(i), inputType));
+    aggGroupings->add_expression_references(i);
   }
 
   // AggregatesSize should be equal to or greater than the aggregateMasks Size.
@@ -356,8 +359,8 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
 
   VELOX_CHECK(!topNNode->isPartial(), "Substrait doesn't support partial topN yet");
 
-  fetchRel->set_offset(0);
-  fetchRel->set_count(topNNode->count());
+  fetchRel->mutable_offset_expr()->mutable_literal()->set_i64(0);
+  fetchRel->mutable_count_expr()->mutable_literal()->set_i64(topNNode->count());
   fetchRel->mutable_common()->mutable_direct();
 }
 
@@ -388,8 +391,8 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
   const auto& source = getSingleSource(limitNode);
   toSubstrait(arena, source, fetchRel->mutable_input());
 
-  fetchRel->set_offset(limitNode->offset());
-  fetchRel->set_count(limitNode->count());
+  fetchRel->mutable_offset_expr()->mutable_literal()->set_i64(limitNode->offset());
+  fetchRel->mutable_count_expr()->mutable_literal()->set_i64(limitNode->count());
 
   VELOX_CHECK(!limitNode->isPartial(), "Substrait doesn't support partial limit yet");
 
