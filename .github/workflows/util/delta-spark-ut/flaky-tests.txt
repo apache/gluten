@@ -18,7 +18,5 @@
 #
 # NOTE: when a bug surfaces on a DIFFERENT test each run (so matching by name is
 # whack-a-mole), quarantine it by ERROR SIGNATURE in flaky-error-patterns.txt
-# instead. The native Delta DV bitmap row-index bug (RoaringBitmapArray
-# Long.MAX_VALUE) is handled there, which is why no `*DVs*Suite` MERGE entries
-# are listed below.
+# instead.
 

@@ -208,6 +208,55 @@ makeFieldAccessExpr(const std::string& name, const TypePtr& type, core::FieldAcc
   return std::make_shared<core::FieldAccessTypedExpr>(type, name);
 }
 
+core::TypedExprPtr
+makeOrdinalFieldReferenceExpr(uint32_t index, const RowTypePtr& inputType, core::TypedExprPtr input) {
+  const auto& type = inputType->childAt(index);
+  if (input) {
+    return std::make_shared<core::DereferenceTypedExpr>(type, std::move(input), index);
+  }
+
+  return std::make_shared<core::FieldAccessTypedExpr>(type, inputType->nameOf(index));
+}
+
+core::TypedExprPtr toVeloxOrdinalFieldReferenceExpr(
+    const ::substrait::Expression::FieldReference& substraitField,
+    const RowTypePtr& inputType) {
+  auto typeCase = substraitField.reference_type_case();
+  switch (typeCase) {
+    case ::substrait::Expression::FieldReference::ReferenceTypeCase::kDirectReference: {
+      const auto& directRef = substraitField.direct_reference();
+      core::TypedExprPtr fieldReference{nullptr};
+      const auto* tmp = &directRef.struct_field();
+
+      auto inputColumnType = inputType;
+      for (;;) {
+        auto idx = tmp->field();
+        VELOX_USER_CHECK(
+            idx >= 0 && static_cast<uint32_t>(idx) < inputColumnType->size(),
+            "Field reference index {} is out of range for the {}-field row type.",
+            idx,
+            inputColumnType->size());
+        const TypePtr childType = inputColumnType->childAt(idx);
+        fieldReference =
+            makeOrdinalFieldReferenceExpr(static_cast<uint32_t>(idx), inputColumnType, std::move(fieldReference));
+
+        if (!tmp->has_child()) {
+          break;
+        }
+
+        inputColumnType = asRowType(childType);
+        VELOX_USER_CHECK_NOT_NULL(
+            inputColumnType,
+            "Nested field reference into a non-struct type (e.g. an array or map element) is not supported.");
+        tmp = &tmp->child().struct_field();
+      }
+      return fieldReference;
+    }
+    default:
+      VELOX_NYI("Substrait conversion not supported for Reference '{}'", std::to_string(typeCase));
+  }
+}
+
 } // namespace
 
 using facebook::velox::variantToVector;
@@ -651,7 +700,7 @@ core::TypedExprPtr SubstraitVeloxExprConverter::toVeloxExpr(
     case ::substrait::Expression::RexTypeCase::kScalarFunction:
       return toVeloxExpr(substraitExpr.scalar_function(), inputType);
     case ::substrait::Expression::RexTypeCase::kSelection:
-      return toVeloxExpr(substraitExpr.selection(), inputType);
+      return toVeloxOrdinalFieldReferenceExpr(substraitExpr.selection(), inputType);
     case ::substrait::Expression::RexTypeCase::kCast:
       return toVeloxExpr(substraitExpr.cast(), inputType);
     case ::substrait::Expression::RexTypeCase::kIfThen:

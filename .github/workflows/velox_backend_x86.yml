@@ -100,7 +100,7 @@ jobs:
       shims41:  ${{ steps.filter.outputs.shims41 }}
       tools_it: ${{ steps.filter.outputs.tools_it }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Detect changed paths

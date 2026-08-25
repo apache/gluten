@@ -596,6 +596,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       if (substraitAggMask.ByteSizeLong() > 0) {
         mask = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(
             exprConverter_->toVeloxExpr(substraitAggMask, inputType));
+        VELOX_USER_CHECK(mask && mask->isInputColumn(), "Aggregation Operator only supports a top-level field mask.");
       }
     }
     const auto& aggFunction = measure.measure();
@@ -935,7 +936,13 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
     for (const auto& projectExpr : projections.switching_field().duplicates()) {
       if (projectExpr.has_selection()) {
-        auto expression = exprConverter_->toVeloxExpr(projectExpr.selection(), inputType);
+        VELOX_USER_CHECK(
+            SubstraitParser::isTopLevelFieldSelection(projectExpr),
+            "Expand Operator only supports a top-level field or literal.");
+        auto expression = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(
+            exprConverter_->toVeloxExpr(projectExpr, inputType));
+        VELOX_USER_CHECK(
+            expression && expression->isInputColumn(), "Expand Operator only supports a top-level field or literal.");
         projectExprs.emplace_back(expression);
       } else if (projectExpr.has_literal()) {
         auto expression = exprConverter_->toVeloxExpr(projectExpr.literal());
