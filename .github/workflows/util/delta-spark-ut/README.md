@@ -104,11 +104,10 @@ longer shared between them, those PRs pay for the centos-7 native build twice
   the safety net.
 - **Nightly** — the **full** suite runs against the latest default branch on a
   `schedule` (05:00 UTC), so regressions from general Velox/core changes are
-  still caught daily. It reports now-passing tests without failing on them, then
-  opens or updates a `[MINOR][CI]` pull request that removes those entries from
-  `known-failures.txt`. The automated update is deliberately deletion-only:
-  regressions are still reported and fail the run, but are never added to the
-  baseline; skipped and unseen tests are left unchanged.
+  still caught daily. It reports now-passing tests without failing on them and
+  uploads a deletion-only baseline artifact for authorized external automation.
+  Regressions are still reported and fail the run, but are never added to the
+  artifact; skipped and unseen tests are left unchanged.
 - **On demand, from a PR** — anyone can comment **`/delta-test`** as the first
   token to run the default configuration against the PR merge ref. This covers
   PRs skipped by `paths:` without requiring label permissions. The workflow
@@ -138,7 +137,7 @@ From the next run onward the gate enforces the baseline.
   *now-passing*. Delete those lines from `known-failures.txt` in your PR. That
   is the whole point — the baseline only ever shrinks as coverage improves. If
   the fix reached the default branch without running Delta CI, the next nightly
-  run will propose the same removals automatically.
+  run will include the same removals in its deletion-only artifact.
 - **You intentionally added a new expected failure** (e.g. a test that asserts
   on a query plan that legitimately differs once Gluten offloads, or one that
   hits a tracked bug you are not fixing here). Add the exact `Suite#test`
