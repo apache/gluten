@@ -90,8 +90,8 @@ on:
   # Nightly full run against the latest default branch. Per-PR the `paths:` filter
   # above runs the suite only for Delta-relevant changes, to save GHA minutes;
   # this scheduled run keeps full coverage once a day so regressions from general
-  # Velox/core changes are still caught. It also publishes a deletion-only
-  # baseline artifact for external PR automation.
+  # Velox/core changes are still caught. It also opens or updates a pull request
+  # that removes tests confirmed to pass from the known-failures baseline.
   schedule:
     - cron: '0 5 * * *'
 
@@ -331,10 +331,10 @@ jobs:
         # (with defaults); the `pull_request` and nightly `schedule` events supply
         # NONE, so fall back to the same defaults here. The boolean inputs are
         # rendered as explicit 'true'/'false' strings (never empty) via the `&&/||`
-        # form so those runs resolve cleanly. Pull requests and comment runs use
-        # fail_on_fixed=true so contributors keep baseline changes with their
-        # fixes. Nightly uses false so it can publish a deletion-only artifact;
-        # regressions still fail the gate.
+        # form so those runs resolve cleanly: update_baseline=false (enforce) and
+        # Pull requests default fail_on_fixed=true so contributors keep baseline
+        # changes with their fixes. Nightly uses false because the final job
+        # proposes those removals automatically; regressions still fail the gate.
         env:
           DELTA_REF: ${{ inputs.delta_ref || 'v4.2.0' }}
           SPARK_VERSION: ${{ inputs.spark_version || '4.1' }}
@@ -342,7 +342,7 @@ jobs:
           UPDATE_BASELINE: ${{ github.event_name == 'workflow_dispatch' && (inputs.update_baseline && 'true' || 'false') || 'false' }}
           # `inputs` only exists on workflow_dispatch. Keep PR enforcement on,
           # honor the manual input, and let the scheduled run report (but not fail
-          # on) fixed tests so aggregation can publish the baseline update.
+          # on) fixed tests so its final job can publish the baseline update.
           FAIL_ON_FIXED: ${{ github.event_name == 'workflow_dispatch' && (inputs.fail_on_fixed && 'true' || 'false') || github.event_name == 'schedule' && 'false' || 'true' }}
         run: |
           set -euo pipefail
@@ -504,7 +504,7 @@ jobs:
   # known-failures.txt and reports global regressions / now-passing / stale
   # entries. Runs even when some shards went red so the refreshed baseline
   # artifact is available for manual bootstrap/refresh and the scheduled run can
-  # safely publish a deletion-only update (see util/delta-spark-ut/README.md).
+  # safely propose deletion-only updates (see util/delta-spark-ut/README.md).
   delta-spark-aggregate:
     needs: delta-spark-test
     # Runs even when shards go red -- a partially-failing run still produces a
@@ -558,3 +558,102 @@ jobs:
           name: delta-spark-ut-pruned-known-failures
           path: aggregated/pruned-known-failures.txt
           if-no-files-found: error
+
+  delta-spark-update-baseline:
+    needs:
+      - delta-spark-test
+      - delta-spark-aggregate
+    # A complete aggregate is necessary but not sufficient: aggregation is
+    # deliberately allowed to succeed after shard regressions so it can still
+    # publish diagnostics. Only propose a baseline update from a fully clean
+    # nightly test matrix; scheduled runs do not fail on now-passing tests.
+    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.delta-spark-test.result == 'success' && needs.delta-spark-aggregate.result == 'success' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download safe nightly baseline update
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-spark-ut-pruned-known-failures
+          path: nightly-baseline
+      - name: Open or update baseline pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          UPDATE_BRANCH: ci/delta-known-failures-nightly
+          BASELINE_PATH: .github/workflows/util/delta-spark-ut/known-failures.txt
+          SOURCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$UPDATE_BRANCH"
+          cp nightly-baseline/pruned-known-failures.txt "$BASELINE_PATH"
+
+          pr_number=$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --head "$UPDATE_BRANCH" \
+            --base "$BASE_BRANCH" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')
+          if git diff --quiet -- "$BASELINE_PATH"; then
+            echo "No newly passing tests to remove from the Delta baseline."
+            if [ -n "$pr_number" ]; then
+              gh pr close "$pr_number" \
+                --repo "$GITHUB_REPOSITORY" \
+                --delete-branch \
+                --comment "Closing because the latest scheduled Delta Spark UT run found no baseline tests that now pass."
+            fi
+            exit 0
+          fi
+
+          git add -- "$BASELINE_PATH"
+          git commit -m "[MINOR][CI] Refresh Delta known-failures baseline"
+
+          remote_sha=""
+          if remote_ref=$(git ls-remote --exit-code --heads origin "$UPDATE_BRANCH"); then
+            remote_sha=$(printf '%s\n' "$remote_ref" | cut -f1)
+          fi
+          if [ -n "$remote_sha" ]; then
+            git push \
+              --force-with-lease="refs/heads/${UPDATE_BRANCH}:${remote_sha}" \
+              origin "HEAD:refs/heads/${UPDATE_BRANCH}"
+          else
+            git push origin "HEAD:refs/heads/${UPDATE_BRANCH}"
+          fi
+
+          body_file="$RUNNER_TEMP/delta-known-failures-pr.md"
+          {
+            echo "## What changes are proposed in this pull request?"
+            echo
+            echo "Remove Delta tests confirmed as passing by the scheduled Delta Spark UT run."
+            echo "New failures are not added automatically, and skipped or unseen baseline entries are preserved."
+            echo
+            echo "## How was this patch tested?"
+            echo
+            printf 'Generated from the [scheduled Delta Spark UT run](%s).\n' "$SOURCE_RUN_URL"
+            echo
+            echo "## Was this patch authored or co-authored using generative AI tooling?"
+            echo
+            echo "No"
+          } > "$body_file"
+
+          if [ -n "$pr_number" ]; then
+            gh pr edit "$pr_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "[MINOR][CI] Refresh Delta known-failures baseline" \
+              --body-file "$body_file"
+          else
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base "$BASE_BRANCH" \
+              --head "$UPDATE_BRANCH" \
+              --title "[MINOR][CI] Refresh Delta known-failures baseline" \
+              --body-file "$body_file"
+          fi
