@@ -60,6 +60,9 @@ on:
       # Negated patterns are evaluated in order and override the positives
       # above, so this must stay last.
       - '!.github/workflows/util/delta-spark-ut/**/*.md'
+  # Force a run skipped by `paths:` without requiring label permissions.
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       delta_ref:
@@ -92,10 +95,17 @@ on:
   schedule:
     - cron: '0 5 * * *'
 
+# Comment runs execute PR code; keep the token read-only. Stash needs artifacts access.
+permissions:
+  contents: read
+  actions: read
+
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
   MVN_CMD: 'build/mvn -ntp'
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
+  # `issue_comment` runs on the default branch, so explicitly select the PR merge ref.
+  DELTA_CHECKOUT_REF: ${{ github.event.issue.number && format('refs/pull/{0}/merge', github.event.issue.number) || '' }}
   # Gluten profile / bundle naming for the build-gluten-bundle and
   # delta-spark-test jobs. `spark_version` is the single source of truth for the
   # Spark version: it drives the Gluten bundle profile (-Pspark-<v>), the bundle
@@ -136,22 +146,48 @@ env:
   # granularity for the split to stay balanced.
   DELTA_NUM_SHARDS: '8'
 
-# Now that this is a standalone workflow (not called by velox_backend_x86.yml),
-# `github.workflow` resolves to THIS workflow, so a concurrency group is both safe
-# and necessary: without it every push to a PR branch stacks another full ~2.5 h
-# Delta run instead of superseding the previous one. Keyed on the branch for PRs
-# and the sha otherwise, matching velox_backend_x86.yml's group.
+# Cancel older `pull_request` and `/delta-test` runs for the same PR.
 concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  group: ${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.head_ref || github.sha }}-${{ github.workflow }}
   cancel-in-progress: true
 
 jobs:
+  delta-test-requested:
+    # Match `/delta-test` as the first token; pass other event types through.
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+       (github.event.comment.body == '/delta-test' ||
+        startsWith(github.event.comment.body, '/delta-test ') ||
+        startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\r"'))) ||
+        startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\n"')))))
+    runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Acknowledge the request
+        if: ${{ github.event_name == 'issue_comment' }}
+        # The informational comment must not block the run.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          TRIGGER_USER: ${{ github.event.comment.user.login }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body \
+            "🔄 Delta Spark UT started by @${TRIGGER_USER} (~2.5 h). [View run](${RUN_URL})"
+
   build-native-lib-centos-7:
+    needs: delta-test-requested
     # This workflow always builds its own native lib -- there is no caller to
     # provide one, and the `paths:` filter already decided whether the run happens.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Get Ccache from Apache Stash
         uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
@@ -172,7 +208,8 @@ jobs:
             ccache -s
           "
       - name: Save Ccache to Apache Stash
-        if: always()
+        # Comment runs use main's Stash scope; never overwrite it with PR output.
+        if: ${{ always() && github.event_name != 'issue_comment' }}
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -190,6 +227,8 @@ jobs:
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Download native artifacts
         uses: actions/download-artifact@v4
         with:
@@ -232,6 +271,7 @@ jobs:
             -Pbackends-velox -Pdelta \
             -DskipTests -Dmaven.compiler.release=17
       - name: Save Maven repository to Apache Stash
+        if: ${{ github.event_name != 'issue_comment' }}
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: /root/.m2/repository
@@ -282,6 +322,8 @@ jobs:
       SHARD_ID: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
 
       - name: Resolve workflow inputs
         id: resolve
@@ -395,7 +437,7 @@ jobs:
       - name: Save sbt / Ivy / Coursier to Apache Stash
         # All shards have the same dependencies; one writer avoids matrix jobs
         # overwriting the same stash artifact.
-        if: ${{ success() && matrix.shard == 0 }}
+        if: ${{ success() && matrix.shard == 0 && github.event_name != 'issue_comment' }}
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: |
@@ -478,6 +520,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Download per-shard gate lists
         uses: actions/download-artifact@v4
         continue-on-error: true
