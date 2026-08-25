@@ -48,8 +48,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
   /**
    * Returns whether a plan should be ignored when collecting fallback statistics.
    *
-   * Such plans are structural wrappers rather than execution operators: they are neither fallback
-   * Spark operators nor native Gluten operators.
+   * Such plans may be execution-framework or implementation wrappers.
    */
   def isFallbackInsensitivePlan(plan: SparkPlan): Boolean = plan match {
     case _: ExecutedCommandExec => true
@@ -71,7 +70,6 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
     case _: QueryStageExec => true
     case _: AQEShuffleReadExec => true
     case _: ColumnarAQEShuffleReadExec => true
-    case i: InMemoryTableScanExec => PlanUtil.isGlutenTableCache(i)
     case _ => false
   }
 
