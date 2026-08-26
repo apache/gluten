@@ -10,4 +10,5 @@
 # surfaces on a different test each run, so matching by test name is
 # whack-a-mole. Prefer fixing the underlying bug and REMOVING the entry.
 #
-# ---------------------------------------------------------------------------
+# There are currently no quarantined error signatures. Add one below when a
+# nondeterministic bug starts landing on a different test each run.

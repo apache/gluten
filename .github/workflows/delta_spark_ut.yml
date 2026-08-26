@@ -54,6 +54,8 @@ on:
     paths:
       - '.github/workflows/delta_spark_ut.yml'
       - '.github/workflows/util/delta-spark-ut/**'
+      # Velox revision updates can change Delta offload behavior.
+      - 'ep/build-velox/src/get-velox.sh'
       - 'gluten-delta/**'
       # Covers src-delta, src-delta33, src-delta40 and any future variant.
       - 'backends-velox/src-delta*/**'
