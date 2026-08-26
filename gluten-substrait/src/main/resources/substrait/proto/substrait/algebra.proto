@@ -79,9 +79,12 @@ message ReadRel {
     substrait.extensions.AdvancedExtension advanced_extension = 10;
   }
 
-  // A table composed of literals.
+  // A table composed of expressions.
   message VirtualTable {
-    repeated Expression.Literal.Struct values = 1;
+    reserved 1;
+    reserved "values";
+
+    repeated Expression.Nested.Struct expressions = 2;
   }
 
   // A stub type that can be used to extend/introduce new table types outside

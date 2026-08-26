@@ -1688,26 +1688,23 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
     const ::substrait::ReadRel& readRel,
     const RowTypePtr& type) {
-  ::substrait::ReadRel_VirtualTable readVirtualTable = readRel.virtual_table();
-  int64_t numVectors = readVirtualTable.values_size();
-  int64_t numColumns = type->size();
-  int64_t valueFieldNums = readVirtualTable.values(numVectors - 1).fields_size();
+  const ::substrait::ReadRel_VirtualTable& readVirtualTable = readRel.virtual_table();
+  const int64_t numVectors = readVirtualTable.expressions_size();
+  const int64_t numColumns = type->size();
   std::vector<RowVectorPtr> vectors;
   vectors.reserve(numVectors);
 
-  int64_t batchSize;
-  // For the empty vectors, eg,vectors = makeRowVector(ROW({}, {}), 1).
-  if (numColumns == 0) {
-    batchSize = 1;
-  } else {
-    batchSize = valueFieldNums / numColumns;
-  }
-
   for (int64_t index = 0; index < numVectors; ++index) {
     std::vector<VectorPtr> children;
-    ::substrait::Expression_Literal_Struct rowValue = readRel.virtual_table().values(index);
-    auto fieldSize = rowValue.fields_size();
-    VELOX_CHECK_EQ(fieldSize, batchSize * numColumns);
+    // Each Nested.Struct holds one row group, laid out column-major. Row groups need not all
+    // carry the same number of rows, so derive the batch size per struct rather than once for
+    // the whole table.
+    const ::substrait::Expression_Nested_Struct& rowValue = readVirtualTable.expressions(index);
+    const int64_t fieldSize = rowValue.fields_size();
+    // For the empty vectors, eg,vectors = makeRowVector(ROW({}, {}), 1).
+    const int64_t batchSize = numColumns == 0 ? 1 : fieldSize / numColumns;
+    VELOX_USER_CHECK_EQ(
+        fieldSize, batchSize * numColumns, "ReadRel.VirtualTable field count must be a multiple of the column count.");
 
     for (int64_t col = 0; col < numColumns; ++col) {
       const TypePtr& outputChildType = type->childAt(col);
@@ -1716,7 +1713,12 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
       for (int64_t batchId = 0; batchId < batchSize; batchId++) {
         // each value in the batch
         auto fieldIdx = col * batchSize + batchId;
-        ::substrait::Expression_Literal field = rowValue.fields(fieldIdx);
+        // Substrait models virtual table values as Expressions; Gluten only ever emits literals,
+        // so unwrap back to the Literal the downstream conversion expects. This converter is also
+        // reachable from the JSON-plan test and benchmark paths, so reject anything else loudly.
+        const ::substrait::Expression& fieldExpr = rowValue.fields(fieldIdx);
+        VELOX_USER_CHECK(fieldExpr.has_literal(), "ReadRel.VirtualTable expressions must be literals.");
+        const ::substrait::Expression_Literal& field = fieldExpr.literal();
 
         auto expr = exprConverter_->toVeloxExpr(field);
         if (auto constantExpr = std::dynamic_pointer_cast<const core::ConstantTypedExpr>(expr)) {

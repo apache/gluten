@@ -191,7 +191,7 @@ jobs:
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Get Ccache from Apache Stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
@@ -251,7 +251,7 @@ jobs:
           chmod +x /usr/local/bin/jq
           python3 --version && gh --version && jq --version
       - name: Get Maven repository from Apache Stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: /root/.m2/repository
           key: m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-${{ hashFiles('pom.xml', '**/pom.xml') }}
@@ -391,7 +391,7 @@ jobs:
           jq --version
 
       - name: Get sbt / Ivy / Coursier from Apache Stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           # Stash restore accepts one destination. The save step preserves the
           # three selected cache paths relative to their common /root directory.
