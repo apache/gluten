@@ -97,15 +97,22 @@ object DeltaPlanningBenchmark extends SqlBasedBenchmark {
 
     withDeltaTableWithDVs(numFiles, rowsPerFile) {
       (path, partitionedFiles) =>
+        var latestResult =
+          DeltaDeletionVectorScanInfo.normalize(partitionedFiles, new Path(path))
+        assert(
+          latestResult.exists(
+            _._2.forall(options => !options.isDeletionVectorPayloadMaterialized)))
+
         benchmark.addCase(s"normalize() - $numFiles DV files", benchmarkIters) {
           _ =>
-            val result =
+            latestResult =
               DeltaDeletionVectorScanInfo.normalize(partitionedFiles, new Path(path))
-            assert(
-              result.exists(_._2.forall(options => !options.isDeletionVectorPayloadMaterialized)))
         }
 
         benchmark.run()
+        assert(
+          latestResult.exists(
+            _._2.forall(options => !options.isDeletionVectorPayloadMaterialized)))
     }
   }
 

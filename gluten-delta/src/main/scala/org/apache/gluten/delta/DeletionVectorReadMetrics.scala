@@ -30,10 +30,10 @@ final case class DeletionVectorReadMetrics(
   @transient @volatile private var registeredInTask = false
 
   /**
-   * Spark deserializes RDD partitions before installing `TaskContext`, so accumulators nested in a
-   * partition cannot register from `AccumulatorV2.readObject`. Register them when deferred I/O
-   * first runs inside the task instead. The shared metrics object makes this once-per-task even
-   * when a partition contains multiple deletion vectors.
+   * Spark can deserialize an input partition before installing `TaskContext`, so accumulators
+   * nested in that partition cannot register from `AccumulatorV2.readObject`. Register them when
+   * deferred I/O first runs inside the task instead. The shared metrics object makes this
+   * once-per-task even when a partition contains multiple deletion vectors.
    */
   def registerForCurrentTask(): Unit = {
     if (!registeredInTask && TaskContext.get() != null) {
@@ -48,7 +48,12 @@ final case class DeletionVectorReadMetrics(
     }
   }
 
-  /** Avoid double registration when Spark deserializes this object after installing TaskContext. */
+  /**
+   * `defaultReadObject` deserializes the nested SQL metrics first. Spark's
+   * `AccumulatorV2.readObject` registers each one when a task context exists, so mirror that state
+   * here to avoid registering them a second time. Without a task context the metrics remain
+   * unregistered and `registerForCurrentTask` handles them when materialization begins.
+   */
   private def readObject(input: ObjectInputStream): Unit = {
     input.defaultReadObject()
     registeredInTask = TaskContext.get() != null

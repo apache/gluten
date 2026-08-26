@@ -100,7 +100,7 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     private final byte[] payload;
 
     public SerializedDeletionVectorPayload(byte[] payload) {
-      this.payload = payload == null ? new byte[0] : payload;
+      this.payload = payload == null ? new byte[0] : payload.clone();
     }
 
     @Override
@@ -163,6 +163,13 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
       return deletionVectorCardinality;
     }
 
+    /**
+     * Materializes and returns the serialized deletion-vector bytes.
+     *
+     * <p>For an on-disk deletion vector this may perform blocking filesystem I/O and is intended to
+     * run during executor-side split-to-protobuf conversion. The returned array must not be
+     * modified because protobuf wraps it without copying.
+     */
     public byte[] serializedDeletionVector() {
       return deletionVectorPayload.materialize();
     }
