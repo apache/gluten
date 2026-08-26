@@ -42,9 +42,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{github.sha}}
+          key: ccache-almalinux8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-centos8-release-default
+            ccache-almalinux8-release-default
       - name: Build Gluten velox third party
         run: |
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
@@ -430,9 +430,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-enhanced-centos8-release-default-${{github.sha}}
+          key: ccache-enhanced-almalinux8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-enhanced-centos8-release-default
+            ccache-enhanced-almalinux8-release-default
       - name: Build Gluten velox third party
         run: |
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "

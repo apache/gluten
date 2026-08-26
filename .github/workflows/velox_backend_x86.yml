@@ -154,15 +154,15 @@ jobs:
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
         if: steps.ccache-stash.outputs.stash-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{github.sha}}
+          key: ccache-almalinux8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-centos8-release-default
+            ccache-almalinux8-release-default
       - name: Build Gluten native libraries
         run: |
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
@@ -183,7 +183,7 @@ jobs:
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
       - uses: actions/upload-artifact@v7
         with:
