@@ -57,6 +57,8 @@ const bool kCheckUsageLeakDefault = true;
 
 const std::string kSparkBatchSize = "spark.gluten.sql.columnar.maxBatchSize";
 
+const std::string kColumnarParquetWriteBlockSize = "spark.gluten.sql.columnar.parquet.write.blockSize";
+
 const std::string kParquetBlockSize = "parquet.block.size";
 
 const std::string kParquetBlockRows = "parquet.block.rows";
