@@ -151,7 +151,19 @@ env:
 # Cancel older `pull_request` and `/delta-test` runs for the same PR.
 concurrency:
   group: ${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.head_ref || github.sha }}-${{ github.workflow }}
-  cancel-in-progress: true
+  # `issue_comment` fires on every comment, and for such an event
+  # `github.event.issue.number` puts the run in the same group as that PR's
+  # `pull_request` run. Cancelling unconditionally therefore lets any unrelated
+  # comment kill an in-flight suite, which the comment run then does not replace
+  # because `delta-test-requested` below skips it. Only a real `/delta-test`
+  # command should cancel, so this repeats that job's `if` verbatim.
+  cancel-in-progress: >-
+    ${{ github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+       (github.event.comment.body == '/delta-test' ||
+        startsWith(github.event.comment.body, '/delta-test ') ||
+        startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\r"'))) ||
+        startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\n"'))))) }}
 
 jobs:
   delta-test-requested:
