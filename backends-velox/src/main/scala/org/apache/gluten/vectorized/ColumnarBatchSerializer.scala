@@ -137,20 +137,22 @@ private class ColumnarBatchSerializerInstanceImpl(
 
   // `deserializeStream` is currently still used by uniffle shuffle reader.
   override def deserializeStream(in: InputStream): DeserializationStream = {
-    new TaskDeserializationStream(Iterator((null, in)), None, CPUStageMode)
+    new TaskDeserializationStream(Iterator((null, in)), None, CPUStageMode, None)
   }
 
   def deserializeStreams(
       streams: Iterator[(BlockId, InputStream)],
       onComplete: () => Unit,
-      executionMode: StageExecutionMode = CPUStageMode): DeserializationStream = {
-    new TaskDeserializationStream(streams, Some(onComplete), executionMode)
+      executionMode: StageExecutionMode = CPUStageMode,
+      readerOrder: Option[Int] = None): DeserializationStream = {
+    new TaskDeserializationStream(streams, Some(onComplete), executionMode, readerOrder)
   }
 
   private class TaskDeserializationStream(
       streams: Iterator[(BlockId, InputStream)],
       onComplete: Option[() => Unit],
-      executionMode: StageExecutionMode)
+      executionMode: StageExecutionMode,
+      var readerOrder: Option[Int])
     extends DeserializationStream
     with TaskResource {
     private val streamReader = ShuffleStreamReader(streams)
@@ -158,7 +160,7 @@ private class ColumnarBatchSerializerInstanceImpl(
     private val wrappedOut: ClosableIterator[ColumnarBatch] = new ColumnarBatchOutIterator(
       runtime,
       jniWrapper
-        .read(shuffleReaderHandle, streamReader, executionMode.id))
+        .read(shuffleReaderHandle, streamReader, executionMode.id, readerOrder.getOrElse(0)))
 
     private var cb: ColumnarBatch = _
 
@@ -188,6 +190,10 @@ private class ColumnarBatchSerializerInstanceImpl(
 
     @throws(classOf[EOFException])
     override def readValue[T: ClassTag](): T = {
+      if (readerOrder.isDefined) {
+        logWarning(s"Start reading reader order: ${readerOrder.get}")
+        readerOrder = None
+      }
       if (cb != null) {
         cb.close()
         cb = null
