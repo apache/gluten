@@ -494,6 +494,7 @@ object GlutenConfig extends ConfigRegistry {
     BENCHMARK_SAVE_DIR.key,
     GlutenCoreConfig.COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES.key,
     COLUMNAR_MAX_BATCH_SIZE.key,
+    COLUMNAR_PARQUET_WRITE_BLOCK_SIZE.key,
     SHUFFLE_WRITER_BUFFER_SIZE.key,
     COLUMNAR_CUDF_ENABLED.key,
     SQLConf.LEGACY_SIZE_OF_NULL.key,
@@ -1236,6 +1237,7 @@ object GlutenConfig extends ConfigRegistry {
 
   val COLUMNAR_PARQUET_WRITE_BLOCK_SIZE =
     buildConf("spark.gluten.sql.columnar.parquet.write.blockSize")
+      .doc("The target Parquet row group size used by the native writer.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("128MB")
 

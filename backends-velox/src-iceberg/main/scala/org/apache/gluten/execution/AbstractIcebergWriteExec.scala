@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.IcebergNestedFieldVisitor
+import org.apache.gluten.config.GlutenConfig.COLUMNAR_PARQUET_WRITE_BLOCK_SIZE
 import org.apache.gluten.config.VeloxConfig.{MAX_TARGET_FILE_SIZE_SESSION, PARQUET_DICT_SIZE_BYTES, PARQUET_PAGE_SIZE_BYTES}
 import org.apache.gluten.connector.write.{ColumnarBatchDataWriterFactory, ColumnarStreamingDataWriterFactory, IcebergDataWriteFactory}
 
@@ -48,6 +49,7 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
 
     Seq(
       PARQUET_PAGE_SIZE_BYTES.key -> getParquetPageSizeBytes,
+      COLUMNAR_PARQUET_WRITE_BLOCK_SIZE.key -> getParquetRowGroupSizeBytes,
       MAX_TARGET_FILE_SIZE_SESSION.key -> getTargetFileSizeBytes,
       PARQUET_DICT_SIZE_BYTES.key -> getDictSizeBytes
     ).foreach {

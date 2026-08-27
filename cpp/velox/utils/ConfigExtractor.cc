@@ -273,6 +273,8 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
       conf->get<bool>(kAllowInt32Narrowing, true) ? "true" : "false";
   configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kWriterPageSizeSession)] =
       conf->get<std::string>(kWriteParquetPageSizeBytes, "1MB");
+  configs[parquetSessionProperty("writer_row_group_size")] =
+      conf->get<std::string>(kColumnarParquetWriteBlockSize, "128MB");
   configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kWriterDictionaryPageSizeLimitSession)] =
       conf->get<std::string>(kWriteParquetDictSizeBytes, "2MB");
   configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kNullStructIfAllFieldsMissingSession)] =
