@@ -28,7 +28,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference,
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
-import org.apache.spark.sql.execution.FileSourceScanExecShim
+import org.apache.spark.sql.execution.{ExplainUtils, FileSourceScanExecShim}
 import org.apache.spark.sql.execution.adaptive.InputStats
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.execution.metric.SQLMetric
@@ -217,8 +217,32 @@ abstract class FileSourceScanExecTransformerBase(
   @transient override lazy val fileFormat: ReadFileFormat =
     BackendsApiManager.getSettings.getSubstraitReadFileFormatV1(relation.fileFormat)
 
+  // A `*` on a `PushedFilters` entry claims the scan itself fully evaluates that filter, so Spark
+  // needs no post-scan Filter. That only holds when the backend actually accepts Gluten's full
+  // filter pushdown. ClickHouse deliberately declines it for Parquet
+  // (CHSparkPlanExecApi.supportPushDownFilterToScan) to keep vanilla-Spark best-effort semantics;
+  // there `BasicScanExecTransformer.filterExprs()` silently drops filters the backend cannot
+  // evaluate, leaving a real (non-no-op) FilterExecTransformer above the scan, so marking would be
+  // a false claim. Only mark when every filter belonging to the scan is scan-supported.
+  private def nativeScanHandlesPushedFilters: Boolean = {
+    val api = BackendsApiManager.getSparkPlanExecApiInstance
+    api.supportPushDownFilterToScan(this) &&
+    FileSourceScanExecTransformerBase.allScanFiltersHandled(
+      scanFilters,
+      api.isSupportedScanFilter(_, this))
+  }
+
+  // Keep Spark's execution metadata unchanged and customize only the map used by explain output.
+  private def metadataForDisplay: Map[String, String] = {
+    metadata.updated(
+      "PushedFilters",
+      FileSourceScanExecTransformerBase.renderPushedFilters(
+        pushedFilterStringsForDisplay,
+        nativeScanHandlesPushedFilters))
+  }
+
   override def simpleString(maxFields: Int): String = {
-    val metadataEntries = metadata.toSeq.sorted.map {
+    val metadataEntries = metadataForDisplay.toSeq.sorted.map {
       case (key, value) =>
         key + ": " + StringUtils.abbreviate(redact(value), maxMetadataValueLength)
     }
@@ -227,6 +251,32 @@ abstract class FileSourceScanExecTransformerBase(
     redact(
       s"$nodeNamePrefix$nodeName${truncatedString(output, "[", ",", "]", maxFields)}$metadataStr" +
         s" $nativeFiltersString")
+  }
+
+  override def verboseStringWithOperatorId(): String = {
+    // Render the structured display map directly instead of parsing the string returned by super.
+    val metadataStr = metadataForDisplay.toSeq.sorted.filterNot {
+      case (_, value) if value.isEmpty || value == "[]" => true
+      case (key, _) if key == "DataFilters" || key == "Format" => true
+      case _ => false
+    }.map {
+      case ("Location", _) =>
+        val location = relation.location
+        val numPaths = location.rootPaths.length
+        val abbreviatedLocation = if (numPaths <= 1) {
+          location.rootPaths.mkString("[", ", ", "]")
+        } else {
+          "[" + location.rootPaths.head + s", ... ${numPaths - 1} entries]"
+        }
+        s"Location: ${location.getClass.getSimpleName} ${redact(abbreviatedLocation)}"
+      case (key, value) => s"$key: ${redact(value)}"
+    }
+
+    s"""
+       |$formattedNodeName
+       |${ExplainUtils.generateFieldString("Output", output)}
+       |${metadataStr.mkString("\n")}
+       |""".stripMargin
   }
 
   // The "override" keyword is omitted to maintain compatibility with earlier Spark versions.
@@ -238,4 +288,18 @@ abstract class FileSourceScanExecTransformerBase(
 object FileSourceScanExecTransformerBase {
   private def isDynamicPruningFilter(e: Expression): Boolean =
     e.find(_.isInstanceOf[PlanExpression[_]]).isDefined
+
+  /** Renders already-structured pushed-filter strings without parsing their contents. */
+  private[execution] def renderPushedFilters(
+      filters: Seq[String],
+      markAsHandled: Boolean): String = {
+    val prefix = if (markAsHandled) "*" else ""
+    filters.map(prefix + _).mkString("[", ", ", "]")
+  }
+
+  /** Returns true when every filter belonging to the scan is scan-supported. */
+  private[execution] def allScanFiltersHandled(
+      scanFilters: Seq[Expression],
+      isSupported: Expression => Boolean): Boolean =
+    scanFilters.forall(isSupported)
 }

@@ -70,7 +70,7 @@ Output [7]: [ws_sold_time_sk#1, ws_ship_mode_sk#2, ws_warehouse_sk#3, ws_quantit
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ws_sold_date_sk#7), dynamicpruningexpression(ws_sold_date_sk#7 IN dynamicpruning#8)]
-PushedFilters: [IsNotNull(ws_warehouse_sk), IsNotNull(ws_sold_time_sk), IsNotNull(ws_ship_mode_sk)]
+PushedFilters: [*IsNotNull(ws_warehouse_sk), *IsNotNull(ws_sold_time_sk), *IsNotNull(ws_ship_mode_sk)]
 ReadSchema: struct<ws_sold_time_sk:int,ws_ship_mode_sk:int,ws_warehouse_sk:int,ws_quantity:int,ws_ext_sales_price:decimal(7,2),ws_net_paid:decimal(7,2)>
 
 (2) FilterExecTransformer
@@ -81,7 +81,7 @@ Arguments: ((isnotnull(ws_warehouse_sk#3) AND isnotnull(ws_sold_time_sk#1)) AND 
 Output [7]: [w_warehouse_sk#9, w_warehouse_name#10, w_warehouse_sq_ft#11, w_city#12, w_county#13, w_state#14, w_country#15]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/warehouse]
-PushedFilters: [IsNotNull(w_warehouse_sk)]
+PushedFilters: [*IsNotNull(w_warehouse_sk)]
 ReadSchema: struct<w_warehouse_sk:int,w_warehouse_name:string,w_warehouse_sq_ft:int,w_city:string,w_county:string,w_state:string,w_country:string>
 
 (4) FilterExecTransformer
@@ -135,7 +135,7 @@ Input [15]: [ws_sold_time_sk#1, ws_ship_mode_sk#2, ws_quantity#4, ws_ext_sales_p
 Output [2]: [t_time_sk#19, t_time#20]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_time), GreaterThanOrEqual(t_time,30838), LessThanOrEqual(t_time,59638), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_time), *GreaterThanOrEqual(t_time,30838), *LessThanOrEqual(t_time,59638), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_time:int>
 
 (17) FilterExecTransformer
@@ -174,7 +174,7 @@ Input [14]: [ws_sold_time_sk#1, ws_ship_mode_sk#2, ws_quantity#4, ws_ext_sales_p
 Output [2]: [sm_ship_mode_sk#21, sm_carrier#22]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/ship_mode]
-PushedFilters: [In(sm_carrier, [BARIAN              ,DHL                 ]), IsNotNull(sm_ship_mode_sk)]
+PushedFilters: [*In(sm_carrier, [BARIAN              ,DHL                 ]), *IsNotNull(sm_ship_mode_sk)]
 ReadSchema: struct<sm_ship_mode_sk:int,sm_carrier:string>
 
 (26) FilterExecTransformer
@@ -257,7 +257,7 @@ Output [7]: [cs_sold_time_sk#194, cs_ship_mode_sk#195, cs_warehouse_sk#196, cs_q
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(cs_sold_date_sk#200), dynamicpruningexpression(cs_sold_date_sk#200 IN dynamicpruning#8)]
-PushedFilters: [IsNotNull(cs_warehouse_sk), IsNotNull(cs_sold_time_sk), IsNotNull(cs_ship_mode_sk)]
+PushedFilters: [*IsNotNull(cs_warehouse_sk), *IsNotNull(cs_sold_time_sk), *IsNotNull(cs_ship_mode_sk)]
 ReadSchema: struct<cs_sold_time_sk:int,cs_ship_mode_sk:int,cs_warehouse_sk:int,cs_quantity:int,cs_sales_price:decimal(7,2),cs_net_paid_inc_tax:decimal(7,2)>
 
 (45) FilterExecTransformer
@@ -426,7 +426,7 @@ ColumnarBroadcastExchange (87)
 Output [3]: [d_date_sk#16, d_year#17, d_moy#18]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_year), EqualTo(d_year,2001), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_year), *EqualTo(d_year,2001), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_year:int,d_moy:int>
 
 (85) FilterExecTransformer

@@ -217,7 +217,7 @@ VeloxColumnarToRow (277)
 Output [4]: [ss_sold_time_sk#1, ss_hdemo_sk#2, ss_store_sk#3, ss_sold_date_sk#4]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_hdemo_sk), IsNotNull(ss_sold_time_sk), IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_hdemo_sk), *IsNotNull(ss_sold_time_sk), *IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_sold_time_sk:int,ss_hdemo_sk:int,ss_store_sk:int>
 
 (2) FilterExecTransformer
@@ -232,7 +232,7 @@ Input [4]: [ss_sold_time_sk#1, ss_hdemo_sk#2, ss_store_sk#3, ss_sold_date_sk#4]
 Output [3]: [t_time_sk#5, t_hour#6, t_minute#7]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_hour), IsNotNull(t_minute), EqualTo(t_hour,8), GreaterThanOrEqual(t_minute,30), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_hour), *IsNotNull(t_minute), *EqualTo(t_hour,8), *GreaterThanOrEqual(t_minute,30), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_hour:int,t_minute:int>
 
 (5) FilterExecTransformer
@@ -271,7 +271,7 @@ Input [4]: [ss_sold_time_sk#1, ss_hdemo_sk#2, ss_store_sk#3, t_time_sk#5]
 Output [2]: [s_store_sk#8, s_store_name#9]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/store]
-PushedFilters: [IsNotNull(s_store_name), EqualTo(s_store_name,ese), IsNotNull(s_store_sk)]
+PushedFilters: [*IsNotNull(s_store_name), *EqualTo(s_store_name,ese), *IsNotNull(s_store_sk)]
 ReadSchema: struct<s_store_sk:int,s_store_name:string>
 
 (14) FilterExecTransformer
@@ -310,7 +310,7 @@ Input [3]: [ss_hdemo_sk#2, ss_store_sk#3, s_store_sk#8]
 Output [3]: [hd_demo_sk#10, hd_dep_count#11, hd_vehicle_count#12]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/household_demographics]
-PushedFilters: [Or(Or(And(EqualTo(hd_dep_count,4),LessThanOrEqual(hd_vehicle_count,6)),And(EqualTo(hd_dep_count,2),LessThanOrEqual(hd_vehicle_count,4))),And(EqualTo(hd_dep_count,0),LessThanOrEqual(hd_vehicle_count,2))), IsNotNull(hd_demo_sk)]
+PushedFilters: [*Or(Or(And(EqualTo(hd_dep_count,4),LessThanOrEqual(hd_vehicle_count,6)),And(EqualTo(hd_dep_count,2),LessThanOrEqual(hd_vehicle_count,4))),And(EqualTo(hd_dep_count,0),LessThanOrEqual(hd_vehicle_count,2))), *IsNotNull(hd_demo_sk)]
 ReadSchema: struct<hd_demo_sk:int,hd_dep_count:int,hd_vehicle_count:int>
 
 (23) FilterExecTransformer
@@ -380,7 +380,7 @@ Results [1]: [count(1)#15 AS h8_30_to_9#16]
 Output [4]: [ss_sold_time_sk#17, ss_hdemo_sk#18, ss_store_sk#19, ss_sold_date_sk#20]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_hdemo_sk), IsNotNull(ss_sold_time_sk), IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_hdemo_sk), *IsNotNull(ss_sold_time_sk), *IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_sold_time_sk:int,ss_hdemo_sk:int,ss_store_sk:int>
 
 (39) FilterExecTransformer
@@ -395,7 +395,7 @@ Input [4]: [ss_sold_time_sk#17, ss_hdemo_sk#18, ss_store_sk#19, ss_sold_date_sk#
 Output [3]: [t_time_sk#21, t_hour#22, t_minute#23]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_hour), IsNotNull(t_minute), EqualTo(t_hour,9), LessThan(t_minute,30), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_hour), *IsNotNull(t_minute), *EqualTo(t_hour,9), *LessThan(t_minute,30), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_hour:int,t_minute:int>
 
 (42) FilterExecTransformer
@@ -521,7 +521,7 @@ Join condition: None
 Output [4]: [ss_sold_time_sk#30, ss_hdemo_sk#31, ss_store_sk#32, ss_sold_date_sk#33]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_hdemo_sk), IsNotNull(ss_sold_time_sk), IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_hdemo_sk), *IsNotNull(ss_sold_time_sk), *IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_sold_time_sk:int,ss_hdemo_sk:int,ss_store_sk:int>
 
 (73) FilterExecTransformer
@@ -536,7 +536,7 @@ Input [4]: [ss_sold_time_sk#30, ss_hdemo_sk#31, ss_store_sk#32, ss_sold_date_sk#
 Output [3]: [t_time_sk#34, t_hour#35, t_minute#36]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_hour), IsNotNull(t_minute), EqualTo(t_hour,9), GreaterThanOrEqual(t_minute,30), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_hour), *IsNotNull(t_minute), *EqualTo(t_hour,9), *GreaterThanOrEqual(t_minute,30), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_hour:int,t_minute:int>
 
 (76) FilterExecTransformer
@@ -662,7 +662,7 @@ Join condition: None
 Output [4]: [ss_sold_time_sk#43, ss_hdemo_sk#44, ss_store_sk#45, ss_sold_date_sk#46]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_hdemo_sk), IsNotNull(ss_sold_time_sk), IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_hdemo_sk), *IsNotNull(ss_sold_time_sk), *IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_sold_time_sk:int,ss_hdemo_sk:int,ss_store_sk:int>
 
 (107) FilterExecTransformer
@@ -677,7 +677,7 @@ Input [4]: [ss_sold_time_sk#43, ss_hdemo_sk#44, ss_store_sk#45, ss_sold_date_sk#
 Output [3]: [t_time_sk#47, t_hour#48, t_minute#49]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_hour), IsNotNull(t_minute), EqualTo(t_hour,10), LessThan(t_minute,30), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_hour), *IsNotNull(t_minute), *EqualTo(t_hour,10), *LessThan(t_minute,30), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_hour:int,t_minute:int>
 
 (110) FilterExecTransformer
@@ -803,7 +803,7 @@ Join condition: None
 Output [4]: [ss_sold_time_sk#56, ss_hdemo_sk#57, ss_store_sk#58, ss_sold_date_sk#59]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_hdemo_sk), IsNotNull(ss_sold_time_sk), IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_hdemo_sk), *IsNotNull(ss_sold_time_sk), *IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_sold_time_sk:int,ss_hdemo_sk:int,ss_store_sk:int>
 
 (141) FilterExecTransformer
@@ -818,7 +818,7 @@ Input [4]: [ss_sold_time_sk#56, ss_hdemo_sk#57, ss_store_sk#58, ss_sold_date_sk#
 Output [3]: [t_time_sk#60, t_hour#61, t_minute#62]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_hour), IsNotNull(t_minute), EqualTo(t_hour,10), GreaterThanOrEqual(t_minute,30), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_hour), *IsNotNull(t_minute), *EqualTo(t_hour,10), *GreaterThanOrEqual(t_minute,30), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_hour:int,t_minute:int>
 
 (144) FilterExecTransformer
@@ -944,7 +944,7 @@ Join condition: None
 Output [4]: [ss_sold_time_sk#69, ss_hdemo_sk#70, ss_store_sk#71, ss_sold_date_sk#72]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_hdemo_sk), IsNotNull(ss_sold_time_sk), IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_hdemo_sk), *IsNotNull(ss_sold_time_sk), *IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_sold_time_sk:int,ss_hdemo_sk:int,ss_store_sk:int>
 
 (175) FilterExecTransformer
@@ -959,7 +959,7 @@ Input [4]: [ss_sold_time_sk#69, ss_hdemo_sk#70, ss_store_sk#71, ss_sold_date_sk#
 Output [3]: [t_time_sk#73, t_hour#74, t_minute#75]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_hour), IsNotNull(t_minute), EqualTo(t_hour,11), LessThan(t_minute,30), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_hour), *IsNotNull(t_minute), *EqualTo(t_hour,11), *LessThan(t_minute,30), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_hour:int,t_minute:int>
 
 (178) FilterExecTransformer
@@ -1085,7 +1085,7 @@ Join condition: None
 Output [4]: [ss_sold_time_sk#82, ss_hdemo_sk#83, ss_store_sk#84, ss_sold_date_sk#85]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_hdemo_sk), IsNotNull(ss_sold_time_sk), IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_hdemo_sk), *IsNotNull(ss_sold_time_sk), *IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_sold_time_sk:int,ss_hdemo_sk:int,ss_store_sk:int>
 
 (209) FilterExecTransformer
@@ -1100,7 +1100,7 @@ Input [4]: [ss_sold_time_sk#82, ss_hdemo_sk#83, ss_store_sk#84, ss_sold_date_sk#
 Output [3]: [t_time_sk#86, t_hour#87, t_minute#88]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_hour), IsNotNull(t_minute), EqualTo(t_hour,11), GreaterThanOrEqual(t_minute,30), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_hour), *IsNotNull(t_minute), *EqualTo(t_hour,11), *GreaterThanOrEqual(t_minute,30), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_hour:int,t_minute:int>
 
 (212) FilterExecTransformer
@@ -1226,7 +1226,7 @@ Join condition: None
 Output [4]: [ss_sold_time_sk#95, ss_hdemo_sk#96, ss_store_sk#97, ss_sold_date_sk#98]
 Batched: true
 Location: CatalogFileIndex [{warehouse_dir}/store_sales]
-PushedFilters: [IsNotNull(ss_hdemo_sk), IsNotNull(ss_sold_time_sk), IsNotNull(ss_store_sk)]
+PushedFilters: [*IsNotNull(ss_hdemo_sk), *IsNotNull(ss_sold_time_sk), *IsNotNull(ss_store_sk)]
 ReadSchema: struct<ss_sold_time_sk:int,ss_hdemo_sk:int,ss_store_sk:int>
 
 (243) FilterExecTransformer
@@ -1241,7 +1241,7 @@ Input [4]: [ss_sold_time_sk#95, ss_hdemo_sk#96, ss_store_sk#97, ss_sold_date_sk#
 Output [3]: [t_time_sk#99, t_hour#100, t_minute#101]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/time_dim]
-PushedFilters: [IsNotNull(t_hour), IsNotNull(t_minute), EqualTo(t_hour,12), LessThan(t_minute,30), IsNotNull(t_time_sk)]
+PushedFilters: [*IsNotNull(t_hour), *IsNotNull(t_minute), *EqualTo(t_hour,12), *LessThan(t_minute,30), *IsNotNull(t_time_sk)]
 ReadSchema: struct<t_time_sk:int,t_hour:int,t_minute:int>
 
 (246) FilterExecTransformer

@@ -103,7 +103,7 @@ Output [3]: [ws_item_sk#1, ws_sales_price#2, ws_sold_date_sk#3]
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ws_sold_date_sk#3), dynamicpruningexpression(ws_sold_date_sk#3 IN dynamicpruning#4)]
-PushedFilters: [IsNotNull(ws_item_sk)]
+PushedFilters: [*IsNotNull(ws_item_sk)]
 ReadSchema: struct<ws_item_sk:int,ws_sales_price:decimal(7,2)>
 
 (2) FilterExecTransformer
@@ -303,7 +303,7 @@ Output [3]: [ss_item_sk#29, ss_sales_price#30, ss_sold_date_sk#31]
 Batched: true
 Location: InMemoryFileIndex []
 PartitionFilters: [isnotnull(ss_sold_date_sk#31), dynamicpruningexpression(ss_sold_date_sk#31 IN dynamicpruning#4)]
-PushedFilters: [IsNotNull(ss_item_sk)]
+PushedFilters: [*IsNotNull(ss_item_sk)]
 ReadSchema: struct<ss_item_sk:int,ss_sales_price:decimal(7,2)>
 
 (52) FilterExecTransformer
@@ -617,7 +617,7 @@ ColumnarBroadcastExchange (132)
 Output [3]: [d_date_sk#5, d_date#6, d_month_seq#71]
 Batched: true
 Location: InMemoryFileIndex [{warehouse_dir}/date_dim]
-PushedFilters: [IsNotNull(d_month_seq), GreaterThanOrEqual(d_month_seq,1212), LessThanOrEqual(d_month_seq,1223), IsNotNull(d_date_sk)]
+PushedFilters: [*IsNotNull(d_month_seq), *GreaterThanOrEqual(d_month_seq,1212), *LessThanOrEqual(d_month_seq,1223), *IsNotNull(d_date_sk)]
 ReadSchema: struct<d_date_sk:int,d_date:date,d_month_seq:int>
 
 (129) FilterExecTransformer

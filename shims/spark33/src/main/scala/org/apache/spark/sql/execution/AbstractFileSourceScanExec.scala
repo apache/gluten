@@ -248,8 +248,10 @@ abstract class AbstractFileSourceScanExec(
   }
 
   @transient
-  private lazy val pushedDownFilters = {
-    val supportNestedPredicatePushdown = DataSourceUtils.supportNestedPredicatePushdown(relation)
+  private lazy val pushedDownFilters =
+    translateDataFilters(DataSourceUtils.supportNestedPredicatePushdown(relation))
+
+  private def translateDataFilters(supportNestedPredicatePushdown: Boolean) = {
     // `dataFilters` should not include any metadata col filters
     // because the metadata struct has been flatted in FileSourceStrategy
     // and thus metadata col filters are invalid to be pushed down
@@ -260,6 +262,14 @@ abstract class AbstractFileSourceScanExec(
       })
       .flatMap(DataSourceStrategy.translateFilter(_, supportNestedPredicatePushdown))
   }
+
+  /** Controls nested-predicate quoting in the display-only filter translation. */
+  protected def supportNestedPredicatePushdownForDisplay: Boolean =
+    DataSourceUtils.supportNestedPredicatePushdown(relation)
+
+  /** Returns the individual filter strings used by Spark's `PushedFilters` metadata. */
+  protected def pushedFilterStringsForDisplay: Seq[String] =
+    translateDataFilters(supportNestedPredicatePushdownForDisplay).map(_.toString)
 
   override lazy val metadata: Map[String, String] = {
     def seqToString(seq: Seq[Any]) = seq.mkString("[", ", ", "]")
