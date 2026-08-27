@@ -66,11 +66,6 @@ org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#external tables use correct 
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = false
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = true
 org.apache.spark.sql.delta.DeltaAllFilesInCrcSuite#test all-files-in-crc verification failure also triggers and logs incremental-commit verification result
-org.apache.spark.sql.delta.DeltaAlterTableByNameIdColumnMappingSuite#CHANGE COLUMN - case insensitive - column mapping id mode
-org.apache.spark.sql.delta.DeltaAlterTableByNameIdColumnMappingSuite#CHANGE COLUMN - move to first (nested) - column mapping id mode
-org.apache.spark.sql.delta.DeltaAlterTableByNameNameColumnMappingSuite#CHANGE COLUMN - case insensitive - column mapping name mode
-org.apache.spark.sql.delta.DeltaAlterTableByNameNameColumnMappingSuite#CHANGE COLUMN - move to first (nested) - column mapping name mode
-org.apache.spark.sql.delta.DeltaArbitraryColumnNameSuite#create table
 org.apache.spark.sql.delta.DeltaCDCIdColumnMappingSuite#filters with special characters in name should be pushed down - column mapping id mode
 org.apache.spark.sql.delta.DeltaCDCNameColumnMappingSuite#filters with special characters in name should be pushed down - column mapping name mode
 org.apache.spark.sql.delta.DeltaCDCSQLIdColumnMappingSuite#filters with special characters in name should be pushed down - column mapping id mode
@@ -89,11 +84,8 @@ org.apache.spark.sql.delta.DeltaCDCStreamSuite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch100Suite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch1Suite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch2Suite#cdc streams with noop merge
-org.apache.spark.sql.delta.DeltaColumnMappingSuite#add nested column in schema on new protocol
-org.apache.spark.sql.delta.DeltaColumnMappingSuite#alter column order in schema on new protocol
 org.apache.spark.sql.delta.DeltaColumnMappingSuite#explicit id matching
 org.apache.spark.sql.delta.DeltaColumnMappingSuite#id and name mode should write field_id in parquet schema
-org.apache.spark.sql.delta.DeltaColumnMappingSuite#try modifying restricted max id property should fail
 org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: Delta log cache should respect options
 org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: checkpoint should pick up Hadoop file system options
 org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: invalidateCache should invalidate all DeltaLogs of the given path
@@ -645,30 +637,8 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data s
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping stats before and after optimize
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping stats before and after optimize - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - double nested, single 1 - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - double nested, single 1 - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - indexed column names - backtick escapes work as expected - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - indexed column names - backtick escapes work as expected - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - indexed column names - index only a subset of leaf columns - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - indexed column names - index only a subset of leaf columns - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - indexed column names - naming a nested column allows nested complex types - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - indexed column names - naming a nested column allows nested complex types - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - indexed column names - naming a nested column indexes all leaf fields of that column - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - indexed column names - naming a nested column indexes all leaf fields of that column - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - nested schema - # indexed column = 3 - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - nested schema - # indexed column = 3 - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - nested schema - # indexed column = 6 - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - nested schema - # indexed column = 6 - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - nested schema - # indexed column = 9 - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - nested schema - # indexed column = 9 - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - nested, single 1 - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - nested, single 1 - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - starts with, nested - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping by stats - starts with, nested - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping flags - column mapping name mode
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping flags - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping on TIMESTAMP - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping on TIMESTAMP - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping on TIMESTAMP_NTZ - column mapping name mode
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping on TIMESTAMP_NTZ - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - column mapping name mode
@@ -677,8 +647,6 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data 
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping stats before and after optimize - column mapping name mode
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping stats before and after optimize - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping with a different DataFrame schema order and nested columns - column mapping name mode
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping with missing columns in DataFrame - column mapping name mode
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#Data skipping handles aliasing for _metadata fields
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping flags
