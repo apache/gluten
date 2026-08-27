@@ -105,7 +105,7 @@ object GlutenImplicits {
       tmp.foreachUp {
         case cmd: CommandResultExec => collect(cmd.commandPhysicalPlan)
         case p: V2CommandExec
-            if !GlutenExplainUtils.isFallbackInsensitivePlan(p) =>
+            if !GlutenExplainUtils.shouldIgnoreInFallbackStats(p) =>
           GlutenExplainUtils.handleVanillaSparkPlan(p, fallbackNodeToReason)
         case p: AdaptiveSparkPlanExec if isFinalAdaptivePlan(p) =>
           collect(p.executedPlan)
@@ -140,7 +140,7 @@ object GlutenImplicits {
               fallbackNodeToReason)
           }
           collect(i.relation.cachedPlan)
-        case p: SparkPlan if GlutenExplainUtils.isFallbackInsensitivePlan(p) => // Ignore
+        case p: SparkPlan if GlutenExplainUtils.shouldIgnoreInFallbackStats(p) => // Ignore
         case p: GlutenPlan =>
           numGlutenNodes += 1
           p.innerChildren.foreach(collect)

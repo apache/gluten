@@ -147,7 +147,7 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
 
     // case 2: check whether fallback exists and decide whether increase heap memory
     // and decrease offheap memory.
-    val countedPlanNodes = planNodes.filterNot(GlutenExplainUtils.isFallbackInsensitivePlan)
+    val countedPlanNodes = planNodes.filterNot(GlutenExplainUtils.shouldIgnoreInFallbackStats)
     val fallenNodeCnt = countedPlanNodes.count {
       case _: GlutenPlan => false
       case i: InMemoryTableScanExec => !PlanUtil.isGlutenTableCache(i)

@@ -50,7 +50,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
    *
    * Such plans may be execution-framework or implementation wrappers.
    */
-  def isFallbackInsensitivePlan(plan: SparkPlan): Boolean = plan match {
+  def shouldIgnoreInFallbackStats(plan: SparkPlan): Boolean = plan match {
     case _: ExecutedCommandExec => true
     case _: CommandResultExec => true
     case p: V2CommandExec =>
@@ -117,7 +117,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
    *   - native Gluten operator: invokes `onGluten`
    *   - vanilla Spark operator considered a fallback: invokes `onFallback` with the reason resolved
    *     from physical or logical [[FallbackTags]], or a synthetic default when no tag is present
-   *   - [[isFallbackInsensitivePlan]] structural nodes: no callback
+   *   - nodes ignored by [[shouldIgnoreInFallbackStats]]: no callback
    *
    * Recurses into AQE subqueries and query stages, and into each visited operator's
    * `innerChildren`. Subqueries reached purely via expressions on a vanilla Spark plan are not
@@ -140,7 +140,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
       tmp.foreachUp {
         case cmd: CommandResultExec => visit(cmd.commandPhysicalPlan)
         case p: V2CommandExec
-            if !isFallbackInsensitivePlan(p) =>
+            if !shouldIgnoreInFallbackStats(p) =>
           onFallback(p, fallbackReason(p))
         case sub: AdaptiveSparkPlanExec if sub.isSubquery => visit(sub.executedPlan)
         case p: QueryStageExec => visit(p.plan)
@@ -150,7 +150,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
           } else {
             onFallback(i, "Columnar table cache is disabled")
           }
-        case p: SparkPlan if isFallbackInsensitivePlan(p) => // Ignore
+        case p: SparkPlan if shouldIgnoreInFallbackStats(p) => // Ignore
         case p: GlutenPlan =>
           onGluten(p)
           p.innerChildren.foreach(visit)
