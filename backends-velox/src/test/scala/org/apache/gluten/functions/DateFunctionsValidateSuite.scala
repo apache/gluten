@@ -621,6 +621,11 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
           checkGlutenPlan[ProjectExecTransformer]
         }
 
+        // cast(timestamp_ntz as string)
+        runQueryAndCompare("select cast(ts as string) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
         withSQLConf("spark.sql.session.timeZone" -> "Asia/Hong_Kong") {
           val dstPath = dir.getAbsolutePath + "/dst_gap"
           spark
@@ -660,6 +665,21 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
           runQueryAndCompare("select cast(ts as timestamp_ntz) from ts_view") {
             checkGlutenPlan[ProjectExecTransformer]
           }
+        }
+
+        val strPath = dir.getAbsolutePath + "/str_view"
+        spark
+          .createDataset(inputs)
+          .toDF("str")
+          .coalesce(1)
+          .write
+          .mode("overwrite")
+          .parquet(strPath)
+        spark.read.parquet(strPath).createOrReplaceTempView("str_view")
+
+        // cast(varchar as timestamp_ntz)
+        runQueryAndCompare("select cast(str as timestamp_ntz) from str_view") {
+          checkGlutenPlan[ProjectExecTransformer]
         }
     }
   }
