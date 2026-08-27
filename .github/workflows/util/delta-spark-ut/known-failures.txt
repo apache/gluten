@@ -608,8 +608,6 @@ org.apache.spark.sql.delta.optimize.OptimizeMetricsSuite#optimize metrics on ide
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#end-to-end test of behaviors of write/read null on partition column
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#five digits year in a date_format yyyy-MM partition column
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#five digits year in a date_format yyyy-MM-dd-HH partition column
-org.apache.spark.sql.delta.perf.OptimizeMetadataOnlyDeltaQueryIdColumnMappingSuite#count - dv-enabled - column mapping id mode
-org.apache.spark.sql.delta.perf.OptimizeMetadataOnlyDeltaQueryIdColumnMappingSuite#optimization not supported - min-max dv-enabled - column mapping id mode
 org.apache.spark.sql.delta.rowid.ConflictCheckerRowIdSuite#Re-added files keep their row IDs after conflict with txn not updating high watermark
 org.apache.spark.sql.delta.rowid.ConflictCheckerRowIdSuite#concurrent transactions do not assign overlapping row IDs
 org.apache.spark.sql.delta.rowid.ConflictCheckerRowIdSuite#re-added files keep their row ids

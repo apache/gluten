@@ -46,14 +46,14 @@ object VeloxDeltaConfig extends ConfigRegistry {
       .createWithDefault(false)
 
   val ENABLE_NATIVE_DML_ROW_INDEX_SCAN: ConfigEntry[Boolean] =
-    buildConf(
-      "spark.gluten.sql.columnar.backend.velox.delta.enableNativeDmlRowIndexScan")
+    buildConf("spark.gluten.sql.columnar.backend.velox.delta.enableNativeDmlRowIndexScan")
       .experimental()
       .doc(
-        "Enable the experimental native Delta DELETE/UPDATE/MERGE target row-index scan for " +
-          "Velox.")
+        "Enable the native Delta DELETE/UPDATE/MERGE target row-index scan for Velox. When " +
+          "disabled, the DML target scan that produces file paths and row indexes for " +
+          "deletion-vector writes stays on Spark; other scans are unaffected.")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
 
   val ENABLE_CHANGE_DATA_FEED_SCAN: ConfigEntry[Boolean] =
     buildConf("spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan")

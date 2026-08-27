@@ -18,7 +18,7 @@ package org.apache.gluten.component
 
 import org.apache.gluten.backendsapi.velox.VeloxBackend
 import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
-import org.apache.gluten.extension.{DeltaCDFScanRule, DeltaDeletionVectorDmlUtils, DeltaPostTransformRules, OffloadDeltaFilter, OffloadDeltaProject, OffloadDeltaScan}
+import org.apache.gluten.extension.{DeltaCDFScanRule, DeltaPostTransformRules, OffloadDeltaFilter, OffloadDeltaProject, OffloadDeltaScan}
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
@@ -50,18 +50,12 @@ class VeloxDeltaComponent extends Component {
     // PreprocessTableWithDVsStrategy injects the skip-row column and filter during physical
     // planning, DeltaPostTransformRules.nativeDeletionVectorRule strips them when the scan
     // offloads, and DeltaScanTransformer materializes the per-file DV payloads for Velox.
-    //
-    // For native DELETE/UPDATE/MERGE, the DML target row-index scan is deliberately kept on Spark
-    // until native row-index execution is proven; tag those scans here so the post-transform rules
-    // can keep the small subtree off the native path.
-    legacy.injectPreTransform(_ => DeltaDeletionVectorDmlUtils.tagDmlRowIndexScans)
     legacy.injectTransform {
       c =>
         val offload = Seq(
           OffloadDeltaScan(
-            enableNativeDeletionVectorDmlRowIndexScan =
-              new VeloxDeltaConfig(c.sqlConf).enableNativeDmlRowIndexScan
-          ),
+            enableNativeDmlRowIndexScan =
+              new VeloxDeltaConfig(c.sqlConf).enableNativeDmlRowIndexScan),
           OffloadDeltaProject(),
           OffloadDeltaFilter()
         )

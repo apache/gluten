@@ -20,50 +20,80 @@ import org.apache.gluten.execution.DeltaScanTransformer
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
-import org.apache.spark.sql.delta.SnapshotDescriptor
+import org.apache.spark.sql.delta.{DeltaParquetFileFormat, SnapshotDescriptor}
 import org.apache.spark.sql.delta.commands.DeletionVectorUtils.deletionVectorsReadable
-import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeFileIndex, TahoeRemoveFileIndex}
+import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeBatchFileIndex, TahoeFileIndex, TahoeRemoveFileIndex}
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
+import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.util.SparkVersionUtil
 
-case class OffloadDeltaScan(
-    enableNativeDeletionVectorDmlRowIndexScan: Boolean)
-  extends OffloadSingleNode {
+case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends OffloadSingleNode {
   private val DeletionVectorsUseMetadataRowIndexKey =
     "spark.databricks.delta.deletionVectors.useMetadataRowIndex"
+
+  // Spark 3.5+ exposes this as ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME.
+  private val parquetTemporaryRowIndexColumnName = "_tmp_metadata_row_index"
+  private val rowIndexColumnNames =
+    Set(
+      "__delta_internal_row_index",
+      DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME,
+      parquetTemporaryRowIndexColumnName,
+      "row_index")
+  // TahoeBatchFileIndex.actionType as set by Delta's DELETE, UPDATE and MERGE commands.
+  private val dmlActionTypes = Set("delete", "update", "merge")
 
   override def offload(plan: SparkPlan): SparkPlan = plan match {
     case scan: FileSourceScanExec if isDeltaLogScan(scan) =>
       FallbackTags.add(scan, "fallback Delta _delta_log scan")
       scan
+    case scan: FileSourceScanExec if shouldFallbackDeletionVectorDmlScan(scan) =>
+      FallbackTags.add(scan, "fallback Delta DV DML row-index scan by configuration")
+      scan
     case scan: FileSourceScanExec if shouldFallbackSpark34DeletionVectorScan(scan) =>
       FallbackTags.add(scan, "fallback Spark 3.4 Delta DV scan")
-      scan
-    case scan: FileSourceScanExec if shouldFallbackDeletionVectorDmlScan(scan) =>
-      FallbackTags.add(scan, "fallback Delta DV DML row-index scan")
       scan
     case scan: FileSourceScanExec
         if shouldFallbackDeletionVectorScanWithoutMetadataRowIndex(scan) =>
       FallbackTags.add(scan, "fallback Delta DV scan without metadata row index")
       scan
     case scan: FileSourceScanExec if DeltaScanUtils.isDeltaScan(scan) =>
-      val transformer = DeltaScanTransformer(scan)
-      DeltaDeletionVectorDmlUtils.copyDmlRowIndexScanTag(scan, transformer)
-      transformer
+      DeltaScanTransformer(scan)
     case other => other
   }
 
+  /**
+   * The scoped escape hatch: with the config off, the DELETE/UPDATE/MERGE target scan that produces
+   * file paths and row indexes for deletion-vector writes stays on Spark, while every other scan
+   * keeps offloading. The whole check lives here, on the scan alone: Delta builds every DML target
+   * relation over a [[TahoeBatchFileIndex]] carrying the command name, which survives AQE stage
+   * splits and arbitrary join placement, and only DV-writing DML reads a row-index column from that
+   * relation; DML that rewrites whole files does not, and remains eligible for native execution.
+   */
   private def shouldFallbackDeletionVectorDmlScan(scan: FileSourceScanExec): Boolean = {
-    if (enableNativeDeletionVectorDmlRowIndexScan) {
-      return false
+    !enableNativeDmlRowIndexScan && isDmlTargetScan(scan) && scanReadsRowIndexColumn(scan)
+  }
+
+  private def isDmlTargetScan(scan: FileSourceScanExec): Boolean = {
+    scan.relation.location match {
+      case index: TahoeBatchFileIndex => dmlActionTypes.contains(index.actionType)
+      case _ => false
+    }
+  }
+
+  private def scanReadsRowIndexColumn(scan: FileSourceScanExec): Boolean = {
+    def nestedFieldNames(dataType: DataType): Seq[String] = dataType match {
+      case struct: StructType =>
+        struct.fields.flatMap(field => field.name +: nestedFieldNames(field.dataType)).toSeq
+      case _ => Seq.empty
     }
 
-    // DELETE/UPDATE/MERGE with persistent deletion vectors needs the target scan to expose
-    // per-file row indexes so Delta can build updated DV bitmaps. Keep this experimental target
-    // scan on Spark by default until its native row-index correctness is established independently
-    // of the native BitmapAggregator and write path.
-    DeltaDeletionVectorDmlUtils.isDeletionVectorDmlRowIndexScan(scan)
+    val outputColumnNames =
+      scan.output.flatMap(attribute => attribute.name +: nestedFieldNames(attribute.dataType))
+    val requiredColumnNames = scan.requiredSchema.fields.flatMap {
+      field => field.name +: nestedFieldNames(field.dataType)
+    }
+    (outputColumnNames ++ requiredColumnNames).exists(rowIndexColumnNames.contains)
   }
 
   private def isDeltaLogScan(scan: FileSourceScanExec): Boolean = {

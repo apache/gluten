@@ -17,18 +17,16 @@
 package org.apache.spark.sql.delta
 
 import org.apache.gluten.config.VeloxDeltaConfig
-import org.apache.gluten.execution.{DeltaScanTransformer, FilterExecTransformerBase, ProjectExecTransformerBase}
-import org.apache.gluten.extension.DeltaDeletionVectorDmlUtils
+import org.apache.gluten.execution.DeltaScanTransformer
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
-import org.apache.spark.sql.execution.{ColumnarToRowExec, FileSourceScanExec, FilterExec, InputAdapter, ProjectExec, SparkPlan, WholeStageCodegenExec}
+import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.tags.ExtendedSQLTest
-import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.hadoop.fs.Path
 
@@ -44,86 +42,14 @@ class DeltaDeletionVectorHandoffSuite
 
   import testImplicits._
 
-  private def containsDmlFallbackScan(plan: SparkPlan): Boolean = {
-    // FallbackTags and TreeNodeTags do not reliably survive AQE plan copies. Identify the final
-    // fallback from the structured DML target shape and the vanilla Spark scan type instead.
-    collectWithSubqueries(plan) {
-      case scan: FileSourceScanExec
-          if DeltaDeletionVectorDmlUtils.hasDeletionVectorDmlRowIndexScanShape(scan) =>
-        scan
-    }.nonEmpty
-  }
-
-  private def hasSparkParentOverDmlFallbackScan(plan: SparkPlan): Boolean = {
-    collectWithSubqueries(plan) {
-      case project @ ProjectExec(_, child) if isDmlFallbackSubtree(child) => project
-      case filter @ FilterExec(_, child) if isDmlFallbackSubtree(child) => filter
-    }.nonEmpty
-  }
-
-  private def hasNativeParentOverDmlFallbackScan(plan: SparkPlan): Boolean = {
-    collectWithSubqueries(plan) {
-      case project: ProjectExecTransformerBase if isDmlFallbackSubtree(project.child) => project
-      case filter: FilterExecTransformerBase if isDmlFallbackSubtree(filter.child) => filter
-    }.nonEmpty
-  }
-
   private def containsNativeDeltaScan(plan: SparkPlan): Boolean = {
     collectWithSubqueries(plan) { case scan: DeltaScanTransformer => scan }.nonEmpty
   }
 
-  private def isDmlFallbackSubtree(plan: SparkPlan): Boolean = plan match {
-    case scan: FileSourceScanExec => containsDmlFallbackScan(scan)
-    case ColumnarToRowExec(child) => isDmlFallbackSubtree(child)
-    // Whole-stage codegen wraps the columnar scan in an InputAdapter that is invisible in
-    // treeString output; both wrappers must be traversed to reach the scan.
-    case InputAdapter(child) => isDmlFallbackSubtree(child)
-    case WholeStageCodegenExec(child) => isDmlFallbackSubtree(child)
-    case ProjectExec(_, child) => isDmlFallbackSubtree(child)
-    case FilterExec(_, child) => isDmlFallbackSubtree(child)
-    case project: ProjectExecTransformerBase => isDmlFallbackSubtree(project.child)
-    case filter: FilterExecTransformerBase => isDmlFallbackSubtree(filter.child)
-    case _ => false
-  }
-
-  private def captureDeletePlans(
-      path: String,
-      predicate: String,
-      useMetadataRowIndex: Boolean): Seq[SparkPlan] = {
-    var executedPlans: Seq[SparkPlan] = Seq.empty
-    withSQLConf(
-      DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key ->
-        useMetadataRowIndex.toString,
-      VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key -> "false"
-    ) {
-      executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
-        spark.sql(s"DELETE FROM delta.`$path` WHERE $predicate").collect()
-      }.map(_.executedPlan)
-    }
-    executedPlans
-  }
-
-  private def assertSparkDmlFallback(executedPlans: Seq[SparkPlan]): Unit = {
-    val planText = executedPlans.map(_.treeString).mkString("\n\n")
-    assert(executedPlans.exists(containsDmlFallbackScan), planText)
-    assert(executedPlans.exists(hasSparkParentOverDmlFallbackScan), planText)
-    assert(!executedPlans.exists(hasNativeParentOverDmlFallbackScan), planText)
-  }
-
-  private def assertReadPlanAfterDmlFallback(path: String, useMetadataRowIndex: Boolean): Unit = {
-    withSQLConf(
-      DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> useMetadataRowIndex.toString) {
-      val df = spark.read.format("delta").load(path)
-      val executedPlan = df.queryExecution.executedPlan
-      val planText = executedPlan.treeString
-      if (useMetadataRowIndex) {
-        assert(containsNativeDeltaScan(executedPlan), planText)
-        assert(!containsDmlFallbackScan(executedPlan), planText)
-      } else {
-        assert(!containsNativeDeltaScan(executedPlan), planText)
-      }
-      checkAnswer(df, Seq((1, "a"), (2, "b")).toDF())
-    }
+  private def captureDeletePlans(path: String, predicate: String): Seq[SparkPlan] = {
+    DeltaTestUtils.withAllPlansCaptured(spark) {
+      spark.sql(s"DELETE FROM delta.`$path` WHERE $predicate").collect()
+    }.map(_.executedPlan)
   }
 
   private def activeDvCardinality(path: String): Long = {
@@ -132,19 +58,22 @@ class DeltaDeletionVectorHandoffSuite
       file => Option(file.deletionVector).map(_.cardinality)).sum
   }
 
+  private def writeDvTable(path: String, rows: Seq[(Int, String)]): Unit = {
+    rows
+      .toDF("id", "value")
+      .coalesce(1)
+      .write
+      .format("delta")
+      .save(path)
+    spark.sql(
+      s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+  }
+
   test("Spark 4 Delta DV scan should fall back when metadata row index is disabled") {
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
-        Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
-          .toDF("id", "value")
-          .coalesce(1)
-          .write
-          .format("delta")
-          .save(path)
-
-        spark.sql(
-          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+        writeDvTable(path, Seq((1, "a"), (2, "b"), (3, "c"), (4, "d")))
         spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)")
 
         val log = DeltaLog.forTable(spark, new Path(path))
@@ -161,84 +90,11 @@ class DeltaDeletionVectorHandoffSuite
     }
   }
 
-  test("Delta metadata row-index predicate should not be stripped from a native scan") {
-    withTempDir {
-      tempDir =>
-        val path = tempDir.getCanonicalPath
-        Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
-          .toDF("id", "value")
-          .coalesce(1)
-          .write
-          .format("delta")
-          .save(path)
-
-        spark.sql(
-          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
-
-        val df = spark.sql(
-          s"SELECT id, _metadata.row_index AS row_index FROM delta.`$path` " +
-            "WHERE _metadata.row_index = 2")
-        val rows = df.collect()
-        val executedPlan = df.queryExecution.executedPlan
-        val planText = executedPlan.treeString
-        assert(containsNativeDeltaScan(executedPlan), planText)
-        assert(rows.length === 1, planText)
-        assert(rows.head.getLong(1) === 2L, planText)
-    }
-  }
-
-  Seq(true, false).foreach {
-    useMetadataRowIndex =>
-      test(
-        "Delta DV DML row-index scan should fall back with Spark project/filter, " +
-          s"metadata row index=$useMetadataRowIndex") {
-        assume(SparkVersionUtil.gteSpark35, "DML row-index scan fallback is Spark 3.5+ coverage")
-        withTempDir {
-          tempDir =>
-            val path = tempDir.getCanonicalPath
-            Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
-              .toDF("id", "value")
-              .coalesce(1)
-              .write
-              .format("delta")
-              .save(path)
-
-            spark.sql(
-              s"ALTER TABLE delta.`$path` SET TBLPROPERTIES " +
-                "('delta.enableDeletionVectors' = true)")
-
-            var executedPlans: Seq[SparkPlan] = Seq.empty
-            withSQLConf(
-              DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key ->
-                useMetadataRowIndex.toString,
-              VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key -> "false"
-            ) {
-              executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
-                spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)").collect()
-              }.map(_.executedPlan)
-            }
-            assertSparkDmlFallback(executedPlans)
-
-            val log = DeltaLog.forTable(spark, new Path(path))
-            assert(log.update().allFiles.collect().exists(_.deletionVector != null))
-            assertReadPlanAfterDmlFallback(path, useMetadataRowIndex)
-        }
-      }
-  }
-
   test("Spark 4 Delta DV scan handoff should filter deleted rows") {
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
-        Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
-          .toDF("id", "value")
-          .coalesce(1)
-          .write
-          .format("delta")
-          .save(path)
-
-        spark.sql(
-          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+        writeDvTable(path, Seq((1, "a"), (2, "b"), (3, "c"), (4, "d")))
         spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (3, 4)")
 
         val log = DeltaLog.forTable(spark, new Path(path))
@@ -258,40 +114,102 @@ class DeltaDeletionVectorHandoffSuite
     }
   }
 
-  // MERGE puts joins between the target scan and Delta's BitmapAggregator. With a shuffle join
-  // the scan lands in its own AQE query stage, where that aggregate is not visible, so this covers
-  // the shape a plan-shape-dependent tag alone would miss.
+  test("Delta metadata row-index predicate should not be stripped from a native scan") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        writeDvTable(path, Seq((1, "a"), (2, "b"), (3, "c"), (4, "d")))
+
+        val df = spark.sql(
+          s"SELECT id, _metadata.row_index AS row_index FROM delta.`$path` " +
+            "WHERE _metadata.row_index = 2")
+        val rows = df.collect()
+        val executedPlan = df.queryExecution.executedPlan
+        val planText = executedPlan.treeString
+        assert(containsNativeDeltaScan(executedPlan), planText)
+        assert(rows.length === 1, planText)
+        assert(rows.head.getLong(1) === 2L, planText)
+    }
+  }
+
   Seq(true, false).foreach {
-    broadcastJoin =>
+    useMetadataRowIndex =>
       test(
-        "Delta DV DML row-index scan should fall back for MERGE, " +
-          s"broadcast join=$broadcastJoin") {
-        assume(SparkVersionUtil.gteSpark35, "DML row-index scan fallback is Spark 3.5+ coverage")
+        "Delta DV DELETE should write correct deletion vectors, " +
+          s"metadata row index=$useMetadataRowIndex") {
         withTempDir {
           tempDir =>
             val path = tempDir.getCanonicalPath
-            Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
-              .toDF("id", "value")
-              .coalesce(1)
-              .write
-              .format("delta")
-              .save(path)
+            writeDvTable(path, Seq((1, "a"), (2, "b"), (3, "c"), (4, "d")))
 
-            spark.sql(
-              s"ALTER TABLE delta.`$path` SET TBLPROPERTIES " +
-                "('delta.enableDeletionVectors' = true)")
+            withSQLConf(
+              DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key ->
+                useMetadataRowIndex.toString) {
+              val executedPlans = captureDeletePlans(path, "id IN (3, 4)")
+              val planText = executedPlans.map(_.treeString).mkString("\n\n")
+              // With the metadata row index, the DML target scan offloads like any other DV
+              // scan; without it, Delta relies on Spark's injected row-index filter column and
+              // the scan stays on Spark.
+              assert(
+                executedPlans.exists(containsNativeDeltaScan) === useMetadataRowIndex,
+                planText)
+
+              assert(activeDvCardinality(path) === 2L)
+              checkAnswer(spark.read.format("delta").load(path), Seq((1, "a"), (2, "b")).toDF())
+            }
+        }
+      }
+  }
+
+  test("Delta DV repeated DELETE over an existing DV should accumulate deleted rows") {
+    withTempDir {
+      tempDir =>
+        val path = new File(tempDir, "delta table with spaces").getCanonicalPath
+        writeDvTable(path, Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f")))
+
+        withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "true") {
+          // Delete the LEADING rows first: after DV {0, 1} masks them, every surviving row's
+          // absolute row index differs from its post-mask position. A scan that renumbered row
+          // indexes after applying the existing DV would emit {0, 1} for the second DELETE
+          // instead of {2, 3}, failing both the cardinality and the result checks below.
+          val firstDeletePlans = captureDeletePlans(path, "id IN (1, 2)")
+          assert(
+            firstDeletePlans.exists(containsNativeDeltaScan),
+            firstDeletePlans.map(_.treeString).mkString("\n\n"))
+          assert(activeDvCardinality(path) === 2L)
+
+          // The second DELETE scans files that already carry a DV and must merge into it.
+          val secondDeletePlans = captureDeletePlans(path, "id IN (3, 4)")
+          assert(
+            secondDeletePlans.exists(containsNativeDeltaScan),
+            secondDeletePlans.map(_.treeString).mkString("\n\n"))
+          assert(activeDvCardinality(path) === 4L)
+
+          checkAnswer(spark.read.format("delta").load(path), Seq((5, "e"), (6, "f")).toDF())
+        }
+    }
+  }
+
+  // MERGE puts joins between the target scan and Delta's BitmapAggregator. With a shuffle join
+  // the scan lands in its own AQE query stage, so this covers target-scan offload both with and
+  // without the rest of the DML plan visible in the same stage.
+  Seq(true, false).foreach {
+    broadcastJoin =>
+      test(s"Delta DV MERGE should write correct deletion vectors, broadcast join=$broadcastJoin") {
+        withTempDir {
+          tempDir =>
+            val path = tempDir.getCanonicalPath
+            writeDvTable(path, Seq((1, "a"), (2, "b"), (3, "c"), (4, "d")))
 
             withTempView("merge_source") {
               Seq((3, "c2"), (4, "d2")).toDF("id", "value").createOrReplaceTempView("merge_source")
 
-              var executedPlans: Seq[SparkPlan] = Seq.empty
               withSQLConf(
                 SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key ->
                   (if (broadcastJoin) "10485760" else "-1"),
-                DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "true",
-                VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key -> "false"
+                DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "true"
               ) {
-                executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
+                val executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
                   spark
                     .sql(s"""MERGE INTO delta.`$path` AS t
                             |USING merge_source AS s
@@ -299,8 +217,10 @@ class DeltaDeletionVectorHandoffSuite
                             |WHEN MATCHED THEN DELETE""".stripMargin)
                     .collect()
                 }.map(_.executedPlan)
+                assert(
+                  executedPlans.exists(containsNativeDeltaScan),
+                  executedPlans.map(_.treeString).mkString("\n\n"))
               }
-              assertSparkDmlFallback(executedPlans)
 
               val log = DeltaLog.forTable(spark, new Path(path))
               assert(log.update().allFiles.collect().exists(_.deletionVector != null))
@@ -312,29 +232,37 @@ class DeltaDeletionVectorHandoffSuite
       }
   }
 
-  test("Delta DV DML row-index scan should fall back when updating an existing DV") {
-    assume(SparkVersionUtil.gteSpark35, "DML row-index scan fallback is Spark 3.5+ coverage")
+  test("Delta DV DML row-index scan should stay on Spark when disabled") {
     withTempDir {
       tempDir =>
-        val path = new File(tempDir, "delta table with spaces").getCanonicalPath
-        Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"), (5, "e"), (6, "f"))
-          .toDF("id", "value")
-          .coalesce(1)
-          .write
-          .format("delta")
-          .save(path)
+        val path = tempDir.getCanonicalPath
+        writeDvTable(path, Seq((1, "a"), (2, "b"), (3, "c"), (4, "d")))
 
-        spark.sql(
-          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES " +
-            "('delta.enableDeletionVectors' = true)")
+        withSQLConf(
+          DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "true",
+          VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key -> "false") {
+          val executedPlans = captureDeletePlans(path, "id IN (3, 4)")
+          assert(
+            !executedPlans.exists(containsNativeDeltaScan),
+            executedPlans.map(_.treeString).mkString("\n\n"))
+          assert(activeDvCardinality(path) === 2L)
 
-        assertSparkDmlFallback(captureDeletePlans(path, "id IN (5, 6)", useMetadataRowIndex = true))
-        assert(activeDvCardinality(path) === 2L)
+          // The fallback is scoped to the DML target scan: a plain read of the same table keeps
+          // offloading even while the config is off.
+          val df = spark.read.format("delta").load(path)
+          assert(containsNativeDeltaScan(df.queryExecution.executedPlan))
+          checkAnswer(df, Seq((1, "a"), (2, "b")).toDF())
+        }
 
-        assertSparkDmlFallback(captureDeletePlans(path, "id IN (3, 4)", useMetadataRowIndex = true))
-        assert(activeDvCardinality(path) === 4L)
-
-        assertReadPlanAfterDmlFallback(path, useMetadataRowIndex = true)
+        // The config is read per query, so re-enabling in the same session restores DML offload.
+        withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "true") {
+          val executedPlans = captureDeletePlans(path, "id = 2")
+          assert(
+            executedPlans.exists(containsNativeDeltaScan),
+            executedPlans.map(_.treeString).mkString("\n\n"))
+          assert(activeDvCardinality(path) === 3L)
+          checkAnswer(spark.read.format("delta").load(path), Seq((1, "a")).toDF())
+        }
     }
   }
 }
