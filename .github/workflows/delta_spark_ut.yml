@@ -150,7 +150,7 @@ env:
 
 # Cancel older `pull_request` and `/delta-test` runs for the same PR.
 #
-# `issue_comment` fires on every comment created in the repo, and
+# `issue_comment` fires on every comment posted on an issue or a PR, and
 # `github.event.issue.number` is that issue's number, which for a comment on a
 # PR is the PR's own number. Such a run would therefore join the PR's group and
 # cancel an in-flight suite while `delta-test-requested` below skips it, losing
