@@ -149,21 +149,27 @@ env:
   DELTA_NUM_SHARDS: '8'
 
 # Cancel older `pull_request` and `/delta-test` runs for the same PR.
+#
+# `issue_comment` fires for every comment, and for that event
+# `github.event.issue.number` is the PR number, so without the trailing
+# discriminator such a run joins the PR's group and `cancel-in-progress` kills an
+# in-flight suite. Leaving it in the group but not cancelling is no better: the
+# run would sit `pending` until the suite ends, up to the shards'
+# `timeout-minutes: 350`. All a non-command comment run ever does is skip in
+# `delta-test-requested`, so give it a group to itself. The condition repeats
+# that job's `if` verbatim, so `pull_request` runs and real `/delta-test` runs
+# keep sharing one group per PR exactly as before.
 concurrency:
-  group: ${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.head_ref || github.sha }}-${{ github.workflow }}
-  # `issue_comment` fires on every comment, and for such an event
-  # `github.event.issue.number` puts the run in the same group as that PR's
-  # `pull_request` run. Cancelling unconditionally therefore lets any unrelated
-  # comment kill an in-flight suite, which the comment run then does not replace
-  # because `delta-test-requested` below skips it. Only a real `/delta-test`
-  # command should cancel, so this repeats that job's `if` verbatim.
-  cancel-in-progress: >-
-    ${{ github.event_name != 'issue_comment' ||
-      (github.event.issue.pull_request &&
-       (github.event.comment.body == '/delta-test' ||
-        startsWith(github.event.comment.body, '/delta-test ') ||
-        startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\r"'))) ||
-        startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\n"'))))) }}
+  group: >-
+    ${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.head_ref || github.sha }}-${{ github.workflow }}-${{
+      (github.event_name != 'issue_comment' ||
+       (github.event.issue.pull_request &&
+        (github.event.comment.body == '/delta-test' ||
+         startsWith(github.event.comment.body, '/delta-test ') ||
+         startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\r"'))) ||
+         startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\n"'))))))
+      && 'shared' || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   delta-test-requested:
