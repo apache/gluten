@@ -94,12 +94,12 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
   }
 
   /** A payload source for inline DVs whose bytes are already present in Delta metadata. */
-  public static final class SerializedDeletionVectorPayload implements DeletionVectorPayload {
+  public static final class InMemoryDeletionVectorPayload implements DeletionVectorPayload {
     private static final long serialVersionUID = 1L;
 
     private final byte[] payload;
 
-    public SerializedDeletionVectorPayload(byte[] payload) {
+    public InMemoryDeletionVectorPayload(byte[] payload) {
       this.payload = payload == null ? new byte[0] : payload.clone();
     }
 
@@ -131,7 +131,7 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
           rowIndexFilterType,
           hasDeletionVector,
           deletionVectorCardinality,
-          new SerializedDeletionVectorPayload(serializedDeletionVector));
+          new InMemoryDeletionVectorPayload(serializedDeletionVector));
     }
 
     public DeltaFileReadOptions(

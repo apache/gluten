@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.delta
 
-import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeltaFileReadOptions, SerializedDeletionVectorPayload}
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeltaFileReadOptions, InMemoryDeletionVectorPayload}
 
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
@@ -74,7 +74,7 @@ trait DeltaDeletionVectorDeferredReadTests {
 
   test("eager DV payload owns its input bytes") {
     val input = Array[Byte](1, 2, 3)
-    val payload = new SerializedDeletionVectorPayload(input)
+    val payload = new InMemoryDeletionVectorPayload(input)
 
     input(0) = 9
 

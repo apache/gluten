@@ -18,7 +18,7 @@ package org.apache.gluten.delta
 
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.DeltaLocalFilesNode
-import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeletionVectorPayload, DeltaFileReadOptions, SerializedDeletionVectorPayload}
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeletionVectorPayload, DeltaFileReadOptions, InMemoryDeletionVectorPayload}
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.delta.DeltaParquetFileFormat
@@ -51,8 +51,6 @@ object DeltaDeletionVectorScanInfo {
       cardinality: Long,
       deletionVectorPayload: DeletionVectorPayload) {
     def serializedDeletionVector: Array[Byte] = deletionVectorPayload.materialize()
-
-    def isPayloadMaterialized: Boolean = deletionVectorPayload.isMaterialized()
   }
 
   final case class PartitionFileScanInfo(
@@ -174,7 +172,7 @@ object DeltaDeletionVectorScanInfo {
           false,
           KEEP_ALL,
           0L,
-          new SerializedDeletionVectorPayload(Array.emptyByteArray))
+          new InMemoryDeletionVectorPayload(Array.emptyByteArray))
       case (Some(encodedDescriptor), Some(filterType)) =>
         val descriptor = parseDescriptor(encodedDescriptor.toString)
         val payload = deletionVectorPayload(
@@ -243,7 +241,7 @@ object DeltaDeletionVectorScanInfo {
         descriptor.sizeInBytes,
         readMetrics)
     } else {
-      new SerializedDeletionVectorPayload(serializeInlinePayload(hadoopConf, tablePath, descriptor))
+      new InMemoryDeletionVectorPayload(serializeInlinePayload(hadoopConf, tablePath, descriptor))
     }
   }
 
