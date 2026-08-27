@@ -57,7 +57,7 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
   }
 
   protected def getTargetFileSizeBytes: String = {
-    IcebergWriteUtil.getWriteConf(write).targetDataFileSize().toString
+    normalizeCapacityString(IcebergWriteUtil.getWriteConf(write).targetDataFileSize().toString)
   }
 
   protected def getDictSizeBytes: String = {
