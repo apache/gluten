@@ -21,35 +21,29 @@ import org.apache.gluten.config.VeloxConfig
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.RowOrdering
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.types.LongType
+import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
+import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
+import org.apache.spark.sql.types.{BinaryType, BooleanType, ByteType, DataType, DateType, DecimalType, IntegerType, LongType, ShortType, TimestampType}
 
 /**
  * Rewrites self-join with inequality into GROUP BY + HAVING COUNT(DISTINCT) > 1.
  *
- * Targets three patterns; all require an existence-only context (LeftSemi/LeftAnti join, or
- * InSubquery/Exists expression) so that row-count multiplicity from the self-join cross-product
- * does not affect semantics.
+ * Targets the two uncorrelated InSubquery shapes exercised by TPC-DS Q95:
  *
- *   - Pattern A' (InSubquery/Exists primary): InSubquery/Exists whose subquery top-level join is a
- *     direct self-join. The primary path for TPC-DS Q95.
- *   - Pattern A2 (nested): InSubquery/Exists whose subquery contains an outer InnerJoin that has a
- *     self-join child. Only the self-join child is replaced with Aggregate; the outer join is
- *     preserved.
- *   - Pattern A (LeftSemi/LeftAnti): LeftSemi/LeftAnti whose right child is an Inner self-join
- *     (possibly wrapped in Project). Matches semi/anti joins that already exist in the input --
- *     e.g. from an explicit `LEFT SEMI JOIN` clause. Note: this rule is injected via
- *     `injectOptimizerRule`, which places it in the operator-optimization batch that runs BEFORE
- *     `RewritePredicateSubquery`; A is NOT a post-subquery-rewrite fallback for A'.
+ *   - Pattern A': the subquery top-level InnerJoin is a direct self-join.
+ *   - Pattern A2: the subquery contains an outer InnerJoin with a self-join child; only the
+ *     self-join child is replaced with Aggregate and the outer join is preserved.
  *
- * Correlated subqueries (outer references / joinCond in ListQuery/Exists) are fail-closed at the
- * entry expression, since our ExprId canonicalization does not remap those predicates.
+ * Both patterns require an existence-only membership context so row-count multiplicity from the
+ * original self-join cross-product does not affect semantics. Correlated InSubquery expressions are
+ * intentionally fail-closed because the ExprId remapping performed here does not rewrite correlated
+ * predicates.
  *
- * All three share:
+ * Both patterns share:
  *   - [[buildAggregateHavingDistinctGt1]] to construct `Filter(cnt > 1, Aggregate)`
  *   - [[canonicalizeWrapper]] to rebuild a wrapping Project so every equi-key reference points to
  *     the sjLeft-side attribute, with **fresh exprIds** (Spark's SPARK-21835 style -- no reuse of
@@ -70,37 +64,14 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
       return plan
     }
 
-    // Pattern A: rewrite LeftSemi/LeftAnti whose right child is an Inner self-join.
-    val afterOps = plan.transformUp {
-      case j: Join
-          if (j.joinType == LeftSemi || j.joinType == LeftAnti) &&
-            j.condition.isDefined &&
-            isInnerJoinShape(j.right) =>
-        tryRewriteSemiWithSelfJoinChild(j).getOrElse(j)
-      case other => other
-    }
-
-    // Pattern A' / A2: rewrite subquery plans embedded in InSubquery/Exists.
-    // Type-based matching (`x: T`) + named-argument copy keeps this portable across
-    // Spark 3.3/3.4/3.5/4.x where ListQuery/Exists case-class arity has drifted.
-    //
-    // Correlated subquery fail-closed: `SubqueryExpression.children.nonEmpty` iff the
-    // subquery has outer references / correlated join conditions. These predicates
-    // reference attributes INSIDE the subquery plan by ExprId; our canonicalizeWrapper
-    // rewrites those ExprIds without remapping the correlated predicates, which would
-    // leave dangling references after `RewritePredicateSubquery` folds them back into
-    // the semi-join condition. Target workload (TPC-DS Q95) is uncorrelated, so bail
-    // on any correlated candidate rather than growing the remap surface.
-    val rewritten = afterOps.transformAllExpressions {
+    // Pattern A' / A2: rewrite uncorrelated InSubquery plans.
+    // Correlated subqueries carry outer references / correlated join conditions in
+    // `SubqueryExpression.children`; fail closed because this rule does not remap them.
+    val rewritten = plan.transformAllExpressions {
       case in @ InSubquery(_, lq: ListQuery) if lq.children.isEmpty =>
         rewriteSubqueryPlan(lq.plan) match {
           case Some(newSub) => in.copy(query = lq.copy(plan = newSub))
           case None => in
-        }
-      case ex: Exists if ex.children.isEmpty =>
-        rewriteSubqueryPlan(ex.plan) match {
-          case Some(newSub) => ex.copy(plan = newSub)
-          case None => ex
         }
     }
     if (!(rewritten eq plan)) {
@@ -110,16 +81,9 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
     }
     rewritten
   }
-
   // ============================================================================
   //  Shared helpers
   // ============================================================================
-
-  private def isInnerJoinShape(plan: LogicalPlan): Boolean = plan match {
-    case Project(_, j: Join) if j.joinType == Inner && j.condition.isDefined => true
-    case j: Join if j.joinType == Inner && j.condition.isDefined => true
-    case _ => false
-  }
 
   /**
    * Build `Filter(cnt > 1, Aggregate(equiKeys, [equiKeys, cnt_alias], Filter(IsNotNull(equiKeys),
@@ -131,7 +95,7 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
    * together into a single "NULL group" -- if that group has >= 2 distinct non-null neq values,
    * COUNT(DISTINCT) > 1 fires and injects NULL into the subquery output. That leaked NULL then
    * turns `NOT IN` into a spurious empty result (Spark's null-aware anti-join uses
-   * `Or(equi, IsNull(equi))` which any NULL sub-row satisfies) and can flip EXISTS/IN outcomes. The
+   * `Or(equi, IsNull(equi))` which any NULL sub-row satisfies) and can flip IN/NOT IN outcomes. The
    * neq column needs no such filter: `COUNT(DISTINCT col)` already ignores NULL.
    */
   private def buildAggregateHavingDistinctGt1(
@@ -157,10 +121,11 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
   }
 
   /**
-   * Canonicalize a Project so every equi-key reference points at the sjLeft-side attribute (both
-   * sides of a valid self-join share names, so this substitution is semantically safe). Uses
-   * **fresh exprIds** (no reuse of original wrapper output exprIds) -- the same technique Spark's
-   * own `dedupSubqueryOnSelfJoin` uses when it needs to change subquery output.
+   * Canonicalize a Project so every equi-key reference points at the sjLeft-side attribute.
+   * [[parseSelfJoinCondition]] has already verified that each pair refers to the same output
+   * position on the two structurally identical self-join sides. Uses **fresh exprIds** (no reuse of
+   * original wrapper output exprIds) -- the same technique Spark's own `dedupSubqueryOnSelfJoin`
+   * uses when it needs to change subquery output.
    *
    * Returns the rebuilt Project and a map `oldWrapperOutputExprId -> newWrapperOutputAttr`, so
    * downstream references (outer join condition, top-level Project) can be updated consistently.
@@ -223,25 +188,39 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
    * `Expression.transformUp` returns `Expression`, not `NamedExpression`. We avoid a blanket
    * `asInstanceOf[NamedExpression]` by handling the two shapes that can appear in a Project's
    * `projectList` explicitly: a bare Attribute (whose top-level may itself be replaced) and an
-   * Alias (which stays an Alias while its child is transformed). Anything else in a projectList --
-   * e.g. computed expressions we don't own -- is passed through unchanged.
+   * Alias (which stays an Alias while its child is transformed). Any other NamedExpression shape we
+   * do not rewrite is left as-is ONLY if it does not reference a replaced self-join output;
+   * otherwise it would carry a stale ExprId, so returns None to fail the whole rewrite closed.
    */
   private def remapNamedExpressionAttributes(
       ne: NamedExpression,
-      remap: Map[ExprId, Attribute]): NamedExpression = ne match {
-    case a: Attribute if remap.contains(a.exprId) => remap(a.exprId)
-    case a: Attribute => a
+      remap: Map[ExprId, Attribute]): Option[NamedExpression] = ne match {
+    case a: Attribute if remap.contains(a.exprId) => Some(remap(a.exprId))
+    case a: Attribute => Some(a)
     case al: Alias =>
       val newChild = al.child.transformUp {
         case a: Attribute if remap.contains(a.exprId) => remap(a.exprId)
       }
-      if (newChild eq al.child) al
-      else Alias(newChild, al.name)(al.exprId, al.qualifier, al.explicitMetadata)
-    case other => other
+      Some(
+        if (newChild eq al.child) {
+          al
+        } else {
+          Alias(newChild, al.name)(
+            al.exprId,
+            al.qualifier,
+            al.explicitMetadata,
+            al.nonInheritableMetadataKeys)
+        })
+    case other if other.references.exists(a => remap.contains(a.exprId)) =>
+      // Fail-closed: a NamedExpression we do not rewrite (neither a bare Attribute nor an Alias)
+      // that still references a replaced self-join output would be left with a dangling ExprId.
+      // Refuse the rewrite rather than emit a plan with a stale reference.
+      None
+    case other => Some(other)
   }
 
   // ============================================================================
-  //  Pattern A' / A2 dispatch (subquery plans of InSubquery / Exists)
+  //  Pattern A' / A2 dispatch (subquery plans of InSubquery)
   // ============================================================================
 
   private def rewriteSubqueryPlan(plan: LogicalPlan): Option[LogicalPlan] = {
@@ -274,13 +253,20 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
   private def rewriteDirectSelfJoin(
       projectListOpt: Option[Seq[NamedExpression]],
       innerJoin: Join): Option[LogicalPlan] = {
+    // Fail closed on an explicit join hint. This rule deletes the self-join outright; a user
+    // `/*+ BROADCAST(...) */` (or SHUFFLE_*/MERGE) is an explicit optimizer directive about THAT
+    // join, and an opt-in rewrite has no business silently discarding it. Not a correctness bug
+    // (hints do not change results), but the conservative maintainer choice. `JoinHint.NONE` exists
+    // across all Spark versions Gluten supports, so no shim is needed.
+    if (innerJoin.hint != JoinHint.NONE) return None
+
     val innerLeft = innerJoin.left
     val innerRight = innerJoin.right
     val innerCond = innerJoin.condition.get
 
     val parsed = parseSelfJoinCondition(innerCond, innerLeft, innerRight)
     if (parsed.isEmpty) return None
-    // parseSelfJoinCondition guarantees Seq[(Attribute, Attribute)] and distinct equi-key names.
+    // parseSelfJoinCondition has validated column correspondence and equi-key uniqueness.
     val (equiPairs, neqPairs) = parsed.get
 
     val innerLeftEquiAttrs: Seq[Attribute] = equiPairs.map(_._1)
@@ -342,7 +328,7 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
 
     val parsed = parseSelfJoinCondition(sjCond, sjLeft, sjRight)
     if (parsed.isEmpty) return None
-    // parseSelfJoinCondition guarantees Seq[(Attribute, Attribute)] and distinct equi-key names.
+    // parseSelfJoinCondition has validated column correspondence and equi-key uniqueness.
     val (equiPairs, neqPairs) = parsed.get
 
     val sjLeftEquiAttrs: Seq[Attribute] = equiPairs.map(_._1)
@@ -389,7 +375,7 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
           // replacing the self-join with `Project(equiKeys, filtered)` would shrink the outer
           // join's right-hand output arity. RewritePredicateSubquery's positional zip
           // (`values.zip(sub.output).map(EqualTo.tupled)`) would then bind semi predicates to
-          // the wrong attributes -- silently dropping components of a tuple IN/EXISTS. A
+          // the wrong attributes -- silently dropping components of a tuple IN. A
           // top-level Project (`projectListOpt`) is what would let the arity be preserved
           // by the top-level rewrite loop; without one, refuse to rewrite.
           return None
@@ -397,9 +383,9 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
           // No wrapper Project but there IS a top-level subquery Project: shrinking the outer
           // join's self-join-side output is safe because the top-level Project is rewritten
           // consistently via `outputRemap` below and the top-level rewrite loop ensures
-          // subquery output arity matches what the enclosing InSubquery/Exists expects.
+          // subquery output arity matches what the enclosing InSubquery expects.
           // Outer references may point at sjRight equi-attributes; remap them to sjLeft
-          // (same names in a valid self-join).
+          // (same output position in a valid self-join).
           val newP = Project(sjLeftEquiAttrs, filtered)
           val remap: Map[ExprId, Attribute] =
             equiPairs.map { case (l, r) => r.exprId -> l }.toMap
@@ -420,8 +406,9 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
     // Rewrite top-level Project references.
     val result = projectListOpt match {
       case Some(pl) =>
-        val newPl = pl.map(ne => remapNamedExpressionAttributes(ne, outputRemap))
-        Project(newPl, newOuterJoin)
+        val remapped = pl.map(ne => remapNamedExpressionAttributes(ne, outputRemap))
+        if (remapped.exists(_.isEmpty)) return None
+        Project(remapped.flatten, newOuterJoin)
       case None => newOuterJoin
     }
 
@@ -437,6 +424,9 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
       case j: Join if j.joinType == Inner && j.condition.isDefined => j
       case _ => return None
     }
+    // A hinted self-join is not an extraction candidate: fail closed so the same node the rewrite
+    // would delete is never even recognized here. See `rewriteDirectSelfJoin` for the rationale.
+    if (join.hint != JoinHint.NONE) return None
     if (!isSameBaseRelation(join.left, join.right)) return None
     val parsed = parseSelfJoinCondition(join.condition.get, join.left, join.right)
     if (parsed.isEmpty) return None
@@ -444,122 +434,21 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
   }
 
   // ============================================================================
-  //  Pattern A : LeftSemi/LeftAnti whose right child is an Inner self-join
-  // ============================================================================
-
-  private def tryRewriteSemiWithSelfJoinChild(original: Join): Option[LogicalPlan] = {
-    // Candidate-level nondeterminism guard on the entire right subtree. Same rationale as
-    // in [[rewriteSubqueryPlan]]: catches Rand/Limit/Sample/Offset hoisted between the semi
-    // join and the inner self-join by an earlier optimizer rule.
-    if (!isRepeatablePlan(original.right)) return None
-
-    val left = original.left
-    val right = original.right
-    val semiCondition = original.condition.get
-
-    val (innerJoin, wrapper): (Join, Option[Project]) = right match {
-      case p @ Project(_, j: Join) if j.joinType == Inner && j.condition.isDefined => (j, Some(p))
-      case j: Join if j.joinType == Inner && j.condition.isDefined => (j, None)
-      case _ => return None
-    }
-
-    val innerLeft = innerJoin.left
-    val innerRight = innerJoin.right
-    val innerCond = innerJoin.condition.get
-    if (!isSameBaseRelation(innerLeft, innerRight)) return None
-
-    val parsed = parseSelfJoinCondition(innerCond, innerLeft, innerRight)
-    if (parsed.isEmpty) return None
-    // parseSelfJoinCondition guarantees Seq[(Attribute, Attribute)] and distinct equi-key names.
-    val (innerEquiPairs, innerNeqPairs) = parsed.get
-
-    // All semi predicates must be pure equi-join.
-    val semiPreds = splitConjunctivePredicates(semiCondition)
-    val leftOutputSet = left.outputSet
-    val rightOutputSet = right.outputSet
-    val semiEquiPairs = semiPreds.collect {
-      case EqualTo(l: Attribute, r: Attribute)
-          if leftOutputSet.contains(l) && rightOutputSet.contains(r) =>
-        (l, r)
-      case EqualTo(r: Attribute, l: Attribute)
-          if leftOutputSet.contains(l) && rightOutputSet.contains(r) =>
-        (l, r)
-    }
-    if (semiEquiPairs.size != semiPreds.size) return None
-    if (semiEquiPairs.isEmpty) return None
-
-    val innerLeftEquiAttrs: Seq[Attribute] = innerEquiPairs.map(_._1)
-    val innerRightEquiAttrs: Seq[Attribute] = innerEquiPairs.map(_._2)
-    val innerEquiLeftAttrIds = innerLeftEquiAttrs.map(_.exprId).toSet
-    val innerEquiRightAttrIds = innerRightEquiAttrs.map(_.exprId).toSet
-    val innerEquiAllIds = innerEquiLeftAttrIds ++ innerEquiRightAttrIds
-    val innerNeqAttr: Attribute = innerNeqPairs.head._1
-
-    // Semi right-side keys must derive from inner equi-key attributes, possibly via wrapper alias.
-    val rightKeyIds = semiEquiPairs.map(_._2.exprId).toSet
-    val validSemiKeys = rightKeyIds.forall {
-      id =>
-        innerEquiAllIds.contains(id) || wrapper.exists {
-          p =>
-            p.projectList.exists {
-              case al @ Alias(a: Attribute, _) =>
-                al.exprId == id && innerEquiAllIds.contains(a.exprId)
-              case a: Attribute =>
-                a.exprId == id && innerEquiAllIds.contains(a.exprId)
-              case _ => false
-            }
-        }
-    }
-    if (!validSemiKeys) return None
-
-    val filtered = buildAggregateHavingDistinctGt1(innerLeftEquiAttrs, innerNeqAttr, innerLeft)
-
-    // Replace the entire right subtree with a Project of just the equi keys.
-    val projectedKeys = Project(innerLeftEquiAttrs, filtered)
-
-    // Build an ExprId-keyed remap from every attribute reachable via the old right side to
-    // the corresponding sjLeft equi-attribute:
-    //   (a) direct innerLeft equi attr -> identity (by ExprId)
-    //   (b) direct innerRight equi attr -> paired sjLeft attr (looked up via equiPairs, NOT name)
-    //   (c) wrapper `Alias(equiAttr, name)` output -> paired sjLeft attr (via inner Attribute's
-    //       ExprId, NOT the alias name)
-    // Never use column name as identity: Catalyst allows same-name attributes with distinct
-    // ExprIds (e.g. `SELECT a AS k, b AS k`) and `.toMap` by name would silently drop one.
-    val exprIdToInnerLeft: Map[ExprId, Attribute] =
-      innerEquiPairs.flatMap {
-        case (l, r) => Seq(l.exprId -> l, r.exprId -> l)
-      }.toMap
-    val wrapperRemap: Map[ExprId, Attribute] = wrapper.map {
-      p =>
-        p.projectList.flatMap {
-          case al @ Alias(a: Attribute, _) if exprIdToInnerLeft.contains(a.exprId) =>
-            Some(al.exprId -> exprIdToInnerLeft(a.exprId))
-          case _ => None
-        }.toMap
-    }.getOrElse(Map.empty)
-    val oldToNewMap: Map[ExprId, Attribute] = exprIdToInnerLeft ++ wrapperRemap
-
-    // Fail-closed: refuse to rewrite if any attribute in the old right side is unresolvable.
-    val unresolved = semiCondition.collect {
-      case a: Attribute if rightOutputSet.contains(a) && !oldToNewMap.contains(a.exprId) => a
-    }
-    if (unresolved.nonEmpty) return None
-
-    val newSemiCondition = semiCondition.transformUp {
-      case a: Attribute if oldToNewMap.contains(a.exprId) && rightOutputSet.contains(a) =>
-        oldToNewMap(a.exprId)
-    }
-
-    logDebug(
-      s"Pattern A (${original.joinType}) - equiKeys=[" +
-        innerLeftEquiAttrs.map(_.name).mkString(",") +
-        s"], neqCol=${innerNeqAttr.name}")
-    Some(original.copy(right = projectedKeys, condition = Some(newSemiCondition)))
-  }
-
-  // ============================================================================
   //  parseSelfJoinCondition + isSameBaseRelation
   // ============================================================================
+
+  private def outputOrdinal(plan: LogicalPlan, attr: Attribute): Int =
+    plan.output.indexWhere(_.exprId == attr.exprId)
+
+  private def sameOutputPosition(
+      leftPlan: LogicalPlan,
+      rightPlan: LogicalPlan,
+      leftAttr: Attribute,
+      rightAttr: Attribute): Boolean = {
+    val leftPos = outputOrdinal(leftPlan, leftAttr)
+    val rightPos = outputOrdinal(rightPlan, rightAttr)
+    leftPos >= 0 && rightPos >= 0 && leftPos == rightPos
+  }
 
   /**
    * Parse a join condition into equi-pairs and inequality-pairs. Accepts only:
@@ -611,42 +500,76 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
 
     if (equiPairs.isEmpty || neqPairs.isEmpty) return None
 
-    // Only rewrite single-inequality case. Multi-column inequality
-    //   (col_a<>col_a OR col_b<>col_b)
-    // is NOT equivalent to COUNT(DISTINCT single_col) > 1.
+    // Only rewrite the single-inequality case. Multiple inequality conjuncts cannot be represented
+    // by COUNT(DISTINCT) over a single column.
     if (neqPairs.size != 1) return None
 
-    // COUNT(DISTINCT neqCol) requires a hashable/orderable data type. Use Spark's public
-    // `RowOrdering.isOrderable` (which delegates to `OrderUtils.isOrderable`) to reject
-    // UDTs / Maps / and any complex type whose order-or-hash isn't defined. `AtomicType`
-    // would be a simpler predicate, but `AtomicType` is `protected[sql]` and thus not
-    // usable from Gluten's package. Fail-closed here so a query that would otherwise
-    // run does not crash in Catalyst's CheckAnalysis after our rule fires.
-    if (!neqPairs.forall { case (l, _) => RowOrdering.isOrderable(l.dataType) }) return None
-
-    // Self-join invariant: equi and neq columns share names between the two sides.
-    val equiValid = equiPairs.forall { case (l, r) => l.name == r.name }
-    val neqValid = neqPairs.forall { case (l, r) => l.name == r.name }
+    // Canonicalization intentionally erases cosmetic Alias names, so name equality cannot prove
+    // that the two predicate ends refer to the same underlying column. Resolve each end by its own
+    // ExprId against its child output and require matching output ordinals instead.
+    val equiValid = equiPairs.forall {
+      case (l, r) => sameOutputPosition(leftPlan, rightPlan, l, r)
+    }
+    val neqValid = neqPairs.forall {
+      case (l, r) => sameOutputPosition(leftPlan, rightPlan, l, r)
+    }
     if (!equiValid || !neqValid) return None
 
-    // Equi-key left-side names must be distinct across pairs. Downstream helpers rely on
-    // the self-join name invariant `l.name == r.name` for each pair; two pairs sharing a
-    // left name (e.g. `s1.k = s2.k AND s1.k = s2.other_col_aliased_as_k`) would produce
-    // ambiguous name-to-attribute wiring downstream. Attribute identity (ExprId) is
-    // handled correctly by [[canonicalizeWrapper]], but the name-invariant check
-    // ([[equiValid]] / [[neqValid]] above) is still name-based. Fail-closed on this edge.
-    val leftEquiNames = equiPairs.map(_._1.name)
-    if (leftEquiNames.distinct.size != leftEquiNames.size) return None
+    // Equi-key output positions must be distinct across pairs. Keep the same positional identity
+    // here so swapped or duplicate aliases cannot make two different underlying columns look equal.
+    val leftEquiOrdinals = equiPairs.map { case (l, _) => outputOrdinal(leftPlan, l) }
+    if (leftEquiOrdinals.exists(_ < 0)) return None
+    if (leftEquiOrdinals.distinct.size != leftEquiOrdinals.size) return None
 
     // Defensive: reject when the neq column overlaps an equi-key column
-    // (e.g. `t1.k = t2.k AND t1.k <> t2.k`). The original predicate is unsatisfiable, and
-    // the rewrite `GROUP BY k HAVING COUNT(DISTINCT k) > 1` is also empty -- but that
-    // equivalence relies on a subtle chain of reasoning. Bailing out keeps the correctness
-    // argument local to the "distinct neq column vs equi columns" case.
-    val equiNames: Set[String] = equiPairs.map(_._1.name).toSet
-    if (neqPairs.exists { case (l, _) => equiNames.contains(l.name) }) return None
+    // (e.g. `t1.k = t2.k AND t1.k <> t2.k`).
+    val neqLeftOrdinal = outputOrdinal(leftPlan, neqPairs.head._1)
+    if (neqLeftOrdinal < 0 || leftEquiOrdinals.contains(neqLeftOrdinal)) return None
+
+    // Datatype safety is checked LAST, only after correspondence is proven: these really are the
+    // paired equi-keys and neq column. The rewrite replaces the join predicates `=` / `<>` with
+    // GROUP BY / COUNT(DISTINCT), i.e. it swaps comparison equality for grouping/distinct equality,
+    // so every column moved into the aggregate -- both ends of every pair, not just the sjLeft side
+    // -- must be a type where the two equalities provably coincide (see
+    // [[isSafeComparisonGroupingType]]). Checking both ends (rather than trusting
+    // `left.canonicalized == right.canonicalized` to imply matching type/metadata) keeps this
+    // robust if a future metadata-aware type gate is added.
+    val comparisonAttrs = (equiPairs ++ neqPairs).flatMap { case (l, r) => Seq(l, r) }
+    if (!comparisonAttrs.forall(a => isSafeComparisonGroupingType(a.dataType))) return None
 
     Some((equiPairs, neqPairs))
+  }
+
+  /**
+   * True iff comparison equality (`=` / `<>`) and grouping/distinct equality provably coincide for
+   * `dataType`, so the key can be safely moved from a join predicate into GROUP BY /
+   * COUNT(DISTINCT).
+   *
+   * This is a POSITIVE allowlist, not "orderable minus a blacklist". The property we must prove is
+   * not that a type can be ordered, but that its `=` / `<>` semantics and its grouping/distinct
+   * semantics are identical. `RowOrdering.isOrderable` answers the former, not the latter, so it is
+   * not a sufficient proof here. Rather than depend on non-trivial, version-dependent equality
+   * contracts, we allow only the small set of types whose two equalities coincide unconditionally
+   * and which the target workload (TPC-DS Q95) actually needs:
+   *   - Float/Double: their equality around NaN and signed zero relies on normalization semantics
+   *     (`NormalizeFloatingNumbers` and friends) that we do not want this rule -- which spans
+   *     multiple Spark versions and native execution paths -- to depend on.
+   *   - String / CHAR / VARCHAR: non-binary collation semantics make the equivalence non-trivial
+   *     and version-dependent, and CHAR/VARCHAR may already appear as StringType-plus-metadata by
+   *     the optimizer, so `dataType` alone cannot even see the declared type. String is therefore
+   *     outside the initial allowlist.
+   * Everything else -- complex types (Array/Map/Struct), UDTs, and any future/unknown type -- fails
+   * closed for the same reason: we would rather miss the rewrite than depend on a contract we have
+   * not proven holds across every supported backend.
+   */
+  private def isSafeComparisonGroupingType(dataType: DataType): Boolean = dataType match {
+    case ByteType | ShortType | IntegerType | LongType => true
+    case _: DecimalType => true
+    case BooleanType => true
+    case DateType => true
+    case TimestampType => true
+    case BinaryType => true
+    case _ => false
   }
 
   /**
@@ -655,11 +578,11 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
    * This is the primary safety guard for the rewrite, which folds two occurrences of the same
    * subtree into one aggregate -- sound only when both occurrences produce identical row bags. We
    * check it at TWO levels:
-   *   - candidate level: the enclosing subquery / semi-join right subtree, before descending into
-   *     the self-join. Catches nondeterminism that has been hoisted OUT of the join by an earlier
-   *     optimizer rule -- e.g. a `Filter(rand(...))` moved to sit above the join rather than on
-   *     each side. Without this, `isSameBaseRelation(innerLeft, innerRight)` could pass (both sides
-   *     look deterministic) while the enclosing plan still contains `Rand`.
+   *   - candidate level: the enclosing subquery, before descending into the self-join. Catches
+   *     nondeterminism that has been hoisted OUT of the join by an earlier optimizer rule -- e.g. a
+   *     `Filter(rand(...))` moved to sit above the join rather than on each side. Without this,
+   *     `isSameBaseRelation(innerLeft, innerRight)` could pass (both sides look deterministic)
+   *     while the enclosing plan still contains `Rand`.
    *   - relation level: [[isSameBaseRelation]] additionally requires the two sides to be
    *     structurally identical.
    *
@@ -673,40 +596,129 @@ case class RewriteSelfJoinInequalityToAggregate(spark: SparkSession)
    *   - streaming sources.
    *
    * This rule collapses two evaluations of the same subtree into one aggregate; repeatability must
-   * be provable, not assumed. That is why the operator check below is a WHITELIST rather than a
-   * blacklist -- unknown operators default to reject.
+   * be provable, not assumed. That is why both the operator check and the expression check below
+   * are WHITELISTS rather than blacklists -- unknown operators and unknown expression types default
+   * to reject.
+   *
+   * Expression support is allowlisted, not blacklisted. `plan.deterministic` relies on each
+   * expression's reported `deterministic` contract; that is necessary but insufficient for unknown
+   * expression types whose repeatability has not been established -- a builtin that carries hidden
+   * state yet reports `deterministic == true` would otherwise be trusted silently. For a rewrite
+   * that folds two evaluations of a subtree into one aggregate we prefer to miss an optimization
+   * than to misapply one, so new expression types are added to [[isRepeatableExpression]] only
+   * after their repeatability has been established. `plan.deterministic` is kept as a cheap
+   * fast-reject, but the expression allowlist is what actually proves repeatability.
+   *
+   * `plan.subqueriesAll.isEmpty` additionally fail-closes on any embedded expression subquery
+   * (scalar / IN / EXISTS). `plan.exists` in `isRowBagRepeatable` walks only the operator tree and
+   * does not descend into expression subqueries, and `plan.deterministic` does not prove a nested
+   * subquery is row-bag repeatable (e.g. an uncorrelated `LIMIT 1` without `ORDER BY`). Rejecting
+   * any embedded subquery keeps the repeatability proof confined to the operator whitelist below.
    */
   private def isRepeatablePlan(plan: LogicalPlan): Boolean = {
-    plan.deterministic && !plan.isStreaming && isRowBagRepeatable(plan)
+    // The operator/source whitelist is checked before the expression whitelist so that a plan whose
+    // operator is itself unknown -- e.g. Aggregate (carries AggregateExpression) or Window (carries
+    // WindowExpression / SortOrder) -- is attributed to isRowBagRepeatable rather than being masked
+    // by the fact that those operators also carry non-allowlisted expressions.
+    plan.deterministic &&
+    !plan.isStreaming &&
+    plan.subqueriesAll.isEmpty &&
+    isRowBagRepeatable(plan) &&
+    hasRepeatableExpressions(plan)
   }
 
   /**
-   * Operator whitelist for `isRepeatablePlan`. A plan is row-bag repeatable iff EVERY node in it is
-   * one of a small set of operators known to preserve their child row bag verbatim.
+   * Operator whitelist for `isRepeatablePlan`. A plan is row-bag repeatable only when every node is
+   * known to produce a repeatable output row bag from repeatable children. Unknown operators and
+   * unknown leaf sources fail closed.
    *
    * Kept intentionally narrow -- the target workload (Q95-shape self-join in a subquery) only needs
-   * a plain relation scan optionally wrapped in Project / Filter / SubqueryAlias plus the self-join
-   * itself. Adding an operator here requires proving:
+   * a Parquet relation scan optionally wrapped in Project / Filter / SubqueryAlias plus the
+   * self-join itself. Range and LocalRelation are also trusted deterministic leaves. Adding an
+   * operator here requires proving:
    *   - it does not reorder its input non-deterministically,
    *   - it does not depend on shuffle-merge or tie-broken orderings,
    *   - it produces the same output row bag on every evaluation.
    *
-   * Streaming sources reach here as `LeafNode`s but are already filtered upstream by
+   * Arbitrary `LeafNode`s are intentionally not trusted. For example, `LogicalRDD` may wrap an
+   * arbitrary RDD lineage whose runtime behavior is invisible to Catalyst's `plan.deterministic`;
+   * `InMemoryRelation`, `DataSourceV2Relation` and custom leaves are likewise rejected until
+   * proven. Streaming sources reach here as `LeafNode`s but are already filtered upstream by
    * `plan.isStreaming` in [[isRepeatablePlan]].
+   *
+   * `LogicalRelation` is trusted only when its underlying relation is a `HadoopFsRelation` whose
+   * `fileFormat` is EXACTLY `ParquetFileFormat` (`getClass == classOf[ParquetFileFormat]`, not
+   * `isInstanceOf`). `HadoopFsRelation.fileFormat` can be any `FileFormat`, including custom
+   * formats whose scan is not provably a repeatable row bag; `ParquetFileFormat` is also non-final,
+   * so a third-party subclass could override its scan. The target workload only needs stock
+   * Parquet, so every other `FileFormat` -- subclasses of `ParquetFileFormat` included -- and every
+   * non-`HadoopFsRelation` fail closed.
+   *
+   * This helper checks operators and leaf sources only; expression-type repeatability is a separate
+   * concern handled by [[hasRepeatableExpressions]], and both are joined in [[isRepeatablePlan]].
    */
   private def isRowBagRepeatable(plan: LogicalPlan): Boolean = !plan.exists {
-    // TreeNode exposes `exists` but not `forall`, so invert: match every node NOT in the
-    // whitelist; return true iff any such node exists; negate to get "all whitelisted".
-    case _: LeafNode => false
+    // TreeNode exposes `exists` but not `forall`, so invert: a whitelisted operator maps to `false`
+    // ("does not break repeatability") and everything else to `true`; negating the whole `exists`
+    // then means "every operator is whitelisted".
     case _: Project => false
     case _: Filter => false
     case _: SubqueryAlias => false
     // Join is included because our target pattern IS a Join; both children get recursed into.
     case _: Join => false
+    // Explicitly trusted leaves.
+    case _: Range => false
+    case _: LocalRelation => false
+    case relation: LogicalRelation =>
+      relation.relation match {
+        case h: HadoopFsRelation if h.fileFormat.getClass == classOf[ParquetFileFormat] => false
+        case _ => true
+      }
     // Everything else -- Aggregate (First/Last), Window (row_number ties), Limit, Sample,
     // Offset, Distinct, Union, Except, Intersect, Sort (may break ties nondeterministically),
-    // Expand, Generate, etc. -- fail-closed.
+    // Expand, Generate, and opaque leaf sources -- fail-closed.
     case _ => true
+  }
+
+  /**
+   * Expression-type check for [[isRepeatablePlan]], kept separate from the operator whitelist in
+   * [[isRowBagRepeatable]] so the two safety layers read independently. A plan passes only when
+   * every expression carried by every operator node is repeatable per [[isRepeatableExpression]]; a
+   * whitelisted operator holding an unknown expression -- e.g. `Project(Abs(v))` -- fails closed.
+   */
+  private def hasRepeatableExpressions(plan: LogicalPlan): Boolean = {
+    !plan.exists(node => node.expressions.exists(expr => !isRepeatableExpression(expr)))
+  }
+
+  /**
+   * Expression repeatability is allowlisted, consistently with the operator whitelist in
+   * [[isRowBagRepeatable]]. Only expression types whose result is determined entirely by repeatable
+   * children are accepted; unknown expression types fail closed. This rule folds two evaluations of
+   * the same subtree into one, so missing an optimization is preferable to assuming repeatability
+   * for an expression whose runtime behavior has not been proven.
+   *
+   * The whole tree is checked: an expression is repeatable only when its root type is on the
+   * allowlist AND all of its children are themselves repeatable, so e.g. `Add(v, Abs(w))` is
+   * rejected even though `Add` is allowlisted.
+   *
+   * The initial set covers what TPC-DS Q95 and the tests need: column / literal references, Alias,
+   * Cast, basic arithmetic, boolean connectives, the six comparisons plus null-safe equality, and
+   * null checks. Expressions such as `Abs` / `Coalesce` / `CaseWhen` are intentionally absent -- a
+   * self-join over them is simply not rewritten (a missed optimization, not a correctness bug)
+   * until each is added here after its repeatability has been established. Decimal wrappers such as
+   * `PromotePrecision` / `CheckOverflow` are likewise absent and may fail closed; that is
+   * acceptable and must not be worked around by trusting them just to make an arithmetic variant
+   * fire.
+   */
+  private def isRepeatableExpression(expr: Expression): Boolean = expr match {
+    case _: Attribute | _: Literal =>
+      true
+    case _: Alias | _: Cast | _: Add | _: Subtract | _: Multiply | _: Divide | _: Remainder |
+        _: And | _: Or | _: Not | _: EqualTo | _: EqualNullSafe | _: LessThan |
+        _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual | _: IsNull | _: IsNotNull =>
+      expr.children.forall(isRepeatableExpression)
+    case _ =>
+      false
   }
 
   /**
