@@ -153,15 +153,46 @@ message ReadRel {
       message ArrowReadOptions {}
       message OrcReadOptions {}
       message DwrfReadOptions {}
-      message TextReadOptions {
+      message DelimiterSeparatedTextReadOptions {
+        // Delimiter separated files may be compressed.  The reader should
+        // autodetect this and decompress as needed.
+
+        // The character(s) used to separate fields.  Common values are comma,
+        // tab, and pipe.  Multiple characters are allowed.
         string field_delimiter = 1;
-        uint64 max_block_size = 2;
-        NamedStruct schema = 3 [deprecated=true];
-        string quote = 4;
-        uint64 header = 5;
-        string escape = 6;
-        string null_value = 7;
-        bool empty_as_default = 8;
+        // The maximum number of bytes to read from a single line.  If a line
+        // exceeds this limit the resulting behavior is undefined.
+        uint64 max_line_size = 2;
+        // The character(s) used to quote strings.  Common values are single
+        // and double quotation marks.
+        string quote = 3;
+        // The number of lines to skip at the beginning of the file.
+        uint64 header_lines_to_skip = 4;
+        // The character used to escape characters in strings.  Backslash is
+        // a common value.  Note that a double quote mark can also be used as an
+        // escape character but the external quotes should be removed first.
+        string escape = 5;
+        // If this value is encountered (including empty string), the resulting
+        // value is null instead.  Leave unset to disable.  If this value is
+        // provided, the effective schema of this file is comprised entirely of
+        // nullable strings.  If not provided, the effective schema is instead
+        // made up of non-nullable strings.
+        optional string value_treated_as_null = 6;
+
+        // WARNING: this message is wire-incompatible with the older `TextReadOptions` it
+        // replaces, and the reused tags kept compatible wire types, so the mismatch is SILENT
+        // rather than an error. Most damaging: tag 6 is now `value_treated_as_null` but was
+        // `escape`, which Gluten's Hive text path always sets -- a stale producer read by a
+        // current consumer therefore turns every escape character into a null representation.
+        // Build the JAR and the native library from the same revision.
+
+        // Gluten-local knobs, numbered from 1000 per the convention documented
+        // in docs/developers/SubstraitModifications.md.
+        // Rows per output block for the native reader -- a batching knob,
+        // distinct from upstream's byte-oriented max_line_size above.
+        uint64 max_block_size = 1000;
+        // Treat an empty unquoted field as the column default value.
+        bool empty_as_default = 1001;
       }
       message JsonReadOptions {
         uint64 max_block_size = 1;
@@ -219,7 +250,7 @@ message ReadRel {
         OrcReadOptions orc = 11;
         google.protobuf.Any extension = 12;
         DwrfReadOptions dwrf = 13;
-        TextReadOptions text = 14;
+        DelimiterSeparatedTextReadOptions text = 14;
         JsonReadOptions json = 15;
         IcebergReadOptions iceberg = 16;
         DeltaReadOptions delta = 22;
