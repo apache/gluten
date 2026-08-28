@@ -16,6 +16,7 @@
  */
 package org.apache.iceberg.spark.source
 
+import org.apache.gluten.IcebergDefaultValueUtil
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.SparkDataSourceRDDPartition
@@ -57,7 +58,9 @@ object GlutenIcebergSourceUtil {
   def genSplitInfo(
       partition: SparkDataSourceRDDPartition,
       readPartitionSchema: StructType,
-      metadataColumnNames: Seq[String]): SplitInfo = {
+      metadataColumnNames: Seq[String],
+      fieldIds: JMap[String, Integer],
+      initialDefaults: JMap[String, String]): SplitInfo = {
     val paths = new JArrayList[String]()
     val starts = new JArrayList[JLong]()
     val lengths = new JArrayList[JLong]()
@@ -103,8 +106,42 @@ object GlutenIcebergSourceUtil {
         .toList
         .asJava,
       deleteFilesList,
-      metadataColumns
+      metadataColumns,
+      fieldIds,
+      initialDefaults
     )
+  }
+
+  def getFieldIds(sparkScan: Scan): JHashMap[String, Integer] = {
+    val fieldIds = new JHashMap[String, Integer]()
+    sparkScan match {
+      case scan: SparkBatchQueryScan =>
+        scan.table().schema().columns().asScala.foreach {
+          field => fieldIds.put(field.name(), field.fieldId())
+        }
+      case _ =>
+        throw new GlutenNotSupportException("Only support iceberg SparkBatchQueryScan.")
+    }
+    fieldIds
+  }
+
+  def getInitialDefaults(sparkScan: Scan): JHashMap[String, String] = {
+    val initialDefaults = new JHashMap[String, String]()
+    sparkScan match {
+      case scan: SparkBatchQueryScan =>
+        scan.table().schema().columns().asScala.foreach {
+          field =>
+            val defaultValue = IcebergDefaultValueUtil.getInitialDefault(field)
+            if (defaultValue != null) {
+              initialDefaults.put(
+                field.name(),
+                TypeUtil.getPartitionValueString(field.`type`(), defaultValue))
+            }
+        }
+      case _ =>
+        throw new GlutenNotSupportException("Only support iceberg SparkBatchQueryScan.")
+    }
+    initialDefaults
   }
 
   private def genMetadataColumns(

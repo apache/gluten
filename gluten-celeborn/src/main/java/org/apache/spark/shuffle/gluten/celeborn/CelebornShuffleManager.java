@@ -379,7 +379,6 @@ public class CelebornShuffleManager
     }
   }
 
-  // Added in SPARK-32055, for Spark 3.1 and above
   public <K, C> ShuffleReader<K, C> getReader(
       ShuffleHandle handle,
       int startMapIndex,

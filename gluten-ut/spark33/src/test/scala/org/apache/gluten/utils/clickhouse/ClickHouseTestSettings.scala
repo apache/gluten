@@ -1875,10 +1875,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude(
       "SELECT structFieldSimple.key, arrayFieldSimple[1] FROM tableWithSchema a where int_Field=1")
     .exclude("SELECT structFieldComplex.Value.`value_(2)` FROM tableWithSchema")
-  enableSuite[GlutenImplicitsTest]
-    .excludeGlutenTest("fallbackSummary with shuffle")
-    .excludeGlutenTest("fallbackSummary with cache")
-    .excludeGlutenTest("fallbackSummary with cached data and shuffle")
   enableSuite[GlutenSparkSessionExtensionSuite]
     .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenHiveSQLQueryCHSuite]

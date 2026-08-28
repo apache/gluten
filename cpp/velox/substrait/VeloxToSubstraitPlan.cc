@@ -103,7 +103,7 @@ AggregateCompanion toAggregateCompanion(const core::AggregationNode::Aggregate& 
   // Add unknown type in extension.
   auto unknownType = substraitPlan->add_extensions()->mutable_extension_type();
 
-  unknownType->set_extension_uri_reference(0);
+  unknownType->set_extension_urn_reference(0);
   unknownType->set_type_anchor(0);
   unknownType->set_name("UNKNOWN");
 
@@ -187,13 +187,19 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
   ::substrait::ReadRel_VirtualTable* virtualTable = readRel->mutable_virtual_table();
 
   for (const auto& vector : valuesNode->values()) {
-    ::substrait::Expression_Literal_Struct* litValue = virtualTable->add_values();
-
+    // Substrait models a virtual table row group as an Expression.Nested.Struct laid out
+    // column-major; toSubstraitLiteral appends one Expression per value into it.
+    ::substrait::Expression_Nested_Struct* nested = virtualTable->add_expressions();
     for (const auto& column : vector->children()) {
-      ::substrait::Expression_Literal* substraitField =
-          google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
-
-      substraitField->MergeFrom(exprConvertor_->toSubstraitLiteral(arena, column, litValue));
+      const int expectedFields = nested->fields_size() + vector->size();
+      exprConvertor_->toSubstraitLiteral(arena, column, nested);
+      // Only scalar columns are appended; complex-typed ones are returned by value instead, which
+      // would silently shorten the row group and transpose the table the consumer decodes from it.
+      VELOX_USER_CHECK_EQ(
+          nested->fields_size(),
+          expectedFields,
+          "Unsupported virtual table column type: {}",
+          column->type()->toString());
     }
   }
 
@@ -247,9 +253,12 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
   int64_t groupingKeySize = groupingKeys.size();
   ::substrait::AggregateRel_Grouping* aggGroupings = aggregateRel->add_groupings();
 
+  // Populate the rel-level grouping expression pool in declaration order and
+  // have the single grouping reference every entry by index.
   for (int64_t i = 0; i < groupingKeySize; i++) {
-    aggGroupings->add_grouping_expressions()->mutable_selection()->MergeFrom(
+    aggregateRel->add_grouping_expressions()->mutable_selection()->MergeFrom(
         exprConvertor_->toSubstraitExpr(arena, groupingKeys.at(i), inputType));
+    aggGroupings->add_expression_references(i);
   }
 
   // AggregatesSize should be equal to or greater than the aggregateMasks Size.
@@ -282,7 +291,7 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
         substrait::extensions::AdvancedExtension ae{};
         google::protobuf::StringValue msg;
         msg.set_value("allowFlush=1");
-        ae.mutable_optimization()->PackFrom(msg);
+        ae.add_optimization()->PackFrom(msg);
         aggregateRel->mutable_advanced_extension()->MergeFrom(ae);
         break;
       }
@@ -356,8 +365,8 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
 
   VELOX_CHECK(!topNNode->isPartial(), "Substrait doesn't support partial topN yet");
 
-  fetchRel->set_offset(0);
-  fetchRel->set_count(topNNode->count());
+  fetchRel->mutable_offset_expr()->mutable_literal()->set_i64(0);
+  fetchRel->mutable_count_expr()->mutable_literal()->set_i64(topNNode->count());
   fetchRel->mutable_common()->mutable_direct();
 }
 
@@ -388,8 +397,8 @@ void VeloxToSubstraitPlanConvertor::toSubstrait(
   const auto& source = getSingleSource(limitNode);
   toSubstrait(arena, source, fetchRel->mutable_input());
 
-  fetchRel->set_offset(limitNode->offset());
-  fetchRel->set_count(limitNode->count());
+  fetchRel->mutable_offset_expr()->mutable_literal()->set_i64(limitNode->offset());
+  fetchRel->mutable_count_expr()->mutable_literal()->set_i64(limitNode->count());
 
   VELOX_CHECK(!limitNode->isPartial(), "Substrait doesn't support partial limit yet");
 

@@ -36,8 +36,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
-import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterParameters, GlutenShuffleReaderWrapper, GlutenShuffleWriterWrapper}
-import org.apache.spark.shuffle.utils.ShuffleUtil
+import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterParameters, GlutenShuffleReaderWrapper, GlutenShuffleWriterWrapper, VeloxShuffleUtils}
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
@@ -608,7 +607,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
   /** Determine whether to use sort-based shuffle based on shuffle partitioning and output. */
   override def getShuffleWriterType(
       partitioning: Partitioning,
-      output: Seq[Attribute]): ShuffleWriterType = {
+      output: Seq[Attribute],
+      executionMode: Option[StageExecutionMode] = None): ShuffleWriterType = {
+    if (executionMode.contains(GPUStageMode)) {
+      return HashShuffleWriterType
+    }
+
     val conf = GlutenConfig.get
     // todo: remove isUseCelebornShuffleManager here
     if (conf.isUseCelebornShuffleManager) {
@@ -644,12 +648,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
    */
   override def genColumnarShuffleWriter[K, V](
       parameters: GenShuffleWriterParameters[K, V]): GlutenShuffleWriterWrapper[K, V] = {
-    ShuffleUtil.genColumnarShuffleWriter(parameters)
+    VeloxShuffleUtils.genColumnarShuffleWriter(parameters)
   }
 
   override def genColumnarShuffleReader[K, C](
       parameters: GenShuffleReaderParameters[K, C]): GlutenShuffleReaderWrapper[K, C] = {
-    ShuffleUtil.genColumnarShuffleReader(parameters)
+    VeloxShuffleUtils.genColumnarShuffleReader(parameters)
   }
 
   override def createColumnarWriteFilesExec(
@@ -1418,6 +1422,31 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
   override def genColumnarToCarrierRow(plan: SparkPlan): SparkPlan = {
     VeloxColumnarToCarrierRowExec.enforce(plan)
   }
+
+  override def isSupportLocalTableScanExec(plan: LocalTableScanExec): Boolean = {
+    // `rows` is @transient, so it becomes null after Java serialization (e.g. an AQE sub-plan
+    // shipped across an RPC boundary). A null rows payload signals a deserialized plan that can
+    // no longer be executed natively, so offload must be skipped to avoid a later NPE.
+    if (plan.rows == null) {
+      logDebug("LocalTableScan offload skipped: deserialized plan with null transient rows")
+      return false
+    }
+    // A streaming source (Spark 4.0+ only) must keep vanilla execution.
+    if (SparkShimLoader.getSparkShims.getLocalTableScanStream(plan).isDefined) {
+      logDebug("LocalTableScan offload skipped: streaming source detected")
+      return false
+    }
+    if (!GlutenConfig.get.enableColumnarLocalTableScan) {
+      logDebug(
+        "LocalTableScan offload skipped: " +
+          s"${GlutenConfig.COLUMNAR_LOCAL_TABLE_SCAN_ENABLED.key}=false")
+      return false
+    }
+    true
+  }
+
+  override def getLocalTableScanTransform(plan: LocalTableScanExec): LocalTableScanTransformer =
+    VeloxLocalTableScanTransformer.replace(plan)
 
   override def genTimestampAddTransformer(
       substraitExprName: String,

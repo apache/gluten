@@ -299,6 +299,16 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("randn") {
+    // randn draws from the standard normal distribution, so only verify native execution.
+    runQueryAndCompare("SELECT randn() from lineitem limit 100", compareResult = false) {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare("SELECT randn(0) from lineitem limit 100", compareResult = false) {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
   testWithMinSparkVersion("randstr", "4.0") {
     // randstr generates random strings, so we only verify native execution, not result equality.
     runQueryAndCompare("SELECT randstr(5, 0) from lineitem limit 100", compareResult = false) {

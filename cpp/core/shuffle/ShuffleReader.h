@@ -30,16 +30,33 @@ class StreamReader {
 
 class ShuffleReader {
  public:
+  enum class OutputType { kRowVector, kCudfTable };
+
   virtual ~ShuffleReader() = default;
 
   // FIXME iterator should be unique_ptr or un-copyable singleton
-  virtual std::shared_ptr<ResultIterator> read(const std::shared_ptr<StreamReader>& streamReader) = 0;
+  virtual std::shared_ptr<ResultIterator> read(
+      const std::shared_ptr<StreamReader>& streamReader,
+      const OutputType& outputType) = 0;
 
   virtual int64_t getDecompressTime() const = 0;
 
   virtual int64_t getDeserializeTime() const = 0;
 
   virtual void stop() = 0;
+
+  static OutputType getOutputType(int32_t executionModeId) {
+    switch (executionModeId) {
+      case 0:
+        // Cpu execution mode.
+        return OutputType::kRowVector;
+      case 1:
+        // Gpu execution mode.
+        return OutputType::kCudfTable;
+      default:
+        throw GlutenException("Unsupported execution mode id: " + std::to_string(executionModeId));
+    }
+  }
 };
 
 } // namespace gluten

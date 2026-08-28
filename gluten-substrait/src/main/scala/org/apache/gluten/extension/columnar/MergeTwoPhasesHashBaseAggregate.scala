@@ -20,7 +20,7 @@ import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.aggregate.{Complete, Final, Partial}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, Final, Partial}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.aggregate.{BaseAggregateExec, HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
@@ -45,10 +45,19 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
   val mergeTwoPhasesAggEnabled: Boolean = GlutenConfig.get.mergeTwoPhasesAggEnabled
 
   private def isPartialAgg(partialAgg: BaseAggregateExec, finalAgg: BaseAggregateExec): Boolean = {
-    // TODO: now it can not support to merge agg which there are the filters in the aggregate exprs.
+    // Aggregates with a FILTER clause can be merged as long as the FILTER predicate is carried
+    // over to the Complete mode aggregate. Note the physical final aggregate has its FILTER
+    // stripped (Spark's AggUtils.mayRemoveAggFilters only keeps FILTER in Partial/Complete modes),
+    // so the FILTER must be restored from the partial aggregate when merging. Spark's aggregate
+    // planning produces the partial and final aggregate expression lists together and keeps them
+    // positionally aligned (the final phase reads the partial buffer by position), so a
+    // partial/final pair can be matched by position. We cannot match by `resultId`: for a single
+    // distinct aggregate, `AggUtils.planAggregateWithOneDistinct` builds the partial and final
+    // distinct expressions with fresh `AggregateExpression` instances, so their `resultId`s differ.
     if (
-      partialAgg.aggregateExpressions.forall(x => x.mode == Partial && x.filter.isEmpty) &&
-      finalAgg.aggregateExpressions.forall(x => x.mode == Final && x.filter.isEmpty)
+      partialAgg.aggregateExpressions.forall(x => x.mode == Partial) &&
+      finalAgg.aggregateExpressions.forall(x => x.mode == Final) &&
+      partialAgg.aggregateExpressions.size == finalAgg.aggregateExpressions.size
     ) {
       (finalAgg.logicalLink, partialAgg.logicalLink) match {
         case (Some(agg1), Some(agg2)) => agg1.sameResult(agg2)
@@ -56,6 +65,23 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
       }
     } else {
       false
+    }
+  }
+
+  /**
+   * Builds Complete mode aggregate expressions from the final aggregate. The physical final
+   * aggregate no longer carries the FILTER predicate (see `isPartialAgg`), so the FILTER is
+   * restored from the partial aggregate. A partial/final pair is matched by position: Spark's
+   * aggregate planning emits the two expression lists together and keeps them positionally aligned
+   * (the final phase reads the partial buffer by position), and `isPartialAgg` has already checked
+   * that the two lists have the same size.
+   */
+  private def toCompleteAggregateExpressions(
+      partialAgg: BaseAggregateExec,
+      finalAggExpressions: Seq[AggregateExpression]): Seq[AggregateExpression] = {
+    finalAggExpressions.zip(partialAgg.aggregateExpressions).map {
+      case (finalExpr, partialExpr) =>
+        finalExpr.copy(mode = Complete, filter = partialExpr.filter)
     }
   }
 
@@ -75,7 +101,8 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
               resultExpressions,
               child: HashAggregateExec) if !isStreaming && isPartialAgg(child, hashAgg) =>
           // convert to complete mode aggregate expressions
-          val completeAggregateExpressions = aggregateExpressions.map(_.copy(mode = Complete))
+          val completeAggregateExpressions =
+            toCompleteAggregateExpressions(child, aggregateExpressions)
           hashAgg.copy(
             groupingExpressions = child.groupingExpressions,
             aggregateExpressions = completeAggregateExpressions,
@@ -94,7 +121,8 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
               child: ObjectHashAggregateExec)
             if !isStreaming && isPartialAgg(child, objectHashAgg) =>
           // convert to complete mode aggregate expressions
-          val completeAggregateExpressions = aggregateExpressions.map(_.copy(mode = Complete))
+          val completeAggregateExpressions =
+            toCompleteAggregateExpressions(child, aggregateExpressions)
           objectHashAgg.copy(
             requiredChildDistributionExpressions = None,
             groupingExpressions = child.groupingExpressions,
@@ -114,7 +142,8 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
               child: SortAggregateExec)
             if replaceSortAggWithHashAgg && !isStreaming && isPartialAgg(child, sortAgg) =>
           // convert to complete mode aggregate expressions
-          val completeAggregateExpressions = aggregateExpressions.map(_.copy(mode = Complete))
+          val completeAggregateExpressions =
+            toCompleteAggregateExpressions(child, aggregateExpressions)
           sortAgg.copy(
             requiredChildDistributionExpressions = None,
             groupingExpressions = child.groupingExpressions,

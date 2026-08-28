@@ -31,7 +31,6 @@ arrow::Result<std::shared_ptr<VeloxShuffleWriter>> VeloxShuffleWriter::create(
   std::shared_ptr<VeloxShuffleWriter> shuffleWriter;
   switch (type) {
     case ShuffleWriterType::kHashShuffle:
-    case ShuffleWriterType::kGpuHashShuffle:
       return VeloxHashShuffleWriter::create(numPartitions, std::move(partitionWriter), options, memoryManager);
     case ShuffleWriterType::kSortShuffle:
       return VeloxSortShuffleWriter::create(numPartitions, std::move(partitionWriter), options, memoryManager);

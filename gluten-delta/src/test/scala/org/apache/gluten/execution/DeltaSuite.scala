@@ -19,9 +19,13 @@ package org.apache.gluten.execution
 import org.apache.gluten.extension.DeltaPostTransformRules
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.delta.DeltaLog
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SparkVersionUtil
+
+import org.apache.hadoop.fs.Path
 
 import scala.collection.JavaConverters._
 
@@ -66,8 +70,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // NameMapping is supported in Delta 2.0 (related to Spark3.2.0)
-  testWithMinSparkVersion("column mapping mode = name", "3.2") {
+  test("column mapping mode = name") {
     withTable("delta_cm2") {
       spark.sql(s"""
                    |create table delta_cm2 (id int, name string) using delta
@@ -110,9 +113,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
   // broke `PreparedDeltaFileIndex.matchingFiles` and silently returned all files.
   Seq("name", "id").foreach {
     mode =>
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with partition filter (single partition col)",
-        "3.2") {
+      test(s"column mapping mode = $mode with partition filter (single partition col)") {
         withTable("delta_cm_part") {
           spark.sql(s"""
                        |create table delta_cm_part (id int, name string) using delta
@@ -153,9 +154,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with partition filter (multi partition col)",
-        "3.2") {
+      test(s"column mapping mode = $mode with partition filter (multi partition col)") {
         withTable("delta_cm_part_multi") {
           spark.sql(s"""
                        |create table delta_cm_part_multi
@@ -185,9 +184,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with partition + data filter",
-        "3.2") {
+      test(s"column mapping mode = $mode with partition + data filter") {
         withTable("delta_cm_part_data") {
           spark.sql(s"""
                        |create table delta_cm_part_data (id int, name string, age int)
@@ -220,9 +217,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode with IS [NOT] NULL on partition col",
-        "3.2") {
+      test(s"column mapping mode = $mode with IS [NOT] NULL on partition col") {
         withTable("delta_cm_part_null") {
           spark.sql(s"""
                        |create table delta_cm_part_null (id int, name string)
@@ -247,9 +242,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode partition filter survives column rename",
-        "3.2") {
+      test(s"column mapping mode = $mode partition filter survives column rename") {
         withTable("delta_cm_part_rename") {
           spark.sql(s"""
                        |create table delta_cm_part_rename (id int, name string)
@@ -272,9 +265,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         }
       }
 
-      testWithMinSparkVersion(
-        s"column mapping mode = $mode data column rename + filter (file skipping)",
-        "3.2") {
+      test(s"column mapping mode = $mode data column rename + filter (file skipping)") {
         withTable("delta_cm_data_rename") {
           spark.sql(s"""
                        |create table delta_cm_data_rename (id int, age int, name string)
@@ -324,7 +315,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: partition filters", "3.2") {
+  test("delta: partition filters") {
     withTable("delta_pf") {
       spark.sql(s"""
                    |create table delta_pf (id int, name string) using delta partitioned by (name)
@@ -343,7 +334,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("basic test with stats.skipping disabled", "3.2") {
+  test("basic test with stats.skipping disabled") {
     withTable("delta_test2") {
       withSQLConf("spark.databricks.delta.stats.skipping" -> "false") {
         spark.sql(s"""
@@ -363,7 +354,208 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("column mapping with complex type", "3.2") {
+  test("delta: change data feed read") {
+    withTable("delta_cdf") {
+      spark.sql(s"""
+                   |create table delta_cdf (id int, name string) using delta
+                   |tblproperties ("delta.enableChangeDataFeed" = "true")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |insert into delta_cdf values (1, "v1"), (2, "v2")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |update delta_cdf set name = "v2_updated" where id = 2
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |delete from delta_cdf where id = 1
+                   |""".stripMargin)
+
+      val tableChangesFromZeroDF = runAndCompare(
+        s"""
+           |select id, name, _change_type, _commit_version
+           |from table_changes('delta_cdf', 0)
+           |order by _commit_version, id, name, _change_type
+           |""".stripMargin)
+      checkCDFRead(tableChangesFromZeroDF)
+
+      val tableChangesDF = runAndCompare(
+        s"""
+           |select id, name, _change_type, _commit_version
+           |from table_changes('delta_cdf', 1)
+           |order by _commit_version, id, name, _change_type
+           |""".stripMargin)
+      checkCDFRead(tableChangesDF)
+
+      val filteredCDF = runAndCompare(
+        s"""
+           |select id, name, _change_type, _commit_version
+           |from table_changes('delta_cdf', 1)
+           |where _commit_version = 2 and id = 2
+           |order by name, _change_type
+           |""".stripMargin)
+      checkCDFRead(
+        filteredCDF,
+        Seq(
+          Row(2, "v2", "update_preimage", 2L),
+          Row(2, "v2_updated", "update_postimage", 2L)))
+      assert(
+        collect(filteredCDF.queryExecution.executedPlan) {
+          case scan: DeltaScanTransformer =>
+            scan.dataFilters.exists(_.references.exists(_.name == "id"))
+        }.contains(true),
+        filteredCDF.queryExecution.executedPlan
+      )
+
+      val boundedCDF = runAndCompare(
+        s"""
+           |select id, name, _change_type, _commit_version
+           |from table_changes('delta_cdf', 1, 2)
+           |order by _commit_version, id, name, _change_type
+           |""".stripMargin)
+      checkCDFRead(
+        boundedCDF,
+        Seq(
+          Row(1, "v1", "insert", 1L),
+          Row(2, "v2", "insert", 1L),
+          Row(2, "v2", "update_preimage", 2L),
+          Row(2, "v2_updated", "update_postimage", 2L)))
+
+      val readChangeFeedDF = compareCDFDataFrame(
+        () =>
+          spark.read
+            .format("delta")
+            .option("readChangeFeed", "true")
+            .option("startingVersion", "1")
+            .table("delta_cdf")
+            .selectExpr("id", "name", "_change_type", "_commit_version")
+            .orderBy("_commit_version", "id", "name", "_change_type"))
+      checkCDFRead(readChangeFeedDF)
+    }
+  }
+
+  test("delta: change data feed read with column mapping") {
+    withTable("delta_cdf_cm") {
+      spark.sql(s"""
+                   |create table delta_cdf_cm (id int, name string) using delta
+                   |tblproperties (
+                   |  "delta.enableChangeDataFeed" = "true",
+                   |  "delta.columnMapping.mode" = "name")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |insert into delta_cdf_cm values (1, "v1"), (2, "v2")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |update delta_cdf_cm set name = "v2_updated" where id = 2
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |delete from delta_cdf_cm where id = 1
+                   |""".stripMargin)
+
+      val df = runAndCompare(
+        s"""
+           |select id, name, _change_type, _commit_version
+           |from table_changes('delta_cdf_cm', 1)
+           |order by _commit_version, id, name, _change_type
+           |""".stripMargin)
+      checkCDFRead(df)
+    }
+  }
+
+  testWithMinSparkVersion("delta: change data feed read with deletion vectors", "3.4") {
+    withTable("delta_cdf_dv") {
+      spark.sql(s"""
+                   |create table delta_cdf_dv (id int, name string) using delta
+                   |tblproperties (
+                   |  "delta.enableChangeDataFeed" = "true",
+                   |  "delta.enableDeletionVectors" = "true")
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |insert into delta_cdf_dv values (1, "v1"), (2, "v2"), (3, "v3")
+                   |""".stripMargin)
+
+      // Enabling DV writes does not mean this CDF range contains a DV. The insert-only range must
+      // still be eligible for native scan offload.
+      val insertOnlyDF = runAndCompare(
+        s"""
+           |select id, name, _change_type
+           |from table_changes('delta_cdf_dv', 0, 1)
+           |order by id, name, _change_type
+           |""".stripMargin)
+      assert(
+        collect(insertOnlyDF.queryExecution.executedPlan) {
+          case _: DeltaScanTransformer => true
+        }.nonEmpty,
+        insertOnlyDF.queryExecution.executedPlan)
+      checkAnswer(
+        insertOnlyDF,
+        Seq(
+          Row(1, "v1", "insert"),
+          Row(2, "v2", "insert"),
+          Row(3, "v3", "insert")))
+
+      spark.sql(s"""
+                   |delete from delta_cdf_dv where id = 2
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |alter table delta_cdf_dv set tblproperties (
+                   |  "delta.enableDeletionVectors" = "false")
+                   |""".stripMargin)
+
+      // Disabling future DV writes does not remove existing DVs. This range contains the DV-backed
+      // delete, so Gluten keeps the whole CDF read on Spark and lets Delta perform row-level
+      // reconciliation. Still-live rows must not be surfaced as `delete` change rows.
+      val df = runAndCompare(
+        s"""
+           |select id, name, _change_type
+           |from table_changes('delta_cdf_dv', 0)
+           |order by id, name, _change_type
+           |""".stripMargin)
+      assert(
+        collect(df.queryExecution.executedPlan) { case d: DeltaScanTransformer => d }.isEmpty,
+        df.queryExecution.executedPlan)
+      checkAnswer(
+        df,
+        Seq(
+          Row(1, "v1", "insert"),
+          Row(2, "v2", "delete"),
+          Row(2, "v2", "insert"),
+          Row(3, "v3", "insert")))
+    }
+  }
+
+  private def compareCDFDataFrame(dataframe: () => DataFrame): DataFrame = {
+    var expected: Seq[Row] = null
+    withSQLConf(vanillaSparkConfs(): _*) {
+      expected = dataframe().collect()
+    }
+    val df = dataframe()
+    checkAnswer(df, expected)
+    df
+  }
+
+  private def checkCDFRead(
+      df: DataFrame,
+      expectedRows: Seq[Row] = allCDFRows): Unit = {
+    // Delta CDF expansion can keep a Spark-side branch for synthesized change rows; this PR
+    // verifies the Delta file scans in the expanded plan are transformed.
+    checkLengthAndPlan(df, expectedRows.length)
+    checkAnswer(
+      df,
+      expectedRows)
+    assert(
+      collect(df.queryExecution.executedPlan) { case _: DeltaScanTransformer => true }.nonEmpty,
+      df.queryExecution.executedPlan)
+  }
+
+  private def allCDFRows: Seq[Row] =
+    Seq(
+      Row(1, "v1", "insert", 1L),
+      Row(2, "v2", "insert", 1L),
+      Row(2, "v2", "update_preimage", 2L),
+      Row(2, "v2_updated", "update_postimage", 2L),
+      Row(1, "v1", "delete", 3L))
+
+  test("column mapping with complex type") {
     withTable("t1") {
       val simpleNestedSchema = new StructType()
         .add("a", StringType, true)
@@ -440,7 +632,96 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: push down input_file_name expression", "3.2") {
+  testWithMinSparkVersion("deletion vector on partitioned table", "3.4") {
+    withTempPath {
+      p =>
+        import testImplicits._
+        val path = p.getCanonicalPath
+        // End-to-end DV read over a partitioned table: data files live under partition subdirs
+        // (region=.../...) while the DELETE writes table-root-relative ("u") UUID deletion vectors.
+        // This exercises the full native DV path -- resolving each DV against the table root
+        // (TahoeFileIndex.path) and applying it -- and asserts correct results. The root
+        // discrimination itself is unit-tested in DeltaDeletionVectorScanInfoSuite ("normalize
+        // materializes DV read options using the supplied table path"), which points a
+        // PartitionedFile at an unrelated directory.
+        val data =
+          Seq((1, "a"), (2, "a"), (3, "b"), (4, "b"), (5, "a"), (6, "b")).toDF("id", "region")
+        data.write.format("delta").partitionBy("region").save(path)
+        spark.sql(
+          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+        spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (2, 3, 6)")
+        val deletionVectors = DeltaLog
+          .forTable(spark, new Path(path))
+          .update()
+          .allFiles
+          .collect()
+          .flatMap(file => Option(file.deletionVector))
+        assert(deletionVectors.nonEmpty, "DELETE should produce deletion vectors")
+        assert(
+          deletionVectors.exists(_.storageType == "u"),
+          "DELETE should produce a table-root-relative UUID deletion vector")
+        val df = spark.read.format("delta").load(path)
+        if (SparkVersionUtil.gteSpark35) {
+          assert(
+            df.queryExecution.executedPlan
+              .collect { case _: DeltaScanTransformer => true }
+              .nonEmpty)
+        }
+        checkAnswer(df, Seq((1, "a"), (4, "b"), (5, "a")).toDF("id", "region"))
+    }
+  }
+
+  testWithMinSparkVersion("deletion vector on shallow-cloned table", "3.4") {
+    withTable("dv_clone_source", "dv_clone_target") {
+      import testImplicits._
+      // Shallow clone is the case the old data-file walk-up got wrong. The clone's AddFile paths
+      // point ABSOLUTE into the source table, while its _delta_log (and the DV written by a DELETE
+      // on the clone) live under the clone root. Walking up from a data file therefore lands on the
+      // SOURCE table's _delta_log and resolves the wrong root, so the clone-root-relative "u" DV
+      // cannot be found. Sourcing the root from TahoeFileIndex.path fixes this. This pins the
+      // DeltaScanTransformer Tahoe arm on Spark 3.5 (the CloneTableScalaDeletionVectorSuite shards
+      // only run on delta40).
+      spark.sql(
+        "CREATE TABLE dv_clone_source (id INT, region STRING) USING delta " +
+          "TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+      Seq((1, "a"), (2, "a"), (3, "b"), (4, "b"), (5, "a"), (6, "b"))
+        .toDF("id", "region")
+        .write
+        .format("delta")
+        .mode("append")
+        .saveAsTable("dv_clone_source")
+      spark.sql("CREATE TABLE dv_clone_target SHALLOW CLONE dv_clone_source")
+      // DELETE on the clone writes a clone-root-relative UUID ("u") DV; the data files stay
+      // absolute into the source.
+      spark.sql("DELETE FROM dv_clone_target WHERE id IN (2, 3, 6)")
+      val targetLocation =
+        spark.sessionState.catalog.getTableMetadata(TableIdentifier("dv_clone_target")).location
+      val deletionVectors = DeltaLog
+        .forTable(spark, new Path(targetLocation))
+        .update()
+        .allFiles
+        .collect()
+        .flatMap(file => Option(file.deletionVector))
+      assert(deletionVectors.nonEmpty, "DELETE on the clone should produce deletion vectors")
+      assert(
+        deletionVectors.exists(_.storageType == "u"),
+        "DELETE on the clone should produce a clone-root-relative UUID deletion vector")
+      val df = spark.table("dv_clone_target")
+      if (SparkVersionUtil.gteSpark35) {
+        assert(
+          df.queryExecution.executedPlan
+            .collect { case _: DeltaScanTransformer => true }
+            .nonEmpty)
+      }
+      // The clone's DELETE must not affect the source table.
+      checkAnswer(
+        spark.table("dv_clone_source"),
+        Seq((1, "a"), (2, "a"), (3, "b"), (4, "b"), (5, "a"), (6, "b")).toDF("id", "region"))
+      checkAnswer(df, Seq((1, "a"), (4, "b"), (5, "a")).toDF("id", "region"))
+    }
+  }
+
+  test("delta: push down input_file_name expression") {
     withTable("source_table") {
       withTable("target_table") {
         spark.sql(s"""
@@ -478,7 +759,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: need to validate delta expression before execution", "3.2") {
+  test("delta: need to validate delta expression before execution") {
     withTable("source_table") {
       withTable("target_table") {
         spark.sql(s"""

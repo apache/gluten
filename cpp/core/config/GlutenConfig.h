@@ -70,6 +70,8 @@ const std::string kParquetDataPageSize = "parquet.page.size";
 
 const std::string kParquetEnableDictionary = "parquet.enable.dictionary";
 
+const std::string kParquetEnablePageIndex = "parquet.enable.page.index";
+
 const std::string kParquetWriterVersion = "parquet.writer.version";
 
 const std::string kParquetCompressionCodec = "spark.sql.parquet.compression.codec";

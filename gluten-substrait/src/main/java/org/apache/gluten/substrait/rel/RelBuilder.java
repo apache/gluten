@@ -207,16 +207,16 @@ public class RelBuilder {
         left, right, joinType, expression, postJoinFilter, hashTableId, extensionNode);
   }
 
-  public static RelNode makeCrossRel(
+  public static RelNode makeNestedLoopJoinRel(
       RelNode left,
       RelNode right,
-      CrossRel.JoinType joinType,
+      NestedLoopJoinRel.JoinType joinType,
       ExpressionNode expression,
       AdvancedExtensionNode extensionNode,
       SubstraitContext context,
       Long operatorId) {
     context.registerRelToOperator(operatorId);
-    return new CrossRelNode(left, right, joinType, expression, extensionNode);
+    return new NestedLoopJoinRelNode(left, right, joinType, expression, extensionNode);
   }
 
   public static RelNode makeExpandRel(
@@ -285,20 +285,20 @@ public class RelBuilder {
   }
 
   public static RelNode makeTopNRel(
-      RelNode input, Long n, List<SortField> sorts, SubstraitContext context, Long operatorId) {
+      RelNode input, Long count, List<SortField> sorts, SubstraitContext context, Long operatorId) {
     context.registerRelToOperator(operatorId);
-    return new TopNNode(input, n, sorts);
+    return new TopNNode(input, count, sorts);
   }
 
   public static RelNode makeTopNRel(
       RelNode input,
-      Long n,
+      Long count,
       List<SortField> sorts,
       AdvancedExtensionNode extensionNode,
       SubstraitContext context,
       Long operatorId) {
     context.registerRelToOperator(operatorId);
-    return new TopNNode(input, n, sorts, extensionNode);
+    return new TopNNode(input, count, sorts, extensionNode);
   }
 
   public static RelNode makeWindowRel(

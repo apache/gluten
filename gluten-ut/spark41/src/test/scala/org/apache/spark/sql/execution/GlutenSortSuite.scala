@@ -47,8 +47,7 @@ class GlutenSortSuite extends SortSuite with GlutenSQLTestsBaseTrait with Adapti
     }
   }
 
-  // TODO: fix in Spark-4.0
-  ignore("post-project outputOrdering check") {
+  testGluten("post-project outputOrdering check") {
     val input = Seq(
       ("Hello", 4, 2.0),
       ("Hello Bob", 10, 1.0),

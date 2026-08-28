@@ -31,9 +31,9 @@ class GlutenClickHouseTPCHBucketSuite
   with TPCHBucketTableSource
   with TPCHMergeTreeResult {
 
-  // On Spark 3.2, the bucket table does not support creating a bucket column
-  // with sort columns for DS V2
-  lazy val hasSortByCol: Boolean = !spark32
+  // Bucket tables with sort columns are supported for DS V2 on all currently
+  // supported Spark versions.
+  lazy val hasSortByCol: Boolean = true
   lazy val tableFormat: String = "clickhouse"
 
   override protected def sparkConf: SparkConf = {
@@ -97,25 +97,13 @@ class GlutenClickHouseTPCHBucketSuite
             .asInstanceOf[HashJoinLikeExecTransformer]
             .left
             .isInstanceOf[InputIteratorTransformer])
-        if (spark32) {
-          assert(
-            plans(9)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .right
-              .isInstanceOf[InputIteratorTransformer])
-        } else {
-          assert(
-            plans(9)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .right
-              .isInstanceOf[FilterExecTransformerBase])
-        }
+        assert(
+          plans(9)
+            .asInstanceOf[HashJoinLikeExecTransformer]
+            .right
+            .isInstanceOf[FilterExecTransformerBase])
 
-        if (spark32) {
-          assert(!plans(11).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
-        } else {
-          assert(plans(11).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
-        }
+        assert(plans(11).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
         assert(plans(11).metrics("numFiles").value === 1)
         assert(plans(11).metrics("numOutputRows").value === 1000)
       })
@@ -128,30 +116,18 @@ class GlutenClickHouseTPCHBucketSuite
           case scanExec: BasicScanExecTransformer => scanExec
           case joinExec: HashJoinLikeExecTransformer => joinExec
         }
-        if (spark32) {
-          assert(
-            plans(1)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .left
-              .isInstanceOf[InputIteratorTransformer])
-        } else {
-          assert(
-            plans(1)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .left
-              .isInstanceOf[ProjectExecTransformer])
-        }
+        assert(
+          plans(1)
+            .asInstanceOf[HashJoinLikeExecTransformer]
+            .left
+            .isInstanceOf[ProjectExecTransformer])
         assert(
           plans(1)
             .asInstanceOf[HashJoinLikeExecTransformer]
             .right
             .isInstanceOf[InputIteratorTransformer])
 
-        if (spark32) {
-          assert(!plans(2).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
-        } else {
-          assert(plans(2).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
-        }
+        assert(plans(2).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
         assert(plans(2).metrics("numFiles").value === 2)
         assert(plans(2).metrics("numOutputRows").value === 3111)
 
@@ -320,19 +296,11 @@ class GlutenClickHouseTPCHBucketSuite
         val plans = collect(df.queryExecution.executedPlan) {
           case joinExec: HashJoinLikeExecTransformer => joinExec
         }
-        if (spark32) {
-          assert(
-            plans(1)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .left
-              .isInstanceOf[InputIteratorTransformer])
-        } else {
-          assert(
-            plans(1)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .left
-              .isInstanceOf[FilterExecTransformerBase])
-        }
+        assert(
+          plans(1)
+            .asInstanceOf[HashJoinLikeExecTransformer]
+            .left
+            .isInstanceOf[FilterExecTransformerBase])
         assert(
           plans(1)
             .asInstanceOf[HashJoinLikeExecTransformer]
@@ -560,13 +528,8 @@ class GlutenClickHouseTPCHBucketSuite
     runSql(SQL6)(
       df => {
         checkResult(df, Array(Row(600572)))
-        if (spark32) {
-          // there is a shuffle between two phase hash aggregate.
-          checkHashAggregateCount(df, 2)
-        } else {
-          // the delta will use the delta log meta to response this sql
-          checkHashAggregateCount(df, 0)
-        }
+        // the delta will use the delta log meta to response this sql
+        checkHashAggregateCount(df, 0)
       })
 
     // test sort aggregates

@@ -233,7 +233,7 @@ object VeloxBackendSettings extends BackendSettingsApi {
     }
 
     def validateDataSchema(): Option[String] = {
-      if (VeloxConfig.get.parquetUseColumnNames && VeloxConfig.get.orcUseColumnNames) {
+      if (VeloxConfig.get.parquetUseColumnNames) {
         return None
       }
 
@@ -570,6 +570,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
   override def needPreComputeRangeFrameBoundary(): Boolean = true
 
   override def supportIcebergEqualityDeleteRead(): Boolean = false
+
+  override def supportIcebergInitialDefaultRead(): Boolean = true
 
   override def reorderColumnsForPartitionWrite(): Boolean = true
 

@@ -186,9 +186,8 @@ object OffloadOthers {
   // Utility to replace single node within transformed Gluten node.
   // Children will be preserved as they are as children of the output node.
   //
-  // Do not look up on children on the input node in this rule. Otherwise,
-  // it may break RAS which would group all the possible input nodes to
-  // search for validate candidates.
+  // Do not look up on children on the input node in this rule. Children are
+  // offloaded separately by the traversal that drives this utility.
   private class ReplaceSingleNode extends LogLevelUtil with Logging {
 
     def doReplace(p: SparkPlan): SparkPlan = {
@@ -315,6 +314,9 @@ object OffloadOthers {
             child)
         case plan: RDDScanExec if RDDScanTransformer.isSupportRDDScanExec(plan) =>
           RDDScanTransformer.getRDDScanTransform(plan)
+        case plan: LocalTableScanExec
+            if LocalTableScanTransformer.isSupportLocalTableScanExec(plan) =>
+          LocalTableScanTransformer.getLocalTableScanTransform(plan)
         case p if !p.isInstanceOf[GlutenPlan] =>
           logDebug(s"Transformation for ${p.getClass} is currently not supported.")
           p

@@ -23,6 +23,7 @@ import org.apache.spark.annotation.Experimental
 import org.apache.spark.sql.execution.{ApplyResourceProfileExec, ColumnarShuffleExchangeExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
+import org.apache.spark.sql.internal.SQLConf
 
 @Experimental
 class AutoAdjustStageResourceProfileSuite
@@ -127,6 +128,40 @@ class AutoAdjustStageResourceProfileSuite
           // with dynamic allocation enabled. In testing mode, we apply
           // default resource profile to make sure ut works.
           assert(applyResourceProfileExec == 1)
+      }
+    }
+  }
+
+  test("Structural Spark nodes should not be counted as fallback nodes") {
+    withSQLConf(
+      GlutenConfig.AUTO_ADJUST_STAGE_RESOURCES_FALLEN_NODE_RATIO_THRESHOLD.key -> "0.5",
+      SQLConf.COALESCE_PARTITIONS_ENABLED.key -> "true"
+    ) {
+      runQueryAndCompare(
+        """
+          |SELECT /*+ BROADCAST(t2) */ t1.c1, t2.c1
+          |FROM tmp1 t1
+          |JOIN (
+          |  SELECT /*+ REBALANCE(c1) */ c1
+          |  FROM tmp2
+          |) t2
+          |ON t1.c1 = t2.c1
+          |""".stripMargin) {
+        // scalastyle:off
+        // format: off
+        /*
+        ColumnarBroadcastExchange HashedRelationBroadcastMode(List(cast(input[0, int, false] as bigint)),false), [plan_id=1267]
+          +- AQEShuffleRead coalesced
+            +- ShuffleQueryStage 0
+                +- ColumnarExchange hashpartitioning(c1#10, 5), REBALANCE_PARTITIONS_BY_COL, [c1#10], [plan_id=1194], [shuffle_writer_type=hash], [output=[c1#10: int]]
+                    +- VeloxResizeBatches
+                      +- ^(1) ProjectExecTransformer [hash(c1#10, 42) AS hash_partition_key#31, c1#10]
+                        +- ^(1) FilterExecTransformer isnotnull(c1#10)
+                          +- ^(1) FileFileSourceScanExecTransformer parquet spark_catalog.default.tmp2[c1#10] Batched: true, DataFilters: [isnotnull(c1#10)]
+        */
+        // format: on
+        // scalastyle:on
+        df => assert(collectApplyResourceProfileExec(df.queryExecution.executedPlan) == 0)
       }
     }
   }

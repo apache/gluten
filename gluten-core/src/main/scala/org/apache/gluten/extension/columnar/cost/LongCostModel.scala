@@ -96,8 +96,8 @@ object LongCostModel extends Logging {
   }
 
   /**
-   * A cost model that is supposed to drive RAS planner create the same query plan with legacy
-   * planner.
+   * The default cost model. It exhaustively offloads computations and helps the transition planner
+   * prefer columnar-to-columnar transitions over others.
    */
   case object Legacy extends Kind {
     override def name(): String = "legacy"

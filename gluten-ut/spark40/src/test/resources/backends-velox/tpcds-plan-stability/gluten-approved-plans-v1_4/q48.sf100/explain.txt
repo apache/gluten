@@ -185,7 +185,6 @@ Arguments: false
 
 (35) VeloxResizeBatches
 Input [1]: [sum#18]
-Arguments: 1024, 2147483647, 10485760
 
 (36) ColumnarExchange
 Input [1]: [sum#18]

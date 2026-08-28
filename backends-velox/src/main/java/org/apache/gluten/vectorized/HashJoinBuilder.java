@@ -48,6 +48,8 @@ public class HashJoinBuilder implements RuntimeAware {
 
   public static native long getHashTableBloomFilterBlocksByteSize(long hashTableHandle);
 
+  public static native long getHashTableMemoryUsage(long hashTableHandle);
+
   public static native long serializedHashTableSizeDirect(long hashTableHandle);
 
   public static native void serializeHashTableDirect(long hashTableHandle, long address, long size);

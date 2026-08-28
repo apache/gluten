@@ -15,6 +15,8 @@
 
 FROM quay.io/centos/centos:stream9
 
+ARG GLUTEN_REPO=https://github.com/apache/gluten
+ARG GLUTEN_BRANCH=main
 
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 ENV PATH=$JAVA_HOME/bin:$PATH
@@ -30,7 +32,7 @@ RUN set -ex; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     yum install -y java-17-openjdk-devel patch git perl; \
     dnf clean all; \
-    git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
+    git clone --depth=1 --branch "${GLUTEN_BRANCH}" "${GLUTEN_REPO}" /opt/gluten; \
     cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh; \
     mkdir -p ${VCPKG_PATH}; \
     echo "Build arrow, then install the native libs to system paths and jar package to .m2/ directory."; \

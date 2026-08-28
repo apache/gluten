@@ -87,6 +87,30 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  test("coalesce v2 batch scan input partitions") {
+    withTempDir {
+      dir =>
+        spark.range(8).repartition(4).write.mode("overwrite").parquet(dir.getCanonicalPath)
+
+        withSQLConf(
+          SQLConf.USE_V1_SOURCE_LIST.key -> "",
+          SQLConf.FILES_MAX_PARTITION_BYTES.key -> "1",
+          GlutenConfig.COLUMNAR_BATCHSCAN_MAX_INPUT_PARTITIONS.key -> "2") {
+          val df = spark.read.parquet(dir.getCanonicalPath)
+          checkAnswer(df, spark.range(8).toDF())
+
+          val scans = getExecutedPlan(df).collect { case scan: BatchScanExecTransformer => scan }
+          assert(scans.size == 1)
+          val partitions = scans.head.getPartitions
+          assert(partitions.size == 2)
+          assert(
+            partitions
+              .map(_.asInstanceOf[SparkDataSourceRDDPartition].inputPartitions.size)
+              .sum > 2)
+        }
+    }
+  }
+
   test("Test file scheme validation") {
     withTempPath {
       path =>
@@ -260,9 +284,13 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  test("ORC index based schema evolution") {
+  test("ORC positional schema evolution") {
+    // Vanilla Spark maps ORC columns by position (not by name) only when
+    // `orc.force.positional.evolution=true` or the file's physical names are all Hive placeholders
+    // (see OrcUtils.requestedColumnIds). Here the file has real names (a, b) but the table uses
+    // different names (c, d, e); positional mapping is forced so c<-a, d<-b, e<-missing.
     withSQLConf(
-      VeloxConfig.ORC_USE_COLUMN_NAMES.key -> "false") {
+      GlutenConfig.SPARK_ORC_FORCE_POSITIONAL_EVOLUTION -> "true") {
       withTempDir {
         dir =>
           val path = dir.getCanonicalPath

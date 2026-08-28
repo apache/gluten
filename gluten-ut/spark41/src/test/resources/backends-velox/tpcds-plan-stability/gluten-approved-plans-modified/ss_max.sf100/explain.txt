@@ -35,7 +35,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [13]: [hash_partition_key#32, ss_sold_date_sk#9, count#21, count#22, max#23, max#24, max#25, max#26, max#27, max#28, max#29, max#30, max#31]
-Arguments: 1024, 2147483647, 10485760
 
 (6) ColumnarExchange
 Input [13]: [hash_partition_key#32, ss_sold_date_sk#9, count#21, count#22, max#23, max#24, max#25, max#26, max#27, max#28, max#29, max#30, max#31]

@@ -146,7 +146,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [5]: [hash_partition_key#X, s_suppkey#X, s_name#X, s_address#X, s_nationkey#X]
-Arguments: X, X, X
 
 (6) ColumnarExchange
 Input [5]: [hash_partition_key#X, s_suppkey#X, s_name#X, s_address#X, s_nationkey#X]
@@ -183,7 +182,6 @@ Arguments: false
 
 (14) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, ps_partkey#X, ps_suppkey#X, ps_availqty#X]
-Arguments: X, X, X
 
 (15) ColumnarExchange
 Input [4]: [hash_partition_key#X, ps_partkey#X, ps_suppkey#X, ps_availqty#X]
@@ -220,7 +218,6 @@ Arguments: false
 
 (23) VeloxResizeBatches
 Input [2]: [hash_partition_key#X, p_partkey#X]
-Arguments: X, X, X
 
 (24) ColumnarExchange
 Input [2]: [hash_partition_key#X, p_partkey#X]
@@ -251,7 +248,6 @@ Arguments: false
 
 (31) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, ps_partkey#X, ps_suppkey#X, ps_availqty#X]
-Arguments: X, X, X
 
 (32) ColumnarExchange
 Input [4]: [hash_partition_key#X, ps_partkey#X, ps_suppkey#X, ps_availqty#X]
@@ -288,7 +284,6 @@ Arguments: false
 
 (40) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, l_partkey#X, l_suppkey#X, l_quantity#X]
-Arguments: X, X, X
 
 (41) ColumnarExchange
 Input [4]: [hash_partition_key#X, l_partkey#X, l_suppkey#X, l_quantity#X]
@@ -347,7 +342,6 @@ Arguments: false
 
 (55) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, (0.5 * sum(l_quantity))#X, l_partkey#X, l_suppkey#X]
-Arguments: X, X, X
 
 (56) ColumnarExchange
 Input [4]: [hash_partition_key#X, (0.5 * sum(l_quantity))#X, l_partkey#X, l_suppkey#X]
@@ -378,7 +372,6 @@ Arguments: false
 
 (63) VeloxResizeBatches
 Input [2]: [hash_partition_key#X, ps_suppkey#X]
-Arguments: X, X, X
 
 (64) ColumnarExchange
 Input [2]: [hash_partition_key#X, ps_suppkey#X]
@@ -409,7 +402,6 @@ Arguments: false
 
 (71) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, s_name#X, s_address#X, s_nationkey#X]
-Arguments: X, X, X
 
 (72) ColumnarExchange
 Input [4]: [hash_partition_key#X, s_name#X, s_address#X, s_nationkey#X]
@@ -446,7 +438,6 @@ Arguments: false
 
 (80) VeloxResizeBatches
 Input [2]: [hash_partition_key#X, n_nationkey#X]
-Arguments: X, X, X
 
 (81) ColumnarExchange
 Input [2]: [hash_partition_key#X, n_nationkey#X]
@@ -477,7 +468,6 @@ Arguments: false
 
 (88) VeloxResizeBatches
 Input [2]: [s_name#X, s_address#X]
-Arguments: X, X, X
 
 (89) ColumnarExchange
 Input [2]: [s_name#X, s_address#X]

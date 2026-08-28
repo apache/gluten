@@ -30,9 +30,9 @@ import org.apache.hadoop.fs.Path
  *
  * Measures two hot paths that our performance optimizations target:
  *
- *   1. '''DV Materialization''' (`DeltaDeletionVectorScanInfo.normalize`): resolves table paths,
- *      loads DV bitmaps from storage, and serializes them into split metadata. Our optimizations
- *      (caching table path, Hadoop conf, DV store across files) target this path.
+ *   1. '''DV Materialization''' (`DeltaDeletionVectorScanInfo.normalize`): loads DV bitmaps from
+ *      storage and serializes them into split metadata. Our optimizations (reusing the Hadoop conf
+ *      and DV store across files) target this path.
  *   2. '''Post-transform rule application''' (`DeltaPostTransformRules.rules`): traverses the
  *      physical plan to strip DV synthetic columns, push down input_file_name, and apply column
  *      mapping. Our optimizations (early-exit guard, shallow child check, pre-computed names,
@@ -85,7 +85,7 @@ object DeltaPlanningBenchmark extends SqlBasedBenchmark {
 
   /**
    * Benchmarks DeltaDeletionVectorScanInfo.normalize() -- the critical path that loads DVs from
-   * storage on the driver. Measures how caching table path + DV store reduces overhead.
+   * storage on the driver. Measures how reusing the DV store across files reduces overhead.
    */
   private def runDvMaterializationBenchmark(): Unit = {
     val benchmark = new Benchmark(
@@ -97,10 +97,7 @@ object DeltaPlanningBenchmark extends SqlBasedBenchmark {
     withDeltaTableWithDVs(numFiles, rowsPerFile) {
       (path, partitionedFiles) =>
         benchmark.addCase(s"normalize() - $numFiles DV files", benchmarkIters) {
-          _ =>
-            DeltaDeletionVectorScanInfo.normalize(
-              partitionColumnCount = 0,
-              partitionFiles = partitionedFiles)
+          _ => DeltaDeletionVectorScanInfo.normalize(partitionedFiles, new Path(path))
         }
 
         benchmark.run()
