@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-8-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
@@ -87,8 +87,8 @@ jobs:
           export VELOX_DEPENDENCY_SOURCE=BUNDLED
           export fmt_SOURCE=BUNDLED
           export folly_SOURCE=BUNDLED
-          git clone -b feat/flink-preset https://github.com/ggjh-159/velox4j.git
-          cd velox4j
+          git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
+          cd velox4j && git reset --hard 42a77de002707b6811791ba2d728f169aeb5d7bb
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..

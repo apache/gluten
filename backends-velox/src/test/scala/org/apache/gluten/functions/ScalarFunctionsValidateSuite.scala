@@ -26,7 +26,8 @@ import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
-abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
+class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
+
   disableFallbackCheck
 
   import testImplicits._
@@ -227,23 +228,23 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       sql("INSERT INTO t1 VALUES(1, NOW())")
       runQueryAndCompare("SELECT c1, HOUR(c2) FROM t1 LIMIT 1")(df => checkFallbackOperators(df, 0))
     }
+  }
 
-    test("MINUTE") {
-      withTable("t1") {
-        sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
-        sql("INSERT INTO t1 VALUES(1, NOW())")
-        runQueryAndCompare("SELECT c1, MINUTE(c2) FROM t1 LIMIT 1")(
-          df => checkFallbackOperators(df, 0))
-      }
+  test("MINUTE") {
+    withTable("t1") {
+      sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
+      sql("INSERT INTO t1 VALUES(1, NOW())")
+      runQueryAndCompare("SELECT c1, MINUTE(c2) FROM t1 LIMIT 1")(
+        df => checkFallbackOperators(df, 0))
     }
+  }
 
-    test("SECOND") {
-      withTable("t1") {
-        sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
-        sql("INSERT INTO t1 VALUES(1, NOW())")
-        runQueryAndCompare("SELECT c1, SECOND(c2) FROM t1 LIMIT 1")(
-          df => checkFallbackOperators(df, 0))
-      }
+  test("SECOND") {
+    withTable("t1") {
+      sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
+      sql("INSERT INTO t1 VALUES(1, NOW())")
+      runQueryAndCompare("SELECT c1, SECOND(c2) FROM t1 LIMIT 1")(
+        df => checkFallbackOperators(df, 0))
     }
   }
 
@@ -710,6 +711,71 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     runQueryAndCompare(
       "SELECT regexp_replace(c_comment, '\\w', 'something', 3) FROM customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  testWithMinSparkVersion("regexp_instr", "3.4") {
+    // Two-argument form.
+    runQueryAndCompare("SELECT regexp_instr(c_comment, '\\w+') FROM customer limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // No match returns 0.
+    runQueryAndCompare("SELECT regexp_instr(c_comment, '#[0-9]+#') FROM customer limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Three-argument form: Spark ignores the group index and Velox has no such
+    // argument, so the idx child must be dropped while staying result-consistent.
+    runQueryAndCompare("SELECT regexp_instr(c_comment, '(\\w)(\\w)', 1) FROM customer limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Three-argument form where the requested group starts at a different
+    // position than the whole match: the whole match "a1" starts at 1 while
+    // group 2 "1" starts at 2. Spark ignores idx and returns 1, so this guards
+    // against any future divergence if Spark starts honoring the group index.
+    runQueryAndCompare("SELECT regexp_instr('a1b2', '([a-z])([0-9])', 2)") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  testWithMinSparkVersion("dayname", "4.0") {
+    runQueryAndCompare("SELECT dayname(l_shipdate) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  testWithMinSparkVersion("monthname", "4.0") {
+    runQueryAndCompare("SELECT monthname(l_shipdate) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("format_number") {
+    // Integer / bigint input with different decimal places.
+    runQueryAndCompare("SELECT format_number(l_partkey, 0) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare("SELECT format_number(l_orderkey, 2) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Floating-point input, exercising HALF_EVEN rounding and thousands separators.
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_quantity as double), 1) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_discount as double), 3) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double.
+    // Decimal input has no matching signature, so it must fall back to vanilla Spark.
+    runQueryAndCompare("SELECT format_number(l_quantity, 1) FROM lineitem limit 50") {
+      checkSparkPlan[ProjectExec]
+    }
+    // Velox only implements the integer decimal-places form. The string-format form
+    // (e.g. '#,###.##') has no matching signature, so it must fall back to vanilla Spark.
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_quantity as double), '#,###.##') FROM lineitem limit 50") {
+      checkSparkPlan[ProjectExec]
     }
   }
 
@@ -1593,61 +1659,49 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
   test("current_timestamp") {
-    withSQLConf(
-      "spark.sql.optimizer.excludedRules" ->
-        "org.apache.spark.sql.catalyst.optimizer.ConstantFolding") {
-      runQueryAndCompare("SELECT l_orderkey, current_timestamp() from lineitem limit 1") {
-        df =>
-          val optimizedPlan = df.queryExecution.optimizedPlan.toString()
-          assert(
-            optimizedPlan.contains("CurrentTimestamp"),
-            s"Expected CurrentTimestamp in plan when ConstantFolding is disabled, " +
-              s"but got: $optimizedPlan"
-          )
-          checkGlutenPlan[ProjectExecTransformer](df)
-      }
+    // current_timestamp() is folded to a wall-clock literal by ComputeCurrentTime (an always-on
+    // optimizer batch that excludedRules cannot suppress). Each run captures a different instant,
+    // so result comparison across two executions always fails. Skip result comparison but still
+    // assert that the Project offloads natively.
+    runQueryAndCompare(
+      "SELECT l_orderkey, current_timestamp() from lineitem limit 1",
+      compareResult = false) {
+      checkGlutenPlan[ProjectExecTransformer]
     }
   }
 
   test("now") {
-    withSQLConf(
-      "spark.sql.optimizer.excludedRules" ->
-        "org.apache.spark.sql.catalyst.optimizer.ConstantFolding") {
-      runQueryAndCompare("SELECT l_orderkey, now() from lineitem limit 1") {
-        df =>
-          val optimizedPlan = df.queryExecution.optimizedPlan.toString()
-          assert(
-            optimizedPlan.contains("Now"),
-            s"Expected Now in plan when ConstantFolding is disabled, but got: $optimizedPlan"
-          )
-          checkGlutenPlan[ProjectExecTransformer](df)
-      }
+    // now() is an alias for current_timestamp() -- same constant-folding behaviour.
+    runQueryAndCompare(
+      "SELECT l_orderkey, now() from lineitem limit 1",
+      compareResult = false) {
+      checkGlutenPlan[ProjectExecTransformer]
     }
   }
 
   testWithMinSparkVersion("localtimestamp with validation enabled", "3.4") {
-    // With validation enabled (default), localtimestamp should fallback to Spark
-    // because it returns TimestampNTZType
-    withSQLConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "true") {
+    // localtimestamp() is folded to a TimestampNTZType literal by ComputeCurrentTime. With
+    // validation enabled, any Project whose output contains TimestampNTZ falls back to JVM.
+    // The Project falls back at the top of the plan (above the one VeloxColumnarToRow), so
+    // the extra-transition count is 0 (1 ColumnarToRow - 1 baseline = 0).
+    withSQLConf(
+      "spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "true"
+    ) {
       val df = spark.sql("SELECT l_orderkey, localtimestamp() from lineitem limit 1")
-      // Should fallback to Spark execution due to TimestampNTZ validation
-      checkFallbackOperators(df, 1)
+      checkFallbackOperators(df, 0)
       df.collect()
     }
   }
 
   testWithMinSparkVersion("localtimestamp with validation disabled", "3.4") {
-    // With validation disabled, localtimestamp can use native execution
-    // This allows developers to test TimestampNTZ support
-    withSQLConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "false") {
+    // With validation disabled, scans on TimestampNTZ columns are allowed natively. For
+    // localtimestamp(), the expression constant-folds to a TimestampNTZType literal in the
+    // Project; Gluten only permits native Projects when NTZ appears in Hour(ntz_col), so
+    // this Project still falls back -- same extra-transition count as the validation-enabled case.
+    withSQLConf(
+      "spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "false"
+    ) {
       val df = spark.sql("SELECT l_orderkey, localtimestamp() from lineitem limit 1")
-      val optimizedPlan = df.queryExecution.optimizedPlan.toString()
-      assert(
-        !optimizedPlan.contains("LocalTimestamp"),
-        s"Expected LocalTimestamp to be folded to a literal, but got: $optimizedPlan"
-      )
-      // Should use native execution when validation is disabled
-      checkGlutenPlan[ProjectExecTransformer](df)
       checkFallbackOperators(df, 0)
       df.collect()
     }

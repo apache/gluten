@@ -433,194 +433,188 @@ class GlutenInsertSuite
   }
 
   testGluten("SPARK-39557 INSERT INTO statements with tables with array defaults") {
-    withSQLConf("spark.gluten.sql.complexType.scan.fallback.enabled" -> "false") {
-      import testImplicits._
-      // Positive tests: array types are supported as default values.
-      case class Config(dataSource: String, useDataFrames: Boolean = false)
-      Seq(
-        Config("parquet"),
-        Config("parquet", useDataFrames = true),
-        Config("orc"),
-        Config("orc", useDataFrames = true)).foreach {
-        config =>
-          withTable("t") {
-            sql(s"create table t(i boolean) using ${config.dataSource}")
-            if (config.useDataFrames) {
-              Seq(false).toDF.write.insertInto("t")
-            } else {
-              sql("insert into t select false")
-            }
-            sql("alter table t add column s array<int> default array(1, 2)")
-            checkAnswer(spark.table("t"), Row(false, null))
-            sql("insert into t(i) values (true)")
-            checkAnswer(spark.table("t"), Seq(Row(false, null), Row(true, Seq(1, 2))))
+    import testImplicits._
+    // Positive tests: array types are supported as default values.
+    case class Config(dataSource: String, useDataFrames: Boolean = false)
+    Seq(
+      Config("parquet"),
+      Config("parquet", useDataFrames = true),
+      Config("orc"),
+      Config("orc", useDataFrames = true)).foreach {
+      config =>
+        withTable("t") {
+          sql(s"create table t(i boolean) using ${config.dataSource}")
+          if (config.useDataFrames) {
+            Seq(false).toDF.write.insertInto("t")
+          } else {
+            sql("insert into t select false")
           }
-      }
-      // Negative tests: provided array element types must match their corresponding DEFAULT
-      // declarations, if applicable.
-      val incompatibleDefault =
-        "Failed to execute ALTER TABLE ADD COLUMNS command because the destination " +
-          "table column s has a DEFAULT value with type"
-      Seq(Config("parquet"), Config("parquet", true)).foreach {
-        config =>
-          withTable("t") {
-            sql(s"create table t(i boolean) using ${config.dataSource}")
-            if (config.useDataFrames) {
-              Seq(false).toDF.write.insertInto("t")
-            } else {
-              sql("insert into t select false")
-            }
-            assert(intercept[AnalysisException] {
-              sql("alter table t add column s array<int> default array('abc', 'def')")
-            }.getMessage.contains(incompatibleDefault))
+          sql("alter table t add column s array<int> default array(1, 2)")
+          checkAnswer(spark.table("t"), Row(false, null))
+          sql("insert into t(i) values (true)")
+          checkAnswer(spark.table("t"), Seq(Row(false, null), Row(true, Seq(1, 2))))
+        }
+    }
+    // Negative tests: provided array element types must match their corresponding DEFAULT
+    // declarations, if applicable.
+    val incompatibleDefault =
+      "Failed to execute ALTER TABLE ADD COLUMNS command because the destination " +
+        "table column s has a DEFAULT value with type"
+    Seq(Config("parquet"), Config("parquet", true)).foreach {
+      config =>
+        withTable("t") {
+          sql(s"create table t(i boolean) using ${config.dataSource}")
+          if (config.useDataFrames) {
+            Seq(false).toDF.write.insertInto("t")
+          } else {
+            sql("insert into t select false")
           }
-      }
+          assert(intercept[AnalysisException] {
+            sql("alter table t add column s array<int> default array('abc', 'def')")
+          }.getMessage.contains(incompatibleDefault))
+        }
     }
   }
 
   testGluten("SPARK-39557 INSERT INTO statements with tables with struct defaults") {
-    withSQLConf("spark.gluten.sql.complexType.scan.fallback.enabled" -> "false") {
 
-      import testImplicits._
-      // Positive tests: struct types are supported as default values.
-      case class Config(dataSource: String, useDataFrames: Boolean = false)
-      Seq(
-        Config("parquet"),
-        Config("parquet", useDataFrames = true),
-        Config("orc"),
-        Config("orc", useDataFrames = true)).foreach {
-        config =>
-          withTable("t") {
-            sql(s"create table t(i boolean) using ${config.dataSource}")
-            if (config.useDataFrames) {
-              Seq(false).toDF.write.insertInto("t")
-            } else {
-              sql("insert into t select false")
-            }
-            sql(
-              "alter table t add column s struct<x boolean, y string> default struct(true, 'abc')")
-            checkAnswer(spark.table("t"), Row(false, null))
-            sql("insert into t(i) values (true)")
-            checkAnswer(spark.table("t"), Seq(Row(false, null), Row(true, Row(true, "abc"))))
+    import testImplicits._
+    // Positive tests: struct types are supported as default values.
+    case class Config(dataSource: String, useDataFrames: Boolean = false)
+    Seq(
+      Config("parquet"),
+      Config("parquet", useDataFrames = true),
+      Config("orc"),
+      Config("orc", useDataFrames = true)).foreach {
+      config =>
+        withTable("t") {
+          sql(s"create table t(i boolean) using ${config.dataSource}")
+          if (config.useDataFrames) {
+            Seq(false).toDF.write.insertInto("t")
+          } else {
+            sql("insert into t select false")
           }
-      }
+          sql(
+            "alter table t add column s struct<x boolean, y string> default struct(true, 'abc')")
+          checkAnswer(spark.table("t"), Row(false, null))
+          sql("insert into t(i) values (true)")
+          checkAnswer(spark.table("t"), Seq(Row(false, null), Row(true, Row(true, "abc"))))
+        }
+    }
 
-      // Negative tests: provided map element types must match their corresponding DEFAULT
-      // declarations, if applicable.
-      val incompatibleDefault =
-        "Failed to execute ALTER TABLE ADD COLUMNS command because the destination " +
-          "table column s has a DEFAULT value with type"
-      Seq(Config("parquet"), Config("parquet", true)).foreach {
-        config =>
-          withTable("t") {
-            sql(s"create table t(i boolean) using ${config.dataSource}")
-            if (config.useDataFrames) {
-              Seq(false).toDF.write.insertInto("t")
-            } else {
-              sql("insert into t select false")
-            }
-            assert(intercept[AnalysisException] {
-              sql("alter table t add column s struct<x boolean, y string> default struct(42, 56)")
-            }.getMessage.contains(incompatibleDefault))
+    // Negative tests: provided map element types must match their corresponding DEFAULT
+    // declarations, if applicable.
+    val incompatibleDefault =
+      "Failed to execute ALTER TABLE ADD COLUMNS command because the destination " +
+        "table column s has a DEFAULT value with type"
+    Seq(Config("parquet"), Config("parquet", true)).foreach {
+      config =>
+        withTable("t") {
+          sql(s"create table t(i boolean) using ${config.dataSource}")
+          if (config.useDataFrames) {
+            Seq(false).toDF.write.insertInto("t")
+          } else {
+            sql("insert into t select false")
           }
-      }
+          assert(intercept[AnalysisException] {
+            sql("alter table t add column s struct<x boolean, y string> default struct(42, 56)")
+          }.getMessage.contains(incompatibleDefault))
+        }
     }
   }
 
   ignoreGluten("SPARK-39557 INSERT INTO statements with tables with map defaults") {
-    withSQLConf("spark.gluten.sql.complexType.scan.fallback.enabled" -> "false") {
 
-      import testImplicits._
-      // Positive tests: map types are supported as default values.
-      case class Config(dataSource: String, useDataFrames: Boolean = false)
-      Seq(
-        Config("parquet"),
-        Config("parquet", useDataFrames = true),
-        Config("orc"),
-        Config("orc", useDataFrames = true)).foreach {
-        config =>
-          withTable("t") {
-            sql(s"create table t(i boolean) using ${config.dataSource}")
-            if (config.useDataFrames) {
-              Seq(false).toDF.write.insertInto("t")
-            } else {
-              sql("insert into t select false")
-            }
-            sql("alter table t add column s map<boolean, string> default map(true, 'abc')")
-            checkAnswer(spark.table("t"), Row(false, null))
-            sql("insert into t(i) select true")
-            checkAnswer(spark.table("t"), Seq(Row(false, null), Row(true, Map(true -> "abc"))))
+    import testImplicits._
+    // Positive tests: map types are supported as default values.
+    case class Config(dataSource: String, useDataFrames: Boolean = false)
+    Seq(
+      Config("parquet"),
+      Config("parquet", useDataFrames = true),
+      Config("orc"),
+      Config("orc", useDataFrames = true)).foreach {
+      config =>
+        withTable("t") {
+          sql(s"create table t(i boolean) using ${config.dataSource}")
+          if (config.useDataFrames) {
+            Seq(false).toDF.write.insertInto("t")
+          } else {
+            sql("insert into t select false")
           }
-          withTable("t") {
-            sql(s"""
-            create table t(
-              i int,
-              s struct<
-                x array<
-                  struct<a int, b int>>,
-                y array<
-                  map<boolean, string>>>
-              default struct(
-                array(
-                  struct(1, 2)),
-                array(
-                  map(false, 'def', true, 'jkl'))))
-              using ${config.dataSource}""")
-            sql("insert into t select 1, default")
-            sql("alter table t alter column s drop default")
-            if (config.useDataFrames) {
-              Seq((2, null)).toDF.write.insertInto("t")
-            } else {
-              sql("insert into t select 2, default")
-            }
-            sql("""
-            alter table t alter column s
-            set default struct(
+          sql("alter table t add column s map<boolean, string> default map(true, 'abc')")
+          checkAnswer(spark.table("t"), Row(false, null))
+          sql("insert into t(i) select true")
+          checkAnswer(spark.table("t"), Seq(Row(false, null), Row(true, Map(true -> "abc"))))
+        }
+        withTable("t") {
+          sql(s"""
+          create table t(
+            i int,
+            s struct<
+              x array<
+                struct<a int, b int>>,
+              y array<
+                map<boolean, string>>>
+            default struct(
               array(
-                struct(3, 4)),
+                struct(1, 2)),
               array(
-                map(false, 'mno', true, 'pqr')))""")
-            sql("insert into t select 3, default")
-            sql("""
-            alter table t
-            add column t array<
-              map<boolean, string>>
-            default array(
-              map(true, 'xyz'))""")
-            sql("insert into t(i, s) select 4, default")
-            checkAnswer(
-              spark.table("t"),
-              Seq(
-                Row(1, Row(Seq(Row(1, 2)), Seq(Map(false -> "def", true -> "jkl"))), null),
-                Row(2, null, null),
-                Row(3, Row(Seq(Row(3, 4)), Seq(Map(false -> "mno", true -> "pqr"))), null),
-                Row(
-                  4,
-                  Row(Seq(Row(3, 4)), Seq(Map(false -> "mno", true -> "pqr"))),
-                  Seq(Map(true -> "xyz")))
-              )
+                map(false, 'def', true, 'jkl'))))
+            using ${config.dataSource}""")
+          sql("insert into t select 1, default")
+          sql("alter table t alter column s drop default")
+          if (config.useDataFrames) {
+            Seq((2, null)).toDF.write.insertInto("t")
+          } else {
+            sql("insert into t select 2, default")
+          }
+          sql("""
+          alter table t alter column s
+          set default struct(
+            array(
+              struct(3, 4)),
+            array(
+              map(false, 'mno', true, 'pqr')))""")
+          sql("insert into t select 3, default")
+          sql("""
+          alter table t
+          add column t array<
+            map<boolean, string>>
+          default array(
+            map(true, 'xyz'))""")
+          sql("insert into t(i, s) select 4, default")
+          checkAnswer(
+            spark.table("t"),
+            Seq(
+              Row(1, Row(Seq(Row(1, 2)), Seq(Map(false -> "def", true -> "jkl"))), null),
+              Row(2, null, null),
+              Row(3, Row(Seq(Row(3, 4)), Seq(Map(false -> "mno", true -> "pqr"))), null),
+              Row(
+                4,
+                Row(Seq(Row(3, 4)), Seq(Map(false -> "mno", true -> "pqr"))),
+                Seq(Map(true -> "xyz")))
             )
+          )
+        }
+    }
+    // Negative tests: provided map element types must match their corresponding DEFAULT
+    // declarations, if applicable.
+    val incompatibleDefault =
+      "Failed to execute ALTER TABLE ADD COLUMNS command because the destination " +
+        "table column s has a DEFAULT value with type"
+    Seq(Config("parquet"), Config("parquet", true)).foreach {
+      config =>
+        withTable("t") {
+          sql(s"create table t(i boolean) using ${config.dataSource}")
+          if (config.useDataFrames) {
+            Seq(false).toDF.write.insertInto("t")
+          } else {
+            sql("insert into t select false")
           }
-      }
-      // Negative tests: provided map element types must match their corresponding DEFAULT
-      // declarations, if applicable.
-      val incompatibleDefault =
-        "Failed to execute ALTER TABLE ADD COLUMNS command because the destination " +
-          "table column s has a DEFAULT value with type"
-      Seq(Config("parquet"), Config("parquet", true)).foreach {
-        config =>
-          withTable("t") {
-            sql(s"create table t(i boolean) using ${config.dataSource}")
-            if (config.useDataFrames) {
-              Seq(false).toDF.write.insertInto("t")
-            } else {
-              sql("insert into t select false")
-            }
-            assert(intercept[AnalysisException] {
-              sql("alter table t add column s map<boolean, string> default map(42, 56)")
-            }.getMessage.contains(incompatibleDefault))
-          }
-      }
+          assert(intercept[AnalysisException] {
+            sql("alter table t add column s map<boolean, string> default map(42, 56)")
+          }.getMessage.contains(incompatibleDefault))
+        }
     }
   }
 }

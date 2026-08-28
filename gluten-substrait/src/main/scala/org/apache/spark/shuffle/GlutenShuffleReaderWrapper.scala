@@ -16,6 +16,8 @@
  */
 package org.apache.spark.shuffle
 
+import org.apache.gluten.execution.StageExecutionMode
+
 import org.apache.spark.TaskContext
 import org.apache.spark.storage.{BlockId, BlockManagerId}
 
@@ -26,4 +28,5 @@ case class GenShuffleReaderParameters[K, C](
     blocksByAddress: Iterator[(BlockManagerId, collection.Seq[(BlockId, Long, Int)])],
     context: TaskContext,
     readMetrics: ShuffleReadMetricsReporter,
-    shouldBatchFetch: Boolean = false)
+    shouldBatchFetch: Boolean = false,
+    executionMode: StageExecutionMode)

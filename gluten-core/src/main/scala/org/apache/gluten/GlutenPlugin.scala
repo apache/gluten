@@ -50,17 +50,11 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
 
   override def init(sc: SparkContext, pluginContext: PluginContext): util.Map[String, String] = {
     val conf = pluginContext.conf()
-    // Spark SQL extensions
-    val extensionSeq = conf.get(SPARK_SESSION_EXTENSIONS).getOrElse(Seq.empty)
-    if (!extensionSeq.toSet.contains(GlutenSessionExtensions.GLUTEN_SESSION_EXTENSION_NAME)) {
-      conf.set(
-        SPARK_SESSION_EXTENSIONS,
-        extensionSeq :+ GlutenSessionExtensions.GLUTEN_SESSION_EXTENSION_NAME)
-    }
+    val components = Component.sorted()
+    configureSessionExtensions(conf, components)
 
     setPredefinedConfigs(conf)
 
-    val components = Component.sorted()
     printComponentInfo(components)
     setComponentInfoConfig(conf, components)
     components.foreach(_.onDriverStart(sc, pluginContext))
@@ -77,6 +71,19 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
 }
 
 private object GlutenDriverPlugin extends Logging {
+  private[gluten] def configureSessionExtensions(
+      conf: SparkConf,
+      components: Seq[Component]): Unit = {
+    val configuredExtensions = conf.get(SPARK_SESSION_EXTENSIONS).getOrElse(Seq.empty)
+    val requiredExtensions =
+      components.flatMap(_.sparkSessionExtensions()) :+
+        GlutenSessionExtensions.GLUTEN_SESSION_EXTENSION_NAME
+    val mergedExtensions = (configuredExtensions ++ requiredExtensions).distinct
+    if (mergedExtensions != configuredExtensions) {
+      conf.set(SPARK_SESSION_EXTENSIONS, mergedExtensions)
+    }
+  }
+
   private def checkOffHeapSettings(conf: SparkConf): Unit = {
     if (conf.get(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED)) {
       // When dynamic off-heap sizing is enabled, off-heap mode is not strictly required to be
@@ -103,20 +110,15 @@ private object GlutenDriverPlugin extends Logging {
     }
   }
 
-  private def setPredefinedConfigs(conf: SparkConf): Unit = {
+  // Visible for testing.
+  private[gluten] def setPredefinedConfigs(conf: SparkConf): Unit = {
     // check memory off-heap enabled and size.
     checkOffHeapSettings(conf)
 
     // Get the off-heap size set by user.
     val offHeapSize =
       if (conf.getBoolean(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED.key, false)) {
-        val onHeapSize: Long =
-          if (conf.contains(GlutenCoreConfig.SPARK_ONHEAP_SIZE_KEY)) {
-            conf.getSizeAsBytes(GlutenCoreConfig.SPARK_ONHEAP_SIZE_KEY)
-          } else {
-            // 1GB default
-            1024 * 1024 * 1024
-          }
+        val onHeapSize: Long = SparkResourceUtil.getExecutorMemorySize(conf)
 
         if (conf.contains(GlutenCoreConfig.SPARK_OFFHEAP_ENABLED_KEY)) {
           logWarning(
@@ -134,6 +136,15 @@ private object GlutenDriverPlugin extends Logging {
         ((onHeapSize - (300 * 1024 * 1024)) *
           conf.getDouble(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_MEMORY_FRACTION.key, 0.6d)).toLong
       } else {
+        // Untracked memory mode skips the off-heap size requirement in checkOffHeapSettings, so
+        // the key may be absent here. Normalize it to 0 (mirroring the dynamic-sizing branch
+        // above) so downstream readers that read spark.memory.offHeap.size directly, e.g.
+        // VeloxListenerApi.onDriverStart, don't hit NoSuchElementException. Normal mode always has
+        // the key set because checkOffHeapSettings enforced it, so this only affects untracked
+        // mode without an explicit off-heap size.
+        if (!conf.contains(GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY)) {
+          conf.set(GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY, "0")
+        }
         conf.getSizeAsBytes(GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY)
       }
 

@@ -101,7 +101,7 @@ jobs:
     if: (inputs.mode || needs.check-comment.outputs.mode) != 'analyze-only'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Get Ccache
@@ -131,7 +131,7 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{github.sha}}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
@@ -144,11 +144,11 @@ jobs:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
@@ -160,10 +160,6 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Prepare Spark Resources
-        run: |
-          rm -rf /opt/shims/spark41
-          bash .github/workflows/util/install-spark-resources.sh 4.1
       - name: "Spark 4.1 backends-velox Tests (ANSI ON)"
         run: |
           set -o pipefail
@@ -176,7 +172,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
           -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee backends-velox-test-output.log
       - name: "Parse test results"
         if: always()
@@ -195,7 +191,7 @@ jobs:
           grep -B1 "<<< ERROR!" backends-velox-test-output.log || echo "(no errors)"
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-backends-velox-ansi-report
           path: |
@@ -203,7 +199,7 @@ jobs:
             backends-velox-test-output.log
       - name: Upload log files
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-backends-velox-ansi-logs
           path: |
@@ -216,11 +212,11 @@ jobs:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
@@ -232,10 +228,6 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Prepare Spark Resources
-        run: |
-          rm -rf /opt/shims/spark41
-          bash .github/workflows/util/install-spark-resources.sh 4.1
       - name: "Spark 4.1 spark-ut Tests (ANSI ON)"
         run: |
           set -o pipefail
@@ -249,7 +241,7 @@ jobs:
           $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
           -DwildcardSuites='org.apache.spark.' -Dtest=none -DfailIfNoTests=false \
           -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee spark-ut-test-output.log
       - name: "Parse test results"
         if: always()
@@ -268,7 +260,7 @@ jobs:
           grep -B1 "<<< ERROR!" spark-ut-test-output.log || echo "(no errors)"
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark-ut-ansi-report
           path: |
@@ -276,14 +268,14 @@ jobs:
             spark-ut-test-output.log
       - name: Upload offload data
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ansi-offload-spark41
           path: '**/target/ansi-offload/*.json'
           if-no-files-found: ignore
       - name: Upload log files
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark-ut-ansi-logs
           path: |
@@ -298,11 +290,11 @@ jobs:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
@@ -314,10 +306,6 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Prepare Spark Resources
-        run: |
-          rm -rf /opt/shims/spark40
-          bash .github/workflows/util/install-spark-resources.sh 4.0
       - name: "Spark 4.0 backends-velox Tests (ANSI ON)"
         run: |
           set -o pipefail
@@ -330,7 +318,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
           -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee backends-velox-spark40-test-output.log
       - name: "Parse test results"
         if: always()
@@ -349,7 +337,7 @@ jobs:
           grep -B1 "<<< ERROR!" backends-velox-spark40-test-output.log || echo "(no errors)"
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-backends-velox-ansi-spark40-report
           path: |
@@ -357,7 +345,7 @@ jobs:
             backends-velox-spark40-test-output.log
       - name: Upload log files
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-backends-velox-ansi-spark40-logs
           path: |
@@ -370,11 +358,11 @@ jobs:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download Native Lib
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-ansi-${{github.sha}}
           path: ./cpp/build/
@@ -386,10 +374,6 @@ jobs:
           pip3 install setuptools==77.0.3 && \
           pip3 install pyspark==3.5.5 cython && \
           pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Prepare Spark Resources
-        run: |
-          rm -rf /opt/shims/spark40
-          bash .github/workflows/util/install-spark-resources.sh 4.0
       - name: "Spark 4.0 spark-ut Tests (ANSI ON)"
         run: |
           set -o pipefail
@@ -403,7 +387,7 @@ jobs:
           $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
           -DwildcardSuites='org.apache.spark.' -Dtest=none -DfailIfNoTests=false \
           -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee spark-ut-spark40-test-output.log
       - name: "Parse test results"
         if: always()
@@ -422,7 +406,7 @@ jobs:
           grep -B1 "<<< ERROR!" spark-ut-spark40-test-output.log || echo "(no errors)"
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark-ut-ansi-spark40-report
           path: |
@@ -430,14 +414,14 @@ jobs:
             spark-ut-spark40-test-output.log
       - name: Upload offload data
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ansi-offload-spark40
           path: '**/target/ansi-offload/*.json'
           if-no-files-found: ignore
       - name: Upload log files
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spark-test-spark-ut-ansi-spark40-logs
           path: |
@@ -459,21 +443,21 @@ jobs:
       pull-requests: write
       models: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Download spark41 test reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: spark-test-*-ansi-report
           path: ./test-reports/
       - name: Download all test logs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: spark-test-*-logs
           path: ./test-logs/
       - name: Download spark41 offload data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: ansi-offload-spark41
           path: ./ansi-offload/
@@ -504,7 +488,7 @@ jobs:
       pull-requests: write
       models: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check-comment.outputs.pr_sha }}
       - name: Find latest ANSI workflow run with artifacts

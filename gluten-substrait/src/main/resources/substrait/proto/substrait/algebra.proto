@@ -79,9 +79,12 @@ message ReadRel {
     substrait.extensions.AdvancedExtension advanced_extension = 10;
   }
 
-  // A table composed of literals.
+  // A table composed of expressions.
   message VirtualTable {
-    repeated Expression.Literal.Struct values = 1;
+    reserved 1;
+    reserved "values";
+
+    repeated Expression.Nested.Struct expressions = 2;
   }
 
   // A stub type that can be used to extend/introduce new table types outside
@@ -295,11 +298,21 @@ message CrossRel {
   RelCommon common = 1;
   Rel left = 2;
   Rel right = 3;
+
+  substrait.extensions.AdvancedExtension advanced_extension = 10;
+}
+
+// The nested loop join (NLJ) operator will hold the entire right input and iterate over it using the
+// left input, evaluating the join expression on the Cartesian product of all rows.
+message NestedLoopJoinRel {
+  RelCommon common = 1;
+  Rel left = 2;
+  Rel right = 3;
+  // optional, defaults to true (a cartesian join)
   Expression expression = 4;
 
   JoinType type = 5;
 
-  // TODO -- Remove this unnecessary type.
   enum JoinType {
     JOIN_TYPE_UNSPECIFIED = 0;
     JOIN_TYPE_INNER = 1;
@@ -307,11 +320,13 @@ message CrossRel {
     JOIN_TYPE_LEFT = 3;
     JOIN_TYPE_RIGHT = 4;
     JOIN_TYPE_LEFT_SEMI = 5;
-    JOIN_TYPE_LEFT_ANTI = 6;
-    JOIN_TYPE_LEFT_SINGLE = 7;
-    JOIN_TYPE_RIGHT_SEMI = 8;
-    JOIN_TYPE_RIGHT_ANTI = 9;
+    JOIN_TYPE_RIGHT_SEMI = 6;
+    JOIN_TYPE_LEFT_ANTI = 7;
+    JOIN_TYPE_RIGHT_ANTI = 8;
+    JOIN_TYPE_LEFT_SINGLE = 9;
     JOIN_TYPE_RIGHT_SINGLE = 10;
+    JOIN_TYPE_LEFT_MARK = 11;
+    JOIN_TYPE_RIGHT_MARK = 12;
   }
 
   substrait.extensions.AdvancedExtension advanced_extension = 10;
@@ -319,22 +334,57 @@ message CrossRel {
 
 // The relational operator representing LIMIT/OFFSET or TOP type semantics.
 message FetchRel {
+  reserved 3, 4;
+  reserved "offset", "count";
+
   RelCommon common = 1;
   Rel input = 2;
-  // the offset expressed in number of records
-  int64 offset = 3;
-  // the amount of records to return
-  int64 count = 4;
+  // Expression evaluated into a non-negative integer specifying the number
+  // of records to skip. An expression evaluating to null is treated as 0.
+  // Evaluating to a negative integer should result in an error.
+  // Recommended type for offset is int64. Unset is treated as 0.
+  Expression offset_expr = 5;
+  // Expression evaluated into a non-negative integer specifying the number
+  // of records to return. An expression evaluating to null signals that ALL
+  // records should be returned.
+  // Evaluating to a negative integer should result in an error.
+  // Recommended type for count is int64. Unset signals that ALL records
+  // should be returned.
+  Expression count_expr = 6;
   substrait.extensions.AdvancedExtension advanced_extension = 10;
 }
 
-// The relational operator representing TOP N calculation
+// The top-N relational operator. A combination of a sort and fetch that only
+// maintains the number of records required to ensure a limited output.
 message TopNRel {
   RelCommon common = 1;
   Rel input = 2;
-  int64 n = 3;
-  repeated SortField sorts = 4;
-  substrait.extensions.AdvancedExtension advanced_extension = 10;
+
+  // List of one or more fields to sort by. At least one is required.
+  repeated SortField sorts = 3;
+
+  // Expression evaluating to a non-negative integer specifying the number of
+  // records to skip. Null is treated as 0. Recommended type is int64.
+  Expression offset = 4;
+
+  // Expression evaluating to a non-negative integer specifying the number of
+  // records to return. Null signals ALL. Recommended type is int64.
+  Expression count = 5;
+
+  // Determines how to handle rows tied with the last returned row.
+  FetchMode mode = 6;
+
+  substrait.extensions.AdvancedExtension advanced_extension = 7;
+}
+
+// Determines how a fetch operation handles rows tied with the last returned row.
+enum FetchMode {
+  // Unspecified. Producers must set one of the defined modes.
+  FETCH_MODE_UNSPECIFIED = 0;
+  // Only return the requested number of rows.
+  FETCH_MODE_ROWS_ONLY = 1;
+  // Include additional rows tied with the last row (per the sort fields).
+  FETCH_MODE_WITH_TIES = 2;
 }
 
 // The relational operator representing a GROUP BY Aggregate
@@ -344,16 +394,29 @@ message AggregateRel {
   // Input of the aggregation
   Rel input = 2;
 
-  // A list of expression grouping that the aggregation measured should be calculated for.
+  // A list of zero or more grouping sets that the aggregation measures should
+  // be calculated for. There must be at least one grouping set if there are no
+  // measures (but it can be the empty grouping set).
   repeated Grouping groupings = 3;
 
   // A list of one or more aggregate expressions along with an optional filter.
+  // Required if there are no groupings.
   repeated Measure measures = 4;
+
+  // A list of zero or more grouping expressions that grouping sets (i.e.,
+  // `Grouping` messages in the `groupings` field) can reference. Each
+  // expression in this list must be referred to by at least one
+  // `Grouping.expression_references`.
+  repeated Expression grouping_expressions = 5;
 
   substrait.extensions.AdvancedExtension advanced_extension = 10;
 
   message Grouping {
-    repeated Expression grouping_expressions = 1;
+    reserved 1;
+
+    // A list of zero or more references to grouping expressions, i.e., indices
+    // into the `grouping_expression` list.
+    repeated uint32 expression_references = 2;
   }
 
   message Measure {
@@ -375,16 +438,41 @@ message SortRel {
   substrait.extensions.AdvancedExtension advanced_extension = 10;
 }
 
-message WindowRel {
+message ConsistentPartitionWindowRel {
   RelCommon common = 1;
   Rel input = 2;
-  repeated Measure measures = 3;
+  repeated WindowRelFunction window_functions = 3;
   repeated Expression partition_expressions = 4;
   repeated SortField sorts = 5;
+
   substrait.extensions.AdvancedExtension advanced_extension = 10;
 
-  message Measure {
-    Expression.WindowFunction measure = 1;
+  // This message mirrors the `WindowFunction` message but removes the fields defining the partition,
+  // sorts, and bounds, since those must be consistent across the various functions in this rel.  Refer
+  // to the `WindowFunction` message for a description of these fields.
+  message WindowRelFunction {
+    // References a function_anchor defined in this plan.
+    uint32 function_reference = 1;
+
+    repeated FunctionArgument arguments = 9;
+
+    repeated FunctionOption options = 11;
+
+    Type output_type = 7;
+
+    AggregationPhase phase = 6;
+
+    AggregateFunction.AggregationInvocation invocation = 10;
+
+    Expression.WindowFunction.Bound lower_bound = 5;
+
+    Expression.WindowFunction.Bound upper_bound = 4;
+
+    Expression.WindowFunction.BoundsType bounds_type = 12;
+
+    // Gluten fork: output column name for this window function, consumed by the
+    // native backends to name the resulting window output column.
+    string column_name = 13;
   }
 }
 
@@ -560,11 +648,12 @@ message Rel {
     HashJoinRel hash_join = 13;
     MergeJoinRel merge_join = 14;
     ExpandRel expand = 15;
-    WindowRel window = 16;
+    ConsistentPartitionWindowRel window = 16;
     GenerateRel generate = 17;
-    WriteRel write = 18;
-    TopNRel top_n = 19;
+    WriteRel write = 19;
+    TopNRel top_n = 23;
     WindowGroupLimitRel windowGroupLimit = 20;
+    NestedLoopJoinRel nested_loop_join = 18;
   }
 }
 
@@ -645,41 +734,63 @@ message WriteRel {
   // The type of operation to perform
   WriteOp op = 4;
 
-  // The relation that determines the tuples to add/remove/modify
+  // The relation that determines the records to add/remove/modify
   // the schema must match with table_schema. Default values must be explicitly stated
   // in a ProjectRel at the top of the input. The match must also
   // occur in case of DELETE to ensure multi-engine plans are unequivocal.
   Rel input = 5;
 
+  CreateMode create_mode = 8; // Used with CTAS to determine what to do if the table already exists
+
   // Output mode determines what is the output of executing this rel
   OutputMode output = 6;
-
-  // The bucket spec for the writer.
-  BucketSpec bucket_spec = 7;
+  // Note: tag 7 previously held Gluten's local `bucket_spec` (now 1000). Both `BucketSpec` and
+  // `RelCommon` are length-delimited, so a JAR and a native library built from opposite sides of
+  // that move mis-read tag 7 silently instead of failing; they must be rebuilt together.
+  RelCommon common = 7;
 
   enum WriteOp {
     WRITE_OP_UNSPECIFIED = 0;
-    // The insert of new tuples in a table
+    // The insert of new records in a table
     WRITE_OP_INSERT = 1;
-    // The removal of tuples from a table
+    // The removal of records from a table
     WRITE_OP_DELETE = 2;
-    // The modification of existing tuples within a table
+    // The modification of existing records within a table
     WRITE_OP_UPDATE = 3;
-    // The Creation of a new table, and the insert of new tuples in the table
+    // The Creation of a new table, and the insert of new records in the table
     WRITE_OP_CTAS = 4;
+  }
+
+  enum CreateMode {
+    CREATE_MODE_UNSPECIFIED = 0;
+    CREATE_MODE_APPEND_IF_EXISTS = 1; // Append the data to the table if it already exists
+    CREATE_MODE_REPLACE_IF_EXISTS = 2; // Replace the table if it already exists ("OR REPLACE")
+    CREATE_MODE_IGNORE_IF_EXISTS = 3; // Ignore the request if the table already exists ("IF NOT EXISTS")
+    CREATE_MODE_ERROR_IF_EXISTS = 4; // Throw an error if the table already exists (default behavior)
   }
 
   enum OutputMode {
     OUTPUT_MODE_UNSPECIFIED = 0;
-    // return no tuples at all
+    // return no records at all
     OUTPUT_MODE_NO_OUTPUT = 1;
-    // this mode makes the operator return all the tuple INSERTED/DELETED/UPDATED by the operator.
+    // this mode makes the operator return all the record INSERTED/DELETED/UPDATED by the operator.
     // The operator returns the AFTER-image of any change. This can be further manipulated by operators upstreams
-    // (e.g., retunring the typical "count of modified tuples").
+    // (e.g., retunring the typical "count of modified records").
     // For scenarios in which the BEFORE image is required, the user must implement a spool (via references to
     // subplans in the body of the Rel input) and return those with anounter PlanRel.relations.
-    OUTPUT_MODE_MODIFIED_TUPLES = 2;
+    OUTPUT_MODE_MODIFIED_RECORDS = 2;
   }
+
+  // Note: Gluten's writer carries its configuration in `named_table.advanced_extension`, not in
+  // this field, and nothing on the native side reads this one.
+  substrait.extensions.AdvancedExtension advanced_extension = 9;
+
+  // Gluten addition (not in upstream Substrait): the bucket spec for the writer, used for
+  // Hive-compatible bucketed writes. This started at field 7, the next free number when Gluten's
+  // Substrait base was v0.23.0, and upstream 0.98 then claimed 7 for `common`. Numbering the
+  // graft from 1000 up keeps it clear of the range upstream allocates from (WriteRel currently
+  // ends at 9), so a future upstream field addition cannot collide with it again.
+  BucketSpec bucket_spec = 1000;
 
   // A container for bucketing information.
   message BucketSpec {
@@ -772,6 +883,10 @@ message FunctionOption {
 }
 
 message Expression {
+  reserved 10;
+
+  reserved "enum";
+
   oneof rex_type {
     Literal literal = 1;
     FieldReference selection = 2;
@@ -784,24 +899,6 @@ message Expression {
     Cast cast = 11;
     Subquery subquery = 12;
     Nested nested = 13;
-
-    // deprecated: enum literals are only sensible in the context of
-    // function arguments, for which FunctionArgument should now be
-    // used
-    Enum enum = 10 [deprecated = true];
-  }
-
-  message Enum {
-    option deprecated = true;
-
-    oneof enum_kind {
-      string specified = 1;
-      Empty unspecified = 2;
-    }
-
-    message Empty {
-      option deprecated = true;
-    }
   }
 
   message Literal {
@@ -1045,8 +1142,8 @@ message Expression {
     // Optional; defaults to the start of the partition.
     Bound lower_bound = 5;
 
-    string column_name = 12;
-    WindowType window_type = 13;
+    // Defines the bounds type: ROWS, RANGE
+    BoundsType bounds_type = 12;
 
     // Defines the record relative to the current record up to which the window
     // extends. The bound is inclusive. If the upper bound indexes a record
@@ -1057,6 +1154,18 @@ message Expression {
 
     // Deprecated; use arguments instead.
     repeated Expression args = 8 [deprecated = true];
+
+    enum BoundsType {
+      BOUNDS_TYPE_UNSPECIFIED = 0;
+      // The lower and upper bound specify how many rows before and after the current row
+      // the window should extend.
+      BOUNDS_TYPE_ROWS = 1;
+      // The lower and upper bound describe a range of values.  The window should include all rows
+      // where the value of the ordering column is greater than or equal to (current_value - lower bound)
+      // and less than or equal to (current_value + upper bound).  This bounds type is only valid if there
+      // is a single ordering column.
+      BOUNDS_TYPE_RANGE = 2;
+    }
 
     // Defines one of the two boundaries for the window of a window function.
     message Bound {
@@ -1089,9 +1198,10 @@ message Expression {
       // Defines that the bound extends to or from the current record.
       message CurrentRow {}
 
-      message Unbounded_Preceding {}
-
-      message Unbounded_Following {}
+      // Defines an "unbounded bound": for lower bounds this means the start
+      // of the partition, and for upper bounds this means the end of the
+      // partition.
+      message Unbounded {}
 
       oneof kind {
         // The bound extends some number of records behind the current record.
@@ -1104,8 +1214,10 @@ message Expression {
         // The bound extends to the current record.
         CurrentRow current_row = 3;
 
-        Unbounded_Preceding unbounded_preceding = 4;
-        Unbounded_Following unbounded_following = 5;
+        // The bound extends to the start of the partition or the end of the
+        // partition, depending on whether this represents the upper or lower
+        // bound.
+        Unbounded unbounded = 4;
       }
     }
   }
@@ -1452,11 +1564,6 @@ enum AggregationPhase {
   // This call should combine the intermediate values to yield the final
   // return value.
   AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT = 4;
-}
-
-enum WindowType {
-  ROWS = 0;
-  RANGE = 1;
 }
 
 // An aggregate function.

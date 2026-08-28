@@ -16,9 +16,13 @@
  */
 package org.apache.spark.sql.execution
 
+import org.apache.gluten.execution.{CPUStageMode, StageExecutionMode}
+
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
-import org.apache.spark.shuffle.sort.SortShuffleManager
+import org.apache.spark.shuffle.{ShuffleHandle, ShuffleManager, ShuffleReader, ShuffleReadMetricsReporter}
+import org.apache.spark.shuffle.sort.{ColumnarShuffleManager, SortShuffleManager}
+import org.apache.spark.sql.execution.ShuffledColumnarBatchRDD.getReader
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.metric.SQLColumnarShuffleReadMetricsReporter
@@ -45,7 +49,8 @@ class ShuffleReaderWithMetricsIterator(
 class ShuffledColumnarBatchRDD(
     var dependency: ShuffleDependency[Int, ColumnarBatch, ColumnarBatch],
     metrics: Map[String, SQLMetric],
-    partitionSpecs: Array[ShufflePartitionSpec])
+    partitionSpecs: Array[ShufflePartitionSpec],
+    executionMode: StageExecutionMode)
   extends RDD[ColumnarBatch](dependency.rdd.context, Nil) {
 
   override val partitioner: Option[Partitioner] =
@@ -68,11 +73,14 @@ class ShuffledColumnarBatchRDD(
 
   def this(
       dependency: ShuffleDependency[Int, ColumnarBatch, ColumnarBatch],
-      metrics: Map[String, SQLMetric]) = {
+      metrics: Map[String, SQLMetric],
+      executionMode: StageExecutionMode = CPUStageMode) = {
     this(
       dependency,
       metrics,
-      Array.tabulate(dependency.partitioner.numPartitions)(i => CoalescedPartitionSpec(i, i + 1)))
+      Array.tabulate(dependency.partitioner.numPartitions)(i => CoalescedPartitionSpec(i, i + 1)),
+      executionMode
+    )
   }
 
   override def getDependencies: Seq[Dependency[_]] = List(dependency)
@@ -106,44 +114,53 @@ class ShuffledColumnarBatchRDD(
     // `SQLShuffleReadMetricsReporter` will update its own metrics for SQL exchange operator,
     // as well as the `tempMetrics` for basic shuffle metrics.
     val sqlMetricsReporter = new SQLColumnarShuffleReadMetricsReporter(tempMetrics, metrics)
+
     val reader = split.asInstanceOf[ShuffledColumnarBatchRDDPartition].spec match {
       case CoalescedPartitionSpec(startReducerIndex, endReducerIndex, _) =>
-        SparkEnv.get.shuffleManager.getReader(
+        getReader(
+          SparkEnv.get.shuffleManager,
           dependency.shuffleHandle,
           startReducerIndex,
           endReducerIndex,
           context,
-          sqlMetricsReporter)
+          sqlMetricsReporter,
+          executionMode)
 
       case PartialReducerPartitionSpec(reducerIndex, startMapIndex, endMapIndex, _) =>
-        SparkEnv.get.shuffleManager.getReader(
+        getReader(
+          SparkEnv.get.shuffleManager,
           dependency.shuffleHandle,
           startMapIndex,
           endMapIndex,
           reducerIndex,
           reducerIndex + 1,
           context,
-          sqlMetricsReporter)
+          sqlMetricsReporter,
+          executionMode)
 
       case PartialMapperPartitionSpec(mapIndex, startReducerIndex, endReducerIndex) =>
-        SparkEnv.get.shuffleManager.getReader(
+        getReader(
+          SparkEnv.get.shuffleManager,
           dependency.shuffleHandle,
           mapIndex,
           mapIndex + 1,
           startReducerIndex,
           endReducerIndex,
           context,
-          sqlMetricsReporter)
+          sqlMetricsReporter,
+          executionMode)
 
       case CoalescedMapperPartitionSpec(startMapIndex, endMapIndex, numReducers) =>
-        SparkEnv.get.shuffleManager.getReader(
+        getReader(
+          SparkEnv.get.shuffleManager,
           dependency.shuffleHandle,
           startMapIndex,
           endMapIndex,
           0,
           numReducers,
           context,
-          sqlMetricsReporter)
+          sqlMetricsReporter,
+          executionMode)
     }
     new ShuffleReaderWithMetricsIterator(
       reader.read().asInstanceOf[Iterator[Product2[Int, ColumnarBatch]]],
@@ -153,5 +170,60 @@ class ShuffledColumnarBatchRDD(
   override def clearDependencies(): Unit = {
     super.clearDependencies()
     dependency = null
+  }
+}
+
+object ShuffledColumnarBatchRDD {
+  private def getReader[K, C](
+      shuffleManager: ShuffleManager,
+      handle: ShuffleHandle,
+      startMapIndex: Int,
+      endMapIndex: Int,
+      startPartition: Int,
+      endPartition: Int,
+      context: TaskContext,
+      metrics: ShuffleReadMetricsReporter,
+      executionMode: StageExecutionMode): ShuffleReader[K, C] = {
+    shuffleManager match {
+      case columnarShuffleManager: ColumnarShuffleManager =>
+        columnarShuffleManager.getReader(
+          handle,
+          startMapIndex,
+          endMapIndex,
+          startPartition,
+          endPartition,
+          context,
+          metrics,
+          executionMode)
+      case _ =>
+        shuffleManager.getReader(
+          handle,
+          startMapIndex,
+          endMapIndex,
+          startPartition,
+          endPartition,
+          context,
+          metrics)
+    }
+  }
+
+  private def getReader[K, C](
+      shuffleManager: ShuffleManager,
+      handle: ShuffleHandle,
+      startPartition: Int,
+      endPartition: Int,
+      context: TaskContext,
+      metrics: ShuffleReadMetricsReporter,
+      executionMode: StageExecutionMode): ShuffleReader[K, C] = {
+    getReader[K, C](
+      shuffleManager,
+      handle,
+      0,
+      Int.MaxValue,
+      startPartition,
+      endPartition,
+      context,
+      metrics,
+      executionMode)
   }
 }

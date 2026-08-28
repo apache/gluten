@@ -16,7 +16,10 @@
  */
 package org.apache.gluten.memory.memtarget;
 
+import javax.annotation.concurrent.ThreadSafe;
+
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public final class Spillers {
   private Spillers() {
@@ -61,8 +64,13 @@ public final class Spillers {
     }
   }
 
+  @ThreadSafe
   public static class AppendableSpillerList implements Spiller {
-    private final List<Spiller> spillers = new ArrayList<>();
+    // Callers keep appending after the list is registered with the task's memory tree, and the walk
+    // below runs on whichever thread hit the memory limit, holding the iteration open across a JNI
+    // spill. So an append can land mid-walk, and the two sides share no lock. Copy-on-write also
+    // stays correct if a spiller ever appends during its own spill, which a lock would not cover.
+    private final CopyOnWriteArrayList<Spiller> spillers = new CopyOnWriteArrayList<>();
 
     private AppendableSpillerList() {}
 

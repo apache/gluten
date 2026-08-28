@@ -291,7 +291,6 @@ Arguments: false
 
 (48) VeloxResizeBatches
 Input [6]: [hash_partition_key#X, supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
-Arguments: X, X, X
 
 (49) ColumnarExchange
 Input [6]: [hash_partition_key#X, supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
@@ -320,7 +319,6 @@ Arguments: false
 
 (55) VeloxResizeBatches
 Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
-Arguments: X, X, X
 
 (56) ColumnarExchange
 Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]

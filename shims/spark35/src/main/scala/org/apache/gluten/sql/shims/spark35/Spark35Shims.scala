@@ -27,6 +27,7 @@ import org.apache.spark.paths.SparkPath
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.{ExtendedAnalysisException, InternalRow}
 import org.apache.spark.sql.catalyst.analysis.DecimalPrecision
+import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
@@ -47,6 +48,7 @@ import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleEx
 import org.apache.spark.sql.execution.window.{Final, GlutenFinal, GlutenPartial, Partial, WindowGroupLimitExec, WindowGroupLimitExecShim}
 import org.apache.spark.sql.internal.{LegacyBehaviorPolicy, SQLConf}
 import org.apache.spark.sql.types.{DecimalType, IntegerType, LongType, StructField, StructType}
+import org.apache.spark.storage.{GlutenShuffleBlockFetcherIterator, GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.parquet.hadoop.metadata.FileMetaData.EncryptionType
@@ -71,7 +73,8 @@ class Spark35Shims extends SparkShims {
       Sig[ArrayAppend](ExpressionNames.ARRAY_APPEND),
       Sig[UrlEncode](ExpressionNames.URL_ENCODE),
       Sig[UrlDecode](ExpressionNames.URL_DECODE),
-      Sig[ToPrettyString](ExpressionNames.TO_PRETTY_STRING)
+      Sig[ToPrettyString](ExpressionNames.TO_PRETTY_STRING),
+      Sig[RegExpInStr](ExpressionNames.REGEXP_INSTR)
     )
   }
 
@@ -247,6 +250,20 @@ class Spark35Shims extends SparkShims {
   }
 
   override def enableNativeWriteFilesByDefault(): Boolean = true
+
+  override def getV1WriteRequiredOrdering(
+      outputColumns: Seq[Attribute],
+      partitionColumns: Seq[Attribute],
+      bucketSpec: Option[BucketSpec],
+      options: Map[String, String],
+      numStaticPartitionCols: Int): Seq[SortOrder] = {
+    V1WritesUtils.getSortOrder(
+      outputColumns,
+      partitionColumns,
+      bucketSpec,
+      options,
+      numStaticPartitionCols)
+  }
 
   override def broadcastInternal[T: ClassTag](sc: SparkContext, value: T): Broadcast[T] = {
     SparkContextUtils.broadcastInternal(sc, value)
@@ -473,6 +490,7 @@ class Spark35Shims extends SparkShims {
       case s: Subtract => s.evalMode == EvalMode.ANSI
       case d: Divide => d.evalMode == EvalMode.ANSI
       case m: Multiply => m.evalMode == EvalMode.ANSI
+      case c: Cast => c.evalMode == EvalMode.ANSI
       case i: IntegralDivide => i.evalMode == EvalMode.ANSI
       case _ => false
     }
@@ -585,5 +603,29 @@ class Spark35Shims extends SparkShims {
 
   override def isFinalAdaptivePlan(p: AdaptiveSparkPlanExec): Boolean = {
     p.isFinalPlan
+  }
+
+  override def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
+      : GlutenShuffleBlockFetcherIteratorBase = {
+    new GlutenShuffleBlockFetcherIterator(
+      params.context,
+      params.shuffleClient,
+      params.blockManager,
+      params.mapOutputTracker,
+      params.blocksByAddress,
+      params.streamWrapper,
+      params.maxBytesInFlight,
+      params.maxReqsInFlight,
+      params.maxBlocksInFlightPerAddress,
+      params.maxReqSizeShuffleToMem,
+      params.maxAttemptsOnNettyOOM,
+      params.detectCorrupt,
+      params.detectCorruptUseExtraMemory,
+      params.checksumEnabled,
+      params.checksumAlgorithm,
+      params.shuffleMetrics,
+      params.doBatchFetch,
+      params.clock
+    )
   }
 }

@@ -21,6 +21,7 @@
 #include <DataTypes/DataTypeTuple.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/ExpressionActions.h>
+#include <Parser/SubstraitParserUtils.h>
 #include <Parser/TypeParser.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/Transforms/MaterializingTransform.h>
@@ -196,7 +197,7 @@ void addSinkTransform(const DB::ContextPtr & context, const substrait::WriteRel 
     const substrait::NamedObjectWrite & named_table = write_rel.named_table();
 
     local_engine::Write write;
-    if (!named_table.advanced_extension().optimization().UnpackTo(&write))
+    if (!firstOptimizationOrDefault(named_table.advanced_extension()).UnpackTo(&write))
         throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR, "Failed to unpack write optimization with local_engine::Write.");
     assert(write.has_common());
     const substrait::NamedStruct & table_schema = write_rel.table_schema();

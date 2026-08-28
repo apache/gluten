@@ -248,7 +248,6 @@ Arguments: false
 
 (47) VeloxResizeBatches
 Input [3]: [hash_partition_key#20, s_name#2, count#19]
-Arguments: 1024, 2147483647, 10485760
 
 (48) ColumnarExchange
 Input [3]: [hash_partition_key#20, s_name#2, count#19]

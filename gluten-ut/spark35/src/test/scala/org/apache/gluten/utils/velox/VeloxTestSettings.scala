@@ -46,6 +46,7 @@ import org.apache.spark.sql.sources._
 // scalastyle:off line.size.limit
 
 class VeloxTestSettings extends BackendTestSettings {
+  import SuiteSettings._
   enableSuite[GlutenStringFunctionsSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
@@ -103,6 +104,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("data type casting")
     // Revised by setting timezone through config and commented unsupported cases.
     .exclude("cast string to timestamp")
+    // Excluded in favour of the GlutenCastSuite rewrite, which drops the Long.MinValue
+    // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
     .exclude("SPARK-36286: invalid string cast to timestamp")
     .exclude("SPARK-39749: cast Decimal to string")
@@ -111,12 +114,6 @@ class VeloxTestSettings extends BackendTestSettings {
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
     )
     .exclude("cast from timestamp II") // Rewrite test for Gluten not supported with ANSI mode
-    .exclude("ANSI mode: Throw exception on casting out-of-range value to byte type")
-    .exclude("ANSI mode: Throw exception on casting out-of-range value to short type")
-    .exclude("ANSI mode: Throw exception on casting out-of-range value to int type")
-    .exclude("ANSI mode: Throw exception on casting out-of-range value to long type")
-    .exclude("cast from invalid string to numeric should throw NumberFormatException")
-    .exclude("SPARK-26218: Fix the corner case of codegen when casting float to Integer")
     // Set timezone through config.
     .exclude("data type casting")
     // Revised by setting timezone through config and commented unsupported cases.
@@ -585,9 +582,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
     .exclude("create a table, drop it and create another one with the same name")
   enableSuite[GlutenDDLSourceLoadSuite]
-  enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite]
-    .disable(
-      "DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type")
+  disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
+    "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
   enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuiteAE]
   enableSuite[GlutenExternalCommandRunnerSuite]
   enableSuite[GlutenFilteredScanSuite]
@@ -595,6 +591,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenInsertSuite]
     // the native write staing dir is differnt with vanilla Spark for coustom partition paths
     .exclude("SPARK-35106: Throw exception when rename custom partition paths returns false")
+    // The case expects a SparkException; Gluten surfaces the raw
+    // FileAlreadyExistsException instead.
     .exclude("Stop task set if FileAlreadyExistsException was thrown")
     // Rewrite: Additional support for file scan with default values has been added in Spark-3.4.
     // It appends the default value in record if it is not present while scanning.
@@ -753,6 +751,12 @@ class VeloxTestSettings extends BackendTestSettings {
     // rewrite `WindowExec -> WindowExecTransformer`
     .exclude(
       "SPARK-38237: require all cluster keys for child required distribution for window query")
+    // The window orderBy has no tie-breaker, so rows tied in the window order can be emitted
+    // in any order. Velox TopNRowNumber orders peer rows differently than Spark's stable sort,
+    // making the running-frame collect_list result differ on tied rows. Both results are valid.
+    .exclude(
+      "SPARK-45543: InferWindowGroupLimit causes bug if the other window functions" +
+        " haven't the same window frame as the rank-like functions")
   enableSuite[GlutenDataFrameWindowFramesSuite]
     // Local window fixes are not added.
     .exclude("range between should accept int/long values as boundary")
@@ -785,10 +789,14 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOn]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOnDisableScan]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffDisableScan]
+  enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOnDisableProject]
+  enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOffDisableProject]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOff]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOn]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOnDisableScan]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffDisableScan]
+  enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOnDisableProject]
+  enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOffDisableProject]
   enableSuite[GlutenExpressionsSchemaSuite]
   enableSuite[GlutenExtraStrategiesSuite]
   enableSuite[GlutenFileBasedDataSourceSuite]
@@ -913,6 +921,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenWindowQuerySuite]
   enableSuite[GlutenCollapseProjectExecTransformerSuite]
   enableSuite[GlutenSparkSessionExtensionSuite]
+    .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenGroupBasedDeleteFromTableSuite]
   enableSuite[GlutenDeltaBasedDeleteFromTableSuite]
   enableSuite[GlutenDataFrameToSchemaSuite]

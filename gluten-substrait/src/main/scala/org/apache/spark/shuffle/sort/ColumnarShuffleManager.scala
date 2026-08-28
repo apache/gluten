@@ -16,6 +16,7 @@
  */
 package org.apache.spark.shuffle.sort
 
+import org.apache.gluten.execution.{CPUStageMode, StageExecutionMode}
 import org.apache.gluten.shuffle.SupportsColumnarShuffle
 
 import org.apache.spark.{ShuffleDependency, SparkConf, SparkEnv, TaskContext}
@@ -132,6 +133,26 @@ class ColumnarShuffleManager(conf: SparkConf)
       endPartition: Int,
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter): ShuffleReader[K, C] = {
+    getReader[K, C](
+      handle,
+      startMapIndex,
+      endMapIndex,
+      startPartition,
+      endPartition,
+      context,
+      metrics,
+      CPUStageMode)
+  }
+
+  def getReader[K, C](
+      handle: ShuffleHandle,
+      startMapIndex: Int,
+      endMapIndex: Int,
+      startPartition: Int,
+      endPartition: Int,
+      context: TaskContext,
+      metrics: ShuffleReadMetricsReporter,
+      executionMode: StageExecutionMode): ShuffleReader[K, C] = {
     GlutenShuffleUtils.genColumnarShuffleReader(
       handle,
       startMapIndex,
@@ -139,7 +160,8 @@ class ColumnarShuffleManager(conf: SparkConf)
       startPartition,
       endPartition,
       context,
-      metrics)
+      metrics,
+      executionMode)
   }
 
   /** Remove a shuffle's metadata from the ShuffleManager. */

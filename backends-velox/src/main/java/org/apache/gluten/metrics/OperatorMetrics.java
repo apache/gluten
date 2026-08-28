@@ -43,6 +43,9 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long abandonedPartialAggregationRows;
   public long loadedToValueHook;
   public long bloomFilterBlocksByteSize;
+  public long bloomFilterTestedRows;
+  public long bloomFilterAcceptedRows;
+  public long bloomFilterBypassed;
   public long skippedSplits;
   public long processedSplits;
   public long skippedStrides;
@@ -63,6 +66,9 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long numWrittenFiles;
 
   public long loadLazyVectorTime;
+
+  /** Create an empty instance for operator metrics. */
+  public OperatorMetrics() {}
 
   /** Create an instance for operator metrics. */
   public OperatorMetrics(

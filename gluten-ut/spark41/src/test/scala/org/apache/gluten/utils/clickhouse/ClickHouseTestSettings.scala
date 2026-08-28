@@ -43,6 +43,7 @@ import org.apache.spark.sql.sources._
 // scalastyle:off line.size.limit
 
 class ClickHouseTestSettings extends BackendTestSettings {
+  import SuiteSettings._
 
   enableSuite[ClickHouseAdaptiveQueryExecSuite]
     .includeAllGlutenTests()
@@ -736,9 +737,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .includeCH("update char/varchar columns")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
   enableSuite[GlutenDeprecatedAPISuite]
-  enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite]
-    .disable(
-      "DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type")
+  disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
+    "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
   enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuiteAE]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOff]
     .excludeGlutenTest("Subquery reuse across the whole plan")
@@ -2073,6 +2073,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("sorting on YearMonthIntervalType(0,1) with nullable=false, sortOrder=List('a DESC NULLS LAST)")
     .excludeCH("sorting on YearMonthIntervalType(0,1) with nullable=false, sortOrder=List('a DESC NULLS FIRST)")
   enableSuite[GlutenSparkSessionExtensionSuite]
+    .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenStatisticsCollectionSuite]
     // The output byte size of Velox is different
     .includeCH("SPARK-33687: analyze all tables in a specific database")

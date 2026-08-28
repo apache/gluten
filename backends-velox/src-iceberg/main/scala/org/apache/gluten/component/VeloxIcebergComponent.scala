@@ -23,14 +23,18 @@ import org.apache.gluten.extension.injector.Injector
 import org.apache.spark.util.SparkReflectionUtil
 
 class VeloxIcebergComponent extends Component {
+  private val icebergSparkSessionExtension =
+    "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+
   override def name(): String = "velox-iceberg"
 
   override def dependencies(): Seq[Class[_ <: Component]] = classOf[VeloxBackend] :: Nil
 
   override def isRuntimeCompatible: Boolean = {
-    SparkReflectionUtil.isClassPresent(
-      "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
+    SparkReflectionUtil.isClassPresent(icebergSparkSessionExtension)
   }
+
+  override def sparkSessionExtensions(): Seq[String] = icebergSparkSessionExtension :: Nil
 
   override def injectRules(injector: Injector): Unit = {
     OffloadIcebergScan.inject(injector)

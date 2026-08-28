@@ -33,6 +33,6 @@ class UnionMetricsUpdater(val metrics: Map[String, SQLMetric]) extends MetricsUp
     metrics("inputBytes") += localExchangeMetrics.inputBytes
     metrics("cpuCount") += localExchangeMetrics.cpuCount
     metrics("wallNanos") += localExchangeMetrics.wallNanos
-    metrics("loadLazyVectorTime") += unionMetrics.asScala.last.loadLazyVectorTime
+    metrics("loadLazyVectorTime") += unionMetrics.asScala.map(_.loadLazyVectorTime).sum
   }
 }

@@ -26,7 +26,9 @@ public class TimestampTypeNode extends TypeNode {
 
   @Override
   public Type toProtobuf() {
-    Type.TimestampTZ.Builder timestampBuilder = Type.TimestampTZ.newBuilder();
+    Type.PrecisionTimestampTZ.Builder timestampBuilder = Type.PrecisionTimestampTZ.newBuilder();
+    // Spark's TimestampType is microsecond precision.
+    timestampBuilder.setPrecision(6);
     if (nullable) {
       timestampBuilder.setNullability(Type.Nullability.NULLABILITY_NULLABLE);
     } else {
@@ -34,7 +36,7 @@ public class TimestampTypeNode extends TypeNode {
     }
 
     Type.Builder builder = Type.newBuilder();
-    builder.setTimestampTz(timestampBuilder.build());
+    builder.setPrecisionTimestampTz(timestampBuilder.build());
     return builder.build();
   }
 }

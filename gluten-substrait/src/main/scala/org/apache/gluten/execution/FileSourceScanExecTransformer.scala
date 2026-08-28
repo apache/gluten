@@ -29,6 +29,7 @@ import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.execution.FileSourceScanExecShim
+import org.apache.spark.sql.execution.adaptive.InputStats
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.types.StructType
@@ -48,7 +49,8 @@ case class FileSourceScanExecTransformer(
     override val dataFilters: Seq[Expression],
     override val tableIdentifier: Option[TableIdentifier],
     override val disableBucketedScan: Boolean = false,
-    override val pushDownFilters: Option[Seq[Expression]] = None)
+    override val pushDownFilters: Option[Seq[Expression]] = None,
+    inputStats: Option[InputStats] = None)
   extends FileSourceScanExecTransformerBase(
     relation,
     stream,
@@ -61,6 +63,10 @@ case class FileSourceScanExecTransformer(
     tableIdentifier,
     disableBucketedScan
   ) {
+
+  override def getInputStats: Option[InputStats] = {
+    inputStats
+  }
 
   override def doCanonicalize(): FileSourceScanExecTransformer = {
     FileSourceScanExecTransformer(
@@ -78,7 +84,8 @@ case class FileSourceScanExecTransformer(
       QueryPlan.normalizePredicates(dataFilters, output),
       None,
       disableBucketedScan,
-      pushDownFilters.map(QueryPlan.normalizePredicates(_, output))
+      pushDownFilters.map(QueryPlan.normalizePredicates(_, output)),
+      inputStats
     )
   }
 

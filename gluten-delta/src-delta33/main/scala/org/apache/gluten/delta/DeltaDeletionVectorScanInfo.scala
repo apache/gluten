@@ -24,9 +24,10 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.delta.DeltaParquetFileFormat
 import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
 import org.apache.spark.sql.delta.deletionvectors.{RoaringBitmapArrayFormat, StoredBitmap}
-import org.apache.spark.sql.delta.storage.dv.HadoopFileSystemDVStore
+import org.apache.spark.sql.delta.storage.dv.{DeletionVectorStore, HadoopFileSystemDVStore}
 import org.apache.spark.sql.execution.datasources.PartitionedFile
 
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
 import java.util.{Map => JMap}
@@ -61,10 +62,23 @@ object DeltaDeletionVectorScanInfo {
    * Materializes per-file Delta DV read options for a split, alongside each file's metadata with
    * the DV bookkeeping keys stripped. Returns None when no file in the split carries a deletion
    * vector, so callers can keep the generic split representation.
+   *
+   * `tablePath` is the Delta table root, supplied by the caller from `TahoeFileIndex.path`, and is
+   * used to resolve on-disk DV locations. A single Hadoop Configuration is reused across all files
+   * in the partition.
    */
-  def normalize(partitionColumnCount: Int, partitionFiles: Seq[PartitionedFile])
+  def normalize(
+      partitionFiles: Seq[PartitionedFile],
+      tablePath: Path)
       : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
-    val scanInfos = extractAll(activeSparkSession, partitionColumnCount, partitionFiles)
+    if (partitionFiles.isEmpty) {
+      return None
+    }
+    val spark = activeSparkSession
+    // Create a single Hadoop Configuration for the entire partition.
+    val hadoopConf = spark.sessionState.newHadoopConf()
+
+    val scanInfos = partitionFiles.map(file => extract(file, hadoopConf, tablePath))
     if (scanInfos.exists(_.deletionVectorInfo.hasDeletionVector)) {
       Some(
         (
@@ -75,21 +89,23 @@ object DeltaDeletionVectorScanInfo {
     }
   }
 
+  /** Public entry point for extracting DV info from a single file (used by tests). */
   def extract(
       spark: SparkSession,
-      partitionColumnCount: Int,
-      file: PartitionedFile): PartitionFileScanInfo = {
-    val metadata = otherMetadataColumns(file)
-    val normalizedMetadata = metadata -- Seq(RowIndexFilterIdEncoded, RowIndexFilterTypeKey)
-    val dvInfo = extractDeletionVectorInfo(spark, partitionColumnCount, file, metadata)
-    PartitionFileScanInfo(normalizedMetadata, dvInfo)
+      file: PartitionedFile,
+      tablePath: Path): PartitionFileScanInfo = {
+    val hadoopConf = spark.sessionState.newHadoopConf()
+    extract(file, hadoopConf, tablePath)
   }
 
-  def extractAll(
-      spark: SparkSession,
-      partitionColumnCount: Int,
-      files: Seq[PartitionedFile]): Seq[PartitionFileScanInfo] = {
-    files.map(extract(spark, partitionColumnCount, _))
+  private def extract(
+      file: PartitionedFile,
+      hadoopConf: Configuration,
+      tablePath: Path): PartitionFileScanInfo = {
+    val metadata = otherMetadataColumns(file)
+    val normalizedMetadata = metadata -- Seq(RowIndexFilterIdEncoded, RowIndexFilterTypeKey)
+    val dvInfo = extractDeletionVectorInfo(metadata, hadoopConf, tablePath)
+    PartitionFileScanInfo(normalizedMetadata, dvInfo)
   }
 
   private def toDeltaFileReadOptions(dvInfo: DeletionVectorInfo): DeltaFileReadOptions = {
@@ -119,10 +135,9 @@ object DeltaDeletionVectorScanInfo {
   }
 
   private def extractDeletionVectorInfo(
-      spark: SparkSession,
-      partitionColumnCount: Int,
-      file: PartitionedFile,
-      metadata: Map[String, Object]): DeletionVectorInfo = {
+      metadata: Map[String, Object],
+      hadoopConf: Configuration,
+      tablePath: Path): DeletionVectorInfo = {
     val descriptorValue = metadata.get(RowIndexFilterIdEncoded)
     val filterTypeValue = metadata.get(RowIndexFilterTypeKey)
 
@@ -131,7 +146,7 @@ object DeltaDeletionVectorScanInfo {
         DeletionVectorInfo(false, KEEP_ALL, 0L, Array.emptyByteArray)
       case (Some(encodedDescriptor), Some(filterType)) =>
         val descriptor = parseDescriptor(encodedDescriptor.toString)
-        val serializedPayload = serializePayload(spark, partitionColumnCount, file, descriptor)
+        val serializedPayload = serializePayload(hadoopConf, tablePath, descriptor)
         DeletionVectorInfo(
           true,
           parseRowIndexFilterType(filterType.toString),
@@ -172,75 +187,64 @@ object DeltaDeletionVectorScanInfo {
     }
   }
 
+  /**
+   * Reads the DV payload bytes for the native engine. For on-disk DVs, reads the raw bytes directly
+   * from the DV file using Delta's `DeletionVectorStore.readRangeFromStream`, which includes
+   * checksum verification. The on-disk format is already Portable Roaring Bitmap Array (the format
+   * the native Velox side expects), so this skips the expensive
+   * deserialize-into-Java-Roaring-objects + re-serialize round-trip.
+   *
+   * Falls back to the standard load+serialize path for inline DVs (small payloads embedded in Delta
+   * metadata) which don't have a file to read from.
+   */
   private def serializePayload(
-      spark: SparkSession,
-      partitionColumnCount: Int,
-      file: PartitionedFile,
+      hadoopConf: Configuration,
+      tablePath: Path,
       descriptor: DeletionVectorDescriptor): Array[Byte] = {
-    val tablePath = resolveTablePath(spark, partitionColumnCount, file)
     if (tablePath == null) {
       throw new IllegalStateException(
         "Unable to resolve Delta table path while materializing deletion vector payload")
     }
-    val dvStore = new HadoopFileSystemDVStore(spark.sessionState.newHadoopConf())
-    StoredBitmap
-      .create(descriptor, tablePath)
-      .load(dvStore)
-      .serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
-  }
-
-  private def resolveTablePath(
-      spark: SparkSession,
-      partitionColumnCount: Int,
-      file: PartitionedFile): Path = {
-    val fileParent = new Path(unescapePathName(file.filePath.toString)).getParent
-    var tablePath = fileParent
-    for (_ <- 0 until partitionColumnCount) {
-      tablePath = tablePath.getParent
-    }
-    if (tablePath != null && isDeltaTablePath(spark, tablePath)) {
-      return tablePath
-    }
-
-    var candidate = fileParent
-    while (candidate != null && !isDeltaTablePath(spark, candidate)) {
-      candidate = candidate.getParent
-    }
-    if (candidate != null) candidate else tablePath
-  }
-
-  private def isDeltaTablePath(spark: SparkSession, tablePath: Path): Boolean = {
-    val deltaLogPath = new Path(tablePath, "_delta_log")
-    try {
-      deltaLogPath.getFileSystem(spark.sessionState.newHadoopConf()).exists(deltaLogPath)
-    } catch {
-      case NonFatal(_) => false
-    }
-  }
-
-  private def unescapePathName(path: String): String = {
-    if (path == null || path.indexOf('%') < 0) {
-      path
+    if (descriptor.storageType != "i") {
+      // On-disk DV (storageType "u" for UUID or "p" for path): read raw bytes directly.
+      readRawDvBytes(hadoopConf, tablePath, descriptor)
     } else {
-      val builder = new StringBuilder(path.length)
-      var index = 0
-      while (index < path.length) {
-        if (path.charAt(index) == '%' && index + 2 < path.length) {
-          val high = Character.digit(path.charAt(index + 1), 16)
-          val low = Character.digit(path.charAt(index + 2), 16)
-          if (high >= 0 && low >= 0) {
-            builder.append(((high << 4) | low).toChar)
-            index += 3
-          } else {
-            builder.append(path.charAt(index))
-            index += 1
-          }
-        } else {
-          builder.append(path.charAt(index))
-          index += 1
-        }
-      }
-      builder.toString()
+      // Inline DV (storageType "i"): bytes are in the descriptor metadata.
+      val dvStore = new HadoopFileSystemDVStore(hadoopConf)
+      StoredBitmap
+        .create(descriptor, tablePath)
+        .load(dvStore)
+        .serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
     }
   }
+
+  /**
+   * Reads raw DV bytes directly from the DV file on disk. The file layout per entry is: [4 bytes
+   * BE] data_size, [N bytes] payload (Portable Roaring), [4 bytes BE] CRC32 checksum.
+   * `DeletionVectorStore.readRangeFromStream` handles all of this including checksum verification,
+   * and returns the raw payload bytes.
+   */
+  private def readRawDvBytes(
+      hadoopConf: Configuration,
+      tablePath: Path,
+      descriptor: DeletionVectorDescriptor): Array[Byte] = {
+    val dvPath = descriptor.absolutePath(tablePath)
+    val fs = dvPath.getFileSystem(hadoopConf)
+    // Positioned absolute seek, matching Delta's own `HadoopFileSystemDVStore.read`. `seek` is a
+    // single positioned reposition (a ranged read on object stores), whereas `DataInputStream.
+    // skipBytes` is best-effort -- it can skip fewer bytes than requested without error, which would
+    // then fail the CRC check in `readRangeFromStream`. `FSDataInputStream` is a `DataInputStream`,
+    // so it is passed through directly.
+    val stream = fs.open(dvPath)
+    try {
+      val offset = descriptor.offset.getOrElse(0)
+      if (offset > 0) {
+        stream.seek(offset.toLong)
+      }
+      DeletionVectorStore.readRangeFromStream(stream, descriptor.sizeInBytes)
+    } finally {
+      stream.close()
+    }
+  }
+
 }

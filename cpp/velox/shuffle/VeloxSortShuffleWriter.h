@@ -122,7 +122,6 @@ class VeloxSortShuffleWriter final : public VeloxShuffleWriter {
   // Updated for each input RowVector.
   std::vector<uint32_t> row2Partition_;
 
-  std::shared_ptr<const facebook::velox::RowType> rowType_;
   std::optional<int32_t> fixedRowSize_;
   std::vector<RowSizeType> rowSize_;
   std::vector<uint64_t> rowSizePrefixSum_;

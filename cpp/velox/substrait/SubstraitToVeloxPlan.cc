@@ -26,6 +26,7 @@
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "velox/connectors/hive/HiveDataSink.h"
+#include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
 #include "velox/exec/TableWriter.h"
 #include "velox/type/Type.h"
 
@@ -458,24 +459,32 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   } else if (
       sJoin.has_advanced_extension() &&
       SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isBHJ=")) {
-    std::string hashTableId = sJoin.hashtableid();
+    const std::string hashTableId = sJoin.hashtableid();
+    bool useHashTableCache = false;
+    if (!hashTableId.empty()) {
+      try {
+        const auto handle = getJoin(hashTableId);
+        if (handle != 0) {
+          auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(handle);
+          useHashTableCache = (hashTableBuilder != nullptr);
+        }
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to retrieve pre-built HashTableBuilder for cache key: " << hashTableId
+                     << ", error: " << e.what() << ". Disable hash table cache and build a new table.";
+      }
+    }
 
-    std::shared_ptr<core::OpaqueHashTable> opaqueSharedHashTable = nullptr;
-    bool joinHasNullKeys = false;
-
-    try {
-      auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(getJoin(hashTableId));
-      joinHasNullKeys = hashTableBuilder->joinHasNullKeys();
-      auto originalShared = hashTableBuilder->hashTable();
-      opaqueSharedHashTable = std::shared_ptr<core::OpaqueHashTable>(
-          originalShared, reinterpret_cast<core::OpaqueHashTable*>(originalShared.get()));
-
-      LOG(INFO) << "Successfully retrieved and aliased HashTable for reuse. ID: " << hashTableId;
-    } catch (const std::exception& e) {
-      LOG(WARNING)
-          << "Error retrieving HashTable from ObjectStore: " << e.what()
-          << ". Falling back to building new table. To ensure correct results, please verify that spark.gluten.velox.buildHashTableOncePerExecutor.enabled is set to false.";
-      opaqueSharedHashTable = nullptr;
+    if (!useHashTableCache) {
+      return std::make_shared<core::HashJoinNode>(
+          nextPlanNodeId(),
+          joinType,
+          isNullAwareAntiJoin,
+          leftKeys,
+          rightKeys,
+          filter,
+          leftNode,
+          rightNode,
+          getJoinOutputType(leftNode, rightNode, joinType));
     }
 
     // Create HashJoinNode node
@@ -489,10 +498,9 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         leftNode,
         rightNode,
         getJoinOutputType(leftNode, rightNode, joinType),
+        useHashTableCache,
         false,
-        false,
-        joinHasNullKeys,
-        opaqueSharedHashTable);
+        sJoin.hashtableid());
   } else {
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(
@@ -508,43 +516,43 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   }
 }
 
-core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::CrossRel& crossRel) {
-  // Support basic cross join without any filters
-  if (!crossRel.has_left()) {
-    VELOX_FAIL("Left Rel is expected in CrossRel.");
+core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel) {
+  // Support basic nested loop join without any filters
+  if (!nestedLoopJoinRel.has_left()) {
+    VELOX_FAIL("Left Rel is expected in NestedLoopJoinRel.");
   }
-  if (!crossRel.has_right()) {
-    VELOX_FAIL("Right Rel is expected in CrossRel.");
+  if (!nestedLoopJoinRel.has_right()) {
+    VELOX_FAIL("Right Rel is expected in NestedLoopJoinRel.");
   }
 
-  auto leftNode = toVeloxPlan(crossRel.left());
-  auto rightNode = toVeloxPlan(crossRel.right());
+  auto leftNode = toVeloxPlan(nestedLoopJoinRel.left());
+  auto rightNode = toVeloxPlan(nestedLoopJoinRel.right());
 
   // Map join type.
   core::JoinType joinType;
-  switch (crossRel.type()) {
-    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_INNER:
+  switch (nestedLoopJoinRel.type()) {
+    case ::substrait::NestedLoopJoinRel_JoinType::NestedLoopJoinRel_JoinType_JOIN_TYPE_INNER:
       joinType = core::JoinType::kInner;
       break;
-    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_LEFT:
+    case ::substrait::NestedLoopJoinRel_JoinType::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT:
       joinType = core::JoinType::kLeft;
       break;
-    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_LEFT_SEMI:
-      if (crossRel.has_advanced_extension() &&
-          SubstraitParser::configSetInOptimization(crossRel.advanced_extension(), "isExistenceJoin=")) {
+    case ::substrait::NestedLoopJoinRel_JoinType::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT_SEMI:
+      if (nestedLoopJoinRel.has_advanced_extension() &&
+          SubstraitParser::configSetInOptimization(nestedLoopJoinRel.advanced_extension(), "isExistenceJoin=")) {
         joinType = core::JoinType::kLeftSemiProject;
       } else {
-        VELOX_NYI("Unsupported Join type: {}", std::to_string(crossRel.type()));
+        VELOX_NYI("Unsupported Join type: {}", std::to_string(nestedLoopJoinRel.type()));
       }
       break;
     default:
-      VELOX_NYI("Unsupported Join type: {}", std::to_string(crossRel.type()));
+      VELOX_NYI("Unsupported Join type: {}", std::to_string(nestedLoopJoinRel.type()));
   }
 
   auto inputRowType = getJoinInputType(leftNode, rightNode);
   core::TypedExprPtr joinConditions;
-  if (crossRel.has_expression()) {
-    joinConditions = exprConverter_->toVeloxExpr(crossRel.expression(), inputRowType);
+  if (nestedLoopJoinRel.has_expression()) {
+    joinConditions = exprConverter_->toVeloxExpr(nestedLoopJoinRel.expression(), inputRowType);
   }
 
   return std::make_shared<core::NestedLoopJoinNode>(
@@ -566,7 +574,10 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   VELOX_CHECK(
       aggRel.groupings().size() <= 1, "At most one grouping is supported, but got {}.", aggRel.groupings().size());
   if (aggRel.groupings().size() == 1) {
-    for (const auto& groupingExpr : aggRel.groupings()[0].grouping_expressions()) {
+    // Grouping expressions live in the rel-level pool; each grouping references
+    // them by index.
+    for (const auto& ref : aggRel.groupings()[0].expression_references()) {
+      const auto& groupingExpr = aggRel.grouping_expressions(ref);
       // Velox's groupings are limited to be Field.
       veloxGroupingExprs.emplace_back(exprConverter_->toVeloxExpr(groupingExpr.selection(), inputType));
     }
@@ -585,6 +596,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       if (substraitAggMask.ByteSizeLong() > 0) {
         mask = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(
             exprConverter_->toVeloxExpr(substraitAggMask, inputType));
+        VELOX_USER_CHECK(mask && mask->isInputColumn(), "Aggregation Operator only supports a top-level field mask.");
       }
     }
     const auto& aggFunction = measure.measure();
@@ -863,8 +875,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
   GLUTEN_CHECK(writeRel.named_table().has_advanced_extension(), "Advanced extension not found in WriteRel");
   const auto& ext = writeRel.named_table().advanced_extension();
-  GLUTEN_CHECK(ext.has_optimization(), "Extension optimization not found in WriteRel");
-  const auto& opt = ext.optimization();
+  GLUTEN_CHECK(ext.optimization_size() > 0, "Extension optimization not found in WriteRel");
+  const auto& opt = ext.optimization(0);
   gluten::ConfigMap confMap;
   opt.UnpackTo(&confMap);
   std::unordered_map<std::string, std::string> writeConfs;
@@ -924,7 +936,13 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
     for (const auto& projectExpr : projections.switching_field().duplicates()) {
       if (projectExpr.has_selection()) {
-        auto expression = exprConverter_->toVeloxExpr(projectExpr.selection(), inputType);
+        VELOX_USER_CHECK(
+            SubstraitParser::isTopLevelFieldSelection(projectExpr),
+            "Expand Operator only supports a top-level field or literal.");
+        auto expression = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(
+            exprConverter_->toVeloxExpr(projectExpr, inputType));
+        VELOX_USER_CHECK(
+            expression && expression->isInputColumn(), "Expand Operator only supports a top-level field or literal.");
         projectExprs.emplace_back(expression);
       } else if (projectExpr.has_literal()) {
         auto expression = exprConverter_->toVeloxExpr(projectExpr.literal());
@@ -1086,14 +1104,14 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 const core::WindowNode::Frame SubstraitToVeloxPlanConverter::createWindowFrame(
     const ::substrait::Expression_WindowFunction_Bound& lower_bound,
     const ::substrait::Expression_WindowFunction_Bound& upper_bound,
-    const ::substrait::WindowType& type,
+    const ::substrait::Expression_WindowFunction_BoundsType& type,
     const RowTypePtr& inputType) {
   core::WindowNode::Frame frame;
   switch (type) {
-    case ::substrait::WindowType::ROWS:
+    case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_ROWS:
       frame.type = core::WindowNode::WindowType::kRows;
       break;
-    case ::substrait::WindowType::RANGE:
+    case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_RANGE:
       frame.type = core::WindowNode::WindowType::kRange;
       break;
     default:
@@ -1114,14 +1132,17 @@ const core::WindowNode::Frame SubstraitToVeloxPlanConverter::createWindowFrame(
     }
   };
 
-  auto boundTypeConversion = [&](::substrait::Expression_WindowFunction_Bound boundType)
-      -> std::tuple<core::WindowNode::BoundType, core::TypedExprPtr> {
+  auto boundTypeConversion = [&](::substrait::Expression_WindowFunction_Bound boundType,
+                                 bool isLowerBound) -> std::tuple<core::WindowNode::BoundType, core::TypedExprPtr> {
     if (boundType.has_current_row()) {
       return std::make_tuple(core::WindowNode::BoundType::kCurrentRow, nullptr);
-    } else if (boundType.has_unbounded_following()) {
-      return std::make_tuple(core::WindowNode::BoundType::kUnboundedFollowing, nullptr);
-    } else if (boundType.has_unbounded_preceding()) {
-      return std::make_tuple(core::WindowNode::BoundType::kUnboundedPreceding, nullptr);
+    } else if (boundType.has_unbounded()) {
+      // Substrait 0.98 uses a single `unbounded` bound; the direction is inferred from position:
+      // an unbounded lower bound is the start of the partition, an unbounded upper bound is the end.
+      return std::make_tuple(
+          isLowerBound ? core::WindowNode::BoundType::kUnboundedPreceding
+                       : core::WindowNode::BoundType::kUnboundedFollowing,
+          nullptr);
     } else if (boundType.has_following()) {
       auto following = boundType.following();
       return std::make_tuple(
@@ -1136,29 +1157,29 @@ const core::WindowNode::Frame SubstraitToVeloxPlanConverter::createWindowFrame(
       VELOX_FAIL("The BoundType is not supported.");
     }
   };
-  std::tie(frame.startType, frame.startValue) = boundTypeConversion(lower_bound);
-  std::tie(frame.endType, frame.endValue) = boundTypeConversion(upper_bound);
+  std::tie(frame.startType, frame.startValue) = boundTypeConversion(lower_bound, /*isLowerBound=*/true);
+  std::tie(frame.endType, frame.endValue) = boundTypeConversion(upper_bound, /*isLowerBound=*/false);
   return frame;
 }
 
-core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::WindowRel& windowRel) {
+core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
+    const ::substrait::ConsistentPartitionWindowRel& windowRel) {
   core::PlanNodePtr childNode;
   if (windowRel.has_input()) {
     childNode = toVeloxPlan(windowRel.input());
   } else {
-    VELOX_FAIL("Child Rel is expected in WindowRel.");
+    VELOX_FAIL("Child Rel is expected in ConsistentPartitionWindowRel.");
   }
 
   const auto& inputType = childNode->outputType();
 
-  // Parse measures and get the window expressions.
-  // Each measure represents one window expression.
+  // Parse window functions and get the window expressions.
+  // Each window function represents one window expression.
   std::vector<core::WindowNode::Function> windowNodeFunctions;
   std::vector<std::string> windowColumnNames;
 
-  windowNodeFunctions.reserve(windowRel.measures().size());
-  for (const auto& smea : windowRel.measures()) {
-    const auto& windowFunction = smea.measure();
+  windowNodeFunctions.reserve(windowRel.window_functions().size());
+  for (const auto& windowFunction : windowRel.window_functions()) {
     std::string funcName = SubstraitParser::findVeloxFunction(functionMap_, windowFunction.function_reference());
     std::vector<core::TypedExprPtr> windowParams;
     auto& argumentList = windowFunction.arguments();
@@ -1178,7 +1199,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         windowVeloxType, std::move(windowParams), exec::sanitizeName(funcName));
     auto upperBound = windowFunction.upper_bound();
     auto lowerBound = windowFunction.lower_bound();
-    auto type = windowFunction.window_type();
+    auto type = windowFunction.bounds_type();
 
     windowColumnNames.push_back(windowFunction.column_name());
 
@@ -1377,19 +1398,31 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::FetchRel& fetchRel) {
   auto childNode = convertSingleInput<::substrait::FetchRel>(fetchRel);
-  return std::make_shared<core::LimitNode>(
-      nextPlanNodeId(),
-      static_cast<int32_t>(fetchRel.offset()),
-      static_cast<int32_t>(fetchRel.count()),
-      false /*isPartial*/,
-      childNode);
+  int32_t offset = fetchRel.has_offset_expr()
+      ? static_cast<int32_t>(SubstraitParser::getLiteralValue<int64_t>(fetchRel.offset_expr().literal()))
+      : 0;
+  int32_t count = fetchRel.has_count_expr()
+      ? static_cast<int32_t>(SubstraitParser::getLiteralValue<int64_t>(fetchRel.count_expr().literal()))
+      : 0;
+  return std::make_shared<core::LimitNode>(nextPlanNodeId(), offset, count, false /*isPartial*/, childNode);
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::TopNRel& topNRel) {
+  // validate(TopNRel) rejects everything checked below, but native validation can be turned off
+  // (spark.gluten.sql.enable.native.validation), and this converter is also reachable from the
+  // JSON-plan test and benchmark paths. Fail loudly rather than executing a plan whose OFFSET or
+  // WITH TIES semantics Velox's TopN cannot express and would silently drop.
+  VELOX_USER_CHECK(topNRel.mode() == ::substrait::FETCH_MODE_ROWS_ONLY, "TopNRel only supports FETCH_MODE_ROWS_ONLY.");
+  VELOX_USER_CHECK(!topNRel.has_offset(), "TopNRel does not support an offset.");
+  // TopNRel models the row limit as an `Expression count`; Gluten's producer always emits a
+  // positive i64 literal.
+  const auto count = SubstraitParser::getRowCount(topNRel.count());
+  VELOX_USER_CHECK(count.has_value(), "TopNRel count must be an i64 literal in the range [1, INT32_MAX].");
+
   auto childNode = convertSingleInput<::substrait::TopNRel>(topNRel);
   auto [sortingKeys, sortingOrders] = processSortField(topNRel.sorts(), childNode->outputType());
   return std::make_shared<core::TopNNode>(
-      nextPlanNodeId(), sortingKeys, sortingOrders, static_cast<int32_t>(topNRel.n()), false /*isPartial*/, childNode);
+      nextPlanNodeId(), sortingKeys, sortingOrders, count.value(), false /*isPartial*/, childNode);
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(
@@ -1602,11 +1635,41 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   std::vector<std::string> outNames;
   outNames.reserve(colNameList.size());
   connector::ColumnHandleMap assignments;
+  const auto icebergSplitInfo = std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo);
   for (int idx = 0; idx < colNameList.size(); idx++) {
     auto outName = SubstraitParser::makeNodeName(planNodeId_, idx);
     auto columnType = columnTypes[idx];
-    assignments[outName] = std::make_shared<connector::hive::HiveColumnHandle>(
-        colNameList[idx], columnType, veloxTypeList[idx], veloxTypeList[idx]);
+    const IcebergColumnInfo* icebergColumn = nullptr;
+    if (icebergSplitInfo) {
+      auto columnIt = icebergSplitInfo->columns.find(colNameList[idx]);
+      if (columnIt != icebergSplitInfo->columns.end()) {
+        icebergColumn = &columnIt->second;
+      } else if (asLowerCase) {
+        for (const auto& [name, column] : icebergSplitInfo->columns) {
+          auto normalizedName = name;
+          folly::toLowerAscii(normalizedName);
+          if (normalizedName == colNameList[idx]) {
+            icebergColumn = &column;
+            break;
+          }
+        }
+      }
+    }
+    // Gluten serializes Iceberg partition dates as ISO strings. Use Iceberg
+    // handles only for regular columns so all data columns are mapped by field
+    // ID together, while partition columns keep the existing Hive conversion.
+    if (icebergColumn && columnType == ColumnType::kRegular) {
+      assignments[outName] = std::make_shared<connector::hive::iceberg::IcebergColumnHandle>(
+          colNameList[idx],
+          columnType,
+          veloxTypeList[idx],
+          facebook::velox::parquet::ParquetFieldId(icebergColumn->fieldId),
+          std::vector<common::Subfield>{},
+          icebergColumn->initialDefault);
+    } else {
+      assignments[outName] = std::make_shared<connector::hive::HiveColumnHandle>(
+          colNameList[idx], columnType, veloxTypeList[idx], veloxTypeList[idx]);
+    }
     outNames.emplace_back(outName);
   }
   auto outputType = ROW(std::move(outNames), std::move(veloxTypeList));
@@ -1625,26 +1688,23 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
     const ::substrait::ReadRel& readRel,
     const RowTypePtr& type) {
-  ::substrait::ReadRel_VirtualTable readVirtualTable = readRel.virtual_table();
-  int64_t numVectors = readVirtualTable.values_size();
-  int64_t numColumns = type->size();
-  int64_t valueFieldNums = readVirtualTable.values(numVectors - 1).fields_size();
+  const ::substrait::ReadRel_VirtualTable& readVirtualTable = readRel.virtual_table();
+  const int64_t numVectors = readVirtualTable.expressions_size();
+  const int64_t numColumns = type->size();
   std::vector<RowVectorPtr> vectors;
   vectors.reserve(numVectors);
 
-  int64_t batchSize;
-  // For the empty vectors, eg,vectors = makeRowVector(ROW({}, {}), 1).
-  if (numColumns == 0) {
-    batchSize = 1;
-  } else {
-    batchSize = valueFieldNums / numColumns;
-  }
-
   for (int64_t index = 0; index < numVectors; ++index) {
     std::vector<VectorPtr> children;
-    ::substrait::Expression_Literal_Struct rowValue = readRel.virtual_table().values(index);
-    auto fieldSize = rowValue.fields_size();
-    VELOX_CHECK_EQ(fieldSize, batchSize * numColumns);
+    // Each Nested.Struct holds one row group, laid out column-major. Row groups need not all
+    // carry the same number of rows, so derive the batch size per struct rather than once for
+    // the whole table.
+    const ::substrait::Expression_Nested_Struct& rowValue = readVirtualTable.expressions(index);
+    const int64_t fieldSize = rowValue.fields_size();
+    // For the empty vectors, eg,vectors = makeRowVector(ROW({}, {}), 1).
+    const int64_t batchSize = numColumns == 0 ? 1 : fieldSize / numColumns;
+    VELOX_USER_CHECK_EQ(
+        fieldSize, batchSize * numColumns, "ReadRel.VirtualTable field count must be a multiple of the column count.");
 
     for (int64_t col = 0; col < numColumns; ++col) {
       const TypePtr& outputChildType = type->childAt(col);
@@ -1653,7 +1713,12 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
       for (int64_t batchId = 0; batchId < batchSize; batchId++) {
         // each value in the batch
         auto fieldIdx = col * batchSize + batchId;
-        ::substrait::Expression_Literal field = rowValue.fields(fieldIdx);
+        // Substrait models virtual table values as Expressions; Gluten only ever emits literals,
+        // so unwrap back to the Literal the downstream conversion expects. This converter is also
+        // reachable from the JSON-plan test and benchmark paths, so reject anything else loudly.
+        const ::substrait::Expression& fieldExpr = rowValue.fields(fieldIdx);
+        VELOX_USER_CHECK(fieldExpr.has_literal(), "ReadRel.VirtualTable expressions must be literals.");
+        const ::substrait::Expression_Literal& field = fieldExpr.literal();
 
         auto expr = exprConverter_->toVeloxExpr(field);
         if (auto constantExpr = std::dynamic_pointer_cast<const core::ConstantTypedExpr>(expr)) {
@@ -1684,8 +1749,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     return toVeloxPlan(rel.filter());
   } else if (rel.has_join()) {
     return toVeloxPlan(rel.join());
-  } else if (rel.has_cross()) {
-    return toVeloxPlan(rel.cross());
+  } else if (rel.has_nested_loop_join()) {
+    return toVeloxPlan(rel.nested_loop_join());
   } else if (rel.has_read()) {
     return toVeloxPlan(rel.read());
   } else if (rel.has_sort()) {

@@ -41,7 +41,7 @@ public interface VectorOutputBridge<OUT> extends Serializable {
    * @param allocator buffer allocator for converting RowVector
    * @param outputType the RowType schema of the output
    */
-  void collect(
+  long collect(
       Output<StreamRecord<OUT>> collector,
       StatefulRecord record,
       BufferAllocator allocator,
@@ -91,7 +91,7 @@ public interface VectorOutputBridge<OUT> extends Serializable {
     }
 
     @Override
-    public void collect(
+    public long collect(
         Output<StreamRecord<org.apache.flink.table.data.RowData>> collector,
         StatefulRecord record,
         BufferAllocator allocator,
@@ -102,6 +102,7 @@ public interface VectorOutputBridge<OUT> extends Serializable {
       for (org.apache.flink.table.data.RowData row : rows) {
         collector.collect(getOrCreateOutputElement().replace(row));
       }
+      return rows.size();
     }
 
     private StreamRecord<org.apache.flink.table.data.RowData> getOrCreateOutputElement() {
@@ -125,12 +126,13 @@ public interface VectorOutputBridge<OUT> extends Serializable {
     }
 
     @Override
-    public void collect(
+    public long collect(
         Output<StreamRecord<StatefulRecord>> collector,
         StatefulRecord record,
         BufferAllocator allocator,
         RowType outputType) {
       collector.collect(getOrCreateOutputElement().replace(record));
+      return 1;
     }
 
     private StreamRecord<StatefulRecord> getOrCreateOutputElement() {
@@ -144,7 +146,7 @@ public interface VectorOutputBridge<OUT> extends Serializable {
   class PartitionCommitInfoOutputBridge implements VectorOutputBridge<PartitionCommitInfo> {
 
     @Override
-    public void collect(
+    public long collect(
         Output<StreamRecord<PartitionCommitInfo>> collector,
         StatefulRecord record,
         BufferAllocator allocator,

@@ -54,9 +54,14 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       localFilesNode: LocalFilesNode,
       fileSchema: StructType,
       fileFormat: ReadFileFormat): LocalFilesNode = {
+    // For ORC/DWRF, always attach the table schema so the native reader has a target to remap file
+    // columns to. It is needed both when the whole scan is mapped by position
+    // (orc.force.positional.evolution) and for the per-file fallback where a file whose physical
+    // schema is all Hive placeholder names (_col0, ...) is mapped by position even though ORC is
+    // read by name by default, matching vanilla Spark's OrcUtils.requestedColumnIds.
+    // For Parquet, keep the previous behavior (only attach when mapping by position).
     if (
-      ((fileFormat == ReadFileFormat.OrcReadFormat || fileFormat == ReadFileFormat.DwrfReadFormat)
-        && !VeloxConfig.get.orcUseColumnNames)
+      (fileFormat == ReadFileFormat.OrcReadFormat || fileFormat == ReadFileFormat.DwrfReadFormat)
       || (fileFormat == ReadFileFormat.ParquetReadFormat && !VeloxConfig.get.parquetUseColumnNames)
     ) {
       localFilesNode.setFileSchema(fileSchema)
@@ -91,9 +96,19 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       .unzip
 
     val partitionColumns = getPartitionColumns(partitionSchema, partitionFiles)
-    val metadataColumns = partitionFiles
-      .map(
-        f => SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
+    val needMetadataColumns = metadataColumnNames != null && metadataColumnNames.nonEmpty
+    val emptyMetadataColumn: java.util.Map[String, String] =
+      java.util.Collections.emptyMap[String, String]()
+    val metadataColumns: java.util.List[java.util.Map[String, String]] =
+      if (needMetadataColumns) {
+        partitionFiles
+          .map(
+            f =>
+              SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
+          .asJava
+      } else {
+        java.util.Collections.nCopies(partitionFiles.size, emptyMetadataColumn)
+      }
     val otherMetadataColumns = partitionFiles
       .map(f => SparkShimLoader.getSparkShims.getOtherConstantMetadataColumnValues(f))
 
@@ -106,7 +121,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
         fileSizes.asJava,
         modificationTimes.asJava,
         partitionColumns.map(_.asJava).asJava,
-        metadataColumns.asJava,
+        metadataColumns,
         fileFormat,
         locations.toList.asJava,
         mapAsJavaMap(properties),
@@ -190,7 +205,8 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       updateNativeMetrics: IMetrics => Unit,
       partitionIndex: Int,
       inputIterators: Seq[Iterator[ColumnarBatch]] = Seq(),
-      enableCudf: Boolean = false): Iterator[ColumnarBatch] = {
+      enableCudf: Boolean = false,
+      wsContext: WholeStageTransformContext = null): Iterator[ColumnarBatch] = {
     assert(
       inputPartition.isInstanceOf[GlutenPartition],
       "Velox backend only accept GlutenPartition.")

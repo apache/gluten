@@ -15,6 +15,9 @@
 
 FROM quay.io/centos/centos:stream9
 
+ARG GLUTEN_REPO=https://github.com/apache/gluten
+ARG GLUTEN_BRANCH=main
+
 ARG JAVA_VERSION=1.8.0
 #ARG JAVA_VERSION=11
 #ARG JAVA_VERSION=17
@@ -29,18 +32,21 @@ ENV LC_ALL=C.UTF-8
 RUN set -ex; \
     yum update -y && yum install -y epel-release sudo dnf && yum install -y ccache; \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-12 gcc-toolset-13; \
+    # clang-tidy, installed here so its version is pinned to the image, not to each CI run.
+    dnf install -y --setopt=install_weak_deps=False clang-tools-extra; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     yum install -y java-${JAVA_VERSION}-openjdk-devel patch wget git perl; \
     mirror_host="https://www.apache.org/dyn/closer.lua"; \
     wget -nv ${mirror_host}/celeborn/celeborn-0.5.4/apache-celeborn-0.5.4-bin.tgz?action=download -O /opt/apache-celeborn-0.5.4-bin.tgz; \
     wget -nv ${mirror_host}/celeborn/celeborn-0.6.3/apache-celeborn-0.6.3-bin.tgz?action=download -O /opt/apache-celeborn-0.6.3-bin.tgz; \
-    git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
+    git clone --depth=1 --branch "${GLUTEN_BRANCH}" "${GLUTEN_REPO}" /opt/gluten; \
     cd /opt/gluten/.github/workflows/util/; \
     ./install-spark-resources.sh 3.3; \
     ./install-spark-resources.sh 3.4; \
     ./install-spark-resources.sh 3.5; \
     ./install-spark-resources.sh 3.5-scala2.13; \
     ./install-spark-resources.sh 4.0; \
+    ./install-spark-resources.sh 4.1; \
     ARCH=$(uname -m); \
     if [[ "$ARCH" == "aarch64" || "$ARCH" == "ppc64le" ]]; then \
         export CPU_TARGET="$ARCH"; \

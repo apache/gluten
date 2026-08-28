@@ -26,6 +26,7 @@ import io.substrait.proto.RelCommon;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class AggregateRelNode implements RelNode, Serializable {
@@ -54,13 +55,18 @@ public class AggregateRelNode implements RelNode, Serializable {
     RelCommon.Builder relCommonBuilder = RelCommon.newBuilder();
     relCommonBuilder.setDirect(RelCommon.Direct.newBuilder());
 
-    AggregateRel.Grouping.Builder groupingBuilder = AggregateRel.Grouping.newBuilder();
-    for (ExpressionNode exprNode : groupings) {
-      groupingBuilder.addGroupingExpressions(exprNode.toProtobuf());
-    }
-
     AggregateRel.Builder aggBuilder = AggregateRel.newBuilder();
     aggBuilder.setCommon(relCommonBuilder.build());
+
+    // Gluten always emits a single grouping set with a flat list of grouping
+    // expressions (GROUPING SETS / CUBE / ROLLUP are expanded into an ExpandRel
+    // upstream). Populate the rel-level grouping expression pool in declaration
+    // order and have the single grouping reference every entry by index.
+    AggregateRel.Grouping.Builder groupingBuilder = AggregateRel.Grouping.newBuilder();
+    for (int i = 0; i < groupings.size(); i++) {
+      aggBuilder.addGroupingExpressions(groupings.get(i).toProtobuf());
+      groupingBuilder.addExpressionReferences(i);
+    }
     aggBuilder.addGroupings(groupingBuilder.build());
 
     for (int i = 0; i < aggregateFunctionNodes.size(); i++) {
@@ -82,5 +88,10 @@ public class AggregateRelNode implements RelNode, Serializable {
     Rel.Builder builder = Rel.newBuilder();
     builder.setAggregate(aggBuilder.build());
     return builder.build();
+  }
+
+  @Override
+  public List<RelNode> childNodes() {
+    return Collections.singletonList(input);
   }
 }

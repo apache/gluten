@@ -25,7 +25,7 @@ import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.Hour
+import org.apache.spark.sql.catalyst.expressions.{Cast, Hour, Minute, Second, TimestampAdd}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -257,6 +257,7 @@ object Validators {
         case mt: MapType => containsNTZ(mt.keyType) || containsNTZ(mt.valueType)
         case _ => false
       }
+      def isNTZ(dataType: DataType): Boolean = dataType.typeName == "timestamp_ntz"
       val hasNTZ = plan.output.exists(a => containsNTZ(a.dataType)) ||
         plan.children.exists(_.output.exists(a => containsNTZ(a.dataType)))
       if (!hasNTZ) {
@@ -271,7 +272,7 @@ object Validators {
           case p if HiveTableScanExecTransformer.isHiveTableScan(p) => true
           case _ => false
         }
-        val isHourOnNtz = plan match {
+        val isSupportedNtz = plan match {
           case p: ProjectExec =>
             p.projectList.forall {
               expr =>
@@ -279,12 +280,16 @@ object Validators {
                   !expr.references.exists(a => containsNTZ(a.dataType))) ||
                 expr.exists {
                   case Hour(child, _) => containsNTZ(child.dataType)
+                  case Minute(child, _) => containsNTZ(child.dataType)
+                  case Second(child, _) => containsNTZ(child.dataType)
+                  case TimestampAdd(_, _, child, _) => containsNTZ(child.dataType)
+                  case c: Cast if isNTZ(c.dataType) || isNTZ(c.child.dataType) => true
                   case _ => false
                 }
             }
           case _ => false
         }
-        if (isScan || isHourOnNtz) {
+        if (isScan || isSupportedNtz) {
           return pass()
         }
       }

@@ -70,7 +70,6 @@ Arguments: false
 
 (10) VeloxResizeBatches
 Input [3]: [hash_partition_key#6, ss_customer_sk#2, ss_item_sk#1]
-Arguments: 1024, 2147483647, 10485760
 
 (11) ColumnarExchange
 Input [3]: [hash_partition_key#6, ss_customer_sk#2, ss_item_sk#1]
@@ -132,7 +131,6 @@ Arguments: false
 
 (24) VeloxResizeBatches
 Input [3]: [hash_partition_key#13, cs_bill_customer_sk#9, cs_item_sk#10]
-Arguments: 1024, 2147483647, 10485760
 
 (25) ColumnarExchange
 Input [3]: [hash_partition_key#13, cs_bill_customer_sk#9, cs_item_sk#10]

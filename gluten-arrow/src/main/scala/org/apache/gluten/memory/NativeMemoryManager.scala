@@ -76,7 +76,15 @@ object NativeMemoryManager {
     private val released: AtomicBoolean = new AtomicBoolean(false)
 
     override def addSpiller(spiller: Spiller): Unit = spillers.append(spiller)
-    override def hold(): Unit = NativeMemoryManagerJniWrapper.hold(handle)
+    override def hold(): Unit = {
+      // hold() must run before release(). Reaching here after release means a broken teardown
+      // ordering, so surface it instead of dereferencing a freed native handle silently.
+      if (released.get()) {
+        throw new GlutenException(
+          s"Cannot hold memory manager instance that has already been released: $handle")
+      }
+      NativeMemoryManagerJniWrapper.hold(handle)
+    }
     override def getHandle(): Long = handle
     override def release(): Unit = {
       if (!released.compareAndSet(false, true)) {
