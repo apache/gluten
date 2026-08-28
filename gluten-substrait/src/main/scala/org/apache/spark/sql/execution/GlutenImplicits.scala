@@ -17,8 +17,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.gluten.exception.GlutenException
-import org.apache.gluten.execution.{GlutenPlan, WholeStageTransformer}
-import org.apache.gluten.extension.columnar.FallbackTags
+import org.apache.gluten.execution.GlutenPlan
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.PlanUtil
 
@@ -27,13 +26,9 @@ import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.{CommandResult, LogicalPlan}
 import org.apache.spark.sql.catalyst.util.StringUtils.PlanStringConcat
 import org.apache.spark.sql.classic.ClassicConversions._
-import org.apache.spark.sql.execution.ColumnarWriteFilesExec.NoopLeaf
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AQEShuffleReadExec, ColumnarAQEShuffleReadExec, QueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, QueryStageExec}
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
-import org.apache.spark.sql.execution.command.{DataWritingCommandExec, ExecutedCommandExec}
-import org.apache.spark.sql.execution.datasources.WriteFilesExec
 import org.apache.spark.sql.execution.datasources.v2.V2CommandExec
-import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.internal.SQLConf
 
 import scala.collection.mutable
@@ -108,24 +103,10 @@ object GlutenImplicits {
 
     def collect(tmp: QueryPlan[_]): Unit = {
       tmp.foreachUp {
-        case _: ExecutedCommandExec =>
         case cmd: CommandResultExec => collect(cmd.commandPhysicalPlan)
         case p: V2CommandExec
-            if FallbackTags.nonEmpty(p) ||
-              p.logicalLink.exists(FallbackTags.getOption(_).nonEmpty) =>
+            if !GlutenExplainUtils.shouldIgnoreInFallbackStats(p) =>
           GlutenExplainUtils.handleVanillaSparkPlan(p, fallbackNodeToReason)
-        case _: V2CommandExec =>
-        case _: DataWritingCommandExec =>
-        case _: WholeStageCodegenExec =>
-        case _: WholeStageTransformer =>
-        case _: InputAdapter =>
-        case _: ColumnarInputAdapter =>
-        case _: InputIteratorTransformer =>
-        case _: ColumnarToRowTransition =>
-        case _: RowToColumnarTransition =>
-        case p: ReusedExchangeExec =>
-        case _: NoopLeaf =>
-        case w: WriteFilesExec if w.child.isInstanceOf[NoopLeaf] =>
         case p: AdaptiveSparkPlanExec if isFinalAdaptivePlan(p) =>
           collect(p.executedPlan)
         case p: AdaptiveSparkPlanExec =>
@@ -149,9 +130,6 @@ object GlutenImplicits {
           numGlutenNodes += innerNumGlutenNodes
           fallbackNodeToReason.++=(innerFallbackNodeToReason)
         case p: QueryStageExec => collect(p.plan)
-        case p: GlutenPlan =>
-          numGlutenNodes += 1
-          p.innerChildren.foreach(collect)
         case i: InMemoryTableScanExec =>
           if (PlanUtil.isGlutenTableCache(i)) {
             numGlutenNodes += 1
@@ -162,8 +140,10 @@ object GlutenImplicits {
               fallbackNodeToReason)
           }
           collect(i.relation.cachedPlan)
-        case _: AQEShuffleReadExec => // Ignore
-        case _: ColumnarAQEShuffleReadExec => // Ignore
+        case p: SparkPlan if GlutenExplainUtils.shouldIgnoreInFallbackStats(p) => // Ignore
+        case p: GlutenPlan =>
+          numGlutenNodes += 1
+          p.innerChildren.foreach(collect)
         case p: SparkPlan =>
           GlutenExplainUtils.handleVanillaSparkPlan(p, fallbackNodeToReason)
           p.innerChildren.foreach(collect)

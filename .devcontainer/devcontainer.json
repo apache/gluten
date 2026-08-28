@@ -1,4 +1,4 @@
-// Dev Container for the Gluten Velox backend.
+// Default Dev Container for daily Gluten Velox development.
 // See docs/developers/dev-container.md for the rationale behind these settings
 // and for the build commands to run once the container is up.
 {
@@ -19,6 +19,7 @@
     "containerEnv": {
         "CCACHE_DIR": "/root/.ccache",
         "CCACHE_MAXSIZE": "10G",
+        "GLUTEN_DEV_CONTAINER_VARIANT": "velox-dynamic",
         // folly, gflags and glog are shared libraries in this image; a Velox
         // dependency build that disagrees fails to link.
         "VELOX_BUILD_SHARED": "ON"
