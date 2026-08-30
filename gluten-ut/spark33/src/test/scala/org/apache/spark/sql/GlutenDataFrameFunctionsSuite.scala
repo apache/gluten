@@ -70,7 +70,11 @@ class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenS
     testInt()
     // Test with cached relation, the Project will be evaluated with codegen
     intDF.cache()
-    testInt()
+    try {
+      testInt()
+    } finally {
+      intDF.unpersist()
+    }
 
     // Test cases with non-primitive types
     val strDF = Seq(
@@ -97,7 +101,11 @@ class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenS
     testString()
     // Test with cached relation, the Project will be evaluated with codegen
     strDF.cache()
-    testString()
+    try {
+      testString()
+    } finally {
+      strDF.unpersist()
+    }
 
     val arrDF = Seq((1, "a", Seq(1, 2, 3))).toDF("i", "s", "arr")
 
@@ -114,7 +122,11 @@ class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenS
     testArray()
     // Test with cached relation, the Project will be evaluated with codegen
     arrDF.cache()
-    testArray()
+    try {
+      testArray()
+    } finally {
+      arrDF.unpersist()
+    }
 
     // Error test cases
     val oneRowDF = Seq((1, "a", Seq(1, 2, 3))).toDF("i", "s", "arr")
