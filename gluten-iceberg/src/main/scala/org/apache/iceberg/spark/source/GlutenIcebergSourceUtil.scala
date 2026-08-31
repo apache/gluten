@@ -32,7 +32,7 @@ import org.apache.iceberg._
 import org.apache.iceberg.spark.SparkSchemaUtil
 
 import java.lang.{Class, Long => JLong}
-import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
+import java.util.{ArrayList => JArrayList, Collections, HashMap => JHashMap, List => JList, Map => JMap}
 import java.util.Locale
 
 import scala.collection.JavaConverters._
@@ -41,6 +41,22 @@ object GlutenIcebergSourceUtil {
   private val InputFileNameCol = "input_file_name"
   private val InputFileBlockStartCol = "input_file_block_start"
   private val InputFileBlockLengthCol = "input_file_block_length"
+
+  // Contract with the native backend: the split's read_properties map carries the
+  // table location under LocationKey plus the vended S3 credentials under their
+  // Iceberg FileIO property names.
+  val LocationKey = "location"
+  private val S3AccessKeyId = "s3.access-key-id"
+  private val S3SecretAccessKey = "s3.secret-access-key"
+  // Carried verbatim when the catalog vends them alongside the key pair.
+  private val OptionalCredentialKeys = Seq(
+    "s3.session-token",
+    "s3.session-token-expires-at-ms",
+    "s3.endpoint",
+    "s3.path-style-access",
+    "s3.region",
+    "client.region"
+  )
 
   def getClassOfSparkBatchQueryScan(): Class[SparkBatchQueryScan] = {
     classOf[SparkBatchQueryScan]
@@ -55,12 +71,64 @@ object GlutenIcebergSourceUtil {
     }
   }
 
+  /**
+   * The per-table S3 credentials the catalog vended for this scan's table, empty when the table has
+   * none - which is the case whenever the files are readable with the process credentials.
+   *
+   * The credentials are read on the driver at planning time and travel with the split; executors
+   * cannot re-vend them, so a scan has to start within the vend TTL.
+   */
+  def vendedReadProperties(sparkScan: Scan): JMap[String, String] = sparkScan match {
+    case scan: SparkBatchQueryScan =>
+      val table = scan.table()
+      val ioProperties =
+        try {
+          table.io().properties()
+        } catch {
+          // FileIO.properties() is implemented by S3FileIO and ResolvingFileIO but
+          // defaults to throwing on FileIOs that do not expose their configuration.
+          // Such a FileIO cannot be carrying vended credentials.
+          case _: UnsupportedOperationException => Collections.emptyMap[String, String]()
+        }
+      extractVendedReadProperties(
+        ioProperties,
+        BackendsApiManager.getTransformerApiInstance.encodeFilePathIfNeed(table.location()))
+    case _ => Collections.emptyMap()
+  }
+
+  /**
+   * Keeps the vended credential set only when the access-key/secret pair is present, carrying the
+   * optional companions verbatim and the table location under [[LocationKey]].
+   */
+  private[source] def extractVendedReadProperties(
+      ioProperties: JMap[String, String],
+      encodedTableLocation: String): JMap[String, String] = {
+    val accessKeyId = ioProperties.get(S3AccessKeyId)
+    val secretAccessKey = ioProperties.get(S3SecretAccessKey)
+    if (accessKeyId == null || secretAccessKey == null) {
+      return Collections.emptyMap()
+    }
+    val readProperties = new JHashMap[String, String]()
+    readProperties.put(S3AccessKeyId, accessKeyId)
+    readProperties.put(S3SecretAccessKey, secretAccessKey)
+    OptionalCredentialKeys.foreach {
+      key =>
+        val value = ioProperties.get(key)
+        if (value != null) {
+          readProperties.put(key, value)
+        }
+    }
+    readProperties.put(LocationKey, encodedTableLocation)
+    readProperties
+  }
+
   def genSplitInfo(
       partition: SparkDataSourceRDDPartition,
       readPartitionSchema: StructType,
       metadataColumnNames: Seq[String],
       fieldIds: JMap[String, Integer],
-      initialDefaults: JMap[String, String]): SplitInfo = {
+      initialDefaults: JMap[String, String],
+      readProperties: JMap[String, String]): SplitInfo = {
     val paths = new JArrayList[String]()
     val starts = new JArrayList[JLong]()
     val lengths = new JArrayList[JLong]()
@@ -94,7 +162,7 @@ object GlutenIcebergSourceUtil {
       case o =>
         throw new GlutenNotSupportException(s"Unsupported input partition type: $o")
     }
-    IcebergLocalFilesBuilder.makeIcebergLocalFiles(
+    val localFiles = IcebergLocalFilesBuilder.makeIcebergLocalFiles(
       partition.index,
       paths,
       starts,
@@ -110,6 +178,10 @@ object GlutenIcebergSourceUtil {
       fieldIds,
       initialDefaults
     )
+    if (!readProperties.isEmpty) {
+      localFiles.setReadProperties(readProperties)
+    }
+    localFiles
   }
 
   def getFieldIds(sparkScan: Scan): JHashMap[String, Integer] = {

@@ -215,7 +215,8 @@ set(VELOX_SRCS
     utils/VeloxWriterUtils.cc)
 
 if(ENABLE_S3)
-  list(APPEND VELOX_SRCS filesystem/GlutenS3FileSystem.cc)
+  list(APPEND VELOX_SRCS filesystem/GlutenS3FileSystem.cc
+       utils/GlutenS3TokenProvider.cc)
   find_package(ZLIB)
 endif()
 

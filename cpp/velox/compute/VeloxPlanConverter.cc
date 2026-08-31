@@ -149,6 +149,9 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
   splitInfo->partitionColumns.reserve(fileList.size());
   splitInfo->properties.reserve(fileList.size());
   splitInfo->metadataColumns.reserve(fileList.size());
+  for (const auto& readProperty : localFiles.read_properties()) {
+    splitInfo->readProperties[readProperty.first] = readProperty.second;
+  }
   for (const auto& file : fileList) {
     // Expect all Partitions share the same index.
     splitInfo->partitionIndex = file.partition_index();

@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenIcebergConfig
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType}
 import org.apache.gluten.sql.shims.SparkShimLoader
@@ -76,6 +77,9 @@ case class IcebergScanTransformer(
       GlutenIcebergSourceUtil.getFieldIds(scan)
     }
 
+  private lazy val icebergVendedReadProperties =
+    GlutenIcebergSourceUtil.vendedReadProperties(scan)
+
   override def withNewPushdownFilters(filters: Seq[Expression]): BatchScanExecTransformerBase = {
     this.copy(pushDownFilters = Some(filters))
   }
@@ -88,6 +92,21 @@ case class IcebergScanTransformer(
     val validationResult = super.doValidateInternal()
     if (!validationResult.ok()) {
       return validationResult
+    }
+
+    // Files of a table read with catalog-vended credentials are not readable with
+    // the process credentials, so offloading such a scan without passing the vended
+    // credentials down would only produce access-denied errors.
+    if (!icebergVendedReadProperties.isEmpty) {
+      if (!GlutenIcebergConfig.get.enableVendedCredentials) {
+        return ValidationResult.failed(
+          "Table is read with catalog-vended credentials and " +
+            s"${GlutenIcebergConfig.ENABLE_VENDED_CREDENTIALS.key} is disabled")
+      }
+      if (!BackendsApiManager.getSettings.supportIcebergVendedCredentialsRead()) {
+        return ValidationResult.failed(
+          "Table is read with catalog-vended credentials, which this backend cannot use")
+      }
     }
 
     if (!BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead()) {
@@ -230,7 +249,8 @@ case class IcebergScanTransformer(
           getPartitionSchema,
           metadataColumnNames,
           icebergFieldIds,
-          icebergInitialDefaults)
+          icebergInitialDefaults,
+          icebergVendedReadProperties)
       case _ => throw new GlutenNotSupportException()
     }
     numSplits.add(splitInfo.asInstanceOf[LocalFilesNode].getPaths.size())

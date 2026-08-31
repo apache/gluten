@@ -65,6 +65,11 @@ struct SplitInfo {
   /// The file sizes and modification times of the files to be scanned.
   std::vector<std::optional<facebook::velox::FileProperties>> properties;
 
+  /// Table-scoped storage properties from LocalFiles.read_properties, e.g. the
+  /// S3 credentials an Iceberg REST catalog vended for this table plus the table
+  /// location. Empty for tables whose files the process credentials can read.
+  std::unordered_map<std::string, std::string> readProperties;
+
   /// The schema of the table being scanned.
   RowTypePtr tableSchema;
 

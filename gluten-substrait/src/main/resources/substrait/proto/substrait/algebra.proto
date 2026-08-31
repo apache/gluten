@@ -114,6 +114,12 @@ message ReadRel {
     repeated FileOrFiles items = 1;
     substrait.extensions.AdvancedExtension advanced_extension = 10;
 
+    // Table-scoped storage properties the native reader needs to open the
+    // listed files, e.g. the S3 credentials an Iceberg REST catalog vends for
+    // one table. A LocalFiles is single-table by construction, so table
+    // granularity is split granularity. Emitted only when present.
+    map<string, string> read_properties = 11;
+
     // Many files consist of indivisible chunks (e.g. parquet row groups
     // or CSV rows).  If a slice partially selects an indivisible chunk
     // then the consumer should employ some rule to decide which slice to

@@ -28,6 +28,9 @@
 #include "compute/delta/DeltaSplitInfo.h"
 #include "config/VeloxConfig.h"
 #include "utils/ConfigExtractor.h"
+#ifdef ENABLE_S3
+#include "utils/GlutenS3TokenProvider.h"
+#endif
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #include "velox/exec/PlanNodeStats.h"
@@ -277,8 +280,22 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
           "Gluten_Stage_{}_TID_{}_VTID_{}",
           std::to_string(taskInfo_.stageId),
           std::to_string(taskInfo_.taskId),
-          std::to_string(taskInfo_.vId)));
+          std::to_string(taskInfo_.vId)),
+      createFsTokenProvider());
   return ctx;
+}
+
+std::shared_ptr<velox::filesystems::TokenProvider> WholeStageResultIterator::createFsTokenProvider() const {
+#ifdef ENABLE_S3
+  std::vector<std::unordered_map<std::string, std::string>> readProperties;
+  readProperties.reserve(scanInfos_.size());
+  for (const auto& scanInfo : scanInfos_) {
+    readProperties.push_back(scanInfo->readProperties);
+  }
+  return GlutenS3TokenProvider::create(readProperties);
+#else
+  return nullptr;
+#endif
 }
 
 std::shared_ptr<ColumnarBatch> WholeStageResultIterator::next() {

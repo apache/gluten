@@ -25,7 +25,9 @@ RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
 # Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID=""
+# TODO: reset to "" once facebookincubator/velox#18570 (per-path S3 credentials
+# from the query TokenProvider) is merged and the Velox pin above includes it.
+UPSTREAM_VELOX_PR_ID="18570"
 
 OS=`uname -s`
 

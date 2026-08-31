@@ -142,6 +142,8 @@ add_velox_test(velox_memory_test SOURCES MemoryManagerTest.cc)
 add_velox_test(buffer_outputstream_test SOURCES BufferOutputStreamTest.cc)
 if(ENABLE_S3)
   add_velox_test(gluten_s3_file_system_test SOURCES GlutenS3FileSystemTest.cc)
+  add_velox_test(gluten_s3_token_provider_test SOURCES
+                 GlutenS3TokenProviderTest.cc)
 endif()
 add_velox_test(scoped_timer_test SOURCES ScopedTimerTest.cc)
 add_velox_test(row_based_checksum_test SOURCES RowBasedChecksumTest.cc)
