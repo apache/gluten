@@ -18,7 +18,7 @@ package org.apache.spark.sql.internal
 
 import org.apache.gluten.config._
 
-import org.apache.spark.network.util.{ByteUnit, JavaUtils}
+import org.apache.spark.internal.config.{ConfigEntry => SparkConfigEntry}
 
 object GlutenConfigUtil {
   private def getConfString(
@@ -44,8 +44,31 @@ object GlutenConfigUtil {
     parsedConf ++ otherConf
   }
 
-  def mapByteConfValue(conf: Map[String, String], key: String, unit: ByteUnit)(
-      f: Long => Unit): Unit = {
-    conf.get(key).foreach(v => f(JavaUtils.byteStringAs(v, unit)))
+  /**
+   * Resolves the default that Spark/Hadoop declares for `key`, used for a foreign key (declared via
+   * `registerConf` / `registerStaticConf`) that the user did not set. This lives here because the
+   * foreign config registries are not visible from `org.apache.gluten.config`, and both are needed:
+   * `SQLConf` entries (`spark.sql.*`) and Spark core ones (`spark.shuffle.*`, `spark.redaction.*`,
+   * ...), since native reads keys from both.
+   *
+   * Taking the default from the foreign declaration rather than restating it on the Gluten side
+   * means the two cannot drift across versions - `spark.sql.ansi.enabled` alone changed default in
+   * Spark 4.0.
+   *
+   * Yields `None` for a key Spark/Hadoop does not declare - a Hadoop key such as
+   * `spark.hadoop.fs.s3a.*` - and for one Spark/Hadoop declares without a real default, which
+   * leaves native's own fallback in charge. `defaultValue` is the discriminator rather than
+   * `defaultValueString`, because the latter is a *display* string: `OptionalConfigEntry` renders
+   * it as `<undefined>` and `FallbackConfigEntry` as `<value of other.key>`, and shipping either
+   * verbatim would hand native a sentinel instead of a value. Both are exactly the two subclasses
+   * whose `defaultValue` is `None`.
+   *
+   * Resolution happens per delivery rather than once at declaration, because a declared default may
+   * itself be dynamic: `spark.sql.session.timeZone` resolves to the current JVM default time zone.
+   */
+  def resolveForeignDeclaredDefault(key: String): Option[String] = {
+    Option(SQLConf.getConfigEntry(key))
+      .orElse(Option(SparkConfigEntry.findEntry(key)))
+      .collect { case e if e.defaultValue.isDefined => e.defaultValueString }
   }
 }

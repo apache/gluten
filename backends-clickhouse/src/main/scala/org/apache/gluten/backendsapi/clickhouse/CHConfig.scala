@@ -124,6 +124,43 @@ object CHConfig extends ConfigRegistry {
       .doc("A class for the extended expressions transformer.")
       .stringConf
       .createWithDefaultString("")
+
+  // Spark / Hadoop keys without a Gluten ConfigEntry that only the ClickHouse backend consumes.
+  // They are translated into CH runtime config by `CHTransformerApi.postProcessNativeConfig`,
+  // which reads them off the native backend conf map, and are not re-read afterwards.
+  //
+  // The three timeouts declare a Gluten-side default because no Spark entry declares these Hadoop
+  // keys, and leaving them out falls through to libhdfs3's own defaults, which are far longer than
+  // what Gluten wants (10 min / 60 min / 60 min).
+  registerStaticConf("spark.hadoop.input.connect.timeout")
+    .doc("HDFS client connect timeout in milliseconds, consumed by ClickHouse backend init.")
+    .intConf
+    .passToNative()
+    .createWithDefault(180000)
+  registerStaticConf("spark.hadoop.input.read.timeout")
+    .doc("HDFS client read timeout in milliseconds, consumed by ClickHouse backend init.")
+    .intConf
+    .passToNative()
+    .createWithDefault(180000)
+  registerStaticConf("spark.hadoop.input.write.timeout")
+    .doc("HDFS client write timeout in milliseconds, consumed by ClickHouse backend init.")
+    .intConf
+    .passToNative()
+    .createWithDefault(180000)
+  // libhdfs3 already defaults `dfs.client.log.severity` to INFO.
+  registerStaticConf("spark.hadoop.dfs.client.log.severity")
+    .doc("libhdfs3 log level, consumed by ClickHouse backend init.")
+    .stringConf
+    .passToNative()
+    .createOptional
+  // ClickHouse's transformer already fills in `snappy` when the user did not set this key
+  // (`CHTransformerApi.scala:149-164`), which matches Spark's own default. Nothing needs to be
+  // delivered when the user did not set it.
+  registerStaticConf("spark.sql.orc.compression.codec")
+    .doc("ORC write compression codec, consumed by ClickHouse backend init.")
+    .stringConf
+    .passToNative()
+    .createOptional
 }
 
 class CHConfig(conf: SQLConf) extends GlutenConfig(conf) {

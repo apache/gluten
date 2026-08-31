@@ -115,6 +115,10 @@ class CHListenerApi extends ListenerApi with Logging {
     // Load supported hive/python/scala udfs
     UDFMappings.loadFromSparkConf(conf)
 
+    // Ensure CH conf registered, so that its native conf registrations are in place before
+    // the native backend conf is selected below.
+    CHConfig.ensureRegistered()
+
     CHNativeExpressionEvaluator.initNative(conf.getAll.toMap)
 
     // inject backend-specific implementations to override spark classes

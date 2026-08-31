@@ -126,7 +126,7 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 }
 
 object VeloxConfig extends ConfigRegistry {
-  override def get: VeloxConfig = {
+  def get: VeloxConfig = {
     new VeloxConfig(SQLConf.get)
   }
 
@@ -569,6 +569,7 @@ object VeloxConfig extends ConfigRegistry {
 
   val COLUMNAR_VELOX_FILE_HANDLE_CACHE_ENABLED =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled")
+      .passToNative()
       .doc(
         "Enables caching of open file handles to avoid repeated open/close overhead. " +
           "Benefits both local filesystems (fewer open/close syscalls and file descriptor " +
@@ -580,6 +581,7 @@ object VeloxConfig extends ConfigRegistry {
 
   val COLUMNAR_VELOX_NUM_CACHE_FILE_HANDLES =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.numCacheFileHandles")
+      .passToNative()
       .doc(
         "Maximum number of entries in the file handle cache. Each entry holds an open " +
           "file descriptor (local FS) or connection state (remote FS). Note that on " +
@@ -593,6 +595,7 @@ object VeloxConfig extends ConfigRegistry {
 
   val COLUMNAR_VELOX_FILE_HANDLE_EXPIRATION_DURATION_MS =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.fileHandleExpirationDurationMs")
+      .passToNative()
       .doc(
         "Expiration time for cached file handles. Handles not accessed within this duration " +
           "are evicted from the cache. This prevents stale handles from accumulating (e.g., " +
@@ -650,23 +653,37 @@ object VeloxConfig extends ConfigRegistry {
 
   val CACHE_PREFETCH_MINPCT =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.cachePrefetchMinPct")
+      .passToNative()
       .doc("Set prefetch cache min pct for velox file scan")
       .intConf
       .createWithDefault(0)
 
+  // The three confs below are read by native `createHiveConnectorConfig`, which runs both at
+  // backend initialization (for the reused HiveConnector) and per write on each native runtime
+  // (`VeloxParquetDataSourceS3::initSink`, `IcebergWriter`), hence they are modifiable confs.
   val AWS_SDK_LOG_LEVEL =
     buildConf("spark.gluten.velox.awsSdkLogLevel")
       .internal()
+      .passToNative()
       .doc("Log granularity of AWS C++ SDK in velox.")
       .stringConf
       .createWithDefault("FATAL")
 
-  val AWS_S3_RETRY_MODE =
-    buildConf("spark.gluten.velox.fs.s3a.retry.mode")
+  val S3_USE_PROXY_FROM_ENV =
+    buildConf("spark.gluten.velox.s3UseProxyFromEnv")
       .internal()
-      .doc("Retry mode for AWS s3 connection error: legacy, standard and adaptive.")
+      .passToNative()
+      .doc("Whether to use proxy from environment variables for S3 C++ client.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val S3_PAYLOAD_SIGNING_POLICY =
+    buildConf("spark.gluten.velox.s3PayloadSigningPolicy")
+      .internal()
+      .passToNative()
+      .doc("The S3 payload signing policy: Always, RequestDependent and Never.")
       .stringConf
-      .createWithDefault("legacy")
+      .createWithDefault("Never")
 
   val S3_UPLOAD_PART_ASYNC =
     buildStaticConf("spark.gluten.velox.s3UploadPartAsync")
@@ -854,7 +871,8 @@ object VeloxConfig extends ConfigRegistry {
       .createWithDefault(50)
 
   val CUDF_ENABLE_TABLE_SCAN =
-    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan")
+    buildConf("spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan")
+      .passToNative()
       .doc("Enable cudf table scan")
       .booleanConf
       .createWithDefault(false)

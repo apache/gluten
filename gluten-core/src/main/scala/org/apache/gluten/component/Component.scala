@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.component
 
+import org.apache.gluten.config.ConfigRegistry
 import org.apache.gluten.extension.columnar.cost.LongCoster
 import org.apache.gluten.extension.columnar.transition.ConventionFunc
 import org.apache.gluten.extension.injector.Injector
@@ -80,6 +81,21 @@ trait Component {
   def dependencies(): Seq[Class[_ <: Component]]
 
   def sparkSessionExtensions(): Seq[String] = Nil
+
+  /**
+   * The configuration objects owned by this component.
+   *
+   * Gluten initializes them right after component discovery, before any component's `onDriverStart`
+   * / `onExecutorStart` runs, so a component's configurations - including its registrations of
+   * configurations to pass to native side, see [[org.apache.gluten.config.NativeConfRegistry]] -
+   * are in place before the native backend is initialized and before the first native runtime is
+   * created.
+   *
+   * Overriding this is the recommended way for a component to make its own native configurations
+   * take effect. Declaring them and doing nothing else is not enough: a configuration object is a
+   * Scala object, so its registrations only happen once something touches it.
+   */
+  def confs(): Seq[ConfigRegistry] = Nil
 
   /** Spark listeners. */
   def onDriverStart(sc: SparkContext, pc: PluginContext): Unit = {}

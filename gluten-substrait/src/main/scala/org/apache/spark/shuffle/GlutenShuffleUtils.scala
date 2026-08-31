@@ -26,10 +26,9 @@ import org.apache.spark.internal.config._
 import org.apache.spark.shuffle.api.ShuffleExecutorComponents
 import org.apache.spark.shuffle.sort.ColumnarShuffleHandle
 import org.apache.spark.shuffle.sort.SortShuffleManager.canUseBatchFetch
+import org.apache.spark.sql.internal.{ChainedProvider, SparkConfProvider, SQLConf, SQLConfProvider}
 import org.apache.spark.storage.{BlockId, BlockManagerId}
 import org.apache.spark.util.random.XORShiftRandom
-
-import java.util.Locale
 
 object GlutenShuffleUtils {
   val SinglePartitioningShortName = "single"
@@ -49,42 +48,36 @@ object GlutenShuffleUtils {
   }
 
   def getCompressionCodec(conf: SparkConf): String = {
-    def checkCodecValues(codecConf: String, codec: String, validValues: Set[String]): Unit = {
+    // Gluten's codec conf falls back to Spark's spark.io.compression.codec, so reading it always
+    // yields a value. Look both keys up in SQLConf first and then in the given SparkConf, matching
+    // how a session inherits from the application conf.
+    val provider =
+      new ChainedProvider(new SQLConfProvider(SQLConf.get), new SparkConfProvider(conf))
+    val codecEntry = GlutenConfig.COLUMNAR_SHUFFLE_CODEC
+    val (codec, isSetOnGlutenConf) = codecEntry.readWithSource(provider)
+    val supportedCodecs = BackendsApiManager.getSettings.shuffleSupportedCodec()
+    if (isSetOnGlutenConf) {
+      // An explicitly set codec is validated against the codec backend in use.
+      val validValues = if (GlutenConfig.get.columnarShuffleEnableQat) {
+        GlutenConfig.GLUTEN_QAT_SUPPORTED_CODEC
+      } else {
+        supportedCodecs
+      }
       if (!validValues.contains(codec)) {
         throw new IllegalArgumentException(
-          s"The value of $codecConf should be one of " +
-            s"${validValues.mkString(", ")}, but was $codec")
+          s"The value of ${codecEntry.key} should be one of " +
+            s"${validValues.toSeq.sorted.mkString(", ")}, but was $codec")
       }
+    } else if (!supportedCodecs.contains(codec)) {
+      // A codec inherited from Spark points at how to override it instead.
+      throw new IllegalArgumentException(
+        s"Gluten shuffle does not support codec '$codec' inherited from " +
+          s"${codecEntry.fallbackKey}. " +
+          s"To disable shuffle compression, set spark.shuffle.compress=false. " +
+          s"To use a supported codec, set ${codecEntry.key} " +
+          s"to ${supportedCodecs.toSeq.sorted.mkString(" or ")}.")
     }
-    val glutenConfig = GlutenConfig.get
-    glutenConfig.columnarShuffleCodec match {
-      case Some(codec) =>
-        val glutenCodecKey = GlutenConfig.COLUMNAR_SHUFFLE_CODEC.key
-        if (glutenConfig.columnarShuffleEnableQat) {
-          checkCodecValues(glutenCodecKey, codec, GlutenConfig.GLUTEN_QAT_SUPPORTED_CODEC)
-        } else {
-          checkCodecValues(
-            glutenCodecKey,
-            codec,
-            BackendsApiManager.getSettings.shuffleSupportedCodec())
-        }
-        codec
-      case None =>
-        val sparkCodecKey = IO_COMPRESSION_CODEC.key
-        val codec =
-          conf
-            .get(sparkCodecKey, IO_COMPRESSION_CODEC.defaultValueString)
-            .toLowerCase(Locale.ROOT)
-        val supportedCodecs = BackendsApiManager.getSettings.shuffleSupportedCodec()
-        if (!supportedCodecs.contains(codec)) {
-          throw new IllegalArgumentException(
-            s"Gluten shuffle does not support codec '$codec'. " +
-              s"To disable shuffle compression, set spark.shuffle.compress=false. " +
-              s"To use a supported codec, set ${GlutenConfig.COLUMNAR_SHUFFLE_CODEC.key} " +
-              s"to ${supportedCodecs.mkString(" or ")}.")
-        }
-        codec
-    }
+    codec
   }
 
   def getCompressionLevel(conf: SparkConf, codec: String): Int = {

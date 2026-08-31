@@ -833,7 +833,6 @@ Java_org_apache_gluten_vectorized_LocalPartitionWriterJniWrapper_createPartition
     jint mergeBufferSize,
     jdouble mergeThreshold,
     jint numSubDirs,
-    jint shuffleFileBufferSize,
     jstring dataFileJstr,
     jstring localDirsJstr,
     jboolean enableDictionary,
@@ -844,6 +843,22 @@ Java_org_apache_gluten_vectorized_LocalPartitionWriterJniWrapper_createPartition
 
   auto dataFile = jStringToCString(env, dataFileJstr);
   auto localDirs = splitPaths(jStringToCString(env, localDirsJstr));
+
+  // `spark.shuffle.file.buffer` is declared with `bytesConf(ByteUnit.KiB)` on the JVM side, matching
+  // Spark's own declaration, so the delivered value is a KiB count. Convert it to bytes here, which
+  // is the unit every reader of `shuffleFileBufferSize` uses.
+  auto shuffleFileBufferSize = kDefaultShuffleFileBufferSize;
+  auto& conf = ctx->getConfMap();
+  if (auto it = conf.find(kShuffleFileBufferSize); it != conf.end()) {
+    try {
+      shuffleFileBufferSize = std::stoll(it->second) * 1024;
+    } catch (const std::exception&) {
+      // A malformed value should not fail shuffle writer creation when a sane native default is at
+      // hand. Without this, `JNI_METHOD_END` would turn it into a `GlutenException` and take the
+      // query down over a buffer size.
+      shuffleFileBufferSize = kDefaultShuffleFileBufferSize;
+    }
+  }
 
   auto partitionWriterOptions = std::make_shared<LocalPartitionWriterOptions>(
       shuffleFileBufferSize,

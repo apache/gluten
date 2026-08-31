@@ -120,7 +120,7 @@ class VeloxListenerApi extends ListenerApi with Logging {
           s" the recommended size ${ByteUnit.BYTE.toMiB(desiredOverheadSize)}MiB." +
           s" This may cause OOM.")
     }
-    conf.set(GlutenCoreConfig.COLUMNAR_OVERHEAD_SIZE_IN_BYTES, overheadSize)
+    conf.set(GlutenCoreConfig.COLUMNAR_OVERHEAD_SIZE_IN_BYTES, Some(overheadSize))
 
     // Sql table cache serializer.
     if (conf.get(GlutenConfig.COLUMNAR_TABLE_CACHE_ENABLED)) {
@@ -315,7 +315,7 @@ object VeloxListenerApi {
 
   def parseConf(conf: SparkConf, isDriver: Boolean): Map[String, String] = {
     // Ensure velox conf registered.
-    VeloxConfig.get
+    VeloxConfig.ensureRegistered()
 
     var parsed: Map[String, String] = GlutenConfigUtil.parseConfig(conf.getAll.toMap)
 
