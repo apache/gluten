@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "config/VeloxConfig.h"
 #include "utils/Exception.h"
 #include "velox/common/base/BloomFilter.h"
 #include "velox/expression/Expr.h"
@@ -216,7 +217,9 @@ SparkExprToSubfieldFilterParser::leafCallToSubfieldFilter(
       }
       return std::make_pair(std::move(subfield), facebook::velox::exec::isNotNull());
     }
-  } else if (scanBloomFilterPushdownEnabled_ && call.name() == "might_contain" && !negated) {
+  } else if (
+      backendConf_->get<bool>(kScanBloomFilterPushdownEnabled, kScanBloomFilterPushdownEnabledDefault) &&
+      call.name() == "might_contain" && !negated) {
     // Matches: might_contain(bloomFilter, xxhash64_with_seed(seed, field)).
     GLUTEN_CHECK(
         call.inputs().size() == 2,
@@ -242,8 +245,13 @@ SparkExprToSubfieldFilterParser::leafCallToSubfieldFilter(
       }
       auto bloomFilterValue = toConstant(call.inputs()[0], evaluator);
       if (bloomFilterValue && !bloomFilterValue->isNullAt(0)) {
-        auto bloomFilterBuffer =
-            BloomFilterBufferCache::instance().intern(bloomFilterValue->as<SimpleVector<StringView>>()->valueAt(0));
+        const auto bloomFilterBytes = bloomFilterValue->as<SimpleVector<StringView>>()->valueAt(0);
+        std::shared_ptr<const std::string> bloomFilterBuffer;
+        if (backendConf_->get<bool>(kScanBloomFilterBufferCacheEnabled, kScanBloomFilterBufferCacheEnabledDefault)) {
+          bloomFilterBuffer = BloomFilterBufferCache::instance().intern(bloomFilterBytes);
+        } else {
+          bloomFilterBuffer = std::make_shared<const std::string>(bloomFilterBytes.data(), bloomFilterBytes.size());
+        }
         std::unique_ptr<common::Filter> filter;
         if (inputTypeKind == TypeKind::INTEGER) {
           filter = std::make_unique<SparkMightContain<true>>(bloomFilterBuffer, false /*nullAllowed*/, seed);
