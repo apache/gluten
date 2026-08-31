@@ -18,7 +18,7 @@ package org.apache.gluten.delta
 
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.DeltaLocalFilesNode
-import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.{DeletionVectorPayload, DeltaFileReadOptions, InMemoryDeletionVectorPayload}
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.delta.DeltaParquetFileFormat
@@ -26,10 +26,12 @@ import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
 import org.apache.spark.sql.delta.deletionvectors.{RoaringBitmapArrayFormat, StoredBitmap}
 import org.apache.spark.sql.delta.storage.dv.{DeletionVectorStore, HadoopFileSystemDVStore}
 import org.apache.spark.sql.execution.datasources.PartitionedFile
+import org.apache.spark.util.SerializableConfiguration
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
+import java.io.DataInputStream
 import java.util.{Map => JMap}
 
 import scala.collection.JavaConverters._
@@ -47,7 +49,9 @@ object DeltaDeletionVectorScanInfo {
       hasDeletionVector: Boolean,
       rowIndexFilterType: RowIndexFilterType,
       cardinality: Long,
-      serializedDeletionVector: Array[Byte])
+      deletionVectorPayload: DeletionVectorPayload) {
+    def serializedDeletionVector: Array[Byte] = deletionVectorPayload.materialize()
+  }
 
   final case class PartitionFileScanInfo(
       normalizedOtherMetadataColumns: Map[String, Object],
@@ -63,22 +67,33 @@ object DeltaDeletionVectorScanInfo {
    * the DV bookkeeping keys stripped. Returns None when no file in the split carries a deletion
    * vector, so callers can keep the generic split representation.
    *
-   * `tablePath` is the Delta table root, supplied by the caller from `TahoeFileIndex.path`, and is
-   * used to resolve on-disk DV locations. A single Hadoop Configuration is reused across all files
-   * in the partition.
+   * `tablePath` is the authoritative Delta table root supplied by `TahoeFileIndex.path`. On-disk DV
+   * descriptors retain a shared serializable Hadoop configuration but do not open their sidecar
+   * until executor-side split serialization. Inline DVs remain eager because their bytes are
+   * already present in Delta metadata.
    */
   def normalize(
       partitionFiles: Seq[PartitionedFile],
       tablePath: Path)
       : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
+    normalize(partitionFiles, tablePath, None)
+  }
+
+  def normalize(
+      partitionFiles: Seq[PartitionedFile],
+      tablePath: Path,
+      readMetrics: Option[DeletionVectorReadMetrics])
+      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
     if (partitionFiles.isEmpty) {
       return None
     }
     val spark = activeSparkSession
-    // Create a single Hadoop Configuration for the entire partition.
     val hadoopConf = spark.sessionState.newHadoopConf()
+    val serializableHadoopConf = new SerializableConfiguration(hadoopConf)
 
-    val scanInfos = partitionFiles.map(file => extract(file, hadoopConf, tablePath))
+    val scanInfos = partitionFiles.map {
+      file => extract(file, hadoopConf, serializableHadoopConf, tablePath, readMetrics)
+    }
     if (scanInfos.exists(_.deletionVectorInfo.hasDeletionVector)) {
       Some(
         (
@@ -95,16 +110,24 @@ object DeltaDeletionVectorScanInfo {
       file: PartitionedFile,
       tablePath: Path): PartitionFileScanInfo = {
     val hadoopConf = spark.sessionState.newHadoopConf()
-    extract(file, hadoopConf, tablePath)
+    val serializableHadoopConf = new SerializableConfiguration(hadoopConf)
+    extract(file, hadoopConf, serializableHadoopConf, tablePath, None)
   }
 
   private def extract(
       file: PartitionedFile,
       hadoopConf: Configuration,
-      tablePath: Path): PartitionFileScanInfo = {
+      serializableHadoopConf: SerializableConfiguration,
+      tablePath: Path,
+      readMetrics: Option[DeletionVectorReadMetrics]): PartitionFileScanInfo = {
     val metadata = otherMetadataColumns(file)
     val normalizedMetadata = metadata -- Seq(RowIndexFilterIdEncoded, RowIndexFilterTypeKey)
-    val dvInfo = extractDeletionVectorInfo(metadata, hadoopConf, tablePath)
+    val dvInfo = extractDeletionVectorInfo(
+      metadata,
+      hadoopConf,
+      serializableHadoopConf,
+      tablePath,
+      readMetrics)
     PartitionFileScanInfo(normalizedMetadata, dvInfo)
   }
 
@@ -113,7 +136,7 @@ object DeltaDeletionVectorScanInfo {
       toSubstraitRowIndexFilterType(dvInfo.rowIndexFilterType),
       dvInfo.hasDeletionVector,
       dvInfo.cardinality,
-      dvInfo.serializedDeletionVector)
+      dvInfo.deletionVectorPayload)
   }
 
   private def toSubstraitRowIndexFilterType(
@@ -137,21 +160,32 @@ object DeltaDeletionVectorScanInfo {
   private def extractDeletionVectorInfo(
       metadata: Map[String, Object],
       hadoopConf: Configuration,
-      tablePath: Path): DeletionVectorInfo = {
+      serializableHadoopConf: SerializableConfiguration,
+      tablePath: Path,
+      readMetrics: Option[DeletionVectorReadMetrics]): DeletionVectorInfo = {
     val descriptorValue = metadata.get(RowIndexFilterIdEncoded)
     val filterTypeValue = metadata.get(RowIndexFilterTypeKey)
 
     (descriptorValue, filterTypeValue) match {
       case (None, None) =>
-        DeletionVectorInfo(false, KEEP_ALL, 0L, Array.emptyByteArray)
+        DeletionVectorInfo(
+          false,
+          KEEP_ALL,
+          0L,
+          new InMemoryDeletionVectorPayload(Array.emptyByteArray))
       case (Some(encodedDescriptor), Some(filterType)) =>
         val descriptor = parseDescriptor(encodedDescriptor.toString)
-        val serializedPayload = serializePayload(hadoopConf, tablePath, descriptor)
+        val payload = deletionVectorPayload(
+          hadoopConf,
+          serializableHadoopConf,
+          tablePath,
+          descriptor,
+          readMetrics)
         DeletionVectorInfo(
           true,
           parseRowIndexFilterType(filterType.toString),
           descriptor.cardinality,
-          serializedPayload)
+          payload)
       case _ =>
         throw new IllegalStateException(
           s"Both $RowIndexFilterIdEncoded and $RowIndexFilterTypeKey must either be present or absent")
@@ -187,17 +221,43 @@ object DeltaDeletionVectorScanInfo {
     }
   }
 
+  /** Selects a deferred source for on-disk DVs and eager bytes for inline DVs. */
+  private def deletionVectorPayload(
+      hadoopConf: Configuration,
+      serializableHadoopConf: SerializableConfiguration,
+      tablePath: Path,
+      descriptor: DeletionVectorDescriptor,
+      readMetrics: Option[DeletionVectorReadMetrics]): DeletionVectorPayload = {
+    if (tablePath == null) {
+      throw new IllegalStateException(
+        "Unable to resolve Delta table path while preparing deletion vector payload")
+    }
+    if (descriptor.storageType != "i") {
+      val dvPath = descriptor.absolutePath(tablePath)
+      new OnDiskDeletionVectorPayload(
+        serializableHadoopConf,
+        dvPath.toString,
+        requiredOffset(descriptor),
+        descriptor.sizeInBytes,
+        readMetrics)
+    } else {
+      new InMemoryDeletionVectorPayload(serializeInlinePayload(hadoopConf, tablePath, descriptor))
+    }
+  }
+
+  private def requiredOffset(descriptor: DeletionVectorDescriptor): Long = {
+    descriptor.offset
+      .map(_.toLong)
+      .getOrElse {
+        throw new IllegalStateException(
+          s"On-disk Delta deletion vector '${descriptor.storageType}' is missing its offset")
+      }
+  }
+
   /**
-   * Reads the DV payload bytes for the native engine. For on-disk DVs, reads the raw bytes directly
-   * from the DV file using Delta's `DeletionVectorStore.readRangeFromStream`, which includes
-   * checksum verification. The on-disk format is already Portable Roaring Bitmap Array (the format
-   * the native Velox side expects), so this skips the expensive
-   * deserialize-into-Java-Roaring-objects + re-serialize round-trip.
-   *
-   * Falls back to the standard load+serialize path for inline DVs (small payloads embedded in Delta
-   * metadata) which don't have a file to read from.
+   * Decodes an inline DV already embedded in Delta metadata into Velox's portable bitmap format.
    */
-  private def serializePayload(
+  private def serializeInlinePayload(
       hadoopConf: Configuration,
       tablePath: Path,
       descriptor: DeletionVectorDescriptor): Array[Byte] = {
@@ -205,17 +265,11 @@ object DeltaDeletionVectorScanInfo {
       throw new IllegalStateException(
         "Unable to resolve Delta table path while materializing deletion vector payload")
     }
-    if (descriptor.storageType != "i") {
-      // On-disk DV (storageType "u" for UUID or "p" for path): read raw bytes directly.
-      readRawDvBytes(hadoopConf, tablePath, descriptor)
-    } else {
-      // Inline DV (storageType "i"): bytes are in the descriptor metadata.
-      val dvStore = new HadoopFileSystemDVStore(hadoopConf)
-      StoredBitmap
-        .create(descriptor, tablePath)
-        .load(dvStore)
-        .serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
-    }
+    val dvStore = new HadoopFileSystemDVStore(hadoopConf)
+    StoredBitmap
+      .create(descriptor, tablePath)
+      .load(dvStore)
+      .serializeAsByteArray(RoaringBitmapArrayFormat.Portable)
   }
 
   /**
@@ -226,25 +280,67 @@ object DeltaDeletionVectorScanInfo {
    */
   private def readRawDvBytes(
       hadoopConf: Configuration,
-      tablePath: Path,
-      descriptor: DeletionVectorDescriptor): Array[Byte] = {
-    val dvPath = descriptor.absolutePath(tablePath)
+      dvPath: Path,
+      offset: Long,
+      sizeInBytes: Int): Array[Byte] = {
     val fs = dvPath.getFileSystem(hadoopConf)
     // Positioned absolute seek, matching Delta's own `HadoopFileSystemDVStore.read`. `seek` is a
     // single positioned reposition (a ranged read on object stores), whereas `DataInputStream.
     // skipBytes` is best-effort -- it can skip fewer bytes than requested without error, which would
-    // then fail the CRC check in `readRangeFromStream`. `FSDataInputStream` is a `DataInputStream`,
-    // so it is passed through directly.
-    val stream = fs.open(dvPath)
+    // then fail the CRC check in `readRangeFromStream`.
+    val fileStream = fs.open(dvPath)
     try {
-      val offset = descriptor.offset.getOrElse(0)
-      if (offset > 0) {
-        stream.seek(offset.toLong)
-      }
-      DeletionVectorStore.readRangeFromStream(stream, descriptor.sizeInBytes)
+      fileStream.seek(offset)
+      DeletionVectorStore.readRangeFromStream(new DataInputStream(fileStream), sizeInBytes)
     } finally {
-      stream.close()
+      fileStream.close()
     }
+  }
+
+  /**
+   * Executor-side on-disk payload source. Successful materialization is memoized for repeated split
+   * serialization; failed reads remain retryable.
+   */
+  @SerialVersionUID(1L)
+  final private class OnDiskDeletionVectorPayload(
+      serializableHadoopConf: SerializableConfiguration,
+      absolutePath: String,
+      offset: Long,
+      sizeInBytes: Int,
+      readMetrics: Option[DeletionVectorReadMetrics])
+    extends DeletionVectorPayload {
+    require(offset >= 0, s"Deletion vector offset must be non-negative: $offset")
+    require(sizeInBytes >= 0, s"Deletion vector size must be non-negative: $sizeInBytes")
+
+    @transient @volatile private var cachedPayload: Array[Byte] = _
+
+    override def materialize(): Array[Byte] = {
+      var payload = cachedPayload
+      if (payload == null) {
+        this.synchronized {
+          payload = cachedPayload
+          if (payload == null) {
+            val startedAt = System.nanoTime()
+            readMetrics.foreach(_.registerForCurrentTask())
+            readMetrics.foreach(_.readAttempts.add(1L))
+            try {
+              payload = readRawDvBytes(
+                serializableHadoopConf.value,
+                new Path(absolutePath),
+                offset,
+                sizeInBytes)
+              readMetrics.foreach(_.readBytes.add(payload.length.toLong))
+              cachedPayload = payload
+            } finally {
+              readMetrics.foreach(_.readTimeNanos.add(System.nanoTime() - startedAt))
+            }
+          }
+        }
+      }
+      payload
+    }
+
+    override def isMaterialized(): Boolean = cachedPayload != null
   }
 
 }

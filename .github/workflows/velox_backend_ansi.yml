@@ -40,8 +40,20 @@ env:
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
   SPARK_ANSI_SQL_MODE: true
 
+# `issue_comment` fires on every comment posted on an issue or a PR, and
+# `github.event.issue.number` puts such a run in the same group as an in-flight
+# ANSI run for that PR, so `cancel-in-progress` kills it while `check-comment`
+# below skips the newcomer, leaving no replacement. Give only that case a group
+# of its own, so every other trigger keeps the exact group name it has today.
+# The negated condition is that job's `if` verbatim.
 concurrency:
-  group: ${{ github.repository }}-ansi-${{ github.event.issue.number || inputs.pr_number }}
+  group: >-
+    ${{ github.repository }}-ansi-${{ github.event.issue.number || inputs.pr_number }}${{
+      !((github.event_name == 'workflow_dispatch') ||
+        (github.event.issue.pull_request &&
+         (contains(github.event.comment.body, '/ansi-test') ||
+          contains(github.event.comment.body, '/ansi-analyze'))))
+      && format('-comment-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:

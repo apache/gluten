@@ -149,8 +149,24 @@ env:
   DELTA_NUM_SHARDS: '8'
 
 # Cancel older `pull_request` and `/delta-test` runs for the same PR.
+#
+# `issue_comment` fires on every comment posted on an issue or a PR, and
+# `github.event.issue.number` is that issue's number, which for a comment on a
+# PR is the PR's own number. Such a run would therefore join the PR's group and
+# cancel an in-flight suite while `delta-test-requested` below skips it, losing
+# the suite and replacing it with nothing. Give only that case a group of its
+# own, so every other trigger keeps the exact group name it has today. The
+# negated condition is that job's `if` verbatim.
 concurrency:
-  group: ${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.head_ref || github.sha }}-${{ github.workflow }}
+  group: >-
+    ${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.head_ref || github.sha }}-${{ github.workflow }}${{
+      !(github.event_name != 'issue_comment' ||
+        (github.event.issue.pull_request &&
+         (github.event.comment.body == '/delta-test' ||
+          startsWith(github.event.comment.body, '/delta-test ') ||
+          startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\r"'))) ||
+          startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\n"'))))))
+      && format('-comment-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -217,7 +233,7 @@ jobs:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
           path: ./cpp/build/
@@ -296,7 +312,7 @@ jobs:
           fi
           cp "$jar" bundle-out/
           ls -lh bundle-out/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-gluten-bundle-${{github.sha}}
           path: bundle-out/gluten-velox-bundle-spark*_*-linux_amd64-*.jar
@@ -466,7 +482,7 @@ jobs:
 
       - name: Upload per-shard gate lists
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-gate-lists-shard-${{ matrix.shard }}
           path: gate-out/*.txt
@@ -474,7 +490,7 @@ jobs:
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-reports-shard-${{ matrix.shard }}
           path: |
@@ -484,7 +500,7 @@ jobs:
 
       - name: Upload hang watchdog thread dumps
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-threaddumps-shard-${{ matrix.shard }}
           path: /tmp/threaddump-shard-${{ matrix.shard }}-*.txt
@@ -492,7 +508,7 @@ jobs:
 
       - name: Upload JVM crash logs and other failure artifacts
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-failure-logs-shard-${{ matrix.shard }}
           path: |
@@ -543,7 +559,7 @@ jobs:
             --baseline-out aggregated/known-failures.txt
       - name: Upload refreshed baseline
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: delta-spark-ut-known-failures
           path: aggregated/known-failures.txt

@@ -44,9 +44,9 @@ Gluten requires GCC 11 or above.
 ### Dev Container
 
 To skip the manual environment setup, you can develop Gluten inside a pre-built Docker
-image using the [Dev Container](https://containers.dev/) configuration shipped at
-`.devcontainer/devcontainer.json`. See [Dev Container](./dev-container.md) for a brief
-guide and the list of available Gluten Docker images.
+image using the [Dev Container](https://containers.dev/) configurations under
+`.devcontainer/`. See [Dev Containers](./dev-container.md) for configuration,
+build and test instructions.
 
 ## Development
 

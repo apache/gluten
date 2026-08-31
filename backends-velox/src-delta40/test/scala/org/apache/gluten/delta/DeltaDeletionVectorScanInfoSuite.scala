@@ -17,15 +17,18 @@
 package org.apache.gluten.delta
 
 import org.apache.gluten.delta.DeltaDeletionVectorScanInfo.RowIndexFilterType
+import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
 
 import org.apache.spark.SparkConf
 import org.apache.spark.paths.SparkPath
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.delta.{DeltaLog, GlutenDeltaParquetFileFormat}
+import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
 import org.apache.spark.sql.delta.catalog.DeltaCatalog
 import org.apache.spark.sql.delta.test.DeltaSQLTestUtils
 import org.apache.spark.sql.execution.datasources.PartitionedFile
+import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.tags.ExtendedSQLTest
@@ -37,7 +40,8 @@ import org.apache.hadoop.fs.Path
 class DeltaDeletionVectorScanInfoSuite
   extends QueryTest
   with SharedSparkSession
-  with DeltaSQLTestUtils {
+  with DeltaSQLTestUtils
+  with DeltaDeletionVectorDeferredReadTests {
 
   import testImplicits._
 
@@ -181,7 +185,61 @@ class DeltaDeletionVectorScanInfoSuite
     }
   }
 
-  private def partitionedFileWithMetadata(
+  override protected def loadDeletionVectorFile(tablePath: Path): TestDeletionVectorFile = {
+    val dataFile = DeltaLog
+      .forTable(spark, tablePath)
+      .update()
+      .allFiles
+      .collect()
+      .find(_.deletionVector != null)
+      .get
+    val descriptor = dataFile.deletionVector
+    TestDeletionVectorFile(
+      relativePath = dataFile.path,
+      fileSize = dataFile.size,
+      encodedDescriptor = descriptor.serializeToBase64(),
+      storageType = descriptor.storageType,
+      absolutePath = descriptor.absolutePath(tablePath).toString,
+      offset = descriptor.offset.get.toLong,
+      payloadSize = descriptor.sizeInBytes.toLong,
+      cardinality = descriptor.cardinality
+    )
+  }
+
+  override protected def deletionVectorMetadata(
+      encodedDescriptor: String): Map[String, Object] = {
+    Map(
+      GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_ID_ENCODED -> encodedDescriptor,
+      GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_TYPE -> "IF_CONTAINED"
+    )
+  }
+
+  override protected def encodeDeletionVectorDescriptor(
+      descriptor: DeletionVectorDescriptor): String = descriptor.serializeToBase64()
+
+  override protected def normalizeDeletionVectorOptions(
+      partitionedFile: PartitionedFile,
+      tablePath: Path,
+      readTime: SQLMetric,
+      readBytes: SQLMetric,
+      readAttempts: SQLMetric): DeltaFileReadOptions = {
+    DeltaDeletionVectorScanInfo
+      .normalize(
+        Seq(partitionedFile),
+        tablePath,
+        Some(DeletionVectorReadMetrics(readTime, readBytes, readAttempts)))
+      .get
+      ._2
+      .head
+  }
+
+  override protected def normalizeDeletionVectorOptions(
+      partitionedFile: PartitionedFile,
+      tablePath: Path): DeltaFileReadOptions = {
+    DeltaDeletionVectorScanInfo.normalize(Seq(partitionedFile), tablePath).get._2.head
+  }
+
+  override protected def partitionedFileWithMetadata(
       tablePath: String,
       relativeFilePath: String,
       fileSize: Long,
