@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-8-jdk17
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
@@ -71,7 +71,7 @@ jobs:
             ccache-flink-centos8
       - name: Prepare and build velox4j
         run: |
-          source /opt/rh/gcc-toolset-11/enable
+          source /opt/rh/gcc-toolset-12/enable
           sudo dnf install -y patchelf ccache
           export CCACHE_DIR=${CCACHE_DIR}
           export CCACHE_MAXSIZE=2G

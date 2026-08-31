@@ -28,6 +28,8 @@ ENABLE_HDFS=OFF
 ENABLE_ABFS=OFF
 # Enable GPU support
 ENABLE_GPU=OFF
+# Enable LTO/IPO support.
+ENABLE_LTO=OFF
 # CMake build type for Velox.
 BUILD_TYPE=release
 # May be deprecated in Gluten build.
@@ -68,6 +70,10 @@ for arg in "$@"; do
     ;;
   --enable_gpu=*)
     ENABLE_GPU=("${arg#*=}")
+    shift # Remove argument name from processing
+    ;;
+  --enable_lto=*)
+    ENABLE_LTO=("${arg#*=}")
     shift # Remove argument name from processing
     ;;
   --build_type=*)
@@ -115,9 +121,12 @@ function compile {
   if [[ "$(uname)" == "Darwin" ]]; then
     CXX_FLAGS="$CXX_FLAGS -Wno-inconsistent-missing-override -Wno-macro-redefined"
     if [[ -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
-      # Some prefix-installed deps only publish loose headers (e.g. xsimd), so
-      # keep the prefix include dir on the compiler command line.
-      CXX_FLAGS="$CXX_FLAGS -I${INSTALL_PREFIX}/include"
+      # Add the dependency prefix as a system include: this finds deps that only
+      # publish loose headers (e.g. xsimd) and demotes warnings in vendored
+      # dependency headers (abseil's __is_trivially_relocatable, arrow's vendored
+      # date.h literal operators) to non-fatal system-header warnings under
+      # -Werror on recent clang.
+      CXX_FLAGS="$CXX_FLAGS -isystem ${INSTALL_PREFIX}/include"
     fi
   fi
 
@@ -131,6 +140,13 @@ function compile {
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PREFIX_PATH=/usr/local"
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_SYSTEM_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
+    # Force fmt to build from source via FetchContent: Homebrew's fmt config file
+    # at /opt/homebrew/lib/cmake/fmt/ wins the AUTO find_package probe ahead of
+    # INSTALL_PREFIX, producing a version mismatch. BUNDLED skips find_package.
+    COMPILE_OPTION="$COMPILE_OPTION -Dfmt_SOURCE=BUNDLED"
+  fi
+  if [ $ENABLE_LTO == "ON" ]; then
+    COMPILE_OPTION="$COMPILE_OPTION -DVELOX_ENABLE_LTO=ON"
   fi
   if [ $BUILD_TEST_UTILS == "ON" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_BUILD_TEST_UTILS=ON"
@@ -239,6 +255,7 @@ echo "ENABLE_GCS=${ENABLE_GCS}"
 echo "ENABLE_HDFS=${ENABLE_HDFS}"
 echo "ENABLE_ABFS=${ENABLE_ABFS}"
 echo "ENABLE_GPU=${ENABLE_GPU}"
+echo "ENABLE_LTO=${ENABLE_LTO}"
 echo "BUILD_TYPE=${BUILD_TYPE}"
 
 cd ${VELOX_HOME}

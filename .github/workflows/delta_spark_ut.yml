@@ -1,0 +1,566 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Runs Delta Lake's `spark` sbt module unit tests against a Gluten Velox bundle
+# that is built from the source in this repository. The pipeline:
+#
+#   1. Builds the Velox/Gluten native libraries (centos-7 + vcpkg, x86_64).
+#   2. Builds the Gluten Java/Scala jars and assembles the
+#      `gluten-velox-bundle-spark<spark>_<scala>-linux_amd64-<version>.jar`
+#      fat jar for Spark 4.1 + Scala 2.13 + Java 17 with the Delta profile.
+#   3. Clones delta-io/delta at the requested release tag (default `v4.2.0`),
+#      drops the bundle jar into `spark-unified/lib/` only (NOT `spark/lib/`
+#      -- see setup-delta.sh for the unmanagedJars scoping rationale),
+#      patches Delta's `DeltaSQLCommandTest` to register the Gluten plugin,
+#      and runs `sbt spark/test` sharded across the matrix.
+#
+# Limited to Velox + x86 to keep the matrix simple, per the pipeline's purpose
+# of validating Gluten changes against the latest Delta release.
+
+name: Delta Spark UT (Gluten)
+
+on:
+  # Self-contained: this workflow owns the whole Delta pipeline, including its own
+  # native build, and is NOT called by velox_backend_x86.yml. A change confined to
+  # this pipeline's own files no longer drags in that workflow's ~50-job
+  # TPC-H/DS + Spark-UT matrix (measured: ~1750 runner-minutes per run that such a
+  # change cannot affect), and a Velox/core change no longer carries the Delta
+  # suite.
+  #
+  # Note the tradeoff: `gluten-delta/**` and `backends-velox/src-delta*/**` also
+  # match velox_backend_x86.yml's own filter (its spark-ut jobs build with
+  # -Pdelta), so a change there runs BOTH workflows and, now that the native lib
+  # is no longer shared between them, pays for the centos-7 build twice (~10 min).
+  # That is the price of decoupling, and it is small next to the case above.
+  #
+  # The `paths:` filter below IS the per-PR gate -- GitHub evaluates it before the
+  # run is created, so a non-Delta PR costs nothing at all. Changes to general
+  # Velox/core/native code can also affect Delta offload, but they are touched on
+  # most PRs; the nightly `schedule` run below is the safety net for those, and
+  # `workflow_dispatch` lets anyone run the suite against a branch on demand.
+  pull_request:
+    paths:
+      - '.github/workflows/delta_spark_ut.yml'
+      - '.github/workflows/util/delta-spark-ut/**'
+      # Velox revision updates can change Delta offload behavior.
+      - 'ep/build-velox/src/get-velox.sh'
+      - 'gluten-delta/**'
+      # Covers src-delta, src-delta33, src-delta40 and any future variant.
+      - 'backends-velox/src-delta*/**'
+      # Negated patterns are evaluated in order and override the positives
+      # above, so this must stay last.
+      - '!.github/workflows/util/delta-spark-ut/**/*.md'
+  # Force a run skipped by `paths:` without requiring label permissions.
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      delta_ref:
+        description: 'delta-io/delta git ref (tag/branch/SHA) to test against'
+        required: true
+        default: 'v4.2.0'
+      spark_version:
+        description: 'Spark version: drives the Gluten bundle profile (-Pspark-<v>) and Delta -DsparkVersion together. Scala 2.13 + JDK 17 are assumed, so pair a non-4.1 value with a compatible delta_ref.'
+        required: true
+        default: '4.1'
+      test_parallelism:
+        description: 'Forked test JVMs per shard (TEST_PARALLELISM_COUNT)'
+        required: true
+        default: '4'
+      update_baseline:
+        description: 'Seed/refresh the known-failures baseline instead of enforcing it'
+        type: boolean
+        required: false
+        default: false
+      fail_on_fixed:
+        description: 'Fail when a baseline test now passes (keeps the baseline honest)'
+        type: boolean
+        required: false
+        default: true
+  # Nightly full run against the latest default branch. Per-PR the `paths:` filter
+  # above runs the suite only for Delta-relevant changes, to save GHA minutes;
+  # this scheduled run keeps full coverage once a day so regressions from general
+  # Velox/core changes are still caught, and it enforces `fail_on_fixed` so the
+  # baseline stays honest.
+  schedule:
+    - cron: '0 5 * * *'
+
+# Comment runs execute PR code; keep the token read-only. Stash needs artifacts access.
+permissions:
+  contents: read
+  actions: read
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  MVN_CMD: 'build/mvn -ntp'
+  CCACHE_DIR: "${{ github.workspace }}/.ccache"
+  # `issue_comment` runs on the default branch, so explicitly select the PR merge ref.
+  DELTA_CHECKOUT_REF: ${{ github.event.issue.number && format('refs/pull/{0}/merge', github.event.issue.number) || '' }}
+  # Gluten profile / bundle naming for the build-gluten-bundle and
+  # delta-spark-test jobs. `spark_version` is the single source of truth for the
+  # Spark version: it drives the Gluten bundle profile (-Pspark-<v>), the bundle
+  # jar name, and Delta's -DsparkVersion, so the tests always run against a bundle
+  # built for the same Spark version (no separate value to keep in sync). Scala
+  # 2.13 + JDK 17 are pinned -- they match Delta v4.2.0's default Spark 4.1.0 from
+  # project/CrossSparkVersions.scala -- so pair a non-default spark_version with a
+  # compatible delta_ref.
+  GLUTEN_SPARK_PROFILE: spark-${{ inputs.spark_version || '4.1' }}
+  GLUTEN_SCALA_PROFILE: 'scala-2.13'
+  GLUTEN_JAVA_PROFILE: 'java-17'
+  GLUTEN_BUNDLE_SPARK_VERSION: ${{ inputs.spark_version || '4.1' }}
+  GLUTEN_BUNDLE_SCALA_VERSION: '2.13'
+  DELTA_SCALA_VERSION: '2.13.16'
+  # Number of shards in the delta-spark-test matrix. Must equal the length of
+  # the `shard` matrix below.
+  #
+  # 8 shards x TEST_PARALLELISM_COUNT=4 gives ~32-way parallelism, which is also
+  # exactly what delta-io/delta's own spark_test.yaml uses (NUM_SHARDS: 8,
+  # shard: [0..7], TEST_PARALLELISM_COUNT=4), so we size the split the same way
+  # upstream does for the same suites.
+  #
+  # Sharding is by SUITE and the total work is fixed, so this trades runner count
+  # for wall clock: measured on a 4-shard run, a shard spent 9.1 min on fixed
+  # setup (clone Delta, apply patches, compile the test sources) and 134.5 min
+  # actually running tests, so ~91% of a shard shards away. Going 4 -> 8 takes the
+  # slowest shard from ~148 min to ~74 min for about +7% total runner-minutes (the
+  # fixed setup is paid 8 times instead of 4).
+  #
+  # Memory is per runner and therefore unaffected: each shard is its own job, so
+  # it is still 4 forks plus the sbt launcher against the ~16G limit, at ~4G per
+  # fork (2G heap + 2G off-heap). That fits because the worst memory hog
+  # (DeletionVectorsSuite 2B-row) is force-failed in setup-delta.sh.
+  #
+  # Further sharding has a floor: wall clock cannot drop below the longest single
+  # suite, which is ~18 min (DeleteSQLSQLPathBasedDVPredPushOffSuite). At 8 shards
+  # we are well above it, and with ~180 suites per shard there is ample
+  # granularity for the split to stay balanced.
+  DELTA_NUM_SHARDS: '8'
+
+# Cancel older `pull_request` and `/delta-test` runs for the same PR.
+#
+# `issue_comment` fires on every comment posted on an issue or a PR, and
+# `github.event.issue.number` is that issue's number, which for a comment on a
+# PR is the PR's own number. Such a run would therefore join the PR's group and
+# cancel an in-flight suite while `delta-test-requested` below skips it, losing
+# the suite and replacing it with nothing. Give only that case a group of its
+# own, so every other trigger keeps the exact group name it has today. The
+# negated condition is that job's `if` verbatim.
+concurrency:
+  group: >-
+    ${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.head_ref || github.sha }}-${{ github.workflow }}${{
+      !(github.event_name != 'issue_comment' ||
+        (github.event.issue.pull_request &&
+         (github.event.comment.body == '/delta-test' ||
+          startsWith(github.event.comment.body, '/delta-test ') ||
+          startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\r"'))) ||
+          startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\n"'))))))
+      && format('-comment-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  delta-test-requested:
+    # Match `/delta-test` as the first token; pass other event types through.
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+       (github.event.comment.body == '/delta-test' ||
+        startsWith(github.event.comment.body, '/delta-test ') ||
+        startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\r"'))) ||
+        startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\n"')))))
+    runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Acknowledge the request
+        if: ${{ github.event_name == 'issue_comment' }}
+        # The informational comment must not block the run.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          TRIGGER_USER: ${{ github.event.comment.user.login }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body \
+            "🔄 Delta Spark UT started by @${TRIGGER_USER} (~2.5 h). [View run](${RUN_URL})"
+
+  build-native-lib-centos-7:
+    needs: delta-test-requested
+    # This workflow always builds its own native lib -- there is no caller to
+    # provide one, and the `paths:` filter already decided whether the run happens.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
+      - name: Get Ccache from Apache Stash
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Build Gluten native libraries
+        run: |
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
+            set -e
+            yum install tzdata -y
+            df -a
+            cd /work
+            export CCACHE_DIR=/work/.ccache
+            export CCACHE_MAXSIZE=1G
+            mkdir -p /work/.ccache
+            ccache -sz
+            bash dev/ci-velox-buildstatic-centos-7.sh
+            ccache -s
+          "
+      - name: Save Ccache to Apache Stash
+        # Comment runs use main's Stash scope; never overwrite it with PR output.
+        if: ${{ always() && github.event_name != 'issue_comment' }}
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
+          path: ./cpp/build/
+          if-no-files-found: error
+
+  build-gluten-bundle:
+    needs: build-native-lib-centos-7
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-9-jdk17
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
+      - name: Download native artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: delta-spark-ut-native-lib-centos-7-${{ github.sha }}
+          path: ./cpp/build/
+      - name: Install Stash restore dependencies
+        run: |
+          set -euo pipefail
+          yum install -y python3
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64) ARCH=arm64 ;;
+            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
+            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
+          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
+          chmod +x /usr/local/bin/jq
+          python3 --version && gh --version && jq --version
+      - name: Get Maven repository from Apache Stash
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
+        with:
+          path: /root/.m2/repository
+          key: m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-${{ hashFiles('pom.xml', '**/pom.xml') }}
+      - name: Build Gluten Velox + Delta bundle
+        run: |
+          set -euo pipefail
+          yum install -y java-17-openjdk-devel
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          java -version
+          cd "$GITHUB_WORKSPACE"
+          # `install` (not `package`) so the gluten-delta artifact is in the local
+          # m2 repo before the `package/` shaded jar is built. `Dmaven.compiler.release=17`
+          # overrides any user settings.xml that may pin release=1.8 for Java 17 builds.
+          $MVN_CMD clean install \
+            -P${{ env.GLUTEN_SPARK_PROFILE }} \
+            -P${{ env.GLUTEN_SCALA_PROFILE }} \
+            -P${{ env.GLUTEN_JAVA_PROFILE }} \
+            -Pbackends-velox -Pdelta \
+            -DskipTests -Dmaven.compiler.release=17
+      - name: Save Maven repository to Apache Stash
+        if: ${{ github.event_name != 'issue_comment' }}
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: /root/.m2/repository
+          key: m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-${{ hashFiles('pom.xml', '**/pom.xml') }}
+          include-hidden-files: true
+      - name: Stage bundle jar
+        run: |
+          set -euo pipefail
+          mkdir -p bundle-out
+          # Match the renamed fat jar produced by package/pom.xml's copy-fat-jar
+          # exec. The version part may bump (e.g. 1.7.0-SNAPSHOT -> 1.8.0-SNAPSHOT),
+          # so glob the version suffix. `2>/dev/null ... || true` keeps a no-match
+          # `ls` from aborting the step under `set -o pipefail`, so the explicit
+          # check below runs instead of dying with a generic "cannot access".
+          jar=$(ls package/target/gluten-velox-bundle-spark${{ env.GLUTEN_BUNDLE_SPARK_VERSION }}_${{ env.GLUTEN_BUNDLE_SCALA_VERSION }}-linux_amd64-*.jar 2>/dev/null | head -n 1 || true)
+          if [ -z "$jar" ] || [ ! -f "$jar" ]; then
+            echo "ERROR: Could not find Gluten bundle jar under package/target/" >&2
+            ls -la package/target/ || true
+            exit 1
+          fi
+          cp "$jar" bundle-out/
+          ls -lh bundle-out/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: delta-spark-ut-gluten-bundle-${{github.sha}}
+          path: bundle-out/gluten-velox-bundle-spark*_*-linux_amd64-*.jar
+          if-no-files-found: error
+
+  delta-spark-test:
+    needs: build-gluten-bundle
+    # Explicit condition rather than relying on default skip propagation: it keeps
+    # the matrix bounded to a genuinely successful bundle, and stays correct if the
+    # upstream jobs' conditions change again.
+    if: ${{ !cancelled() && needs.build-gluten-bundle.result == 'success' }}
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-9-jdk17
+    # 350-min safety cap. With 4 forks per shard the per-shard suites run
+    # 4-at-a-time, so a shard finishes well under this.
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        # Length of this list MUST equal env.DELTA_NUM_SHARDS.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      # Mirror Delta's spark_test.yaml env vars used by run-tests.py /
+      # TestParallelization.scala.
+      SHARD_ID: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
+
+      - name: Resolve workflow inputs
+        id: resolve
+        # Surface the inputs as step outputs. `workflow_dispatch` supplies them
+        # (with defaults); the `pull_request` and nightly `schedule` events supply
+        # NONE, so fall back to the same defaults here. The boolean inputs are
+        # rendered as explicit 'true'/'false' strings (never empty) via the `&&/||`
+        # form so those runs resolve cleanly: update_baseline=false (enforce) and
+        # fail_on_fixed=true (so a now-passing baseline test turns the nightly red
+        # -- our signal that the committed baseline needs refreshing).
+        env:
+          DELTA_REF: ${{ inputs.delta_ref || 'v4.2.0' }}
+          SPARK_VERSION: ${{ inputs.spark_version || '4.1' }}
+          TEST_PARALLELISM: ${{ inputs.test_parallelism || '4' }}
+          UPDATE_BASELINE: ${{ github.event_name == 'workflow_dispatch' && (inputs.update_baseline && 'true' || 'false') || 'false' }}
+          # Defaults to true for pull_request and schedule: `inputs` only exists on
+          # workflow_dispatch, so a bare `inputs.fail_on_fixed` would silently
+          # resolve to false on those events and stop the now-passing check from
+          # being enforced -- the behaviour the removed workflow_call input used to
+          # provide via `default: true`.
+          FAIL_ON_FIXED: ${{ github.event_name == 'workflow_dispatch' && (inputs.fail_on_fixed && 'true' || 'false') || 'true' }}
+        run: |
+          set -euo pipefail
+          {
+            echo "delta_ref=${DELTA_REF}"
+            echo "spark_version=${SPARK_VERSION}"
+            echo "test_parallelism=${TEST_PARALLELISM}"
+            echo "update_baseline=${UPDATE_BASELINE}"
+            echo "fail_on_fixed=${FAIL_ON_FIXED}"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      - name: Download Gluten bundle jar
+        uses: actions/download-artifact@v8
+        with:
+          name: delta-spark-ut-gluten-bundle-${{github.sha}}
+          path: gluten-bundle
+
+      - name: Install minimal tools and Stash restore dependencies
+        run: |
+          set -euo pipefail
+          # apache/gluten:centos-9-jdk17 already has java-17, git, tar, a POSIX
+          # shell, and curl-minimal (which provides the `curl` command sbt's
+          # launcher needs). Install the rest of what Delta's build/sbt and the
+          # tests may need. We deliberately do NOT install the full `curl`
+          # package -- it conflicts with the pre-installed curl-minimal.
+          yum install -y java-17-openjdk-devel which findutils gzip python3
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64) ARCH=arm64 ;;
+            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
+            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
+          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
+          chmod +x /usr/local/bin/jq
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          java -version
+          git --version
+          curl --version | head -n 1
+          python3 --version
+          gh --version
+          jq --version
+
+      - name: Get sbt / Ivy / Coursier from Apache Stash
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
+        with:
+          # Stash restore accepts one destination. The save step preserves the
+          # three selected cache paths relative to their common /root directory.
+          path: /root
+          key: delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-${{ steps.resolve.outputs.spark_version }}-${{ env.DELTA_SCALA_VERSION }}
+
+      - name: Clone and patch Delta
+        run: |
+          set -euo pipefail
+          # `2>/dev/null ... || true` keeps a no-match `ls` from aborting the step
+          # under `set -o pipefail`, so the explicit check below emits a clear
+          # error instead of a generic "cannot access".
+          GLUTEN_JAR=$(ls "$GITHUB_WORKSPACE"/gluten-bundle/gluten-velox-bundle-spark*_*-linux_amd64-*.jar 2>/dev/null | head -n 1 || true)
+          if [ -z "$GLUTEN_JAR" ] || [ ! -f "$GLUTEN_JAR" ]; then
+            echo "ERROR: No Gluten bundle jar found under $GITHUB_WORKSPACE/gluten-bundle/" >&2
+            ls -la "$GITHUB_WORKSPACE/gluten-bundle/" || true
+            exit 1
+          fi
+          echo "Using Gluten bundle: $GLUTEN_JAR"
+          bash "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/setup-delta.sh" \
+            "${{ steps.resolve.outputs.delta_ref }}" \
+            "$GITHUB_WORKSPACE/delta" \
+            "$GLUTEN_JAR" \
+            "$GITHUB_WORKSPACE"
+
+      - name: Run Delta spark module tests (shard ${{ matrix.shard }} / ${{ env.DELTA_NUM_SHARDS }})
+        env:
+          NUM_SHARDS: ${{ env.DELTA_NUM_SHARDS }}
+          TEST_PARALLELISM_COUNT: ${{ steps.resolve.outputs.test_parallelism }}
+          SPARK_VERSION: ${{ steps.resolve.outputs.spark_version }}
+          UPDATE_BASELINE: ${{ steps.resolve.outputs.update_baseline }}
+          FAIL_ON_FIXED: ${{ steps.resolve.outputs.fail_on_fixed }}
+          # Required by Delta to enable testing-only code paths
+          # (see delta build.sbt: "Test / envVars += DELTA_TESTING -> 1").
+          DELTA_TESTING: '1'
+          # NOTE: the Gluten/JDK17 test JVM flags (JAVA_TOOL_OPTIONS) live in
+          # util/delta-spark-ut/java-test-args.sh, which run-delta-tests.sh sources,
+          # so CI and local dev runs share one definition.
+        run: |
+          set -euo pipefail
+          # Run the shard's Delta tests + hang watchdog + memory forensics, then
+          # gate against the baseline. See util/delta-spark-ut/run-delta-tests.sh.
+          bash "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/run-delta-tests.sh"
+
+      - name: Save sbt / Ivy / Coursier to Apache Stash
+        # All shards have the same dependencies; one writer avoids matrix jobs
+        # overwriting the same stash artifact.
+        if: ${{ success() && matrix.shard == 0 && github.event_name != 'issue_comment' }}
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: |
+            /root/.sbt
+            /root/.ivy2
+            /root/.cache/coursier
+          key: delta-spark-ut-sbt-${{ steps.resolve.outputs.delta_ref }}-${{ steps.resolve.outputs.spark_version }}-${{ env.DELTA_SCALA_VERSION }}
+          include-hidden-files: true
+
+      - name: Compress heap dumps (if any)
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          if compgen -G "/tmp/*.hprof" > /dev/null; then
+            echo "Found heap dump(s); compressing..."
+            ls -lh /tmp/*.hprof
+            # gzip is single-threaded and slow on multi-GB heaps but is
+            # always present in the centos image. Heap dumps compress ~10x.
+            gzip -1 /tmp/*.hprof
+            ls -lh /tmp/*.hprof.gz
+          else
+            echo "No heap dumps found in /tmp/."
+          fi
+
+      - name: Upload per-shard gate lists
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: delta-spark-ut-gate-lists-shard-${{ matrix.shard }}
+          path: gate-out/*.txt
+          if-no-files-found: warn
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: delta-spark-ut-reports-shard-${{ matrix.shard }}
+          path: |
+            delta/**/target/test-reports/**/*.xml
+            delta/**/target/surefire-reports/**/*.xml
+          if-no-files-found: warn
+
+      - name: Upload hang watchdog thread dumps
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: delta-spark-ut-threaddumps-shard-${{ matrix.shard }}
+          path: /tmp/threaddump-shard-${{ matrix.shard }}-*.txt
+          if-no-files-found: ignore
+
+      - name: Upload JVM crash logs and other failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: delta-spark-ut-failure-logs-shard-${{ matrix.shard }}
+          path: |
+            delta/**/target/*.log
+            delta/**/hs_err_pid*.log
+            delta/**/core.*
+            /tmp/*.hprof
+            /tmp/*.hprof.gz
+          if-no-files-found: ignore
+
+  # Merges every shard's failure/ran lists into a single, sorted, ready-to-commit
+  # known-failures.txt and reports global regressions / now-passing / stale
+  # entries. Runs even when some shards went red (if: always()) so the refreshed
+  # baseline artifact is always available -- this is what you download and commit
+  # to bootstrap or refresh the baseline (see util/delta-spark-ut/README.md).
+  delta-spark-aggregate:
+    needs: delta-spark-test
+    # Runs even when shards go red -- a partially-failing run still produces a
+    # useful refreshed baseline. Deliberately NOT `always()`: that also evaluates
+    # true while a run is being cancelled, and with `cancel-in-progress` above a
+    # superseded push would cancel the shards but still start this job, which then
+    # fails hard (by design) on finding no per-shard gate lists. `!cancelled()`
+    # drops that case, and the `!= 'skipped'` check drops the other one -- shards
+    # skipped because the bundle build failed -- so a single upstream failure
+    # doesn't surface as a second, misleading red job.
+    if: ${{ !cancelled() && needs.delta-spark-test.result != 'skipped' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
+      - name: Download per-shard gate lists
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: delta-spark-ut-gate-lists-shard-*
+          path: gate-lists
+          merge-multiple: true
+      - name: Aggregate known failures
+        run: |
+          set -euo pipefail
+          python3 .github/workflows/util/delta-spark-ut/compare-test-results.py \
+            --mode aggregate \
+            --inputs-dir gate-lists \
+            --expected-shards "${{ env.DELTA_NUM_SHARDS }}" \
+            --known-failures .github/workflows/util/delta-spark-ut/known-failures.txt \
+            --flaky-tests .github/workflows/util/delta-spark-ut/flaky-tests.txt \
+            --baseline-out aggregated/known-failures.txt
+      - name: Upload refreshed baseline
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: delta-spark-ut-known-failures
+          path: aggregated/known-failures.txt
+          if-no-files-found: warn

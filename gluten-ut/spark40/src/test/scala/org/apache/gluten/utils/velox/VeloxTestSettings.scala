@@ -114,6 +114,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("data type casting")
     // Revised by setting timezone through config and commented unsupported cases.
     .exclude("cast string to timestamp")
+    // Excluded in favour of the GlutenCastWithAnsiOffSuite rewrite, which drops the Long.MinValue
+    // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
     .exclude("SPARK-36286: invalid string cast to timestamp")
     .exclude("SPARK-39749: cast Decimal to string")
@@ -122,12 +124,6 @@ class VeloxTestSettings extends BackendTestSettings {
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
     )
     .exclude("cast from timestamp II") // Rewrite test for Gluten not supported with ANSI mode
-    .exclude("ANSI mode: Throw exception on casting out-of-range value to byte type")
-    .exclude("ANSI mode: Throw exception on casting out-of-range value to short type")
-    .exclude("ANSI mode: Throw exception on casting out-of-range value to int type")
-    .exclude("ANSI mode: Throw exception on casting out-of-range value to long type")
-    .exclude("cast from invalid string to numeric should throw NumberFormatException")
-    .exclude("SPARK-26218: Fix the corner case of codegen when casting float to Integer")
     // Set timezone through config.
     .exclude("data type casting")
     // Revised by setting timezone through config and commented unsupported cases.
@@ -666,8 +662,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenFileMetadataStructSuite]
   enableSuite[GlutenParquetV1AggregatePushDownSuite]
   enableSuite[GlutenParquetV2AggregatePushDownSuite]
-    // TODO: Timestamp columns stats will lost if using int64 in parquet writer.
-    .exclude("aggregate push down - different data types")
   enableSuite[GlutenOrcV1AggregatePushDownSuite]
     .exclude("nested column: Count(nested sub-field) not push down")
   enableSuite[GlutenOrcV2AggregatePushDownSuite]
@@ -741,7 +735,22 @@ class VeloxTestSettings extends BackendTestSettings {
   disableSuite[GlutenProjectedOrderingAndPartitioningSuite](
     "Validates Spark planner output ordering and partitioning metadata")
   enableSuite[GlutenQueryPlanningTrackerEndToEndSuite]
-  // TODO: 4.x enableSuite[GlutenRemoveRedundantProjectsSuite]  // 14 failures
+  enableSuite[GlutenRemoveRedundantProjectsSuite]
+    // Rewrite as result checks because Gluten transforms and may pull out additional projects.
+    .exclude("project with filter")
+    .exclude("project with specific column ordering")
+    .exclude("project with extra columns")
+    .exclude("project with fewer columns")
+    .exclude("aggregate without ordering requirement")
+    .exclude("aggregate with ordering requirement")
+    .exclude("join without ordering requirement")
+    .exclude("join with ordering requirement")
+    .exclude("window function")
+    .exclude("generate should require column ordering")
+    .exclude("subquery")
+    .exclude("SPARK-33697: UnionExec should require column ordering")
+    .exclude("SPARK-33697: remove redundant projects under expand")
+    .exclude("SPARK-36020: Project should not be removed when child's logical link is different")
   enableSuite[GlutenRemoveRedundantSortsSuite]
     // Rewrite as it check spark SortExec.
     .includeAllGlutenTests()
@@ -754,10 +763,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSparkPlanSuite]
     .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
-  enableSuite[GlutenSparkScriptTransformationSuite]
-    // Flaky in CI containers for Spark 4.0: intermittently fails with
-    // `/tmp/test-resource*.py: Permission denied` and can crash JVM.
-    .exclude("SPARK-33934: Add SparkFile's root dir to env property PATH")
+  disableSuite[GlutenSparkScriptTransformationSuite]("Flaky suite")
   enableSuite[GlutenSparkSqlParserSuite]
     .exclude("Checks if SET/RESET can parse all the configurations")
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
@@ -855,6 +861,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-24583 Wrong schema type in InsertIntoDataSourceCommand")
     // the native write staing dir is differnt with vanilla Spark for coustom partition paths
     .exclude("SPARK-35106: Throw exception when rename custom partition paths returns false")
+    // The case expects a SparkException; Gluten surfaces the raw
+    // FileAlreadyExistsException instead.
     .exclude("Stop task set if FileAlreadyExistsException was thrown")
     // Rewrite: Additional support for file scan with default values has been added in Spark-3.4.
     // It appends the default value in record if it is not present while scanning.
@@ -880,7 +888,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataFrameTransposeSuite]
   enableSuite[GlutenDefaultANSIValueSuite]
   enableSuite[GlutenDeprecatedDatasetAggregatorSuite]
-  // TODO: 4.x enableSuite[GlutenExplainSuite]  // 1 failure
+  disableSuite[GlutenExplainSuite](
+    "Validates Spark-specific physical plans and JVM codegen output, neither of which applies to " +
+      "Gluten's native execution plan")
   enableSuite[GlutenICUCollationsMapSuite]
   enableSuite[GlutenInlineTableParsingImprovementsSuite]
   enableSuite[GlutenJoinHintSuite]
@@ -895,7 +905,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenRuntimeConfigSuite]
   enableSuite[GlutenSSBQuerySuite]
   enableSuite[GlutenSessionStateSuite]
-  // TODO: 4.x enableSuite[GlutenSetCommandSuite]  // 1 failure
+  enableSuite[GlutenSetCommandSuite]
   enableSuite[GlutenSparkSessionBuilderSuite]
   enableSuite[GlutenSparkSessionJobTaggingAndCancellationSuite]
     .exclude("Tags set from session are prefixed with session UUID")
@@ -1014,6 +1024,10 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-27439: Explain result should match collected result after view change")
     // https://github.com/apache/gluten/issues/11570
     .exclude("getRows: binary")
+    // Velox does not reproduce Spark's guarantee that a seeded non-deterministic
+    // expression referenced multiple times yields row-wise equal values (rand/randn).
+    // Same class of difference as SPARK-9083. Not really an issue.
+    .exclude("SPARK-45216: Non-deterministic functions with seed")
   enableSuite[GlutenDataFrameTimeWindowingSuite]
   enableSuite[GlutenDataFrameTungstenSuite]
   enableSuite[GlutenDataFrameWindowFunctionsSuite]
@@ -1026,6 +1040,12 @@ class VeloxTestSettings extends BackendTestSettings {
     // rewrite `WindowExec -> WindowExecTransformer`
     .exclude(
       "SPARK-38237: require all cluster keys for child required distribution for window query")
+    // The window orderBy has no tie-breaker, so rows tied in the window order can be emitted
+    // in any order. Velox TopNRowNumber orders peer rows differently than Spark's stable sort,
+    // making the running-frame collect_list result differ on tied rows. Both results are valid.
+    .exclude(
+      "SPARK-45543: InferWindowGroupLimit causes bug if the other window functions" +
+        " haven't the same window frame as the rank-like functions")
   enableSuite[GlutenDataFrameWindowFramesSuite]
   enableSuite[GlutenDataFrameWriterV2Suite]
   enableSuite[GlutenDatasetAggregatorSuite]
@@ -1053,10 +1073,14 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOn]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOnDisableScan]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffDisableScan]
+  enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOnDisableProject]
+  enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOffDisableProject]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOff]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOn]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOnDisableScan]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffDisableScan]
+  enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOnDisableProject]
+  enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOffDisableProject]
   enableSuite[GlutenExpressionsSchemaSuite]
   enableSuite[GlutenExtraStrategiesSuite]
   enableSuite[GlutenFileBasedDataSourceSuite]
@@ -1151,11 +1175,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenXPathFunctionsSuite]
   enableSuite[GlutenFallbackSuite]
   enableSuite[GlutenHashAggregationQuerySuite]
-    // TODO: fix on https://github.com/apache/gluten/issues/11919
-    .exclude("udaf with all data types")
   enableSuite[GlutenHashAggregationQueryWithControlledFallbackSuite]
-    // TODO: fix on https://github.com/apache/gluten/issues/11919
-    .exclude("udaf with all data types")
   enableSuite[GlutenHiveCommandSuite]
   enableSuite[GlutenHiveDDLSuite]
   enableSuite[GlutenHiveExplainSuite]
@@ -1256,10 +1276,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Dependent Batched Python UDFs and Scalar Pandas UDFs should not be combined")
     .exclude("Python UDF should not break column pruning/filter pushdown -- Parquet V2")
   enableSuite[GlutenStreamingQuerySuite]
-    // requires test resources that don't exist in Gluten repo
-    .exclude("detect escaped path and report the migration guide")
-    .exclude("ignore the escaped path check when the flag is off")
-    .excludeByPrefix("SPARK-51187")
   enableSuite[GlutenQueryExecutionSuite]
     // Rewritten to set root logger level to INFO so that logs can be parsed
     .exclude("Logging plan changes for execution")

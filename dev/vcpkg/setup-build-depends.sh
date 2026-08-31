@@ -113,7 +113,7 @@ install_centos_7() {
         wget -q --max-redirect 3 -O - "${FLEX_URL}" | tar -xz -C /tmp/flex --strip-components=1
         cd /tmp/flex
         ./autogen.sh
-        ./configure
+        ./configure --prefix=/usr
         make install
         cd
         rm -rf /tmp/flex
@@ -202,7 +202,7 @@ install_openeuler_24.03() {
         gcc g++ cmake ninja-build perl-IPC-Cmd autoconf autoconf-archive automake libtool \
         java-1.8.0-openjdk java-1.8.0-openjdk-devel python3-devel python3-pip libstdc++-static
 
-    pip install cmake==3.28.3
+    pip install cmake==3.31.4
 
     install_maven_from_source
 }

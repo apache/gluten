@@ -41,6 +41,7 @@ import org.apache.iceberg.types.{Type, Types}
 import org.apache.iceberg.types.Type.TypeID
 import org.apache.iceberg.types.Types.{ListType, MapType, NestedField}
 
+import java.util.{HashMap => JHashMap}
 import java.util.Locale
 
 case class IcebergScanTransformer(
@@ -64,6 +65,16 @@ case class IcebergScanTransformer(
   // but the implementation is different.
   // So use Metric to get NumSplits, NumDeletes is not reported by native metric
   private val numSplits = SQLMetrics.createMetric(sparkContext, new NumSplits().description())
+
+  private lazy val icebergInitialDefaults =
+    GlutenIcebergSourceUtil.getInitialDefaults(scan)
+
+  private lazy val icebergFieldIds =
+    if (icebergInitialDefaults.isEmpty) {
+      new JHashMap[String, Integer]()
+    } else {
+      GlutenIcebergSourceUtil.getFieldIds(scan)
+    }
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BatchScanExecTransformerBase = {
     this.copy(pushDownFilters = Some(filters))
@@ -150,6 +161,12 @@ case class IcebergScanTransformer(
       return ValidationResult.succeeded
     }
     val metadata = baseTable.operations().current()
+    if (
+      !BackendsApiManager.getSettings.supportIcebergInitialDefaultRead() &&
+      !icebergInitialDefaults.isEmpty
+    ) {
+      return ValidationResult.failed("Iceberg initial-default reads are not supported")
+    }
     if (metadata.formatVersion() >= 3) {
       val hasUnsupportedDelete = finalPartitions.exists {
         case p: SparkDataSourceRDDPartition =>
@@ -208,7 +225,12 @@ case class IcebergScanTransformer(
       metadataColumnNames: Seq[String]): SplitInfo = {
     val splitInfo = partition match {
       case p: SparkDataSourceRDDPartition =>
-        GlutenIcebergSourceUtil.genSplitInfo(p, getPartitionSchema, metadataColumnNames)
+        GlutenIcebergSourceUtil.genSplitInfo(
+          p,
+          getPartitionSchema,
+          metadataColumnNames,
+          icebergFieldIds,
+          icebergInitialDefaults)
       case _ => throw new GlutenNotSupportException()
     }
     numSplits.add(splitInfo.asInstanceOf[LocalFilesNode].getPaths.size())

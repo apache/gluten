@@ -146,7 +146,6 @@ Arguments: false
 
 (11) VeloxResizeBatches
 Input [4]: [hash_partition_key#10, ws_item_sk#1, d_date#6, sum#9]
-Arguments: 1024, 2147483647, 10485760
 
 (12) ColumnarExchange
 Input [4]: [hash_partition_key#10, ws_item_sk#1, d_date#6, sum#9]
@@ -175,7 +174,6 @@ Arguments: false
 
 (18) VeloxResizeBatches
 Input [5]: [hash_partition_key#12, item_sk#13, d_date#6, sumws#14, ws_item_sk#1]
-Arguments: 1024, 2147483647, 10485760
 
 (19) ColumnarExchange
 Input [5]: [hash_partition_key#12, item_sk#13, d_date#6, sumws#14, ws_item_sk#1]
@@ -261,7 +259,6 @@ Arguments: false
 
 (40) VeloxResizeBatches
 Input [6]: [hash_partition_key#25, item_sk#13, d_date#6, sumws#14, sum#23, isEmpty#24]
-Arguments: 1024, 2147483647, 10485760
 
 (41) ColumnarExchange
 Input [6]: [hash_partition_key#25, item_sk#13, d_date#6, sumws#14, sum#23, isEmpty#24]
@@ -290,7 +287,6 @@ Arguments: false
 
 (47) VeloxResizeBatches
 Input [4]: [hash_partition_key#27, item_sk#13, d_date#6, cume_sales#28]
-Arguments: 1024, 2147483647, 10485760
 
 (48) ColumnarExchange
 Input [4]: [hash_partition_key#27, item_sk#13, d_date#6, cume_sales#28]
@@ -350,7 +346,6 @@ Arguments: false
 
 (61) VeloxResizeBatches
 Input [4]: [hash_partition_key#37, ss_item_sk#29, d_date#33, sum#36]
-Arguments: 1024, 2147483647, 10485760
 
 (62) ColumnarExchange
 Input [4]: [hash_partition_key#37, ss_item_sk#29, d_date#33, sum#36]
@@ -379,7 +374,6 @@ Arguments: false
 
 (68) VeloxResizeBatches
 Input [5]: [hash_partition_key#39, item_sk#40, d_date#33, sumss#41, ss_item_sk#29]
-Arguments: 1024, 2147483647, 10485760
 
 (69) ColumnarExchange
 Input [5]: [hash_partition_key#39, item_sk#40, d_date#33, sumss#41, ss_item_sk#29]
@@ -465,7 +459,6 @@ Arguments: false
 
 (90) VeloxResizeBatches
 Input [6]: [hash_partition_key#52, item_sk#40, d_date#33, sumss#41, sum#50, isEmpty#51]
-Arguments: 1024, 2147483647, 10485760
 
 (91) ColumnarExchange
 Input [6]: [hash_partition_key#52, item_sk#40, d_date#33, sumss#41, sum#50, isEmpty#51]
@@ -494,7 +487,6 @@ Arguments: false
 
 (97) VeloxResizeBatches
 Input [4]: [hash_partition_key#54, item_sk#40, d_date#33, cume_sales#55]
-Arguments: 1024, 2147483647, 10485760
 
 (98) ColumnarExchange
 Input [4]: [hash_partition_key#54, item_sk#40, d_date#33, cume_sales#55]
@@ -526,7 +518,6 @@ Arguments: false
 
 (105) VeloxResizeBatches
 Input [5]: [hash_partition_key#56, item_sk#57, d_date#58, web_sales#59, store_sales#60]
-Arguments: 1024, 2147483647, 10485760
 
 (106) ColumnarExchange
 Input [5]: [hash_partition_key#56, item_sk#57, d_date#58, web_sales#59, store_sales#60]

@@ -27,6 +27,7 @@ import org.apache.spark.paths.SparkPath
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.{ExtendedAnalysisException, InternalRow}
 import org.apache.spark.sql.catalyst.analysis.DecimalPrecisionTypeCoercion
+import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.{JoinType, LeftSingle}
@@ -66,6 +67,9 @@ import scala.reflect.ClassTag
 
 class Spark40Shims extends SparkShims {
 
+  override def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] =
+    plan.stream
+
   override def scalarExpressionMappings: Seq[Sig] = {
     Seq(
       Sig[Empty2Null](ExpressionNames.EMPTY2NULL),
@@ -77,7 +81,10 @@ class Spark40Shims extends SparkShims {
       Sig[KnownNotContainsNull](ExpressionNames.KNOWN_NOT_CONTAINS_NULL),
       Sig[UrlDecode](ExpressionNames.URL_DECODE),
       Sig[ToPrettyString](ExpressionNames.TO_PRETTY_STRING),
-      Sig[RandStr](ExpressionNames.RANDSTR)
+      Sig[RandStr](ExpressionNames.RANDSTR),
+      Sig[RegExpInStr](ExpressionNames.REGEXP_INSTR),
+      Sig[DayName](ExpressionNames.DAY_NAME),
+      Sig[MonthName](ExpressionNames.MONTH_NAME)
     )
   }
 
@@ -253,6 +260,20 @@ class Spark40Shims extends SparkShims {
   }
 
   override def enableNativeWriteFilesByDefault(): Boolean = true
+
+  override def getV1WriteRequiredOrdering(
+      outputColumns: Seq[Attribute],
+      partitionColumns: Seq[Attribute],
+      bucketSpec: Option[BucketSpec],
+      options: Map[String, String],
+      numStaticPartitionCols: Int): Seq[SortOrder] = {
+    V1WritesUtils.getSortOrder(
+      outputColumns,
+      partitionColumns,
+      bucketSpec,
+      options,
+      numStaticPartitionCols)
+  }
 
   override def broadcastInternal[T: ClassTag](sc: SparkContext, value: T): Broadcast[T] = {
     SparkContextUtils.broadcastInternal(sc, value)

@@ -16,8 +16,10 @@
  */
 package org.apache.gluten.substrait.rel;
 
+import org.apache.gluten.substrait.expression.ExpressionBuilder;
 import org.apache.gluten.substrait.extensions.AdvancedExtensionNode;
 
+import io.substrait.proto.FetchMode;
 import io.substrait.proto.Rel;
 import io.substrait.proto.RelCommon;
 import io.substrait.proto.SortField;
@@ -55,12 +57,18 @@ public class TopNNode implements RelNode, Serializable {
     relCommonBuilder.setDirect(RelCommon.Direct.newBuilder());
 
     TopNRel.Builder topNBuilder = TopNRel.newBuilder();
+    topNBuilder.setCommon(relCommonBuilder.build());
 
     if (input != null) {
       topNBuilder.setInput(input.toProtobuf());
     }
 
-    topNBuilder.setN(count);
+    // Substrait's TopNRel expresses the row limit as an `Expression count`; the only Gluten
+    // producer (TakeOrderedAndProject) supplies a literal Long, so wrap it as an i64 literal.
+    // FetchMode has no meaningful proto3 default (FETCH_MODE_UNSPECIFIED is not a valid producer
+    // choice), so set it explicitly; Gluten never emits WITH TIES.
+    topNBuilder.setCount(ExpressionBuilder.makeLongLiteral(count).toProtobuf());
+    topNBuilder.setMode(FetchMode.FETCH_MODE_ROWS_ONLY);
 
     for (int i = 0; i < sorts.size(); i++) {
       topNBuilder.addSorts(i, sorts.get(i));

@@ -39,6 +39,7 @@ ENABLE_ABFS=OFF
 ENABLE_VCPKG=OFF
 ENABLE_GPU=OFF
 ENABLE_ENHANCED_FEATURES=OFF
+ENABLE_LTO=OFF
 RUN_SETUP_SCRIPT=ON
 VELOX_REPO=""
 VELOX_BRANCH=""
@@ -113,6 +114,10 @@ do
         ;;
         --enable_enhanced_features=*)
         ENABLE_ENHANCED_FEATURES=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
+        --enable_lto=*)
+        ENABLE_LTO=("${arg#*=}")
         shift # Remove argument name from processing
         ;;
         --run_setup_script=*)
@@ -244,7 +249,7 @@ function build_velox {
   ./build-velox.sh --enable_s3=$ENABLE_S3 --enable_gcs=$ENABLE_GCS --build_type=$BUILD_TYPE --enable_hdfs=$ENABLE_HDFS \
                    --enable_abfs=$ENABLE_ABFS --enable_gpu=$ENABLE_GPU --build_test_utils=$BUILD_TESTS \
                    --build_tests=$BUILD_VELOX_TESTS --build_benchmarks=$BUILD_VELOX_BENCHMARKS --num_threads=$NUM_THREADS \
-                   --velox_home=$VELOX_HOME
+                   --velox_home=$VELOX_HOME --enable_lto=$ENABLE_LTO
 }
 
 function build_gluten_cpp {
@@ -270,6 +275,7 @@ function build_gluten_cpp {
     "-DENABLE_GPU=$ENABLE_GPU"
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
     "-DENABLE_ENHANCED_FEATURES=$ENABLE_ENHANCED_FEATURES"
+    "-DENABLE_LTO=$ENABLE_LTO"
   )
 
   if [ -n "${INSTALL_PREFIX:-}" ]; then
@@ -319,15 +325,8 @@ function setup_dependencies {
     echo "Unsupported kernel: $OS"
     exit 1
   fi
-  if [ $ENABLE_S3 == "ON" ]; then
-    install_aws_deps
-  fi
-  if [ $ENABLE_GCS == "ON" ]; then
-    install_gcs_sdk_cpp
-  fi
-  if [ $ENABLE_ABFS == "ON" ]; then
-    export AZURE_SDK_DISABLE_AUTO_VCPKG=ON
-    install_azure_storage_sdk_cpp
+  if [[ "$ENABLE_S3" == "ON" || "$ENABLE_GCS" == "ON" || "$ENABLE_HDFS" == "ON" || "$ENABLE_ABFS" == "ON" ]]; then
+    install_adapters
   fi
   popd
 }

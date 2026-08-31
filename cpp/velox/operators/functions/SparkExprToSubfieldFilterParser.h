@@ -23,11 +23,17 @@ namespace gluten {
 /// 2) The supported functions vary.
 class SparkExprToSubfieldFilterParser : public facebook::velox::exec::ExprToSubfieldFilterParser {
  public:
+  explicit SparkExprToSubfieldFilterParser(bool scanBloomFilterPushdownEnabled)
+      : scanBloomFilterPushdownEnabled_(scanBloomFilterPushdownEnabled) {}
+
   std::optional<std::pair<facebook::velox::common::Subfield, std::unique_ptr<facebook::velox::common::Filter>>>
   leafCallToSubfieldFilter(
       const facebook::velox::core::CallTypedExpr& call,
       facebook::velox::core::ExpressionEvaluator* evaluator,
       bool negated) override;
+
+ private:
+  const bool scanBloomFilterPushdownEnabled_;
 };
 
 } // namespace gluten

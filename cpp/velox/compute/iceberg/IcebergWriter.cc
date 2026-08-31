@@ -161,7 +161,15 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
   const std::unordered_map<std::string, std::string> serdeParameters;
   auto writeKind = connector::hive::iceberg::IcebergInsertTableHandle::WriteKind::kData;
   return std::make_shared<connector::hive::iceberg::IcebergInsertTableHandle>(
-      columnHandles, locationHandle, fileFormat, spec, compressionKind, serdeParameters, writeKind, fileNameGenerator);
+      columnHandles,
+      locationHandle,
+      fileFormat,
+      spec,
+      compressionKind,
+      serdeParameters,
+      writeKind,
+      std::unordered_map<std::string, connector::hive::iceberg::IcebergInsertTableHandle::ExistingDeletionVector>{},
+      fileNameGenerator);
 }
 
 } // namespace

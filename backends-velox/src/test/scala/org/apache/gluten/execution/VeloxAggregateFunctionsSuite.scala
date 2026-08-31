@@ -1156,7 +1156,6 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
   }
 
   test("drop redundant partial sort which has pre-project when offload sortAgg") {
-    // Spark 3.2 does not have this configuration, but it does not affect the test results.
     withSQLConf("spark.sql.test.forceApplySortAggregate" -> "true") {
       withTempView("t1") {
         Seq((-1, 2), (-1, 3), (2, 3), (3, 4), (-3, 5), (4, 5))

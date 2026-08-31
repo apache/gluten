@@ -22,9 +22,12 @@
 #include <execinfo.h>
 #include <jni.h>
 
+#include <functional>
+
 #include "compute/ProtobufUtils.h"
 #include "compute/Runtime.h"
 #include "memory/AllocationListener.h"
+#include "shuffle/ShuffleReader.h"
 #include "shuffle/rss/RssClient.h"
 #include "threads/ThreadInitializer.h"
 #include "utils/Compression.h"
@@ -151,6 +154,18 @@ static T* jniCastOrThrow(jlong handle) {
 }
 namespace gluten {
 
+class ShuffleStreamReader final : public StreamReader {
+ public:
+  ShuffleStreamReader(JNIEnv* env, jobject reader);
+  ~ShuffleStreamReader() override;
+
+  std::shared_ptr<arrow::io::InputStream> readNextStream(arrow::MemoryPool* pool) override;
+
+ private:
+  JavaVM* vm_{nullptr};
+  jobject ref_{nullptr};
+};
+
 class JniCommonState {
  public:
   virtual ~JniCommonState() = default;
@@ -163,6 +178,14 @@ class JniCommonState {
 
   jmethodID runtimeAwareCtxHandle();
 
+  jmethodID jniByteInputStreamRead();
+
+  jmethodID jniByteInputStreamTell();
+
+  jmethodID jniByteInputStreamClose();
+
+  jmethodID shuffleStreamReaderNextStream();
+
   JavaVM* getJavaVM() const {
     return vm_;
   }
@@ -172,6 +195,14 @@ class JniCommonState {
 
   jclass runtimeAwareClass_;
   jmethodID runtimeAwareCtxHandle_;
+
+  jclass jniByteInputStreamClass_;
+  jmethodID jniByteInputStreamRead_;
+  jmethodID jniByteInputStreamTell_;
+  jmethodID jniByteInputStreamClose_;
+
+  jclass shuffleStreamReaderClass_;
+  jmethodID shuffleStreamReaderNextStream_;
 
   JavaVM* vm_;
   bool initialized_{false};
@@ -185,6 +216,14 @@ inline JniCommonState* getJniCommonState() {
 }
 
 Runtime* getRuntime(JNIEnv* env, jobject runtimeAware);
+
+using JniInputIteratorFactory = std::function<
+    std::unique_ptr<ColumnarBatchIterator>(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex)>;
+
+void registerJniInputIteratorFactory(const std::string& runtimeKind, JniInputIteratorFactory factory);
+
+std::unique_ptr<ColumnarBatchIterator>
+createJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex);
 
 // Safe version of JNI {Get|Release}<PrimitiveType>ArrayElements routines.
 // SafeNativeArray would release the managed array elements automatically

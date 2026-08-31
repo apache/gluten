@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution.enhanced
 
+import org.apache.gluten.config.GlutenIcebergConfig
 import org.apache.gluten.config.VeloxConfig.MAX_TARGET_FILE_SIZE_SESSION
 import org.apache.gluten.execution._
 import org.apache.gluten.tags.EnhancedFeaturesTest
@@ -655,7 +656,7 @@ class VeloxIcebergSuite extends IcebergSuite {
   }
 
   // Ignored due to velox parquet row-group flush semantics change after velox#16998.
-  ignore("iceberg parquet writer default row group size test") {
+  test("iceberg parquet writer default row group size test") {
     val table = "iceberg_default_row_group_size"
     val defaultRowGroupBytes = 128L * 1024 * 1024
 
@@ -743,20 +744,66 @@ class VeloxIcebergSuite extends IcebergSuite {
         checkAnswer(
           spark.sql(s"SELECT count(*) FROM $table"),
           Seq(Row(90000L)))
-        val rowGroups = collectRowGroups(table)
+        val rowGroups =
+          collectRowGroups(table).sortBy(info => (info.file, info.ordinal))
+
+        assert(
+          rowGroups.map(_.file).distinct.size == 1,
+          s"Expected one Parquet file, found: ${rowGroups.map(_.file).distinct}")
 
         assert(
           rowGroups.size == 2,
-          "Expected 2 row groups")
+          s"Expected 2 row groups, found ${rowGroups.size}: $rowGroups")
 
         assert(
-          rowGroups.head.totalByteSize < defaultRowGroupBytes,
-          "Expected row group to contain less than default value")
+          rowGroups.map(_.rowCount).sum == 90000L,
+          s"Expected 90000 rows across all row groups: $rowGroups")
+
+        val firstRowGroup = rowGroups.head
+        val finalRowGroup = rowGroups.last
 
         assert(
-          rowGroups(1).totalByteSize < defaultRowGroupBytes,
-          "Expected row group to contain less than default value")
+          firstRowGroup.compressedSize >= defaultRowGroupBytes,
+          s"Expected the first row group to reach the default row-group size " +
+            s"$defaultRowGroupBytes, but found ${firstRowGroup.compressedSize}"
+        )
+
+        assert(
+          finalRowGroup.compressedSize < defaultRowGroupBytes,
+          s"Expected the final row group to be smaller than the default row-group " +
+            s"size $defaultRowGroupBytes, but found ${finalRowGroup.compressedSize}"
+        )
       }
+    }
+  }
+
+  test("iceberg write falls back when native write is disabled") {
+    withTable("iceberg_write_switch_tbl") {
+      spark.sql("CREATE TABLE iceberg_write_switch_tbl (a INT, b STRING) USING iceberg")
+
+      withSQLConf(GlutenIcebergConfig.ENABLE_NATIVE_WRITE.key -> "false") {
+        val df = spark.sql("INSERT INTO iceberg_write_switch_tbl VALUES (1, 'hello')")
+        val commandPlan =
+          df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
+        assert(
+          !commandPlan.isInstanceOf[VeloxIcebergAppendDataExec],
+          s"Iceberg write should not be offloaded when native write is disabled: $commandPlan")
+        assert(commandPlan.isInstanceOf[AppendDataExec])
+      }
+
+      // Reads stay offloaded: the write switch must not affect the read path.
+      runQueryAndCompare("SELECT * FROM iceberg_write_switch_tbl") {
+        checkGlutenPlan[IcebergScanTransformer]
+      }
+
+      // The switch is dynamic: offload resumes once it is back to the default.
+      TestUtils.checkExecutedPlanContains[VeloxIcebergAppendDataExec](
+        spark,
+        "INSERT INTO iceberg_write_switch_tbl VALUES (2, 'world')")
+
+      checkAnswer(
+        spark.sql("SELECT * FROM iceberg_write_switch_tbl ORDER BY a"),
+        Seq(Row(1, "hello"), Row(2, "world")))
     }
   }
 }

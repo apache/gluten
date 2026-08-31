@@ -106,7 +106,6 @@ Arguments: false
 
 (17) VeloxResizeBatches
 Input [3]: [hash_partition_key#8, inv_item_sk#1, inv_quantity_on_hand#3]
-Arguments: 1024, 2147483647, 10485760
 
 (18) ColumnarExchange
 Input [3]: [hash_partition_key#8, inv_item_sk#1, inv_quantity_on_hand#3]
@@ -139,7 +138,6 @@ Arguments: false
 
 (25) VeloxResizeBatches
 Input [6]: [hash_partition_key#14, i_item_sk#9, i_brand#10, i_class#11, i_category#12, i_product_name#13]
-Arguments: 1024, 2147483647, 10485760
 
 (26) ColumnarExchange
 Input [6]: [hash_partition_key#14, i_item_sk#9, i_brand#10, i_class#11, i_category#12, i_product_name#13]
@@ -182,7 +180,6 @@ Arguments: false
 
 (35) VeloxResizeBatches
 Input [8]: [hash_partition_key#24, i_product_name#15, i_brand#16, i_class#17, i_category#18, spark_grouping_id#19, sum#22, count#23]
-Arguments: 1024, 2147483647, 10485760
 
 (36) ColumnarExchange
 Input [8]: [hash_partition_key#24, i_product_name#15, i_brand#16, i_class#17, i_category#18, spark_grouping_id#19, sum#22, count#23]

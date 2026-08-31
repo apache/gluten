@@ -22,6 +22,8 @@ class VeloxDeltaConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   import VeloxDeltaConfig._
 
   def enableNativeWrite: Boolean = getConf(ENABLE_NATIVE_WRITE)
+
+  def enableChangeDataFeedScan: Boolean = getConf(ENABLE_CHANGE_DATA_FEED_SCAN)
 }
 
 object VeloxDeltaConfig extends ConfigRegistry {
@@ -40,4 +42,11 @@ object VeloxDeltaConfig extends ConfigRegistry {
       .doc("Enable native Delta Lake write for Velox backend.")
       .booleanConf
       .createWithDefault(false)
+
+  val ENABLE_CHANGE_DATA_FEED_SCAN: ConfigEntry[Boolean] =
+    buildConf("spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan")
+      .experimental()
+      .doc("Enable Delta Lake change data feed scan offload for Velox backend.")
+      .booleanConf
+      .createWithDefault(true)
 }

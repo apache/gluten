@@ -27,6 +27,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference,
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NoMapping}
+import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeFileIndex, TahoeRemoveFileIndex}
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.{FilePartition, HadoopFsRelation}
 import org.apache.spark.sql.types.StructType
@@ -60,6 +61,27 @@ case class DeltaScanTransformer(
   ) {
 
   override lazy val fileFormat: ReadFileFormat = ReadFileFormat.ParquetReadFormat
+
+  // Delta CDF over a deletion-vector-enabled table needs DV-aware, row-level reconciliation that
+  // the native scan path does not do yet: it would surface rows that are still live (not covered
+  // by the DV) as CDF `delete` change rows. Fall back to Spark for both CDF scan sides -- the add
+  // side (`CdcAddFileIndex`) and the remove side (`TahoeRemoveFileIndex`) -- whenever the touched
+  // files carry DVs. Normal (non-CDF) DV scans are unaffected: those apply the DV natively through
+  // the per-file split-info handoff and never reach this guard.
+  override protected def doValidateInternal(): ValidationResult = {
+    if (cdfFilesHaveDeletionVectors) {
+      return ValidationResult.failed(DeltaScanTransformer.DELETION_VECTOR_UNSUPPORTED)
+    }
+    super.doValidateInternal()
+  }
+
+  private def cdfFilesHaveDeletionVectors: Boolean = relation.location match {
+    case index: TahoeRemoveFileIndex =>
+      index.filesByVersion.exists(_.actions.exists(_.deletionVector != null))
+    case index: CdcAddFileIndex =>
+      index.addFiles.exists(_.deletionVector != null)
+    case _ => false
+  }
 
   // For Delta column-mapping tables, `dataFilters` on the scan node are LOGICAL-named so Delta's
   // file index (`PreparedDeltaFileIndex.matchingFiles`, `Snapshot.filesForScan`) can do partition
@@ -98,20 +120,29 @@ case class DeltaScanTransformer(
   override def getSplitInfosFromPartitions(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
     val splitInfos = super.getSplitInfosFromPartitions(partitions)
-    val partitionColumnCount = getPartitionSchema.fields.length
-    splitInfos.zip(partitions).map {
-      case (localFiles: LocalFilesNode, (filePartition: FilePartition, _)) =>
-        DeltaDeletionVectorScanInfo
-          .normalize(partitionColumnCount, filePartition.files.toSeq)
-          .map {
-            case (otherMetadataColumns, deltaReadOptions) =>
-              DeltaLocalFilesBuilder.makeDeltaLocalFiles(
-                localFiles,
-                otherMetadataColumns.asJava,
-                deltaReadOptions.asJava): SplitInfo
-          }
-          .getOrElse(localFiles)
-      case (splitInfo, _) => splitInfo
+    // Deletion vectors only exist on Delta tables read through a TahoeFileIndex (which also covers
+    // PreparedDeltaFileIndex). Its `path` is the authoritative table root and is used to resolve
+    // per-file DV locations. Any other location cannot carry Delta DV metadata, so the generic
+    // split representation is returned unchanged.
+    relation.location match {
+      case tahoe: TahoeFileIndex =>
+        val tableRootPath = tahoe.path
+        splitInfos.zip(partitions).map {
+          case (localFiles: LocalFilesNode, (filePartition: FilePartition, _)) =>
+            DeltaDeletionVectorScanInfo
+              .normalize(filePartition.files.toSeq, tableRootPath)
+              .map {
+                case (otherMetadataColumns, deltaReadOptions) =>
+                  DeltaLocalFilesBuilder.makeDeltaLocalFiles(
+                    localFiles,
+                    otherMetadataColumns.asJava,
+                    deltaReadOptions.asJava): SplitInfo
+              }
+              .getOrElse(localFiles)
+          case (splitInfo, _) => splitInfo
+        }
+      case _ =>
+        splitInfos
     }
   }
 
@@ -138,6 +169,9 @@ case class DeltaScanTransformer(
 }
 
 object DeltaScanTransformer {
+
+  val DELETION_VECTOR_UNSUPPORTED = "Deletion vector is not supported in native."
+
   def apply(scanExec: FileSourceScanExec): DeltaScanTransformer = {
     new DeltaScanTransformer(
       scanExec.relation,

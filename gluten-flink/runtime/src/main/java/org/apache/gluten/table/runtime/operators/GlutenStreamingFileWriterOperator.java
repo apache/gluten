@@ -95,11 +95,15 @@ public class GlutenStreamingFileWriterOperator<IN>
       }
       restoredCheckpointRecords = records.toArray(new String[0]);
     }
-    LOG.info(
-        "Restore native file writer state for operator {}, restored {}, records {}",
-        getDescription(),
-        context.isRestored(),
-        Arrays.toString(restoredCheckpointRecords));
+    if (restoredCheckpointRecords != null) {
+      LOG.info(
+          "Restore native file writer state for operator {}, restored {}, records {}, contents {}",
+          getDescription(),
+          context.isRestored(),
+          restoredCheckpointRecords.length,
+          Arrays.toString(
+              restoredCheckpointRecords != null ? restoredCheckpointRecords : new String[0]));
+    }
     if (task == null) {
       initSession();
     }
