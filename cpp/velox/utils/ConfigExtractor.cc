@@ -286,7 +286,7 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
   configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kWriterDictionaryPageSizeLimitSession)] =
       conf->get<std::string>(kWriteParquetDictSizeBytes, "2MB");
   configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kNullStructIfAllFieldsMissingSession)] =
-      "true";
+      conf->get<bool>(kLegacyParquetReturnNullStructIfAllFieldsMissing, true) ? "true" : "false";
 
   overwriteVeloxConf(conf.get(), configs, kDynamicBackendConfPrefix);
   return std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
