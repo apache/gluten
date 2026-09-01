@@ -17,6 +17,8 @@
 
 #include "IcebergPlanConverter.h"
 
+#include <folly/String.h>
+
 #include "IcebergReadExtension.pb.h"
 
 namespace gluten {
@@ -37,7 +39,71 @@ std::unordered_map<int32_t, std::string> parseBounds(const SubstraitDeleteBounds
   return parsed;
 }
 
+IcebergFieldIdInfo parseFieldId(const ::gluten::IcebergReadExtension::ColumnFieldId& field) {
+  IcebergFieldIdInfo parsed{field.name(), field.field_id(), {}};
+  parsed.children.reserve(field.children_size());
+  for (const auto& child : field.children()) {
+    parsed.children.emplace_back(parseFieldId(child));
+  }
+  return parsed;
+}
+
+const IcebergFieldIdInfo* findChild(const IcebergFieldIdInfo& field, const std::string& name, bool asLowerCase) {
+  for (const auto& child : field.children) {
+    if (child.name == name) {
+      return &child;
+    }
+    if (asLowerCase) {
+      auto normalizedName = child.name;
+      folly::toLowerAscii(normalizedName);
+      if (normalizedName == name) {
+        return &child;
+      }
+    }
+  }
+  return nullptr;
+}
+
 } // namespace
+
+facebook::velox::parquet::ParquetFieldId IcebergPlanConverter::toParquetFieldId(
+    const IcebergFieldIdInfo& field,
+    const facebook::velox::TypePtr& type,
+    bool asLowerCase) {
+  facebook::velox::parquet::ParquetFieldId result{field.fieldId, {}};
+  // Plans produced before nested field IDs were added only contain the root ID.
+  if (field.children.empty()) {
+    return result;
+  }
+  auto appendChild = [&](const std::string& childName, const facebook::velox::TypePtr& childType) {
+    const auto* child = findChild(field, childName, asLowerCase);
+    VELOX_USER_CHECK(child != nullptr, "Missing Iceberg field ID for nested field '{}.{}'", field.name, childName);
+    result.children.emplace_back(toParquetFieldId(*child, childType, asLowerCase));
+  };
+
+  switch (type->kind()) {
+    case facebook::velox::TypeKind::ROW: {
+      const auto& rowType = type->asRow();
+      result.children.reserve(rowType.size());
+      for (facebook::velox::column_index_t i = 0; i < rowType.size(); ++i) {
+        appendChild(rowType.nameOf(i), rowType.childAt(i));
+      }
+      break;
+    }
+    case facebook::velox::TypeKind::ARRAY:
+      result.children.reserve(1);
+      appendChild("element", type->childAt(0));
+      break;
+    case facebook::velox::TypeKind::MAP:
+      result.children.reserve(2);
+      appendChild("key", type->childAt(0));
+      appendChild("value", type->childAt(1));
+      break;
+    default:
+      break;
+  }
+  return result;
+}
 
 std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
     substrait::ReadRel_LocalFiles_FileOrFiles file,
@@ -67,19 +133,27 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
     ::gluten::IcebergReadExtension icebergExtension;
     VELOX_USER_CHECK(extension.enhancement().UnpackTo(&icebergExtension), "Failed to unpack Iceberg read extension");
     for (const auto& column : icebergExtension.column_field_ids()) {
+      auto parsedField = parseFieldId(column);
       auto [it, inserted] =
-          icebergSplitInfo->columns.try_emplace(column.name(), IcebergColumnInfo{column.field_id(), std::nullopt});
+          icebergSplitInfo->columns.try_emplace(column.name(), IcebergColumnInfo{std::move(parsedField), std::nullopt});
       if (!inserted) {
         VELOX_USER_CHECK_EQ(
-            it->second.fieldId, column.field_id(), "Conflicting Iceberg field IDs for column '{}'", column.name());
+            it->second.field.fieldId,
+            column.field_id(),
+            "Conflicting Iceberg field IDs for column '{}'",
+            column.name());
       }
     }
     for (const auto& column : icebergExtension.column_defaults()) {
       auto [it, inserted] = icebergSplitInfo->columns.try_emplace(
-          column.name(), IcebergColumnInfo{column.field_id(), column.initial_default()});
+          column.name(),
+          IcebergColumnInfo{IcebergFieldIdInfo{column.name(), column.field_id(), {}}, column.initial_default()});
       if (!inserted) {
         VELOX_USER_CHECK_EQ(
-            it->second.fieldId, column.field_id(), "Conflicting Iceberg field IDs for column '{}'", column.name());
+            it->second.field.fieldId,
+            column.field_id(),
+            "Conflicting Iceberg field IDs for column '{}'",
+            column.name());
         it->second.initialDefault = column.initial_default();
       }
     }

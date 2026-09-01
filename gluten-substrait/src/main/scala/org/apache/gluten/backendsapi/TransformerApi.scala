@@ -19,6 +19,7 @@ package org.apache.gluten.backendsapi
 import org.apache.gluten.execution.WriteFilesExecTransformer
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.ExpressionNode
+import org.apache.gluten.substrait.rel.IcebergFieldId
 
 import org.apache.spark.Partition
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
@@ -74,11 +75,11 @@ trait TransformerApi {
 
   def packPBMessage(message: Message): Any
 
-  /** Packs Iceberg column initial defaults into a backend-specific read extension. */
+  /** Packs Iceberg field identities and initial defaults into a backend-specific read extension. */
   def packIcebergReadExtension(
-      fieldIds: util.Map[String, Integer],
+      fieldIds: util.List[IcebergFieldId],
       initialDefaults: util.Map[String, String]): Any = {
-    throw new UnsupportedOperationException("Iceberg initial-default reads are not supported")
+    throw new UnsupportedOperationException("Iceberg field-ID reads are not supported")
   }
 
   /** This method is only used for CH backend tests */

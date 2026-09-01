@@ -21,6 +21,7 @@ import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.{LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.IcebergFieldId
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
@@ -41,7 +42,7 @@ import org.apache.iceberg.types.{Type, Types}
 import org.apache.iceberg.types.Type.TypeID
 import org.apache.iceberg.types.Types.{ListType, MapType, NestedField}
 
-import java.util.{HashMap => JHashMap}
+import java.util.{ArrayList => JArrayList}
 import java.util.Locale
 
 case class IcebergScanTransformer(
@@ -70,10 +71,10 @@ case class IcebergScanTransformer(
     GlutenIcebergSourceUtil.getInitialDefaults(scan)
 
   private lazy val icebergFieldIds =
-    if (icebergInitialDefaults.isEmpty) {
-      new JHashMap[String, Integer]()
-    } else {
+    if (BackendsApiManager.getSettings.supportIcebergFieldIdRead()) {
       GlutenIcebergSourceUtil.getFieldIds(scan)
+    } else {
+      new JArrayList[IcebergFieldId]()
     }
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BatchScanExecTransformerBase = {
@@ -143,7 +144,7 @@ case class IcebergScanTransformer(
         return ValidationResult.failed("Contains equality delete files")
       }
 
-      if (hasRenamedColumn) {
+      if (!BackendsApiManager.getSettings.supportIcebergFieldIdRead() && hasRenamedColumn) {
         return ValidationResult.failed(
           "The column is renamed or data type mismatch, cannot read it.")
       }

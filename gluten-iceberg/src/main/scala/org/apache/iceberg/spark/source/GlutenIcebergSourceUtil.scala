@@ -20,7 +20,7 @@ import org.apache.gluten.IcebergDefaultValueUtil
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.SparkDataSourceRDDPartition
-import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
+import org.apache.gluten.substrait.rel.{IcebergFieldId, IcebergLocalFilesBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.softaffinity.SoftAffinity
@@ -30,6 +30,7 @@ import org.apache.spark.sql.types.StructType
 
 import org.apache.iceberg._
 import org.apache.iceberg.spark.SparkSchemaUtil
+import org.apache.iceberg.types.{Type, Types}
 
 import java.lang.{Class, Long => JLong}
 import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
@@ -59,7 +60,7 @@ object GlutenIcebergSourceUtil {
       partition: SparkDataSourceRDDPartition,
       readPartitionSchema: StructType,
       metadataColumnNames: Seq[String],
-      fieldIds: JMap[String, Integer],
+      fieldIds: JList[IcebergFieldId],
       initialDefaults: JMap[String, String]): SplitInfo = {
     val paths = new JArrayList[String]()
     val starts = new JArrayList[JLong]()
@@ -112,12 +113,12 @@ object GlutenIcebergSourceUtil {
     )
   }
 
-  def getFieldIds(sparkScan: Scan): JHashMap[String, Integer] = {
-    val fieldIds = new JHashMap[String, Integer]()
+  def getFieldIds(sparkScan: Scan): JArrayList[IcebergFieldId] = {
+    val fieldIds = new JArrayList[IcebergFieldId]()
     sparkScan match {
       case scan: SparkBatchQueryScan =>
-        scan.table().schema().columns().asScala.foreach {
-          field => fieldIds.put(field.name(), field.fieldId())
+        scan.expectedSchema().columns().asScala.foreach {
+          field => fieldIds.add(toFieldId(field))
         }
       case _ =>
         throw new GlutenNotSupportException("Only support iceberg SparkBatchQueryScan.")
@@ -125,11 +126,27 @@ object GlutenIcebergSourceUtil {
     fieldIds
   }
 
+  private def toFieldId(field: Types.NestedField): IcebergFieldId = {
+    new IcebergFieldId(field.name(), field.fieldId(), childFieldIds(field.`type`()))
+  }
+
+  private def childFieldIds(dataType: Type): JArrayList[IcebergFieldId] = {
+    val children = new JArrayList[IcebergFieldId]()
+    if (dataType.isNestedType) {
+      dataType
+        .asNestedType()
+        .fields()
+        .asScala
+        .foreach(field => children.add(toFieldId(field)))
+    }
+    children
+  }
+
   def getInitialDefaults(sparkScan: Scan): JHashMap[String, String] = {
     val initialDefaults = new JHashMap[String, String]()
     sparkScan match {
       case scan: SparkBatchQueryScan =>
-        scan.table().schema().columns().asScala.foreach {
+        scan.expectedSchema().columns().asScala.foreach {
           field =>
             val defaultValue = IcebergDefaultValueUtil.getInitialDefault(field)
             if (defaultValue != null) {

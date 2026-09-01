@@ -1663,7 +1663,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
           colNameList[idx],
           columnType,
           veloxTypeList[idx],
-          facebook::velox::parquet::ParquetFieldId(icebergColumn->fieldId),
+          IcebergPlanConverter::toParquetFieldId(icebergColumn->field, veloxTypeList[idx], asLowerCase),
           std::vector<common::Subfield>{},
           icebergColumn->initialDefault);
     } else {
