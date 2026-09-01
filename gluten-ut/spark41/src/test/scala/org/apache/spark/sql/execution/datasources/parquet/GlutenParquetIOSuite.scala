@@ -22,9 +22,6 @@ import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
 
 /** A test suite that tests basic Parquet I/O. */
 class GlutenParquetIOSuite extends ParquetIOSuite with GlutenSQLTestsBaseTrait {
-  override def testNameBlackList: Seq[String] =
-    Seq("SPARK-54220: vectorized reader: missing all struct fields, struct with NullType only")
-
   override protected def testFile(fileName: String): String = {
     getWorkspaceFilePath("sql", "core", "src", "test", "resources").toString + "/" + fileName
   }

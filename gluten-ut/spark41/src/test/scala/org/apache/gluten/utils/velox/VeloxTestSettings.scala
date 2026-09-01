@@ -567,6 +567,7 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: fix on Spark-4.1
     .excludeByPrefix("SPARK-53535") // see https://issues.apache.org/jira/browse/SPARK-53535
     .excludeByPrefix("vectorized reader: missing all struct fields")
+    .exclude("SPARK-54220: vectorized reader: missing all struct fields, struct with NullType only")
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
   enableSuite[GlutenParquetProtobufCompatibilitySuite]
