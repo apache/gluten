@@ -79,24 +79,76 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
     IF_NOT_CONTAINED
   }
 
+  /**
+   * Serializable source for a deletion-vector payload.
+   *
+   * <p>The source travels inside a Spark input partition. Implementations may therefore defer
+   * remote I/O until {@link #materialize()} is called while the split is converted to protobuf on
+   * an executor. The returned byte array must not be modified: protobuf wraps it without copying.
+   */
+  public interface DeletionVectorPayload extends Serializable {
+    byte[] materialize();
+
+    /** Returns whether the payload bytes are already resident in this object. */
+    boolean isMaterialized();
+  }
+
+  /** A payload source for inline DVs whose bytes are already present in Delta metadata. */
+  public static final class InMemoryDeletionVectorPayload implements DeletionVectorPayload {
+    private static final long serialVersionUID = 1L;
+
+    private final byte[] payload;
+
+    public InMemoryDeletionVectorPayload(byte[] payload) {
+      this.payload = payload == null ? new byte[0] : payload.clone();
+    }
+
+    @Override
+    public byte[] materialize() {
+      return payload;
+    }
+
+    @Override
+    public boolean isMaterialized() {
+      return true;
+    }
+  }
+
   public static class DeltaFileReadOptions implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private final RowIndexFilterType rowIndexFilterType;
     private final boolean hasDeletionVector;
     private final long deletionVectorCardinality;
-    private final byte[] serializedDeletionVector;
+    private final DeletionVectorPayload deletionVectorPayload;
 
     public DeltaFileReadOptions(
         RowIndexFilterType rowIndexFilterType,
         boolean hasDeletionVector,
         long deletionVectorCardinality,
         byte[] serializedDeletionVector) {
+      this(
+          rowIndexFilterType,
+          hasDeletionVector,
+          deletionVectorCardinality,
+          new InMemoryDeletionVectorPayload(serializedDeletionVector));
+    }
+
+    public DeltaFileReadOptions(
+        RowIndexFilterType rowIndexFilterType,
+        boolean hasDeletionVector,
+        long deletionVectorCardinality,
+        DeletionVectorPayload deletionVectorPayload) {
+      if (rowIndexFilterType == null) {
+        throw new IllegalArgumentException("rowIndexFilterType must not be null");
+      }
+      if (deletionVectorPayload == null) {
+        throw new IllegalArgumentException("deletionVectorPayload must not be null");
+      }
       this.rowIndexFilterType = rowIndexFilterType;
       this.hasDeletionVector = hasDeletionVector;
       this.deletionVectorCardinality = deletionVectorCardinality;
-      this.serializedDeletionVector =
-          serializedDeletionVector == null ? new byte[0] : serializedDeletionVector;
+      this.deletionVectorPayload = deletionVectorPayload;
     }
 
     public RowIndexFilterType rowIndexFilterType() {
@@ -111,8 +163,19 @@ public class DeltaLocalFilesNode extends LocalFilesNode {
       return deletionVectorCardinality;
     }
 
+    /**
+     * Materializes and returns the serialized deletion-vector bytes.
+     *
+     * <p>For an on-disk deletion vector this may perform blocking filesystem I/O and is intended to
+     * run during executor-side split-to-protobuf conversion. The returned array must not be
+     * modified because protobuf wraps it without copying.
+     */
     public byte[] serializedDeletionVector() {
-      return serializedDeletionVector;
+      return deletionVectorPayload.materialize();
+    }
+
+    public boolean isDeletionVectorPayloadMaterialized() {
+      return deletionVectorPayload.isMaterialized();
     }
   }
 }

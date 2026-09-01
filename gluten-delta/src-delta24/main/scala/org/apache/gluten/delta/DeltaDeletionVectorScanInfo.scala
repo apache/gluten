@@ -29,5 +29,13 @@ object DeltaDeletionVectorScanInfo {
   def normalize(
       partitionFiles: Seq[PartitionedFile],
       tablePath: Path)
+      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
+    normalize(partitionFiles, tablePath, None)
+  }
+
+  def normalize(
+      partitionFiles: Seq[PartitionedFile],
+      tablePath: Path,
+      readMetrics: Option[DeletionVectorReadMetrics])
       : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = None
 }

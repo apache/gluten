@@ -14,28 +14,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.delta
+package org.apache.gluten.delta;
 
-import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
+import org.apache.spark.TaskContext;
+import org.apache.spark.util.AccumulatorV2;
 
-import org.apache.spark.sql.execution.datasources.PartitionedFile
+/** Registers accumulators that Spark deserialized before installing the task context. */
+final class TaskAccumulatorRegistry {
+  private TaskAccumulatorRegistry() {}
 
-import org.apache.hadoop.fs.Path
-
-import java.util.{Map => JMap}
-
-/** Reading deletion vectors natively requires Delta 3.3+, so there is nothing to materialize. */
-object DeltaDeletionVectorScanInfo {
-  def normalize(
-      partitionFiles: Seq[PartitionedFile],
-      tablePath: Path)
-      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
-    normalize(partitionFiles, tablePath, None)
+  static boolean registerForCurrentTask(AccumulatorV2<?, ?>... accumulators) {
+    TaskContext taskContext = TaskContext.get();
+    if (taskContext == null) {
+      return false;
+    }
+    for (AccumulatorV2<?, ?> accumulator : accumulators) {
+      taskContext.registerAccumulator(accumulator);
+    }
+    return true;
   }
-
-  def normalize(
-      partitionFiles: Seq[PartitionedFile],
-      tablePath: Path,
-      readMetrics: Option[DeletionVectorReadMetrics])
-      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = None
 }
