@@ -275,7 +275,6 @@ class DeltaDeletionVectorHandoffSuite
   }
 
   test("Delta non-DV DML should offload with a user column named row_index when disabled") {
-    assume(SparkVersionUtil.gteSpark35, "DV DML coverage targets Spark 3.5+")
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
