@@ -188,7 +188,10 @@ WholeStageResultIterator::WholeStageResultIterator(
             true,
             deleteFiles,
             metadataColumn,
-            properties[idx]);
+            properties[idx],
+            /*dataSequenceNumber=*/0,
+            /*identityPartitionKeys=*/std::unordered_map<int32_t, std::optional<std::string>>{},
+            scanInfo->columnMappingMode);
       } else if (isDeltaScan) {
         std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", kDeltaTableFormat}};
         std::optional<gluten::delta::DeltaDeletionVectorDescriptor> deletionVector = std::nullopt;
@@ -215,7 +218,8 @@ WholeStageResultIterator::WholeStageResultIterator(
             std::nullopt,
             rowIndexFilterType,
             metadataColumn,
-            properties[idx]);
+            properties[idx],
+            scanInfo->columnMappingMode);
       } else {
         auto connectorId = connectorIds_.hive;
 #ifdef GLUTEN_ENABLE_GPU
@@ -238,7 +242,10 @@ WholeStageResultIterator::WholeStageResultIterator(
             0,
             true,
             metadataColumn,
-            properties[idx]);
+            properties[idx],
+            std::nullopt,
+            std::nullopt,
+            scanInfo->columnMappingMode);
       }
       connectorSplits.emplace_back(split);
     }
