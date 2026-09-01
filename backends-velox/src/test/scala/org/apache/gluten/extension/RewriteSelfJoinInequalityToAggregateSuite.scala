@@ -95,6 +95,43 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
     plan
   }
 
+  /** Optimized plan with the rewrite disabled. */
+  private def offOptimizedPlan(sql: String): LogicalPlan = {
+    var plan: LogicalPlan = null
+    withSQLConf("spark.gluten.sql.rewrite.selfJoinInequality" -> "false") {
+      plan = spark.sql(sql).queryExecution.optimizedPlan
+    }
+    plan
+  }
+
+  /**
+   * Assert the rewrite produces the same optimized plan as an equivalent hand-written aggregate
+   * query.
+   *
+   * Instead of matching the rewrite with a bespoke structural matcher, optimize a semantically
+   * equivalent `GROUP BY k HAVING COUNT(DISTINCT v) > 1` query with the rewrite disabled and
+   * compare the two optimized plans. This makes the assertion read directly as "rewriting the
+   * self-join produces the aggregate plan a user could have written by hand".
+   *
+   * Both plans are optimized by the same Spark version in the same session. Canonicalization
+   * removes cosmetic differences such as fresh Alias ExprIds and alias names before `comparePlans`.
+   *
+   * The equivalent SQL explicitly includes `k IS NOT NULL` because equality join keys never match
+   * NULL, while GROUP BY would otherwise form a NULL group. It also includes `v IS NOT NULL` to
+   * match the optimized self-join path: `v <> v` implies non-null inputs and Spark may infer/push
+   * those filters before this rule runs. This filter is semantically redundant for COUNT(DISTINCT
+   * v), which already ignores NULL.
+   */
+  private def assertRewriteMatchesEquivalent(selfJoinSql: String, equivalentSql: String): Unit = {
+    val actual = onOptimizedPlan(selfJoinSql)
+    val expected = offOptimizedPlan(equivalentSql)
+    assert(ruleFired(actual), s"precondition: rewrite should fire:\n$actual")
+    assert(
+      !ruleFired(expected),
+      s"precondition: the equivalent query must already be the hand-written aggregate:\n$expected")
+    comparePlans(actual.canonicalized, expected.canonicalized, checkAnalysis = false)
+  }
+
   /**
    * Assert the rewrite's structural contract without pinning the full optimized plan. Exact
    * optimized-plan equality is brittle across the Spark versions Gluten supports, because
@@ -175,8 +212,12 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
         |  SELECT s1.k FROM T s1 JOIN T s2
         |    ON s1.k = s2.k AND s1.v <> s2.v)""".stripMargin
 
-    assertRuleFired(sql)
-    assertAggregateRewriteShape(onOptimizedPlan(sql))
+    assertRewriteMatchesEquivalent(
+      sql,
+      """SELECT k FROM T outer_t WHERE k IN (
+        |  SELECT k FROM T WHERE k IS NOT NULL AND v IS NOT NULL
+        |  GROUP BY k HAVING COUNT(DISTINCT v) > 1)""".stripMargin
+    )
     val (on, off) = runBoth(sql)
     assert(on == off, s"rewrite ON $on != OFF $off")
     assert(on == Set(Row(1), Row(3), Row(6)), s"expected {1,3,6}, got $on")
@@ -194,8 +235,14 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
         |             ON s1.k = s2.k AND s1.v <> s2.v) sj
         |  WHERE d.k = sj.k)""".stripMargin
 
-    assertRuleFired(sql)
-    assertAggregateRewriteShape(onOptimizedPlan(sql))
+    assertRewriteMatchesEquivalent(
+      sql,
+      """SELECT k FROM T outer_t WHERE k IN (
+        |  SELECT d.k
+        |  FROM D d, (SELECT k FROM T WHERE k IS NOT NULL AND v IS NOT NULL
+        |             GROUP BY k HAVING COUNT(DISTINCT v) > 1) sj
+        |  WHERE d.k = sj.k)""".stripMargin
+    )
     val (on, off) = runBoth(sql)
     assert(on == off, s"Pattern A2 rewrite ON $on != OFF $off")
     assert(on == Set(Row(1), Row(3), Row(6)))
