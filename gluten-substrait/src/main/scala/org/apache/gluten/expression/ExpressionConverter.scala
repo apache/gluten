@@ -484,13 +484,10 @@ object ExpressionConverter extends SQLConfHelper with Logging {
               }
             }
         }
-        // Add trim node, as necessary.
-        val newCast =
-          BackendsApiManager.getSparkPlanExecApiInstance.genCastWithNewChild(c)
         CastTransformer(
           substraitExprName,
-          replaceWithExpressionTransformer0(newCast.child, attributeSeq, expressionsMap),
-          newCast)
+          replaceWithExpressionTransformer0(c.child, attributeSeq, expressionsMap),
+          c)
       case s: String2TrimExpression =>
         val (srcStr, trimStr) = s match {
           case StringTrim(srcStr, trimStr) => (srcStr, trimStr)
