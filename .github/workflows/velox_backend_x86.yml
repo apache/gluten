@@ -167,6 +167,7 @@ jobs:
       - name: Build Gluten native libraries
         run: |
           df -a
+          yum install bison -y
           export CCACHE_MAXSIZE=1G
           ccache -sz
           bash dev/ci-velox-buildstatic-centos-8.sh

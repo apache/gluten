@@ -103,7 +103,7 @@ jobs:
           docker pull apache/gluten:vcpkg-almalinux-8-gcc13
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
             set -e
-            yum install tzdata -y
+            yum install tzdata bison -y
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache

@@ -48,6 +48,7 @@ jobs:
       - name: Build Gluten velox third party
         run: |
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
+            yum install bison -y
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
@@ -435,6 +436,7 @@ jobs:
       - name: Build Gluten velox third party
         run: |
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
+            yum install bison -y
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
