@@ -25,6 +25,7 @@ import org.apache.spark.sql.delta.commands.DeletionVectorUtils.deletionVectorsRe
 import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeBatchFileIndex, TahoeFileIndex, TahoeRemoveFileIndex}
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
+import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.util.SparkVersionUtil
 
@@ -34,12 +35,13 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
 
   // Spark 3.5+ exposes this as ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME.
   private val parquetTemporaryRowIndexColumnName = "_tmp_metadata_row_index"
-  private val rowIndexColumnNames =
-    Set(
-      "__delta_internal_row_index",
-      DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME,
-      parquetTemporaryRowIndexColumnName,
-      "row_index")
+  // Row-index columns Delta generates as top-level scan outputs.
+  private val generatedRowIndexColumnNames =
+    Set(DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME, parquetTemporaryRowIndexColumnName)
+  // ParquetFileFormat.ROW_INDEX, the generated field Delta adds to the file metadata struct in
+  // PreprocessTableWithDVs when deletionVectors.useMetadataRowIndex is on. Only meaningful nested
+  // under _metadata -- a user column may legitimately be called row_index.
+  private val metadataRowIndexFieldName = "row_index"
   // TahoeBatchFileIndex.actionType as set by Delta's DELETE, UPDATE and MERGE commands.
   private val dmlActionTypes = Set("delete", "update", "merge")
 
@@ -81,19 +83,21 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
     }
   }
 
-  private def scanReadsRowIndexColumn(scan: FileSourceScanExec): Boolean = {
-    def nestedFieldNames(dataType: DataType): Seq[String] = dataType match {
-      case struct: StructType =>
-        struct.fields.flatMap(field => field.name +: nestedFieldNames(field.dataType)).toSeq
-      case _ => Seq.empty
-    }
+  private def isRowIndexColumn(name: String, dataType: DataType): Boolean = {
+    generatedRowIndexColumnNames.contains(name) ||
+    (name == FileFormat.METADATA_NAME && (dataType match {
+      case struct: StructType => struct.fieldNames.contains(metadataRowIndexFieldName)
+      case _ => false
+    }))
+  }
 
-    val outputColumnNames =
-      scan.output.flatMap(attribute => attribute.name +: nestedFieldNames(attribute.dataType))
-    val requiredColumnNames = scan.requiredSchema.fields.flatMap {
-      field => field.name +: nestedFieldNames(field.dataType)
+  private def scanReadsRowIndexColumn(scan: FileSourceScanExec): Boolean = {
+    val outputFields = scan.output.iterator.map(attribute => (attribute.name, attribute.dataType))
+    val requiredFields =
+      scan.requiredSchema.fields.iterator.map(field => (field.name, field.dataType))
+    (outputFields ++ requiredFields).exists {
+      case (name, dataType) => isRowIndexColumn(name, dataType)
     }
-    (outputColumnNames ++ requiredColumnNames).exists(rowIndexColumnNames.contains)
   }
 
   private def isDeltaLogScan(scan: FileSourceScanExec): Boolean = {

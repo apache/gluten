@@ -273,4 +273,33 @@ class DeltaDeletionVectorHandoffSuite
         }
     }
   }
+
+  test("Delta non-DV DML should offload with a user column named row_index when disabled") {
+    assume(SparkVersionUtil.gteSpark35, "DV DML coverage targets Spark 3.5+")
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        // Deletion vectors are deliberately left off: this DELETE rewrites whole files and never
+        // reads a generated row index. The scoped fallback must not claim it merely because the
+        // table has a user column called row_index -- that name is only Delta's row index when it
+        // appears inside the file metadata struct.
+        Seq((1, "a", 10L), (2, "b", 20L), (3, "c", 30L))
+          .toDF("id", "value", "row_index")
+          .coalesce(1)
+          .write
+          .format("delta")
+          .save(path)
+
+        withSQLConf(VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key -> "false") {
+          val executedPlans = captureDeletePlans(path, "id = 3")
+          assert(
+            executedPlans.exists(containsNativeDeltaScan),
+            executedPlans.map(_.treeString).mkString("\n\n"))
+        }
+
+        checkAnswer(
+          spark.read.format("delta").load(path),
+          Seq((1, "a", 10L), (2, "b", 20L)).toDF())
+    }
+  }
 }
