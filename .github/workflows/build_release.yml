@@ -31,7 +31,6 @@ jobs:
           docker pull apache/gluten:vcpkg-almalinux-8-gcc13
           docker run -v $GITHUB_WORKSPACE:/workspace -w /workspace apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
             set -e
-            yum install bison -y
             cd /workspace
             bash dev/release/build-release.sh
           "
