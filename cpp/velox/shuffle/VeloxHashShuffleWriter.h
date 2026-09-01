@@ -142,6 +142,13 @@ class VeloxHashShuffleWriter : public VeloxShuffleWriter {
   // For test only.
   void setPartitionBufferSize(uint32_t newSize) override;
 
+  // For test only. Per-row byte estimate of the fixed-width part of the partition buffers,
+  // computed by calculateSimpleColumnBytes(). Must stay consistent with the sizes actually
+  // allocated by valueBufferSizeForFixedWidthArray().
+  uint32_t fixedWidthBufferBytes() const {
+    return fixedWidthBufferBytes_;
+  }
+
   // Read-only counters of incoming column-vector encodings observed at the
   // entry of every `write(...)` call, BEFORE flattening. Mirrors the layout
   // of `cpuWallTimingList_` (always-on counter, logged via `stat()` when

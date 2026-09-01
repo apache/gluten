@@ -23,8 +23,7 @@ import org.apache.spark.sql.internal.SQLConf
 object SparkPlanUtil {
 
   def supportsRowBased(plan: SparkPlan): Boolean = {
-    val m = classOf[SparkPlan].getMethod("supportsRowBased")
-    m.invoke(plan).asInstanceOf[Boolean]
+    plan.supportsRowBased
   }
 
   def isPlannedV1Write(plan: DataWritingCommandExec): Boolean = {

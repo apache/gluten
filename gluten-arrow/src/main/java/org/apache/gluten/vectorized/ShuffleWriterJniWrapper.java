@@ -65,14 +65,6 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
       String codec,
       long partitionWriterHandle);
 
-  public native long createGpuHashShuffleWriter(
-      int numPartitions,
-      String partitioningName,
-      int startPartitionId,
-      int splitBufferSize,
-      double splitBufferReallocThreshold,
-      long partitionWriterHandle);
-
   /**
    * Reclaim memory from the shuffle writer instance. It will first try to shrink allocated memory,
    * and may trigger a spill if needed.

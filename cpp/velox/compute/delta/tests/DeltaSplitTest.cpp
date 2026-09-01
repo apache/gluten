@@ -14,21 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- * Copyright (c) Facebook, Inc. and its affiliates.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 
 #include <gtest/gtest.h>
 
@@ -71,13 +56,16 @@ TEST(DeltaSplitTest, SplitCarriesDeletionVectorDescriptor) {
       std::nullopt,
       DeltaRowIndexFilterType::kIfContained,
       std::unordered_map<std::string, std::string>{},
-      std::nullopt);
+      std::nullopt,
+      facebook::velox::dwio::common::ColumnMappingMode::kName);
 
   ASSERT_TRUE(split->deletionVector.has_value());
   EXPECT_EQ(split->deletionVector->cardinality, 2);
   ASSERT_TRUE(split->deletionVector->serializedPayloadView.has_value());
   EXPECT_EQ(split->deletionVector->serializedPayloadView->size, payload.size());
   EXPECT_EQ(split->filterType, DeltaRowIndexFilterType::kIfContained);
+  ASSERT_TRUE(split->columnMappingMode.has_value());
+  EXPECT_EQ(split->columnMappingMode.value(), facebook::velox::dwio::common::ColumnMappingMode::kName);
 }
 
 TEST(DeltaSplitTest, LogicalRowCountSubtractsDeletionVectorCardinality) {

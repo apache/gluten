@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.iterator.Iterators
 
 import org.apache.spark.{broadcast, SparkContext}
@@ -28,7 +29,8 @@ case class VeloxBroadcastBuildSideRDD(
     @transient private val sc: SparkContext,
     broadcasted: broadcast.Broadcast[BuildSideRelation],
     broadcastContext: BroadcastHashJoinContext,
-    isBNL: Boolean = false)
+    isBNL: Boolean = false,
+    cudfEnabled: Boolean = false)
   extends BroadcastBuildSideRDD(sc, broadcasted) {
 
   override def genBroadcastBuildSideIterator(): Iterator[ColumnarBatch] = {
@@ -38,10 +40,26 @@ case class VeloxBroadcastBuildSideRDD(
       case unsafe: UnsafeColumnarBuildSideRelation =>
         unsafe.isOffload
     }
-    val output = if (isBNL || !offload) {
+    // With cuDF enabled the hash join runs as CudfHashJoin, which builds its own GPU
+    // hash table from the build-side value stream and cannot consume the prebuilt CPU
+    // OpaqueHashTable. Feeding Iterator.empty here silently produces empty join
+    // results, so stream the broadcast batches instead (the same path shuffle joins
+    // use on GPU). Skipping the CPU cache build also keeps hybrid mode correct:
+    // VeloxBroadcastBuildSideCache.get finds no table, so the HashJoinNode carries no
+    // reusable table and a CPU-fallback join builds from this stream as usual.
+    val output = if (isBNL || !offload || GlutenConfig.get.enableColumnarCudf) {
       val relation = broadcasted.value.asReadOnlyCopy()
+      // cudfEnabled is the consuming stage's own tag (TransformSupport#offloadCuda).
+      val batches = relation match {
+        case columnar: ColumnarBuildSideRelation =>
+          columnar.deserialized(cudfEnabled)
+        case unsafe: UnsafeColumnarBuildSideRelation =>
+          unsafe.deserialized(cudfEnabled)
+        case other =>
+          other.deserialized
+      }
       Iterators
-        .wrap(relation.deserialized)
+        .wrap(batches)
         .recyclePayload(batch => batch.close())
         .create()
     } else {

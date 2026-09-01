@@ -100,9 +100,6 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def cudfShuffleMaxPrefetchBytes: Long = getConf(CUDF_SHUFFLE_MAX_PREFETCH_BYTES)
 
-  def orcUseColumnNames: Boolean = getConf(ORC_USE_COLUMN_NAMES) &&
-    !conf.getConfString(GlutenConfig.SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, "false").toBoolean
-
   def parquetUseColumnNames: Boolean = getConf(PARQUET_USE_COLUMN_NAMES)
 
   def parquetPageSizeBytes: Long = getConf(PARQUET_PAGE_SIZE_BYTES)
@@ -115,10 +112,20 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def valueStreamDynamicFilterEnabled: Boolean =
     getConf(VALUE_STREAM_DYNAMIC_FILTER_ENABLED)
 
+  def hashProbeBloomFilterBypassMinRows: Int = getConf(HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_ROWS)
+
+  def hashProbeBloomFilterBypassMinPct: Int = getConf(HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_PCT)
+
+  def scanBloomFilterPushdownEnabled: Boolean = getConf(SCAN_BLOOM_FILTER_PUSHDOWN_ENABLED)
+
   def enableTimestampNtzValidation: Boolean = getConf(ENABLE_TIMESTAMP_NTZ_VALIDATION)
 
   def enableDriverSideBroadcastHashTableBuild: Boolean =
     getConf(VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD)
+
+  def enableGpuAsyncShuffleReader: Boolean = getConf(ENABLE_GPU_ASYNC_SHUFFLE_READER)
+
+  def gpuAsyncReaderMaxPrefetchBytes: Long = getConf(GPU_ASYNC_SHUFFLE_READER_MAX_PREFETCH_BYTES)
 }
 
 object VeloxConfig extends ConfigRegistry {
@@ -179,9 +186,10 @@ object VeloxConfig extends ConfigRegistry {
 
   val COLUMNAR_VELOX_SSD_CACHE_IO_THREADS =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.ssdCacheIOThreads")
-      .doc("The IO threads for cache promoting")
+      .doc("The number of IO threads for SSD cache read/write operations")
       .intConf
-      .createWithDefault(1)
+      .checkValue(_ > 0, "must be a positive number")
+      .createWithDefault(4)
 
   val COLUMNAR_VELOX_SSD_ODIRECT_ENABLED =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.ssdODirect")
@@ -280,6 +288,15 @@ object VeloxConfig extends ConfigRegistry {
       .doc("The maximum size of a single spill file created")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("1GB")
+
+  val COLUMNAR_VELOX_SPILL_NUM_MAX_MERGE_FILES =
+    buildConf("spark.gluten.sql.columnar.backend.velox.spillNumMaxMergeFiles")
+      .doc(
+        "The max number of files to merge at a time when merging sorted files " +
+          "into a single ordered stream. 0 means unlimited.")
+      .intConf
+      .checkValue(_ >= 0, "must be non-negative")
+      .createWithDefault(0)
 
   val COLUMNAR_VELOX_SPILL_FILE_SYSTEM =
     buildConf("spark.gluten.sql.columnar.backend.velox.spillFileSystem")
@@ -530,13 +547,64 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_ROWS =
+    buildConf("spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilter.bypassMinRows")
+      .doc(
+        "Number of probe rows used to decide whether to bypass the build-side Bloom filter " +
+          "for left outer, existence, and left anti joins.")
+      .intConf
+      .checkValue(_ >= 0, "The minimum number of rows must not be negative")
+      .createWithDefault(0)
+
+  val HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_PCT =
+    buildConf("spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilter.bypassMinPct")
+      .doc(
+        "Bypass the build-side Bloom filter when its acceptance percentage reaches this value.")
+      .intConf
+      .checkValue(value => value >= 0 && value <= 100, "The percentage must be in [0, 100]")
+      .createWithDefault(85)
+
+  val SCAN_BLOOM_FILTER_PUSHDOWN_ENABLED =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.scan.bloomFilterPushdown.enabled")
+      .doc("Whether to push Bloom filters into Velox scans.")
+      .booleanConf
+      .createWithDefault(false)
+
   val COLUMNAR_VELOX_FILE_HANDLE_CACHE_ENABLED =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled")
       .doc(
-        "Disables caching if false. File handle cache should be disabled " +
-          "if files are mutable, i.e. file content may change while file path stays the same.")
+        "Enables caching of open file handles to avoid repeated open/close overhead. " +
+          "Benefits both local filesystems (fewer open/close syscalls and file descriptor " +
+          "churn) and remote filesystems/object stores (reused connection state). Should be " +
+          "disabled if files are mutable, i.e. file content may change while the file path " +
+          "stays the same.")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
+
+  val COLUMNAR_VELOX_NUM_CACHE_FILE_HANDLES =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.numCacheFileHandles")
+      .doc(
+        "Maximum number of entries in the file handle cache. Each entry holds an open " +
+          "file descriptor (local FS) or connection state (remote FS). Note that on " +
+          "local filesystems, high values may approach the OS file descriptor limit " +
+          "(ulimit -n). On remote object stores (S3, ABFS, GCS) entries represent " +
+          "network connections/sockets rather than per-file OS file descriptors, but " +
+          "they can still count toward OS resource limits (ulimit -n).")
+      .intConf
+      .checkValue(_ > 0, "must be a positive number")
+      .createWithDefault(10000)
+
+  val COLUMNAR_VELOX_FILE_HANDLE_EXPIRATION_DURATION_MS =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.fileHandleExpirationDurationMs")
+      .doc(
+        "Expiration time for cached file handles. Handles not accessed within this duration " +
+          "are evicted from the cache. This prevents stale handles from accumulating (e.g., " +
+          "expired HDFS leases, closed remote connections). Accepts a Spark duration string " +
+          "(e.g., \"10m\", \"600s\") or a plain number interpreted as milliseconds. A value " +
+          "of 0 disables TTL-based eviction.")
+      .timeConf(TimeUnit.MILLISECONDS)
+      .checkValue(_ >= 0, "must be a non-negative number (0 disables TTL-based eviction)")
+      .createWithDefaultString("10m")
 
   val DIRECTORY_SIZE_GUESS =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.directorySizeGuess")
@@ -795,7 +863,7 @@ object VeloxConfig extends ConfigRegistry {
       .createWithDefault(false)
 
   val CUDF_ENABLE_VALIDATION =
-    buildStaticConf("spark.gluten.sql.columnar.backend.velox.cudf.enableValidation")
+    buildConf("spark.gluten.sql.columnar.backend.velox.cudf.enableValidation")
       .doc(
         "Heuristics you can apply to validate a cuDF/GPU plan and only offload when " +
           "the entire stage can be fully and profitably executed on GPU")
@@ -884,14 +952,8 @@ object VeloxConfig extends ConfigRegistry {
       .intConf
       .createWithDefault(100)
 
-  val ORC_USE_COLUMN_NAMES =
-    buildConf("spark.gluten.sql.columnar.backend.velox.orcUseColumnNames")
-      .doc("Maps table field names to file field names using names, not indices for ORC files.")
-      .booleanConf
-      .createWithDefault(true)
-
   val PARQUET_USE_COLUMN_NAMES =
-    buildConf("spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames")
+    buildConf(GlutenConfig.VELOX_PARQUET_USE_COLUMN_NAMES)
       .doc("Maps table field names to file field names using names, not indices for Parquet files.")
       .booleanConf
       .createWithDefault(true)
@@ -916,4 +978,32 @@ object VeloxConfig extends ConfigRegistry {
           "allows native execution for TimestampNTZ scan.")
       .booleanConf
       .createWithDefault(false)
+
+  val ENABLE_GPU_ASYNC_SHUFFLE_READER =
+    buildConf("spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.enabled")
+      .doc(
+        "Experimental: Enable GPU async shuffle reader. " +
+          "When true, the gpu shuffle reader will use a thread pool " +
+          "to read and deserialize the input streams. " +
+          "When false, the shuffle reader will execute in the current thread.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val GPU_ASYNC_SHUFFLE_READER_THREAD_POOL_SIZE =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.threadPoolSize")
+      .doc(
+        "The number of threads used by GPU async shuffle reader for decompressing " +
+          "and deserializing input streams.")
+      .intConf
+      .checkValue(_ > 0, "The thread pool size must be greater than 0.")
+      .createWithDefault(1)
+
+  val GPU_ASYNC_SHUFFLE_READER_MAX_PREFETCH_BYTES =
+    buildConf(
+      "spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.maxPrefetchBytes")
+      .doc(
+        "The maximum number of bytes to prefetch in CPU memory during GPU async shuffle read.")
+      .bytesConf(ByteUnit.BYTE)
+      .checkValue(_ > 0, "The max prefetch bytes must be greater than 0.")
+      .createWithDefaultString("1GB")
 }

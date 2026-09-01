@@ -42,6 +42,7 @@ import org.apache.spark.sql.execution.exchange.BroadcastExchangeLike
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.SQLConf.LegacyBehaviorPolicy
 import org.apache.spark.sql.types.{DecimalType, StructField, StructType}
+import org.apache.spark.storage.{GlutenShuffleBlockFetcherIterator, GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.parquet.crypto.ParquetCryptoRuntimeException
@@ -209,6 +210,15 @@ class Spark33Shims extends SparkShims {
     }
   }
 
+  override def withAnsiEvalMode(expr: Expression): Boolean = {
+    expr match {
+      // Use the cast's own flag rather than the session conf: store-assignment casts
+      // can carry ansiEnabled = false even when the session runs in ANSI mode.
+      case c: Cast => c.ansiEnabled
+      case _ => false
+    }
+  }
+
   override def createParquetFilters(
       conf: SQLConf,
       schema: MessageType,
@@ -282,5 +292,28 @@ class Spark33Shims extends SparkShims {
     val index = args.indexOf("isFinalPlan=")
     assert(index >= 0)
     args.substring(index + "isFinalPlan=".length).trim.toBoolean
+  }
+
+  override def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
+      : GlutenShuffleBlockFetcherIteratorBase = {
+    new GlutenShuffleBlockFetcherIterator(
+      params.context,
+      params.shuffleClient,
+      params.blockManager,
+      params.mapOutputTracker,
+      params.blocksByAddress,
+      params.streamWrapper,
+      params.maxBytesInFlight,
+      params.maxReqsInFlight,
+      params.maxBlocksInFlightPerAddress,
+      params.maxReqSizeShuffleToMem,
+      params.maxAttemptsOnNettyOOM,
+      params.detectCorrupt,
+      params.detectCorruptUseExtraMemory,
+      params.checksumEnabled,
+      params.checksumAlgorithm,
+      params.shuffleMetrics,
+      params.doBatchFetch
+    )
   }
 }

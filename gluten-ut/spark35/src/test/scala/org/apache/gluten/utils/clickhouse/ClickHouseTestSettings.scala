@@ -44,6 +44,7 @@ import org.apache.spark.sql.sources._
 // scalastyle:off line.size.limit
 
 class ClickHouseTestSettings extends BackendTestSettings {
+  import SuiteSettings._
 
   enableSuite[ClickHouseAdaptiveQueryExecSuite]
     .includeAllGlutenTests()
@@ -373,6 +374,9 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("SPARK-33291: Cast struct with null elements to string")
     .excludeCH("SPARK-35111: Cast string to year-month interval")
     .excludeCH("Gluten - data type casting")
+    // The Gluten rewrite of "cast from timestamp II" is not vetted on ClickHouse;
+    // the vanilla case is excluded separately in this block.
+    .excludeGlutenTest("cast from timestamp II")
     .exclude("cast string to date #2")
     .exclude("casting to fixed-precision decimals")
     .exclude("SPARK-28470: Cast should honor nullOnOverflow property")
@@ -751,9 +755,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .includeCH("update char/varchar columns")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
   enableSuite[GlutenDeprecatedAPISuite]
-  enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite]
-    .disable(
-      "DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type")
+  disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
+    "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
   enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuiteAE]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOff]
     .excludeGlutenTest("Subquery reuse across the whole plan")
@@ -1180,6 +1183,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
   enableSuite[GlutenMathExpressionsSuite]
     // Spark round UT for round(3.1415,3) is not correct.
     .exclude("round/bround/floor/ceil")
+    // TANH(-0.1) returns -0.0996695958408681 on ClickHouse; the case expects
+    // -0.09966799462495582.
     .excludeCH("tanh")
     .excludeCH("unhex")
     .excludeCH("atan2")
@@ -2100,6 +2105,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("sorting on YearMonthIntervalType(0,1) with nullable=false, sortOrder=List('a DESC NULLS LAST)")
     .excludeCH("sorting on YearMonthIntervalType(0,1) with nullable=false, sortOrder=List('a DESC NULLS FIRST)")
   enableSuite[GlutenSparkSessionExtensionSuite]
+    .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenStatisticsCollectionSuite]
     // The output byte size of Velox is different
     .includeCH("SPARK-33687: analyze all tables in a specific database")
@@ -2194,8 +2200,14 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("cast from timestamp II")
     .excludeCH("cast a timestamp before the epoch 1970-01-01 00:00:00Z II")
     .excludeCH("cast a timestamp before the epoch 1970-01-01 00:00:00Z")
+    // Casting the string array ("123", "true", "f") to array<boolean> should yield
+    // [null, true, false] under try_cast; ClickHouse throws instead.
     .excludeCH("cast from array II")
+    // TRY-mode overflow inside a complex type wraps instead of yielding null on
+    // ClickHouse: try_cast([2.147483648E9] as array<int>) returns [-2147483648].
     .excludeCH("cast from array III")
+    // Same as "cast from array III": try_cast([2.147483648E9] as struct<a:int>)
+    // returns [-2147483648] on ClickHouse.
     .excludeCH("cast from struct III")
     .excludeCH("ANSI mode: cast string to timestamp with parse error")
     .excludeCH("ANSI mode: cast string to date with parse error")

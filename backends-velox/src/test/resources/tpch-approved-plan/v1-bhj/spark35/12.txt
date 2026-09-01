@@ -111,7 +111,6 @@ Arguments: false
 
 (16) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, l_shipmode#X, sum#X, sum#X]
-Arguments: X, X, X
 
 (17) ColumnarExchange
 Input [4]: [hash_partition_key#X, l_shipmode#X, sum#X, sum#X]
@@ -140,7 +139,6 @@ Arguments: false
 
 (23) VeloxResizeBatches
 Input [3]: [l_shipmode#X, high_line_count#X, low_line_count#X]
-Arguments: X, X, X
 
 (24) ColumnarExchange
 Input [3]: [l_shipmode#X, high_line_count#X, low_line_count#X]

@@ -80,7 +80,7 @@ GroupLimitRelParser::parse(DB::QueryPlanPtr current_plan_, const substrait::Rel 
 {
     const auto win_rel_def = rel.windowgrouplimit();
     google::protobuf::StringValue optimize_info_str;
-    optimize_info_str.ParseFromString(win_rel_def.advanced_extension().optimization().value());
+    optimize_info_str.ParseFromString(firstOptimizationOrDefault(win_rel_def.advanced_extension()).value());
     auto optimization_info = WindowGroupOptimizationInfo::parse(optimize_info_str.value());
     if (optimization_info.is_aggregate_group_limit)
     {
@@ -134,7 +134,7 @@ WindowGroupLimitRelParser::parse(DB::QueryPlanPtr current_plan_, const substrait
 {
     const auto win_rel_def = rel.windowgrouplimit();
     google::protobuf::StringValue optimize_info_str;
-    optimize_info_str.ParseFromString(win_rel_def.advanced_extension().optimization().value());
+    optimize_info_str.ParseFromString(firstOptimizationOrDefault(win_rel_def.advanced_extension()).value());
     auto optimization_info = WindowGroupOptimizationInfo::parse(optimize_info_str.value());
     window_function_name = optimization_info.window_function;
 
@@ -198,7 +198,7 @@ DB::QueryPlanPtr AggregateGroupLimitRelParser::parse(
     win_rel_def = &rel.windowgrouplimit();
 
     google::protobuf::StringValue optimize_info_str;
-    optimize_info_str.ParseFromString(win_rel_def->advanced_extension().optimization().value());
+    optimize_info_str.ParseFromString(firstOptimizationOrDefault(win_rel_def->advanced_extension()).value());
     auto optimization_info = WindowGroupOptimizationInfo::parse(optimize_info_str.value());
     limit = static_cast<size_t>(win_rel_def->limit());
     aggregate_function_name = getAggregateFunctionName(optimization_info.window_function);
@@ -499,7 +499,7 @@ static DB::WindowFunctionDescription buildWindowFunctionDescription(const std::s
 void AggregateGroupLimitRelParser::addWindowLimitStep(DB::QueryPlan & plan)
 {
     google::protobuf::StringValue optimize_info_str;
-    optimize_info_str.ParseFromString(win_rel_def->advanced_extension().optimization().value());
+    optimize_info_str.ParseFromString(firstOptimizationOrDefault(win_rel_def->advanced_extension()).value());
     auto optimization_info = WindowGroupOptimizationInfo::parse(optimize_info_str.value());
     auto window_function_name = optimization_info.window_function;
 

@@ -17,7 +17,7 @@
 package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.MetricsApi
-import org.apache.gluten.config.{GpuHashShuffleWriterType, HashShuffleWriterType, RssSortShuffleWriterType, ShuffleWriterType, SortShuffleWriterType}
+import org.apache.gluten.config.{HashShuffleWriterType, RssSortShuffleWriterType, ShuffleWriterType, SortShuffleWriterType}
 import org.apache.gluten.metrics._
 import org.apache.gluten.substrait.{AggregationParams, JoinParams}
 
@@ -430,7 +430,7 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "peakBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak bytes allocated")
     )
     shuffleWriterType match {
-      case HashShuffleWriterType | GpuHashShuffleWriterType =>
+      case HashShuffleWriterType =>
         baseMetrics ++ Map(
           "splitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to split"),
           "avgDictionaryFields" -> SQLMetrics
@@ -695,6 +695,15 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashProbeDynamicFiltersProduced" -> SQLMetrics.createMetric(
         sparkContext,
         "number of hash probe dynamic filters produced"),
+      "hashProbeBloomFilterTestedRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of rows tested by the hash probe bloom filter"),
+      "hashProbeBloomFilterAcceptedRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of rows accepted by the hash probe bloom filter"),
+      "hashProbeBloomFilterBypassed" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of hash probe bloom filter bypass decisions"),
       "bloomFilterBlocksByteSize" -> SQLMetrics.createSizeMetric(
         sparkContext,
         "bloom filter blocks byte size"),
@@ -727,7 +736,10 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "time to build hash table"),
       "deserializeHashTableTime" -> SQLMetrics.createTimingMetric(
         sparkContext,
-        "time to deserialize hash table")
+        "time to deserialize hash table"),
+      "hashTableMemorySize" -> SQLMetrics.createSizeMetric(
+        sparkContext,
+        "hash table memory size")
     )
 
   override def genHashJoinTransformerMetricsUpdater(

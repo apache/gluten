@@ -211,7 +211,6 @@ Arguments: false
 
 (30) VeloxResizeBatches
 Input [7]: [hash_partition_key#16, cs_item_sk#4, cs_promo_sk#5, cs_order_number#6, cs_quantity#7, cs_sold_date_sk#8, d_date#15]
-Arguments: 1024, 2147483647, 10485760
 
 (31) ColumnarExchange
 Input [7]: [hash_partition_key#16, cs_item_sk#4, cs_promo_sk#5, cs_order_number#6, cs_quantity#7, cs_sold_date_sk#8, d_date#15]
@@ -244,7 +243,6 @@ Arguments: false
 
 (38) VeloxResizeBatches
 Input [3]: [hash_partition_key#19, i_item_sk#17, i_item_desc#18]
-Arguments: 1024, 2147483647, 10485760
 
 (39) ColumnarExchange
 Input [3]: [hash_partition_key#19, i_item_sk#17, i_item_desc#18]
@@ -291,7 +289,6 @@ Arguments: false
 
 (50) VeloxResizeBatches
 Input [8]: [hash_partition_key#24, cs_item_sk#4, cs_promo_sk#5, cs_order_number#6, cs_quantity#7, i_item_desc#18, d_week_seq#22, d_date_sk#23]
-Arguments: 1024, 2147483647, 10485760
 
 (51) ColumnarExchange
 Input [8]: [hash_partition_key#24, cs_item_sk#4, cs_promo_sk#5, cs_order_number#6, cs_quantity#7, i_item_desc#18, d_week_seq#22, d_date_sk#23]
@@ -356,7 +353,6 @@ Arguments: false
 
 (65) VeloxResizeBatches
 Input [5]: [hash_partition_key#31, inv_item_sk#25, inv_quantity_on_hand#27, inv_date_sk#28, w_warehouse_name#30]
-Arguments: 1024, 2147483647, 10485760
 
 (66) ColumnarExchange
 Input [5]: [hash_partition_key#31, inv_item_sk#25, inv_quantity_on_hand#27, inv_date_sk#28, w_warehouse_name#30]
@@ -419,7 +415,6 @@ Arguments: false
 
 (80) VeloxResizeBatches
 Input [6]: [hash_partition_key#33, cs_item_sk#4, cs_order_number#6, w_warehouse_name#30, i_item_desc#18, d_week_seq#22]
-Arguments: 1024, 2147483647, 10485760
 
 (81) ColumnarExchange
 Input [6]: [hash_partition_key#33, cs_item_sk#4, cs_order_number#6, w_warehouse_name#30, i_item_desc#18, d_week_seq#22]
@@ -452,7 +447,6 @@ Arguments: false
 
 (88) VeloxResizeBatches
 Input [3]: [hash_partition_key#37, cr_item_sk#34, cr_order_number#35]
-Arguments: 1024, 2147483647, 10485760
 
 (89) ColumnarExchange
 Input [3]: [hash_partition_key#37, cr_item_sk#34, cr_order_number#35]
@@ -491,7 +485,6 @@ Arguments: false
 
 (97) VeloxResizeBatches
 Input [5]: [hash_partition_key#40, i_item_desc#18, w_warehouse_name#30, d_week_seq#22, count#39]
-Arguments: 1024, 2147483647, 10485760
 
 (98) ColumnarExchange
 Input [5]: [hash_partition_key#40, i_item_desc#18, w_warehouse_name#30, d_week_seq#22, count#39]

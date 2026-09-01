@@ -237,9 +237,9 @@ std::shared_ptr<VeloxShuffleWriter> createShuffleWriter(
 }
 
 std::shared_ptr<ShuffleReader> createShuffleReader(Runtime* runtime, const std::shared_ptr<arrow::Schema>& schema) {
-  auto readerOptions = ShuffleReaderOptions{};
-  readerOptions.shuffleWriterType = ShuffleWriter::stringToType(FLAGS_shuffle_writer),
-  setCompressionTypeFromFlag(readerOptions.compressionType, readerOptions.codecBackend);
+  auto readerOptions = std::make_shared<ShuffleReaderOptions>();
+  readerOptions->shuffleWriterType = ShuffleWriter::stringToType(FLAGS_shuffle_writer);
+  setCompressionTypeFromFlag(readerOptions->compressionType, readerOptions->codecBackend);
   return runtime->createShuffleReader(schema, readerOptions);
 }
 
@@ -308,7 +308,7 @@ void runShuffle(
     GLUTEN_ASSIGN_OR_THROW(auto in, arrow::io::ReadableFile::Open(dataFile));
     auto streamReader = std::make_shared<TestStreamReader>(std::move(in));
     // Read all partitions.
-    auto iter = reader->read(streamReader);
+    auto iter = reader->read(streamReader, ShuffleReader::OutputType::kRowVector);
     while (iter->hasNext()) {
       // Read and discard.
       auto cb = iter->next();

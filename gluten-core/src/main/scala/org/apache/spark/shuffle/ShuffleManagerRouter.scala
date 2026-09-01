@@ -61,7 +61,10 @@ private class ShuffleManagerRouter(lookup: ShuffleManagerLookup)
   }
 
   override def unregisterShuffle(shuffleId: Int): Boolean = {
-    cache.remove(shuffleId).unregisterShuffle(shuffleId)
+    // On a multi-executor cluster, Spark broadcasts RemoveShuffle to every executor, so a router
+    // that never registered or served this shuffleId still receives unregisterShuffle. Tolerate
+    // the miss instead of asserting: report that this router removed nothing.
+    cache.remove(shuffleId).exists(_.unregisterShuffle(shuffleId))
   }
 
   override def shuffleBlockResolver: ShuffleBlockResolver = resolver
@@ -83,13 +86,12 @@ private class ShuffleManagerRouter(lookup: ShuffleManagerLookup)
           s"${handle.getClass} is not a BaseShuffleHandle so is not supported by " +
             s"GlutenShuffleManager")
     }
-    val shuffleId = baseShuffleHandle.shuffleId
-    if (cache.has(shuffleId)) {
-      return
-    }
-    val dependency = baseShuffleHandle.dependency
-    val manager = lookup.findShuffleManager(dependency)
-    cache.store(shuffleId, manager)
+    // store is idempotent and resolves the manager lazily, so several task threads first-touching
+    // the same new shuffleId install it exactly once, while an already-cached shuffle skips the
+    // lookup entirely.
+    cache.store(
+      baseShuffleHandle.shuffleId,
+      lookup.findShuffleManager(baseShuffleHandle.dependency))
   }
 }
 
@@ -98,17 +100,13 @@ private object ShuffleManagerRouter {
     private val cache: java.util.Map[Int, ShuffleManager] =
       new java.util.concurrent.ConcurrentHashMap()
 
-    def has(shuffleId: Int): Boolean = {
-      cache.containsKey(shuffleId)
-    }
-
-    def store(shuffleId: Int, manager: ShuffleManager): ShuffleManager = {
-      cache.compute(
-        shuffleId,
-        (id, m) => {
-          assert(m == null, s"Shuffle manager was already cached for shuffle id: $id")
-          manager
-        })
+    def store(shuffleId: Int, manager: => ShuffleManager): ShuffleManager = {
+      // Idempotent: on a multi-core executor several task threads may first-touch the same new
+      // shuffleId concurrently. computeIfAbsent lets the first caller install the manager and the
+      // rest observe it, instead of racing into an assertion. The by-name manager is resolved only
+      // on a miss, so an already-cached shuffle skips the lookup. lookup resolves the same manager
+      // for a given dependency, so returning an already-cached entry is safe.
+      cache.computeIfAbsent(shuffleId, _ => manager)
     }
 
     def get(shuffleId: Int): ShuffleManager = {
@@ -117,10 +115,11 @@ private object ShuffleManagerRouter {
       manager
     }
 
-    def remove(shuffleId: Int): ShuffleManager = {
-      val manager = cache.remove(shuffleId)
-      assert(manager != null, s"Shuffle manager not registered for shuffle id: $shuffleId")
-      manager
+    def remove(shuffleId: Int): Option[ShuffleManager] = {
+      // On a multi-executor cluster, Spark broadcasts RemoveShuffle to every executor, so this
+      // router may be asked to remove a shuffleId it never cached. Return None instead of
+      // asserting the entry was present.
+      Option(cache.remove(shuffleId))
     }
 
     def size(): Int = {

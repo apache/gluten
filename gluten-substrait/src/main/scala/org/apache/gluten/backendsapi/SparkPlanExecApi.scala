@@ -364,6 +364,13 @@ trait SparkPlanExecApi {
     throw new GlutenNotSupportException("ArrayInsert is not supported")
   }
 
+  /** Whether the backend supports offloading the given [[LocalTableScanExec]] to native. */
+  def isSupportLocalTableScanExec(plan: LocalTableScanExec): Boolean = false
+
+  /** Returns the backend transformer that replaces the given [[LocalTableScanExec]]. */
+  def getLocalTableScanTransform(plan: LocalTableScanExec): LocalTableScanTransformer =
+    throw new GlutenNotSupportException("LocalTableScanExec is not supported")
+
   // For date_add(cast('2001-01-01' as Date), interval 1 day), backends may handle it in different
   // ways
   def genDateAddTransformer(
@@ -406,7 +413,8 @@ trait SparkPlanExecApi {
   /** Determine whether to use sort-based shuffle based on shuffle partitioning and output. */
   def getShuffleWriterType(
       partitioning: Partitioning,
-      output: Seq[Attribute]): ShuffleWriterType = {
+      output: Seq[Attribute],
+      executionMode: Option[StageExecutionMode] = None): ShuffleWriterType = {
     HashShuffleWriterType
   }
 

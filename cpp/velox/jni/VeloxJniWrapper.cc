@@ -46,6 +46,7 @@
 #include "velox/common/base/BloomFilter.h"
 #include "velox/common/file/FileSystems.h"
 #include "velox/exec/HashTable.h"
+#include "velox/exec/HashTableCache.h"
 
 #ifdef GLUTEN_ENABLE_GPU
 #include "cudf/CudfPlanValidator.h"
@@ -949,7 +950,7 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_execution_IcebergWriteJniWrappe
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_nativeBuild( // NOLINT
     JNIEnv* env,
     jobject wrapper,
-    jstring /*tableId*/,
+    jstring tableId,
     jlongArray batchHandles,
     jobjectArray joinKeys,
     jobjectArray filterBuildColumns,
@@ -974,6 +975,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       queryConf.get<uint32_t>(kAbandonDedupHashMapMinRows, kAbandonDedupHashMapMinRowsDefault);
   const auto abandonHashBuildDedupMinPct =
       queryConf.get<uint32_t>(kAbandonDedupHashMapMinPct, kAbandonDedupHashMapMinPctDefault);
+  const auto hashTableId = jStringToCString(env, tableId);
+
   // Convert Java String array to C++ vector<string>
   std::vector<std::string> hashJoinKeys;
   jsize joinKeysCount = env->GetArrayLength(joinKeys);
@@ -1051,6 +1054,13 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         builder->dropDuplicates(),
         nullptr);
     builder->setHashTable(std::move(mainTable));
+    builder->setHashTableMemoryUsage(builder->hashTable()->allocatedBytes());
+
+    auto* cache = facebook::velox::exec::HashTableCache::instance();
+
+    if (!cache->exist(hashTableId)) {
+      cache->add(hashTableId, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+    }
 
     return gluten::getHashTableObjStore()->save(builder);
   }
@@ -1099,7 +1109,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
           threadMemoryPool);
 
       hashTableBuilders[t] = std::move(builder);
-      otherTables[t] = std::move(hashTableBuilders[t]->uniqueTable());
+      otherTables[t] = hashTableBuilders[t]->uniqueTable();
     });
 
     futures.push_back(std::move(future));
@@ -1112,6 +1122,10 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> tables;
   for (int i = 1; i < numThreads; ++i) {
     tables.push_back(std::move(otherTables[i]));
+  }
+  int64_t otherTablesMemoryUsage = 0;
+  for (const auto& table : tables) {
+    otherTablesMemoryUsage += table->allocatedBytes();
   }
 
   // TODO: Get accurate signal if parallel join build is going to be applied
@@ -1134,6 +1148,18 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   }
 
   hashTableBuilders[0]->setHashTable(std::move(mainTable));
+  hashTableBuilders[0]->setHashTableMemoryUsage(
+      hashTableBuilders[0]->hashTable()->allocatedBytes() + otherTablesMemoryUsage);
+
+  auto* cache = facebook::velox::exec::HashTableCache::instance();
+  if (!cache->exist(hashTableId)) {
+    cache->add(
+        hashTableId,
+        hashTableBuilders[0]->hashTable(),
+        hashTableBuilders[0]->joinHasNullKeys(),
+        defaultLeafVeloxMemoryPool());
+  }
+
   return gluten::getHashTableObjStore()->save(hashTableBuilders[0]);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -1141,9 +1167,17 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_cloneHashTable( // NOLINT
     JNIEnv* env,
     jclass,
+    jstring cacheKey,
     jlong tableHandler) {
   JNI_METHOD_START
+  auto cacheKeyStr = jStringToCString(env, cacheKey);
   auto hashTableHandler = ObjectStore::retrieve<gluten::HashTableBuilder>(tableHandler);
+  auto* cache = facebook::velox::exec::HashTableCache::instance();
+  if (!cache->exist(cacheKeyStr)) {
+    cache->add(
+        cacheKeyStr, hashTableHandler->hashTable(), hashTableHandler->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+  }
+
   return gluten::getHashTableObjStore()->save(hashTableHandler);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -1151,10 +1185,11 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_cloneH
 JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_clearHashTable( // NOLINT
     JNIEnv* env,
     jclass,
+    jstring cacheKey,
     jlong tableHandler) {
   JNI_METHOD_START
-  auto hashTableHandler = ObjectStore::retrieve<gluten::HashTableBuilder>(tableHandler);
-  hashTableHandler->hashTable()->clear(true);
+  auto cacheKeyStr = jStringToCString(env, cacheKey);
+  facebook::velox::exec::HashTableCache::instance()->drop(cacheKeyStr);
   ObjectStore::release(tableHandler);
   JNI_METHOD_END()
 }
@@ -1162,16 +1197,22 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_clearHa
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_deserializeHashTableDirect( // NOLINT
     JNIEnv* env,
     jclass,
+    jstring cacheKey,
     jlong address,
     jint size,
     jboolean ignoreNullKeys,
     jboolean joinHasNullKeys) {
   JNI_METHOD_START
+  auto cacheKeyStr = jStringToCString(env, cacheKey);
   auto builder = gluten::deserializeHashTable(
       reinterpret_cast<const uint8_t*>(address),
       static_cast<size_t>(size),
       static_cast<bool>(ignoreNullKeys),
       static_cast<bool>(joinHasNullKeys));
+  auto* cache = facebook::velox::exec::HashTableCache::instance();
+  if (!cache->exist(cacheKeyStr)) {
+    cache->add(cacheKeyStr, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+  }
   return gluten::getHashTableObjStore()->save(builder);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -1223,6 +1264,16 @@ Java_org_apache_gluten_vectorized_HashJoinBuilder_getHashTableBloomFilterBlocksB
     }
   }
   return static_cast<jlong>(bloomFilterBlocksByteSize);
+  JNI_METHOD_END(0L)
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_getHashTableMemoryUsage( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong hashTableHandle) {
+  JNI_METHOD_START
+  auto builder = ObjectStore::retrieve<gluten::HashTableBuilder>(hashTableHandle);
+  return static_cast<jlong>(gluten::hashTableMemoryUsage(builder));
   JNI_METHOD_END(0L)
 }
 

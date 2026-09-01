@@ -220,7 +220,6 @@ case class ColumnarInputAdapter(child: SparkPlan)
   extends InputAdapterGenerateTreeStringShim
   with Convention.KnownBatchType
   with Convention.KnownRowType
-  with GlutenPlan.SupportsRowBasedCompatible
   with ConventionReq.KnownChildConvention {
   override def output: Seq[Attribute] = child.output
   final override val supportsColumnar: Boolean = true

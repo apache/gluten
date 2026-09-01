@@ -171,7 +171,6 @@ Arguments: false
 
 (29) VeloxResizeBatches
 Input [4]: [hash_partition_key#16, ss_ticket_number#4, ss_customer_sk#1, count#15]
-Arguments: 1024, 2147483647, 10485760
 
 (30) ColumnarExchange
 Input [4]: [hash_partition_key#16, ss_ticket_number#4, ss_customer_sk#1, count#15]
@@ -204,7 +203,6 @@ Arguments: false
 
 (37) VeloxResizeBatches
 Input [4]: [hash_partition_key#19, ss_ticket_number#4, ss_customer_sk#1, cnt#18]
-Arguments: 1024, 2147483647, 10485760
 
 (38) ColumnarExchange
 Input [4]: [hash_partition_key#19, ss_ticket_number#4, ss_customer_sk#1, cnt#18]
@@ -237,7 +235,6 @@ Arguments: false
 
 (45) VeloxResizeBatches
 Input [6]: [hash_partition_key#25, c_customer_sk#20, c_salutation#21, c_first_name#22, c_last_name#23, c_preferred_cust_flag#24]
-Arguments: 1024, 2147483647, 10485760
 
 (46) ColumnarExchange
 Input [6]: [hash_partition_key#25, c_customer_sk#20, c_salutation#21, c_first_name#22, c_last_name#23, c_preferred_cust_flag#24]
@@ -265,7 +262,6 @@ Arguments: false
 
 (52) VeloxResizeBatches
 Input [6]: [c_last_name#23, c_first_name#22, c_salutation#21, c_preferred_cust_flag#24, ss_ticket_number#4, cnt#18]
-Arguments: 1024, 2147483647, 10485760
 
 (53) ColumnarExchange
 Input [6]: [c_last_name#23, c_first_name#22, c_salutation#21, c_preferred_cust_flag#24, ss_ticket_number#4, cnt#18]

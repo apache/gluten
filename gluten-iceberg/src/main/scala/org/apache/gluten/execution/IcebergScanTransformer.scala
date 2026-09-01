@@ -21,6 +21,7 @@ import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.{LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
@@ -41,6 +42,7 @@ import org.apache.iceberg.types.{Type, Types}
 import org.apache.iceberg.types.Type.TypeID
 import org.apache.iceberg.types.Types.{ListType, MapType, NestedField}
 
+import java.util.{HashMap => JHashMap}
 import java.util.Locale
 
 case class IcebergScanTransformer(
@@ -64,6 +66,16 @@ case class IcebergScanTransformer(
   // but the implementation is different.
   // So use Metric to get NumSplits, NumDeletes is not reported by native metric
   private val numSplits = SQLMetrics.createMetric(sparkContext, new NumSplits().description())
+
+  private lazy val icebergInitialDefaults =
+    GlutenIcebergSourceUtil.getInitialDefaults(scan)
+
+  private lazy val icebergFieldIds =
+    if (icebergInitialDefaults.isEmpty) {
+      new JHashMap[String, Integer]()
+    } else {
+      GlutenIcebergSourceUtil.getFieldIds(scan)
+    }
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BatchScanExecTransformerBase = {
     this.copy(pushDownFilters = Some(filters))
@@ -150,6 +162,12 @@ case class IcebergScanTransformer(
       return ValidationResult.succeeded
     }
     val metadata = baseTable.operations().current()
+    if (
+      !BackendsApiManager.getSettings.supportIcebergInitialDefaultRead() &&
+      !icebergInitialDefaults.isEmpty
+    ) {
+      return ValidationResult.failed("Iceberg initial-default reads are not supported")
+    }
     if (metadata.formatVersion() >= 3) {
       val hasUnsupportedDelete = finalPartitions.exists {
         case p: SparkDataSourceRDDPartition =>
@@ -200,19 +218,39 @@ case class IcebergScanTransformer(
   override def getSplitInfosFromPartitions(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
     val metadataColumnNames = getMetadataColumns().map(_.name)
-    partitions.map { case (partition, _) => partitionToSplitInfo(partition, metadataColumnNames) }
+    partitions.map {
+      case (partition, readFileFormat) =>
+        partitionToSplitInfo(partition, readFileFormat, metadataColumnNames)
+    }
   }
 
   private def partitionToSplitInfo(
       partition: Partition,
+      readFileFormat: ReadFileFormat,
       metadataColumnNames: Seq[String]): SplitInfo = {
     val splitInfo = partition match {
       case p: SparkDataSourceRDDPartition =>
-        GlutenIcebergSourceUtil.genSplitInfo(p, getPartitionSchema, metadataColumnNames)
+        GlutenIcebergSourceUtil.genSplitInfo(
+          p,
+          getPartitionSchema,
+          metadataColumnNames,
+          icebergFieldIds,
+          icebergInitialDefaults)
       case _ => throw new GlutenNotSupportException()
     }
-    numSplits.add(splitInfo.asInstanceOf[LocalFilesNode].getPaths.size())
+    val localFiles = splitInfo.asInstanceOf[LocalFilesNode]
+    icebergColumnMappingMode(readFileFormat).foreach(localFiles.setColumnMappingMode)
+    numSplits.add(localFiles.getPaths.size())
     splitInfo
+  }
+
+  private def icebergColumnMappingMode(fileFormat: ReadFileFormat): Option[ColumnMappingMode] = {
+    fileFormat match {
+      case ReadFileFormat.ParquetReadFormat | ReadFileFormat.OrcReadFormat =>
+        Some(ColumnMappingMode.NAME)
+      case _ =>
+        None
+    }
   }
 
   override def doCanonicalize(): IcebergScanTransformer = {

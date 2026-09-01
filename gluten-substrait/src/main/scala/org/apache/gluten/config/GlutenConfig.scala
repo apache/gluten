@@ -54,12 +54,6 @@ case object RssSortShuffleWriterType extends ShuffleWriterType {
   override val requiresResizingShuffleOutput: Boolean = false
 }
 
-case object GpuHashShuffleWriterType extends ShuffleWriterType {
-  override val name: String = ReservedKeys.GLUTEN_GPU_HASH_SHUFFLE_WRITER
-  override val requiresResizingShuffleInput: Boolean = true
-  override val requiresResizingShuffleOutput: Boolean = true
-}
-
 /*
  * Note: Gluten configiguration.md is automatically generated from this code.
  * Make sure to run dev/gen-all-config-docs.sh after making changes to this file.
@@ -75,6 +69,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def enableNativeValidation: Boolean = getConf(NATIVE_VALIDATION_ENABLED)
 
   def enableColumnarBatchScan: Boolean = getConf(COLUMNAR_BATCHSCAN_ENABLED)
+
+  def batchScanMaxInputPartitions: Int = getConf(COLUMNAR_BATCHSCAN_MAX_INPUT_PARTITIONS)
 
   def enableColumnarFileScan: Boolean = getConf(COLUMNAR_FILESCAN_ENABLED)
 
@@ -98,6 +94,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def enableColumnarWindow: Boolean = getConf(COLUMNAR_WINDOW_ENABLED)
 
   def enableColumnarWindowGroupLimit: Boolean = getConf(COLUMNAR_WINDOW_GROUP_LIMIT_ENABLED)
+
+  def enableColumnarLocalTableScan: Boolean = getConf(COLUMNAR_LOCAL_TABLE_SCAN_ENABLED)
 
   def enableAppendData: Boolean = getConf(COLUMNAR_APPEND_DATA_ENABLED)
 
@@ -400,6 +398,14 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def maxBroadcastTableSize: Long =
     JavaUtils.byteStringAsBytes(conf.getConfString(SPARK_MAX_BROADCAST_TABLE_SIZE, "8GB"))
+
+  def enableHybridExecution: Boolean = getConf(ENABLE_HYBRID_EXECUTION)
+
+  def cpuResourceName: String = getConf(HYBRID_EXECUTION_CPU_RESOURCE_NAME)
+  def gpuResourceName: String = getConf(HYBRID_EXECUTION_GPU_RESOURCE_NAME)
+  def gpuResourceAmountPerTask: Double = getConf(HYBRID_EXECUTION_GPU_RESOURCE_AMOUNT_PER_TASK)
+
+  def gpuOnlyOffloadJoinStage: Boolean = getConf(GPU_ONLY_OFFLOAD_JOIN_STAGE)
 }
 
 object GlutenConfig extends ConfigRegistry {
@@ -412,6 +418,7 @@ object GlutenConfig extends ConfigRegistry {
   val PARQUET_ZSTD_COMPRESSION_LEVEL: String = "parquet.compression.codec.zstd.level"
   val PARQUET_DATAPAGE_SIZE: String = "parquet.page.size"
   val PARQUET_ENABLE_DICTIONARY: String = "parquet.enable.dictionary"
+  val PARQUET_ENABLE_PAGE_INDEX: String = "parquet.enable.page.index"
   val PARQUET_WRITER_VERSION: String = "parquet.writer.version"
   // Hadoop config
   val HADOOP_PREFIX = "spark.hadoop."
@@ -444,6 +451,8 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_S3_AWS_IMDS_ENABLED: String = HADOOP_PREFIX + S3_AWS_IMDS_ENABLED
   val ORC_FORCE_POSITIONAL_EVOLUTION = "orc.force.positional.evolution"
   val SPARK_ORC_FORCE_POSITIONAL_EVOLUTION = HADOOP_PREFIX + ORC_FORCE_POSITIONAL_EVOLUTION
+  val VELOX_PARQUET_USE_COLUMN_NAMES =
+    "spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames"
 
   // ABFS config
   val ABFS_PREFIX = "fs.azure."
@@ -586,28 +595,19 @@ object GlutenConfig extends ConfigRegistry {
 
     val confPrefixSession = prefixSessionOf(backendName)
     val confPrefix = prefixOf(backendName)
+    // Column mapping mode is passed to Velox through scan splits, not through
+    // native session configs.
+    val veloxSplitColumnMappingConfigs = Set(VELOX_PARQUET_USE_COLUMN_NAMES)
     conf
       .filter {
         case (k, _) =>
-          // Backend's dynamic session conf only.
-          k.startsWith(confPrefix) && !SQLConf.isStaticConfigKey(k) ||
-          // put in all gluten velox configs
-          k.startsWith(confPrefixSession)
+          val isBackendDynamicConf = k.startsWith(confPrefix) && !SQLConf.isStaticConfigKey(k)
+          val isBackendSessionConf = k.startsWith(confPrefixSession)
+          val isVeloxSplitColumnMappingConf =
+            backendName == "velox" && veloxSplitColumnMappingConfigs.contains(k)
+          (isBackendDynamicConf || isBackendSessionConf) && !isVeloxSplitColumnMappingConf
       }
       .foreach { case (k, v) => nativeConfMap.put(k, v) }
-
-    // When `orc.force.positional.evolution=true`, vanilla Spark maps ORC columns by
-    // position rather than by name (see OrcUtils.requestedColumnIds). The Velox ORC reader
-    // must do the same, otherwise name-based matching against a mismatched file schema
-    // reads columns back as null/empty. Override the (Velox) orcUseColumnNames session conf
-    // so native reads ORC by position too. Harmless for backends that ignore this key.
-    // String literal is used because gluten-substrait cannot depend on backends-velox.
-    if (
-      backendName == "velox" &&
-      conf.getOrElse(SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, "false").toBoolean
-    ) {
-      nativeConfMap.put("spark.gluten.sql.columnar.backend.velox.orcUseColumnNames", "false")
-    }
 
     // Pass the latest tokens to native
     nativeConfMap.put(
@@ -653,7 +653,9 @@ object GlutenConfig extends ConfigRegistry {
       ("spark.hadoop.dfs.client.log.severity", "INFO"),
       ("spark.sql.orc.compression.codec", "snappy"),
       ("spark.sql.decimalOperations.allowPrecisionLoss", "true"),
-      ("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled", "false"),
+      ("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled", "true"),
+      ("spark.gluten.sql.columnar.backend.velox.numCacheFileHandles", "10000"),
+      ("spark.gluten.sql.columnar.backend.velox.fileHandleExpirationDurationMs", "600000"),
       ("spark.gluten.velox.awsSdkLogLevel", "FATAL"),
       ("spark.gluten.velox.s3UseProxyFromEnv", "false"),
       ("spark.gluten.velox.s3PayloadSigningPolicy", "Never"),
@@ -854,6 +856,14 @@ object GlutenConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val COLUMNAR_BATCHSCAN_MAX_INPUT_PARTITIONS =
+    buildConf("spark.gluten.sql.columnar.batchscan.maxInputPartitions")
+      .doc(
+        "Maximum number of Spark task partitions for supported DataSource V2 batch scans. ")
+      .intConf
+      .checkValue(_ > 0, s"must be positive.")
+      .createWithDefault(Int.MaxValue)
+
   val COLUMNAR_FILESCAN_ENABLED =
     buildConf("spark.gluten.sql.columnar.filescan")
       .doc("Enable or disable columnar filescan.")
@@ -907,6 +917,19 @@ object GlutenConfig extends ConfigRegistry {
       .doc("Enable or disable columnar filter.")
       .booleanConf
       .createWithDefault(true)
+
+  val COLUMNAR_LOCAL_TABLE_SCAN_ENABLED =
+    // NOTE: Disabled by default. When an offloaded local scan feeds an operator that falls back
+    // to vanilla row execution under the write path, the inserted columnar-to-row transition is
+    // not yet codegen-safe (VeloxColumnarToRowExec is not CodegenSupport), which can fail
+    // FileFormatWriter codegen. Flip the default to true once that path is handled.
+    buildConf("spark.gluten.sql.columnar.localTableScan")
+      .doc(
+        "Enable or disable native columnar execution of LocalTableScanExec. When true, Gluten " +
+          "attempts to replace LocalTableScanExec (a driver-side local collection) with a " +
+          "backend transformer that converts the rows into columnar batches natively.")
+      .booleanConf
+      .createWithDefault(false)
 
   val COLUMNAR_SORT_ENABLED =
     buildConf("spark.gluten.sql.columnar.sort")
@@ -1709,4 +1732,52 @@ object GlutenConfig extends ConfigRegistry {
           "total size of small files is below this threshold.")
       .doubleConf
       .createWithDefault(0.5)
+
+  val ENABLE_HYBRID_EXECUTION =
+    buildStaticConf("spark.gluten.sql.columnar.hybridExecution.enabled")
+      .experimental()
+      .doc(
+        "Enable CPU/GPU hybrid execution. At runtime, the execution will be scheduled to target " +
+          "nodes based on the selected execution mode.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val HYBRID_EXECUTION_CPU_RESOURCE_NAME =
+    buildStaticConf("spark.gluten.sql.columnar.hybridExecution.cpuResource.name")
+      .experimental()
+      .doc(
+        "The CPU resource name (Spark custom resource). " +
+          "This must match the resource name configured via spark.<component>.resource.<name>.* " +
+          "for CPU-stage scheduling to take effect."
+      )
+      .stringConf
+      .createWithDefault("cpu")
+
+  val HYBRID_EXECUTION_GPU_RESOURCE_NAME =
+    buildStaticConf("spark.gluten.sql.columnar.hybridExecution.gpuResource.name")
+      .experimental()
+      .doc(
+        "The GPU resource name (Spark custom resource). " +
+          "This must match the resource name configured via spark.<component>.resource.<name>.* " +
+          "for GPU-stage scheduling to take effect."
+      )
+      .stringConf
+      .createWithDefault("gpu")
+
+  val HYBRID_EXECUTION_GPU_RESOURCE_AMOUNT_PER_TASK =
+    buildStaticConf("spark.gluten.sql.columnar.hybridExecution.gpuResource.amountPerTask")
+      .experimental()
+      .doc(
+        "The GPU resource amount per task. This is used to limit GPU tasks to target nodes.")
+      .doubleConf
+      .createWithDefault(0.1)
+
+  val GPU_ONLY_OFFLOAD_JOIN_STAGE =
+    buildConf("spark.gluten.sql.columnar.gpu.onlyOffloadJoinStage")
+      .experimental()
+      .doc(
+        "If true, Gluten will only offload join stages to GPU." +
+          " Other stages will be executed on CPU.")
+      .booleanConf
+      .createWithDefault(false)
 }

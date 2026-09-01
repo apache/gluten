@@ -103,8 +103,6 @@ class VeloxRssSortShuffleWriter final : public VeloxShuffleWriter {
   int64_t sortBufferMaxSize_;
   facebook::velox::common::CompressionKind compressionKind_;
 
-  facebook::velox::RowTypePtr rowType_;
-
   std::unique_ptr<facebook::velox::VectorStreamGroup> batch_;
   std::unique_ptr<BufferOutputStream> bufferOutputStream_;
 

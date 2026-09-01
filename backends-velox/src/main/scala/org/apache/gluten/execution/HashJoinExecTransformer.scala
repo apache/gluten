@@ -106,7 +106,7 @@ case class BroadcastHashJoinExecTransformer(
     right,
     isNullAwareAntiJoin) {
 
-  // Unique ID for the build side.
+  // Unique ID for the build side
   lazy val buildBroadcastTableId: String = buildPlan.id.toString
 
   override protected lazy val substraitJoinType: JoinRel.JoinType = joinType match {
@@ -181,7 +181,8 @@ case class BroadcastHashJoinExecTransformer(
         metrics.get("buildHashTableTime"),
         metrics.get("serializeHashTableTime"),
         metrics.get("deserializeHashTableTime"),
-        metrics.get("serializedHashTableSize")
+        metrics.get("serializedHashTableSize"),
+        metrics.get("hashTableMemorySize")
       )
 
     // Check the type of broadcast relation to determine the approach
@@ -220,7 +221,7 @@ case class BroadcastHashJoinExecTransformer(
         } else {
           logInfo(s"Using executor-side broadcast hash table build for $buildBroadcastTableId")
         }
-        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
+        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context, cudfEnabled = offloadCuda)
 
       case unsafe: UnsafeColumnarBuildSideRelation =>
         joinParamsForMetrics.foreach(_.usesDriverSideSerializedHashTable = false)
@@ -234,7 +235,7 @@ case class BroadcastHashJoinExecTransformer(
         } else {
           logInfo(s"Using executor-side broadcast hash table build for $buildBroadcastTableId")
         }
-        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
+        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context, cudfEnabled = offloadCuda)
 
       case other =>
         joinParamsForMetrics.foreach(_.usesDriverSideSerializedHashTable = false)
@@ -242,7 +243,7 @@ case class BroadcastHashJoinExecTransformer(
         logWarning(
           s"Unknown broadcast relation type: ${other.getClass.getName}, " +
             "using executor-side build")
-        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
+        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context, cudfEnabled = offloadCuda)
     }
 
     // FIXME: Do we have to make build side a RDD?
@@ -265,7 +266,8 @@ case class BroadcastHashJoinContext(
     buildHashTableTimeMetric: Option[SQLMetric] = None,
     serializeHashTableTimeMetric: Option[SQLMetric] = None,
     deserializeHashTableTimeMetric: Option[SQLMetric] = None,
-    serializedHashTableSizeMetric: Option[SQLMetric] = None) {
+    serializedHashTableSizeMetric: Option[SQLMetric] = None,
+    hashTableMemorySizeMetric: Option[SQLMetric] = None) {
   def droppedDuplicates: Boolean = {
     !hasMixedFiltCondition && (
       substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI ||

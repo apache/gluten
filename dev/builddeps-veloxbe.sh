@@ -39,6 +39,7 @@ ENABLE_ABFS=OFF
 ENABLE_VCPKG=OFF
 ENABLE_GPU=OFF
 ENABLE_ENHANCED_FEATURES=OFF
+ENABLE_LTO=OFF
 RUN_SETUP_SCRIPT=ON
 VELOX_REPO=""
 VELOX_BRANCH=""
@@ -115,6 +116,10 @@ do
         ENABLE_ENHANCED_FEATURES=("${arg#*=}")
         shift # Remove argument name from processing
         ;;
+        --enable_lto=*)
+        ENABLE_LTO=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
         --run_setup_script=*)
         RUN_SETUP_SCRIPT=("${arg#*=}")
         shift # Remove argument name from processing
@@ -162,6 +167,12 @@ if [[ "$(uname)" == "Darwin" ]]; then
     export INSTALL_PREFIX=${INSTALL_PREFIX:-${VELOX_HOME}/deps-install}
     if [[ "$INSTALL_PREFIX" == "/usr/local" || "$INSTALL_PREFIX" == /usr/local/* ]]; then
         echo "INFO: INSTALL_PREFIX=$INSTALL_PREFIX is under /usr/local; keeping /usr/local visible to CMake." >&2
+    else
+        # AppleClang injects /usr/local/include into the default header search
+        # path unless an SDK sysroot is selected. Route this build and all child
+        # builds through the SDK so /usr/local headers cannot shadow the ones
+        # from INSTALL_PREFIX.
+        export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path)}"
     fi
 elif [ -n "${INSTALL_PREFIX:-}" ]; then
     export INSTALL_PREFIX
@@ -217,6 +228,7 @@ concat_velox_param
 export VELOX_HOME
 
 function build_arrow {
+  local GLUTEN_BUILD_TYPE="$BUILD_TYPE"
   if [ ! -d "$VELOX_HOME" ]; then
     get_velox
     if [ -z "${GLUTEN_VCPKG_ENABLED:-}" ] && [ $RUN_SETUP_SCRIPT == "ON" ]; then
@@ -227,6 +239,7 @@ function build_arrow {
   fi
   cd $GLUTEN_DIR/dev
   source ./build-arrow.sh
+  BUILD_TYPE="$GLUTEN_BUILD_TYPE"
 }
 
 function build_velox {
@@ -236,7 +249,7 @@ function build_velox {
   ./build-velox.sh --enable_s3=$ENABLE_S3 --enable_gcs=$ENABLE_GCS --build_type=$BUILD_TYPE --enable_hdfs=$ENABLE_HDFS \
                    --enable_abfs=$ENABLE_ABFS --enable_gpu=$ENABLE_GPU --build_test_utils=$BUILD_TESTS \
                    --build_tests=$BUILD_VELOX_TESTS --build_benchmarks=$BUILD_VELOX_BENCHMARKS --num_threads=$NUM_THREADS \
-                   --velox_home=$VELOX_HOME
+                   --velox_home=$VELOX_HOME --enable_lto=$ENABLE_LTO
 }
 
 function build_gluten_cpp {
@@ -262,6 +275,7 @@ function build_gluten_cpp {
     "-DENABLE_GPU=$ENABLE_GPU"
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
     "-DENABLE_ENHANCED_FEATURES=$ENABLE_ENHANCED_FEATURES"
+    "-DENABLE_LTO=$ENABLE_LTO"
   )
 
   if [ -n "${INSTALL_PREFIX:-}" ]; then
@@ -269,8 +283,7 @@ function build_gluten_cpp {
     GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX")
   fi
   if [ $OS == 'Darwin' ]; then
-    if [[ "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
-      GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON")
+    if [[ -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
       GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_IGNORE_PREFIX_PATH=/usr/local")
       GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake")
       GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_SYSTEM_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake")
@@ -312,15 +325,8 @@ function setup_dependencies {
     echo "Unsupported kernel: $OS"
     exit 1
   fi
-  if [ $ENABLE_S3 == "ON" ]; then
-    install_aws_deps
-  fi
-  if [ $ENABLE_GCS == "ON" ]; then
-    install_gcs_sdk_cpp
-  fi
-  if [ $ENABLE_ABFS == "ON" ]; then
-    export AZURE_SDK_DISABLE_AUTO_VCPKG=ON
-    install_azure_storage_sdk_cpp
+  if [[ "$ENABLE_S3" == "ON" || "$ENABLE_GCS" == "ON" || "$ENABLE_HDFS" == "ON" || "$ENABLE_ABFS" == "ON" ]]; then
+    install_adapters
   fi
   popd
 }

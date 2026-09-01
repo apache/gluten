@@ -299,7 +299,6 @@ Arguments: false
 
 (58) VeloxResizeBatches
 Input [10]: [hash_partition_key#29, cd_gender#19, cd_marital_status#20, cd_education_status#21, cd_purchase_estimate#22, cd_credit_rating#23, cd_dep_count#24, cd_dep_employed_count#25, cd_dep_college_count#26, count#28]
-Arguments: 1024, 2147483647, 10485760
 
 (59) ColumnarExchange
 Input [10]: [hash_partition_key#29, cd_gender#19, cd_marital_status#20, cd_education_status#21, cd_purchase_estimate#22, cd_credit_rating#23, cd_dep_count#24, cd_dep_employed_count#25, cd_dep_college_count#26, count#28]

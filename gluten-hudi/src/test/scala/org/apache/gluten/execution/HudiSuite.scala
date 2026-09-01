@@ -38,7 +38,7 @@ abstract class HudiSuite extends WholeStageTransformerSuite {
       .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
   }
 
-  testWithMinSparkVersion("hudi: time travel", "3.2") {
+  test("hudi: time travel") {
     withTable("hudi_tm") {
       spark.sql(s"""
                    |create table hudi_tm (id int, name string) using hudi
@@ -65,7 +65,7 @@ abstract class HudiSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("hudi: soft delete", "3.2") {
+  test("hudi: soft delete") {
     withTable("hudi_pf") {
       spark.sql(s"""
                    |create table hudi_pf (id int, name string) using hudi
@@ -111,7 +111,7 @@ abstract class HudiSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("hudi: partition filters", "3.2") {
+  test("hudi: partition filters") {
     withTable("hudi_pf") {
       spark.sql(s"""
                    |create table hudi_pf (id int, name string) using hudi partitioned by (name)

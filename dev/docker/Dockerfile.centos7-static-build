@@ -15,6 +15,9 @@
 
 FROM centos:7
 
+ARG GLUTEN_REPO=https://github.com/apache/gluten
+ARG GLUTEN_BRANCH=main
+
 ENV JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
 ENV PATH=$JAVA_HOME/bin:$PATH
 
@@ -35,7 +38,7 @@ RUN set -ex; \
        -e 's/mirror\.centos\.org/vault.centos.org/' \
        /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo; \
     yum install -y git patch sudo java-1.8.0-openjdk-devel ccache; \
-    git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
+    git clone --depth=1 --branch "${GLUTEN_BRANCH}" "${GLUTEN_REPO}" /opt/gluten; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh; \
     mkdir -p ${VCPKG_PATH}; \

@@ -43,12 +43,11 @@ import org.apache.orc.mapreduce._
 import java.io._
 import java.net.URI
 
-/* -
- * This class is copied from Spark 3.2 and modified for Gluten. \n
- * Gluten should make sure this class is loaded before the original class.
- * If new Spark releases accepts changes and make this class incompatible,
- * we can move this class to shims-spark32,
- * shims-spark33, etc.
+/**
+ * This class is copied from Spark and modified for Gluten. Gluten should make sure this class is
+ * loaded before the original class. If a future Spark release introduces breaking changes to this
+ * class, we can move this file into a version-specific shim (e.g. shims/spark34) so it is only used
+ * by the Spark versions that need it.
  */
 class OrcFileFormat extends FileFormat with DataSourceRegister with Serializable {
 
