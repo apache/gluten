@@ -46,9 +46,14 @@ Native change data feed scan offload is controlled by:
 | Deletion vectors | 7 | 3 | 3 | Reader and writer | Partial |
 | TimestampNTZ | 7 | 3 | 1 | Reader and writer | No |
 | Liquid clustering | 7 | 3 | 1 | Reader and writer | Yes |
-| Iceberg readers (UniForm) | 7 | 2 | N/A | Writer | Not tested |
+| Iceberg readers (UniForm) | 7 | 2 | N/A | Writer | Partial |
 | Type widening | 7 | 3 | N/A | Reader and writer | Partial |
 | Variant | 7 | 3 | 3 | Reader and writer | Not tested |
 | Variant shredding | 7 | 3 | 3 | Reader and writer | Not tested |
 | Collations | 7 | 3 | N/A | Reader and writer | Not tested |
 | Protected checkpoints | 7 | 1 | N/A | Writer | Not tested |
+
+Notes:
+
+- UniForm Iceberg is covered for Velox native Delta write with IcebergCompatV2, async Iceberg metadata generation, and Iceberg readback through a Hive-backed Iceberg catalog.
+- Native Velox Iceberg scans still fall back for UniForm column-mapping/name-mapping reads, so this is not full native Iceberg reader support yet.

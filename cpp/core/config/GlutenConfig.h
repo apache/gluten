@@ -74,6 +74,8 @@ const std::string kParquetEnablePageIndex = "parquet.enable.page.index";
 
 const std::string kParquetWriterVersion = "parquet.writer.version";
 
+const std::string kParquetFieldIds = "parquet.field.ids";
+
 const std::string kParquetCompressionCodec = "spark.sql.parquet.compression.codec";
 
 const std::string kLegacyParquetReturnNullStructIfAllFieldsMissing =
