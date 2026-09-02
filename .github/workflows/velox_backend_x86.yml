@@ -149,6 +149,11 @@ jobs:
     runs-on: ubuntu-22.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
+      - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison)
+        run: |
+          dnf install -y jq bison tzdata
+          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+          dnf install -y gh --setopt=gpgcheck=0
       - uses: actions/checkout@v7
       - name: Get Ccache from Apache Stash
         id: ccache-stash
@@ -167,7 +172,6 @@ jobs:
       - name: Build Gluten native libraries
         run: |
           df -a
-          yum install bison -y
           export CCACHE_MAXSIZE=1G
           ccache -sz
           bash dev/ci-velox-buildstatic-centos-8.sh
