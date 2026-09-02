@@ -557,6 +557,28 @@
       </dependencies>
     </profile>
     <profile>
+      <id>lance</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <properties>
+        <!--
+          First lance-spark release that carries the Arrow C stream forwarding
+          (LanceArrowStreamScanner, lance-spark#778). v0.8.0-beta.1 predates it;
+          bump this to the published version once it ships.
+        -->
+        <lance.version>0.8.0-beta.2</lance.version>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.lance</groupId>
+          <artifactId>lance-spark-base_${scala.binary.version}</artifactId>
+          <version>${lance.version}</version>
+          <scope>provided</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
       <id>iceberg-test</id>
       <activation>
         <activeByDefault>false</activeByDefault>
