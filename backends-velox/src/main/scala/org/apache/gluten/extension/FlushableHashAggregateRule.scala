@@ -71,11 +71,31 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
   }
 
   /**
+   * Returns true if the aggregate applies no aggregate functions and is the final (or complete)
+   * stage, e.g. the last step of `SELECT DISTINCT`, or of a `GROUP BY` without aggregate functions.
+   *
+   * Such an aggregate must fully aggregate. Flushing lets Velox abandon aggregation and emit
+   * duplicate grouping keys, and since no further aggregate follows, the duplicates reach the
+   * consumer. When the consumer is a join, they turn into extra join output rows.
+   *
+   * The mode check used by the other guards cannot detect this case: `aggregateExpressions` is
+   * empty here, so `forall(_.mode == Partial | PartialMerge)` is vacuously true and says nothing
+   * about which stage this is. Spark distinguishes the stages with
+   * `requiredChildDistributionExpressions`, which is `None` for a partial aggregate and
+   * `Some(groupingAttributes)` for the final one -- see `AggUtils.planAggregateWithoutDistinct`.
+   * Spark makes the same check in its own guard for the equivalent runtime bypass, see
+   * `HashAggregateExec.adaptivePartialAggEnabled`.
+   */
+  private def isGroupingOnlyFinalAgg(agg: HashAggregateExecTransformer): Boolean = {
+    agg.aggregateExpressions.isEmpty && agg.requiredChildDistributionExpressions.isDefined
+  }
+
+  /**
    * Walks the plan downward, applying func to each RegularHashAggregateExecTransformer or
    * SortHashAggregateExecTransformer that is eligible for flushable conversion. An aggregate is
-   * eligible when all expressions are Partial/PartialMerge, it is not the protected PartialMerge
-   * aggregate directly below a distinct-partial aggregate, and no aggregate function disallows
-   * flushing.
+   * eligible when all expressions are Partial/PartialMerge, it is not the final stage of a
+   * grouping-only aggregate, it is not the protected PartialMerge aggregate directly below a
+   * distinct-partial aggregate, and no aggregate function disallows flushing.
    */
   private def replaceEligibleAggregates(
       plan: SparkPlan,
@@ -93,6 +113,9 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
     }
 
     def transformDown: SparkPlan => SparkPlan = {
+      case agg: RegularHashAggregateExecTransformer if isGroupingOnlyFinalAgg(agg) =>
+        // Final stage of a grouping-only aggregate. It must fully aggregate. Skip.
+        agg
       case agg: RegularHashAggregateExecTransformer
           if !agg.aggregateExpressions.forall(p => p.mode == Partial || p.mode == PartialMerge) =>
         // Not an intermediate agg. Skip.
@@ -110,6 +133,9 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
       case agg: RegularHashAggregateExecTransformer =>
         // All guards passed; replace with the flushable variant.
         toFlushableAgg(agg)
+      case agg: SortHashAggregateExecTransformer if isGroupingOnlyFinalAgg(agg) =>
+        // See the RegularHashAggregateExecTransformer branch above.
+        agg
       case agg: SortHashAggregateExecTransformer
           if !agg.aggregateExpressions.forall(p => p.mode == Partial || p.mode == PartialMerge) =>
         // Not an intermediate agg. Skip.
