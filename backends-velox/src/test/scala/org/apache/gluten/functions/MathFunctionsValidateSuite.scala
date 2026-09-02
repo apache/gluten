@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.functions
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.execution.{BatchScanExecTransformer, ProjectExecTransformer}
 
 import org.apache.spark.SparkConf
@@ -454,6 +454,116 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
             runQueryAndCompare("SELECT a - b, a + b, a * b, a / b FROM t") {
               checkGlutenPlan[ProjectExecTransformer]
             }
+          }
+      }
+    }
+  }
+
+  // Gluten's checkAnswer accepts any two doubles within 1e-5 of each other, which is far
+  // wider than the precision loss under test here: 214.4 and 214.39999999999998 compare
+  // equal under it. Comparing the rendered values admits no tolerance at all, because
+  // Double.toString emits the shortest decimal that round-trips to the same double.
+  private def assertDoublesMatchVanillaExactly(sqlText: String, glutenRows: Array[Row]): Unit = {
+    var vanillaRows: Array[Row] = Array.empty
+    withSQLConf(vanillaSparkConfs(): _*) {
+      vanillaRows = spark.sql(sqlText).collect()
+    }
+    def render(rows: Array[Row]): Seq[String] = rows.toSeq.map(_.toSeq.mkString("|")).sorted
+    assert(render(glutenRows) === render(vanillaRows))
+  }
+
+  test("decimal to double preserves precision after decimal division") {
+    withSQLConf(
+      "spark.sql.optimizer.excludedRules" ->
+        "org.apache.spark.sql.catalyst.optimizer.ConstantFolding",
+      "spark.sql.decimalOperations.allowPrecisionLoss" -> "false",
+      VeloxConfig.DECIMAL_TO_FLOAT_HIGH_PRECISION_CAST_ENABLED.key -> "true"
+    ) {
+      val sqlText = "SELECT CAST(2.8 / CAST(0.0130597014925373134 AS DECIMAL(38,19)) AS DOUBLE)"
+      runQueryAndCompare(sqlText) {
+        df =>
+          checkGlutenPlan[ProjectExecTransformer](df)
+          assertDoublesMatchVanillaExactly(sqlText, df.collect())
+      }
+    }
+  }
+
+  test("GLUTEN-12356: high-precision decimal to double matches vanilla Spark") {
+    withTempView("decimal_double_cast") {
+      withTempPath {
+        path =>
+          // Cover short decimal, long decimal at both precision bounds,
+          // zero/negative/NULL values, values around 2^53, and near-max 38-digit values.
+          // The d38_27 and d38_37 columns are the ones whose direct conversion actually
+          // differs from Spark: divergence depends on the unscaled value and the scale,
+          // and the other columns here agree even without the high-precision cast.
+          spark
+            .sql("""
+                   |SELECT
+                   |  CAST(v18 AS DECIMAL(18,6)) AS d18_6,
+                   |  CAST(v19 AS DECIMAL(19,0)) AS d19_0,
+                   |  CAST(v38_0 AS DECIMAL(38,0)) AS d38_0,
+                   |  CAST(v38_19 AS DECIMAL(38,19)) AS d38_19,
+                   |  CAST(v38_38 AS DECIMAL(38,38)) AS d38_38,
+                   |  CAST(v38_27 AS DECIMAL(38,27)) AS d38_27,
+                   |  CAST(v38_37 AS DECIMAL(38,37)) AS d38_37
+                   |FROM VALUES
+                   |  ('123456789012.345678', '9007199254740991',
+                   |   '12345678901234567890123456789012345678',
+                   |   '214.4000000000000006143270301075587414',
+                   |   '0.99999999999999999999999999999999999999',
+                   |   '214.400000000000000539062857143',
+                   |   '1.2345678901234567890123456789012345678'),
+                   |  ('999999999999.999999', '9007199254740992',
+                   |   '9007199254740993',
+                   |   '9007199254740993.0000000000000000001',
+                   |   '0.00000000000000000000000000000000000001',
+                   |   '1.000000000000000000000000001',
+                   |   '0.0000000000000000000000000000000000001'),
+                   |  ('-123456789012.345678', '-9007199254740993',
+                   |   '-99999999999999999999999999999999999999',
+                   |   '-0.0130597014925373134',
+                   |   '-0.5',
+                   |   '-214.400000000000000539062857143',
+                   |   '-1.2345678901234567890123456789012345678'),
+                   |  ('0', '0', '0', '0', '0', '0', '0'),
+                   |  (NULL, NULL, NULL, NULL, NULL, NULL, NULL),
+                   |  ('999999999999.999999', '9999999999999999999',
+                   |   '99999999999999999999999999999999999999',
+                   |   '9999999999999999999.9999999999999999999',
+                   |   '0.12345678901234567890123456789012345678',
+                   |   '99999999999.999999999999999999999999999',
+                   |   '9.9999999999999999999999999999999999999')
+                   |AS t(v18, v19, v38_0, v38_19, v38_38, v38_27, v38_37)
+                   |""".stripMargin)
+            .write
+            .parquet(path.getCanonicalPath)
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("decimal_double_cast")
+
+          Seq("true", "false").foreach {
+            ansi =>
+              withSQLConf(
+                SQLConf.ANSI_ENABLED.key -> ansi,
+                GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false",
+                VeloxConfig.DECIMAL_TO_FLOAT_HIGH_PRECISION_CAST_ENABLED.key -> "true"
+              ) {
+                val sqlText = """
+                                |SELECT
+                                |  CAST(d18_6 AS DOUBLE),
+                                |  CAST(d19_0 AS DOUBLE),
+                                |  CAST(d38_0 AS DOUBLE),
+                                |  CAST(d38_19 AS DOUBLE),
+                                |  CAST(d38_38 AS DOUBLE),
+                                |  CAST(d38_27 AS DOUBLE),
+                                |  CAST(d38_37 AS DOUBLE)
+                                |FROM decimal_double_cast
+                                |""".stripMargin
+                runQueryAndCompare(sqlText) {
+                  df =>
+                    checkGlutenPlan[ProjectExecTransformer](df)
+                    assertDoublesMatchVanillaExactly(sqlText, df.collect())
+                }
+              }
           }
       }
     }
