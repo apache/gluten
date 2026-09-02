@@ -571,7 +571,7 @@ object VeloxConfig extends ConfigRegistry {
       .createWithDefault(false)
 
   val SCAN_BLOOM_FILTER_BUFFER_CACHE_ENABLED =
-    buildStaticConf("spark.gluten.sql.columnar.backend.velox.scan.bloomFilterBufferCache.enabled")
+    buildConf("spark.gluten.sql.columnar.backend.velox.scan.bloomFilterBufferCache.enabled")
       .doc("Whether to share scan Bloom filter buffers across Velox tasks in an executor.")
       .booleanConf
       .createWithDefault(false)

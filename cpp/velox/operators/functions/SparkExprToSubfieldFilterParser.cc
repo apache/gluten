@@ -51,32 +51,43 @@ class BloomFilterBufferCache {
     std::lock_guard<std::mutex> lock(mutex_);
     auto mapIt = entries_.find(hash);
     if (mapIt != entries_.end()) {
-      auto& entries = mapIt->second;
-      for (auto it = entries.begin(); it != entries.end();) {
-        if (auto buffer = it->lock()) {
+      for (const auto& entry : mapIt->second) {
+        if (auto buffer = entry.lock()) {
           // Hash collisions must not cause different filters to share bytes.
           if (buffer->size() == bytes.size() && std::equal(buffer->begin(), buffer->end(), bytes.begin())) {
             return buffer;
           }
-          ++it;
-        } else {
-          // Sweep buffers no longer used by any task.
-          it = entries.erase(it);
         }
-      }
-      // Avoid retaining empty hash buckets indefinitely.
-      if (entries.empty()) {
-        entries_.erase(mapIt);
       }
     }
     auto buffer = std::make_shared<const std::string>(bytes);
     entries_[hash].emplace_back(buffer);
+    if (++entriesSinceSweep_ >= kSweepInterval) {
+      sweep();
+      entriesSinceSweep_ = 0;
+    }
     return buffer;
   }
 
  private:
+  void sweep() {
+    for (auto mapIt = entries_.begin(); mapIt != entries_.end();) {
+      auto& entries = mapIt->second;
+      entries.erase(
+          std::remove_if(entries.begin(), entries.end(), [](const auto& entry) { return entry.expired(); }),
+          entries.end());
+      if (entries.empty()) {
+        mapIt = entries_.erase(mapIt);
+      } else {
+        ++mapIt;
+      }
+    }
+  }
+
+  static constexpr size_t kSweepInterval = 128;
   std::mutex mutex_;
   std::unordered_map<size_t, std::vector<std::weak_ptr<const std::string>>> entries_;
+  size_t entriesSinceSweep_{0};
 };
 
 // Evaluates an expression as a constant. Returns nullptr if the expression is
