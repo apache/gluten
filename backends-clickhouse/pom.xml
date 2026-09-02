@@ -527,12 +527,6 @@
       </dependencies>
     </profile>
     <profile>
-      <id>spark-3.3</id>
-      <activation>
-        <activeByDefault>false</activeByDefault>
-      </activation>
-    </profile>
-    <profile>
       <id>spark-3.5</id>
       <activation>
         <activeByDefault>false</activeByDefault>

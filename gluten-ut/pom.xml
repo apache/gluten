@@ -201,10 +201,18 @@
 
   <profiles>
     <profile>
-      <id>spark-3.3</id>
-      <modules>
-        <module>spark33</module>
-      </modules>
+      <id>iceberg</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.iceberg</groupId>
+          <artifactId>iceberg-spark-runtime-${sparkbundle.version}_${scala.binary.version}</artifactId>
+          <version>${iceberg.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
     </profile>
     <profile>
       <id>spark-3.4</id>

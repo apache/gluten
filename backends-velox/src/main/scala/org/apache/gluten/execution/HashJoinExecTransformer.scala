@@ -221,7 +221,7 @@ case class BroadcastHashJoinExecTransformer(
         } else {
           logInfo(s"Using executor-side broadcast hash table build for $buildBroadcastTableId")
         }
-        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
+        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context, cudfEnabled = offloadCuda)
 
       case unsafe: UnsafeColumnarBuildSideRelation =>
         joinParamsForMetrics.foreach(_.usesDriverSideSerializedHashTable = false)
@@ -235,7 +235,7 @@ case class BroadcastHashJoinExecTransformer(
         } else {
           logInfo(s"Using executor-side broadcast hash table build for $buildBroadcastTableId")
         }
-        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
+        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context, cudfEnabled = offloadCuda)
 
       case other =>
         joinParamsForMetrics.foreach(_.usesDriverSideSerializedHashTable = false)
@@ -243,7 +243,7 @@ case class BroadcastHashJoinExecTransformer(
         logWarning(
           s"Unknown broadcast relation type: ${other.getClass.getName}, " +
             "using executor-side build")
-        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context)
+        VeloxBroadcastBuildSideRDD(sparkContext, broadcast, context, cudfEnabled = offloadCuda)
     }
 
     // FIXME: Do we have to make build side a RDD?

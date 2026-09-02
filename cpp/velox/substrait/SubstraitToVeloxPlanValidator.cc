@@ -303,7 +303,9 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
     return false;
   }
   if (toType->equivalent(*TIMESTAMP_UTC())) {
-    // Only supports from Timestamp to TimestampNTZ.
+    if (fromType->isVarchar()) {
+      return true;
+    }
     return false;
   }
 

@@ -110,8 +110,8 @@ VectorPtr createFlatVector<TypeKind::HUGEINT>(
       memcpy(bytesValue.data(), memoryAddress + offsets[pos] + wordoffset, length);
       uint8_t bytesValue2[16]{};
       GLUTEN_CHECK(length <= 16, "array out of bounds exception");
-      for (int k = length - 1; k >= 0; k--) {
-        bytesValue2[length - 1 - k] = bytesValue[k];
+      if (length > 0) {
+        std::reverse_copy(bytesValue.begin(), bytesValue.begin() + length, bytesValue2);
       }
       if (static_cast<int8_t>(bytesValue[0]) < 0) {
         memset(bytesValue2 + length, 255, 16 - length);

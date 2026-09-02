@@ -188,7 +188,10 @@ WholeStageResultIterator::WholeStageResultIterator(
             true,
             deleteFiles,
             metadataColumn,
-            properties[idx]);
+            properties[idx],
+            /*dataSequenceNumber=*/0,
+            /*identityPartitionKeys=*/std::unordered_map<int32_t, std::optional<std::string>>{},
+            scanInfo->columnMappingMode);
       } else if (isDeltaScan) {
         std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", kDeltaTableFormat}};
         std::optional<gluten::delta::DeltaDeletionVectorDescriptor> deletionVector = std::nullopt;
@@ -215,7 +218,8 @@ WholeStageResultIterator::WholeStageResultIterator(
             std::nullopt,
             rowIndexFilterType,
             metadataColumn,
-            properties[idx]);
+            properties[idx],
+            scanInfo->columnMappingMode);
       } else {
         auto connectorId = connectorIds_.hive;
 #ifdef GLUTEN_ENABLE_GPU
@@ -238,7 +242,10 @@ WholeStageResultIterator::WholeStageResultIterator(
             0,
             true,
             metadataColumn,
-            properties[idx]);
+            properties[idx],
+            std::nullopt,
+            std::nullopt,
+            scanInfo->columnMappingMode);
       }
       connectorSplits.emplace_back(split);
     }
@@ -580,6 +587,8 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     configs[velox::core::QueryConfig::kMaxSpillLevel] = std::to_string(veloxCfg_->get<int32_t>(kMaxSpillLevel, 4));
     configs[velox::core::QueryConfig::kMaxSpillFileSize] =
         std::to_string(veloxCfg_->get<uint64_t>(kMaxSpillFileSize, 1L * 1024 * 1024 * 1024));
+    configs[velox::core::QueryConfig::kSpillNumMaxMergeFiles] =
+        std::to_string(veloxCfg_->get<uint32_t>(kSpillNumMaxMergeFiles, 0));
     configs[velox::core::QueryConfig::kMaxSpillRunRows] =
         std::to_string(veloxCfg_->get<uint64_t>(kMaxSpillRunRows, 3L * 1024 * 1024));
     configs[velox::core::QueryConfig::kMaxSpillBytes] =

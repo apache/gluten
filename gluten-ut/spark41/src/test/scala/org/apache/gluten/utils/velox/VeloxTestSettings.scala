@@ -117,6 +117,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("data type casting")
     // Revised by setting timezone through config and commented unsupported cases.
     .exclude("cast string to timestamp")
+    // Excluded in favour of the GlutenCastWithAnsiOffSuite rewrite, which drops the Long.MinValue
+    // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
     .exclude("SPARK-36286: invalid string cast to timestamp")
     .exclude("SPARK-39749: cast Decimal to string")
@@ -565,7 +567,7 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: fix on Spark-4.1
     .excludeByPrefix("SPARK-53535") // see https://issues.apache.org/jira/browse/SPARK-53535
     .excludeByPrefix("vectorized reader: missing all struct fields")
-    .excludeByPrefix("SPARK-54220") // https://issues.apache.org/jira/browse/SPARK-54220
+    .exclude("SPARK-54220: vectorized reader: missing all struct fields, struct with NullType only")
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
   enableSuite[GlutenParquetProtobufCompatibilitySuite]
@@ -840,6 +842,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-24583 Wrong schema type in InsertIntoDataSourceCommand")
     // the native write staing dir is differnt with vanilla Spark for coustom partition paths
     .exclude("SPARK-35106: Throw exception when rename custom partition paths returns false")
+    // The case expects a SparkException; Gluten surfaces the raw
+    // FileAlreadyExistsException instead.
     .exclude("Stop task set if FileAlreadyExistsException was thrown")
     // Rewrite: Additional support for file scan with default values has been added in Spark-3.4.
     // It appends the default value in record if it is not present while scanning.
@@ -1005,6 +1009,10 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-27439: Explain result should match collected result after view change")
     // https://github.com/apache/gluten/issues/11570
     .exclude("getRows: binary")
+    // Velox does not reproduce Spark's guarantee that a seeded non-deterministic
+    // expression referenced multiple times yields row-wise equal values (rand/randn).
+    // Same class of difference as SPARK-9083. Not really an issue.
+    .exclude("SPARK-45216: Non-deterministic functions with seed")
   enableSuite[GlutenDataFrameTimeWindowingSuite]
   enableSuite[GlutenDataFrameTungstenSuite]
   enableSuite[GlutenDataFrameWindowFunctionsSuite]

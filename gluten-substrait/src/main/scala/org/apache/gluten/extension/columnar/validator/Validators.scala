@@ -34,7 +34,7 @@ import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, ShuffleEx
 import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType, TimestampType}
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 
 object Validators {
   implicit class ValidatorBuilderImplicits(builder: Validator.Builder) {
@@ -283,8 +283,7 @@ object Validators {
                   case Minute(child, _) => containsNTZ(child.dataType)
                   case Second(child, _) => containsNTZ(child.dataType)
                   case TimestampAdd(_, _, child, _) => containsNTZ(child.dataType)
-                  case c: Cast if c.dataType == TimestampType => isNTZ(c.child.dataType)
-                  case c: Cast if isNTZ(c.dataType) => c.child.dataType == TimestampType
+                  case c: Cast if isNTZ(c.dataType) || isNTZ(c.child.dataType) => true
                   case _ => false
                 }
             }

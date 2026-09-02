@@ -286,6 +286,15 @@ object VeloxConfig extends ConfigRegistry {
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("1GB")
 
+  val COLUMNAR_VELOX_SPILL_NUM_MAX_MERGE_FILES =
+    buildConf("spark.gluten.sql.columnar.backend.velox.spillNumMaxMergeFiles")
+      .doc(
+        "The max number of files to merge at a time when merging sorted files " +
+          "into a single ordered stream. 0 means unlimited.")
+      .intConf
+      .checkValue(_ >= 0, "must be non-negative")
+      .createWithDefault(0)
+
   val COLUMNAR_VELOX_SPILL_FILE_SYSTEM =
     buildConf("spark.gluten.sql.columnar.backend.velox.spillFileSystem")
       .doc(
@@ -930,7 +939,7 @@ object VeloxConfig extends ConfigRegistry {
       .createWithDefault(100)
 
   val PARQUET_USE_COLUMN_NAMES =
-    buildConf("spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames")
+    buildConf(GlutenConfig.VELOX_PARQUET_USE_COLUMN_NAMES)
       .doc("Maps table field names to file field names using names, not indices for Parquet files.")
       .booleanConf
       .createWithDefault(true)

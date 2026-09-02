@@ -76,6 +76,9 @@ const std::string kParquetWriterVersion = "parquet.writer.version";
 
 const std::string kParquetCompressionCodec = "spark.sql.parquet.compression.codec";
 
+const std::string kLegacyParquetReturnNullStructIfAllFieldsMissing =
+    "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing";
+
 /// Spark `spark.sql.parquet.writeLegacyFormat` (passed from the JVM as "true"/"false").
 /// Used in VeloxWriterUtils to set `WriterOptions::enableStoreDecimalAsInteger` (inverted).
 /// Velox decimal storage when enableStoreDecimalAsInteger is:

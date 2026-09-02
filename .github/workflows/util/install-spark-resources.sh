@@ -95,11 +95,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   mkdir -p ${INSTALL_DIR}
 
   case "$1" in
-  3.3)
-      # Spark-3.3
-      cd ${INSTALL_DIR} && \
-      install_spark "3.3.1" "3" "2.12"
-      ;;
   3.4)
       # Spark-3.4
       cd ${INSTALL_DIR} && \

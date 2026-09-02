@@ -45,6 +45,34 @@ import scala.collection.mutable.{ArrayBuffer, BitSet}
 object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
   type FallbackInfo = (Int, Map[String, String])
 
+  /**
+   * Returns whether a plan should be ignored when collecting fallback statistics.
+   *
+   * Such plans may be execution-framework or implementation wrappers.
+   */
+  def shouldIgnoreInFallbackStats(plan: SparkPlan): Boolean = plan match {
+    case _: ExecutedCommandExec => true
+    case _: CommandResultExec => true
+    case p: V2CommandExec =>
+      !FallbackTags.nonEmpty(p) && p.logicalLink.forall(FallbackTags.getOption(_).isEmpty)
+    case _: DataWritingCommandExec => true
+    case _: WholeStageCodegenExec => true
+    case _: WholeStageTransformer => true
+    case _: InputAdapter => true
+    case _: ColumnarInputAdapter => true
+    case _: InputIteratorTransformer => true
+    case _: ColumnarToRowTransition => true
+    case _: RowToColumnarTransition => true
+    case _: ReusedExchangeExec => true
+    case _: NoopLeaf => true
+    case w: WriteFilesExec => w.child.isInstanceOf[NoopLeaf]
+    case _: AdaptiveSparkPlanExec => true
+    case _: QueryStageExec => true
+    case _: AQEShuffleReadExec => true
+    case _: ColumnarAQEShuffleReadExec => true
+    case _ => false
+  }
+
   def addFallbackNodeWithReason(
       p: SparkPlan,
       reason: String,
@@ -89,8 +117,7 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
    *   - native Gluten operator: invokes `onGluten`
    *   - vanilla Spark operator considered a fallback: invokes `onFallback` with the reason resolved
    *     from physical or logical [[FallbackTags]], or a synthetic default when no tag is present
-   *   - structural / non-operator nodes (commands, transitions, codegen wrappers, query stages, AQE
-   *     shuffle reads, reused exchanges, etc.): no callback
+   *   - nodes ignored by [[shouldIgnoreInFallbackStats]]: no callback
    *
    * Recurses into AQE subqueries and query stages, and into each visited operator's
    * `innerChildren`. Subqueries reached purely via expressions on a vanilla Spark plan are not
@@ -111,38 +138,22 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
 
     def visit(tmp: QueryPlan[_]): Unit = {
       tmp.foreachUp {
-        case _: ExecutedCommandExec =>
         case cmd: CommandResultExec => visit(cmd.commandPhysicalPlan)
         case p: V2CommandExec
-            if FallbackTags.nonEmpty(p) ||
-              p.logicalLink.exists(FallbackTags.getOption(_).nonEmpty) =>
+            if !shouldIgnoreInFallbackStats(p) =>
           onFallback(p, fallbackReason(p))
-        case _: V2CommandExec =>
-        case _: DataWritingCommandExec =>
-        case _: WholeStageCodegenExec =>
-        case _: WholeStageTransformer =>
-        case _: InputAdapter =>
-        case _: ColumnarInputAdapter =>
-        case _: InputIteratorTransformer =>
-        case _: ColumnarToRowTransition =>
-        case _: RowToColumnarTransition =>
-        case _: ReusedExchangeExec =>
-        case _: NoopLeaf =>
-        case w: WriteFilesExec if w.child.isInstanceOf[NoopLeaf] =>
         case sub: AdaptiveSparkPlanExec if sub.isSubquery => visit(sub.executedPlan)
-        case _: AdaptiveSparkPlanExec =>
         case p: QueryStageExec => visit(p.plan)
-        case p: GlutenPlan =>
-          onGluten(p)
-          p.innerChildren.foreach(visit)
         case i: InMemoryTableScanExec =>
           if (PlanUtil.isGlutenTableCache(i)) {
             onGluten(i)
           } else {
             onFallback(i, "Columnar table cache is disabled")
           }
-        case _: AQEShuffleReadExec => // Ignore
-        case _: ColumnarAQEShuffleReadExec => // Ignore
+        case p: SparkPlan if shouldIgnoreInFallbackStats(p) => // Ignore
+        case p: GlutenPlan =>
+          onGluten(p)
+          p.innerChildren.foreach(visit)
         case p: SparkPlan =>
           onFallback(p, fallbackReason(p))
           p.innerChildren.foreach(visit)
