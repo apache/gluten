@@ -1072,7 +1072,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     unnest.emplace_back(unnestFieldExpr);
   }
 
-  std::vector<std::string> unnestNames;
+  std::vector<std::optional<std::string>> unnestNames;
   int unnestIndex = 0;
   for (const auto& variable : unnest) {
     if (variable->type()->isArray()) {

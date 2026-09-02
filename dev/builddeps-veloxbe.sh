@@ -210,7 +210,7 @@ if [ "$ENABLE_VCPKG" = "ON" ]; then
 fi
 
 # Supported Spark versions
-SUPPORTED_SPARK_VERSIONS=("3.3" "3.4" "3.5" "4.0" "4.1" "ALL")
+SUPPORTED_SPARK_VERSIONS=("3.4" "3.5" "4.0" "4.1" "ALL")
 
 # Check if SPARK_VERSION is in the supported list
 pattern=" $SPARK_VERSION "
@@ -218,7 +218,7 @@ if [[ " ${SUPPORTED_SPARK_VERSIONS[*]} " =~ $pattern ]]; then
   echo "Building for Spark $SPARK_VERSION"
 else
   echo "Invalid Spark version: $SPARK_VERSION"
-  echo "Supported versions: 3.3 3.4 3.5 4.0 4.1 ALL"
+  echo "Supported versions: 3.4 3.5 4.0 4.1 ALL"
   exit 1
 fi
 

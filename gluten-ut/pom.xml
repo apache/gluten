@@ -215,12 +215,6 @@
       </dependencies>
     </profile>
     <profile>
-      <id>spark-3.3</id>
-      <modules>
-        <module>spark33</module>
-      </modules>
-    </profile>
-    <profile>
       <id>spark-3.4</id>
       <modules>
         <module>spark34</module>

@@ -288,16 +288,6 @@
       </properties>
     </profile>
     <profile>
-      <id>spark-3.3</id>
-      <properties>
-        <spark.version>3.3.1</spark.version>
-        <scala.version>2.12.15</scala.version>
-        <scala.binary.version>2.12</scala.binary.version>
-        <delta.package.name>delta-core</delta.package.name>
-        <delta.version>2.3.0</delta.version>
-      </properties>
-    </profile>
-    <profile>
       <id>spark-3.4</id>
       <properties>
         <spark.version>3.4.4</spark.version>
