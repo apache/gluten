@@ -28,6 +28,7 @@ import org.apache.spark.sql.functions.{col, max, min}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{LongType, StringType}
 
+import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.column.ParquetProperties._
 import org.apache.parquet.format.converter.ParquetMetadataConverter
@@ -353,7 +354,11 @@ class GlutenParquetRowIndexSuite extends ParquetRowIndexSuite with GlutenSQLTest
               .load(path.getAbsolutePath)
 
             val exception = intercept[Exception](dfRead.collect())
-            assert(exception.getMessage.contains(ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME))
+            // Spark can wrap the validation error in a FAILED_READ_FILE exception.
+            assert(
+              ExceptionUtils
+                .getRootCauseMessage(exception)
+                .contains(ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME))
         }
       }
     }
