@@ -32,6 +32,9 @@ import scala.collection.JavaConverters._
 
 abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
 
+  private val parquetPageRowLimitSession =
+    "spark.gluten.sql.columnar.backend.velox.parquet_writer_page_row_limit"
+
   // the writer factory works for both batch and streaming
   private def createIcebergDataWriteFactory(schema: StructType): IcebergDataWriteFactory = {
     val writeSchema = IcebergWriteUtil.getWriteSchema(write)
@@ -48,6 +51,7 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
 
     Seq(
       PARQUET_PAGE_SIZE_BYTES.key -> getParquetPageSizeBytes,
+      parquetPageRowLimitSession -> getParquetPageRowLimit,
       MAX_TARGET_FILE_SIZE_SESSION.key -> getTargetFileSizeBytes,
       PARQUET_DICT_SIZE_BYTES.key -> getDictSizeBytes
     ).foreach {
