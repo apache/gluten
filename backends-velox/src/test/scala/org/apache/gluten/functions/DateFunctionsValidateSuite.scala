@@ -621,6 +621,11 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
           checkGlutenPlan[ProjectExecTransformer]
         }
 
+        // cast(timestamp_ntz as date)
+        runQueryAndCompare("select cast(ts as date) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
         // cast(timestamp_ntz as string)
         runQueryAndCompare("select cast(ts as string) from view") {
           checkGlutenPlan[ProjectExecTransformer]
@@ -680,6 +685,26 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
         // cast(varchar as timestamp_ntz)
         runQueryAndCompare("select cast(str as timestamp_ntz) from str_view") {
           checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        val datePath = dir.getAbsolutePath + "/date_view"
+        Seq(
+          java.sql.Date.valueOf("1969-12-31"),
+          java.sql.Date.valueOf("1970-01-01"),
+          java.sql.Date.valueOf("2000-01-01")
+        ).toDF("d").coalesce(1).write.mode("overwrite").parquet(datePath)
+        spark.read.parquet(datePath).createOrReplaceTempView("date_view")
+
+        // cast(date as timestamp_ntz)
+        runQueryAndCompare("select cast(d as timestamp_ntz) from date_view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        // The conversion is independent of the session timezone.
+        withSQLConf("spark.sql.session.timeZone" -> "America/Los_Angeles") {
+          runQueryAndCompare("select cast(d as timestamp_ntz) from date_view") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
         }
     }
   }
