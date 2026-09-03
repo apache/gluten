@@ -156,6 +156,16 @@ function apply_provided_velox_patch {
   fi
 }
 
+function apply_iceberg_row_index_patch {
+  # Remove once both pinned Velox branches preserve generated row-index scan specs.
+  local patch_file="$CURRENT_DIR/iceberg-row-index.patch"
+  if git -C "$VELOX_HOME" apply --reverse --check "$patch_file" 2>/dev/null; then
+    return
+  fi
+  git -C "$VELOX_HOME" apply --check "$patch_file"
+  git -C "$VELOX_HOME" apply "$patch_file"
+}
+
 function setup_linux {
   local LINUX_DISTRIBUTION=$(. /etc/os-release && echo ${ID})
   local LINUX_VERSION_ID=$(. /etc/os-release && echo ${VERSION_ID})
@@ -233,6 +243,7 @@ if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
 fi
 
 apply_provided_velox_patch
+apply_iceberg_row_index_patch
 
 
 echo "Finished getting Velox code"

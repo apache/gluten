@@ -16,5 +16,9 @@
 # All invocations of these methods run and are reported, but do not affect the gate.
 # Use exact class and method names; omit method arguments and invocation indices.
 class,method
-# Example
-# org.apache.iceberg.spark.extensions.TestAlterTablePartitionFields,testDropPartitionAndSourceColumnLong
+# Known plan incompatibilities: upstream requires BatchScanExec; native uses IcebergScanTransformer.
+# Tracking: https://github.com/apache/gluten/pull/12964#discussion_r4312786285
+# TODO before the next Iceberg upgrade: adapt the plan assertion and remove these exclusions.
+org.apache.iceberg.spark.extensions.TestCopyOnWriteDelete,testDeleteWithVectorizedReads
+org.apache.iceberg.spark.extensions.TestCopyOnWriteMerge,testMergeWithVectorizedReads
+org.apache.iceberg.spark.extensions.TestCopyOnWriteUpdate,testUpdateWithVectorizedReads
