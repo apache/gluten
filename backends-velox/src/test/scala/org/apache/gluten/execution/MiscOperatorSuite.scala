@@ -16,15 +16,22 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig, VeloxConfig}
 import org.apache.gluten.expression.VeloxDummyExpression
+import org.apache.gluten.extension.columnar.FallbackTags
+import org.apache.gluten.sql.shims.SparkShimLoader
+import org.apache.gluten.substrait.SubstraitContext
 
 import org.apache.spark.SparkConf
 import org.apache.spark.shuffle.GlutenShuffleUtils
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.expressions.Cast
+import org.apache.spark.sql.catalyst.optimizer.BuildRight
+import org.apache.spark.sql.catalyst.plans.Inner
+import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AdaptiveSparkPlanHelper, AQEShuffleReadExec, ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
 import org.apache.spark.sql.execution.joins.BaseJoinExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.functions._
@@ -791,16 +798,318 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
   }
 
   test("test OneRowRelation") {
-    val df = sql("SELECT 1")
-    checkAnswer(df, Row(1))
-    val plan = df.queryExecution.executedPlan
-    if (isSparkVersionGE("4.1")) {
-      assert(plan.find(_.getClass.getSimpleName == "OneRowRelationExec").isDefined)
-    } else {
-      assert(plan.find(_.isInstanceOf[RDDScanExec]).isDefined)
+    val testCases = Seq(
+      "SELECT 1" -> Seq(Row(1)),
+      "SELECT 'x', 42, CAST(NULL AS INT)" -> Seq(Row("x", 42, null)),
+      "SELECT (SELECT 1)" -> Seq(Row(1)),
+      "SELECT (SELECT 1), (SELECT 1)" -> Seq(Row(1, 1)),
+      "SELECT 1 UNION ALL SELECT 2" -> Seq(Row(1), Row(2))
+    )
+
+    def checkOneRowRelation(query: String, expected: Seq[Row]): Unit = {
+      val df = sql(query)
+      checkAnswer(df, expected)
+      assert(df.count() == expected.size)
+      assert(df.schema.size == expected.head.size)
+
+      val plan = df.queryExecution.executedPlan
+      if (spark.sessionState.conf.adaptiveExecutionEnabled) {
+        assert(find(plan)(_.isInstanceOf[AdaptiveSparkPlanExec]).isDefined)
+      } else {
+        assert(find(plan)(_.isInstanceOf[AdaptiveSparkPlanExec]).isEmpty)
+      }
+      if (isSparkVersionGE("4.1")) {
+        assert(find(plan)(_.getClass.getSimpleName == "OneRowRelationExec").isEmpty)
+        val nativeRelations = collect(plan) {
+          case relation: OneRowRelationExecTransformer => relation
+        }
+        assert(nativeRelations.nonEmpty)
+        nativeRelations.foreach {
+          relation =>
+            assert(relation.output.isEmpty)
+            val readRel = relation.transform(new SubstraitContext).root.toProtobuf.getRead
+            assert(readRel.getBaseSchema.getNamesCount == 0)
+            assert(readRel.getBaseSchema.getStruct.getTypesCount == 0)
+            assert(readRel.getVirtualTable.getExpressionsCount == 1)
+            assert(readRel.getVirtualTable.getExpressions(0).getFieldsCount == 0)
+        }
+        val nativeStages = collect(plan) {
+          case stage: WholeStageTransformer
+              if stage.find(_.isInstanceOf[OneRowRelationExecTransformer]).isDefined =>
+            stage
+        }
+        assert(nativeStages.nonEmpty)
+        assert(nativeStages.forall(_.executeColumnar().getNumPartitions == 1))
+        assert(find(plan)(_.isInstanceOf[RowToVeloxColumnarExec]).isEmpty)
+        val outputTransitions = collect(plan) {
+          case transition: VeloxColumnarToRowExec => transition
+        }
+        assert(outputTransitions.size == 1)
+        assert(outputTransitions.head.metrics("numOutputRows").value == expected.size)
+        assert(
+          !collect(plan) {
+            case node if FallbackTags.nonEmpty(node) => FallbackTags.get(node).reason()
+          }
+            .exists(_.contains("OneRowRelation")))
+      } else {
+        assert(find(plan)(_.isInstanceOf[RDDScanExec]).isDefined)
+      }
+      assert(find(plan)(_.isInstanceOf[ProjectExecTransformer]).isDefined)
     }
-    assert(plan.find(_.isInstanceOf[ProjectExecTransformer]).isDefined)
-    assert(plan.find(_.isInstanceOf[RowToVeloxColumnarExec]).isDefined)
+
+    withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+      Seq("true", "false").foreach {
+        aqeEnabled =>
+          withSQLConf(
+            SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> aqeEnabled,
+            SQLConf.ADAPTIVE_EXECUTION_FORCE_APPLY.key -> aqeEnabled
+          ) {
+            testCases.foreach { case (query, expected) => checkOneRowRelation(query, expected) }
+          }
+      }
+    }
+  }
+
+  test("test OneRowRelation alongside a multi-partition file scan") {
+    assume(isSparkVersionGE("4.1"))
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+      SQLConf.ANSI_ENABLED.key -> "false",
+      SQLConf.FILES_MAX_PARTITION_BYTES.key -> "1k"
+    ) {
+      withTempPath {
+        path =>
+          spark.range(0, 24, 1, 3).write.parquet(path.getCanonicalPath)
+
+          withTempView("one_row_mixed_scan") {
+            spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("one_row_mixed_scan")
+
+            val scanOnly = sql("SELECT id FROM one_row_mixed_scan")
+            scanOnly.collect()
+            val scanOnlyNodes = collect(scanOnly.queryExecution.executedPlan) {
+              case scan: FileSourceScanExecTransformer => scan
+            }
+            assert(scanOnlyNodes.size == 1)
+            val scanPartitionCount = scanOnlyNodes.head.getPartitions.size
+            assert(scanPartitionCount > 1)
+
+            runQueryAndCompare("""
+                                 |SELECT scan.id, one.marker
+                                 |FROM one_row_mixed_scan scan
+                                 |CROSS JOIN (SELECT 7 AS marker) one
+                                 |""".stripMargin) {
+              df =>
+                val rows = df.collect()
+                assert(rows.size == 24)
+                assert(rows.forall(_.size == 2))
+                assert(rows.map(_.getLong(0)).sorted.sameElements(0L until 24L))
+                assert(rows.map(_.getLong(0)).sum == 276L)
+                assert(rows.forall(_.getInt(1) == 7))
+
+                val plan = df.queryExecution.executedPlan
+                assert(find(plan)(_.getClass.getSimpleName == "OneRowRelationExec").isEmpty)
+                assert(find(plan)(_.isInstanceOf[OneRowRelationExecTransformer]).isDefined)
+                assert(find(plan)(_.isInstanceOf[RowToVeloxColumnarExec]).isEmpty)
+                assert(
+                  !collect(plan) {
+                    case node if FallbackTags.nonEmpty(node) =>
+                      FallbackTags.get(node).reason()
+                  }
+                    .exists(_.contains("OneRowRelation")))
+
+                val scans = collect(plan) { case scan: FileSourceScanExecTransformer => scan }
+                assert(scans.size == 1)
+                assert(scans.head.getPartitions.size == scanPartitionCount)
+            }
+          }
+      }
+    }
+  }
+
+  test("test OneRowRelation with native union") {
+    assume(isSparkVersionGE("4.1"))
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+      SQLConf.ANSI_ENABLED.key -> "false",
+      GlutenConfig.NATIVE_UNION_ENABLED.key -> "true"
+    ) {
+      val df = sql("SELECT 1 UNION ALL SELECT 2")
+      checkAnswer(df, Seq(Row(1), Row(2)))
+      assert(df.count() == 2)
+
+      val plan = df.queryExecution.executedPlan
+      assert(plan.find(_.isInstanceOf[UnionExecTransformer]).isDefined)
+      assert(plan.find(_.getClass.getSimpleName == "OneRowRelationExec").isEmpty)
+      assert(plan.find(_.isInstanceOf[RowToVeloxColumnarExec]).isEmpty)
+      val nativeStages = collect(plan) {
+        case stage: WholeStageTransformer
+            if stage.find(_.isInstanceOf[UnionExecTransformer]).isDefined =>
+          stage
+      }
+      assert(nativeStages.size == 1)
+      assert(nativeStages.head.executeColumnar().getNumPartitions == 1)
+    }
+  }
+
+  test("test OneRowRelation as streamed side of broadcast joins") {
+    assume(isSparkVersionGE("4.1"))
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+      SQLConf.ANSI_ENABLED.key -> "false"
+    ) {
+      withTempView("one_row_join_build") {
+        spark.range(2).createOrReplaceTempView("one_row_join_build")
+
+        def checkDependencyFreeStream(plan: SparkPlan): Unit = {
+          assert(plan.find(_.isInstanceOf[OneRowRelationExecTransformer]).isDefined)
+          assert(plan.find(_.isInstanceOf[RowToVeloxColumnarExec]).isEmpty)
+          val nativeStages = collect(plan) {
+            case stage: WholeStageTransformer
+                if stage.find(_.isInstanceOf[OneRowRelationExecTransformer]).isDefined =>
+              stage
+          }
+          assert(nativeStages.nonEmpty)
+          assert(nativeStages.forall(_.executeColumnar().getNumPartitions == 1))
+        }
+
+        val hashJoin = sql("""
+                             |SELECT /*+ BROADCAST(build) */ one.marker, build.id
+                             |FROM (SELECT spark_partition_id() AS marker) one
+                             |LEFT OUTER JOIN one_row_join_build build
+                             |ON one.marker = build.id
+                             |""".stripMargin)
+        checkAnswer(hashJoin, Row(0, 0))
+        val hashJoinPlan = hashJoin.queryExecution.executedPlan
+        assert(
+          hashJoinPlan.find(_.isInstanceOf[BroadcastHashJoinExecTransformer]).isDefined,
+          hashJoinPlan)
+        checkDependencyFreeStream(hashJoinPlan)
+
+        val nestedLoopJoin = sql("""
+                                   |SELECT /*+ BROADCAST(build) */ one.marker, build.id
+                                   |FROM (SELECT 1 AS marker) one
+                                   |LEFT OUTER JOIN one_row_join_build build
+                                   |ON one.marker <= build.id
+                                   |""".stripMargin)
+        checkAnswer(nestedLoopJoin, Row(1, 1))
+        val nestedLoopJoinPlan = nestedLoopJoin.queryExecution.executedPlan
+        assert(
+          nestedLoopJoinPlan.find(
+            _.isInstanceOf[VeloxBroadcastNestedLoopJoinExecTransformer]).isDefined,
+          nestedLoopJoinPlan)
+        checkDependencyFreeStream(nestedLoopJoinPlan)
+      }
+    }
+  }
+
+  test("test OneRowRelation no-input capability propagation") {
+    assume(isSparkVersionGE("4.1"))
+
+    val supported = OneRowRelationExecTransformer()
+    val unsupported = UnionExecTransformer(Seq.empty)
+    val nonTransform = spark.range(1).queryExecution.sparkPlan
+
+    assert(WholeStageTransformer(supported)(0).supportsNoInputExecution)
+    assert(!WholeStageTransformer(unsupported)(0).supportsNoInputExecution)
+    assert(!WholeStageTransformer(nonTransform)(0).supportsNoInputExecution)
+
+    assert(!UnionExecTransformer(Seq.empty).supportsNoInputExecution)
+    assert(UnionExecTransformer(Seq(supported, supported)).supportsNoInputExecution)
+    assert(!UnionExecTransformer(Seq(supported, unsupported)).supportsNoInputExecution)
+    assert(!UnionExecTransformer(Seq(supported, nonTransform)).supportsNoInputExecution)
+
+    val hashWithSupportedStream = BroadcastHashJoinExecTransformer(
+      Nil,
+      Nil,
+      Inner,
+      BuildRight,
+      None,
+      supported,
+      unsupported,
+      isNullAwareAntiJoin = false)
+    val hashWithUnsupportedStream = BroadcastHashJoinExecTransformer(
+      Nil,
+      Nil,
+      Inner,
+      BuildRight,
+      None,
+      unsupported,
+      supported,
+      isNullAwareAntiJoin = false)
+    assert(hashWithSupportedStream.supportsNoInputExecution)
+    assert(!hashWithUnsupportedStream.supportsNoInputExecution)
+
+    val nestedLoopWithSupportedStream =
+      VeloxBroadcastNestedLoopJoinExecTransformer(
+        supported,
+        unsupported,
+        BuildRight,
+        Inner,
+        None)
+    val nestedLoopWithUnsupportedStream =
+      VeloxBroadcastNestedLoopJoinExecTransformer(
+        unsupported,
+        supported,
+        BuildRight,
+        Inner,
+        None)
+    assert(nestedLoopWithSupportedStream.supportsNoInputExecution)
+    assert(!nestedLoopWithUnsupportedStream.supportsNoInputExecution)
+  }
+
+  test("test OneRowRelation transformer preserves Spark plan tags") {
+    assume(isSparkVersionGE("4.1"))
+
+    val source = sql("SELECT 1").queryExecution.sparkPlan
+      .find(SparkShimLoader.getSparkShims.isOneRowRelationExec)
+      .getOrElse(fail("Spark plan did not contain OneRowRelationExec"))
+    val tag = TreeNodeTag[String]("one-row-relation-test-tag")
+    source.setTagValue(tag, "preserved")
+
+    val transformed =
+      BackendsApiManager.getSparkPlanExecApiInstance.genOneRowRelationExecTransformer(source)
+    assert(transformed ne source)
+    assert(transformed.isInstanceOf[OneRowRelationExecTransformer])
+    assert(transformed.getTagValue(tag).contains("preserved"))
+  }
+
+  test("test OneRowRelation with reused scalar subqueries") {
+    assume(isSparkVersionGE("4.1"))
+    Seq("false", "true").foreach {
+      aqeEnabled =>
+        withSQLConf(
+          SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> aqeEnabled,
+          SQLConf.ADAPTIVE_EXECUTION_FORCE_APPLY.key -> aqeEnabled,
+          SQLConf.ANSI_ENABLED.key -> "false",
+          "spark.sql.optimizer.optimizeOneRowRelationSubquery" -> "false",
+          SQLConf.SUBQUERY_REUSE_ENABLED.key -> "true"
+        ) {
+          val df = sql("SELECT (SELECT 1) AS a, (SELECT 1) AS b")
+          checkAnswer(df, Row(1, 1))
+          assert(df.count() == 1)
+
+          val plan = df.queryExecution.executedPlan
+          assert(
+            find(plan)(_.isInstanceOf[AdaptiveSparkPlanExec]).isDefined == aqeEnabled.toBoolean)
+          val reusedSubqueries =
+            collectWithSubqueries(plan) { case reused: ReusedSubqueryExec => reused }
+          assert(reusedSubqueries.nonEmpty)
+          assert(reusedSubqueries.forall(_.executeCollect().length == 1))
+
+          assert(collectWithSubqueries(plan) {
+            case node if node.getClass.getSimpleName == "OneRowRelationExec" => node
+          }.isEmpty)
+          assert(collectWithSubqueries(plan) {
+            case relation: OneRowRelationExecTransformer => relation
+          }.nonEmpty)
+          assert(collectWithSubqueries(plan) {
+            case transition: RowToVeloxColumnarExec => transition
+          }.isEmpty)
+          assert(!collectWithSubqueries(plan) {
+            case node if FallbackTags.nonEmpty(node) => FallbackTags.get(node).reason()
+          }.exists(_.contains("OneRowRelation")))
+        }
+    }
   }
 
   test("equal null safe") {

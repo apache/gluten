@@ -70,6 +70,11 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
     (right, left)
   }
 
+  override def supportsNoInputExecution: Boolean = streamedPlan match {
+    case transformer: TransformSupport => transformer.supportsNoInputExecution
+    case _ => false
+  }
+
   @transient override lazy val metrics: Map[String, SQLMetric] =
     BackendsApiManager.getMetricsApiInstance.genNestedLoopJoinTransformerMetrics(sparkContext)
 
