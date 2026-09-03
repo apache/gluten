@@ -107,3 +107,4 @@ nav_order: 16
 | spark.gluten.velox.joinBuildVectorHasherMaxNumDistinct   | 🔄 Dynamic    | 1000000 | Experimental: maximum number of distinct values to keep when merging vector hashers in join HashBuild.                                  |
 | spark.gluten.velox.minTableRowsForParallelJoinBuild      | 🔄 Dynamic    | 1000    | Experimental: the minimum number of table rows that can trigger the parallel hash join table build.                                     |
 | spark.gluten.velox.offHeapBroadcastBuildRelation.enabled | 🔄 Dynamic    | false   | Experimental: If enabled, broadcast build relation will use offheap memory. Otherwise, broadcast build relation will use onheap memory. |
+
