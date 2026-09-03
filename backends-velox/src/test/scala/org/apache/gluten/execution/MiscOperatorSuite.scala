@@ -859,12 +859,16 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
 
     withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
       Seq("true", "false").foreach {
-        aqeEnabled =>
-          withSQLConf(
-            SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> aqeEnabled,
-            SQLConf.ADAPTIVE_EXECUTION_FORCE_APPLY.key -> aqeEnabled
-          ) {
-            testCases.foreach { case (query, expected) => checkOneRowRelation(query, expected) }
+        codegenEnabled =>
+          Seq("true", "false").foreach {
+            aqeEnabled =>
+              withSQLConf(
+                SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> codegenEnabled,
+                SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> aqeEnabled,
+                SQLConf.ADAPTIVE_EXECUTION_FORCE_APPLY.key -> aqeEnabled
+              ) {
+                testCases.foreach { case (query, expected) => checkOneRowRelation(query, expected) }
+              }
           }
       }
     }
