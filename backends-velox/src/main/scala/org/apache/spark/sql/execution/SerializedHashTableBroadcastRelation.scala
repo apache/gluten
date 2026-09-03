@@ -61,9 +61,14 @@ case class SerializedHashTableBroadcastRelation(
    * Returns an iterator of deserialized columnar batches. Note: This is not the primary use case
    * for this class. The main purpose is to provide the serialized hash table directly to the join
    * operator.
+   *
+   * Driver-only: it delegates to the raw build side relation, which is not part of the broadcast
+   * payload.
    */
   override def deserialized: Iterator[ColumnarBatch] = {
     serializedHashTable.buildSideRelation match {
+      case null =>
+        throw new IllegalStateException(driverOnlyMessage("deserialized"))
       case _: SerializedHashTableBroadcastRelation =>
         throw new IllegalStateException(
           "Unexpected nested SerializedHashTableBroadcastRelation in SerializedBroadcastHashTable")
@@ -71,6 +76,11 @@ case class SerializedHashTableBroadcastRelation(
         other.deserialized
     }
   }
+
+  private def driverOnlyMessage(method: String): String =
+    s"SerializedHashTableBroadcastRelation.$method is only available on the driver: the raw " +
+      "build side relation is deliberately excluded from the broadcast payload so that the raw " +
+      "build side is not shipped alongside the serialized hash table."
 
   override def asReadOnlyCopy(): SerializedHashTableBroadcastRelation = this
 
@@ -83,9 +93,15 @@ case class SerializedHashTableBroadcastRelation(
   /**
    * Transform is used for DPP (Dynamic Partition Pruning) to extract keys. We delegate to the
    * underlying buildSideRelation in the serialized hash table.
+   *
+   * Driver-only, for the same reason as [[deserialized]].
    */
   override def transform(key: Expression): Array[InternalRow] = {
-    serializedHashTable.buildSideRelation.transform(key)
+    val relation = serializedHashTable.buildSideRelation
+    if (relation == null) {
+      throw new IllegalStateException(driverOnlyMessage("transform"))
+    }
+    relation.transform(key)
   }
 
   override def estimatedSize: Long = {

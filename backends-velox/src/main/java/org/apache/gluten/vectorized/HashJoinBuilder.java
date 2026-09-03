@@ -54,6 +54,15 @@ public class HashJoinBuilder implements RuntimeAware {
 
   public static native void serializeHashTableDirect(long hashTableHandle, long address, long size);
 
+  /**
+   * Builds a Velox hash table from the given batches.
+   *
+   * @param serializeOnly when true, the table is built only to be handed to {@link
+   *     #serializeHashTableDirect} and is never probed in this process. The slot array is then
+   *     neither allocated nor populated, since it is not part of the serialized form and the
+   *     consuming side rebuilds it in {@code deserializeHashTableDirect}. Must be false for the
+   *     executor-side build, whose table is probed in place.
+   */
   public native long nativeBuild(
       String buildHashTableId,
       long[] batchHandlers,
@@ -66,5 +75,6 @@ public class HashJoinBuilder implements RuntimeAware {
       byte[] namedStruct,
       boolean isNullAwareAntiJoin,
       long bloomFilterPushdownSize,
-      int broadcastHashTableBuildThreads);
+      int broadcastHashTableBuildThreads,
+      boolean serializeOnly);
 }

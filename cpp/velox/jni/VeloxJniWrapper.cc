@@ -961,7 +961,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     jbyteArray namedStruct,
     jboolean isNullAwareAntiJoin,
     jlong bloomFilterPushdownSize,
-    jint numThreads) {
+    jint numThreads,
+    jboolean serializeOnly) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
   auto* runtime = dynamic_cast<VeloxRuntime*>(ctx);
@@ -1047,19 +1048,26 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         memoryPool);
 
     auto mainTable = builder->uniqueTable();
+    mainTable->setBuildForSerializationOnly(serializeOnly);
     mainTable->prepareJoinTable(
         {},
         facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
         builder->joinBuildVectorHasherMaxNumDistinct(),
         builder->dropDuplicates(),
-        nullptr);
+        // A serialize-only build has no slot array to partition, so parallelJoinBuild() declines,
+        // but the rehash that settles the value ids and writes the normalized keys still spreads
+        // over an executor. Only that mode gets one here; a probed table keeps the old behavior.
+        serializeOnly ? VeloxBackend::get()->ioExecutor() : nullptr);
     builder->setHashTable(std::move(mainTable));
     builder->setHashTableMemoryUsage(builder->hashTable()->allocatedBytes());
 
-    auto* cache = facebook::velox::exec::HashTableCache::instance();
-
-    if (!cache->exist(hashTableId)) {
-      cache->add(hashTableId, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+    // A serialize-only table has no slot array and must never be reached by a probe, so do not
+    // publish it in the cache the native probe side resolves ids through.
+    if (!serializeOnly) {
+      auto* cache = facebook::velox::exec::HashTableCache::instance();
+      if (!cache->exist(hashTableId)) {
+        cache->add(hashTableId, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+      }
     }
 
     return gluten::getHashTableObjStore()->save(builder);
@@ -1133,6 +1141,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   //  it might decide it is not going to trigger parallel join build.
   const bool allowParallelJoinBuild = !tables.empty();
 
+  mainTable->setBuildForSerializationOnly(serializeOnly);
   mainTable->prepareJoinTable(
       std::move(tables),
       facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
@@ -1151,13 +1160,16 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   hashTableBuilders[0]->setHashTableMemoryUsage(
       hashTableBuilders[0]->hashTable()->allocatedBytes() + otherTablesMemoryUsage);
 
-  auto* cache = facebook::velox::exec::HashTableCache::instance();
-  if (!cache->exist(hashTableId)) {
-    cache->add(
-        hashTableId,
-        hashTableBuilders[0]->hashTable(),
-        hashTableBuilders[0]->joinHasNullKeys(),
-        defaultLeafVeloxMemoryPool());
+  // See the single-threaded path above: a serialize-only table must not be published for probing.
+  if (!serializeOnly) {
+    auto* cache = facebook::velox::exec::HashTableCache::instance();
+    if (!cache->exist(hashTableId)) {
+      cache->add(
+          hashTableId,
+          hashTableBuilders[0]->hashTable(),
+          hashTableBuilders[0]->joinHasNullKeys(),
+          defaultLeafVeloxMemoryPool());
+    }
   }
 
   return gluten::getHashTableObjStore()->save(hashTableBuilders[0]);
@@ -1208,7 +1220,11 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_deseri
       reinterpret_cast<const uint8_t*>(address),
       static_cast<size_t>(size),
       static_cast<bool>(ignoreNullKeys),
-      static_cast<bool>(joinHasNullKeys));
+      static_cast<bool>(joinHasNullKeys),
+      // Deserializing on one thread costs about as much as building the table from the raw build
+      // side does on all of them, which would leave the driver-side build with no upside at all.
+      // FIXME: This reuses the io executor which is supposed to only serve async IO tasks.
+      VeloxBackend::get()->ioExecutor());
   auto* cache = facebook::velox::exec::HashTableCache::instance();
   if (!cache->exist(cacheKeyStr)) {
     cache->add(cacheKeyStr, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
@@ -1297,9 +1313,10 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_seriali
   auto builder = ObjectStore::retrieve<gluten::HashTableBuilder>(hashTableHandle);
   VELOX_CHECK_GT(address, 0, "Serialized hash table buffer address must be positive");
   VELOX_CHECK_GE(size, 0, "Serialized hash table buffer size must be non-negative");
-  const auto serializedSize = gluten::serializedHashTableSize(builder);
-  VELOX_CHECK_EQ(static_cast<size_t>(size), serializedSize, "Hash table buffer size mismatch");
-  gluten::serializeHashTableTo(builder, reinterpret_cast<uint8_t*>(address), serializedSize);
+  // Do not recompute serializedHashTableSize() here just to validate 'size': that walks every
+  // build row again to re-measure the variable-width columns. serializeTo() bounds-checks each
+  // write and asserts that it filled the buffer exactly, which covers the same mistake.
+  gluten::serializeHashTableTo(builder, reinterpret_cast<uint8_t*>(address), static_cast<size_t>(size));
   JNI_METHOD_END()
 }
 

@@ -37,12 +37,15 @@ void HashTableSerializer::serializeTo(
 }
 
 template <bool ignoreNullKeys>
-std::unique_ptr<facebook::velox::exec::HashTable<ignoreNullKeys>>
-HashTableSerializer::deserialize(const uint8_t* data, size_t size, facebook::velox::memory::MemoryPool* pool) {
+std::unique_ptr<facebook::velox::exec::HashTable<ignoreNullKeys>> HashTableSerializer::deserialize(
+    const uint8_t* data,
+    size_t size,
+    facebook::velox::memory::MemoryPool* pool,
+    folly::Executor* executor) {
   VELOX_CHECK_NOT_NULL(data, "Serialized data cannot be null");
   VELOX_CHECK_GT(size, 0, "Invalid serialized data size");
   VELOX_CHECK_NOT_NULL(pool, "Memory pool cannot be null");
-  return facebook::velox::exec::HashTable<ignoreNullKeys>::deserializeFrom(data, size, pool);
+  return facebook::velox::exec::HashTable<ignoreNullKeys>::deserializeFrom(data, size, pool, executor);
 }
 
 template size_t HashTableSerializer::serializedSize<true>(const facebook::velox::exec::HashTable<true>*);
@@ -54,9 +57,9 @@ template void HashTableSerializer::serializeTo<true>(const facebook::velox::exec
 template void HashTableSerializer::serializeTo<false>(const facebook::velox::exec::HashTable<false>*, uint8_t*, size_t);
 
 template std::unique_ptr<facebook::velox::exec::HashTable<true>>
-HashTableSerializer::deserialize<true>(const uint8_t*, size_t, facebook::velox::memory::MemoryPool*);
+HashTableSerializer::deserialize<true>(const uint8_t*, size_t, facebook::velox::memory::MemoryPool*, folly::Executor*);
 
 template std::unique_ptr<facebook::velox::exec::HashTable<false>>
-HashTableSerializer::deserialize<false>(const uint8_t*, size_t, facebook::velox::memory::MemoryPool*);
+HashTableSerializer::deserialize<false>(const uint8_t*, size_t, facebook::velox::memory::MemoryPool*, folly::Executor*);
 
 } // namespace gluten

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <folly/Executor.h>
+
 #include <cstdint>
 #include <memory>
 #include "velox/exec/HashTable.h"
@@ -57,11 +59,16 @@ class HashTableSerializer {
    * @param data Pointer to serialized data
    * @param size Size of serialized data
    * @param pool Memory pool for allocations
+   * @param executor Decodes the build rows and fills the slot array on this executor rather than
+   * on the calling thread. The serialized form carries the rows in independent sections precisely
+   * so that this can be done in parallel, which is what makes deserializing a driver-built table
+   * cheaper than rebuilding it from the raw build side. May be null, at the cost of doing all of
+   * it serially.
    * @return Deserialized hash table
    */
   template <bool ignoreNullKeys>
   static std::unique_ptr<facebook::velox::exec::HashTable<ignoreNullKeys>>
-  deserialize(const uint8_t* data, size_t size, facebook::velox::memory::MemoryPool* pool);
+  deserialize(const uint8_t* data, size_t size, facebook::velox::memory::MemoryPool* pool, folly::Executor* executor);
 };
 
 } // namespace gluten
