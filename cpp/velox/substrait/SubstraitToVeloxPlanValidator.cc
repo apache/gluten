@@ -247,6 +247,14 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
     return false;
   }
 
+  // Casting from UNKNOWN, e.g. a null constant, is allowed for any target type,
+  // including complex ones. The input is all nulls, so Velox short-circuits the
+  // cast to a null constant of the target type without ever looking at the
+  // input values.
+  if (fromType->kind() == TypeKind::UNKNOWN) {
+    return true;
+  }
+
   // Limited support for DATE to X.
   if (fromType->isDate() && !toType->isTimestamp() && !toType->isVarchar()) {
     return false;

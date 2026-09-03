@@ -17,6 +17,7 @@
 package org.apache.gluten.table.runtime.stream.common;
 
 import io.github.zhztheplayer.velox4j.Velox4j;
+import io.github.zhztheplayer.velox4j.config.Preset;
 
 public class Velox4jEnvironment {
   private static class Holder {
@@ -24,6 +25,7 @@ public class Velox4jEnvironment {
   }
 
   private Velox4jEnvironment() {
+    Velox4j.configure(Preset.KEY, Preset.FLINK);
     Velox4j.initialize();
   }
 

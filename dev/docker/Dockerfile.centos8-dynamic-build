@@ -49,7 +49,6 @@ RUN set -ex; \
     wget -nv ${mirror_host}/hadoop/common/hadoop-2.10.2/hadoop-2.10.2.tar.gz?action=download -O /opt/hadoop-2.10.2.tar.gz; \
     git clone --depth=1 --branch "${GLUTEN_BRANCH}" "${GLUTEN_REPO}" /opt/gluten; \
     cd /opt/gluten/.github/workflows/util/; \
-    ./install-spark-resources.sh 3.3; \
     ./install-spark-resources.sh 3.4; \
     ./install-spark-resources.sh 3.5; \
     ./install-spark-resources.sh 3.5-scala2.13; \

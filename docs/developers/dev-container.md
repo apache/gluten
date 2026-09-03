@@ -57,7 +57,7 @@ Build the native backend and the Spark 3.5 jars:
 | `--run_setup_script=OFF` | Velox's third-party libraries are already installed; `ON` rebuilds them from source. |
 | `--build_arrow=OFF` | Arrow is already installed under `/usr/local` and its jars are in `~/.m2`. |
 | `--build_tests=ON` | Also builds the C++ unit tests. Drop it if you only need the jars. |
-| `--spark_version=3.5` | The default, `ALL`, runs five Maven builds (Spark 3.3 to 4.1). |
+| `--spark_version=3.5` | The default, `ALL`, runs four Maven builds (Spark 3.4 to 4.1). |
 
 ### Build for Spark 4.1
 

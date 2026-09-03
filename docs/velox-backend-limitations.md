@@ -57,25 +57,7 @@ Spark has `spark.sql.parquet.datetimeRebaseModeInWrite` config to decide whether
 or Proleptic Gregorian calendar should be used during parquet writing for dates/timestamps. If the parquet to read is written
 by Spark with this config as true, Velox's TableScan will output different result when reading it back.
 
-#### Partition write (For Spark3.3)
-
-Gluten only supports static partition writes and does not support dynamic partition writes.
-
-```scala
-spark.sql("CREATE TABLE t (c int, d long, e long) STORED AS PARQUET partitioned by (c, d)")
-spark.sql("INSERT OVERWRITE TABLE t partition(c=1, d=2) SELECT 3 as e")
-```
-Gluten does not support dynamic partition write and bucket write, Exception may be raised if you use. e.g.,
-
-```scala
-spark.range(100).selectExpr("id as c1", "id % 7 as p")
-  .write
-  .format("parquet")
-  .partitionBy("p")
-  .save(f.getCanonicalPath)
-```
-
-#### Partition write (For Spark3.4 and later)
+#### Partition write
 
 Gluten supports static partition writes and dynamic partition writes.
 
@@ -94,18 +76,7 @@ spark.range(100).selectExpr("id as c1", "id % 7 as p")
   .save(f.getCanonicalPath)
 ```
 
-#### CTAS write (For Spark3.3)
-
-Gluten does not create table as select. It may raise exception. e.g.,
-
-```scala
-spark.range(100).toDF("id")
-  .write
-  .format("parquet")
-  .saveAsTable("velox_ctas")
-```
-
-#### CTAS write (For Spark3.4 and later)
+#### CTAS write
 
 Gluten supports create table as select with parquet file format.
 

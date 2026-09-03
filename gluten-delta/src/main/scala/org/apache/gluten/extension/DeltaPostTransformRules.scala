@@ -56,6 +56,13 @@ object DeltaPostTransformRules {
 
   private val deletionVectorDeletedRowColumnName = "__delta_internal_is_row_deleted"
   private val deletionVectorRowIndexColumnName = "__delta_internal_row_index"
+  // Spark 3.5+ exposes this as ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME.
+  private val parquetTemporaryRowIndexColumnName = "_tmp_metadata_row_index"
+  private val deletionVectorRowIndexColumnNames =
+    Set(
+      deletionVectorRowIndexColumnName,
+      DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME,
+      parquetTemporaryRowIndexColumnName)
   private val deletionVectorInternalColumnNames =
     Set(deletionVectorDeletedRowColumnName, deletionVectorRowIndexColumnName)
 
@@ -213,7 +220,7 @@ object DeltaPostTransformRules {
   }
 
   private def referencesDeletionVectorRowIndex(expr: Expression): Boolean = {
-    expr.references.exists(_.name == deletionVectorRowIndexColumnName)
+    expr.references.exists(attr => deletionVectorRowIndexColumnNames.contains(attr.name))
   }
 
   private def tagRowIndexRequiredSubtrees(plan: SparkPlan): Unit = {

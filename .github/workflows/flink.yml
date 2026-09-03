@@ -71,7 +71,7 @@ jobs:
             ccache-flink-centos8
       - name: Prepare and build velox4j
         run: |
-          source /opt/rh/gcc-toolset-11/enable
+          source /opt/rh/gcc-toolset-12/enable
           sudo dnf install -y patchelf ccache
           export CCACHE_DIR=${CCACHE_DIR}
           export CCACHE_MAXSIZE=2G
@@ -87,8 +87,9 @@ jobs:
           export VELOX_DEPENDENCY_SOURCE=BUNDLED
           export fmt_SOURCE=BUNDLED
           export folly_SOURCE=BUNDLED
-          git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
-          cd velox4j && git reset --hard feb921eabe637bff88eda0fc753d36bbe422fe87
+          git clone -b gluten-20260829 https://github.com/bigo-sg/velox4j.git
+          cd velox4j
+          git reset --hard 26c7715278e6f6795084f6334998cb2ce382f7aa
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..

@@ -149,8 +149,24 @@ env:
   DELTA_NUM_SHARDS: '8'
 
 # Cancel older `pull_request` and `/delta-test` runs for the same PR.
+#
+# `issue_comment` fires on every comment posted on an issue or a PR, and
+# `github.event.issue.number` is that issue's number, which for a comment on a
+# PR is the PR's own number. Such a run would therefore join the PR's group and
+# cancel an in-flight suite while `delta-test-requested` below skips it, losing
+# the suite and replacing it with nothing. Give only that case a group of its
+# own, so every other trigger keeps the exact group name it has today. The
+# negated condition is that job's `if` verbatim.
 concurrency:
-  group: ${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.head_ref || github.sha }}-${{ github.workflow }}
+  group: >-
+    ${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number || github.head_ref || github.sha }}-${{ github.workflow }}${{
+      !(github.event_name != 'issue_comment' ||
+        (github.event.issue.pull_request &&
+         (github.event.comment.body == '/delta-test' ||
+          startsWith(github.event.comment.body, '/delta-test ') ||
+          startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\r"'))) ||
+          startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\n"'))))))
+      && format('-comment-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
