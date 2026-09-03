@@ -1,0 +1,216 @@
+diff --git a/velox/dwio/parquet/common/ParquetConfig.h b/velox/dwio/parquet/common/ParquetConfig.h
+index 597ebab..584620f 100644
+--- a/velox/dwio/parquet/common/ParquetConfig.h
++++ b/velox/dwio/parquet/common/ParquetConfig.h
+@@ -133,6 +133,16 @@ class ParquetConfig {
+       std::string_view,
+       "1024",
+       "Write batch size for the Parquet writer.")
++  VELOX_FORMAT_CONFIG_PROPERTY(
++      kWriterPageRowLimitSession,
++      kWriterPageRowLimit,
++      "writer_page_row_limit",
++      "writer.page-row-limit",
++      int64_t,
++      0,
++      "Data page row-count limit for the Parquet writer. The writer flushes a "
++      "data page once it buffers this many rows, even before the byte-size "
++      "page limit is reached. Zero (default) means no limit.")
+   VELOX_FORMAT_CONFIG_PROPERTY(
+       kWriterEnablePageIndexSession,
+       kWriterEnablePageIndex,
+@@ -203,6 +213,13 @@ class ParquetConfig {
+         kWriterBatchSizeSession, connectorConfig, kWriterBatchSize);
+   }
+
++  static std::optional<std::string> writerPageRowLimit(
++      const config::ConfigBase& connectorConfig,
++      const config::ConfigBase& session) {
++    return session.getLegacyWithFallback<std::string>(
++        kWriterPageRowLimitSession, connectorConfig, kWriterPageRowLimit);
++  }
++
+   static std::optional<std::string> writerEnablePageIndex(
+       const config::ConfigBase& connectorConfig,
+       const config::ConfigBase& session) {
+@@ -253,6 +270,8 @@ class ParquetConfig {
+         properties, sessionPrefix);
+     dwio::common::registerFormatConfigProperty<kWriterBatchSizeSessionProperty>(
+         properties, sessionPrefix);
++    dwio::common::registerFormatConfigProperty<
++        kWriterPageRowLimitSessionProperty>(properties, sessionPrefix);
+     dwio::common::registerFormatConfigProperty<
+         kWriterEnablePageIndexSessionProperty>(properties, sessionPrefix);
+     dwio::common::registerFormatConfigProperty<
+diff --git a/velox/dwio/parquet/writer/Writer.cpp b/velox/dwio/parquet/writer/Writer.cpp
+index 57ca075..d20c53d 100644
+--- a/velox/dwio/parquet/writer/Writer.cpp
++++ b/velox/dwio/parquet/writer/Writer.cpp
+@@ -133,6 +133,7 @@ void ParquetWriterOptions::merge(
+   mergeIfSet(enableWritePageIndex, parquetOverrides->enableWritePageIndex);
+   mergeIfSet(dataPageSize, parquetOverrides->dataPageSize);
+   mergeIfSet(batchSize, parquetOverrides->batchSize);
++  mergeIfSet(dataPageRowLimit, parquetOverrides->dataPageRowLimit);
+   mergeIfSet(createdBy, parquetOverrides->createdBy);
+ }
+
+@@ -218,6 +219,10 @@ std::shared_ptr<WriterProperties> getArrowParquetWriterOptions(
+   properties = properties->encoding(parquetOptions.encoding);
+   properties = properties->dataPagesize(parquetOptions.dataPageSize.value_or(
+       facebook::velox::parquet::arrow::kDefaultDataPageSize));
++  if (parquetOptions.dataPageRowLimit.has_value()) {
++    properties =
++        properties->dataPageRowLimit(parquetOptions.dataPageRowLimit.value());
++  }
+   properties = properties->writeBatchSize(parquetOptions.batchSize.value_or(
+       facebook::velox::parquet::arrow::DEFAULT_WRITE_BATCH_SIZE));
+   properties = properties->maxRowGroupLength(
+@@ -392,15 +397,16 @@ std::optional<bool> toBoolConfigValue(
+   }
+ }
+
+-std::optional<int64_t> toParquetBatchSize(
+-    std::optional<std::string> batchSize) {
+-  if (!batchSize) {
++std::optional<int64_t> toInt64ConfigValue(
++    std::optional<std::string> value,
++    const char* optionName) {
++  if (!value) {
+     return std::nullopt;
+   }
+   try {
+-    return folly::to<int64_t>(*batchSize);
++    return folly::to<int64_t>(*value);
+   } catch (const std::exception& e) {
+-    VELOX_USER_FAIL("Invalid parquet writer batch size: {}", e.what());
++    VELOX_USER_FAIL("Invalid parquet writer {}: {}", optionName, e.what());
+   }
+ }
+
+@@ -840,8 +846,11 @@ ParquetWriterFactory::createFormatOptions(
+       "enable write page index");
+   parquetOptions->dataPageSize = toParquetPageSize(
+       ParquetConfig::writerPageSize(connectorConfig, session));
+-  parquetOptions->batchSize = toParquetBatchSize(
+-      ParquetConfig::writerBatchSize(connectorConfig, session));
++  parquetOptions->batchSize = toInt64ConfigValue(
++      ParquetConfig::writerBatchSize(connectorConfig, session), "batch size");
++  parquetOptions->dataPageRowLimit = toInt64ConfigValue(
++      ParquetConfig::writerPageRowLimit(connectorConfig, session),
++      "data page row limit");
+   parquetOptions->createdBy = ParquetConfig::writerCreatedBy(connectorConfig);
+   return parquetOptions;
+ }
+diff --git a/velox/dwio/parquet/writer/Writer.h b/velox/dwio/parquet/writer/Writer.h
+index 9f8371e..ec1996e 100644
+--- a/velox/dwio/parquet/writer/Writer.h
++++ b/velox/dwio/parquet/writer/Writer.h
+@@ -141,6 +141,7 @@ struct ParquetWriterOptions : public dwio::common::FormatSpecificOptions {
+   std::optional<int64_t> batchSize;
+   std::optional<int64_t> dataPageSize;
+   std::optional<int64_t> dictionaryPageSizeLimit;
++  std::optional<int64_t> dataPageRowLimit;
+   std::optional<bool> enableDictionary;
+   /// Controls how DECIMAL values are stored by the Writer.
+   /// - If unset, the Writer defaults to storing as integer (true),
+diff --git a/velox/dwio/parquet/writer/arrow/ColumnWriter.cpp b/velox/dwio/parquet/writer/arrow/ColumnWriter.cpp
+index a59cdc9..8ceb3a8 100644
+--- a/velox/dwio/parquet/writer/arrow/ColumnWriter.cpp
++++ b/velox/dwio/parquet/writer/arrow/ColumnWriter.cpp
+@@ -1898,10 +1898,15 @@ class TypedColumnWriterImpl : public ColumnWriterImpl,
+     numBufferedEncodedValues_ += numValues;
+     numBufferedNulls_ += numNulls;
+
+-    if (checkPageSize &&
+-        currentEncoder_->estimatedDataEncodedSize() >=
+-            properties_->dataPagesize()) {
+-      addDataPage();
++    if (checkPageSize) {
++      const bool sizeLimitExceeded =
++          currentEncoder_->estimatedDataEncodedSize() >=
++          properties_->dataPagesize();
++      const bool rowLimitExceeded = properties_->dataPageRowLimit() > 0 &&
++          numBufferedRows_ >= properties_->dataPageRowLimit();
++      if (sizeLimitExceeded || rowLimitExceeded) {
++        addDataPage();
++      }
+     }
+   }
+
+diff --git a/velox/dwio/parquet/writer/arrow/Properties.h b/velox/dwio/parquet/writer/arrow/Properties.h
+index 2b00324..0866ef3 100644
+--- a/velox/dwio/parquet/writer/arrow/Properties.h
++++ b/velox/dwio/parquet/writer/arrow/Properties.h
+@@ -322,6 +322,7 @@ class PARQUET_EXPORT WriterProperties {
+           writeBatchSize_(DEFAULT_WRITE_BATCH_SIZE),
+           maxRowGroupLength_(DEFAULT_MAX_ROW_GROUP_LENGTH),
+           pagesize_(kDefaultDataPageSize),
++          dataPageRowLimit_(0),
+           version_(ParquetVersion::PARQUET_2_6),
+           dataPageVersion_(ParquetDataPageVersion::V1),
+           createdBy_(
+@@ -402,6 +403,13 @@ class PARQUET_EXPORT WriterProperties {
+       return this;
+     }
+
++    /// Specify the data page row number limit.
++    /// Default 0 (no limit).
++    Builder* dataPageRowLimit(int64_t rowLimit) {
++      dataPageRowLimit_ = rowLimit;
++      return this;
++    }
++
+     /// Specify the data page version.
+     /// Default V1.
+     Builder* dataPageVersion(ParquetDataPageVersion dataPageVersion) {
+@@ -762,6 +770,7 @@ class PARQUET_EXPORT WriterProperties {
+           writeBatchSize_,
+           maxRowGroupLength_,
+           pagesize_,
++          dataPageRowLimit_,
+           version_,
+           createdBy_,
+           pageChecksumEnabled_,
+@@ -779,6 +788,7 @@ class PARQUET_EXPORT WriterProperties {
+     int64_t writeBatchSize_;
+     int64_t maxRowGroupLength_;
+     int64_t pagesize_;
++    int64_t dataPageRowLimit_;
+     ParquetVersion::type version_;
+     ParquetDataPageVersion dataPageVersion_;
+     std::string createdBy_;
+@@ -821,6 +831,10 @@ class PARQUET_EXPORT WriterProperties {
+     return pagesize_;
+   }
+
++  inline int64_t dataPageRowLimit() const {
++    return dataPageRowLimit_;
++  }
++
+   inline ParquetDataPageVersion dataPageVersion() const {
+     return parquetDataPageVersion_;
+   }
+@@ -939,6 +953,7 @@ class PARQUET_EXPORT WriterProperties {
+       int64_t writeBatchSize,
+       int64_t maxRowGroupLength,
+       int64_t pagesize,
++      int64_t dataPageRowLimit,
+       ParquetVersion::type version,
+       const std::string& createdBy,
+       bool pageWriteChecksumEnabled,
+@@ -953,6 +968,7 @@ class PARQUET_EXPORT WriterProperties {
+         writeBatchSize_(writeBatchSize),
+         maxRowGroupLength_(maxRowGroupLength),
+         pagesize_(pagesize),
++        dataPageRowLimit_(dataPageRowLimit),
+         parquetDataPageVersion_(dataPageVersion),
+         parquetVersion_(version),
+         parquetCreatedBy_(createdBy),
+@@ -968,6 +984,7 @@ class PARQUET_EXPORT WriterProperties {
+   int64_t writeBatchSize_;
+   int64_t maxRowGroupLength_;
+   int64_t pagesize_;
++  int64_t dataPageRowLimit_;
+   ParquetDataPageVersion parquetDataPageVersion_;
+   ParquetVersion::type parquetVersion_;
+   std::string parquetCreatedBy_;

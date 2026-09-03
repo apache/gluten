@@ -152,6 +152,18 @@ function apply_provided_velox_patch {
   fi
 }
 
+function apply_enhanced_velox_compatibility_patches {
+  # Backport IBM/velox#2458 until the pinned enhanced branch contains it.
+  if [[ "$ENABLE_ENHANCED_FEATURES" == "ON" ]] &&
+     ! grep -Fq "kWriterPageRowLimitSession" \
+       "$VELOX_HOME/velox/dwio/parquet/common/ParquetConfig.h"; then
+    pushd "$VELOX_HOME"
+    git apply --check "$CURRENT_DIR/parquet_writer_page_row_limit.patch"
+    git apply "$CURRENT_DIR/parquet_writer_page_row_limit.patch"
+    popd
+  fi
+}
+
 function apply_compilation_fixes {
   local SUDO_CMD=""
   if [ "$OS" == "Linux" ] && [ "${EUID:-$(id -u)}" -ne 0 ]; then
@@ -242,6 +254,7 @@ if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
 fi
 
 apply_provided_velox_patch
+apply_enhanced_velox_compatibility_patches
 
 apply_compilation_fixes
 
