@@ -43,13 +43,16 @@ object GlutenIcebergSourceUtil {
   private val InputFileBlockLengthCol = "input_file_block_length"
 
   def supportsScan(sparkScan: Scan): Boolean = sparkScan match {
-    case _: SparkBatchQueryScan => true
+    case _: SparkBatchQueryScan | _: SparkCopyOnWriteScan => true
     case scan: SparkStagedScan =>
       val tasks = getScanTasks(scan)
       tasks.nonEmpty &&
       (tasks.forall(_.isFileScanTask) || tasks.forall(_.isInstanceOf[CombinedScanTask]))
     case _ => false
   }
+
+  def isSparkCopyOnWriteScan(sparkScan: Scan): Boolean =
+    sparkScan.isInstanceOf[SparkCopyOnWriteScan]
 
   def deleteExists(p: SparkDataSourceRDDPartition): Boolean = {
     p.inputPartitions.exists {
@@ -151,6 +154,8 @@ object GlutenIcebergSourceUtil {
           case InputFileNameCol => metadataColumns.put(name, filePath)
           case InputFileBlockStartCol => metadataColumns.put(name, start.toString)
           case InputFileBlockLengthCol => metadataColumns.put(name, length.toString)
+          case filePathCol if filePathCol == MetadataColumns.FILE_PATH.name() =>
+            metadataColumns.put(name, filePath)
           case _ =>
         }
     }
@@ -210,6 +215,7 @@ object GlutenIcebergSourceUtil {
 
   private def getTable(sparkScan: Scan): Table = sparkScan match {
     case scan: SparkBatchQueryScan => scan.table()
+    case scan: SparkCopyOnWriteScan => scan.table()
     case scan: SparkStagedScan => scan.table()
     case _ =>
       throw new GlutenNotSupportException(
@@ -218,6 +224,7 @@ object GlutenIcebergSourceUtil {
 
   private def getScanTasks(sparkScan: Scan): List[ScanTask] = sparkScan match {
     case scan: SparkBatchQueryScan => scan.tasks().asScala.toList
+    case scan: SparkCopyOnWriteScan => scan.tasks().asScala.toList
     case scan: SparkStagedScan =>
       scan.taskGroups().asScala.flatMap(_.tasks().asScala).toList
     case _ =>

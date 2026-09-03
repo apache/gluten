@@ -160,6 +160,70 @@ class VeloxIcebergSuite extends IcebergSuite {
     }
   }
 
+  test("iceberg SQL merge into with native scan and write") {
+    withTable("iceberg_merge_target", "iceberg_merge_source") {
+      spark.sql("""
+                  |create table iceberg_merge_target (
+                  |  id int,
+                  |  name string,
+                  |  p string
+                  |) using iceberg
+                  |tblproperties (
+                  |  'format-version' = '2',
+                  |  'write.merge.mode' = 'copy-on-write'
+                  |)
+                  |partitioned by (p)
+                  |""".stripMargin)
+      spark.sql("""
+                  |create table iceberg_merge_source (
+                  |  id int,
+                  |  name string,
+                  |  p string
+                  |) using iceberg
+                  |""".stripMargin)
+
+      spark.sql("""
+                  |insert into iceberg_merge_target values
+                  |  (1, 'old-1', 'p1'),
+                  |  (2, 'old-2', 'p1'),
+                  |  (3, 'old-3', 'p2')
+                  |""".stripMargin)
+      spark.sql("""
+                  |insert into iceberg_merge_source values
+                  |  (2, 'new-2', 'p2'),
+                  |  (3, 'new-3', 'p1'),
+                  |  (4, 'new-4', 'p2')
+                  |""".stripMargin)
+
+      val df = spark.sql("""
+                           |merge into iceberg_merge_target t
+                           |using iceberg_merge_source s
+                           |on t.id = s.id
+                           |when matched then update set
+                           |  name = s.name,
+                           |  p = s.p
+                           |when not matched then insert (id, name, p)
+                           |  values (s.id, s.name, s.p)
+                           |""".stripMargin)
+
+      val commandPlan =
+        df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
+      assert(commandPlan.isInstanceOf[VeloxIcebergReplaceDataExec])
+      assert(
+        collect(commandPlan) {
+          case scan: IcebergScanTransformer => scan
+        }.size == 2)
+
+      checkAnswer(
+        spark.sql("select * from iceberg_merge_target order by id"),
+        Seq(
+          Row(1, "old-1", "p1"),
+          Row(2, "new-2", "p2"),
+          Row(3, "new-3", "p1"),
+          Row(4, "new-4", "p2")))
+    }
+  }
+
   test("iceberg insert partition table bucket transform") {
     withTable("iceberg_tb2") {
       spark.sql("""
