@@ -304,6 +304,8 @@ object OffloadOthers {
           }
         case plan: RangeExec =>
           ColumnarRangeBaseExec.from(plan)
+        case plan if SparkShimLoader.getSparkShims.isOneRowRelationExec(plan) =>
+          BackendsApiManager.getSparkPlanExecApiInstance.genOneRowRelationExecTransformer(plan)
         case plan: SampleExec =>
           val child = plan.child
           BackendsApiManager.getSparkPlanExecApiInstance.genSampleExecTransformer(
