@@ -923,11 +923,11 @@ object VeloxConfig extends ConfigRegistry {
 
   val ENABLE_REWRITE_SELF_JOIN_INEQUALITY =
     buildConf("spark.gluten.sql.rewrite.selfJoinInequality")
-      .doc("When true, rewrite supported uncorrelated InSubquery self-joins with" +
-        " inequality predicate into GROUP BY + HAVING COUNT(DISTINCT) > 1." +
+      .doc("When true, rewrite supported uncorrelated `IN (subquery)` self-joins with an" +
+        " inequality predicate into `GROUP BY` + `HAVING COUNT(DISTINCT) > 1`." +
         " Currently targets Parquet-backed direct and nested self-join shapes" +
         " exercised by TPC-DS Q95." +
-        " Opt-in default (false)" +
+        " Opt-in default (`false`)" +
         " until the rewrite has been exercised more broadly across workloads.")
       .booleanConf
       .createWithDefault(false)

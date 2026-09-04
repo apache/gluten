@@ -16,40 +16,21 @@
  */
 package org.apache.gluten.extension
 
-import org.apache.gluten.execution.WholeStageTransformerSuite
+import org.apache.gluten.execution.{HashAggregateExecBaseTransformer, WholeStageTransformerSuite}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.expressions.{Alias, GreaterThan, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Alias, GreaterThan, InSubquery, Literal}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Count}
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, LogicalPlan}
+import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, LogicalPlan}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{IntegerType, LongType, StructField, StructType}
+import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
 
 /**
- * Correctness tests for [[RewriteSelfJoinInequalityToAggregate]].
+ * Correctness coverage for [[RewriteSelfJoinInequalityToAggregate]].
  *
- * Positive A' / A2 cases assert both result equivalence and that the rewrite actually fired.
- *
- * `assert(!ruleFired(plan))` on its own only proves the rewrite did not happen -- not that it was
- * the guard under test that stopped it. A fixture whose two self-join sides are not structurally
- * identical is rejected by `isSameBaseRelation` before any predicate is even parsed, and such a
- * test passes while covering nothing. So six important rejection paths -- the predicate parser, the
- * single-inequality requirement, output-position identity, the nondeterminism guard, the
- * leaf-source allowlist (LogicalRDD vs Parquet), and the expression-type allowlist (`abs(v)` vs
- * `v + 1`) -- are tested as single-variable pairs: the same fixture and the same query shape, one
- * control query that must fire and one variant that changes only the feature under test and must
- * not. A firing control does not pin the rejection to a particular line, but it does rule out an
- * unrelated fixture mismatch as the reason its partner was rejected. The row-bag whitelist
- * (Aggregate, Window) stays a plain negative: dropping the operator would change the query shape
- * rather than one feature.
- *
- * Self-joined fixtures are real tables, not temp views over VALUES. Spark deduplicates a self-join
- * over a [[org.apache.spark.sql.catalyst.analysis.MultiInstanceRelation]] via `newInstance()`,
- * which refreshes one side's ExprIds without inserting a rename-only Project, so both sides stay
- * structurally identical. A temp view over VALUES cannot, and Spark renames one side with a Project
- * instead, which would make `isSameBaseRelation` false for every self-join below. `range()` needs
- * no such treatment -- Range is a MultiInstanceRelation already.
+ * Positive cases require result parity and a fired rewrite; rejection tests use a firing control
+ * where needed to make the targeted guard provable.
  */
 class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSuite {
 
@@ -104,23 +85,25 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
     plan
   }
 
+  /** Optimize the uncorrelated IN subquery alone so a test can assert its real shape. */
+  private def optimizedInSubqueryPlan(sql: String): LogicalPlan = {
+    val analyzed = spark.sql(sql).queryExecution.analyzed
+    var subqueryPlan: LogicalPlan = null
+    analyzed.foreach {
+      node =>
+        node.expressions.foreach(_.foreach {
+          case in: InSubquery if subqueryPlan == null => subqueryPlan = in.query.plan
+          case _ =>
+        })
+    }
+    assert(subqueryPlan != null, s"expected an InSubquery in analyzed plan:\n$analyzed")
+    spark.sessionState.optimizer.execute(subqueryPlan)
+  }
+
   /**
-   * Assert the rewrite produces the same optimized plan as an equivalent hand-written aggregate
-   * query.
-   *
-   * Instead of matching the rewrite with a bespoke structural matcher, optimize a semantically
-   * equivalent `GROUP BY k HAVING COUNT(DISTINCT v) > 1` query with the rewrite disabled and
-   * compare the two optimized plans. This makes the assertion read directly as "rewriting the
-   * self-join produces the aggregate plan a user could have written by hand".
-   *
-   * Both plans are optimized by the same Spark version in the same session. Canonicalization
-   * removes cosmetic differences such as fresh Alias ExprIds and alias names before `comparePlans`.
-   *
-   * The equivalent SQL explicitly includes `k IS NOT NULL` because equality join keys never match
-   * NULL, while GROUP BY would otherwise form a NULL group. It also includes `v IS NOT NULL` to
-   * match the optimized self-join path: `v <> v` implies non-null inputs and Spark may infer/push
-   * those filters before this rule runs. This filter is semantically redundant for COUNT(DISTINCT
-   * v), which already ignores NULL.
+   * Assert the rewrite yields the same optimized plan as an equivalent hand-written `GROUP BY k
+   * HAVING COUNT(DISTINCT v) > 1`. The equivalent SQL spells out `k IS NOT NULL` / `v IS NOT NULL`
+   * so both plans canonicalize identically.
    */
   private def assertRewriteMatchesEquivalent(selfJoinSql: String, equivalentSql: String): Unit = {
     val actual = onOptimizedPlan(selfJoinSql)
@@ -133,20 +116,15 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   /**
-   * Assert the rewrite's structural contract without pinning the full optimized plan. Exact
-   * optimized-plan equality is brittle across the Spark versions Gluten supports, because
-   * optimizer-derived filters, alias names, and Project collapsing differ between versions. We
-   * verify only the invariant the rewrite owns: a `HAVING count > 1` [[Filter]] sitting directly
-   * over a COUNT(DISTINCT) [[Aggregate]]. We deliberately do not assert the plan has no join: the
-   * rewrite may legitimately leave other joins in place, including Pattern A2's preserved outer
-   * join, and `assertRuleFired` already proves the self-join inequality was the thing rewritten.
+   * Assert a `HAVING count > 1` Filter sits directly over a COUNT(DISTINCT) Aggregate, without
+   * pinning the full plan (brittle across Spark versions). A2 keeps its outer join, so no no-join
+   * assertion.
    */
   private def assertAggregateRewriteShape(plan: LogicalPlan): Unit =
     assert(
       hasAggregateRewriteShape(plan),
       s"expected a HAVING count > 1 Filter directly over a COUNT(DISTINCT) Aggregate:\n$plan")
 
-  /** True iff a `HAVING count > 1` Filter sits directly over a COUNT(DISTINCT) Aggregate. */
   private def hasAggregateRewriteShape(plan: LogicalPlan): Boolean = plan.exists {
     case Filter(cond, agg: Aggregate) =>
       val hasDistinctCount = agg.aggregateExpressions.exists(_.exists {
@@ -154,17 +132,14 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
         case _ => false
       })
       val hasGt1 = cond.exists {
-        case GreaterThan(_, Literal(v: Long, LongType)) => v == 1L
+        case GreaterThan(_, Literal(1L, _)) => true
         case _ => false
       }
       hasDistinctCount && hasGt1
     case _ => false
   }
 
-  /**
-   * A real table, so that a self-join of it dedups into two structurally identical sides. See the
-   * class comment for why a temp view over VALUES cannot be used for a self-joined fixture.
-   */
+  /** A real table, so a self-join of it dedups into two structurally identical sides. */
   private def createTable(name: String, schema: String, values: String): Unit = {
     spark.sql(s"DROP TABLE IF EXISTS $name")
     spark.sql(s"CREATE TABLE $name($schema) USING parquet")
@@ -185,12 +160,6 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   private def setupTable(): Unit = {
-    // k=1: distinct v={10,20}      -> matches (has 2 non-null distinct)
-    // k=2: distinct v={30}         -> no match (only 1)
-    // k=3: distinct v={40,50,60}   -> matches
-    // k=4: v={70, NULL}            -> no match (only 1 non-null)
-    // k=5: v={NULL, NULL}          -> no match (0 non-null)
-    // k=6: v={80, 90, NULL}        -> matches
     createTable(
       "T",
       "k INT, v INT",
@@ -221,6 +190,12 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
     val (on, off) = runBoth(sql)
     assert(on == off, s"rewrite ON $on != OFF $off")
     assert(on == Set(Row(1), Row(3), Row(6)), s"expected {1,3,6}, got $on")
+
+    withSQLConf("spark.gluten.sql.rewrite.selfJoinInequality" -> "true") {
+      val df = spark.sql(sql)
+      df.collect()
+      checkGlutenPlan[HashAggregateExecBaseTransformer](df)
+    }
   }
 
   test("Pattern A2: nested self-join is rewritten") {
@@ -249,9 +224,6 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Pattern A2: self-join on the LEFT of the outer join is rewritten") {
-    // Mirror of the Pattern A2 test above. There the self-join is the RIGHT child of the outer join
-    // (`selfJoinOnRight = true`); here it is the LEFT child (`selfJoinOnRight = false`). The rule
-    // has an explicit branch for each side, so both are covered.
     setupTable()
     spark.sql(
       """CREATE OR REPLACE TEMP VIEW D AS SELECT * FROM VALUES
@@ -271,11 +243,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Pattern A': multi-equi tuple IN with sjRight key remap is rewritten") {
-    // Exercises the multi-equi-key path: two equi keys (k1, k2) drive the GROUP BY, and the tuple
-    // IN projects `s1.k1, s2.k2` -- so the second output column comes from the RIGHT self-join side
-    // and must be remapped to its sjLeft counterpart by `canonicalizeWrapper`. This one case covers
-    // multiple equi keys, tuple IN output arity, the two injected IsNotNull(equiKey) filters, and
-    // the sjRight-attribute remap at once.
+    // The tuple IN projects `s1.k1, s2.k2`, so the second column comes from the RIGHT side and must
+    // be remapped to sjLeft by the wrapper.
     createTable(
       "TM",
       "k1 INT, k2 INT, v INT",
@@ -294,8 +263,7 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
     assertAggregateRewriteShape(onOptimizedPlan(sql))
     val (on, off) = runBoth(sql)
     assert(on == off, s"multi-equi tuple IN rewrite ON $on != OFF $off")
-    // (1,1): distinct v={10,20} -> matches; (1,2): v={30} -> no; (2,1): v={40,50} -> matches;
-    // (NULL,1) and (3,NULL): NULL equi key filtered out by the injected IsNotNull. -> {(1,1),(2,1)}
+    // (1,1) and (2,1) match; (1,2) has one v; (NULL,1)/(3,NULL) have a NULL equi key filtered out.
     assert(on == Set(Row(1, 1), Row(2, 1)), s"expected {(1,1),(2,1)}, got $on")
   }
 
@@ -337,11 +305,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Swapped aliases must not be treated as the same self-join columns") {
-    // The guard under test is `sameOutputPosition`. Both queries alias the same two base columns
-    // to the names `k` and `v` on both sides, so a rule that compares attribute names would fire
-    // on both; only the output ordinal tells them apart. The control fires, which is what makes
-    // the negative case evidence that the ordinal check -- not a structural mismatch -- rejected
-    // the swapped one.
+    // Both queries alias to the same names on both sides; only the output ordinal tells the aligned
+    // control (fires) from the swapped variant (must not).
     createTable("AliasBase", "a INT, b INT", "  (1, 10), (1, 20), (2, 30)")
 
     val alignedSql =
@@ -357,8 +322,6 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
       s"aligned-alias control diverges: ON=$alignedOn OFF=$alignedOff")
     assert(alignedOn == Set(Row(1)), s"aligned-alias control expected {1}, got $alignedOn")
 
-    // s1.k is `a` (output position 0) but s2.k is `b` (output position 1): same name, different
-    // column. Rewriting this would count distinct `b` per `a`, which is a different query.
     val swappedSql =
       """SELECT a FROM AliasBase outer_t WHERE a IN (
         |  SELECT s1.k
@@ -372,13 +335,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Two different relations with the same schema must not be treated as a self-join") {
-    // The guard under test is `isSameBaseRelation`: it must reject a join between two DIFFERENT
-    // base tables even when they share a schema and column names. Distinct Parquet tables
-    // canonicalize to distinct `rootPaths`, so `left.canonicalized == right.canonicalized` is
-    // false and the rewrite must not fire. This pins a real correctness boundary, not just a
-    // missed optimization: rewriting `TLeft JOIN TRight` as COUNT(DISTINCT) over TLeft alone would
-    // drop TRight's rows and change the answer, so removing the guard would make ON diverge from
-    // OFF here.
+    // Distinct Parquet tables canonicalize differently, so `isSameBaseRelation` fails; rewriting
+    // over TLeft alone would drop TRight's rows.
     createTable("TLeft", "k INT, v INT", "  (1, 10), (1, 10), (2, 30)")
     createTable("TRight", "k INT, v INT", "  (1, 20), (1, 20), (2, 30)")
     val sql =
@@ -388,7 +346,6 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
     assertRuleNotFired(sql)
     val (on, off) = runBoth(sql)
     assert(on == off, s"different-relation join semantics diverge: ON=$on OFF=$off")
-    // k=1: TLeft v={10} vs TRight v={20} -> 10<>20 true -> qualifies; k=2: 30<>30 false -> no.
     assert(on == Set(Row(1)), s"expected {1}, got $on")
   }
 
@@ -399,7 +356,7 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
     val sql =
       """SELECT ws1.k FROM T ws1 JOIN T ws2
         |ON ws1.k = ws2.k AND ws1.v <> ws2.v""".stripMargin
-    // Row-multiplicity matters here; using count() to catch any drop or dup.
+    // Row multiplicity matters here; use count() to catch any drop or dup.
     var onCount: Long = -1L
     var offCount: Long = -1L
     withSQLConf("spark.gluten.sql.rewrite.selfJoinInequality" -> "true") {
@@ -411,6 +368,42 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
     assert(
       onCount == offCount,
       s"plain InnerJoin row-count differs: rewrite=$onCount vs baseline=$offCount")
+  }
+
+  test("Bare-Join subquery (no wrapper Project) fails closed: Pattern A' arity guard") {
+    setupTable()
+    val sql =
+      """SELECT k FROM T outer_t WHERE (k, v, k, v) IN (
+        |  SELECT * FROM T s1 JOIN T s2
+        |    ON s1.k = s2.k AND s1.v <> s2.v)""".stripMargin
+    // Prove RemoveNoopOperators exposes the bare Join guard.
+    optimizedInSubqueryPlan(sql) match {
+      case _: Join =>
+      case other => fail(s"expected a bare Join subquery, got:\n$other")
+    }
+    assertRuleNotFired(sql)
+    val (on, off) = runBoth(sql)
+    assert(on == off, s"bare-Join A' arity guard semantics diverge: ON=$on OFF=$off")
+  }
+
+  test("Bare-Join nested self-join (no Project anywhere) fails closed: Pattern A2 arity guard") {
+    setupTable()
+    spark.sql(
+      """CREATE OR REPLACE TEMP VIEW D AS SELECT * FROM VALUES
+        |  (1), (3), (6) AS D(k)""".stripMargin)
+    val sql =
+      """SELECT k FROM T outer_t WHERE (k, v, k, k, v) IN (
+        |  SELECT * FROM D d JOIN (SELECT * FROM T s1 JOIN T s2
+        |                          ON s1.k = s2.k AND s1.v <> s2.v) sj
+        |  ON d.k = sj.k)""".stripMargin
+    // Prove RemoveNoopOperators exposes the nested bare-Join guard.
+    optimizedInSubqueryPlan(sql) match {
+      case j: Join if j.left.isInstanceOf[Join] || j.right.isInstanceOf[Join] =>
+      case other => fail(s"expected a bare nested self-join, got:\n$other")
+    }
+    assertRuleNotFired(sql)
+    val (on, off) = runBoth(sql)
+    assert(on == off, s"bare-Join A2 arity guard semantics diverge: ON=$on OFF=$off")
   }
 
   test("IS DISTINCT FROM is rejected by the self-join condition parser") {
@@ -426,10 +419,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("IsNotNull on a non-join column is rejected") {
-    // The guard under test is the predicate parser: it accepts IsNotNull only on a column the
-    // join condition already references, because such a predicate is implied by the equi-key or
-    // the inequality and can be dropped, while IsNotNull(w) filters rows the aggregate would
-    // otherwise count. The control is the same query without that one conjunct.
+    // Guard: IsNotNull is accepted only on a join column (droppable); on another column it filters
+    // rows the aggregate would count. Control drops it.
     createTable(
       "T3",
       "k INT, v INT, w INT",
@@ -456,9 +447,7 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Multiple inequality columns are rejected") {
-    // The guard under test is `neqPairs.size != 1`. Two inequalities need "at least two rows
-    // differing in v AND in w", which no count-distinct over a single column can express. The
-    // control is the same query with only the first inequality.
+    // Control keeps only the first inequality; two cannot map to COUNT(DISTINCT) over one column.
     createTable(
       "T2",
       "k INT, v INT, w INT",
@@ -490,7 +479,6 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
     val sql =
       """SELECT ws1.k FROM T ws1 LEFT OUTER JOIN T ws2
         |ON ws1.k = ws2.k AND ws1.v <> ws2.v""".stripMargin
-    // Row multiplicity matters here.
     var onCount: Long = -1L
     var offCount: Long = -1L
     withSQLConf("spark.gluten.sql.rewrite.selfJoinInequality" -> "true") {
@@ -516,18 +504,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Subquery output referencing the inequality column is not rewritten") {
-    // Survival-reference invariant: the rewrite replaces the self-join with a GROUP BY that keeps
-    // only the equi-keys and the COUNT(DISTINCT) alias, so the neq column (`v`) no longer exists in
-    // the rewritten output. A candidate whose surviving output still references that soon-to-be-
-    // deleted column must be refused rather than rewritten into a plan with a dangling reference.
-    // Here the tuple IN exposes `s1.v` as an output column, so `canonicalizeWrapper` sees a
-    // non-equi projectList entry and fails the rewrite closed.
-    //
-    // This is the SQL-reachable realization of the fail-closed remap guard. The
-    // `remapNamedExpressionAttributes` None branch itself only triggers on a projectList entry that
-    // is neither an Attribute nor an Alias yet still references a replaced output; an analyzed plan
-    // does not produce such an entry, so that branch is defensive rather than SQL-testable and is
-    // deliberately not exercised by a hand-built fake expression here.
+    // The neq column `v` does not survive the rewrite, so an output referencing it is refused:
+    // canonicalizeWrapper sees a non-equi projectList entry and fails closed.
     setupTable()
     val sql =
       """SELECT k, v FROM T outer_t WHERE (k, v) IN (
@@ -577,10 +555,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   // ==================== Repeatability whitelist: unknown operators fail-closed ==============
 
   test("Aggregate (first) inside subquery breaks row-bag repeatability: rule bails out") {
-    // FIRST() is order-dependent and its aggregate result is not row-bag repeatable across
-    // two evaluations, yet Catalyst's Expression.deterministic returns true. The whitelist
-    // in `isRowBagRepeatable` must reject any Aggregate node inside the subquery plan.
-    // range(...) avoids ConvertToLocalRelation folding the Aggregate away.
+    // FIRST() is order-dependent (not row-bag repeatable) yet reports deterministic; the operator
+    // whitelist must reject any Aggregate. range() avoids ConvertToLocalRelation.
     val sql =
       """SELECT k FROM (SELECT CAST(id AS INT) AS k, CAST(id AS INT) AS v FROM range(100)) t
         |WHERE k IN (
@@ -597,8 +573,7 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Window (row_number) inside subquery breaks row-bag repeatability: rule bails out") {
-    // ROW_NUMBER over non-total order breaks ties nondeterministically. Whitelist rejects
-    // any Window node inside the subquery plan.
+    // ROW_NUMBER over a non-total order breaks ties nondeterministically; whitelist rejects Window.
     val sql =
       """SELECT k FROM (SELECT CAST(id AS INT) AS k, CAST(id AS INT) AS v FROM range(100)) t
         |WHERE k IN (
@@ -615,11 +590,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Nondeterministic self-join input is rejected") {
-    // The guard under test is `plan.deterministic` inside `isRepeatablePlan`. Both sides use the
-    // same explicit seed, so the two subplans do have the same canonical shape and the rejection
-    // cannot come from `isSameBaseRelation`. The control replaces `rand(41) < 0.5` with a
-    // deterministic filter and nothing else, proving this Range/Filter/Project shape does reach
-    // the rewrite.
+    // Same seed keeps both sides structurally identical, so rejection is from `plan.deterministic`,
+    // not isSameBaseRelation. Control swaps rand() for a deterministic filter.
     val controlSql =
       """SELECT k FROM (SELECT CAST(id AS INT) AS k, CAST(id AS INT) AS v FROM range(100)) t
         |WHERE k IN (
@@ -655,10 +627,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Pattern A2: nondeterminism in the outer join condition must not be rewritten") {
-    // Both self-join sides are still repeatable here, so the per-side `isSameBaseRelation` check
-    // would pass; the `rand()` conjunct lives on the outer join ABOVE the self-join. Only the
-    // candidate-level `isRepeatablePlan` walk over the whole subquery catches it, so the rule must
-    // fail closed. This is the case the candidate-level guard exists for.
+    // The rand() conjunct is on the outer join above the self-join, so only the candidate-level
+    // `isRepeatablePlan` walk over the whole subquery catches it.
     setupTable()
     spark.sql(
       """CREATE OR REPLACE TEMP VIEW D AS SELECT * FROM VALUES
@@ -669,20 +639,12 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
         |  FROM D d, (SELECT s1.k FROM T s1 JOIN T s2
         |             ON s1.k = s2.k AND s1.v <> s2.v) sj
         |  WHERE d.k = sj.k AND rand() < 0.5)""".stripMargin
-
     assertRuleNotFired(sql)
   }
 
   test("LogicalRDD leaf is not a trusted repeatable source: rule bails out") {
-    // The guard under test is the leaf allowlist in `isRowBagRepeatable`: a Parquet
-    // `LogicalRelation` is trusted, but a `LogicalRDD` (createDataFrame over an RDD) wraps an
-    // arbitrary RDD lineage whose runtime row bag Catalyst cannot prove repeatable, so it must
-    // fail closed even though `plan.deterministic` is true. Both fixtures are MultiInstanceRelation
-    // leaves, so each self-join dedups into two structurally identical sides without a rename-only
-    // Project -- the rejection therefore comes from the leaf allowlist, not `isSameBaseRelation`.
-    // The Parquet control uses the same schema, data and query shape and fires, which is what makes
-    // the LogicalRDD negative evidence that the leaf allowlist -- not a structural mismatch --
-    // rejected it.
+    // LogicalRDD wraps an arbitrary RDD lineage outside the trusted leaf allowlist, so it fails
+    // closed though deterministic; the Parquet control fires, isolating the leaf allowlist.
     createTable("RddCtl", "k INT, v INT", "  (1, 10), (1, 20), (2, 30)")
     val controlSql =
       """SELECT k FROM RddCtl outer_t WHERE k IN (
@@ -707,20 +669,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Non-allowlisted deterministic expression (Abs) fails closed") {
-    // The guard under test is the expression allowlist in `isRepeatableExpression`: it trusts
-    // expression TYPES, not merely `deterministic`. Abs is deterministic, but is intentionally not
-    // yet part of the expression allowlist; until its repeatability contract is explicitly admitted
-    // there, a self-join whose side projects abs(v) fails closed -- a missed optimization, not a
-    // correctness bug. This test verifies that an unknown-but-deterministic expression is not
-    // silently let through by `plan.deterministic`.
-    //
-    // Control and negative are a single-variable pair: both project one derived column and differ
-    // ONLY in its expression. The control uses `v + 1` (Add over Attribute + Literal, all
-    // allowlisted) and fires; wrapping the same column in abs() -- the sole change -- makes it not
-    // fire, so the rejection is attributable to the expression allowlist rather than a structural
-    // mismatch. `+ 1` (not `+ 0`) is used so the Add survives arithmetic simplification and the
-    // control genuinely exercises a compound allowlisted expression. v is INT here, so the Add is a
-    // plain `Add(v, 1)` with no decimal PromotePrecision / CheckOverflow wrappers.
+    // Abs is deterministic but not allowlisted. Control `v + 1` (allowlisted, survives arithmetic
+    // simplification; INT so no decimal wrappers) fires; abs(v) must not.
     setupTable()
 
     val controlSql =
@@ -732,7 +682,6 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
     assertRuleFired(controlSql)
     val (controlOn, controlOff) = runBoth(controlSql)
     assert(controlOn == controlOff, s"Add control diverges: ON=$controlOn OFF=$controlOff")
-    // v+1 is injective over the (non-null) v values, so distinctness per k is unchanged: {1,3,6}.
     assert(
       controlOn == Set(Row(1), Row(3), Row(6)),
       s"Add control expected {1,3,6}, got $controlOn")
@@ -749,13 +698,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Float/Double inequality column fails closed") {
-    // The guard under test is `isSafeComparisonGroupingType` on the neq column. The rewrite
-    // replaces comparison equality (`s1.v <> s2.v`) with grouping / DISTINCT equality
-    // (`COUNT(DISTINCT v)`); we keep floating-point neq columns fail-closed rather than depend on
-    // NaN / signed-zero normalization semantics staying aligned across Spark versions and native
-    // backends. The fixture carries the exact values the reviewer called out (-0.0 / +0.0, and two
-    // NaNs) in BOTH a FLOAT and a DOUBLE column, alongside an INT `vi` control column. Single-
-    // variable family: the neq column is `vi` (fires) vs `vf` / `vd` (must not fire).
+    // Guard: `isSafeComparisonGroupingType` on the neq column. The fixture carries -0.0/+0.0 and
+    // two NaNs in FLOAT and DOUBLE plus an INT `vi` control: `vi` fires, vf/vd stay fail-closed.
     createTable(
       "TFloat",
       "k INT, vi INT, vf FLOAT, vd DOUBLE",
@@ -774,8 +718,7 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
     assert(controlOn == controlOff, s"INT neq control diverges: ON=$controlOn OFF=$controlOff")
     assert(controlOn == Set(Row(1), Row(2)), s"INT neq control expected {1,2}, got $controlOn")
 
-    // Do not pin an expected set for the floating arms -- the whole point is that we refuse to
-    // reason about -0.0/NaN equality here. We only require ON and OFF to agree with each other.
+    // Do not pin an expected set for the floating arms -- we refuse to reason about -0.0/NaN here.
     Seq("vf", "vd").foreach {
       col =>
         val sql =
@@ -789,13 +732,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Float/Double equi-key fails closed") {
-    // Same guard on the equi-key: the rewrite turns `s1.gk = s2.gk` into GROUP BY gk, swapping
-    // comparison equality for grouping equality. As with the neq column, we keep floating-point
-    // equi-keys fail-closed rather than depending on -0.0/NaN normalization staying aligned across
-    // Spark versions and native backends. Single-variable family: the equi-key cast to INT fires,
-    // and the same equi-key cast to FLOAT / DOUBLE does not. The subquery projects the equi-key
-    // `gk` itself (not the outer `k`), so the wrapper-output contract -- Project output is equi-key
-    // or its alias -- is satisfied and the rejection is attributable to the type guard.
+    // Same guard on the equi-key: `s1.gk = s2.gk` becomes GROUP BY gk. INT cast fires, FLOAT/DOUBLE
+    // does not.
     setupTable()
 
     val controlSql =
@@ -811,8 +749,7 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
       controlOn == Set(Row(1), Row(3), Row(6)),
       s"INT equi control expected {1,3,6}, got $controlOn")
 
-    // k is a clean positive integer, so CAST-to-FLOAT/DOUBLE introduces no -0.0/NaN and the OFF
-    // baseline stays {1,3,6}; the point is which plan runs, verified by (not) firing.
+    // k is a clean positive integer, so CAST-to-FLOAT/DOUBLE introduces no -0.0/NaN.
     Seq("FLOAT", "DOUBLE").foreach {
       tpe =>
         val sql =
@@ -829,11 +766,7 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Complex comparison columns (Array/Struct) fail closed") {
-    // The guard under test is `isSafeComparisonGroupingType` rejecting complex types wholesale. A
-    // self-join whose neq column is ARRAY<DOUBLE> or STRUCT<..., DOUBLE> is exactly the hole that
-    // motivated the type gate (a complex type can nest the very floats we reject); the positive
-    // allowlist rejects it directly rather than relying on RowOrdering admitting/denying it.
-    // Single-variable family: the neq column is the INT `vi` (fires) vs `a` / `s` (must not fire).
+    // `isSafeComparisonGroupingType` rejects complex types. INT `vi` fires; ARRAY/STRUCT do not.
     createTable(
       "TComplex",
       "k INT, vi INT, a ARRAY<DOUBLE>, s STRUCT<x: INT, y: DOUBLE>",
@@ -865,11 +798,6 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("String comparison column fails closed") {
-    // A behavior narrowing that the positive allowlist introduces: String is intentionally outside
-    // the allowlist (its equality under non-binary collation is version-dependent), so a String neq
-    // column fails closed even though String is orderable and would have passed a bare
-    // `RowOrdering.isOrderable` gate. Single-variable pair: the INT `vi` control fires, the STRING
-    // `vs` column does not.
     createTable(
       "TStr",
       "k INT, vi INT, vs STRING",
@@ -897,11 +825,6 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Explicit join hint on the self-join fails closed (Pattern A')") {
-    // The guard under test is `innerJoin.hint != JoinHint.NONE` in the direct path. A user
-    // BROADCAST hint on the self-join is an explicit optimizer directive about the very join this
-    // rule would delete, so we fail closed rather than silently discard it. Single-variable pair:
-    // the same query shape without a hint fires; adding the hint -- the sole change -- must not
-    // fire.
     setupTable()
 
     val controlSql =
@@ -921,10 +844,6 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Explicit join hint on the nested self-join fails closed (Pattern A2)") {
-    // The nested extraction path (`tryExtractSelfJoin`) applies the same hint guard, so a hinted
-    // self-join buried under an outer join is not recognized as a rewrite candidate. Single-
-    // variable pair against the Pattern A2 positive shape: the un-hinted self-join fires; the
-    // hinted one does not, while the outer join is untouched either way.
     setupTable()
     spark.sql(
       """CREATE OR REPLACE TEMP VIEW D AS SELECT * FROM VALUES
@@ -951,11 +870,8 @@ class RewriteSelfJoinInequalityToAggregateSuite extends WholeStageTransformerSui
   }
 
   test("Explicit hint on the preserved outer join still rewrites the self-join (Pattern A2)") {
-    // The hint guard targets only the join the rewrite DELETES (the self-join). A hint on the outer
-    // join -- which the rewrite preserves -- must NOT block the rewrite: the self-join here carries
-    // no hint, so it is still rewritten while the hinted outer join is left intact. This pins the
-    // guard's contract as "do not silently discard a hint on a join we remove", not "reject any
-    // hint anywhere in the candidate subtree". Counterpart to the two hinted-self-join negatives.
+    // The hint guard targets only the join the rewrite deletes; a hint on the preserved outer join
+    // must not block rewriting the (un-hinted) self-join.
     setupTable()
     spark.sql(
       """CREATE OR REPLACE TEMP VIEW D AS SELECT * FROM VALUES
