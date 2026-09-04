@@ -207,8 +207,6 @@ TEST_F(VeloxSubstraitRoundTripTest, countAll) {
 }
 
 TEST_F(VeloxSubstraitRoundTripTest, minMaxTimestampUtc) {
-  functions::aggregate::sparksql::registerAggregateFunctions("spark_");
-
   const auto minTimestamp = Timestamp(-1, 999'999'000);
   const auto maxTimestamp = Timestamp(1'704'067'200, 123'456'000);
   auto input = makeRowVector({makeFlatVector<Timestamp>({maxTimestamp, minTimestamp}, TIMESTAMP_UTC())});
@@ -598,6 +596,7 @@ TEST_F(VeloxSubstraitRoundTripTest, avgCompanion) {
 
 int main(int argc, char** argv) {
   gluten::registerAllFunctions();
+  facebook::velox::functions::aggregate::sparksql::registerAggregateFunctions("spark_");
   testing::InitGoogleTest(&argc, argv);
   folly::init(&argc, &argv, false);
   return RUN_ALL_TESTS();

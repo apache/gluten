@@ -32,10 +32,11 @@ const ::substrait::Type& VeloxToSubstraitTypeConvertor::toSubstraitType(
     return *substraitType;
   }
   if (type->equivalent(*velox::TIMESTAMP_UTC())) {
-    auto substraitTimestampNtz = google::protobuf::Arena::CreateMessage<::substrait::Type_PrecisionTimestamp>(&arena);
-    substraitTimestampNtz->set_precision(6);
-    substraitTimestampNtz->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-    substraitType->set_allocated_precision_timestamp(substraitTimestampNtz);
+    auto substraitPrecisionTimestamp =
+        google::protobuf::Arena::CreateMessage<::substrait::Type_PrecisionTimestamp>(&arena);
+    substraitPrecisionTimestamp->set_precision(6);
+    substraitPrecisionTimestamp->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    substraitType->set_allocated_precision_timestamp(substraitPrecisionTimestamp);
     return *substraitType;
   }
 
