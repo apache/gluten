@@ -700,7 +700,7 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
           checkGlutenPlan[ProjectExecTransformer]
         }
 
-        // The conversion is independent of the session timezone.
+        // Ensure native execution works under a non-UTC session timezone.
         withSQLConf("spark.sql.session.timeZone" -> "America/Los_Angeles") {
           runQueryAndCompare("select cast(d as timestamp_ntz) from date_view") {
             checkGlutenPlan[ProjectExecTransformer]
