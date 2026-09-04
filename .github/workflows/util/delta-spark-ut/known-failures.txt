@@ -665,8 +665,13 @@ org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widenin
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening FLOAT -> DOUBLE, partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening INT -> DOUBLE, partitioned=true
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#unsupported type changes DOUBLE -> FLOAT, partitioned=true
+org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#unsupported type changes TIMESTAMP_NTZ -> DATE, partitioned=false
 org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - always automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - automatic type widening DATE -> TIMESTAMP_NTZ
+org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - unsupported automatic type widening TIMESTAMP_NTZ -> DATE
+org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - automatic type widening DATE -> TIMESTAMP_NTZ
+org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - unsupported automatic type widening TIMESTAMP_NTZ -> DATE
+org.apache.spark.sql.delta.typewidening.TypeWideningTableFeatureAdvancedSuite#drop feature after type change DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - Native
 org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - Portable
 org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid Int ids - Native
