@@ -17,8 +17,9 @@
 package org.apache.spark.sql
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{HashAggregateExecBaseTransformer, ProjectExecTransformer}
+import org.apache.gluten.execution.HashAggregateExecBaseTransformer
 
+import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.functions.{max, min}
 import org.apache.spark.sql.internal.SQLConf
 
@@ -72,8 +73,13 @@ class GlutenTimestampNtzAggregateSuite extends GlutenSQLTestsTrait {
             .parquet(path.getCanonicalPath)
             .selectExpr("to_json(named_struct('ts', ts))")
           checkAnswer(result, Row("""{"ts":"2024-01-01T00:00:00.123"}"""))
+          val resultOutput = result.queryExecution.executedPlan.outputSet
+          val hasFallbackProject = getExecutedPlan(result).exists {
+            case project: ProjectExec => project.outputSet == resultOutput
+            case _ => false
+          }
           assert(
-            !getExecutedPlan(result).exists(_.isInstanceOf[ProjectExecTransformer]),
+            hasFallbackProject,
             result.queryExecution.executedPlan.treeString)
       }
     }
