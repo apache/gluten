@@ -205,6 +205,33 @@ TEST_F(VeloxSubstraitRoundTripTest, countAll) {
   assertPlanConversion(plan, "SELECT count(*) as num_price FROM tmp WHERE c6 < 24 GROUP BY c0, c1");
 }
 
+TEST_F(VeloxSubstraitRoundTripTest, minMaxTimestampUtc) {
+  const auto minTimestamp = Timestamp(-1, 999'000'000);
+  const auto maxTimestamp = Timestamp(1'704'067'200, 123'000'000);
+  auto input = makeRowVector({makeFlatVector<Timestamp>({maxTimestamp, minTimestamp}, TIMESTAMP_UTC())});
+  auto expected = makeRowVector(
+      {makeFlatVector<Timestamp>({minTimestamp}, TIMESTAMP_UTC()),
+       makeFlatVector<Timestamp>({maxTimestamp}, TIMESTAMP_UTC())});
+  auto plan =
+      PlanBuilder().values({input}).singleAggregation({}, {"min(c0)", "max(c0)"}).project({"a0", "a1"}).planNode();
+
+  assertQuery(plan, expected);
+
+  google::protobuf::Arena arena;
+  auto substraitPlan = veloxConvertor_->toSubstrait(arena, plan);
+  auto config = std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
+  auto converter = std::make_shared<SubstraitToVeloxPlanConverter>(
+      pool_.get(),
+      config.get(),
+      std::vector<std::shared_ptr<ResultIterator>>{},
+      VeloxConnectorIds{},
+      std::nullopt,
+      std::nullopt,
+      true);
+
+  assertQuery(converter->toVeloxPlan(substraitPlan), expected);
+}
+
 TEST_F(VeloxSubstraitRoundTripTest, sum) {
   GTEST_SKIP(); // Only partial step and single step of aggregation is currently supported.
   auto vectors = makeVectors(2, 7, 3);

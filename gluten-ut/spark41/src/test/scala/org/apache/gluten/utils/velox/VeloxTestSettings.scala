@@ -1164,6 +1164,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("SPARK-26893")
     .exclude("SPARK-36280: Remove redundant aliases after RewritePredicateSubquery")
     .exclude("SPARK-43402: FileSourceScanExec supports push down data filter with scalar subquery")
+  enableSuite[GlutenTimestampNtzAggregateSuite]
   enableSuite[GlutenTypedImperativeAggregateSuite]
   enableSuite[GlutenUnwrapCastInComparisonEndToEndSuite]
   enableSuite[GlutenUnsafeRowChecksumSuite]
