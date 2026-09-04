@@ -904,7 +904,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
           makeLocationHandle(writePath, fileName, fileFormat, compressionKind, bucketProperty != nullptr),
           writerOptions,
           fileFormat,
-          compressionKind));
+          compressionKind),
+      folly::F14FastSet<std::string>{});
   return std::make_shared<core::TableWriteNode>(
       nextPlanNodeId(),
       inputType,
