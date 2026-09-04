@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.delta
 
+import org.apache.spark.sql.Row
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
 
@@ -45,10 +46,22 @@ class GlutenDeltaStatsSuite extends DeltaSQLCommandTest {
           assert(addFiles.length == 1)
           val stats = addFiles.head.stats
           assert(stats != null)
-          assert(stats.contains("\"minValues\""), stats)
-          assert(stats.contains("\"maxValues\""), stats)
-          assert(stats.contains("1969-12-31") && stats.contains("23:59:59.999"), stats)
-          assert(stats.contains("2024-01-01") && stats.contains("00:00:00.123"), stats)
+          val statsValues = Seq(stats)
+            .toDF("stats")
+            .selectExpr(
+              "get_json_object(stats, '$.minValues.ts')",
+              "get_json_object(stats, '$.minValues.nested.ts')",
+              "get_json_object(stats, '$.maxValues.ts')",
+              "get_json_object(stats, '$.maxValues.nested.ts')"
+            )
+            .head()
+          assert(
+            statsValues == Row(
+              "1969-12-31T23:59:59.999",
+              "1969-12-31T23:59:59.999",
+              "2024-01-01T00:00:00.123",
+              "2024-01-01T00:00:00.123"),
+            stats)
       }
     }
   }
