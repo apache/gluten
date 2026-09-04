@@ -23,6 +23,7 @@
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/exec/tests/utils/OperatorTestBase.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
+#include "velox/functions/sparksql/aggregates/Register.h"
 #include "velox/vector/tests/utils/VectorMaker.h"
 
 #include "substrait/SubstraitToVeloxPlan.h"
@@ -206,14 +207,19 @@ TEST_F(VeloxSubstraitRoundTripTest, countAll) {
 }
 
 TEST_F(VeloxSubstraitRoundTripTest, minMaxTimestampUtc) {
-  const auto minTimestamp = Timestamp(-1, 999'000'000);
-  const auto maxTimestamp = Timestamp(1'704'067'200, 123'000'000);
+  functions::aggregate::sparksql::registerAggregateFunctions("spark_");
+
+  const auto minTimestamp = Timestamp(-1, 999'999'000);
+  const auto maxTimestamp = Timestamp(1'704'067'200, 123'456'000);
   auto input = makeRowVector({makeFlatVector<Timestamp>({maxTimestamp, minTimestamp}, TIMESTAMP_UTC())});
   auto expected = makeRowVector(
       {makeFlatVector<Timestamp>({minTimestamp}, TIMESTAMP_UTC()),
        makeFlatVector<Timestamp>({maxTimestamp}, TIMESTAMP_UTC())});
-  auto plan =
-      PlanBuilder().values({input}).singleAggregation({}, {"min(c0)", "max(c0)"}).project({"a0", "a1"}).planNode();
+  auto plan = PlanBuilder()
+                  .values({input})
+                  .singleAggregation({}, {"spark_min(c0)", "spark_max(c0)"})
+                  .project({"a0", "a1"})
+                  .planNode();
 
   assertQuery(plan, expected);
 
