@@ -216,6 +216,24 @@ object VeloxBroadcastBuildSideCache
   }
 
   /**
+   * Returns the raw build side relation that the driver-side build of `broadcastId` was made from,
+   * if this JVM is the driver that built it.
+   *
+   * The relation is deliberately kept out of the broadcast payload, so a
+   * [[SerializedBroadcastHashTable]] read back from the payload has none. That includes the copy
+   * the driver itself gets: the broadcast is created with `serializedOnly = true`, so no
+   * deserialized copy is retained on the driver and even a driver-side `broadcast.value` goes
+   * through the wire format. Consumers that legitimately need the raw build side all run on the
+   * driver (DPP key extraction, broadcast mode conversion), where this lookup finds the original
+   * that [[buildAndSerializeOnDriverInBroadcastExchange]] cached. On an executor it finds nothing,
+   * which is the correct answer there.
+   */
+  def driverBuildSideRelation(broadcastId: String): Option[BuildSideRelation] =
+    Option(broadcastId)
+      .flatMap(id => Option(driverSerializedCache.getIfPresent(id)))
+      .flatMap(serialized => Option(serialized.buildSideRelation))
+
+  /**
    * Deserialize hash table on executor from broadcast data.
    *
    * A reused broadcast exchange feeds several broadcast hash joins, each with its own

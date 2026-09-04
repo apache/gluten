@@ -18,8 +18,9 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 
-import org.apache.spark.SparkConf
+import org.apache.spark.{SparkConf, SparkEnv}
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.catalyst.expressions.BoundReference
 import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarBuildSideRelation, SerializedHashTableBroadcastRelation}
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 
@@ -223,6 +224,44 @@ class VeloxDriverSideBroadcastBuildSuite extends VeloxWholeStageTransformerSuite
         s"Driver-side build produced ${driverSideRows.size} rows, executor-side build produced " +
           s"${executorSideRows.size}"
       )
+    }
+  }
+
+  test("transform on a broadcast payload copy still extracts the build keys") {
+    withBuildTables {
+      runWithBuildSide(driverSide = true, offHeap = false) {
+        df =>
+          val relation = broadcastRelations(df).head
+            .asInstanceOf[SerializedHashTableBroadcastRelation]
+
+          // Dynamic partition pruning extracts the build side keys through
+          // BuildSideRelation.transform, on the driver. The driver does not get the instance it
+          // built: the broadcast is created with 'serializedOnly = true', so no deserialized copy
+          // is kept and even a driver-side broadcast.value comes back through the wire format,
+          // without the raw build side relation that transform needs. Reproduce that round trip.
+          val serializer = SparkEnv.get.serializer.newInstance()
+          val copy = serializer.deserialize[SerializedHashTableBroadcastRelation](
+            serializer.serialize(relation))
+          try {
+            assert(
+              copy.getSerializedHashTable.buildSideRelation == null,
+              "The raw build side relation is supposed to stay off the wire, so this proves nothing"
+            )
+
+            val keyIndex = relation.output.indexWhere(_.name == "k")
+            assert(keyIndex >= 0, s"No build key in ${relation.output.map(_.name)}")
+            val keyAttr = relation.output(keyIndex)
+            val keys = copy
+              .transform(BoundReference(keyIndex, keyAttr.dataType, keyAttr.nullable))
+              .map(_.getLong(0))
+              .toSet
+            assert(
+              keys == (0L until 600L).toSet,
+              s"Expected the 600 dimension keys, got ${keys.size} of them")
+          } finally {
+            copy.getSerializedHashTable.releaseSerializedData()
+          }
+      }
     }
   }
 

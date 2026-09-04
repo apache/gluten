@@ -931,7 +931,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     // Only do this for HashedRelationBroadcastMode and when offload is enabled
     val shouldBuildOnDriver = VeloxConfig.get.enableDriverSideBroadcastHashTableBuild &&
       mode.isInstanceOf[HashedRelationBroadcastMode] &&
-      offload
+      offload &&
+      // With cuDF the join builds its own GPU hash table from the build side value stream, so
+      // VeloxBroadcastBuildSideRDD asks the relation for its batches on the executor. A
+      // driver-built table cannot serve that: the raw build side is not part of the broadcast
+      // payload and the executor has no way to get at it.
+      !GlutenConfig.get.enableColumnarCudf
 
     if (shouldBuildOnDriver) {
       // Try to get broadcast join context from logical plan tag
