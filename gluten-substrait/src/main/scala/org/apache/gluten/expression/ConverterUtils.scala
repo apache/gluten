@@ -414,6 +414,7 @@ object ConverterUtils extends Logging {
       case DoubleType => "fp64"
       case DateType => "date"
       case TimestampType => "ts"
+      // Underscores delimit arguments in native function signatures.
       case TimestampNTZType => "tsntz"
       case StringType => "str"
       case BinaryType => "vbin"
