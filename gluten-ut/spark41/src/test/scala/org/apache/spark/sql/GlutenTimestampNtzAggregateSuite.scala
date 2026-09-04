@@ -17,7 +17,7 @@
 package org.apache.spark.sql
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.HashAggregateExecBaseTransformer
+import org.apache.gluten.execution.{HashAggregateExecBaseTransformer, ProjectExecTransformer}
 
 import org.apache.spark.sql.functions.{max, min}
 import org.apache.spark.sql.internal.SQLConf
@@ -50,6 +50,30 @@ class GlutenTimestampNtzAggregateSuite extends GlutenSQLTestsTrait {
               LocalDateTime.parse("2024-01-01T00:00:00.123456")))
           assert(
             getExecutedPlan(result).exists(_.isInstanceOf[HashAggregateExecBaseTransformer]),
+            result.queryExecution.executedPlan.treeString)
+      }
+    }
+  }
+
+  testGluten("unsupported project falls back") {
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "false",
+      SQLConf.SESSION_LOCAL_TIMEZONE.key -> "America/Los_Angeles",
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
+      withTempPath {
+        path =>
+          Seq("2024-01-01 00:00:00.123456")
+            .toDF("input")
+            .selectExpr("cast(input as timestamp_ntz) as ts")
+            .write
+            .parquet(path.getCanonicalPath)
+
+          val result = spark.read
+            .parquet(path.getCanonicalPath)
+            .selectExpr("to_json(named_struct('ts', ts))")
+          checkAnswer(result, Row("""{"ts":"2024-01-01T00:00:00.123"}"""))
+          assert(
+            !getExecutedPlan(result).exists(_.isInstanceOf[ProjectExecTransformer]),
             result.queryExecution.executedPlan.treeString)
       }
     }

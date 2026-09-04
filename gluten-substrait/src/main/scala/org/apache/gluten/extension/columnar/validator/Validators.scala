@@ -25,7 +25,7 @@ import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Cast, GetStructField, Hour, IsNull, Minute, Second, TimestampAdd}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, Expression, GetStructField, Hour, IsNull, Minute, Second, TimestampAdd}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -258,6 +258,12 @@ object Validators {
         case _ => false
       }
       def isNTZ(dataType: DataType): Boolean = dataType == TimestampNTZType
+      def isDirectNtzProjection(expression: Expression): Boolean = expression match {
+        case alias: Alias => isDirectNtzProjection(alias.child)
+        case attribute: Attribute => containsNTZ(attribute.dataType)
+        case field: GetStructField => containsNTZ(field.dataType)
+        case _ => false
+      }
       val hasNTZ = plan.output.exists(a => containsNTZ(a.dataType)) ||
         plan.children.exists(_.output.exists(a => containsNTZ(a.dataType)))
       if (!hasNTZ) {
@@ -280,14 +286,13 @@ object Validators {
               expr =>
                 (!containsNTZ(expr.dataType) &&
                   !expr.references.exists(a => containsNTZ(a.dataType))) ||
+                isDirectNtzProjection(expr) ||
                 expr.exists {
                   case Hour(child, _) => containsNTZ(child.dataType)
                   case Minute(child, _) => containsNTZ(child.dataType)
                   case Second(child, _) => containsNTZ(child.dataType)
                   case TimestampAdd(_, _, child, _) => containsNTZ(child.dataType)
                   case c: Cast if isNTZ(c.dataType) || isNTZ(c.child.dataType) => true
-                  case a: Attribute => containsNTZ(a.dataType)
-                  case g: GetStructField => containsNTZ(g.dataType)
                   case IsNull(child) => containsNTZ(child.dataType)
                   case _ => false
                 }
