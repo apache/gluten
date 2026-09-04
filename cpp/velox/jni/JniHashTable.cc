@@ -203,8 +203,12 @@ void serializeHashTableTo(std::shared_ptr<HashTableBuilder> builder, uint8_t* da
   HashTableSerializer::serializeTo<true>(hashTableTrue, data, size);
 }
 
-std::shared_ptr<HashTableBuilder>
-deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool joinHasNullKeys) {
+std::shared_ptr<HashTableBuilder> deserializeHashTable(
+    const uint8_t* data,
+    size_t size,
+    bool ignoreNullKeys,
+    bool joinHasNullKeys,
+    folly::Executor* executor) {
   VELOX_CHECK_NOT_NULL(data, "Serialized data cannot be null");
   VELOX_CHECK_GT(size, 0, "Invalid data size");
 
@@ -213,10 +217,10 @@ deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool
 
   std::unique_ptr<facebook::velox::exec::BaseHashTable> hashTable;
   if (ignoreNullKeys) {
-    auto derived = HashTableSerializer::deserialize<true>(data, size, poolPtr);
+    auto derived = HashTableSerializer::deserialize<true>(data, size, poolPtr, executor);
     hashTable = std::move(derived);
   } else {
-    auto derived = HashTableSerializer::deserialize<false>(data, size, poolPtr);
+    auto derived = HashTableSerializer::deserialize<false>(data, size, poolPtr, executor);
     hashTable = std::move(derived);
   }
 

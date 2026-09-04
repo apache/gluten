@@ -16,7 +16,7 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.gluten.execution.SerializedBroadcastHashTable
+import org.apache.gluten.execution.{SerializedBroadcastHashTable, VeloxBroadcastBuildSideCache}
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
@@ -61,9 +61,12 @@ case class SerializedHashTableBroadcastRelation(
    * Returns an iterator of deserialized columnar batches. Note: This is not the primary use case
    * for this class. The main purpose is to provide the serialized hash table directly to the join
    * operator.
+   *
+   * Driver-only: it delegates to the raw build side relation, which is not part of the broadcast
+   * payload. See [[rawBuildSideRelation]].
    */
   override def deserialized: Iterator[ColumnarBatch] = {
-    serializedHashTable.buildSideRelation match {
+    rawBuildSideRelation("deserialized") match {
       case _: SerializedHashTableBroadcastRelation =>
         throw new IllegalStateException(
           "Unexpected nested SerializedHashTableBroadcastRelation in SerializedBroadcastHashTable")
@@ -71,6 +74,26 @@ case class SerializedHashTableBroadcastRelation(
         other.deserialized
     }
   }
+
+  /**
+   * The raw build side relation behind this broadcast.
+   *
+   * The field is only populated on the instance the driver-side build produced. Every instance read
+   * back from the broadcast payload has none, including the one the driver itself gets, since the
+   * broadcast is created with `serializedOnly = true` and therefore keeps no deserialized copy on
+   * the driver. So fall back to looking the original up by broadcast id, which succeeds exactly
+   * when this JVM is the driver that built it.
+   */
+  private def rawBuildSideRelation(method: String): BuildSideRelation =
+    Option(serializedHashTable.buildSideRelation)
+      .orElse(
+        VeloxBroadcastBuildSideCache.driverBuildSideRelation(serializedHashTable.broadcastId))
+      .getOrElse(throw new IllegalStateException(driverOnlyMessage(method)))
+
+  private def driverOnlyMessage(method: String): String =
+    s"SerializedHashTableBroadcastRelation.$method is only available on the driver: the raw " +
+      "build side relation is deliberately excluded from the broadcast payload so that the raw " +
+      "build side is not shipped alongside the serialized hash table."
 
   override def asReadOnlyCopy(): SerializedHashTableBroadcastRelation = this
 
@@ -83,10 +106,11 @@ case class SerializedHashTableBroadcastRelation(
   /**
    * Transform is used for DPP (Dynamic Partition Pruning) to extract keys. We delegate to the
    * underlying buildSideRelation in the serialized hash table.
+   *
+   * Driver-only, for the same reason as [[deserialized]].
    */
-  override def transform(key: Expression): Array[InternalRow] = {
-    serializedHashTable.buildSideRelation.transform(key)
-  }
+  override def transform(key: Expression): Array[InternalRow] =
+    rawBuildSideRelation("transform").transform(key)
 
   override def estimatedSize: Long = {
     serializedHashTable.sizeInBytes

@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <folly/Executor.h>
 #include <jni.h>
+
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
 #include "operators/hashjoin/HashTableBuilder.h"
@@ -100,9 +102,16 @@ int64_t hashTableMemoryUsage(std::shared_ptr<HashTableBuilder> builder);
 // Serialize hash table directly to a caller-provided buffer.
 void serializeHashTableTo(std::shared_ptr<HashTableBuilder> builder, uint8_t* data, size_t size);
 
-// Deserialize hash table from broadcast data with explicit ignoreNullKeys parameter
-std::shared_ptr<HashTableBuilder>
-deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool joinHasNullKeys = false);
+// Deserialize hash table from broadcast data with explicit ignoreNullKeys parameter.
+// 'executor' decodes the build rows and fills the slot array in parallel. Passing null runs the
+// whole deserialization on the calling thread, which costs about as much as building the table
+// from the raw build side does, so callers are made to say which they want.
+std::shared_ptr<HashTableBuilder> deserializeHashTable(
+    const uint8_t* data,
+    size_t size,
+    bool ignoreNullKeys,
+    bool joinHasNullKeys,
+    folly::Executor* executor);
 
 // Initialize the JNI hash table context
 inline void initVeloxJniHashTable(JNIEnv* env, JavaVM* javaVm) {

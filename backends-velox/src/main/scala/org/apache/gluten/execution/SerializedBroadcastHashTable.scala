@@ -27,6 +27,17 @@ import java.io.{Externalizable, ObjectInput, ObjectOutput}
 /**
  * Serialized broadcast hash table that can be efficiently broadcast to executors. This is built on
  * the driver and contains the serialized hash table data.
+ *
+ * @param broadcastId
+ *   Identity of the driver-side broadcast this table was built for. Several broadcast hash joins
+ *   can share one broadcast exchange (reused exchange), in which case they all see the same
+ *   `broadcastId` while having distinct per-join hash table ids. Executors key the (expensive)
+ *   deserialization on this id so that the table is materialized once and then shared.
+ * @param buildSideRelation
+ *   The raw build side relation. Driver-only: it backs [[BuildSideRelation.transform]] for DPP and
+ *   [[BuildSideRelation.deserialized]] for broadcast-mode conversion, both of which run on the
+ *   driver. It is deliberately excluded from the wire format, since shipping it would broadcast the
+ *   whole raw build side alongside the hash table.
  */
 class SerializedBroadcastHashTable(
     var serializedData: UnsafeByteArray,
@@ -36,10 +47,11 @@ class SerializedBroadcastHashTable(
     var droppedDuplicates: Boolean,
     var bloomFilterBlocksByteSize: Long,
     var hashProbeDynamicFiltersProduced: Long,
-    var buildSideRelation: BuildSideRelation)
+    var broadcastId: String,
+    @transient var buildSideRelation: BuildSideRelation)
   extends Externalizable {
 
-  def this() = this(null, 0, false, false, false, 0, 0, null) // Required for Externalizable
+  def this() = this(null, 0, false, false, false, 0, 0, null, null) // Required for Externalizable
 
   override def writeExternal(out: ObjectOutput): Unit = {
     out.writeLong(numRows)
@@ -48,8 +60,9 @@ class SerializedBroadcastHashTable(
     out.writeBoolean(droppedDuplicates)
     out.writeLong(bloomFilterBlocksByteSize)
     out.writeLong(hashProbeDynamicFiltersProduced)
+    out.writeUTF(if (broadcastId == null) "" else broadcastId)
     serializedData.writeExternal(out)
-    out.writeObject(buildSideRelation)
+    // 'buildSideRelation' is intentionally not written. See the class doc.
   }
 
   override def readExternal(in: ObjectInput): Unit = {
@@ -59,10 +72,14 @@ class SerializedBroadcastHashTable(
     droppedDuplicates = in.readBoolean()
     bloomFilterBlocksByteSize = in.readLong()
     hashProbeDynamicFiltersProduced = in.readLong()
+    broadcastId = in.readUTF() match {
+      case "" => null
+      case id => id
+    }
     val data = new UnsafeByteArray()
     data.readExternal(in)
     serializedData = data
-    buildSideRelation = in.readObject().asInstanceOf[BuildSideRelation]
+    buildSideRelation = null
   }
 
   /**
@@ -74,6 +91,12 @@ class SerializedBroadcastHashTable(
    *   Hash table builder handle
    */
   def deserialize(cacheKey: String): Long = {
+    if (serializedData == null || serializedData.isReleased) {
+      throw new IllegalStateException(
+        s"Serialized hash table bytes for broadcast $broadcastId have already been released. " +
+          "They are freed once the native table has been materialized from them, so this " +
+          "instance cannot be deserialized again.")
+    }
     HashJoinBuilder.deserializeHashTableDirect(
       cacheKey,
       serializedData.address(),
@@ -82,8 +105,20 @@ class SerializedBroadcastHashTable(
       joinHasNullKeys)
   }
 
+  /**
+   * Frees the off-heap buffer holding the serialized bytes. Only safe once the native hash table
+   * has been materialized from it, and only on an executor: on the driver the very same object is
+   * still owned by the broadcast variable and by
+   * [[VeloxBroadcastBuildSideCache.buildAndSerializeOnDriverInBroadcastExchange]]'s cache.
+   */
+  def releaseSerializedData(): Unit = {
+    if (serializedData != null) {
+      serializedData.release()
+    }
+  }
+
   /** Get the size of serialized data in bytes. */
-  def sizeInBytes: Long = serializedData.size()
+  def sizeInBytes: Long = if (serializedData == null) 0L else serializedData.size()
 }
 
 object SerializedBroadcastHashTable {
@@ -95,6 +130,7 @@ object SerializedBroadcastHashTable {
       droppedDuplicates: Boolean,
       bloomFilterBlocksByteSize: Long,
       hashProbeDynamicFiltersProduced: Long,
+      broadcastId: String,
       buildSideRelation: BuildSideRelation): SerializedBroadcastHashTable =
     new SerializedBroadcastHashTable(
       serializedData,
@@ -104,7 +140,9 @@ object SerializedBroadcastHashTable {
       droppedDuplicates,
       bloomFilterBlocksByteSize,
       hashProbeDynamicFiltersProduced,
-      buildSideRelation)
+      broadcastId,
+      buildSideRelation
+    )
 
   /**
    * Build and serialize a hash table on the driver.
@@ -147,7 +185,9 @@ object SerializedBroadcastHashTable {
         droppedDuplicates,
         bloomFilterBlocksByteSize,
         hashProbeDynamicFiltersProduced,
-        buildSideRelation)
+        cacheKey,
+        buildSideRelation
+      )
     } finally {
       synchronized {
         HashJoinBuilder.clearHashTable(cacheKey, hashTableHandle)

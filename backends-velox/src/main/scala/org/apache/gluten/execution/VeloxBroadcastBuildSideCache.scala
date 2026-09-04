@@ -39,6 +39,12 @@ case class BroadcastHashTable(
     droppedDuplicates: Boolean)
 
 /**
+ * One natively deserialized hash table, shared by every broadcast hash join that reads the same
+ * driver-side broadcast.
+ */
+private case class SharedDeserializedHashTable(pointer: Long)
+
+/**
  * `VeloxBroadcastBuildSideCache` is used for controlling to build bhj hash table once.
  *
  * The complicated part is due to reuse exchange, where multiple BHJ IDs correspond to a
@@ -65,6 +71,26 @@ object VeloxBroadcastBuildSideCache
       .expireAfterAccess(expiredTime, TimeUnit.SECONDS)
       .removalListener(this)
       .build[String, BroadcastHashTable]()
+
+  // Executor-side cache of natively deserialized hash tables, keyed by the driver-side broadcast
+  // id rather than by the per-join hash table id, so that joins sharing a reused broadcast
+  // exchange share one native table. Values are owned here; per-join entries in
+  // 'buildSideRelationCache' hold clones.
+  private val sharedDeserializedCache: Cache[String, SharedDeserializedHashTable] =
+    Caffeine.newBuilder
+      .expireAfterAccess(expiredTime, TimeUnit.SECONDS)
+      .removalListener(
+        new RemovalListener[String, SharedDeserializedHashTable] {
+          override def onRemoval(
+              key: String,
+              value: SharedDeserializedHashTable,
+              cause: RemovalCause): Unit = {
+            if (value != null) {
+              HashJoinBuilder.clearHashTable(key, value.pointer)
+            }
+          }
+        }
+      ).build[String, SharedDeserializedHashTable]()
 
   // Cache for driver-side serialized hash tables to avoid rebuilding for reuse exchange
   private val driverSerializedCache: Cache[String, SerializedBroadcastHashTable] =
@@ -189,7 +215,34 @@ object VeloxBroadcastBuildSideCache
     }
   }
 
-  /** Deserialize hash table on executor from broadcast data. */
+  /**
+   * Returns the raw build side relation that the driver-side build of `broadcastId` was made from,
+   * if this JVM is the driver that built it.
+   *
+   * The relation is deliberately kept out of the broadcast payload, so a
+   * [[SerializedBroadcastHashTable]] read back from the payload has none. That includes the copy
+   * the driver itself gets: the broadcast is created with `serializedOnly = true`, so no
+   * deserialized copy is retained on the driver and even a driver-side `broadcast.value` goes
+   * through the wire format. Consumers that legitimately need the raw build side all run on the
+   * driver (DPP key extraction, broadcast mode conversion), where this lookup finds the original
+   * that [[buildAndSerializeOnDriverInBroadcastExchange]] cached. On an executor it finds nothing,
+   * which is the correct answer there.
+   */
+  def driverBuildSideRelation(broadcastId: String): Option[BuildSideRelation] =
+    Option(broadcastId)
+      .flatMap(id => Option(driverSerializedCache.getIfPresent(id)))
+      .flatMap(serialized => Option(serialized.buildSideRelation))
+
+  /**
+   * Deserialize hash table on executor from broadcast data.
+   *
+   * A reused broadcast exchange feeds several broadcast hash joins, each with its own
+   * `broadcastHashTableId` (the native side looks the table up by that id via [[get]]). Doing the
+   * deserialization per join id would materialize a full copy of the table per join. Instead the
+   * table is deserialized once per driver-side broadcast and every join id gets a cheap clone that
+   * shares the same native table, mirroring what the executor-side build path does via
+   * `cloneHashTable`.
+   */
   def deserializeOnExecutor(
       serialized: SerializedBroadcastHashTable,
       broadcastHashTableId: String,
@@ -199,17 +252,64 @@ object VeloxBroadcastBuildSideCache
     buildSideRelationCache.get(
       broadcastHashTableId,
       (_: String) => {
-        logInfo(s"Deserializing hash table on executor for broadcast ID: $broadcastHashTableId")
-        val startTime = System.currentTimeMillis()
-        val hashTableHandle = serialized.deserialize(broadcastHashTableId)
-        val timeMs = System.currentTimeMillis() - startTime
-        deserializeHashTableTimeMetric.foreach(_ += timeMs)
+        val shared = getOrDeserializeShared(
+          serialized,
+          broadcastHashTableId,
+          deserializeHashTableTimeMetric)
+        // Register the shared table under this join's id as well, so that the native probe side
+        // can resolve it. The clone holds its own reference to the same native table.
+        val hashTableHandle =
+          HashJoinBuilder.cloneHashTable(broadcastHashTableId, shared.pointer)
         BroadcastHashTable(
           hashTableHandle,
           serialized.buildSideRelation,
           serialized.droppedDuplicates)
       }
     )
+  }
+
+  /**
+   * Returns a handle to the native hash table for `serialized`, deserializing it at most once per
+   * driver-side broadcast id. The returned handle is owned by [[sharedDeserializedCache]]; callers
+   * must clone it rather than releasing it.
+   */
+  private def getOrDeserializeShared(
+      serialized: SerializedBroadcastHashTable,
+      broadcastHashTableId: String,
+      deserializeHashTableTimeMetric: Option[org.apache.spark.sql.execution.metric.SQLMetric])
+      : SharedDeserializedHashTable = {
+    // Older payloads, and any path that did not go through the driver-side build, carry no
+    // broadcast id. Fall back to keying on the join id, which is what the previous behavior was.
+    val sharedKey =
+      if (serialized.broadcastId != null) serialized.broadcastId else broadcastHashTableId
+
+    sharedDeserializedCache.get(
+      sharedKey,
+      (key: String) => {
+        logInfo(s"Deserializing hash table on executor for broadcast ID: $key")
+        val startTime = System.currentTimeMillis()
+        val hashTableHandle = serialized.deserialize(key)
+        val timeMs = System.currentTimeMillis() - startTime
+        deserializeHashTableTimeMetric.foreach(_ += timeMs)
+
+        // The serialized bytes have been fully consumed into the native table. On an executor
+        // nothing else refers to them, so free the off-heap copy instead of waiting for the
+        // broadcast object to be collected. On the driver the same object is still owned by the
+        // broadcast variable and by driverSerializedCache, so it must be left alone.
+        if (!isDriver) {
+          serialized.releaseSerializedData()
+        }
+        SharedDeserializedHashTable(hashTableHandle)
+      }
+    )
+  }
+
+  // Mirrors the private[spark] SparkContext.DRIVER_IDENTIFIER.
+  private val driverExecutorId = "driver"
+
+  private def isDriver: Boolean = {
+    val env = SparkEnv.get
+    env == null || env.executorId == driverExecutorId
   }
 
   /** This is called from c++ side. */
@@ -232,6 +332,7 @@ object VeloxBroadcastBuildSideCache
 
   def cleanAll(): Unit = {
     buildSideRelationCache.invalidateAll()
+    sharedDeserializedCache.invalidateAll()
     driverSerializedCache.invalidateAll()
   }
 

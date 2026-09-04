@@ -899,7 +899,11 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       math
         .ceil(dataSize.value.toDouble / VeloxConfig.get.veloxBroadcastHashTableBuildTargetBytes)
         .toInt
-    val buildThreadsValue = if (rawThreads < 1) 1 else rawThreads
+    // Each build thread constructs a full partial hash table that prepareJoinTable() later has to
+    // merge, and they all run on the shared Velox IO executor. Cap the fan-out so that a large
+    // build side cannot spawn an unbounded number of them.
+    val buildThreadsValue =
+      math.max(1, math.min(rawThreads, java.lang.Runtime.getRuntime.availableProcessors))
     buildThreads += buildThreadsValue
 
     // Create the base ColumnarBuildSideRelation first
@@ -927,7 +931,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     // Only do this for HashedRelationBroadcastMode and when offload is enabled
     val shouldBuildOnDriver = VeloxConfig.get.enableDriverSideBroadcastHashTableBuild &&
       mode.isInstanceOf[HashedRelationBroadcastMode] &&
-      offload
+      offload &&
+      // With cuDF the join builds its own GPU hash table from the build side value stream, so
+      // VeloxBroadcastBuildSideRDD asks the relation for its batches on the executor. A
+      // driver-built table cannot serve that: the raw build side is not part of the broadcast
+      // payload and the executor has no way to get at it.
+      !GlutenConfig.get.enableColumnarCudf
 
     if (shouldBuildOnDriver) {
       // Try to get broadcast join context from logical plan tag

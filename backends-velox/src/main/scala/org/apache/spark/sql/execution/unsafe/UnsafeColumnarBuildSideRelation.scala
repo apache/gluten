@@ -203,7 +203,9 @@ class UnsafeColumnarBuildSideRelation(
               SubstraitUtil.toNameStruct(newOutput).toByteArray,
               broadcastContext.isNullAwareAntiJoin,
               broadcastContext.bloomFilterPushdownSize,
-              buildThreads
+              buildThreads,
+              // This table is probed in place on this executor.
+              false
             )
         } finally {
           jniWrapper.close(serializeHandle)
@@ -297,7 +299,10 @@ class UnsafeColumnarBuildSideRelation(
               SubstraitUtil.toNameStruct(newOutput).toByteArray,
               broadcastContext.isNullAwareAntiJoin,
               broadcastContext.bloomFilterPushdownSize,
-              buildThreads
+              buildThreads,
+              // Driver-side build: the table is only serialized and broadcast, never probed here,
+              // so skip building the slot array that the executors rebuild anyway.
+              true
             )
         } finally {
           jniWrapper.close(serializeHandle)
