@@ -305,13 +305,13 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
   // Limited support for TimestampNTZ from/to X
   // Casts between Timestamp and TimestampNTZ are handled in from/to timestamp.
   if (fromType->equivalent(*TIMESTAMP_UTC())) {
-    if (toType->isVarchar() || toType->isVarbinary()) {
+    if (toType->isDate() || toType->isVarchar() || toType->isVarbinary()) {
       return true;
     }
     return false;
   }
   if (toType->equivalent(*TIMESTAMP_UTC())) {
-    if (fromType->isVarchar()) {
+    if (fromType->isDate() || fromType->isVarchar()) {
       return true;
     }
     return false;
