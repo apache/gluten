@@ -910,6 +910,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenVariantSuite]
     // TODO: Velox parquet writer marks all struct fields as OPTIONAL (nullable),
     //  but Spark's variant type requires REQUIRED fields. Needs Velox-side fix.
+    .exclude("non-literal variant_get")
     .exclude("SPARK-47546: invalid variant binary")
     .exclude("SPARK-47546: valid variant binary")
   enableSuite[GlutenVariantWriteShreddingSuite]
@@ -957,6 +958,9 @@ class VeloxTestSettings extends BackendTestSettings {
       // Velox's collect_list / collect_set are by design declarative aggregate so plan check
       // for ObjectHashAggregateExec will fail. Overriden
       "SPARK-22223: ObjectHashAggregate should not introduce unnecessary shuffle",
+      // Negative HLL tests throw SparkException on Gluten because executor-side failures are
+      // wrapped at the driver boundary.
+      "SPARK-16484: hll_*_agg + hll_union negative tests",
       "SPARK-31620: agg with subquery (whole-stage-codegen = true)",
       "SPARK-31620: agg with subquery (whole-stage-codegen = false)"
     )

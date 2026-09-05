@@ -297,17 +297,34 @@ object ColumnarPartialProjectExec {
     HiveUDFTransformer.isHiveUDF(h) && !VeloxHiveUDFTransformer.isSupportedHiveUDF(h)
   }
 
+  private def isRowEvaluableUnsupportedExpr(
+      expr: Expression,
+      childOutput: Seq[Attribute]): Boolean = expr match {
+    case _: ScalaUDF => false
+    case _ if HiveUDFTransformer.isHiveUDF(expr) => false
+    case _: Literal | _: AttributeReference | _: BoundReference => false
+    case _: NamedExpression => false
+    case _ =>
+      expr.deterministic &&
+      !expr.isInstanceOf[Unevaluable] &&
+      !expr.isInstanceOf[LambdaFunction] &&
+      !ExpressionConverter.canReplaceWithExpressionTransformer(expr, childOutput)
+  }
+
   private def isBlacklistExpression(e: Expression): Boolean = {
     ExpressionMappings.blacklistExpressionMap.contains(e.getClass)
   }
 
-  private def containsUDFOrBlacklistExpression(expr: Expression): Boolean = {
+  private def containsUDFOrBlacklistExpression(
+      expr: Expression,
+      childOutput: Seq[Attribute]): Boolean = {
     if (expr == null) return false
     expr match {
       case _: ScalaUDF => true
       case h if containsUnsupportedHiveUDF(h) => true
       case e if isBlacklistExpression(e) => true
-      case p => p.children.exists(c => containsUDFOrBlacklistExpression(c))
+      case e if isRowEvaluableUnsupportedExpr(e, childOutput) => true
+      case p => p.children.exists(c => containsUDFOrBlacklistExpression(c, childOutput))
     }
   }
 
@@ -330,7 +347,10 @@ object ColumnarPartialProjectExec {
     case _ => false
   }
 
-  private def replaceExpression(expr: Expression, replacedAlias: ListBuffer[Alias]): Expression = {
+  private def replaceExpression(
+      expr: Expression,
+      childOutput: Seq[Attribute],
+      replacedAlias: ListBuffer[Alias]): Expression = {
     if (expr == null) return null
     expr match {
       case u: ScalaUDF =>
@@ -338,6 +358,8 @@ object ColumnarPartialProjectExec {
       case h if containsUnsupportedHiveUDF(h) =>
         replaceByAlias(h, replacedAlias)
       case e if isBlacklistExpression(e) =>
+        replaceByAlias(e, replacedAlias)
+      case e if isRowEvaluableUnsupportedExpr(e, childOutput) =>
         replaceByAlias(e, replacedAlias)
       case au @ Alias(_: ScalaUDF, _) =>
         val replaceIndex = replacedAlias.indexWhere(r => r.exprId == au.exprId)
@@ -356,10 +378,11 @@ object ColumnarPartialProjectExec {
         // else myudf(knownnotnull(cast(l_extendedprice#9 as bigint)))
         // if we extract else branch, and use the data child l_extendedprice,
         // the result is incorrect for null value
-        if (containsUDFOrBlacklistExpression(expr)) {
+        if (containsUDFOrBlacklistExpression(expr, childOutput)) {
           replaceByAlias(expr, replacedAlias)
         } else expr
-      case p => p.withNewChildren(p.children.map(c => replaceExpression(c, replacedAlias)))
+      case p =>
+        p.withNewChildren(p.children.map(c => replaceExpression(c, childOutput, replacedAlias)))
     }
   }
 
@@ -430,12 +453,12 @@ object ColumnarPartialProjectExec {
     }
   }
 
-  private def replaceExpression(
+  private def replaceAndValidateExpression(
       expr: Expression,
       childOutput: Seq[Attribute],
       replacedAlias: ListBuffer[Alias]): Expression = {
     if (expr == null) return null
-    val newExpr = replaceExpression(expr, replacedAlias)
+    val newExpr = replaceExpression(expr, childOutput, replacedAlias)
     if (!GlutenConfig.get.enableNativeValidation || !validateExpression(newExpr)) {
       return newExpr
     }
@@ -492,7 +515,9 @@ object ColumnarPartialProjectExec {
   def create(original: ProjectExec): ProjectExecTransformer = {
     val replacedAlias: ListBuffer[Alias] = ListBuffer()
     val newProjectList = original.projectList.map {
-      p => replaceExpression(p, original.child.output, replacedAlias).asInstanceOf[NamedExpression]
+      p =>
+        replaceAndValidateExpression(p, original.child.output, replacedAlias)
+          .asInstanceOf[NamedExpression]
     }
     val partialProject =
       ColumnarPartialProjectExec(original.projectList, original.child)(replacedAlias.toSeq)

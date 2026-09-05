@@ -16,4 +16,19 @@
  */
 package org.apache.spark.sql
 
-class GlutenVariantSuite extends VariantSuite with GlutenSQLTestsTrait {}
+class GlutenVariantSuite extends VariantSuite with GlutenSQLTestsTrait {
+  testGluten("non-literal variant_get") {
+    val df = spark.sql(
+      """
+        |SELECT variant_get(parse_json(value), path, 'string')
+        |FROM VALUES
+        |  ('{"a":"x"}', '$.a'),
+        |  ('{"b":"y"}', '$.a'),
+        |  (NULL, '$.a'),
+        |  ('{"a":null}', '$.a')
+        |AS t(value, path)
+        |""".stripMargin)
+
+    checkAnswer(df, Seq(Row("x"), Row(null), Row(null), Row(null)))
+  }
+}
