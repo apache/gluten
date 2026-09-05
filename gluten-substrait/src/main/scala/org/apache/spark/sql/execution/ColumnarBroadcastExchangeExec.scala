@@ -18,7 +18,7 @@ package org.apache.spark.sql.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.execution.ValidatablePlan
-import org.apache.gluten.extension.columnar.transition.Convention
+import org.apache.gluten.extension.columnar.transition.{Convention, ConventionReq}
 import org.apache.gluten.metrics.GlutenTimeMetric
 import org.apache.gluten.sql.shims.SparkShimLoader
 
@@ -134,6 +134,12 @@ case class ColumnarBroadcastExchangeExec(mode: BroadcastMode, child: SparkPlan)
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
 
   override def rowType(): Convention.RowType = Convention.RowType.None
+
+  override def requiredChildConvention(): Seq[ConventionReq] = {
+    Seq(
+      ConventionReq.ofBatch(
+        ConventionReq.BatchType.Is(BackendsApiManager.getSettings.primaryBatchType)))
+  }
 
   override def doCanonicalize(): SparkPlan = {
     val canonicalized =

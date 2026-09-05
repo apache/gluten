@@ -162,6 +162,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("months_between")
   enableSuite[GlutenDecimalExpressionSuite]
   enableSuite[GlutenDecimalPrecisionSuite]
+  enableSuite[GlutenBroadcastNestedLoopJoinFullOuterSuite]
   enableSuite[GlutenGeneratorExpressionSuite]
   enableSuite[GlutenHashExpressionsSuite]
   enableSuite[GlutenHigherOrderFunctionsSuite]
