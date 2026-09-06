@@ -116,6 +116,74 @@ TEST_F(ValueStreamDynamicFilterTest, noFilterPassesAllRows) {
   ASSERT_EQ(ids, (std::vector<int64_t>{10, 20, 30}));
 }
 
+TEST_F(ValueStreamDynamicFilterTest, emptySplitProducesNoRows) {
+  auto outputType = ROW({"id"}, {BIGINT()});
+  auto scanNode = makeTableScanNode("vs-empty-split", outputType);
+
+  auto queryCtx = core::QueryCtx::create();
+  auto task = Task::create("test-empty-split", core::PlanFragment{scanNode}, 0, queryCtx, Task::ExecutionMode::kSerial);
+
+  task->addSplit(scanNode->id(), Split{makeSplit({})});
+  task->noMoreSplits(scanNode->id());
+
+  auto ids = readAllInt64(task.get());
+  ASSERT_TRUE(ids.empty());
+}
+
+// A long run of fully-filtered batches must be retried iteratively. The previous
+// implementation recursed once per eliminated batch, so this pattern grew the
+// native stack in proportion to the number of consecutive empty results.
+TEST_F(ValueStreamDynamicFilterTest, manyConsecutiveFullyFilteredBatches) {
+  constexpr int32_t kFilteredBatches = 4096;
+
+  // First batch passes the filter, every following batch is eliminated by it,
+  // and the last batch passes again.
+  std::vector<RowVectorPtr> batches;
+  batches.reserve(kFilteredBatches + 2);
+  batches.push_back(makeRowVector({"id"}, {makeFlatVector<int64_t>({1, 2, 3})}));
+  for (int32_t i = 0; i < kFilteredBatches; i++) {
+    batches.push_back(makeRowVector({"id"}, {makeFlatVector<int64_t>({100, 200, 300})}));
+  }
+  batches.push_back(makeRowVector({"id"}, {makeFlatVector<int64_t>({2})}));
+
+  auto outputType = asRowType(batches[0]->type());
+  auto scanNode = makeTableScanNode("vs-deep-filter", outputType);
+
+  auto queryCtx = core::QueryCtx::create();
+  auto task = Task::create("test-deep-filter", core::PlanFragment{scanNode}, 0, queryCtx, Task::ExecutionMode::kSerial);
+
+  task->addSplit(scanNode->id(), Split{makeSplit(std::move(batches))});
+  task->noMoreSplits(scanNode->id());
+
+  // First next() creates drivers and returns the first batch unfiltered.
+  ContinueFuture future = ContinueFuture::makeEmpty();
+  auto firstBatch = task->next(&future);
+  ASSERT_NE(firstBatch, nullptr);
+  ASSERT_EQ(firstBatch->size(), 3);
+
+  // Keep only id <= 3, which eliminates every one of the middle batches.
+  task->testingVisitDrivers([&](Driver* driver) {
+    auto* op = driver->findOperator(scanNode->id());
+    if (!op) {
+      return;
+    }
+    ASSERT_TRUE(op->canAddDynamicFilter());
+    PushdownFilters pf;
+    pf.filters[0] = std::make_shared<BigintRange>(1, 3, false);
+    pf.dynamicFilteredColumns.insert(0);
+    op->addDynamicFilterLocked("producer", pf);
+  });
+
+  // Skipping kFilteredBatches eliminated batches must not recurse.
+  auto lastBatch = task->next(&future);
+  ASSERT_NE(lastBatch, nullptr);
+  DecodedVector decoded(*lastBatch->childAt(0));
+  ASSERT_EQ(lastBatch->size(), 1);
+  ASSERT_EQ(decoded.valueAt<int64_t>(0), 2);
+
+  ASSERT_EQ(task->next(&future), nullptr);
+}
+
 // Test that filtering works when filter is injected after first batch.
 TEST_F(ValueStreamDynamicFilterTest, filterBigintRange) {
   auto batch1 = makeRowVector({"id"}, {makeFlatVector<int64_t>({1, 2, 3, 4, 5})});
