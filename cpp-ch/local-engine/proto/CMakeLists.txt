@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-file(GLOB protobuf_files ./*.proto substrait/*.proto
+file(GLOB protobuf_files CONFIGURE_DEPENDS ./*.proto substrait/*.proto
      substrait/extensions/*.proto)
 
 foreach(FIL ${protobuf_files})
