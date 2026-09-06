@@ -177,6 +177,70 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("elt") {
+    withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+      // int_field1 is 1, 2, 3, so every input gets selected by some row.
+      runQueryAndCompare("SELECT elt(int_field1, string_field1, 'b', 'c') FROM datatab") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      // A NULL index, an out-of-range index and a NULL selected input all give NULL
+      // with ANSI mode off.
+      runQueryAndCompare(
+        "SELECT elt(NULL, 'a', 'b'), elt(int_field1 + 3, 'a', 'b'), " +
+          "elt(1, string_field1, 'b') FROM datatab") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      runQueryAndCompare(
+        "SELECT elt(int_field1, cast(string_field1 as binary), cast('b' as binary)) FROM datatab") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
+  test("element_at") {
+    withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+      // An index past either end of the array gives NULL with ANSI mode off, and a key
+      // the map does not contain gives NULL whatever the ANSI mode is.
+      runQueryAndCompare(
+        "SELECT element_at(array(l_orderkey, l_partkey), 1)," +
+          " element_at(array(l_orderkey, l_partkey), -1)," +
+          " element_at(array(l_orderkey, l_partkey), 3)," +
+          " element_at(array(l_orderkey, l_partkey), -3)," +
+          " element_at(map(1, 'a', 2, 'b'), 3) FROM lineitem") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      // An index of 0 is an error whatever the ANSI mode is.
+      intercept[SparkException] {
+        sql("SELECT element_at(array(l_orderkey, l_partkey), 0) FROM lineitem").collect()
+      }
+    }
+  }
+
+  test("size") {
+    withTempPath {
+      path =>
+        Seq[Seq[Integer]](Seq(1, 2, 3), Seq.empty, null)
+          .toDF("i")
+          .write
+          .parquet(path.getCanonicalPath)
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("size_tbl")
+
+        withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+          // With ANSI mode off, spark.sql.legacy.sizeOfNull decides between -1 and NULL
+          // for a null collection.
+          Seq("true", "false").foreach {
+            legacySizeOfNull =>
+              withSQLConf(SQLConf.LEGACY_SIZE_OF_NULL.key -> legacySizeOfNull) {
+                runQueryAndCompare("SELECT size(i), cardinality(i) FROM size_tbl") {
+                  checkGlutenPlan[ProjectExecTransformer]
+                }
+              }
+          }
+        }
+    }
+  }
+
   test("shiftright") {
     runQueryAndCompare("SELECT shiftright(int_field1, 1) from datatab limit 1") {
       checkGlutenPlan[ProjectExecTransformer]

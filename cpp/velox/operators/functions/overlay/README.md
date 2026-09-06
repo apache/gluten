@@ -24,7 +24,9 @@ the overlay takes precedence over the Velox implementation.
 
 1. Implement the function in a header/source file in this directory, following
    Velox's function authoring APIs (simple function, vector function, aggregate,
-   or window function). See `Round.h` for a simple-function example and
+   or window function). See `Round.h` for a simple-function override,
+   `Elt.h`/`Elt.cc` for a vector function that is missing in Velox, `Conv.h` for an override that
+   delegates to the Velox function and only adds the missing ANSI behavior, plus the
    [Velox scalar functions guide](https://github.com/facebookincubator/velox/blob/main/velox/docs/develop/scalar-functions.rst).
 2. Register it in `RegisterFunctionOverlay.cc` inside
    `registerFunctionOverlay()`. Use the same name Gluten's Substrait plan

@@ -203,6 +203,27 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, child, expr)
   }
 
+  def genEltTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Elt): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
+  def genConvTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Conv): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
+  def genElementAtTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: ElementAt): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
   def genBase64StaticInvokeTransformer(
       substraitExprName: String,
       child: ExpressionTransformer,
