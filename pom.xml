@@ -1880,8 +1880,12 @@
             <groupId>org.codehaus.mojo</groupId>
             <artifactId>build-helper-maven-plugin</artifactId>
             <executions>
+              <!-- These ids must stay different from the iceberg profile's
+                   add-iceberg-test-sources / add-iceberg-test-resources: Maven merges plugin
+                   executions by id, so sharing one would drop the other profile's sources
+                   whenever both profiles are active, which is how every in-repo build runs. -->
               <execution>
-                <id>add-iceberg-test-sources</id>
+                <id>add-iceberg-spark-test-sources</id>
                 <goals>
                   <goal>add-test-source</goal>
                 </goals>
@@ -1894,7 +1898,7 @@
                 </configuration>
               </execution>
               <execution>
-                <id>add-iceberg-test-resources</id>
+                <id>add-iceberg-spark-test-resources</id>
                 <goals>
                   <goal>add-test-resource</goal>
                 </goals>
