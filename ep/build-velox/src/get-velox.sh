@@ -25,7 +25,10 @@ RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
 # Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID=""
+# TEMPORARY: revert to "" once facebookincubator/velox#18358 has merged and been
+# picked up by the pinned branch. SparkMmapAllocator needs the admission-capacity
+# overloads it adds; without this the C++ build does not compile.
+UPSTREAM_VELOX_PR_ID="18358"
 
 OS=`uname -s`
 

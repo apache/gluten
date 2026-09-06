@@ -27,6 +27,7 @@ import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.init.NativeBackendInitializer
 import org.apache.gluten.jni.{JniLibLoader, JniWorkspace}
 import org.apache.gluten.memory.{MemoryUsageRecorder, SimpleMemoryUsageRecorder}
+import org.apache.gluten.memory.PeriodicMemoryChecker
 import org.apache.gluten.memory.listener.ReservationListener
 import org.apache.gluten.memory.memtarget.MemoryTarget
 import org.apache.gluten.monitor.VeloxMemoryProfiler
@@ -159,6 +160,10 @@ class VeloxListenerApi extends ListenerApi with Logging {
     if (inLocalMode(conf)) {
       // Don't do static initializations from executor side in local mode.
       // Driver already did that.
+      //
+      // TODO: the cache is left ungoverned here. parseConf keeps it enabled on the driver in local
+      // mode, so the backend built there has one, but returning now means PeriodicMemoryChecker is
+      // never started for it -- exactly the unaccounted cache the checker exists to prevent.
       logInfo(
         "Gluten is running with Spark local mode. Skip running static initializer for executor.")
       return
@@ -167,6 +172,7 @@ class VeloxListenerApi extends ListenerApi with Logging {
     SparkDirectoryUtil.init(conf)
     initialize(conf, isDriver = false)
     addIfNeedMemoryDumpShutdownHook(conf)
+    PeriodicMemoryChecker.start(conf)
   }
 
   override def onExecutorShutdown(): Unit = shutdown()
@@ -261,6 +267,7 @@ class VeloxListenerApi extends ListenerApi with Logging {
 
   private def shutdown(): Unit = {
     // TODO shutdown implementation in velox to release resources
+    PeriodicMemoryChecker.stop()
     VeloxBroadcastBuildSideCache.cleanAll()
     val executorEndpoint = GlutenExecutorEndpoint.executorEndpoint
     if (executorEndpoint != null) {
