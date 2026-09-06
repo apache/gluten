@@ -19,6 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType}
+import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.{LocalFilesNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
@@ -43,7 +44,6 @@ import org.apache.iceberg.types.Type.TypeID
 import org.apache.iceberg.types.Types.{ListType, MapType, NestedField}
 
 import java.util.{HashMap => JHashMap}
-import java.util.Locale
 
 case class IcebergScanTransformer(
     override val output: Seq[AttributeReference],
@@ -115,7 +115,7 @@ case class IcebergScanTransformer(
       val hasUnsupportedMetadata = scan.readSchema().fieldNames.exists {
         f =>
           MetadataColumns.isMetadataColumn(f) &&
-          !allowedMetadataColumns.contains(f.toLowerCase(Locale.ROOT))
+          !allowedMetadataColumns.contains(ConverterUtils.normalizeColName(f))
       }
       if (hasUnsupportedMetadata) {
         return ValidationResult.failed("Read unsupported metadata column")
@@ -197,18 +197,23 @@ case class IcebergScanTransformer(
   override def getRootPathsInternal: Seq[String] = Seq.empty
 
   private lazy val readSchemaFields =
-    scan.readSchema().fieldNames.map(_.toLowerCase(Locale.ROOT)).toSet
+    scan.readSchema().fieldNames.map(ConverterUtils.normalizeColName).toSet
 
   private lazy val inputFileRelatedMetadataColumns = output.filter {
     attr =>
-      val name = attr.name.toLowerCase(Locale.ROOT)
+      val name = ConverterUtils.normalizeColName(attr.name)
       IcebergScanTransformer.InputFileRelatedMetadataColumnNames.contains(name) &&
       !readSchemaFields.contains(name)
   }
 
   override def getMetadataColumns(): Seq[AttributeReference] = {
     val extraMetadataColumns = inputFileRelatedMetadataColumns.filterNot {
-      metadataAttr => metadataColumns.exists(_.name.equalsIgnoreCase(metadataAttr.name))
+      metadataAttr =>
+        metadataColumns.exists {
+          existingAttr =>
+            ConverterUtils.normalizeColName(existingAttr.name) ==
+              ConverterUtils.normalizeColName(metadataAttr.name)
+        }
     }
     metadataColumns ++ extraMetadataColumns
   }

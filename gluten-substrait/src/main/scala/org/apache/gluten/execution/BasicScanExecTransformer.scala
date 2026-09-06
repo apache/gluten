@@ -123,7 +123,9 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       InputFileBlockLength().prettyName)
 
     val neededInputFileRelatedMetadataKeys =
-      inputFileRelatedMetadataKeys.filter(k => output.exists(_.name == k))
+      inputFileRelatedMetadataKeys.filter {
+        k => output.exists(a => ConverterUtils.normalizeColName(a.name) == k)
+      }
 
     val metadataColumnNames = (metadataFromSpark ++ neededInputFileRelatedMetadataKeys).distinct
 
