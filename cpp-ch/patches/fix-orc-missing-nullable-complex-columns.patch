@@ -1,0 +1,60 @@
+diff --git a/src/Processors/Formats/Impl/NativeORCBlockInputFormat.cpp b/src/Processors/Formats/Impl/NativeORCBlockInputFormat.cpp
+index 87aea487289..44368b178be 100644
+--- a/src/Processors/Formats/Impl/NativeORCBlockInputFormat.cpp
++++ b/src/Processors/Formats/Impl/NativeORCBlockInputFormat.cpp
+@@ -1240,6 +1240,27 @@ static ColumnPtr readByteMapFromORCColumn(const orc::ColumnVectorBatch * orc_col
+ }
+
+
++static bool shouldKeepNullableComplexColumn(const ColumnWithTypeAndName & column, const ColumnWithTypeAndName & header_column)
++{
++    if (isNullableOrLowCardinalityNullable(header_column.type) || !column.type->isNullable())
++        return false;
++
++    auto nested_type = removeNullable(column.type);
++    if (!nested_type->equals(*header_column.type) || (!isArray(nested_type) && !isMap(nested_type) && !isTuple(nested_type)))
++        return false;
++
++    const auto * nullable_column = checkAndGetColumn<ColumnNullable>(column.column.get());
++    if (!nullable_column)
++        return false;
++
++    const auto & null_map = nullable_column->getNullMapData();
++    for (auto is_null : null_map)
++        if (is_null)
++            return true;
++
++    return false;
++}
++
+ static const orc::ColumnVectorBatch * getNestedORCColumn(const orc::ListVectorBatch * orc_column)
+ {
+     return orc_column->elements.get();
+@@ -2017,6 +2038,10 @@ void ORCColumnToCHColumn::orcColumnsToCHChunk(
+                 column.name = header_column.name;
+                 column.type = header_column.type;
+                 column.column = header_column.column->cloneResized(num_rows);
++                auto type_without_nullable = removeNullable(header_column.type);
++                if (!isNullableOrLowCardinalityNullable(header_column.type)
++                    && (isArray(type_without_nullable) || isMap(type_without_nullable) || isTuple(type_without_nullable)))
++                    column.column = ColumnNullable::create(column.column, ColumnUInt8::create(num_rows, 1));
+                 columns_list.push_back(std::move(column.column));
+                 if (block_missing_values)
+                     block_missing_values->setBits(column_i, num_rows);
+@@ -2030,12 +2055,14 @@ void ORCColumnToCHColumn::orcColumnsToCHChunk(
+                 orc_column_with_type.first, orc_column_with_type.second, header_column.name, false, header_column.type);
+         }
+
+-        if (null_as_default)
++        const bool keep_nullable_complex_column = shouldKeepNullableComplexColumn(column, header_column);
++        if (null_as_default && !keep_nullable_complex_column)
+             insertNullAsDefaultIfNeeded(column, header_column, column_i, block_missing_values);
+
+         try
+         {
+-            column.column = castColumn(column, header_column.type);
++            if (!keep_nullable_complex_column)
++                column.column = castColumn(column, header_column.type);
+         }
+         catch (Exception & e)
+         {

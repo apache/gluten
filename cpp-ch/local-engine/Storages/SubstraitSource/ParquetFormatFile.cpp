@@ -221,7 +221,7 @@ ParquetFormatFile::createInputFormat(const Block & header, const std::shared_ptr
 
         // TODO: rebase-25.12, support complex types when there is a nullable type
         // for example: parquet type is Array, requested type is Nullable(Array(Nullable(String)))
-        if (format_settings.parquet.use_native_reader_v3 && !readRowIndex && onlyFlatType)
+        if (format_settings.parquet.use_native_reader_v3 && !readRowIndex)
         {
             LOG_TRACE(
                 &Poco::Logger::get("ParquetFormatFile"),

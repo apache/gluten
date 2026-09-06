@@ -201,7 +201,7 @@ QueryPlanStepPtr ReadRelParser::parseReadRelWithLocalFile(const substrait::ReadR
     auto source = std::make_shared<SubstraitFileSource>(getContext(), header, local_files);
     auto source_pipe = Pipe(source);
     auto source_step = std::make_unique<SubstraitFileSourceStep>(getContext(), std::move(source_pipe), "substrait local files");
-    if (format_settings.parquet.use_native_reader_v3 && !readRowIndex && onlyFlatType)
+    if (format_settings.parquet.use_native_reader_v3 && !readRowIndex)
         source_step->setStepDescription("ParquetReaderV3");
     else
         source_step->setStepDescription("ParquetReader");
