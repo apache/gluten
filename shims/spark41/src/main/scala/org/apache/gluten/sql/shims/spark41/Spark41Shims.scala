@@ -674,6 +674,9 @@ class Spark41Shims extends SparkShims {
     scan.stream
   }
 
+  override def isOneRowRelationExec(plan: SparkPlan): Boolean =
+    plan.isInstanceOf[OneRowRelationExec]
+
   override def unsupportedCodec: Seq[CompressionCodecName] = {
     Seq(CompressionCodecName.LZO, CompressionCodecName.BROTLI, CompressionCodecName.LZ4_RAW)
   }

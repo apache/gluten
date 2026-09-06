@@ -87,6 +87,14 @@ trait TransformSupport extends ValidatablePlan {
    */
   def columnarInputRDDs: Seq[RDD[ColumnarBatch]]
 
+  /**
+   * Whether this transformed subtree can execute exactly once when no non-broadcast input RDD
+   * supplies partition cardinality. Composite operators must propagate this only when their
+   * streamed inputs are also safe to execute without partitions; broadcast inputs do not supply
+   * partition cardinality.
+   */
+  def supportsNoInputExecution: Boolean = false
+
   // Since https://github.com/apache/gluten/pull/2185.
   protected def doNativeValidation(context: SubstraitContext, node: RelNode): ValidationResult = {
     if (node != null && enableNativeValidation) {
@@ -152,6 +160,11 @@ trait LeafTransformSupport extends TransformSupport with LeafExecNode {
 trait UnaryTransformSupport extends TransformSupport with UnaryExecNode {
   final override def columnarInputRDDs: Seq[RDD[ColumnarBatch]] = {
     getColumnarInputRDDs(child)
+  }
+
+  final override def supportsNoInputExecution: Boolean = child match {
+    case transformer: TransformSupport => transformer.supportsNoInputExecution
+    case _ => false
   }
 }
 
@@ -406,7 +419,8 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
         logOnLevel(
           GlutenConfig.get.substraitPlanLogLevel,
           s"$nodeName generating the substrait plan took: $t ms."))
-    val inputRDDs = new ColumnarInputRDDsWrapper(columnarInputRDDs)
+    val inputRDDs =
+      new ColumnarInputRDDsWrapper(columnarInputRDDs, supportsNoInputExecution)
 
     val leafTransformers = findAllLeafTransformers()
     if (leafTransformers.nonEmpty) {
@@ -414,14 +428,17 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
     } else {
 
       /**
-       * the whole stage contains NO [[LeafTransformSupport]]. This is the default case for:
+       * The whole stage contains no [[LeafTransformSupport]]. This is the default case for:
        *   - SCAN of clickhouse backend. See
        *     BackendsApiManager.getSettings.excludeScanExecFromCollapsedStage.
        *   - Test case where query plan is constructed from simple DataFrames, e.g.
        *     GlutenDataFrameAggregateSuite.
+       *   - An explicitly supported dependency-free native source, e.g.
+       *     OneRowRelationExecTransformer.
        *
-       * In these cases, separate RDDs take care of SCAN. As a result, genFinalStageIterator rather
-       * than genFirstStageIterator will be invoked.
+       * A separate RDD normally supplies the partition count. A dependency-free source instead opts
+       * into one synthetic partition through supportsNoInputExecution. In both cases,
+       * genFinalStageIterator rather than genFirstStageIterator will be invoked.
        */
       new WholeStageZippedPartitionsRDD(
         sparkContext,
@@ -467,9 +484,13 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
 /**
  * This `columnarInputRDDs` would contain [[BroadcastBuildSideRDD]], but the dependency and
  * partition of [[BroadcastBuildSideRDD]] is meaningless. [[BroadcastBuildSideRDD]] should only be
- * used to hold the broadcast value and generate iterator for join.
+ * used to hold the broadcast value and generate iterator for join. If no non-broadcast RDD is
+ * present, `supportsNoInputExecution` explicitly authorizes one synthetic partition.
  */
-class ColumnarInputRDDsWrapper(columnarInputRDDs: Seq[RDD[ColumnarBatch]]) extends Serializable {
+class ColumnarInputRDDsWrapper(
+    columnarInputRDDs: Seq[RDD[ColumnarBatch]],
+    supportsNoInputExecution: Boolean = false)
+  extends Serializable {
   def getDependencies: Seq[Dependency[ColumnarBatch]] = {
     assert(
       columnarInputRDDs
@@ -490,7 +511,11 @@ class ColumnarInputRDDsWrapper(columnarInputRDDs: Seq[RDD[ColumnarBatch]]) exten
 
   def getPartitionLength: Int = {
     getPartitionLengthOption.getOrElse {
-      throw new IllegalStateException("No non-broadcast input RDD is available")
+      if (supportsNoInputExecution) {
+        1
+      } else {
+        throw new IllegalStateException("No non-broadcast input RDD is available")
+      }
     }
   }
 

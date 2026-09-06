@@ -258,6 +258,8 @@ trait SparkShims {
    */
   def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] = None
 
+  def isOneRowRelationExec(plan: SparkPlan): Boolean = false
+
   def isParquetFileEncrypted(footer: ParquetMetadata): Boolean
 
   def shouldFallbackForParquetVariantAnnotation(footer: ParquetMetadata): Boolean = false
