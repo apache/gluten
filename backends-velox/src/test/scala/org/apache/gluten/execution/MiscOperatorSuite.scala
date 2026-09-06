@@ -1276,6 +1276,36 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       }
     }
   }
+  test("array_sort with default comparator") {
+    withTable("array_sort_default") {
+      sql("create table array_sort_default (id int, a array<int>) using parquet")
+      sql(
+        "insert into array_sort_default values " +
+          "(1, array(3, null, 1, 2)), " +
+          "(2, cast(array() as array<int>)), " +
+          "(3, cast(null as array<int>)), " +
+          "(4, array(-1, 0, 1))")
+      runQueryAndCompare(
+        "select id, array_sort(a) from array_sort_default order by id") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      runQueryAndCompare(
+        "select id, array_sort(a, (x, y) -> " +
+          "if(x < y, 1, if(x > y, -1, 0))) from array_sort_default where id = 4") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+    withTable("array_sort_default_double") {
+      sql("create table array_sort_default_double (a array<double>) using parquet")
+      sql(
+        "insert into array_sort_default_double values " +
+          "(array(cast('NaN' as double), cast(0.0 as double), " +
+          "cast(-1.0 as double), cast(null as double)))")
+      runQueryAndCompare("select array_sort(a) from array_sort_default_double") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
 
   test("Support bool type filter in scan") {
     withTable("t") {
