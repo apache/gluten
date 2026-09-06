@@ -79,7 +79,7 @@ jobs:
           echo "shims35=$(match '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                            >> $GITHUB_OUTPUT
           echo "shims40=$(match '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                            >> $GITHUB_OUTPUT
 
-  build-native-lib-centos-7:
+  build-native-lib-centos-8:
     needs: detect-changes
     runs-on: ubuntu-22.04
     steps:
@@ -89,28 +89,28 @@ jobs:
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-enhanced-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-enhanced-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
         if: steps.ccache-stash.outputs.stash-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-enhanced-centos7-release-default-${{github.sha}}
+          key: ccache-enhanced-almalinux8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-enhanced-centos7-release-default
+            ccache-enhanced-almalinux8-release-default
       - name: Build Gluten native libraries
         run: |
-          docker pull apache/gluten:vcpkg-centos-7-gcc13
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
+          docker pull apache/gluten:vcpkg-almalinux-8-gcc13
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
             set -e
-            yum install tzdata -y
+            yum install tzdata bison -y
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
             export CCACHE_MAXSIZE=1G
             mkdir -p /work/.ccache
             ccache -sz
-            bash dev/ci-velox-buildstatic-centos-7-enhanced-features.sh
+            bash dev/ci-velox-buildstatic-centos-8-enhanced-features.sh
             ccache -s
           "
 
@@ -119,16 +119,16 @@ jobs:
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-enhanced-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-enhanced-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
       - uses: actions/upload-artifact@v7
         with:
-          name: velox-native-lib-enhanced-centos-7-${{github.sha}}
+          name: velox-native-lib-enhanced-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
           if-no-files-found: error
 
   spark-test-spark35:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims35 == 'true' ||
@@ -140,7 +140,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-enhanced-centos-7-${{github.sha}}
+          name: velox-native-lib-enhanced-centos-8-${{github.sha}}
           path: ./cpp/build/releases
       - name: Prepare spark.test.home for Spark 3.5.5 (other tests)
         run: |
@@ -185,7 +185,7 @@ jobs:
           path: /tmp/tpch-approved-plan/**
 
   spark-test-spark35-slow:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims35 == 'true' ||
@@ -197,7 +197,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-enhanced-centos-7-${{github.sha}}
+          name: velox-native-lib-enhanced-centos-8-${{github.sha}}
           path: ./cpp/build/releases
       - name: Build and Run unit test for Spark 3.5.5 (slow tests)
         run: |
@@ -229,7 +229,7 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-spark40:
-    needs: [detect-changes, build-native-lib-centos-7]
+    needs: [detect-changes, build-native-lib-centos-8]
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims40 == 'true' ||
@@ -247,7 +247,7 @@ jobs:
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-enhanced-centos-7-${{github.sha}}
+          name: velox-native-lib-enhanced-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Prepare
         run: |
