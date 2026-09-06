@@ -657,18 +657,50 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           substraitExprName,
           expr.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           expr)
-      case CheckOverflow(b: BinaryArithmetic, decimalType, _)
+      case CheckOverflow(b: BinaryArithmetic, decimalType, nullOnOverflow)
           if !BackendsApiManager.getSettings.transformCheckOverflow &&
             DecimalArithmeticUtil.isDecimalArithmetic(b) =>
-        val arithmeticExprName =
+        val baseExprName =
           BackendsApiManager.getSparkPlanExecApiInstance.getDecimalArithmeticExprName(
             getAndCheckSubstraitName(b, expressionsMap),
             SparkShimLoader.getSparkShims.decimalAllowPrecisionLoss(b))
+        // When nullOnOverflow is false, it's ANSI mode - use checked_ prefix for overflow errors
+        val arithmeticExprName = if (!nullOnOverflow) {
+          "checked_" + baseExprName
+        } else {
+          baseExprName
+        }
         val left =
           replaceWithExpressionTransformer0(b.left, attributeSeq, expressionsMap)
         val right =
           replaceWithExpressionTransformer0(b.right, attributeSeq, expressionsMap)
         DecimalArithmeticExpressionTransformer(arithmeticExprName, left, right, decimalType, b)
+      // Velox path: decimal Add/Subtract/Multiply in ANSI or TRY mode uses checked_ variants.
+      // ANSI mode (nullOnOverflow=false): checked_* throws on overflow.
+      // TRY mode: try(checked_*) returns null on overflow.
+      case c @ CheckOverflow(b: BinaryArithmetic, _, nullOnOverflow)
+          if BackendsApiManager.getSettings.transformCheckOverflow &&
+            DecimalArithmeticUtil.isDecimalArithmetic(b) &&
+            (b.isInstanceOf[Add] || b.isInstanceOf[Subtract] || b.isInstanceOf[Multiply]) &&
+            (!nullOnOverflow ||
+              SparkShimLoader.getSparkShims.withTryEvalMode(b)) =>
+        val baseExprName =
+          BackendsApiManager.getSparkPlanExecApiInstance.getDecimalArithmeticExprName(
+            getAndCheckSubstraitName(b, expressionsMap),
+            SparkShimLoader.getSparkShims.decimalAllowPrecisionLoss(b))
+        val checkedExprName = "checked_" + baseExprName
+        val childTransformer =
+          genRescaleDecimalTransformer(checkedExprName, b, attributeSeq, expressionsMap)
+        if (SparkShimLoader.getSparkShims.withTryEvalMode(b)) {
+          // TRY mode: wrap checked_ in try() to return null on overflow.
+          GenericExpressionTransformer(
+            ExpressionMappings.expressionsMap(classOf[TryEval]),
+            Seq(childTransformer),
+            c)
+        } else {
+          // ANSI mode: checked_ throws on overflow.
+          CheckOverflowTransformer(substraitExprName, childTransformer, c)
+        }
       case c: CheckOverflow =>
         CheckOverflowTransformer(
           substraitExprName,
