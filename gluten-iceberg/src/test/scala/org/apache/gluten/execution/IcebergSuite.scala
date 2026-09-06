@@ -60,6 +60,32 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
+  test("iceberg getRootPathsInternal returns actual scanned file paths") {
+    // See https://github.com/apache/gluten/issues/12712: getRootPathsInternal used to always
+    // return Seq.empty for Iceberg scans, silently skipping native filesystem scheme validation.
+    withTable("iceberg_root_paths_tb") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_root_paths_tb (id INT)
+                  |USING iceberg
+                  |""".stripMargin)
+      spark.sql("INSERT INTO iceberg_root_paths_tb VALUES (1), (2)")
+
+      runQueryAndCompare("SELECT * FROM iceberg_root_paths_tb") {
+        df =>
+          val scans = getExecutedPlan(df).collect { case i: IcebergScanTransformer => i }
+          assert(scans.size == 1)
+          val rootPaths = scans.head.getRootPathsInternal
+          assert(rootPaths.nonEmpty, "getRootPathsInternal should not be empty for Iceberg tables")
+          // Assert the paths point at the actual scanned data files, not just some non-empty
+          // placeholder: Iceberg tables can relocate real data files independently of the
+          // table's declared base location (e.g. via write.data.path / a custom
+          // LocationProvider), so only the real per-file scan path reliably reflects the
+          // filesystem the data is actually read from.
+          assert(rootPaths.forall(p => p.contains("/data/") && p.endsWith(".parquet")))
+      }
+    }
+  }
+
   test("iceberg input_file_name") {
     withTable("iceberg_input_file_tb") {
       spark.sql("""

@@ -23,6 +23,7 @@ import org.apache.gluten.execution.SparkDataSourceRDDPartition
 import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
+import org.apache.spark.Partition
 import org.apache.spark.softaffinity.SoftAffinity
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.connector.read.Scan
@@ -110,6 +111,31 @@ object GlutenIcebergSourceUtil {
       fieldIds,
       initialDefaults
     )
+  }
+
+  /**
+   * Returns one representative data file path per planned Spark input partition, so callers can
+   * validate the underlying filesystem scheme(s) without enumerating every data file.
+   *
+   * We deliberately read the actual scanned file paths (task.file().path()) rather than the Iceberg
+   * table's declared base location (Table.location()): Iceberg lets a table relocate its actual
+   * data files independently of the table location via the write.data.path property or a custom
+   * LocationProvider, so the table location is not guaranteed to reflect the filesystem the data is
+   * actually read from. This also works uniformly across all supported Spark versions, since it
+   * does not depend on BatchScanExec exposing its Table (only added in Spark 3.4; see
+   * SparkShims.getBatchScanExecTable).
+   */
+  def getRootPaths(partitions: Seq[Partition]): Seq[String] = {
+    partitions.flatMap {
+      case p: SparkDataSourceRDDPartition =>
+        p.inputPartitions.flatMap {
+          case ip: SparkInputPartition =>
+            val tasks = ip.taskGroup[ScanTask]().tasks().asScala
+            asFileScanTask(tasks.toList).headOption.map(_.file().path().toString)
+          case _ => None
+        }
+      case _ => Seq.empty
+    }
   }
 
   def getFieldIds(sparkScan: Scan): JHashMap[String, Integer] = {

@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
+import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
@@ -87,6 +88,44 @@ class VeloxIcebergSuite extends IcebergSuite {
         df =>
           checkAnswer(df, Seq(Row(1, "IN"), Row(2, "IN")))
           checkGlutenPlan[IcebergScanTransformer](df)
+      }
+    }
+  }
+
+  test("iceberg root paths on an unsupported scheme fail native scheme validation") {
+    // See https://github.com/apache/gluten/issues/12712: IcebergScanTransformer used to always
+    // report Seq.empty root paths, so VeloxBackend.validateScanExec's scheme check was silently
+    // skipped for every Iceberg scan, regardless of the scan's actual filesystem.
+    withTable("iceberg_root_paths_scheme_tb") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_root_paths_scheme_tb (id INT)
+                  |USING iceberg
+                  |""".stripMargin)
+      spark.sql("INSERT INTO iceberg_root_paths_scheme_tb VALUES (1), (2)")
+
+      runQueryAndCompare("SELECT * FROM iceberg_root_paths_scheme_tb") {
+        df =>
+          val scans = getExecutedPlan(df).collect { case i: IcebergScanTransformer => i }
+          assert(scans.size == 1)
+          val rootPaths = scans.head.getRootPathsInternal
+          assert(rootPaths.nonEmpty)
+          // Confirm these are real per-file scan paths (registered as `file` scheme), which
+          // VeloxBackendSettings.distinctRootPaths always excludes from scheme validation (the
+          // local filesystem is always registered) -- so a real root path from this suite
+          // passes validation, as expected for a supported local table.
+          assert(
+            VeloxFileSystemValidationJniWrapper.allSupportedByRegisteredFileSystems(
+              rootPaths.toArray))
+
+          // Since this suite only exercises the local `file` scheme, which is always
+          // considered supported, separately confirm -- with a clean, synthetic URI, not
+          // derived from the real paths above -- that Velox's own native filesystem check (the
+          // same one VeloxBackend.validateScanExec relies on to decide whether to fall back)
+          // correctly rejects a genuinely unsupported scheme.
+          assert(
+            !VeloxFileSystemValidationJniWrapper.allSupportedByRegisteredFileSystems(
+              Array("unsupported-test-scheme://bucket/path/file.parquet")),
+            "expected an unsupported scheme to fail native filesystem validation")
       }
     }
   }
