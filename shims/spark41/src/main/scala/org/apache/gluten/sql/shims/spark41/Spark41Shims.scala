@@ -93,7 +93,8 @@ class Spark41Shims extends SparkShims {
       Sig[RegrIntercept](ExpressionNames.REGR_INTERCEPT),
       Sig[RegrSXY](ExpressionNames.REGR_SXY),
       Sig[RegrReplacement](ExpressionNames.REGR_REPLACEMENT),
-      Sig[BitmapConstructAgg](ExpressionNames.BITMAP_CONSTRUCT_AGG)
+      Sig[BitmapConstructAgg](ExpressionNames.BITMAP_CONSTRUCT_AGG),
+      Sig[BitmapOrAgg](ExpressionNames.BITMAP_OR_AGG)
     )
   }
 
