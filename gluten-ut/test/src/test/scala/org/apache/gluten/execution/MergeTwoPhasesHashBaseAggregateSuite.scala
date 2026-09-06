@@ -113,6 +113,43 @@ abstract class BaseMergeTwoPhasesHashBaseAggregateSuite extends WholeStageTransf
         compareResult = true,
         df => checkHashAggregateCount(df, 1)
       )
+
+      // pure distinct + FILTER: Spark's planAggregateWithOneDistinct inserts an exchange
+      // between the partial and final stages, so the merge rule's direct parent-child pattern
+      // match does NOT fire. This records that boundary: distinct + FILTER is not merged into
+      // a single aggregate, and the FILTER is preserved through the unmerged stages.
+      compareResultsAgainstVanillaSpark(
+        """
+          |SELECT count(DISTINCT key) FILTER (WHERE key > 50) AS pc
+          |FROM v1
+          |""".stripMargin,
+        compareResult = true,
+        df => {
+          df.collect()
+          val plans = collect(df.queryExecution.executedPlan) {
+            case agg: HashAggregateExecBaseTransformer => agg
+          }
+          assert(plans.size > 1, "distinct + FILTER should not be merged into a single aggregate")
+        }
+      )
+
+      // mixed distinct + non-distinct + FILTER: same exchange boundary; the merge rule does
+      // not fire. Verifies FILTER is preserved on both sides through the unmerged stages.
+      compareResultsAgainstVanillaSpark(
+        """
+          |SELECT count(DISTINCT key) FILTER (WHERE key > 50) AS dc,
+          |       count(key) FILTER (WHERE key LIKE '%1%') AS pc
+          |FROM v1
+          |""".stripMargin,
+        compareResult = true,
+        df => {
+          df.collect()
+          val plans = collect(df.queryExecution.executedPlan) {
+            case agg: HashAggregateExecBaseTransformer => agg
+          }
+          assert(plans.size > 1, "distinct + FILTER should not be merged into a single aggregate")
+        }
+      )
     }
 
     // with exchange hash aggregate
