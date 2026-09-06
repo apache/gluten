@@ -184,7 +184,8 @@ void VeloxBackend::init(
   // Set cache_prefetch_min_pct default as 0 to force all loads are prefetched in DirectBufferInput.
   FLAGS_cache_prefetch_min_pct = backendConf_->get<int>(kCachePrefetchMinPct, 0);
 
-  hiveConnectorConfig_ = createHiveConnectorConfig(backendConf_);
+  // the backend conf is parsed from spark.conf, which is static
+  staticConnectorConfig_ = createHiveConnectorConfig(backendConf_);
 
   // Setup and register.
   velox::filesystems::registerLocalFileSystem();
@@ -200,7 +201,7 @@ void VeloxBackend::init(
 #endif
 #ifdef ENABLE_ABFS
   velox::filesystems::registerAbfsFileSystem();
-  velox::filesystems::registerAzureClientProvider(*hiveConnectorConfig_);
+  velox::filesystems::registerAzureClientProvider(*staticConnectorConfig_);
 #endif
 
 #ifdef GLUTEN_ENABLE_GPU
@@ -398,35 +399,39 @@ void VeloxBackend::initCache() {
 
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createHiveConnector(
     const std::string& connectorId,
-    folly::Executor* ioExecutor) const {
-  return std::make_shared<velox::connector::hive::HiveConnector>(connectorId, hiveConnectorConfig_, ioExecutor);
+    folly::Executor* ioExecutor,
+    const std::shared_ptr<facebook::velox::config::ConfigBase>& mergedConfig) const {
+  return std::make_shared<velox::connector::hive::HiveConnector>(connectorId, mergedConfig, ioExecutor);
 }
 
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createDeltaConnector(
     const std::string& connectorId,
-    folly::Executor* ioExecutor) const {
-  return std::make_shared<delta::DeltaConnector>(connectorId, hiveConnectorConfig_, ioExecutor);
+    folly::Executor* ioExecutor,
+    const std::shared_ptr<facebook::velox::config::ConfigBase>& mergedConfig) const {
+  return std::make_shared<delta::DeltaConnector>(connectorId, mergedConfig, ioExecutor);
 }
 
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createIcebergConnector(
     const std::string& connectorId,
-    folly::Executor* ioExecutor) const {
-  return std::make_shared<velox::connector::hive::iceberg::IcebergConnector>(
-      connectorId, hiveConnectorConfig_, ioExecutor);
+    folly::Executor* ioExecutor,
+    const std::shared_ptr<facebook::velox::config::ConfigBase>& mergedConfig) const {
+  return std::make_shared<velox::connector::hive::iceberg::IcebergConnector>(connectorId, mergedConfig, ioExecutor);
 }
 
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createValueStreamConnector(
     const std::string& connectorId,
-    bool dynamicFilterEnabled) const {
-  return std::make_shared<ValueStreamConnector>(connectorId, hiveConnectorConfig_, dynamicFilterEnabled);
+    bool dynamicFilterEnabled,
+    const std::shared_ptr<facebook::velox::config::ConfigBase>& mergedConfig) const {
+  return std::make_shared<ValueStreamConnector>(connectorId, mergedConfig, dynamicFilterEnabled);
 }
 
 #ifdef GLUTEN_ENABLE_GPU
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createCudfHiveConnector(
     const std::string& connectorId,
-    folly::Executor* ioExecutor) const {
+    folly::Executor* ioExecutor,
+    const std::shared_ptr<facebook::velox::config::ConfigBase>& mergedConfig) const {
   facebook::velox::cudf_velox::connector::hive::CudfHiveConnectorFactory factory;
-  return factory.newConnector(connectorId, hiveConnectorConfig_, ioExecutor);
+  return factory.newConnector(connectorId, mergedConfig, ioExecutor);
 }
 #endif
 

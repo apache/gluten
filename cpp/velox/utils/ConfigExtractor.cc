@@ -296,6 +296,30 @@ std::string getConfigValue(
   return got->second;
 }
 
+std::shared_ptr<facebook::velox::config::ConfigBase> mergeWithSessionOverrides(
+    const std::shared_ptr<facebook::velox::config::ConfigBase>& baseConf,
+    const std::unordered_map<std::string, std::string>& sessionConf) {
+  auto merged = baseConf->rawConfigs(); // copy — we must not mutate the shared base
+
+  // ── Step 1: forward all per-account and generic fs.azure.* / fs.s3a.* / fs.gs.*
+  // keys from the session config into the merged map.  Session value always wins.
+  static constexpr std::string_view kForwardPrefixes[] = {
+      "fs.azure.",
+      "fs.s3a.",
+      "fs.gs.",
+  };
+  for (const auto& [k, v] : sessionConf) {
+    for (const auto& prefix : kForwardPrefixes) {
+      if (k.starts_with(prefix)) {
+        merged[k] = v;
+        break;
+      }
+    }
+  }
+
+  return std::make_shared<facebook::velox::config::ConfigBase>(std::move(merged));
+}
+
 std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorConfig(
     const std::shared_ptr<facebook::velox::config::ConfigBase>& conf,
     FileSystemType fsType) {

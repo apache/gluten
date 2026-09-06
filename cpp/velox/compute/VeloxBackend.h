@@ -73,26 +73,35 @@ class VeloxBackend {
     return ioExecutor_.get();
   }
 
+  const std::shared_ptr<facebook::velox::config::ConfigBase>& getStaticConnectorConfig() const {
+    return staticConnectorConfig_;
+  }
+
   std::shared_ptr<facebook::velox::connector::Connector> createHiveConnector(
       const std::string& connectorId,
-      folly::Executor* ioExecutor) const;
+      folly::Executor* ioExecutor,
+      const std::shared_ptr<facebook::velox::config::ConfigBase>& mergedConfig) const;
 
   std::shared_ptr<facebook::velox::connector::Connector> createIcebergConnector(
       const std::string& connectorId,
-      folly::Executor* ioExecutor) const;
+      folly::Executor* ioExecutor,
+      const std::shared_ptr<facebook::velox::config::ConfigBase>& mergedConfig) const;
 
   std::shared_ptr<facebook::velox::connector::Connector> createDeltaConnector(
       const std::string& connectorId,
-      folly::Executor* ioExecutor) const;
+      folly::Executor* ioExecutor,
+      const std::shared_ptr<facebook::velox::config::ConfigBase>& mergedConfig) const;
 
   std::shared_ptr<facebook::velox::connector::Connector> createValueStreamConnector(
       const std::string& connectorId,
-      bool dynamicFilterEnabled) const;
+      bool dynamicFilterEnabled,
+      const std::shared_ptr<facebook::velox::config::ConfigBase>& mergedConfig) const;
 
 #ifdef GLUTEN_ENABLE_GPU
   std::shared_ptr<facebook::velox::connector::Connector> createCudfHiveConnector(
       const std::string& connectorId,
-      folly::Executor* ioExecutor) const;
+      folly::Executor* ioExecutor,
+      const std::shared_ptr<facebook::velox::config::ConfigBase>& mergedConfig) const;
 #endif
 
   void tearDown();
@@ -127,7 +136,7 @@ class VeloxBackend {
   std::unique_ptr<folly::Executor> ioExecutor_;
   std::unique_ptr<folly::Executor> ssdCacheExecutor_;
   std::shared_ptr<facebook::velox::memory::MmapAllocator> cacheAllocator_;
-  std::shared_ptr<facebook::velox::config::ConfigBase> hiveConnectorConfig_;
+  std::shared_ptr<facebook::velox::config::ConfigBase> staticConnectorConfig_;
 
   std::string cachePathPrefix_;
   std::string cacheFilePrefix_;

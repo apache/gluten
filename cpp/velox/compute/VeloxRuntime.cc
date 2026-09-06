@@ -259,7 +259,6 @@ VeloxRuntime::VeloxRuntime(
   connectorIds_ = makeScopedConnectorIds(runtimeId++);
 
   initializeExecutors();
-  registerConnectors();
 }
 
 VeloxRuntime::~VeloxRuntime() {
@@ -284,23 +283,29 @@ void VeloxRuntime::initializeExecutors() {
 
 void VeloxRuntime::registerConnectors() {
   auto* backend = VeloxBackend::get();
+
+  auto merged = mergeWithSessionOverrides(backend->getStaticConnectorConfig(), veloxCfg_->rawConfigs());
+
+#ifdef ENABLE_ABFS
+  facebook::velox::filesystems::registerAzureClientProvider(*merged);
+#endif
   connectorIds_.hiveRegistered =
-      velox::connector::registerConnector(backend->createHiveConnector(connectorIds_.hive, ioExecutor_.get()));
+      velox::connector::registerConnector(backend->createHiveConnector(connectorIds_.hive, ioExecutor_.get(), merged));
   GLUTEN_CHECK(connectorIds_.hiveRegistered, "Failed to register scoped hive connector: " + connectorIds_.hive);
   GLUTEN_CHECK(
       velox::connector::hasConnector(connectorIds_.hive),
       "Scoped hive connector not found after registration: " + connectorIds_.hive);
 
-  connectorIds_.icebergRegistered =
-      velox::connector::registerConnector(backend->createIcebergConnector(connectorIds_.iceberg, ioExecutor_.get()));
+  connectorIds_.icebergRegistered = velox::connector::registerConnector(
+      backend->createIcebergConnector(connectorIds_.iceberg, ioExecutor_.get(), merged));
   GLUTEN_CHECK(
       connectorIds_.icebergRegistered, "Failed to register scoped Iceberg connector: " + connectorIds_.iceberg);
   GLUTEN_CHECK(
       velox::connector::hasConnector(connectorIds_.iceberg),
       "Scoped Iceberg connector not found after registration: " + connectorIds_.iceberg);
 
-  connectorIds_.deltaRegistered =
-      velox::connector::registerConnector(backend->createDeltaConnector(connectorIds_.delta, ioExecutor_.get()));
+  connectorIds_.deltaRegistered = velox::connector::registerConnector(
+      backend->createDeltaConnector(connectorIds_.delta, ioExecutor_.get(), merged));
   GLUTEN_CHECK(connectorIds_.deltaRegistered, "Failed to register scoped delta connector: " + connectorIds_.delta);
   GLUTEN_CHECK(
       velox::connector::hasConnector(connectorIds_.delta),
@@ -309,7 +314,7 @@ void VeloxRuntime::registerConnectors() {
   const auto valueStreamDynamicFilterEnabled =
       veloxCfg_->get<bool>(kValueStreamDynamicFilterEnabled, kValueStreamDynamicFilterEnabledDefault);
   connectorIds_.iteratorRegistered = velox::connector::registerConnector(
-      backend->createValueStreamConnector(connectorIds_.iterator, valueStreamDynamicFilterEnabled));
+      backend->createValueStreamConnector(connectorIds_.iterator, valueStreamDynamicFilterEnabled, merged));
   GLUTEN_CHECK(
       connectorIds_.iteratorRegistered, "Failed to register scoped iterator connector: " + connectorIds_.iterator);
   GLUTEN_CHECK(
@@ -320,7 +325,7 @@ void VeloxRuntime::registerConnectors() {
   if (veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
     connectorIds_.cudfHiveRegistered = velox::connector::registerConnector(
-        backend->createCudfHiveConnector(connectorIds_.cudfHive, ioExecutor_.get()));
+        backend->createCudfHiveConnector(connectorIds_.cudfHive, ioExecutor_.get(), merged));
     GLUTEN_CHECK(
         connectorIds_.cudfHiveRegistered, "Failed to register scoped cudf hive connector: " + connectorIds_.cudfHive);
     GLUTEN_CHECK(
@@ -474,7 +479,8 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
       connectorIds_,
       spillDir,
       veloxCfg_,
-      taskInfo_.has_value() ? taskInfo_.value() : SparkTaskInfo{});
+      taskInfo_.has_value() ? taskInfo_.value() : SparkTaskInfo{},
+      this);
 
   auto remainingInputIterators = veloxPlanConverter.remainingInputIterators();
   if (!remainingInputIterators.empty()) {

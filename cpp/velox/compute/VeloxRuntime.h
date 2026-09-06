@@ -141,9 +141,11 @@ class VeloxRuntime final : public Runtime {
       std::vector<facebook::velox::core::PlanNodeId>& scanIds,
       std::vector<facebook::velox::core::PlanNodeId>& streamIds);
 
+  // Need to make this public to be used in WholeStageResultIterator.cc
+  void registerConnectors();
+
  private:
   void initializeExecutors();
-  void registerConnectors();
   void unregisterConnectors();
 
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
