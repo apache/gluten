@@ -655,10 +655,9 @@ class VeloxIcebergSuite extends IcebergSuite {
     }
   }
 
-  // Ignored due to velox parquet row-group flush semantics change after velox#16998.
-  test("iceberg parquet writer default row group size test") {
-    val table = "iceberg_default_row_group_size"
-    val defaultRowGroupBytes = 128L * 1024 * 1024
+  test("iceberg parquet writer respects row group size") {
+    val table = "iceberg_row_group_size"
+    val rowGroupBytes = 2L * 1024 * 1024
 
     def parquetFiles(table: String): Seq[String] = {
       spark.sql(s"""
@@ -717,7 +716,8 @@ class VeloxIcebergSuite extends IcebergSuite {
           payload STRING
         ) USING iceberg
         TBLPROPERTIES (
-          'write.parquet.compression-codec' = 'uncompressed'
+          'write.parquet.compression-codec' = 'uncompressed',
+          'write.parquet.row-group-size-bytes' = '$rowGroupBytes'
         )
       """)
 
@@ -727,12 +727,12 @@ class VeloxIcebergSuite extends IcebergSuite {
           id,
           array_join(
             transform(
-              sequence(0, 63),
+              sequence(0, 31),
               x -> md5(concat(CAST(id AS STRING), ':', CAST(x AS STRING)))
             ),
             ''
           ) AS payload
-        FROM range(0, 90000, 1, 1)
+        FROM range(0, 10000, 1, 1)
       """)
 
         assert(
@@ -743,7 +743,7 @@ class VeloxIcebergSuite extends IcebergSuite {
 
         checkAnswer(
           spark.sql(s"SELECT count(*) FROM $table"),
-          Seq(Row(90000L)))
+          Seq(Row(10000L)))
         val rowGroups =
           collectRowGroups(table).sortBy(info => (info.file, info.ordinal))
 
@@ -752,27 +752,16 @@ class VeloxIcebergSuite extends IcebergSuite {
           s"Expected one Parquet file, found: ${rowGroups.map(_.file).distinct}")
 
         assert(
-          rowGroups.size == 2,
-          s"Expected 2 row groups, found ${rowGroups.size}: $rowGroups")
+          rowGroups.size > 1,
+          s"Expected the Iceberg row-group size to create multiple row groups: $rowGroups")
 
         assert(
-          rowGroups.map(_.rowCount).sum == 90000L,
-          s"Expected 90000 rows across all row groups: $rowGroups")
-
-        val firstRowGroup = rowGroups.head
-        val finalRowGroup = rowGroups.last
+          rowGroups.map(_.rowCount).sum == 10000L,
+          s"Expected 10000 rows across all row groups: $rowGroups")
 
         assert(
-          firstRowGroup.compressedSize >= defaultRowGroupBytes,
-          s"Expected the first row group to reach the default row-group size " +
-            s"$defaultRowGroupBytes, but found ${firstRowGroup.compressedSize}"
-        )
-
-        assert(
-          finalRowGroup.compressedSize < defaultRowGroupBytes,
-          s"Expected the final row group to be smaller than the default row-group " +
-            s"size $defaultRowGroupBytes, but found ${finalRowGroup.compressedSize}"
-        )
+          rowGroups.dropRight(1).forall(_.compressedSize >= rowGroupBytes),
+          s"Expected each complete row group to reach $rowGroupBytes bytes: $rowGroups")
       }
     }
   }

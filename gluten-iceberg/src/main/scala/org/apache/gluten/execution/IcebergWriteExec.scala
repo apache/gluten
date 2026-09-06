@@ -19,7 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 
 import org.apache.iceberg.{FileFormat, PartitionField, PartitionSpec, Schema, TableProperties}
-import org.apache.iceberg.TableProperties.{ORC_COMPRESSION, ORC_COMPRESSION_DEFAULT, PARQUET_COMPRESSION, PARQUET_COMPRESSION_DEFAULT, PARQUET_DICT_SIZE_BYTES, PARQUET_DICT_SIZE_BYTES_DEFAULT, PARQUET_PAGE_SIZE_BYTES, PARQUET_PAGE_SIZE_BYTES_DEFAULT}
+import org.apache.iceberg.TableProperties.{ORC_COMPRESSION, ORC_COMPRESSION_DEFAULT, PARQUET_COMPRESSION, PARQUET_COMPRESSION_DEFAULT, PARQUET_DICT_SIZE_BYTES, PARQUET_DICT_SIZE_BYTES_DEFAULT, PARQUET_PAGE_SIZE_BYTES, PARQUET_PAGE_SIZE_BYTES_DEFAULT, PARQUET_ROW_GROUP_SIZE_BYTES, PARQUET_ROW_GROUP_SIZE_BYTES_DEFAULT}
 import org.apache.iceberg.avro.AvroSchemaUtil
 import org.apache.iceberg.spark.source.IcebergWriteUtil
 import org.apache.iceberg.types.Type.TypeID
@@ -58,6 +58,14 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
 
   protected def getTargetFileSizeBytes: String = {
     IcebergWriteUtil.getWriteConf(write).targetDataFileSize().toString
+  }
+
+  protected def getParquetRowGroupSizeBytes: String = {
+    val tableProps = IcebergWriteUtil.getTable(write).properties()
+    normalizeCapacityString(
+      tableProps.getOrDefault(
+        PARQUET_ROW_GROUP_SIZE_BYTES,
+        PARQUET_ROW_GROUP_SIZE_BYTES_DEFAULT.toString))
   }
 
   protected def getDictSizeBytes: String = {
