@@ -64,7 +64,7 @@
     <caffeine.version>2.9.3</caffeine.version>
     <scala.binary.version>2.12</scala.binary.version>
     <scala.version>2.12.18</scala.version>
-    <scala-xml.version>2.1.0</scala-xml.version>
+    <scala-xml.version>2.4.0</scala-xml.version>
     <javax.servlet.version>3.1.0</javax.servlet.version>
     <spark.major.version>3</spark.major.version>
     <sparkbundle.version>3.5</sparkbundle.version>
