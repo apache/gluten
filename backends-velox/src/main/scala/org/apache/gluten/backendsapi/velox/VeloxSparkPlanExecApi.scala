@@ -1423,6 +1423,16 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     VeloxColumnarToCarrierRowExec.enforce(plan)
   }
 
+  override def isSupportEmptyRelationExec(plan: SparkPlan): Boolean = {
+    if (!GlutenConfig.get.enableColumnarEmptyRelation) {
+      logDebug(
+        "EmptyRelationExec offload skipped: " +
+          s"${GlutenConfig.COLUMNAR_EMPTY_RELATION_ENABLED.key}=false")
+      return false
+    }
+    true
+  }
+
   override def isSupportLocalTableScanExec(plan: LocalTableScanExec): Boolean = {
     // `rows` is @transient, so it becomes null after Java serialization (e.g. an AQE sub-plan
     // shipped across an RPC boundary). A null rows payload signals a deserialized plan that can
@@ -1444,6 +1454,9 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
     true
   }
+
+  override def getEmptyRelationExecTransform(plan: SparkPlan): EmptyRelationExecTransformer =
+    EmptyRelationExecTransformer(plan.output)
 
   override def getLocalTableScanTransform(plan: LocalTableScanExec): LocalTableScanTransformer =
     VeloxLocalTableScanTransformer.replace(plan)

@@ -314,6 +314,10 @@ object OffloadOthers {
             child)
         case plan: RDDScanExec if RDDScanTransformer.isSupportRDDScanExec(plan) =>
           RDDScanTransformer.getRDDScanTransform(plan)
+        case plan
+            if SparkShimLoader.getSparkShims.isEmptyRelationExec(plan) &&
+              EmptyRelationExecTransformer.isSupportEmptyRelationExec(plan) =>
+          EmptyRelationExecTransformer.getEmptyRelationExecTransform(plan)
         case plan: LocalTableScanExec
             if LocalTableScanTransformer.isSupportLocalTableScanExec(plan) =>
           LocalTableScanTransformer.getLocalTableScanTransform(plan)
