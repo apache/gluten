@@ -23,6 +23,8 @@ import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.commands.optimize.OptimizeMetrics
+import org.apache.spark.sql.delta.files.GlutenDeltaFileFormatWriter
+import org.apache.spark.sql.delta.schema.InvariantViolationException
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
 import org.apache.spark.sql.execution.QueryExecution
@@ -30,6 +32,7 @@ import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
 import org.apache.spark.sql.execution.datasources.v2.{GlutenDeltaLeafRunnableCommand, GlutenDeltaLeafV2CommandExec, GlutenDeltaRunnableCommand}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{LongType, StringType, StructField, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
 
 import java.util.concurrent.{CopyOnWriteArrayList, TimeUnit}
@@ -511,6 +514,116 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
             "DataFrameWriter.save(overwrite) with native write disabled")
           val result = spark.read.format("delta").load(path)
           assert(result.collect().toSet == Set(Row(1, "a"), Row(2, "b")))
+      }
+    }
+  }
+
+  test("native delta write checks top-level NOT NULL without DeltaInvariantCheckerExec") {
+    withNativeWriteOffloadConf {
+      withTable("delta_native_write_not_null") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            sql(
+              s"CREATE TABLE delta_native_write_not_null " +
+                s"(id BIGINT NOT NULL, value STRING) USING delta LOCATION '$path'")
+
+            GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+            val plans = collectExecutedPlans {
+              Seq((1L, "a"), (2L, "b"))
+                .toDF("id", "value")
+                .write
+                .format("delta")
+                .mode("append")
+                .save(path)
+            }
+
+            assertContainsNativeWriteCommand(plans, "top-level NOT NULL append")
+            val writerPlan = GlutenDeltaFileFormatWriter.getExecutedPlanForTesting
+              .getOrElse(fail("Expected GlutenDeltaFileFormatWriter to record the executed plan"))
+            val writerPlanString = writerPlan.treeString
+            assert(
+              !writerPlanString.contains("DeltaInvariantChecker"),
+              s"Expected native invariant checker to avoid DeltaInvariantCheckerExec, but got:\n" +
+                writerPlanString
+            )
+            assert(
+              !writerPlanString.contains("ColumnarToRow"),
+              s"Expected native invariant checker to avoid C2R transitions, but got:\n" +
+                writerPlanString
+            )
+
+            val result = spark.read.format("delta").load(path)
+            assert(result.collect().toSet == Set(Row(1L, "a"), Row(2L, "b")))
+        }
+      }
+    }
+  }
+
+  test("native delta write keeps DeltaInvariantCheckerExec for CHECK constraints") {
+    withNativeWriteOffloadConf {
+      withTable("delta_native_write_check_constraint") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            sql(
+              s"CREATE TABLE delta_native_write_check_constraint " +
+                s"(id BIGINT, value STRING) USING delta LOCATION '$path' " +
+                s"TBLPROPERTIES ('delta.constraints.id_positive' = 'id > 0')")
+
+            GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+            Seq((1L, "a"), (2L, "b"))
+              .toDF("id", "value")
+              .write
+              .format("delta")
+              .mode("append")
+              .save(path)
+
+            val writerPlan = GlutenDeltaFileFormatWriter.getExecutedPlanForTesting
+              .getOrElse(fail("Expected GlutenDeltaFileFormatWriter to record the executed plan"))
+            assert(
+              writerPlan.treeString.contains("DeltaInvariantChecker"),
+              s"Expected DeltaInvariantCheckerExec for unsupported CHECK constraint, but got:\n" +
+                writerPlan.treeString
+            )
+        }
+      }
+    }
+  }
+
+  test("native delta write reports top-level NOT NULL violations") {
+    withNativeWriteOffloadConf {
+      withTable("delta_native_write_not_null_violation") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            sql(
+              s"CREATE TABLE delta_native_write_not_null_violation " +
+                s"(id BIGINT NOT NULL, value STRING) USING delta LOCATION '$path'")
+
+            val schema = StructType(
+              Seq(
+                StructField("id", LongType, nullable = true),
+                StructField("value", StringType, nullable = true)))
+            val invalidData = spark.createDataFrame(
+              spark.sparkContext.parallelize(Seq(Row(null, "bad"))),
+              schema)
+
+            GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+            val exception = intercept[InvariantViolationException] {
+              invalidData.write.format("delta").mode("append").save(path)
+            }
+            assert(exception.getMessage.toLowerCase(java.util.Locale.ROOT).contains("not null"))
+            assert(exception.getMessage.contains("id"))
+
+            val writerPlan = GlutenDeltaFileFormatWriter.getExecutedPlanForTesting
+              .getOrElse(fail("Expected GlutenDeltaFileFormatWriter to record the executed plan"))
+            assert(
+              !writerPlan.treeString.contains("DeltaInvariantChecker"),
+              s"Expected native invariant checker to avoid DeltaInvariantCheckerExec, but got:\n" +
+                writerPlan.treeString
+            )
+        }
       }
     }
   }
