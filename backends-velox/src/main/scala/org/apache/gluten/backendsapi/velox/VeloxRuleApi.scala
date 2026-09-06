@@ -58,6 +58,7 @@ object VeloxRuleApi {
     injector.injectOptimizerRule(CollapseGetJsonObjectExpressionRule.apply)
     injector.injectOptimizerRule(RewriteCastFromArray.apply)
     injector.injectOptimizerRule(RewriteUnboundedWindow.apply)
+    injector.injectOptimizerRule(RewriteSelfJoinInequalityToAggregate.apply)
     injector.injectOptimizerRule(PushAggregateThroughJoinBatch.apply)
     injector.injectPlannerStrategy(ImplementJoinAggregate.apply)
 
