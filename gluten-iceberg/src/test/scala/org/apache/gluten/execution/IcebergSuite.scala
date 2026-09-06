@@ -20,7 +20,13 @@ import org.apache.gluten.config.GlutenIcebergConfig
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
+import org.apache.spark.sql.util.QueryExecutionListener
+
+import org.apache.iceberg.spark.source.GlutenIcebergSourceUtil
+
+import java.util.concurrent.{CountDownLatch, TimeUnit}
 
 abstract class IcebergSuite extends WholeStageTransformerSuite {
   protected val rootPath: String = getClass.getResource("/").getPath
@@ -56,6 +62,70 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
                            |select * from iceberg_tb;
                            |""".stripMargin) {
         checkGlutenPlan[IcebergScanTransformer]
+      }
+    }
+  }
+
+  test("rewrite_data_files uses an iceberg staged scan transformer") {
+    val tableName = "iceberg_rewrite_tb"
+    withTable(tableName) {
+      withSQLConf("spark.sql.adaptive.enabled" -> "false") {
+        spark.sql(s"CREATE TABLE $tableName (id INT, data STRING) USING iceberg")
+        (1 to 5).foreach {
+          id => spark.sql(s"INSERT INTO $tableName VALUES ($id, 'value-$id')")
+        }
+
+        def dataFileCount: Long =
+          spark.table(s"spark_catalog.default.$tableName.files").count()
+
+        assert(dataFileCount == 5)
+        val stagedScanSeen = new CountDownLatch(1)
+        val listener = new QueryExecutionListener {
+          override def onSuccess(
+              funcName: String,
+              qe: QueryExecution,
+              durationNs: Long): Unit = {
+            if (
+              qe.executedPlan.exists {
+                case scan: IcebergScanTransformer =>
+                  GlutenIcebergSourceUtil.isSparkStagedScan(scan.scan)
+                case _ => false
+              }
+            ) {
+              stagedScanSeen.countDown()
+            }
+          }
+
+          override def onFailure(
+              funcName: String,
+              qe: QueryExecution,
+              exception: Exception): Unit = {}
+        }
+
+        try {
+          spark.listenerManager.register(listener)
+          val result = spark
+            .sql(s"""
+                    |CALL spark_catalog.system.rewrite_data_files(
+                    |  table => 'default.$tableName',
+                    |  options => map('min-input-files', '2'))
+                    |""".stripMargin)
+            .collect()
+
+          assert(result.length == 1)
+          assert(result.head.getInt(0) == 5)
+          assert(result.head.getInt(1) == 1)
+          assert(
+            stagedScanSeen.await(10, TimeUnit.SECONDS),
+            "Rewrite read did not use IcebergScanTransformer with SparkStagedScan")
+        } finally {
+          spark.listenerManager.unregister(listener)
+        }
+
+        assert(dataFileCount == 1)
+        checkAnswer(
+          spark.sql(s"SELECT * FROM $tableName ORDER BY id"),
+          (1 to 5).map(id => Row(id, s"value-$id")))
       }
     }
   }
