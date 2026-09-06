@@ -73,6 +73,16 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
    */
   def pushDownFilters: Option[Seq[Expression]]
 
+  /**
+   * Returns the options passed via DataFrameReader.option() or DataStreamReader.option(). For DSv1
+   * scans these are stored in HadoopFsRelation.options and are NOT propagated to
+   * sparkContext.hadoopConfiguration or SQLConf, so they must be collected here explicitly and
+   * transported to the native backend via GlutenWholeStageColumnarRDD.fsConf.
+   *
+   * The default implementation returns Map.empty (used for DSv2 and non-file scans).
+   */
+  def readerOptions: Map[String, String] = Map.empty
+
   /** Copy the scan with filters that pushed by filterNode. */
   def withNewPushdownFilters(filters: Seq[Expression]): BasicScanExecTransformer = {
     throw new UnsupportedOperationException(

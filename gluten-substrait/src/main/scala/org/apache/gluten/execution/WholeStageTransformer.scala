@@ -367,6 +367,56 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
         allSplitInfos,
         leafTransformers)
 
+    // Compute fsConf once here on the driver from the leaf transformers' session
+    // Hadoop configuration.  It is stored as a plain field on the RDD and
+    // serialized once per executor via the existing task closure - no per-partition
+    // copies, no Broadcast overhead (no BlockManager registration, no HTTP fetch,
+    // no master round-trip).  GlutenPartition never carries fsConf.
+    //
+    // Two sources merged (getPropsWithPrefix avoids full conf iteration):
+    //   1. sparkContext.hadoopConfiguration - spark.hadoop.* and sc.hadoopConf.set()
+    //   2. SQLConf - spark.conf.set("fs.*", ...) keys that live only in SQLConf
+    val fsConf: Map[String, String] = {
+      import scala.collection.JavaConverters._
+      val fsPrefixes = Seq("fs.azure.", "fs.s3a.", "fs.gs.")
+
+      // Source 1: sparkContext.hadoopConfiguration (spark.hadoop.* and sc.hadoopConf.set()).
+      // Read directly from the mutable base Configuration via getPropsWithPrefix
+      // rather than sessionState.newHadoopConf(), which would make a full copy
+      // of the entire Hadoop config (hundreds of entries from core-site.xml,
+      // hdfs-site.xml, etc.) just to look up a handful of fs.* keys.
+      // getPropsWithPrefix reads directly from the internal map and returns only
+      // matching entries - cost proportional to matches, not total config size.
+      // scalastyle:off hadoopconfiguration
+      val baseHadoopConf = sparkContext.hadoopConfiguration
+      // scalastyle:on hadoopconfiguration
+      val fromHadoop: Map[String, String] = fsPrefixes.flatMap {
+        prefix =>
+          baseHadoopConf.getPropsWithPrefix(prefix).asScala
+            .map { case (suffix, v) => (prefix + suffix) -> v }
+      }.toMap
+
+      // Source 2: SQLConf (spark.conf.set("fs.*", ...) at session level).
+      val fromSqlConf: Map[String, String] =
+        org.apache.spark.sql.internal.SQLConf.get.getAllConfs.filter {
+          case (k, _) => fsPrefixes.exists(k.startsWith)
+        }
+
+      // Source 3: DataFrameReader.option() / DataStreamReader.option() passed to
+      // each scan.  These are stored in HadoopFsRelation.options (DSv1) or
+      // FileScan.options (DSv2) and are NOT in hadoopConfiguration or SQLConf.
+      // Collect from all leaf scan transformers and merge (last writer wins, so
+      // later leaves can override earlier ones for the same key).
+      val fromReaderOptions: Map[String, String] =
+        leafTransformers
+          .collect { case s: BasicScanExecTransformer => s.readerOptions }
+          .flatMap(_.filter { case (k, _) => fsPrefixes.exists(k.startsWith) })
+          .toMap
+
+      // Precedence: readerOptions (most specific) > SQLConf > hadoopConfiguration
+      fromHadoop ++ fromSqlConf ++ fromReaderOptions
+    }
+
     val rdd = new GlutenWholeStageColumnarRDD(
       sparkContext,
       inputPartitions,
@@ -380,7 +430,8 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
         wsCtx.substraitContext.registeredAggregationParams
       ),
       wsCtx.enableCudf,
-      wsCtx
+      wsCtx,
+      FsCredentialConf(fsConf)
     )
 
     val allInputPartitions = leafTransformers.map(_.getPartitions)

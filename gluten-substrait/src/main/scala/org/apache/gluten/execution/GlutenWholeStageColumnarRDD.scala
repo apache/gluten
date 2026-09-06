@@ -35,6 +35,50 @@ trait BaseGlutenPartition extends Partition with InputPartition {
   def plan: Array[Byte]
 }
 
+/**
+ * Wraps Hadoop/Velox filesystem credential key-value pairs (fs.azure.*, fs.s3a.*, fs.gs.*) so they
+ * cannot be accidentally exposed through logging, toString, exception messages, or other debug
+ * paths that might print an arbitrary object.
+ *
+ * `toString` is deliberately overridden to redact values - only key NAMES are shown (these are not
+ * secret; only the bearer values like access keys, secret keys, and OAuth client secrets are). This
+ * makes accidental leaks structurally harder: a future `logDebug(s"... $fsConfHolder")` or similar
+ * call will print "FsCredentialConf(3 keys: [fs.azure.account.auth.type, ...], values redacted)"
+ * instead of the literal secret strings.
+ *
+ * The underlying map is also `private` so it cannot be reached by name from outside this file
+ * without going through `.unsafeValue`, which is named to discourage casual use.
+ */
+final case class FsCredentialConf private (private val raw: Map[String, String]) {
+
+  /** Number of credential entries held. Safe to log. */
+  def size: Int = raw.size
+
+  def isEmpty: Boolean = raw.isEmpty
+  def nonEmpty: Boolean = raw.nonEmpty
+
+  /**
+   * Returns the underlying map with real values. Named `unsafeValue` to make call sites grep-able
+   * and to discourage passing the result to logging code. Only the native JNI boundary (extraConf
+   * for NativePlanEvaluator) should call this.
+   */
+  def unsafeValue: Map[String, String] = raw
+
+  override def toString: String = {
+    if (raw.isEmpty) {
+      "FsCredentialConf(empty)"
+    } else {
+      s"FsCredentialConf(${raw.size} keys: [${raw.keys.toSeq.sorted.mkString(", ")}], " +
+        "values redacted)"
+    }
+  }
+}
+
+object FsCredentialConf {
+  val empty: FsCredentialConf = FsCredentialConf(Map.empty)
+  def apply(raw: Map[String, String]): FsCredentialConf = new FsCredentialConf(raw)
+}
+
 case class GlutenPartition(
     index: Int,
     plan: Array[Byte],
@@ -61,8 +105,16 @@ class GlutenWholeStageColumnarRDD(
     updateInputMetrics: InputMetricsWrapper => Unit,
     updateNativeMetrics: IMetrics => Unit,
     enableCudf: Boolean = false,
-    wsContext: WholeStageTransformContext = null)
+    wsContext: WholeStageTransformContext = null,
+    private val fsConf: FsCredentialConf = FsCredentialConf.empty)
   extends RDD[ColumnarBatch](sc, rdds.getDependencies) {
+
+  // Override toString so that fsConf credential values are never exposed in
+  // Spark logs, DAG visualization, toDebugString, or the UI. Delegates to
+  // FsCredentialConf.toString, which shows only key NAMES (redacted values) -
+  // see FsCredentialConf's doc comment for the full rationale.
+  override def toString: String =
+    s"GlutenWholeStageColumnarRDD[$id] fsConf=$fsConf"
 
   override def compute(split: Partition, context: TaskContext): Iterator[ColumnarBatch] = {
     GlutenTimeMetric.millis(pipelineTime) {
@@ -84,7 +136,8 @@ class GlutenWholeStageColumnarRDD(
           split.index,
           inputIterators,
           enableCudf,
-          wsContext
+          wsContext,
+          fsConf.unsafeValue
         )
     }
   }

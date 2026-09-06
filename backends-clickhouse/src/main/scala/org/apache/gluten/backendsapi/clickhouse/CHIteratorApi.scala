@@ -285,7 +285,8 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
       partitionIndex: Int,
       inputIterators: Seq[Iterator[ColumnarBatch]] = Seq(),
       enableCudf: Boolean = false,
-      wsContext: WholeStageTransformContext = null
+      wsContext: WholeStageTransformContext = null,
+      fsConf: Map[String, String] = Map.empty
   ): Iterator[ColumnarBatch] = {
 
     require(

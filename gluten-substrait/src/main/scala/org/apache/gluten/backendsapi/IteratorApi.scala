@@ -69,7 +69,8 @@ trait IteratorApi {
       partitionIndex: Int,
       inputIterators: Seq[Iterator[ColumnarBatch]] = Seq(),
       enableCudf: Boolean = false,
-      wsContext: WholeStageTransformContext = null
+      wsContext: WholeStageTransformContext = null,
+      fsConf: Map[String, String] = Map.empty
   ): Iterator[ColumnarBatch]
 
   /**
