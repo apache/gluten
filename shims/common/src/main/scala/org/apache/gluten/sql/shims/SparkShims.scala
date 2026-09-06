@@ -22,20 +22,20 @@ import org.apache.gluten.expression.Sig
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.io.FileCommitProtocol
+import org.apache.spark.paths.SparkPath
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryArithmetic, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, RaiseError, SortOrder, UnBase64}
+import org.apache.spark.sql.catalyst.expressions.{Add, Attribute, BinaryArithmetic, Cast, Divide, EvalMode, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, IntegralDivide, Multiply, RaiseError, SortOrder, Subtract, UnBase64}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
-import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.catalyst.util.TimestampFormatter
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read.{InputPartition, Scan}
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFilters
 import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV2ScanExecBase}
@@ -50,9 +50,11 @@ import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.parquet.hadoop.metadata.{CompressionCodecName, ParquetMetadata}
 import org.apache.parquet.schema.MessageType
 
+import java.time.ZoneOffset
 import java.util.{Map => JMap}
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.reflect.ClassTag
 
 case class SparkShimDescriptor(major: Int, minor: Int, patch: Int) {
@@ -89,21 +91,30 @@ trait SparkShims {
       sparkSession: SparkSession,
       readFunction: PartitionedFile => Iterator[InternalRow],
       filePartitions: Seq[FilePartition],
-      fileSourceScanExec: FileSourceScanExec): FileScanRDD
+      fileSourceScanExec: FileSourceScanExec): FileScanRDD = {
+    new FileScanRDD(
+      sparkSession,
+      readFunction,
+      filePartitions,
+      new StructType(
+        fileSourceScanExec.requiredSchema.fields ++
+          fileSourceScanExec.relation.partitionSchema.fields),
+      fileSourceScanExec.fileConstantMetadataColumns
+    )
+  }
 
   def filesGroupedToBuckets(
       selectedPartitions: Array[PartitionDirectory]): Map[Int, Array[PartitionedFile]]
 
-  // Spark3.4 new add table parameter in BatchScanExec.
-  def getBatchScanExecTable(batchScan: BatchScanExec): Table
+  def getBatchScanExecTable(batchScan: BatchScanExec): Table = batchScan.table
 
-  // The PartitionedFile API changed in spark 3.4
   def generatePartitionedFile(
       partitionValues: InternalRow,
       filePath: String,
       start: Long,
       length: Long,
-      @transient locations: Array[String] = Array.empty): PartitionedFile
+      @transient locations: Array[String] = Array.empty): PartitionedFile =
+    PartitionedFile(partitionValues, SparkPath.fromPathString(filePath), start, length, locations)
 
   def isWindowGroupLimitExec(plan: SparkPlan): Boolean = false
 
@@ -111,11 +122,9 @@ trait SparkShims {
 
   def getWindowGroupLimitExec(windowGroupLimitExecShim: WindowGroupLimitExecShim): SparkPlan = null
 
-  def getLimitAndOffsetFromGlobalLimit(plan: GlobalLimitExec): (Int, Int) = (plan.limit, 0)
+  def getLimitAndOffsetFromGlobalLimit(plan: GlobalLimitExec): (Int, Int)
 
-  def getLimitAndOffsetFromTopK(plan: TakeOrderedAndProjectExec): (Int, Int) = (plan.limit, 0)
-
-  def getExtendedColumnarPostRules(): List[SparkSession => Rule[SparkPlan]]
+  def getLimitAndOffsetFromTopK(plan: TakeOrderedAndProjectExec): (Int, Int)
 
   def writeFilesExecuteTask(
       description: WriteJobDescription,
@@ -124,28 +133,18 @@ trait SparkShims {
       sparkPartitionId: Int,
       sparkAttemptNumber: Int,
       committer: FileCommitProtocol,
-      iterator: Iterator[InternalRow]): WriteTaskResult = {
-    throw new UnsupportedOperationException()
-  }
+      iterator: Iterator[InternalRow]): WriteTaskResult
 
-  def enableNativeWriteFilesByDefault(): Boolean = false
+  def enableNativeWriteFilesByDefault(): Boolean
 
-  // Planned V1 writes were introduced in Spark 3.4. Older versions do not expose a required
-  // ordering utility and keep the default empty ordering.
-  // TODO: Remove this shim after dropping Spark 3.3 support.
   def getV1WriteRequiredOrdering(
       outputColumns: Seq[Attribute],
       partitionColumns: Seq[Attribute],
       bucketSpec: Option[BucketSpec],
       options: Map[String, String],
-      numStaticPartitionCols: Int): Seq[SortOrder] = Seq.empty
+      numStaticPartitionCols: Int): Seq[SortOrder]
 
-  def broadcastInternal[T: ClassTag](sc: SparkContext, value: T): Broadcast[T] = {
-    // Since Spark 3.4, the `sc.broadcast` has been optimized to use `sc.broadcastInternal`.
-    // More details see SPARK-39983.
-    // TODO, remove this shim once we drop Spark3.3 and previous
-    sc.broadcast(value)
-  }
+  def broadcastInternal[T: ClassTag](sc: SparkContext, value: T): Broadcast[T]
 
   // To be compatible with Spark-3.5 and later
   // See https://github.com/apache/spark/pull/41440
@@ -184,20 +183,42 @@ trait SparkShims {
       file: PartitionedFile,
       metadataColumnNames: Seq[String] = Seq.empty): Map[String, String] = {
     val requested = metadataColumnNames.toSet
-    Seq(
+    val originMetadataColumn = Seq(
       InputFileName().prettyName -> file.filePath.toString,
       InputFileBlockStart().prettyName -> file.start.toString,
       InputFileBlockLength().prettyName -> file.length.toString
     ).collect { case (name, value) if requested.contains(name) => name -> value }.toMap
+    val metadataColumn: mutable.Map[String, String] = mutable.Map(originMetadataColumn.toSeq: _*)
+    val path = new Path(file.filePath.toString)
+    for (columnName <- metadataColumnNames) {
+      columnName match {
+        case FileFormat.FILE_PATH => metadataColumn += (FileFormat.FILE_PATH -> path.toString)
+        case FileFormat.FILE_NAME => metadataColumn += (FileFormat.FILE_NAME -> path.getName)
+        case FileFormat.FILE_SIZE =>
+          metadataColumn += (FileFormat.FILE_SIZE -> file.fileSize.toString)
+        case FileFormat.FILE_MODIFICATION_TIME =>
+          val fileModifyTime = TimestampFormatter
+            .getFractionFormatter(ZoneOffset.UTC)
+            .format(file.modificationTime * 1000L)
+          metadataColumn += (FileFormat.FILE_MODIFICATION_TIME -> fileModifyTime)
+        case FileFormat.FILE_BLOCK_START =>
+          metadataColumn += (FileFormat.FILE_BLOCK_START -> file.start.toString)
+        case FileFormat.FILE_BLOCK_LENGTH =>
+          metadataColumn += (FileFormat.FILE_BLOCK_LENGTH -> file.length.toString)
+        case _ =>
+      }
+    }
+    metadataColumn.toMap
   }
 
   // For compatibility with Spark-3.5.
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan]
 
-  def getKeyGroupedPartitioning(batchScan: BatchScanExec): Option[Seq[Expression]] = Option(Seq())
+  def getKeyGroupedPartitioning(batchScan: BatchScanExec): Option[Seq[Expression]] = {
+    batchScan.keyGroupedPartitioning
+  }
 
-  def getCommonPartitionValues(batchScan: BatchScanExec): Option[Seq[(InternalRow, Int)]] =
-    Option(Seq())
+  def getCommonPartitionValues(batchScan: BatchScanExec): Option[Seq[(InternalRow, Int)]]
 
   /**
    * Most of the code in this method is copied from
@@ -212,18 +233,32 @@ trait SparkShims {
       commonPartitionValues: Option[Seq[(InternalRow, Int)]],
       applyPartialClustering: Boolean,
       replicatePartitions: Boolean,
-      joinKeyPositions: Option[Seq[Int]] = None): Seq[Seq[InputPartition]] =
-    filteredPartitions
+      joinKeyPositions: Option[Seq[Int]] = None): Seq[Seq[InputPartition]]
 
-  def extractExpressionTimestampAddUnit(timestampAdd: Expression): Option[Seq[String]] =
-    Option.empty
+  def extractExpressionTimestampAddUnit(timestampAdd: Expression): Option[Seq[String]]
 
-  def extractExpressionTimestampDiffUnit(timestampDiff: Expression): Option[String] =
-    Option.empty
+  def withTryEvalMode(expr: Expression): Boolean = {
+    expr match {
+      case a: Add => a.evalMode == EvalMode.TRY
+      case s: Subtract => s.evalMode == EvalMode.TRY
+      case d: Divide => d.evalMode == EvalMode.TRY
+      case m: Multiply => m.evalMode == EvalMode.TRY
+      case c: Cast => c.evalMode == EvalMode.TRY
+      case _ => false
+    }
+  }
 
-  def withTryEvalMode(expr: Expression): Boolean = false
-
-  def withAnsiEvalMode(expr: Expression): Boolean = false
+  def withAnsiEvalMode(expr: Expression): Boolean = {
+    expr match {
+      case a: Add => a.evalMode == EvalMode.ANSI
+      case s: Subtract => s.evalMode == EvalMode.ANSI
+      case d: Divide => d.evalMode == EvalMode.ANSI
+      case m: Multiply => m.evalMode == EvalMode.ANSI
+      case c: Cast => c.evalMode == EvalMode.ANSI
+      case i: IntegralDivide => i.evalMode == EvalMode.ANSI
+      case _ => false
+    }
+  }
 
   def isNullIntolerant(expr: Expression): Boolean
 
@@ -232,9 +267,7 @@ trait SparkShims {
       schema: MessageType,
       caseSensitive: Option[Boolean] = None): ParquetFilters
 
-  def extractExpressionArrayInsert(arrayInsert: Expression): Seq[Expression] = {
-    throw new UnsupportedOperationException("ArrayInsert not supported.")
-  }
+  def extractExpressionArrayInsert(arrayInsert: Expression): Seq[Expression]
 
   /** Shim method for usages from GlutenExplainUtils.scala. */
   def withOperatorIdMap[T](idMap: java.util.Map[QueryPlan[_], Int])(body: => T): T = {
@@ -265,9 +298,9 @@ trait SparkShims {
   def getOtherConstantMetadataColumnValues(file: PartitionedFile): JMap[String, Object] =
     Map.empty[String, Any].asJava.asInstanceOf[JMap[String, Object]]
 
-  def getCollectLimitOffset(plan: CollectLimitExec): Int = 0
+  def getCollectLimitOffset(plan: CollectLimitExec): Int
 
-  def unBase64FunctionFailsOnError(unBase64: UnBase64): Boolean = false
+  def unBase64FunctionFailsOnError(unBase64: UnBase64): Boolean
 
   def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType
 
@@ -311,8 +344,6 @@ trait SparkShims {
       sparkSession: SparkSession,
       planner: SparkPlanner,
       plan: LogicalPlan): SparkPlan
-
-  def isFinalAdaptivePlan(p: AdaptiveSparkPlanExec): Boolean
 
   /**
    * Checks if the given JoinType is LeftSingle. LeftSingle is a Spark 4.0+ join type, semantically

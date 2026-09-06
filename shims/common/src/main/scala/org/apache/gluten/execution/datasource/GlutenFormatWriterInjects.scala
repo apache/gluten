@@ -76,13 +76,6 @@ object GlutenFormatFactory {
     postRuleFactory = factory
   }
 
-  def getExtendedColumnarPostRule(session: SparkSession): Rule[SparkPlan] = {
-    if (postRuleFactory == null) {
-      throw new IllegalStateException("GlutenFormatFactory is not initialized")
-    }
-    postRuleFactory(session)
-  }
-
   def register(rowSplitter: GlutenRowSplitter): Unit = {
     rowSplitterInstance = rowSplitter
   }

@@ -23,7 +23,6 @@ import org.apache.gluten.utils.ExceptionUtils
 import org.apache.spark._
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.io.FileCommitProtocol
-import org.apache.spark.paths.SparkPath
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.DecimalPrecision
@@ -33,13 +32,10 @@ import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.plans.physical.{KeyGroupedPartitioning, Partitioning}
-import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.catalyst.util.{InternalRowComparableWrapper, TimestampFormatter}
+import org.apache.spark.sql.catalyst.util.InternalRowComparableWrapper
 import org.apache.spark.sql.catalyst.util.RebaseDateTime.RebaseSpec
-import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read.{HasPartitionKey, InputPartition, Scan}
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFilters
 import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV2ScanExecBase}
@@ -55,9 +51,6 @@ import org.apache.parquet.crypto.ParquetCryptoRuntimeException
 import org.apache.parquet.hadoop.metadata.ParquetMetadata
 import org.apache.parquet.schema.MessageType
 
-import java.time.ZoneOffset
-
-import scala.collection.mutable
 import scala.reflect.ClassTag
 
 class Spark34Shims extends SparkShims {
@@ -94,22 +87,6 @@ class Spark34Shims extends SparkShims {
 
   override def isNullIntolerant(expr: Expression): Boolean = expr.isInstanceOf[NullIntolerant]
 
-  override def generateFileScanRDD(
-      sparkSession: SparkSession,
-      readFunction: PartitionedFile => Iterator[InternalRow],
-      filePartitions: Seq[FilePartition],
-      fileSourceScanExec: FileSourceScanExec): FileScanRDD = {
-    new FileScanRDD(
-      sparkSession,
-      readFunction,
-      filePartitions,
-      new StructType(
-        fileSourceScanExec.requiredSchema.fields ++
-          fileSourceScanExec.relation.partitionSchema.fields),
-      fileSourceScanExec.fileConstantMetadataColumns
-    )
-  }
-
   override def filesGroupedToBuckets(
       selectedPartitions: Array[PartitionDirectory]): Map[Int, Array[PartitionedFile]] = {
     selectedPartitions
@@ -122,43 +99,6 @@ class Spark34Shims extends SparkShims {
             .getBucketId(f.toPath.getName)
             .getOrElse(throw invalidBucketFile(f.urlEncodedPath))
       }
-  }
-
-  override def getBatchScanExecTable(batchScan: BatchScanExec): Table = batchScan.table
-
-  override def generatePartitionedFile(
-      partitionValues: InternalRow,
-      filePath: String,
-      start: Long,
-      length: Long,
-      @transient locations: Array[String] = Array.empty): PartitionedFile =
-    PartitionedFile(partitionValues, SparkPath.fromPathString(filePath), start, length, locations)
-
-  override def generateMetadataColumns(
-      file: PartitionedFile,
-      metadataColumnNames: Seq[String]): Map[String, String] = {
-    val originMetadataColumn = super.generateMetadataColumns(file, metadataColumnNames)
-    val metadataColumn: mutable.Map[String, String] = mutable.Map(originMetadataColumn.toSeq: _*)
-    val path = new Path(file.filePath.toString)
-    for (columnName <- metadataColumnNames) {
-      columnName match {
-        case FileFormat.FILE_PATH => metadataColumn += (FileFormat.FILE_PATH -> path.toString)
-        case FileFormat.FILE_NAME => metadataColumn += (FileFormat.FILE_NAME -> path.getName)
-        case FileFormat.FILE_SIZE =>
-          metadataColumn += (FileFormat.FILE_SIZE -> file.fileSize.toString)
-        case FileFormat.FILE_MODIFICATION_TIME =>
-          val fileModifyTime = TimestampFormatter
-            .getFractionFormatter(ZoneOffset.UTC)
-            .format(file.modificationTime * 1000L)
-          metadataColumn += (FileFormat.FILE_MODIFICATION_TIME -> fileModifyTime)
-        case FileFormat.FILE_BLOCK_START =>
-          metadataColumn += (FileFormat.FILE_BLOCK_START -> file.start.toString)
-        case FileFormat.FILE_BLOCK_LENGTH =>
-          metadataColumn += (FileFormat.FILE_BLOCK_LENGTH -> file.length.toString)
-        case _ =>
-      }
-    }
-    metadataColumn.toMap
   }
 
   // https://issues.apache.org/jira/browse/SPARK-40400
@@ -186,8 +126,6 @@ class Spark34Shims extends SparkShims {
   override def getLimitAndOffsetFromTopK(plan: TakeOrderedAndProjectExec): (Int, Int) = {
     (getLimit(plan.limit, plan.offset), plan.offset)
   }
-
-  override def getExtendedColumnarPostRules(): List[SparkSession => Rule[SparkPlan]] = List()
 
   override def writeFilesExecuteTask(
       description: WriteJobDescription,
@@ -307,10 +245,6 @@ class Spark34Shims extends SparkShims {
 
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan] = {
     ae.plan
-  }
-
-  override def getKeyGroupedPartitioning(batchScan: BatchScanExec): Option[Seq[Expression]] = {
-    batchScan.keyGroupedPartitioning
   }
 
   override def getCommonPartitionValues(
@@ -434,29 +368,6 @@ class Spark34Shims extends SparkShims {
     }
   }
 
-  override def withTryEvalMode(expr: Expression): Boolean = {
-    expr match {
-      case a: Add => a.evalMode == EvalMode.TRY
-      case s: Subtract => s.evalMode == EvalMode.TRY
-      case d: Divide => d.evalMode == EvalMode.TRY
-      case m: Multiply => m.evalMode == EvalMode.TRY
-      case c: Cast => c.evalMode == EvalMode.TRY
-      case _ => false
-    }
-  }
-
-  override def withAnsiEvalMode(expr: Expression): Boolean = {
-    expr match {
-      case a: Add => a.evalMode == EvalMode.ANSI
-      case s: Subtract => s.evalMode == EvalMode.ANSI
-      case d: Divide => d.evalMode == EvalMode.ANSI
-      case m: Multiply => m.evalMode == EvalMode.ANSI
-      case c: Cast => c.evalMode == EvalMode.ANSI
-      case i: IntegralDivide => i.evalMode == EvalMode.ANSI
-      case _ => false
-    }
-  }
-
   override def createParquetFilters(
       conf: SQLConf,
       schema: MessageType,
@@ -516,14 +427,6 @@ class Spark34Shims extends SparkShims {
     }
   }
 
-  override def extractExpressionTimestampDiffUnit(exp: Expression): Option[String] = {
-    exp match {
-      case timestampDiff: TimestampDiff =>
-        Some(timestampDiff.unit)
-      case _ => Option.empty
-    }
-  }
-
   override def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType = {
     DecimalPrecision.widerDecimalType(d1, d2)
   }
@@ -547,10 +450,6 @@ class Spark34Shims extends SparkShims {
       planner: SparkPlanner,
       plan: LogicalPlan): SparkPlan =
     QueryExecution.createSparkPlan(sparkSession, planner, plan)
-
-  override def isFinalAdaptivePlan(p: AdaptiveSparkPlanExec): Boolean = {
-    p.isFinalPlan
-  }
 
   override def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
       : GlutenShuffleBlockFetcherIteratorBase = {
