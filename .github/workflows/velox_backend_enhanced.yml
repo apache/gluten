@@ -116,7 +116,7 @@ jobs:
 
       - name: "Save ccache"
         if: always()
-        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/save@36dacee79f08803aedaaf8cc4a6fb04da7b1c36c
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-enhanced-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}

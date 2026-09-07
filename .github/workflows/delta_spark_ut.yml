@@ -228,7 +228,7 @@ jobs:
       - name: Save Ccache to Apache Stash
         # Comment runs use main's Stash scope; never overwrite it with PR output.
         if: ${{ always() && github.event_name != 'issue_comment' }}
-        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/save@36dacee79f08803aedaaf8cc4a6fb04da7b1c36c
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
@@ -290,7 +290,7 @@ jobs:
             -DskipTests -Dmaven.compiler.release=17
       - name: Save Maven repository to Apache Stash
         if: ${{ github.event_name != 'issue_comment' }}
-        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/save@36dacee79f08803aedaaf8cc4a6fb04da7b1c36c
         with:
           path: /root/.m2/repository
           key: m2-delta-spark-ut-bundle-${{ env.GLUTEN_SPARK_PROFILE }}-${{ env.GLUTEN_SCALA_PROFILE }}-${{ hashFiles('pom.xml', '**/pom.xml') }}
@@ -456,7 +456,7 @@ jobs:
         # All shards have the same dependencies; one writer avoids matrix jobs
         # overwriting the same stash artifact.
         if: ${{ success() && matrix.shard == 0 && github.event_name != 'issue_comment' }}
-        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/save@36dacee79f08803aedaaf8cc4a6fb04da7b1c36c
         with:
           path: |
             /root/.sbt
