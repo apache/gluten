@@ -38,9 +38,9 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{github.sha}}
+          key: ccache-almalinux8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-centos8-release-default
+            ccache-almalinux8-release-default
       - name: Build Gluten native libraries
         run: |
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
@@ -55,12 +55,12 @@ jobs:
         id: ccache
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{github.sha}}
+          key: ccache-almalinux8-release-default-${{github.sha}}
       - name: Save Ccache to Apache Stash
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
 
   cache-native-lib-centos-8:
@@ -140,9 +140,9 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-enhanced-centos8-release-default-${{github.sha}}
+          key: ccache-enhanced-almalinux8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-enhanced-centos8-release-default
+            ccache-enhanced-almalinux8-release-default
       - name: Build Gluten native libraries
         run: |
           docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
@@ -157,12 +157,12 @@ jobs:
         id: ccache
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-enhanced-centos8-release-default-${{github.sha}}
+          key: ccache-enhanced-almalinux8-release-default-${{github.sha}}
       - name: Save Ccache to Apache Stash
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-enhanced-centos8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-enhanced-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
 
   cache-shared-lib-centos-9-cudf:

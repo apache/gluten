@@ -120,9 +120,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{github.sha}}
+          key: ccache-almalinux8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-centos8-release-default
+            ccache-almalinux8-release-default
       - name: Build Gluten native libraries
         run: |
           docker pull apache/gluten:vcpkg-almalinux-8-gcc13
@@ -142,7 +142,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{github.sha}}
+          key: ccache-almalinux8-release-default-${{github.sha}}
       - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-ansi-${{github.sha}}
