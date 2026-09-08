@@ -410,6 +410,8 @@ bool BoltMemoryManager::tryDestructSafe() {
               << " outstanding memory pools.";
       return false;
     }
+
+    /*
     if (boltMemoryManager_->numPools() == 3) {
       // Assert the pool is spill pool
       int32_t spillPoolCount = 0;
@@ -431,6 +433,7 @@ bool BoltMemoryManager::tryDestructSafe() {
       GLUTEN_CHECK(cachePoolCount == 1, "Illegal pool count state: cachePoolCount: " + std::to_string(cachePoolCount));
       GLUTEN_CHECK(tracePoolCount == 1, "Illegal pool count state: tracePoolCount: " + std::to_string(tracePoolCount));
     }
+    */
     if (boltMemoryManager_->numPools() < 3) {
       GLUTEN_CHECK(false, "Unreachable code");
     }

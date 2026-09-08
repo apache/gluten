@@ -101,8 +101,8 @@ class SubstraitToBoltPlanConverter {
   /// Used to convert Substrait GenerateRel into Bolt PlanNode.
   core::PlanNodePtr toBoltPlan(const ::substrait::GenerateRel& generateRel);
 
-  /// Used to convert Substrait WindowRel into Bolt PlanNode.
-  core::PlanNodePtr toBoltPlan(const ::substrait::WindowRel& windowRel);
+  /// Used to convert Substrait ConsistentPartitionWindowRel into Bolt PlanNode.
+  core::PlanNodePtr toBoltPlan(const ::substrait::ConsistentPartitionWindowRel& windowRel);
 
   /// Used to convert Substrait WindowGroupLimitRel into Bolt PlanNode.
   core::PlanNodePtr toBoltPlan(const ::substrait::WindowGroupLimitRel& windowGroupLimitRel);
@@ -115,6 +115,9 @@ class SubstraitToBoltPlanConverter {
 
   /// Used to convert Substrait CrossRel into Bolt PlanNode.
   core::PlanNodePtr toBoltPlan(const ::substrait::CrossRel& crossRel);
+
+  /// Used to convert Substrait NestedLoopJoinRel into Bolt PlanNode.
+  core::PlanNodePtr toBoltPlan(const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel);
 
   /// Used to convert Substrait AggregateRel into Bolt PlanNode.
   core::PlanNodePtr toBoltPlan(const ::substrait::AggregateRel& aggRel);
@@ -273,7 +276,7 @@ class SubstraitToBoltPlanConverter {
   const core::WindowNode::Frame createWindowFrame(
       const ::substrait::Expression_WindowFunction_Bound& lower_bound,
       const ::substrait::Expression_WindowFunction_Bound& upper_bound,
-      const ::substrait::WindowType& type,
+      const ::substrait::Expression_WindowFunction_BoundsType& type,
       const RowTypePtr& inputType);
 
   /// The unique identification for each PlanNode.

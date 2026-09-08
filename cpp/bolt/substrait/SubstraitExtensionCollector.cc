@@ -41,13 +41,14 @@ bool SubstraitExtensionCollector::BiDirectionHashMap<T>::putIfAbsent(const int& 
 }
 
 void SubstraitExtensionCollector::addExtensionsToPlan(::substrait::Plan* plan) const {
-  using SimpleExtensionURI = ::substrait::extensions::SimpleExtensionURI;
-  SimpleExtensionURI* extensionUri = plan->add_extension_uris();
-  extensionUri->set_extension_uri_anchor(1);
+  using SimpleExtensionURN = ::substrait::extensions::SimpleExtensionURN;
+  SimpleExtensionURN* extensionUrn = plan->add_extension_urns();
+  extensionUrn->set_extension_urn_anchor(1);
+  extensionUrn->set_urn("extension:org.apache.gluten:functions");
 
   for (const auto& [referenceNum, functionId] : extensionFunctions_->forwardMap()) {
     auto extensionFunction = plan->add_extensions()->mutable_extension_function();
-    extensionFunction->set_extension_uri_reference(extensionUri->extension_uri_anchor());
+    extensionFunction->set_extension_urn_reference(extensionUrn->extension_urn_anchor());
     extensionFunction->set_function_anchor(referenceNum);
     extensionFunction->set_name(functionId.signature);
   }

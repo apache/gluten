@@ -45,13 +45,13 @@ class BoltToSubstraitExprConvertor {
   /// Literal Expression.
   /// @param arena Arena to use for allocating Substrait plan objects.
   /// @param constExpr Bolt Constant expression needed to be converted.
-  /// @param litValue The Struct that returned literal expression belong to.
+  /// @param litValue The Nested.Struct the converted literals are appended to.
   /// @return A pointer to Substrait Literal expression object allocated on
   /// the arena and representing the input Bolt Constant expression.
   const ::substrait::Expression_Literal& toSubstraitExpr(
       google::protobuf::Arena& arena,
       const std::shared_ptr<const core::ConstantTypedExpr>& constExpr,
-      ::substrait::Expression_Literal_Struct* litValue = nullptr);
+      ::substrait::Expression_Nested_Struct* litValue = nullptr);
 
   /// Convert Bolt FieldAccessTypedExpr to Substrait FieldReference Expression.
   const ::substrait::Expression_FieldReference& toSubstraitExpr(
@@ -68,7 +68,7 @@ class BoltToSubstraitExprConvertor {
   const ::substrait::Expression_Literal& toSubstraitLiteral(
       google::protobuf::Arena& arena,
       const bolt::VectorPtr& vectorValue,
-      ::substrait::Expression_Literal_Struct* litValue);
+      ::substrait::Expression_Nested_Struct* litValue);
 
  private:
   /// Convert Bolt Cast Expression to Substrait Cast Expression.

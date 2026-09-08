@@ -16,6 +16,7 @@
  */
 
 #include "SubstraitParser.h"
+#include <limits>
 #include "TypeUtils.h"
 #include "bolt/common/base/Exceptions.h"
 
@@ -76,9 +77,9 @@ TypePtr SubstraitParser::parseType(const ::substrait::Type& substraitType, bool 
       return UNKNOWN();
     case ::substrait::Type::KindCase::kDate:
       return DATE();
-    case ::substrait::Type::KindCase::kTimestampTz:
+    case ::substrait::Type::KindCase::kPrecisionTimestampTz:
       return TIMESTAMP();
-    case ::substrait::Type::KindCase::kTimestamp:
+    case ::substrait::Type::KindCase::kPrecisionTimestamp:
       return TIMESTAMP();
     case ::substrait::Type::KindCase::kDecimal: {
       auto precision = substraitType.decimal().precision();
@@ -282,9 +283,9 @@ std::string SubstraitParser::mapToBoltFunction(const std::string& substraitFunct
 bool SubstraitParser::configSetInOptimization(
     const ::substrait::extensions::AdvancedExtension& extension,
     const std::string& config) {
-  if (extension.has_optimization()) {
+  if (extension.optimization_size() > 0) {
     google::protobuf::StringValue msg;
-    extension.optimization().UnpackTo(&msg);
+    extension.optimization(0).UnpackTo(&msg);
     std::size_t pos = msg.value().find(config);
     if ((pos != std::string::npos) && (msg.value().substr(pos + config.size(), 1) == "1")) {
       return true;
@@ -296,9 +297,9 @@ bool SubstraitParser::configSetInOptimization(
 int64_t SubstraitParser::configLongValueInOptimization(
     const ::substrait::extensions::AdvancedExtension& extension,
     const std::string& config) {
-  if (extension.has_optimization()) {
+  if (extension.optimization_size() > 0) {
     google::protobuf::StringValue msg;
-    extension.optimization().UnpackTo(&msg);
+    extension.optimization(0).UnpackTo(&msg);
     std::size_t pos = msg.value().find(config);
     std::size_t startPos = pos + config.length();
     std::size_t endPos = msg.value().find('\n', pos);
@@ -313,6 +314,17 @@ int64_t SubstraitParser::configLongValueInOptimization(
     }
   }
   return -1L;
+}
+
+std::optional<int32_t> SubstraitParser::getRowCount(const ::substrait::Expression& expression) {
+  if (!expression.has_literal() || !expression.literal().has_i64()) {
+    return std::nullopt;
+  }
+  const int64_t count = expression.literal().i64();
+  if (count <= 0 || count > std::numeric_limits<int32_t>::max()) {
+    return std::nullopt;
+  }
+  return static_cast<int32_t>(count);
 }
 
 std::vector<TypePtr> SubstraitParser::sigToTypes(const std::string& signature) {

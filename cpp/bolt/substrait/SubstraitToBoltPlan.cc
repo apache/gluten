@@ -373,45 +373,59 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Jo
 }
 
 core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::CrossRel& crossRel) {
-  // Support basic cross join without any filters
-  if (!crossRel.has_left()) {
-    BOLT_FAIL("Left Rel is expected in CrossRel.");
-  }
-  if (!crossRel.has_right()) {
-    BOLT_FAIL("Right Rel is expected in CrossRel.");
-  }
-
+  BOLT_CHECK(crossRel.has_left(), "Left Rel is expected in CrossRel.");
+  BOLT_CHECK(crossRel.has_right(), "Right Rel is expected in CrossRel.");
   auto leftNode = toBoltPlan(crossRel.left());
   auto rightNode = toBoltPlan(crossRel.right());
+  return std::make_shared<core::NestedLoopJoinNode>(
+      nextPlanNodeId(),
+      core::JoinType::kInner,
+      nullptr,
+      leftNode,
+      rightNode,
+      getJoinOutputType(leftNode, rightNode, core::JoinType::kInner));
+}
+
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(
+    const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel) {
+  if (!nestedLoopJoinRel.has_left()) {
+    BOLT_FAIL("Left Rel is expected in NestedLoopJoinRel.");
+  }
+  if (!nestedLoopJoinRel.has_right()) {
+    BOLT_FAIL("Right Rel is expected in NestedLoopJoinRel.");
+  }
+
+  auto leftNode = toBoltPlan(nestedLoopJoinRel.left());
+  auto rightNode = toBoltPlan(nestedLoopJoinRel.right());
 
   // Map join type.
   core::JoinType joinType;
-  switch (crossRel.type()) {
-    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_INNER:
+  switch (nestedLoopJoinRel.type()) {
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_INNER:
       joinType = core::JoinType::kInner;
       break;
-    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_LEFT:
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT:
       joinType = core::JoinType::kLeft;
       break;
-    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_LEFT_SEMI:
-      if (crossRel.has_advanced_extension() &&
-          SubstraitParser::configSetInOptimization(crossRel.advanced_extension(), "isExistenceJoin=")) {
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT_SEMI:
+      if (nestedLoopJoinRel.has_advanced_extension() &&
+          SubstraitParser::configSetInOptimization(nestedLoopJoinRel.advanced_extension(), "isExistenceJoin=")) {
         joinType = core::JoinType::kLeftSemiProject;
       } else {
-        BOLT_NYI("Unsupported Join type: {}", std::to_string(crossRel.type()));
+        BOLT_NYI("Unsupported Join type: {}", std::to_string(nestedLoopJoinRel.type()));
       }
       break;
-    case ::substrait::CrossRel_JoinType::CrossRel_JoinType_JOIN_TYPE_OUTER:
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_OUTER:
       joinType = core::JoinType::kFull;
       break;
     default:
-      BOLT_NYI("Unsupported Join type: {}", std::to_string(crossRel.type()));
+      BOLT_NYI("Unsupported Join type: {}", std::to_string(nestedLoopJoinRel.type()));
   }
 
   auto inputRowType = getJoinInputType(leftNode, rightNode);
   core::TypedExprPtr joinConditions;
-  if (crossRel.has_expression()) {
-    joinConditions = exprConverter_->toBoltExpr(crossRel.expression(), inputRowType);
+  if (nestedLoopJoinRel.has_expression()) {
+    joinConditions = exprConverter_->toBoltExpr(nestedLoopJoinRel.expression(), inputRowType);
   }
 
   return std::make_shared<core::NestedLoopJoinNode>(
@@ -431,7 +445,8 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Ag
 
   // Get the grouping expressions.
   for (const auto& grouping : aggRel.groupings()) {
-    for (const auto& groupingExpr : grouping.grouping_expressions()) {
+    for (const auto& ref : grouping.expression_references()) {
+      const auto& groupingExpr = aggRel.grouping_expressions(ref);
       // Bolt's groupings are limited to be Field.
       boltGroupingExprs.emplace_back(exprConverter_->toBoltExpr(groupingExpr.selection(), inputType));
     }
@@ -734,8 +749,8 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Wr
 
   GLUTEN_CHECK(writeRel.named_table().has_advanced_extension(), "Advanced extension not found in WriteRel");
   const auto& ext = writeRel.named_table().advanced_extension();
-  GLUTEN_CHECK(ext.has_optimization(), "Extension optimization not found in WriteRel");
-  const auto& opt = ext.optimization();
+  GLUTEN_CHECK(ext.optimization_size() > 0, "Extension optimization not found in WriteRel");
+  const auto& opt = ext.optimization(0);
   gluten::ConfigMap confMap;
   opt.UnpackTo(&confMap);
   std::unordered_map<std::string, std::string> writeConfs;
@@ -883,14 +898,14 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Ge
 const core::WindowNode::Frame SubstraitToBoltPlanConverter::createWindowFrame(
     const ::substrait::Expression_WindowFunction_Bound& lower_bound,
     const ::substrait::Expression_WindowFunction_Bound& upper_bound,
-    const ::substrait::WindowType& type,
+    const ::substrait::Expression_WindowFunction_BoundsType& type,
     const RowTypePtr& inputType) {
   core::WindowNode::Frame frame;
   switch (type) {
-    case ::substrait::WindowType::ROWS:
+    case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_ROWS:
       frame.type = core::WindowNode::WindowType::kRows;
       break;
-    case ::substrait::WindowType::RANGE:
+    case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_RANGE:
       frame.type = core::WindowNode::WindowType::kRange;
       break;
     default:
@@ -911,14 +926,15 @@ const core::WindowNode::Frame SubstraitToBoltPlanConverter::createWindowFrame(
     }
   };
 
-  auto boundTypeConversion = [&](::substrait::Expression_WindowFunction_Bound boundType)
+  auto boundTypeConversion = [&](::substrait::Expression_WindowFunction_Bound boundType, bool isLowerBound)
       -> std::tuple<core::WindowNode::BoundType, core::TypedExprPtr> {
     if (boundType.has_current_row()) {
       return std::make_tuple(core::WindowNode::BoundType::kCurrentRow, nullptr);
-    } else if (boundType.has_unbounded_following()) {
-      return std::make_tuple(core::WindowNode::BoundType::kUnboundedFollowing, nullptr);
-    } else if (boundType.has_unbounded_preceding()) {
-      return std::make_tuple(core::WindowNode::BoundType::kUnboundedPreceding, nullptr);
+    } else if (boundType.has_unbounded()) {
+      return std::make_tuple(
+          isLowerBound ? core::WindowNode::BoundType::kUnboundedPreceding
+                       : core::WindowNode::BoundType::kUnboundedFollowing,
+          nullptr);
     } else if (boundType.has_following()) {
       auto following = boundType.following();
       return std::make_tuple(
@@ -933,17 +949,18 @@ const core::WindowNode::Frame SubstraitToBoltPlanConverter::createWindowFrame(
       BOLT_FAIL("The BoundType is not supported.");
     }
   };
-  std::tie(frame.startType, frame.startValue) = boundTypeConversion(lower_bound);
-  std::tie(frame.endType, frame.endValue) = boundTypeConversion(upper_bound);
+  std::tie(frame.startType, frame.startValue) = boundTypeConversion(lower_bound, true);
+  std::tie(frame.endType, frame.endValue) = boundTypeConversion(upper_bound, false);
   return frame;
 }
 
-core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::WindowRel& windowRel) {
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(
+    const ::substrait::ConsistentPartitionWindowRel& windowRel) {
   core::PlanNodePtr childNode;
   if (windowRel.has_input()) {
     childNode = toBoltPlan(windowRel.input());
   } else {
-    BOLT_FAIL("Child Rel is expected in WindowRel.");
+    BOLT_FAIL("Child Rel is expected in ConsistentPartitionWindowRel.");
   }
 
   const auto& inputType = childNode->outputType();
@@ -953,9 +970,8 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Wi
   std::vector<core::WindowNode::Function> windowNodeFunctions;
   std::vector<std::string> windowColumnNames;
 
-  windowNodeFunctions.reserve(windowRel.measures().size());
-  for (const auto& smea : windowRel.measures()) {
-    const auto& windowFunction = smea.measure();
+  windowNodeFunctions.reserve(windowRel.window_functions().size());
+  for (const auto& windowFunction : windowRel.window_functions()) {
     std::string funcName =
         SubstraitParser::findBoltFunction(functionMap_, windowFunction.function_reference(), useIcuRegex_);
     std::vector<core::TypedExprPtr> windowParams;
@@ -976,7 +992,7 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Wi
         windowBoltType, std::move(windowParams), bytedance::bolt::exec::sanitizeName(funcName));
     auto upperBound = windowFunction.upper_bound();
     auto lowerBound = windowFunction.lower_bound();
-    auto type = windowFunction.window_type();
+    auto type = windowFunction.bounds_type();
 
     windowColumnNames.push_back(windowFunction.column_name());
 
@@ -1166,19 +1182,25 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Fi
 
 core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::FetchRel& fetchRel) {
   auto childNode = convertSingleInput<::substrait::FetchRel>(fetchRel);
+  int32_t offset = fetchRel.has_offset_expr()
+      ? static_cast<int32_t>(SubstraitParser::getLiteralValue<int64_t>(fetchRel.offset_expr().literal()))
+      : 0;
+  int32_t count = fetchRel.has_count_expr()
+      ? static_cast<int32_t>(SubstraitParser::getLiteralValue<int64_t>(fetchRel.count_expr().literal()))
+      : 0;
   return std::make_shared<core::LimitNode>(
-      nextPlanNodeId(),
-      static_cast<int32_t>(fetchRel.offset()),
-      static_cast<int32_t>(fetchRel.count()),
-      false /*isPartial*/,
-      childNode);
+      nextPlanNodeId(), offset, count, false /*isPartial*/, childNode);
 }
 
 core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::TopNRel& topNRel) {
+  BOLT_USER_CHECK(topNRel.mode() == ::substrait::FETCH_MODE_ROWS_ONLY, "Unsupported TopN fetch mode.");
+  BOLT_USER_CHECK(!topNRel.has_offset(), "TopN does not support an offset.");
+  const auto count = SubstraitParser::getRowCount(topNRel.count());
+  BOLT_USER_CHECK(count.has_value(), "TopN count must be a positive int32 i64 literal.");
   auto childNode = convertSingleInput<::substrait::TopNRel>(topNRel);
   auto [sortingKeys, sortingOrders] = processSortField(topNRel.sorts(), childNode->outputType());
   return std::make_shared<core::TopNNode>(
-      nextPlanNodeId(), sortingKeys, sortingOrders, static_cast<int32_t>(topNRel.n()), false /*isPartial*/, childNode);
+      nextPlanNodeId(), sortingKeys, sortingOrders, count.value(), false /*isPartial*/, childNode);
 }
 
 core::PlanNodePtr SubstraitToBoltPlanConverter::constructValueStreamNode(
@@ -1402,25 +1424,17 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Re
 core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(
     const ::substrait::ReadRel& readRel,
     const RowTypePtr& type) {
-  ::substrait::ReadRel_VirtualTable readVirtualTable = readRel.virtual_table();
-  int64_t numVectors = readVirtualTable.values_size();
-  int64_t numColumns = type->size();
-  int64_t valueFieldNums = readVirtualTable.values(numVectors - 1).fields_size();
+  const ::substrait::ReadRel_VirtualTable& readVirtualTable = readRel.virtual_table();
+  const int64_t numVectors = readVirtualTable.expressions_size();
+  const int64_t numColumns = type->size();
   std::vector<RowVectorPtr> vectors;
   vectors.reserve(numVectors);
 
-  int64_t batchSize;
-  // For the empty vectors, eg,vectors = makeRowVector(ROW({}, {}), 1).
-  if (numColumns == 0) {
-    batchSize = 1;
-  } else {
-    batchSize = valueFieldNums / numColumns;
-  }
-
   for (int64_t index = 0; index < numVectors; ++index) {
     std::vector<VectorPtr> children;
-    ::substrait::Expression_Literal_Struct rowValue = readRel.virtual_table().values(index);
-    auto fieldSize = rowValue.fields_size();
+    const ::substrait::Expression_Nested_Struct& rowValue = readVirtualTable.expressions(index);
+    const int64_t fieldSize = rowValue.fields_size();
+    const int64_t batchSize = numColumns == 0 ? 1 : fieldSize / numColumns;
     BOLT_CHECK_EQ(fieldSize, batchSize * numColumns);
 
     for (int64_t col = 0; col < numColumns; ++col) {
@@ -1430,7 +1444,8 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(
       for (int64_t batchId = 0; batchId < batchSize; batchId++) {
         // each value in the batch
         auto fieldIdx = col * batchSize + batchId;
-        ::substrait::Expression_Literal field = rowValue.fields(fieldIdx);
+        BOLT_USER_CHECK(rowValue.fields(fieldIdx).has_literal(), "VirtualTable expressions must be literals.");
+        const ::substrait::Expression_Literal& field = rowValue.fields(fieldIdx).literal();
 
         auto expr = exprConverter_->toBoltExpr(field);
         if (auto constantExpr = std::dynamic_pointer_cast<const core::ConstantTypedExpr>(expr)) {
@@ -1467,6 +1482,8 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Re
     return toBoltPlan(rel.join());
   } else if (rel.has_cross()) {
     return toBoltPlan(rel.cross());
+  } else if (rel.has_nested_loop_join()) {
+    return toBoltPlan(rel.nested_loop_join());
   } else if (rel.has_read()) {
     return toBoltPlan(rel.read());
   } else if (rel.has_sort()) {

@@ -18,15 +18,13 @@
 #pragma once
 
 #include "substrait/algebra.pb.h"
-#include "substrait/capabilities.pb.h"
 #include "substrait/extensions/extensions.pb.h"
-#include "substrait/function.pb.h"
-#include "substrait/parameterized_types.pb.h"
 #include "substrait/plan.pb.h"
 #include "substrait/type.pb.h"
-#include "substrait/type_expressions.pb.h"
 
 #include <google/protobuf/wrappers.pb.h>
+
+#include <optional>
 
 #include "bolt/connectors/hive/TableHandle.h"
 #include "bolt/type/Type.h"
@@ -104,6 +102,9 @@ class SubstraitParser {
   // Get values for the different supported types.
   template <typename T>
   static T getLiteralValue(const ::substrait::Expression::Literal& /* literal */);
+
+  /// Extract a positive int32 row count from an i64 literal expression.
+  static std::optional<int32_t> getRowCount(const ::substrait::Expression& expression);
 
  private:
   /// A map used for mapping Substrait function keywords into Bolt functions'

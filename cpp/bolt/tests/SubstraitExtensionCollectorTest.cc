@@ -109,7 +109,11 @@ TEST_F(SubstraitExtensionCollectorTest, addExtensionsToPlan) {
   const auto& substraitExtensions = getSortedSubstraitExtension(substraitPlan);
   auto getFunctionName = [&](auto id) { return substraitExtensions[id].extension_function().name(); };
 
+  ASSERT_EQ(substraitPlan->extension_urns_size(), 1);
+  ASSERT_EQ(substraitPlan->extension_urns(0).extension_urn_anchor(), 1);
+  ASSERT_EQ(substraitPlan->extension_urns(0).urn(), "extension:org.apache.gluten:functions");
   ASSERT_EQ(substraitPlan->extensions().size(), 8);
+  ASSERT_EQ(substraitExtensions[0].extension_function().extension_urn_reference(), 1);
   ASSERT_EQ(getFunctionName(0), "plus:i32_i32");
   ASSERT_EQ(getFunctionName(1), "divide:i32_i32");
   ASSERT_EQ(getFunctionName(2), "cardinality:list");

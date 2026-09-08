@@ -467,7 +467,11 @@ bool SubstraitToBoltPlanValidator::validate(const ::substrait::FetchRel& fetchRe
     }
   }
 
-  if (fetchRel.offset() < 0 || fetchRel.count() < 0) {
+  const int64_t offset =
+      fetchRel.has_offset_expr() ? SubstraitParser::getLiteralValue<int64_t>(fetchRel.offset_expr().literal()) : 0;
+  const int64_t count =
+      fetchRel.has_count_expr() ? SubstraitParser::getLiteralValue<int64_t>(fetchRel.count_expr().literal()) : 0;
+  if (offset < 0 || count < 0) {
     LOG_VALIDATION_MSG("Offset and count should be valid in FetchRel.");
     return false;
   }
@@ -496,8 +500,20 @@ bool SubstraitToBoltPlanValidator::validate(const ::substrait::TopNRel& topNRel)
     rowType = std::make_shared<RowType>(std::move(names), std::move(types));
   }
 
-  if (topNRel.n() < 0) {
-    LOG_VALIDATION_MSG("N should be valid in TopNRel.");
+  if (topNRel.mode() != ::substrait::FETCH_MODE_ROWS_ONLY) {
+    LOG_VALIDATION_MSG("Only FETCH_MODE_ROWS_ONLY is supported in TopNRel.");
+    return false;
+  }
+  if (topNRel.has_offset()) {
+    LOG_VALIDATION_MSG("Offset is not supported in TopNRel.");
+    return false;
+  }
+  if (!SubstraitParser::getRowCount(topNRel.count()).has_value()) {
+    LOG_VALIDATION_MSG("Count should be a positive int32 i64 literal in TopNRel.");
+    return false;
+  }
+  if (topNRel.sorts_size() == 0) {
+    LOG_VALIDATION_MSG("At least one sort field is required in TopNRel.");
     return false;
   }
 
@@ -618,8 +634,7 @@ bool SubstraitToBoltPlanValidator::validate(const ::substrait::ExpandRel& expand
 
 bool validateBoundType(::substrait::Expression_WindowFunction_Bound boundType) {
   switch (boundType.kind_case()) {
-    case ::substrait::Expression_WindowFunction_Bound::kUnboundedFollowing:
-    case ::substrait::Expression_WindowFunction_Bound::kUnboundedPreceding:
+    case ::substrait::Expression_WindowFunction_Bound::kUnbounded:
     case ::substrait::Expression_WindowFunction_Bound::kCurrentRow:
     case ::substrait::Expression_WindowFunction_Bound::kFollowing:
     case ::substrait::Expression_WindowFunction_Bound::kPreceding:
@@ -630,28 +645,28 @@ bool validateBoundType(::substrait::Expression_WindowFunction_Bound boundType) {
   return true;
 }
 
-bool SubstraitToBoltPlanValidator::validate(const ::substrait::WindowRel& windowRel) {
+bool SubstraitToBoltPlanValidator::validate(const ::substrait::ConsistentPartitionWindowRel& windowRel) {
   if (windowRel.has_input() && !validate(windowRel.input())) {
-    LOG_VALIDATION_MSG("WindowRel input fails to validate.");
+    LOG_VALIDATION_MSG("ConsistentPartitionWindowRel input fails to validate.");
     return false;
   }
 
   // Get and validate the input types from extension.
   if (!windowRel.has_advanced_extension()) {
-    LOG_VALIDATION_MSG("Input types are expected in WindowRel.");
+    LOG_VALIDATION_MSG("Input types are expected in ConsistentPartitionWindowRel.");
     return false;
   }
   const auto& extension = windowRel.advanced_extension();
   TypePtr inputRowType;
   std::vector<TypePtr> types;
   if (!parseBoltType(extension, inputRowType) || !flattenSingleLevel(inputRowType, types)) {
-    LOG_VALIDATION_MSG("Validation failed for input types in WindowRel.");
+    LOG_VALIDATION_MSG("Validation failed for input types in ConsistentPartitionWindowRel.");
     return false;
   }
 
   if (types.empty()) {
     // See: https://github.com/apache/incubator-gluten/issues/7600.
-    LOG_VALIDATION_MSG("Validation failed for empty input schema in WindowRel.");
+    LOG_VALIDATION_MSG("Validation failed for empty input schema in ConsistentPartitionWindowRel.");
     return false;
   }
 
@@ -665,9 +680,8 @@ bool SubstraitToBoltPlanValidator::validate(const ::substrait::WindowRel& window
 
   // Validate WindowFunction
   std::vector<std::string> funcSpecs;
-  funcSpecs.reserve(windowRel.measures().size());
-  for (const auto& smea : windowRel.measures()) {
-    const auto& windowFunction = smea.measure();
+  funcSpecs.reserve(windowRel.window_functions().size());
+  for (const auto& windowFunction : windowRel.window_functions()) {
     funcSpecs.emplace_back(planConverter_->findFuncSpec(windowFunction.function_reference()));
     SubstraitParser::parseType(windowFunction.output_type());
     for (const auto& arg : windowFunction.arguments()) {
@@ -682,14 +696,14 @@ bool SubstraitToBoltPlanValidator::validate(const ::substrait::WindowRel& window
       }
     }
     // Validate BoundType and Frame Type
-    switch (windowFunction.window_type()) {
-      case ::substrait::WindowType::ROWS:
-      case ::substrait::WindowType::RANGE:
+    switch (windowFunction.bounds_type()) {
+      case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_ROWS:
+      case ::substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_RANGE:
         break;
       default:
         LOG_VALIDATION_MSG(
             "the window type only support ROWS and RANGE, and the input type is " +
-            std::to_string(windowFunction.window_type()));
+            std::to_string(windowFunction.bounds_type()));
         return false;
     }
 
@@ -1090,34 +1104,46 @@ bool SubstraitToBoltPlanValidator::validate(const ::substrait::CrossRel& crossRe
     return false;
   }
 
-  // Validate input types.
-  if (!crossRel.has_advanced_extension()) {
-    logValidateMsg("Native validation failed due to: Input types are expected in CrossRel.");
+  return true;
+}
+
+bool SubstraitToBoltPlanValidator::validate(const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel) {
+  if (nestedLoopJoinRel.has_left() && !validate(nestedLoopJoinRel.left())) {
+    logValidateMsg("Native validation failed due to: validation fails for nested loop join left input.");
     return false;
   }
 
-  switch (crossRel.type()) {
-    case ::substrait::CrossRel_JoinType_JOIN_TYPE_INNER:
-    case ::substrait::CrossRel_JoinType_JOIN_TYPE_LEFT:
-    case ::substrait::CrossRel_JoinType_JOIN_TYPE_LEFT_SEMI:
+  if (nestedLoopJoinRel.has_right() && !validate(nestedLoopJoinRel.right())) {
+    logValidateMsg("Native validation failed due to: validation fails for nested loop join right input.");
+    return false;
+  }
+
+  if (!nestedLoopJoinRel.has_advanced_extension()) {
+    logValidateMsg("Native validation failed due to: Input types are expected in NestedLoopJoinRel.");
+    return false;
+  }
+
+  switch (nestedLoopJoinRel.type()) {
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_INNER:
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT:
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_LEFT_SEMI:
       break;
-    case ::substrait::CrossRel_JoinType_JOIN_TYPE_OUTER:
-      if (crossRel.has_expression()) {
-        LOG_VALIDATION_MSG("Full outer join type with condition is not supported in CrossRel");
+    case ::substrait::NestedLoopJoinRel_JoinType_JOIN_TYPE_OUTER:
+      if (nestedLoopJoinRel.has_expression()) {
+        LOG_VALIDATION_MSG("Full outer join type with condition is not supported in NestedLoopJoinRel");
         return false;
-      } else {
-        break;
       }
+      break;
     default:
-      LOG_VALIDATION_MSG("Unsupported Join type in CrossRel");
+      LOG_VALIDATION_MSG("Unsupported Join type in NestedLoopJoinRel");
       return false;
   }
 
-  const auto& extension = crossRel.advanced_extension();
+  const auto& extension = nestedLoopJoinRel.advanced_extension();
   TypePtr inputRowType;
   std::vector<TypePtr> types;
   if (!parseBoltType(extension, inputRowType) || !flattenSingleLevel(inputRowType, types)) {
-    logValidateMsg("Native validation failed due to: Validation failed for input types in CrossRel");
+    logValidateMsg("Native validation failed due to: Validation failed for input types in NestedLoopJoinRel");
     return false;
   }
 
@@ -1129,8 +1155,8 @@ bool SubstraitToBoltPlanValidator::validate(const ::substrait::CrossRel& crossRe
   }
   auto rowType = std::make_shared<RowType>(std::move(names), std::move(types));
 
-  if (crossRel.has_expression()) {
-    auto expression = exprConverter_->toBoltExpr(crossRel.expression(), rowType);
+  if (nestedLoopJoinRel.has_expression()) {
+    auto expression = exprConverter_->toBoltExpr(nestedLoopJoinRel.expression(), rowType);
     exec::ExprSet exprSet({std::move(expression)}, execCtx_.get());
   }
 
@@ -1208,8 +1234,8 @@ bool SubstraitToBoltPlanValidator::validate(const ::substrait::AggregateRel& agg
 
   // Validate groupings.
   for (const auto& grouping : aggRel.groupings()) {
-    for (const auto& groupingExpr : grouping.grouping_expressions()) {
-      const auto& typeCase = groupingExpr.rex_type_case();
+    for (const auto& ref : grouping.expression_references()) {
+      const auto& typeCase = aggRel.grouping_expressions(ref).rex_type_case();
       switch (typeCase) {
         case ::substrait::Expression::RexTypeCase::kSelection:
           break;
@@ -1317,7 +1343,7 @@ bool SubstraitToBoltPlanValidator::validate(const ::substrait::AggregateRel& agg
   if (aggRel.measures_size() == 0) {
     bool hasExpr = false;
     for (const auto& grouping : aggRel.groupings()) {
-      if (grouping.grouping_expressions().size() > 0) {
+      if (grouping.expression_references_size() > 0) {
         hasExpr = true;
         break;
       }
@@ -1378,6 +1404,9 @@ bool SubstraitToBoltPlanValidator::validate(const ::substrait::Rel& rel) {
   }
   if (rel.has_cross()) {
     return validate(rel.cross());
+  }
+  if (rel.has_nested_loop_join()) {
+    return validate(rel.nested_loop_join());
   }
   if (rel.has_read()) {
     return validate(rel.read());
