@@ -225,19 +225,6 @@
               </arguments>
             </configuration>
           </execution>
-          <!--execution>
-            <id>verify-arrow-c-shading</id>
-            <goals>
-              <goal>exec</goal>
-            </goals>
-            <phase>verify</phase>
-            <configuration>
-              <executable>${project.basedir}/../dev/check-arrow-c-shading.sh</executable>
-              <arguments>
-                <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
-              </arguments>
-            </configuration>
-          </execution-->
         </executions>
       </plugin>
       <plugin>
