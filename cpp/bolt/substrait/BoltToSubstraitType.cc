@@ -88,8 +88,7 @@ const ::substrait::Type& BoltToSubstraitTypeConvertor::toSubstraitType(
       break;
     }
     case bolt::TypeKind::TIMESTAMP: {
-      auto substraitTimestamp =
-          google::protobuf::Arena::CreateMessage<::substrait::Type_PrecisionTimestamp>(&arena);
+      auto substraitTimestamp = google::protobuf::Arena::CreateMessage<::substrait::Type_PrecisionTimestamp>(&arena);
       substraitTimestamp->set_precision(6);
       substraitTimestamp->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
       substraitType->set_allocated_precision_timestamp(substraitTimestamp);

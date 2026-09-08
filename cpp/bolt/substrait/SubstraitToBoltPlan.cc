@@ -386,8 +386,7 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Cr
       getJoinOutputType(leftNode, rightNode, core::JoinType::kInner));
 }
 
-core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(
-    const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel) {
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel) {
   if (!nestedLoopJoinRel.has_left()) {
     BOLT_FAIL("Left Rel is expected in NestedLoopJoinRel.");
   }
@@ -926,8 +925,8 @@ const core::WindowNode::Frame SubstraitToBoltPlanConverter::createWindowFrame(
     }
   };
 
-  auto boundTypeConversion = [&](::substrait::Expression_WindowFunction_Bound boundType, bool isLowerBound)
-      -> std::tuple<core::WindowNode::BoundType, core::TypedExprPtr> {
+  auto boundTypeConversion = [&](::substrait::Expression_WindowFunction_Bound boundType,
+                                 bool isLowerBound) -> std::tuple<core::WindowNode::BoundType, core::TypedExprPtr> {
     if (boundType.has_current_row()) {
       return std::make_tuple(core::WindowNode::BoundType::kCurrentRow, nullptr);
     } else if (boundType.has_unbounded()) {
@@ -954,8 +953,7 @@ const core::WindowNode::Frame SubstraitToBoltPlanConverter::createWindowFrame(
   return frame;
 }
 
-core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(
-    const ::substrait::ConsistentPartitionWindowRel& windowRel) {
+core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::ConsistentPartitionWindowRel& windowRel) {
   core::PlanNodePtr childNode;
   if (windowRel.has_input()) {
     childNode = toBoltPlan(windowRel.input());
@@ -1188,8 +1186,7 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Fe
   int32_t count = fetchRel.has_count_expr()
       ? static_cast<int32_t>(SubstraitParser::getLiteralValue<int64_t>(fetchRel.count_expr().literal()))
       : 0;
-  return std::make_shared<core::LimitNode>(
-      nextPlanNodeId(), offset, count, false /*isPartial*/, childNode);
+  return std::make_shared<core::LimitNode>(nextPlanNodeId(), offset, count, false /*isPartial*/, childNode);
 }
 
 core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::TopNRel& topNRel) {
