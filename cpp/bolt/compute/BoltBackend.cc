@@ -61,7 +61,6 @@
 #include "utils/Exception.h"
 
 DECLARE_bool(bolt_exception_user_stacktrace_enabled);
-DECLARE_int32(bolt_memory_num_shared_leaf_pools);
 DECLARE_bool(bolt_memory_use_hugepages);
 DECLARE_bool(bolt_ssd_odirect);
 DECLARE_bool(bolt_memory_pool_capacity_transfer_across_tasks);
@@ -155,9 +154,6 @@ void BoltBackend::init(
   // Allow growing buffer in another task through its memory pool.
   FLAGS_bolt_memory_pool_capacity_transfer_across_tasks =
       backendConf_->get<bool>(kMemoryPoolCapacityTransferAcrossTasks, true);
-
-  // Avoid creating too many shared leaf pools.
-  FLAGS_bolt_memory_num_shared_leaf_pools = 0;
 
   // Set bolt_exception_user_stacktrace_enabled.
   FLAGS_bolt_exception_user_stacktrace_enabled =

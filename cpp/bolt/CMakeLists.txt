@@ -269,6 +269,11 @@ foreach(BOLT_INCLUDE_DIR IN LISTS bolt_INCLUDE_DIRS)
   endif()
 endforeach()
 
+string(TOUPPER "${CMAKE_BUILD_TYPE}" BUILD_TYPE_UPPER)
+list(GET gflags_LIB_DIRS_${BUILD_TYPE_UPPER} 0 GFLAGS_LIB_DIR)
+list(GET gflags_LIBS_${BUILD_TYPE_UPPER} 0 GFLAGS_LIB_NAME)
+set(BOLT_GFLAGS_LIB "${GFLAGS_LIB_DIR}/lib${GFLAGS_LIB_NAME}.a")
+
 # Note: jemalloc is used in runtime instead of compile time.
 # if(ENABLE_JEMALLOC_STATS) find_package(jemalloc REQUIRED CONFIG) # TODO
 # confirm if jemalloc is required in conan #include(Findjemalloc)
@@ -284,7 +289,9 @@ target_link_libraries(
          gfx::timsort
          libbacktrace::libbacktrace
          folly::folly
-         gflags::gflags)
+         "-Wl,--whole-archive"
+         "${BOLT_GFLAGS_LIB}"
+         "-Wl,--no-whole-archive")
 target_include_directories(${PROJECT_NAME} PUBLIC gfx::timsort
                                                   ${GLUTEN_BOLT_INCLUDE_DIRS})
 
@@ -301,7 +308,9 @@ if(BUILD_STATIC)
            gfx::timsort
            libbacktrace::libbacktrace
            folly::folly
-           gflags::gflags)
+           "-Wl,--whole-archive"
+           "${BOLT_GFLAGS_LIB}"
+           "-Wl,--no-whole-archive")
   target_include_directories(${PROJECT_NAME}_static
                              PUBLIC ${GLUTEN_BOLT_INCLUDE_DIRS})
 
@@ -323,9 +332,6 @@ target_link_libraries(
          "-Wl,--no-whole-archive"
          "-Wl,--whole-archive"
          "${ARROW_PATH}/libarrow_acero.a"
-         "-Wl,--no-whole-archive"
-         "-Wl,--whole-archive"
-         "${ARROW_PATH}/libarrow_substrait.a"
          "-Wl,--no-whole-archive"
          "${ARROW_PATH}/libarrow_bundled_dependencies.a")
 
