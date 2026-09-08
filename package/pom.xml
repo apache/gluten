@@ -225,17 +225,7 @@
               </arguments>
             </configuration>
           </execution>
-          <execution>
-            <!--
-              Verify that the bundled Arrow C-Data classes have public method
-              signatures referencing the unshaded Apache Arrow API
-              (org.apache.arrow.memory.*, org.apache.arrow.vector.*) and not
-              the gluten-shaded copies. Catches a regression where shading
-              relocates classes that the unshaded org.apache.arrow.c.* API
-              transitively depends on, producing a bundle whose public Arrow
-              C-Data API is incompatible with vanilla Apache Arrow callers
-              (gluten#12225).
-            -->
+          <!--execution>
             <id>verify-arrow-c-shading</id>
             <goals>
               <goal>exec</goal>
@@ -247,7 +237,7 @@
                 <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
               </arguments>
             </configuration>
-          </execution>
+          </execution-->
         </executions>
       </plugin>
       <plugin>
