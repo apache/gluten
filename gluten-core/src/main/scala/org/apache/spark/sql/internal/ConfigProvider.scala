@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.internal
 
+import org.apache.spark.SparkConf
+
 /** A source of configuration values. */
 trait GlutenConfigProvider {
   def get(key: String): Option[String]
@@ -27,4 +29,21 @@ class SQLConfProvider(conf: SQLConf) extends GlutenConfigProvider {
 
 class MapProvider(conf: Map[String, String]) extends GlutenConfigProvider {
   override def get(key: String): Option[String] = conf.get(key)
+}
+
+class JavaMapProvider(conf: java.util.Map[String, String]) extends GlutenConfigProvider {
+  override def get(key: String): Option[String] = Option(conf.get(key))
+}
+
+class SparkConfProvider(conf: SparkConf) extends GlutenConfigProvider {
+  override def get(key: String): Option[String] = conf.getOption(key)
+}
+
+/**
+ * Reads from the given providers in order, taking the value from the first one that has the key.
+ */
+class ChainedProvider(providers: GlutenConfigProvider*) extends GlutenConfigProvider {
+  override def get(key: String): Option[String] = {
+    providers.iterator.map(_.get(key)).collectFirst { case Some(value) => value }
+  }
 }

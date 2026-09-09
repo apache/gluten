@@ -42,7 +42,7 @@ object DebugUtil {
             .contains(TaskContext.get().partitionId()))
 
     val matches = taskIdMatches || partitionIdMatches
-    if (matches && GlutenConfig.get.benchmarkSaveDir.isEmpty) {
+    if (matches && GlutenConfig.get.benchmarkSaveDir.forall(_.isEmpty)) {
       throw new IllegalArgumentException(GlutenConfig.BENCHMARK_SAVE_DIR.key + " is not set.")
     }
 

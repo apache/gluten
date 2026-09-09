@@ -18,8 +18,6 @@ package org.apache.spark.sql.internal
 
 import org.apache.gluten.config._
 
-import org.apache.spark.network.util.{ByteUnit, JavaUtils}
-
 object GlutenConfigUtil {
   private def getConfString(
       configProvider: GlutenConfigProvider,
@@ -44,8 +42,12 @@ object GlutenConfigUtil {
     parsedConf ++ otherConf
   }
 
-  def mapByteConfValue(conf: Map[String, String], key: String, unit: ByteUnit)(
-      f: Long => Unit): Unit = {
-    conf.get(key).foreach(v => f(JavaUtils.byteStringAs(v, unit)))
-  }
+  /**
+   * Spark's own default for `spark.io.compression.codec`, read back from Spark's entry rather than
+   * restated - a restated foreign default is exactly what drifts. It has to be read from this
+   * package because `ConfigEntry` and the entry itself are `private[spark]`, so a Gluten package
+   * cannot name them.
+   */
+  def sparkIoCompressionCodecDefault: String =
+    org.apache.spark.internal.config.IO_COMPRESSION_CODEC.defaultValueString
 }

@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.config
 
+import org.apache.spark.internal.Logging
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
 
 import java.util.concurrent.TimeUnit
@@ -25,7 +26,7 @@ object BackendType extends Enumeration {
   val COMMON, VELOX, CLICKHOUSE = Value
 }
 
-private[gluten] case class ConfigBuilder(key: String) {
+private[gluten] case class ConfigBuilder(key: String) extends Logging {
   import ConfigHelpers._
 
   private[config] var _doc = ""
@@ -35,6 +36,11 @@ private[gluten] case class ConfigBuilder(key: String) {
   private[config] var _experimental = false
   private[config] var _alternatives = List.empty[String]
   private[config] var _onCreate: Option[ConfigEntry[_] => Unit] = None
+  private[config] var _isStatic = false
+  private[config] var _passToNative = false
+  private[config] var _isForeign = false
+  // See `convertForNative`: the warning it emits is worth one line per key, not one per delivery.
+  private var _warnedOnRejectedValue = false
 
   def doc(s: String): ConfigBuilder = {
     _doc = s
@@ -77,6 +83,144 @@ private[gluten] case class ConfigBuilder(key: String) {
     this
   }
 
+  /** Marks this config as a static (non-session-mutable) conf. Set by `buildStaticConf`. */
+  private[config] def markStatic(): ConfigBuilder = {
+    _isStatic = true
+    this
+  }
+
+  /**
+   * Marks this config as owned by Spark / Hadoop rather than by Gluten. Set by `registerConf` /
+   * `registerStaticConf`.
+   *
+   * A foreign config is not registered as a Gluten config entry and not registered to `SQLConf`
+   * (Spark or Hadoop already did that); the builder is only used to declare how the key is
+   * delivered to native side.
+   */
+  private[config] def markForeign(): ConfigBuilder = {
+    _isForeign = true
+    this
+  }
+
+  /**
+   * Marks this config to be passed to native side. A value set by the user is always delivered;
+   * what happens when it is not set is stated by the terminal method, which is the whole of the
+   * rule:
+   *
+   *   - `createOptional`: nothing is delivered, leaving native's own fallback in charge. This is
+   *     the common case for a foreign key, since native usually declares the same fallback Spark /
+   *     Hadoop does, or branches on the key being absent at all.
+   *   - `createWithDefault(value)`: the stated value is delivered. For a Gluten config this is its
+   *     own default; for a foreign one it says Gluten deliberately departs from what both Spark /
+   *     Hadoop and native would apply, e.g. `fs.s3a.path.style.access` where native falls back to
+   *     `false` and Gluten wants `true`.
+   *   - `createWithDefaultFunction(f)`: `f` is evaluated at each delivery. Use it when the default
+   *     cannot be a literal - because it follows JVM or session state (`spark.sql.session.timeZone`
+   *     follows the JVM default time zone) or has changed across Spark versions
+   *     (`spark.sql.ansi.enabled` flipped its default in 4.0). For a foreign key, read it back
+   *     through the owner's own accessor rather than restating it: a restated default is exactly
+   *     what drifts.
+   *
+   * The config is registered to [[NativeConfRegistry]] on entry creation.
+   *
+   * Which delivery channels it lands on follows the conf's mutability, so there is no argument:
+   *   - `buildConf` / `registerConf`: modifiable at any time and usable at any time. Delivered both
+   *     during native backend initialization and on each native runtime creation, so native
+   *     observes the current value wherever it reads the key.
+   *   - `buildStaticConf` / `registerStaticConf`: set while the native backend is initialized and
+   *     not modifiable afterwards. Delivered once during native backend initialization.
+   */
+  def passToNative(): ConfigBuilder = {
+    _passToNative = true
+    this
+  }
+
+  /**
+   * Normalizes a value for native side through the conf's own value converter, i.e. the one chosen
+   * by `stringConf` / `bytesConf(unit)` / `intConf` / ... plus any `transform`. A conf therefore
+   * states how its value is parsed exactly once, at its declaration, and both a user-set value and
+   * a resolved default go through it.
+   *
+   * This is what makes a size conf reach native as a number rather than as "64k": a
+   * `bytesConf(ByteUnit.KiB)` yields the KiB count the foreign entry would yield, and a
+   * `bytesConf(ByteUnit.BYTE)` the byte count. A foreign conf declares the same converter Spark /
+   * Hadoop declares, so JVM and native agree on the value's meaning and native applies whatever
+   * unit conversion it needs on top - `spark.shuffle.file.buffer` is KiB on both sides, and native
+   * multiplies by 1024.
+   *
+   * Falls back to the raw string when the entry has no usable converter (e.g. a fallback entry),
+   * since delivering the value unchanged is always better than dropping it.
+   */
+  private def convertForNative(entry: ConfigEntry[_], raw: String): String = {
+    try {
+      entry.valueConverter(raw) match {
+        // An `OptionalConfigEntry` wraps its converter's result in `Option`.
+        case o: Option[_] => o.map(_.toString).getOrElse(raw)
+        case null => raw
+        case v => v.toString
+      }
+    } catch {
+      // A value the conf's own converter rejects is not this mechanism's business to raise on: the
+      // owner does that at its own read site, with its own message, and failing here would take
+      // down conf selection, which runs per task. It is worth a trace, though - the value reaches
+      // native unconverted, and a native read site that parses it loosely would use it silently.
+      case e: IllegalArgumentException =>
+        // Once per key, not once per delivery: conf selection runs per task, and a value nobody
+        // fixes would otherwise put a line in every executor log for every task. One closure per
+        // declaration owns this flag, so "once" means once per key per JVM. A race here costs a
+        // duplicate line, which is why it needs no synchronization.
+        if (!_warnedOnRejectedValue) {
+          _warnedOnRejectedValue = true
+          logWarning(
+            s"Value '$raw' of $key is not accepted by the conf's own converter " +
+              s"(${e.getMessage}), so it is passed to native side unconverted.")
+        }
+        raw
+    }
+  }
+
+  private[config] def registerToNative(entry: ConfigEntry[_]): Unit = {
+    require(
+      !_isForeign || _passToNative,
+      s"Config $key: a config declared by registerConf() / registerStaticConf() must be marked " +
+        s"with passToNative(), otherwise declaring it has no effect"
+    )
+    if (!_passToNative) {
+      return
+    }
+    // The channel follows the conf's mutability. A modifiable conf is delivered on both channels so
+    // native observes the current value wherever it reads the key; a static conf is set while the
+    // native backend is initialized and not modifiable afterwards, so delivering it once there is
+    // lossless.
+    NativeConfRegistry.register(
+      key,
+      _isStatic,
+      convert = convertForNative(entry, _),
+      declaredDefault = declaredDefault(entry))
+  }
+
+  /**
+   * The default delivered to native for a key the user did not set, or `None` to deliver nothing
+   * and leave native's own fallback in charge. Read per delivery rather than snapshotted, so a
+   * `createWithDefaultFunction` default that follows JVM or session state keeps delivering its
+   * current value.
+   *
+   * Which of the two the caller gets is stated by the terminal method - see [[passToNative]].
+   */
+  private def declaredDefault(entry: ConfigEntry[_]): Option[String] = entry match {
+    // A fallback entry reports the *target* conf's default as its own, and the target is delivered
+    // under its own key. Delivering it here would also contradict the user: with only the target
+    // conf set, this key would carry the target's default rather than the value the user chose.
+    case _: ConfigEntryFallback[_] | _: ConfigEntryForeignFallback[_] => None
+    // `createWithDefault(value)` / `createWithDefaultFunction(f)`. Reading the parsed default
+    // rather than the raw default string means a "64MB" bytes conf reaches native as "67108864";
+    // for the function form, reading it here is what re-evaluates `f` on every delivery. Read
+    // exactly once: `f` is caller-supplied, so a guard that also reads it would run it twice.
+    // `createOptional` lands here too and yields `None` - an `OptionalConfigEntry` declares no
+    // default value, so nothing is delivered when the key is not set.
+    case e => e.defaultValue.map(_.toString)
+  }
+
   def intConf: TypedConfigBuilder[Int] = {
     new TypedConfigBuilder(this, toNumber(_, _.toInt, key, "int"))
   }
@@ -117,6 +261,7 @@ private[gluten] case class ConfigBuilder(key: String) {
         _alternatives,
         fallback)
     _onCreate.foreach(_(entry))
+    registerToNative(entry)
     entry
   }
 }
@@ -170,6 +315,33 @@ private[gluten] class TypedConfigBuilder[T](
     new TypedConfigBuilder(parent, s => fn(converter(s)), stringConverter)
   }
 
+  /**
+   * Creates an entry that falls back to a foreign configuration when this one is not set, e.g.
+   * Gluten's shuffle codec falling back to `spark.io.compression.codec`. The foreign default
+   * applies when neither key is set, so this entry never needs a default of its own.
+   *
+   * The fallback is stated by key and default value rather than as the foreign `ConfigEntry`, which
+   * for Spark is `private[spark]` and so cannot appear in a signature outside `org.apache.spark`.
+   */
+  def fallbackConf(fallbackKey: String, fallbackDefault: String): ConfigEntryForeignFallback[T] = {
+    val entry = new ConfigEntryForeignFallback[T](
+      parent.key,
+      parent._doc,
+      parent._version,
+      parent._backend,
+      parent._public,
+      parent._experimental,
+      parent._alternatives,
+      converter,
+      stringConverter,
+      fallbackKey,
+      fallbackDefault
+    )
+    parent._onCreate.foreach(_(entry))
+    parent.registerToNative(entry)
+    entry
+  }
+
   def checkValue(validator: T => Boolean, errorMsg: String): TypedConfigBuilder[T] = {
     transform {
       v =>
@@ -192,6 +364,12 @@ private[gluten] class TypedConfigBuilder[T](
     }
   }
 
+  /** See [[ConfigBuilder.passToNative]]. Callable after the value type is chosen. */
+  def passToNative(): TypedConfigBuilder[T] = {
+    parent.passToNative()
+    this
+  }
+
   def createOptional: OptionalConfigEntry[T] = {
     val entry = new OptionalConfigEntry[T](
       parent.key,
@@ -204,6 +382,7 @@ private[gluten] class TypedConfigBuilder[T](
       converter,
       stringConverter)
     parent._onCreate.foreach(_(entry))
+    parent.registerToNative(entry)
     entry
   }
 
@@ -226,6 +405,7 @@ private[gluten] class TypedConfigBuilder[T](
           transformedDefault
         )
         parent._onCreate.foreach(_(entry))
+        parent.registerToNative(entry)
         entry
     }
   }
@@ -244,6 +424,31 @@ private[gluten] class TypedConfigBuilder[T](
       default
     )
     parent._onCreate.foreach(_(entry))
+    parent.registerToNative(entry)
+    entry
+  }
+
+  /**
+   * Creates an entry whose default value is computed on each read rather than fixed here, mirroring
+   * Spark's `createWithDefaultFunction`. Use it when the default depends on JVM or session state,
+   * e.g. a time zone conf defaulting to the current JVM default time zone. Combined with
+   * `passToNative`, native receives the value resolved at delivery time.
+   */
+  def createWithDefaultFunction(defaultFunc: () => T): ConfigEntry[T] = {
+    val entry = new ConfigEntryWithDefaultFunction[T](
+      parent.key,
+      parent._doc,
+      parent._version,
+      parent._backend,
+      parent._public,
+      parent._experimental,
+      parent._alternatives,
+      converter,
+      stringConverter,
+      defaultFunc
+    )
+    parent._onCreate.foreach(_(entry))
+    parent.registerToNative(entry)
     entry
   }
 }

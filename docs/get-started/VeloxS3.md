@@ -173,15 +173,18 @@ Here is the list of hadoop s3 file system configurations:
 | connection.timeout | 200s |✅|
 | connection.ttl | 5m |❌|
 
-Gluten new parameters:
+Gluten new parameters. The default column is the value **Gluten delivers to native** when the key is
+unset, which for some keys deliberately departs from the Hadoop default listed further up - e.g.
+`retry.limit` is `7` in Hadoop and `20` here, and `connection.maximum` is `25` in Hadoop and `15`
+here. All names below take the `spark.hadoop.fs.s3a.` prefix.
 | Name | Default Value | 
 |------|---------------|
 | access.key | (none) |
 | secret.key | (none) |
 | endpoint | (none) |
 | connection.ssl.enabled | false |
-| path.style.access | false |
-| retry.limit | (none) |
+| path.style.access | true |
+| retry.limit | 20 |
 | retry.mode | legacy |
 | instance.credentials | false |
 | iam.role | (none) |

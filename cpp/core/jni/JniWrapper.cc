@@ -833,7 +833,6 @@ Java_org_apache_gluten_vectorized_LocalPartitionWriterJniWrapper_createPartition
     jint mergeBufferSize,
     jdouble mergeThreshold,
     jint numSubDirs,
-    jint shuffleFileBufferSize,
     jstring dataFileJstr,
     jstring localDirsJstr,
     jboolean enableDictionary,
@@ -844,6 +843,44 @@ Java_org_apache_gluten_vectorized_LocalPartitionWriterJniWrapper_createPartition
 
   auto dataFile = jStringToCString(env, dataFileJstr);
   auto localDirs = splitPaths(jStringToCString(env, localDirsJstr));
+
+  // `spark.shuffle.file.buffer` is declared with `bytesConf(ByteUnit.KiB)` on the JVM side, matching
+  // Spark's own declaration, so the delivered value is a KiB count. Convert it to bytes here, which
+  // is the unit every reader of `shuffleFileBufferSize` uses.
+  auto shuffleFileBufferSize = kDefaultShuffleFileBufferSize;
+  auto& conf = ctx->getConfMap();
+  if (auto it = conf.find(kShuffleFileBufferSize); it != conf.end()) {
+    try {
+      // `stoll` stops at the first character it cannot use and reports how far it got, so the whole
+      // string has to be checked as consumed. Without that, a value the JVM could not parse and
+      // therefore delivered unchanged - "1.5m", "10x" - would come through as 1 and 10 KiB rather
+      // than being rejected, and this is now the only reader of the key: the JVM-side read that used
+      // to run Spark's own converter over it is gone.
+      size_t consumed = 0;
+      auto kib = std::stoll(it->second, &consumed);
+      GLUTEN_CHECK(consumed == it->second.size(), "not a plain KiB count: " + it->second);
+      // Reject a non-positive value - it is an allocation size, and `Spill::openForRead` takes it as
+      // unsigned, where a negative becomes a huge prefetch size and a zero divides by zero in
+      // `MmapFileStream`. The upper bound is Spark's own, from the `checkValue` on
+      // `SHUFFLE_FILE_BUFFER_SIZE`: `ByteArrayMethods.MAX_ROUNDED_ARRAY_LENGTH / 1024`, i.e. the
+      // largest buffer a JVM byte array can hold. It also keeps the multiplication below from
+      // overflowing, which would be undefined behaviour rather than an exception.
+      // Mirrors SPARK_SHUFFLE_FILE_BUFFER_MAX_KIB in GlutenConfig.scala; keep the two in step.
+      constexpr int64_t kMaxShuffleFileBufferSizeKib = (std::numeric_limits<int32_t>::max() - 15) / 1024;
+      GLUTEN_CHECK(
+          kib > 0 && kib <= kMaxShuffleFileBufferSizeKib,
+          "out of range for a KiB count, must be in (0, " + std::to_string(kMaxShuffleFileBufferSizeKib) +
+              "]: " + it->second);
+      shuffleFileBufferSize = kib * 1024;
+    } catch (const std::exception& e) {
+      // A malformed value should not fail shuffle writer creation when a sane native default is at
+      // hand. Without this, `JNI_METHOD_END` would turn it into a `GlutenException` and take the
+      // query down over a buffer size.
+      LOG(WARNING) << "Ignoring invalid " << kShuffleFileBufferSize << " value '" << it->second << "' (" << e.what()
+                   << "), using " << kDefaultShuffleFileBufferSize << " bytes.";
+      shuffleFileBufferSize = kDefaultShuffleFileBufferSize;
+    }
+  }
 
   auto partitionWriterOptions = std::make_shared<LocalPartitionWriterOptions>(
       shuffleFileBufferSize,

@@ -44,6 +44,22 @@ package object component extends Logging {
         s"is: ${System.getProperty("java.class.path")}"
     )
     logInfo(s"Components registered within order: ${components.map(_.name()).mkString(", ")}")
+
+    // Initialize the configuration objects owned by the components. This must happen before any
+    // component's `onDriverStart` / `onExecutorStart` runs, so that a component's registrations of
+    // configurations to pass to native side are in place before the native backend is initialized
+    // (which a backend does from its own `onDriverStart`) and before the first native runtime is
+    // created. Only runtime-compatible components are visited, so an excluded component's
+    // configurations never reach native side.
+    components.foreach {
+      component =>
+        component.confs().foreach {
+          conf =>
+            logDebug(s"Initializing configurations ${conf.getClass.getName} of component " +
+              s"${component.name()}.")
+            conf.ensureRegistered()
+        }
+    }
   }
 
   /**

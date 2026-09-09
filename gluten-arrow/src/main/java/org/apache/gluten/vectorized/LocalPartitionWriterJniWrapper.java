@@ -35,6 +35,9 @@ public class LocalPartitionWriterJniWrapper implements RuntimeAware {
     return runtime.getHandle();
   }
 
+  // `spark.shuffle.file.buffer` is not passed here: it is declared with `passToNative` in
+  // GlutenConfig and reaches native through the runtime conf map, where LocalPartitionWriter reads
+  // it. Passing it as an argument used to hand native the KiB count as if it were a byte count.
   public native long createPartitionWriter(
       int numPartitions,
       String codec,
@@ -45,7 +48,6 @@ public class LocalPartitionWriterJniWrapper implements RuntimeAware {
       int mergeBufferSize,
       double mergeThreshold,
       int subDirsPerLocalDir,
-      int shuffleFileBufferSize,
       String dataFile,
       String localDirs,
       boolean enableDictionary,

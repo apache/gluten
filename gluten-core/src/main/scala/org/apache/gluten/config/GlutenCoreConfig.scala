@@ -39,7 +39,7 @@ class GlutenCoreConfig(conf: SQLConf) extends Logging {
 
   def offHeapMemorySize: Long = getConf(COLUMNAR_OFFHEAP_SIZE_IN_BYTES)
 
-  def taskOffHeapMemorySize: Long = getConf(COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES)
+  def taskOffHeapMemorySize: Long = getConf(COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES).getOrElse(0L)
 
   def conservativeTaskOffHeapMemorySize: Long =
     getConf(COLUMNAR_CONSERVATIVE_TASK_OFFHEAP_SIZE_IN_BYTES)
@@ -62,7 +62,7 @@ class GlutenCoreConfig(conf: SQLConf) extends Logging {
  * Make sure to run dev/gen-all-config-docs.sh after making changes to this file.
  */
 object GlutenCoreConfig extends ConfigRegistry {
-  override def get: GlutenCoreConfig = {
+  def get: GlutenCoreConfig = {
     new GlutenCoreConfig(activeSQLConf)
   }
 
@@ -75,6 +75,18 @@ object GlutenCoreConfig extends ConfigRegistry {
 
   val SPARK_OFFHEAP_SIZE_KEY = "spark.memory.offHeap.size"
   val SPARK_OFFHEAP_ENABLED_KEY = "spark.memory.offHeap.enabled"
+
+  // A Spark key without a Gluten ConfigEntry. Delivered on the backend channel because the
+  // ClickHouse backend reads it back JVM-side out of that map - `CHTransformerApi` gates its
+  // `max_memory_usage` derivation on it - not because any native source reads the key. It appears
+  // in no `cpp/` or `cpp-ch/` source.
+  registerStaticConf(SPARK_OFFHEAP_ENABLED_KEY)
+    .doc(
+      "Whether Spark off-heap memory is enabled. Delivered with the native backend conf so that " +
+        "`CHTransformerApi.postProcessNativeConfig` can read it back; no native read site exists.")
+    .booleanConf
+    .passToNative()
+    .createOptional
 
   val GLUTEN_ENABLED =
     buildConf("spark.gluten.enabled")
@@ -115,34 +127,50 @@ object GlutenCoreConfig extends ConfigRegistry {
       .createWithDefault(false)
 
   val COLUMNAR_OVERHEAD_SIZE_IN_BYTES =
-    buildConf("spark.gluten.memoryOverhead.size.in.bytes")
+    buildStaticConf("spark.gluten.memoryOverhead.size.in.bytes")
       .internal()
+      .passToNative()
       .doc(
-        "Must provide default value since non-execution operations " +
-          "(e.g. org.apache.spark.sql.Dataset#summary) doesn't propagate configurations using " +
-          "org.apache.spark.sql.execution.SQLExecution#withSQLConfPropagated")
+        "Memory overhead available to the Velox global memory manager, set by VeloxListenerApi " +
+          "from the actual resource configuration. No default value: the value cannot be derived " +
+          "without a SparkConf at hand, and native treats the key's absence as 'unbounded' - " +
+          "`VeloxBackend::init` falls back to `kMaxMemory`, so delivering a placeholder 0 would " +
+          "instead build the global memory manager with zero capacity. Absent for a " +
+          "non-execution operation (e.g. org.apache.spark.sql.Dataset#summary), which does not " +
+          "propagate configurations via SQLExecution#withSQLConfPropagated.")
       .bytesConf(ByteUnit.BYTE)
-      .createWithDefaultString("0")
+      .createOptional
 
   val COLUMNAR_OFFHEAP_SIZE_IN_BYTES =
     buildConf("spark.gluten.memory.offHeap.size.in.bytes")
       .internal()
+      .passToNative()
       .doc(
-        "Must provide default value since non-execution operations " +
-          "(e.g. org.apache.spark.sql.Dataset#summary) doesn't propagate configurations using " +
-          "org.apache.spark.sql.execution.SQLExecution#withSQLConfPropagated")
+        "Total off-heap memory, set by GlutenPlugin from the actual resource configuration. " +
+          "Native declares `kSparkOffHeapMemory` but reads it nowhere; the ClickHouse backend is " +
+          "the consumer, and it reads the key JVM-side out of the delivered backend conf map - " +
+          "`CHTransformerApi.postProcessNativeConfig` derives `max_memory_usage`, " +
+          "`max_bytes_before_external_group_by` and `max_bytes_in_join` from it - so it must be " +
+          "delivered even though no native read site exists. Must provide a default value since " +
+          "non-execution operations (e.g. org.apache.spark.sql.Dataset#summary) do not propagate " +
+          "configurations via org.apache.spark.sql.execution.SQLExecution#withSQLConfPropagated.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("0")
 
   val COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES =
     buildConf("spark.gluten.memory.task.offHeap.size.in.bytes")
       .internal()
+      .passToNative()
       .doc(
-        "Must provide default value since non-execution operations " +
-          "(e.g. org.apache.spark.sql.Dataset#summary) doesn't propagate configurations using " +
-          "org.apache.spark.sql.execution.SQLExecution#withSQLConfPropagated")
+        "Per-task off-heap memory, set by GlutenPlugin from the actual resource configuration. " +
+          "No default value: native treats the key's absence as 'unbounded' - " +
+          "`WholeStageResultIterator` falls back to `kMaxMemory` when sizing partial " +
+          "aggregation, and ClickHouse leaves its own defaults in place - so delivering a " +
+          "placeholder 0 would collapse those limits instead. Absent for a non-execution " +
+          "operation (e.g. org.apache.spark.sql.Dataset#summary), which does not propagate " +
+          "configurations via SQLExecution#withSQLConfPropagated.")
       .bytesConf(ByteUnit.BYTE)
-      .createWithDefaultString("0")
+      .createOptional
 
   val COLUMNAR_CONSERVATIVE_TASK_OFFHEAP_SIZE_IN_BYTES =
     buildConf("spark.gluten.memory.conservative.task.offHeap.size.in.bytes")
@@ -170,12 +198,16 @@ object GlutenCoreConfig extends ConfigRegistry {
 
   val NUM_TASK_SLOTS_PER_EXECUTOR =
     buildConf("spark.gluten.numTaskSlotsPerExecutor")
+      .passToNative()
       .doc(
-        "Must provide default value since non-execution operations " +
-          "(e.g. org.apache.spark.sql.Dataset#summary) doesn't propagate configurations using " +
-          "org.apache.spark.sql.execution.SQLExecution#withSQLConfPropagated")
+        "Number of task slots per executor, set by GlutenPlugin from the actual resource " +
+          "configuration. No default value: the value cannot be derived without a SparkConf at " +
+          "hand, and native rejects a placeholder - `GLUTEN_CHECK(numTaskSlotsPerExecutor >= 0)` " +
+          "in VeloxBackend. Native warns and falls back to 1 when the key is absent, which is " +
+          "what non-execution operations (e.g. org.apache.spark.sql.Dataset#summary) hit, since " +
+          "they do not propagate configurations via SQLExecution#withSQLConfPropagated.")
       .intConf
-      .createWithDefaultString("-1")
+      .createOptional
 
   // Since https://github.com/apache/gluten/issues/5439.
   val DYNAMIC_OFFHEAP_SIZING_ENABLED =

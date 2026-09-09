@@ -16,7 +16,6 @@
  */
 package org.apache.gluten.config
 
-import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.shuffle.SupportsColumnarShuffle
 
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
@@ -229,7 +228,7 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def columnarShuffleMergeThreshold: Double = getConf(SHUFFLE_WRITER_MERGE_THRESHOLD)
 
-  def columnarShuffleCodec: Option[String] = getConf(COLUMNAR_SHUFFLE_CODEC)
+  def columnarShuffleCodec: String = getConf(COLUMNAR_SHUFFLE_CODEC)
 
   def columnarShuffleCodecBackend: Option[String] = getConf(COLUMNAR_SHUFFLE_CODEC_BACKEND)
 
@@ -342,7 +341,7 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def benchmarkTaskId: String = getConf(BENCHMARK_TASK_TASK_ID)
 
-  def benchmarkSaveDir: String = getConf(BENCHMARK_SAVE_DIR)
+  def benchmarkSaveDir: Option[String] = getConf(BENCHMARK_SAVE_DIR)
 
   def textInputMaxBlockSize: Long = getConf(TEXT_INPUT_ROW_MAX_BLOCK_SIZE)
 
@@ -476,10 +475,21 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_OVERHEAD_FACTOR_KEY = "spark.executor.memoryOverheadFactor"
   val SPARK_REDACTION_REGEX = "spark.redaction.regex"
   val SPARK_SHUFFLE_FILE_BUFFER = "spark.shuffle.file.buffer"
+  // Spark's own bound on the above, from `ByteArrayMethods.MAX_ROUNDED_ARRAY_LENGTH / 1024` - the
+  // largest buffer a JVM byte array can hold. Restated rather than read back because
+  // `ByteArrayMethods` is a Spark-internal class and the value is a fixed platform limit.
+  // `kMaxShuffleFileBufferSizeKib` in `cpp/core/jni/JniWrapper.cc` repeats it, because native is
+  // the only reader of the key and has to enforce the bound on a value that failed this converter;
+  // keep the two in step.
+  val SPARK_SHUFFLE_FILE_BUFFER_MAX_KIB: Long = (Int.MaxValue - 15) / 1024
   val SPARK_UNSAFE_SORTER_SPILL_READER_BUFFER_SIZE = "spark.unsafe.sorter.spill.reader.buffer.size"
   val SPARK_SHUFFLE_SPILL_DISK_WRITE_BUFFER_SIZE = "spark.shuffle.spill.diskWriteBufferSize"
   val SPARK_SHUFFLE_SPILL_COMPRESS = "spark.shuffle.spill.compress"
-  val SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT: Boolean = true
+  // The codec `spark.gluten.sql.columnar.shuffle.codec` falls back to, and its Spark default. The
+  // default is read back from Spark's own entry rather than restated here - see
+  // `GlutenConfigUtil.sparkIoCompressionCodecDefault`.
+  val SPARK_IO_COMPRESSION_CODEC = "spark.io.compression.codec"
+  val SPARK_IO_COMPRESSION_CODEC_DEFAULT = GlutenConfigUtil.sparkIoCompressionCodecDefault
   val SPARK_MAX_BROADCAST_TABLE_SIZE = "spark.sql.maxBroadcastTableSize"
 
   def get: GlutenConfig = {
@@ -489,110 +499,179 @@ object GlutenConfig extends ConfigRegistry {
   def prefixOf(backendName: String): String = s"spark.gluten.sql.columnar.backend.$backendName"
   def prefixSessionOf(backendName: String): String = s"spark.gluten.$backendName"
 
-  private lazy val nativeKeys = Set(
-    DEBUG_ENABLED.key,
-    BENCHMARK_SAVE_DIR.key,
-    GlutenCoreConfig.COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES.key,
-    COLUMNAR_MAX_BATCH_SIZE.key,
-    SHUFFLE_WRITER_BUFFER_SIZE.key,
-    COLUMNAR_CUDF_ENABLED.key,
-    SQLConf.LEGACY_SIZE_OF_NULL.key,
-    SQLConf.LEGACY_STATISTICAL_AGGREGATE.key,
-    SQLConf.JSON_GENERATOR_IGNORE_NULL_FIELDS.key,
-    SQLConf.RUNTIME_BLOOM_FILTER_EXPECTED_NUM_ITEMS.key,
-    SQLConf.RUNTIME_BLOOM_FILTER_NUM_BITS.key,
-    SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_BITS.key,
-    SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS.key,
-    "spark.io.compression.codec",
-    "spark.sql.decimalOperations.allowPrecisionLoss",
-    "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing",
-    // s3 config
-    SPARK_S3_ACCESS_KEY,
-    SPARK_S3_SECRET_KEY,
-    SPARK_S3_ENDPOINT,
-    SPARK_S3_CONNECTION_SSL_ENABLED,
-    SPARK_S3_PATH_STYLE_ACCESS,
-    SPARK_S3_USE_INSTANCE_CREDENTIALS,
-    SPARK_S3_IAM,
-    SPARK_S3_IAM_SESSION_NAME,
-    SPARK_S3_RETRY_MAX_ATTEMPTS,
-    SPARK_S3_CONNECTION_MAXIMUM,
-    SPARK_S3_ENDPOINT_REGION,
-    SPARK_S3_AWS_IMDS_ENABLED,
-    "spark.gluten.velox.fs.s3a.retry.mode",
-    "spark.gluten.velox.awsSdkLogLevel",
-    "spark.gluten.velox.s3UseProxyFromEnv",
-    "spark.gluten.velox.s3PayloadSigningPolicy",
-    "spark.gluten.velox.s3LogLocation",
-    // gcs config
-    SPARK_GCS_STORAGE_ROOT_URL,
-    SPARK_GCS_AUTH_TYPE,
-    SPARK_GCS_AUTH_SERVICE_ACCOUNT_JSON_KEYFILE,
-    SPARK_REDACTION_REGEX,
-    "spark.gluten.sql.columnar.backend.velox.queryTraceEnabled",
-    "spark.gluten.sql.columnar.backend.velox.queryTraceDir",
-    "spark.gluten.sql.columnar.backend.velox.queryTraceNodeIds",
-    "spark.gluten.sql.columnar.backend.velox.queryTraceMaxBytes",
-    "spark.gluten.sql.columnar.backend.velox.queryTraceTaskRegExp",
-    "spark.gluten.sql.columnar.backend.velox.opTraceDirectoryCreateConfig",
-    "spark.gluten.sql.columnar.backend.velox.enableUserExceptionStacktrace",
-    "spark.gluten.sql.columnar.backend.velox.enableSystemExceptionStacktrace",
-    "spark.gluten.sql.columnar.backend.velox.memoryUseHugePages",
-    "spark.gluten.sql.columnar.backend.velox.cachePrefetchMinPct",
-    "spark.gluten.sql.columnar.backend.velox.memoryPoolCapacityTransferAcrossTasks",
-    "spark.gluten.sql.columnar.backend.velox.preferredBatchBytes",
-    "spark.gluten.sql.columnar.backend.velox.cudf.enableTableScan",
-    "spark.gluten.sql.columnar.backend.velox.columnarBatchSerializerCompression"
-  )
+  // Declarations of non-Gluten configurations (Spark SQL / Spark core / Hadoop keys that have no
+  // Gluten ConfigEntry) to be passed to native side. `registerConf` / `registerStaticConf` declare
+  // only the native delivery: the key stays owned by Spark / Hadoop, so nothing is registered as a
+  // Gluten config entry or to SQLConf. Gluten's own configurations declare native passing via
+  // `ConfigBuilder.passToNative` at their definitions instead.
+  private def registerNativeConfs(): Unit = {
+    // Force GlutenCoreConfig's object initialization, so that its own `passToNative`
+    // registrations are in place before native confs are selected.
+    GlutenCoreConfig.ensureRegistered()
 
-  private def backendSettings(backendName: String) = {
-    // Only one backend is loaded in a running Gluten session. Use backend settings hooks to avoid
-    // hard-coding backend-specific configs in common code.
-    BackendsApiManager.getSettings
+    // Spark SQL confs read by native. All of these rely on native's own fallback matching Spark's
+    // default, so nothing is delivered when the key is unset - see `ConfigBuilder.passToNative`.
+    //
+    // `spark.sql.legacy.sizeOfNull` is deliberately absent: native never reads it from the conf
+    // map, since the value is baked as a substrait literal at plan conversion (see
+    // `ExpressionConverter`). Declaring it would deliver a key nothing reads.
+    // A string literal because only Spark 4.1+ declares the entry. Note native's fallback here is
+    // `true` (`ConfigExtractor.cc:279`) while Spark 4.1 declares the entry with a default of
+    // `false`, so an unset key diverges from vanilla Spark on 4.1. That divergence predates this
+    // change - base delivered this key only when set as well - and closing it would alter Parquet
+    // read results, so it is left alone here and tracked separately.
+    registerConf("spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing")
+      .booleanConf
+      .passToNative()
+      .createOptional
+    registerConf(SQLConf.JSON_GENERATOR_IGNORE_NULL_FIELDS.key)
+      .booleanConf
+      .passToNative()
+      .createOptional
+    registerConf(SQLConf.RUNTIME_BLOOM_FILTER_EXPECTED_NUM_ITEMS.key)
+      .longConf
+      .passToNative()
+      .createOptional
+    registerConf(SQLConf.RUNTIME_BLOOM_FILTER_NUM_BITS.key)
+      .longConf
+      .passToNative()
+      .createOptional
+    registerConf(SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_BITS.key)
+      .longConf
+      .passToNative()
+      .createOptional
+    registerConf(SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS.key)
+      .longConf
+      .passToNative()
+      .createOptional
+    // Lower-cased even though Spark's own entry declares no transform: Spark lower-cases at its
+    // read site (`CompressionCodec.createCodec`) whereas Velox does not - `stringToCompressionKind`
+    // looks the value up in a lower-case-keyed map and raises `VELOX_UNSUPPORTED` on a miss, so a
+    // user writing `ZSTD` would fail the spill path in `WholeStageResultIterator`. This also keeps
+    // the key in step with `COLUMNAR_SHUFFLE_CODEC`, which falls back to it via the same converter.
+    registerConf(SPARK_IO_COMPRESSION_CODEC)
+      .stringConf
+      .transform(_.toLowerCase(Locale.ROOT))
+      .passToNative()
+      .createOptional
+    // Velox compares the value against upper-cased literals; ClickHouse lower-cases it itself.
+    // Declaring `transform(toUpperCase)` mirrors Spark's own entry which also upper-cases.
+    registerConf(SQLConf.LEGACY_TIME_PARSER_POLICY.key)
+      .stringConf
+      .transform(_.toUpperCase(Locale.ROOT))
+      .passToNative()
+      .createOptional
+    registerConf(SQLConf.CASE_SENSITIVE.key).booleanConf.passToNative().createOptional
+    registerConf(SQLConf.IGNORE_MISSING_FILES.key).booleanConf.passToNative().createOptional
+    registerConf(SQLConf.LEGACY_STATISTICAL_AGGREGATE.key)
+      .booleanConf
+      .passToNative()
+      .createOptional
+    // ClickHouse compares this one against the literal "true" / "1" case-sensitively
+    // (`BackendInitializerUtil::toField`), so an unnormalized "TRUE" would silently turn precision
+    // loss off. `booleanConf` renders it as "true".
+    registerConf(SQLConf.DECIMAL_OPERATIONS_ALLOW_PREC_LOSS.key)
+      .booleanConf
+      .passToNative()
+      .createOptional
+    // The three confs below declare a default function rather than a literal: native's own fallback
+    // is wrong for them, and restating Spark's default here is exactly what drifts. Reading it back
+    // through Spark's own accessor keeps the two in step, and is resolved per delivery - the same
+    // `SQLConf.get` the delivery site already reads the conf map from.
+    registerConf(SQLConf.MAP_KEY_DEDUP_POLICY.key)
+      .stringConf
+      // Spark's own entry declares the same upper-casing transform, and native compares the
+      // delivered value against the literal "EXCEPTION" (`WholeStageResultIterator.cc:660`).
+      // Without it, `spark.sql.mapKeyDedupPolicy=exception` - which Spark accepts and normalizes -
+      // would read as LAST_WIN in native, so a duplicate map key would silently take the last
+      // value instead of raising.
+      .transform(_.toUpperCase(Locale.ROOT))
+      .passToNative()
+      // Native reads an absent key as non-throwing, contradicting Spark's default of EXCEPTION
+      // (throw on duplicate keys). `toString` because Spark 4.1 declares the entry as an enum
+      // (`MapKeyDedupPolicy.Value`) where 3.x declares it as a string; both render "EXCEPTION".
+      .createWithDefaultFunction(() => SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toString)
+    // Spark's default flipped from false (up to 3.5) to true (4.0+), and in 4.x is not a literal at
+    // all - it is derived from the `SPARK_ANSI_SQL_MODE` environment variable. Native's own
+    // fallback ("false") is wrong for Spark 4.0+.
+    registerConf(SQLConf.ANSI_ENABLED.key)
+      .booleanConf
+      .passToNative()
+      .createWithDefaultFunction(() => SQLConf.get.ansiEnabled)
+    // Spark's default here is the current JVM default time zone, so it must be resolved per
+    // delivery - a session, or a test, may change it in between. Native's own fallback (absent key)
+    // has no notion of a time zone at all.
+    registerConf(SQLConf.SESSION_LOCAL_TIMEZONE.key)
+      .stringConf
+      .passToNative()
+      .createWithDefaultFunction(() => SQLConf.get.sessionLocalTimeZone)
+
+    // Spark core confs. Size confs are declared with `bytesConf` matching Spark's own declaration,
+    // so the value reaches native in the same unit Spark reads it in; native applies any further
+    // conversion it needs (e.g. *1024 for `spark.shuffle.file.buffer` which is KiB).
+    registerConf(SPARK_SHUFFLE_SPILL_COMPRESS).booleanConf.passToNative().createOptional
+    registerConf(SPARK_REDACTION_REGEX).stringConf.passToNative().createOptional
+    registerConf(SPARK_UNSAFE_SORTER_SPILL_READER_BUFFER_SIZE)
+      .bytesConf(ByteUnit.BYTE)
+      .passToNative()
+      .createOptional
+    registerConf(SPARK_SHUFFLE_SPILL_DISK_WRITE_BUFFER_SIZE)
+      .bytesConf(ByteUnit.BYTE)
+      .passToNative()
+      .createOptional
+    // Spark declares a bound as well as a unit on this one, and native is now its only reader, so
+    // the bound is declared here too. A value outside it is not delivered in parsed form, and
+    // `createPartitionWriter` rejects it and falls back to its own default with a warning.
+    registerConf(SPARK_SHUFFLE_FILE_BUFFER)
+      .bytesConf(ByteUnit.KiB)
+      .checkValue(
+        v => v > 0 && v <= SPARK_SHUFFLE_FILE_BUFFER_MAX_KIB,
+        s"must be positive and at most $SPARK_SHUFFLE_FILE_BUFFER_MAX_KIB KiB")
+      .passToNative()
+      .createOptional
+
+    // Hadoop-owned S3/GCS keys. No Spark entry declares them, and native branches on whether they
+    // are present at all - a credential key that is absent tells native no credentials were
+    // configured, so nothing may be delivered for an unset one. In backend scope they are also
+    // covered by the `spark.hadoop.fs.s3a.` / `spark.hadoop.fs.gs.` prefix rules.
+    registerConf(SPARK_S3_ACCESS_KEY).stringConf.passToNative().createOptional
+    registerConf(SPARK_S3_SECRET_KEY).stringConf.passToNative().createOptional
+    registerConf(SPARK_S3_ENDPOINT).stringConf.passToNative().createOptional
+    registerConf(SPARK_S3_IAM).stringConf.passToNative().createOptional
+    registerConf(SPARK_S3_IAM_SESSION_NAME).stringConf.passToNative().createOptional
+    registerConf(SPARK_S3_ENDPOINT_REGION).stringConf.passToNative().createOptional
+    registerConf(SPARK_S3_AWS_IMDS_ENABLED).booleanConf.passToNative().createOptional
+    registerConf(SPARK_GCS_STORAGE_ROOT_URL).stringConf.passToNative().createOptional
+    registerConf(SPARK_GCS_AUTH_TYPE).stringConf.passToNative().createOptional
+    registerConf(SPARK_GCS_AUTH_SERVICE_ACCOUNT_JSON_KEYFILE)
+      .stringConf
+      .passToNative()
+      .createOptional
+    registerConf(SPARK_S3_CONNECTION_SSL_ENABLED).booleanConf.passToNative().createOptional
+    registerConf(SPARK_S3_USE_INSTANCE_CREDENTIALS).booleanConf.passToNative().createOptional
+    // These three declare a Gluten-side default because Gluten's choice departs from what native
+    // falls back to: `path.style.access` falls back to `false` in `ConfigExtractor` while Gluten
+    // wants `true`, `connection.maximum` to `25` while Gluten wants `15`, and `retry.limit` has no
+    // native fallback at all.
+    registerConf(SPARK_S3_PATH_STYLE_ACCESS).booleanConf.passToNative().createWithDefault(true)
+    registerConf(SPARK_S3_RETRY_MAX_ATTEMPTS).intConf.passToNative().createWithDefault(20)
+    registerConf(SPARK_S3_CONNECTION_MAXIMUM).intConf.passToNative().createWithDefault(15)
+
+    // `spark.sql.parquet.compression.codec` and `spark.sql.parquet.writeLegacyFormat` are
+    // deliberately absent. Native does read them - `VeloxWriterUtils.cc:56,70` - but never off
+    // either channel: `VeloxParquetWriterInjects.nativeConf` puts both into the datasource options
+    // explicitly, and `VeloxJniWrapper`'s `createDataSource` merges the runtime conf map underneath
+    // with `insert`, which does not overwrite. The substrait write path takes them from the write
+    // rel instead. `VeloxBackend::init` reads neither.
   }
 
   /** Get dynamic configs. */
   def getNativeSessionConf(backendName: String, conf: Map[String, String]): Map[String, String] = {
-    val settings = backendSettings(backendName)
-    val nativeConfMap = mutable.Map[String, String](conf.filter {
-      case (key, _) =>
-        nativeKeys.contains(key) || settings.extraNativeSessionConfKeys().contains(key)
-    }.toSeq: _*)
+    val nativeConfMap = mutable.Map[String, String]()
 
-    Seq(
-      (SQLConf.CASE_SENSITIVE.key, SQLConf.CASE_SENSITIVE.defaultValueString),
-      (SQLConf.IGNORE_MISSING_FILES.key, SQLConf.IGNORE_MISSING_FILES.defaultValueString),
-      (
-        SQLConf.LEGACY_STATISTICAL_AGGREGATE.key,
-        SQLConf.LEGACY_STATISTICAL_AGGREGATE.defaultValueString),
-      (
-        COLUMNAR_MEMORY_BACKTRACE_ALLOCATION.key,
-        COLUMNAR_MEMORY_BACKTRACE_ALLOCATION.defaultValueString),
-      (
-        GLUTEN_COLUMNAR_TO_ROW_MEM_THRESHOLD.key,
-        GLUTEN_COLUMNAR_TO_ROW_MEM_THRESHOLD.defaultValue.get.toString),
-      (SPARK_SHUFFLE_SPILL_COMPRESS, SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT.toString),
-      (SQLConf.MAP_KEY_DEDUP_POLICY.key, SQLConf.MAP_KEY_DEDUP_POLICY.defaultValueString),
-      (SQLConf.SESSION_LOCAL_TIMEZONE.key, SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString),
-      (SQLConf.ANSI_ENABLED.key, SQLConf.ANSI_ENABLED.defaultValueString)
-    ).foreach { case (k, defaultValue) => nativeConfMap.put(k, conf.getOrElse(k, defaultValue)) }
-
-    Seq(
-      (SPARK_UNSAFE_SORTER_SPILL_READER_BUFFER_SIZE, ByteUnit.BYTE, (v: Long) => v.toString),
-      (SPARK_SHUFFLE_SPILL_DISK_WRITE_BUFFER_SIZE, ByteUnit.BYTE, (v: Long) => v.toString),
-      (SPARK_SHUFFLE_FILE_BUFFER, ByteUnit.KiB, (v: Long) => (v * 1024).toString)
-    )
-      .foreach {
-        case (k, unit, f) =>
-          GlutenConfigUtil.mapByteConfValue(conf, k, unit)(v => nativeConfMap.put(k, f(v)))
-      }
-
-    conf
-      .get(SQLConf.LEGACY_TIME_PARSER_POLICY.key)
-      .foreach(
-        v =>
-          nativeConfMap
-            .put(SQLConf.LEGACY_TIME_PARSER_POLICY.key, v.toUpperCase(Locale.ROOT)))
+    // Confs declared with `ConfigBuilder.passToNative` at their definitions, restricted to the ones
+    // whose mutability puts them on the runtime channel.
+    nativeConfMap ++= NativeConfRegistry.selectRuntimeConf(conf)
 
     val confPrefixSession = prefixSessionOf(backendName)
     val confPrefix = prefixOf(backendName)
@@ -608,7 +687,11 @@ object GlutenConfig extends ConfigRegistry {
             backendName == "velox" && veloxSplitColumnMappingConfigs.contains(k)
           (isBackendDynamicConf || isBackendSessionConf) && !isVeloxSplitColumnMappingConf
       }
-      .foreach { case (k, v) => nativeConfMap.put(k, v) }
+      // A key already selected from the registry keeps that value: the declaration is the more
+      // specific statement, and it is the only one that parses the value through the conf's own
+      // converter. Overwriting here would silently deliver the raw string for a declared key that a
+      // prefix rule also matches.
+      .foreach { case (k, v) => nativeConfMap.getOrElseUpdate(k, v) }
 
     // Pass the latest tokens to native
     nativeConfMap.put(
@@ -634,56 +717,9 @@ object GlutenConfig extends ConfigRegistry {
 
     val nativeConfMap = mutable.HashMap.empty[String, String]
 
-    // some configs having default values
-    Seq(
-      (SPARK_S3_CONNECTION_SSL_ENABLED, "false"),
-      (SPARK_S3_PATH_STYLE_ACCESS, "true"),
-      (SPARK_S3_USE_INSTANCE_CREDENTIALS, "false"),
-      (SPARK_S3_RETRY_MAX_ATTEMPTS, "20"),
-      (SPARK_S3_CONNECTION_MAXIMUM, "15"),
-      ("spark.gluten.velox.fs.s3a.retry.mode", "legacy"),
-      (
-        GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key,
-        GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.defaultValueString),
-      (COLUMNAR_SHUFFLE_CODEC.key, ""),
-      (COLUMNAR_SHUFFLE_CODEC_BACKEND.key, ""),
-      (DEBUG_CUDF.key, DEBUG_CUDF.defaultValueString),
-      ("spark.hadoop.input.connect.timeout", "180000"),
-      ("spark.hadoop.input.read.timeout", "180000"),
-      ("spark.hadoop.input.write.timeout", "180000"),
-      ("spark.hadoop.dfs.client.log.severity", "INFO"),
-      ("spark.sql.orc.compression.codec", "snappy"),
-      ("spark.sql.decimalOperations.allowPrecisionLoss", "true"),
-      ("spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled", "true"),
-      ("spark.gluten.sql.columnar.backend.velox.numCacheFileHandles", "10000"),
-      ("spark.gluten.sql.columnar.backend.velox.fileHandleExpirationDurationMs", "600000"),
-      ("spark.gluten.velox.awsSdkLogLevel", "FATAL"),
-      ("spark.gluten.velox.s3UseProxyFromEnv", "false"),
-      ("spark.gluten.velox.s3PayloadSigningPolicy", "Never"),
-      (SQLConf.SESSION_LOCAL_TIMEZONE.key, SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString)
-    ).foreach { case (k, defaultValue) => nativeConfMap.put(k, conf.getOrElse(k, defaultValue)) }
-
-    val settings = backendSettings(backendName)
-    val keys = Set(
-      DEBUG_ENABLED.key,
-      // datasource config
-      SPARK_SQL_PARQUET_COMPRESSION_CODEC,
-      SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key,
-      // datasource config end
-      GlutenCoreConfig.COLUMNAR_OVERHEAD_SIZE_IN_BYTES.key,
-      GlutenCoreConfig.COLUMNAR_OFFHEAP_SIZE_IN_BYTES.key,
-      GlutenCoreConfig.COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES.key,
-      GlutenCoreConfig.SPARK_OFFHEAP_ENABLED_KEY,
-      SQLConf.DECIMAL_OPERATIONS_ALLOW_PREC_LOSS.key,
-      SPARK_REDACTION_REGEX,
-      SQLConf.LEGACY_TIME_PARSER_POLICY.key,
-      SQLConf.LEGACY_STATISTICAL_AGGREGATE.key,
-      COLUMNAR_CUDF_ENABLED.key
-    )
-
-    nativeConfMap ++= conf.filter {
-      case (k, _) => keys.contains(k) || settings.extraNativeBackendConfKeys().contains(k)
-    }
+    // Confs declared with `ConfigBuilder.passToNative` at their definitions. Both static and
+    // modifiable confs land here, since native backend init reads the current value either way.
+    nativeConfMap ++= NativeConfRegistry.selectBackendConf(conf)
 
     val confPrefix = prefixOf(backendName)
     val s3Prefix = HADOOP_PREFIX + S3A_PREFIX
@@ -696,7 +732,9 @@ object GlutenConfig extends ConfigRegistry {
           k.startsWith(confPrefix) || k.startsWith(s3Prefix) || k.startsWith(azurePrefix) || k
             .startsWith(gsPrefix) || k.startsWith(backendPrefix)
       }
-      .foreach { case (k, v) => nativeConfMap.put(k, v) }
+      // As in getNativeSessionConf: a registry-selected key wins over a prefix match, so a declared
+      // key's value converter is not bypassed by the raw prefix value.
+      .foreach { case (k, v) => nativeConfMap.getOrElseUpdate(k, v) }
 
     // return
     nativeConfMap.asJava
@@ -1142,18 +1180,28 @@ object GlutenConfig extends ConfigRegistry {
       .intConf
       .createWithDefault(-1)
 
+  // Gluten's shuffle codec falls back to Spark's `spark.io.compression.codec`, whose own default
+  // (lz4) applies when neither is set. Set this one only to use a codec different from Spark's, in
+  // particular when a codec backend such as QAT is enabled.
+  //
+  // No `passToNative` on either of the two: `GlutenShuffleUtils.getCompressionCodec` resolves them
+  // JVM-side and they reach native as `createPartitionWriter` arguments. Native declares
+  // `kShuffleCompressionCodec` / `kShuffleCompressionCodecBackend` but reads neither from the conf
+  // map, so declaring them would deliver keys nothing reads.
   val COLUMNAR_SHUFFLE_CODEC =
     buildConf("spark.gluten.sql.columnar.shuffle.codec")
       .doc(
-        "By default, the supported codecs are lz4 and zstd. " +
+        s"The codec used for columnar shuffle compression. Defaults to " +
+          s"$SPARK_IO_COMPRESSION_CODEC. By default, the supported codecs are lz4 and zstd. " +
           "When spark.gluten.sql.columnar.shuffle.codecBackend=qat," +
           "the supported codecs are gzip and zstd.")
       .stringConf
       .transform(_.toLowerCase(Locale.ROOT))
-      .createOptional
+      .fallbackConf(SPARK_IO_COMPRESSION_CODEC, SPARK_IO_COMPRESSION_CODEC_DEFAULT)
 
   val COLUMNAR_SHUFFLE_CODEC_BACKEND =
-    buildConf("spark.gluten.sql.columnar.shuffle.codecBackend").stringConf
+    buildConf("spark.gluten.sql.columnar.shuffle.codecBackend")
+      .stringConf
       .transform(_.toLowerCase(Locale.ROOT))
       .createOptional
 
@@ -1199,18 +1247,25 @@ object GlutenConfig extends ConfigRegistry {
       .createWithDefault(false)
 
   val COLUMNAR_MAX_BATCH_SIZE =
-    buildConf("spark.gluten.sql.columnar.maxBatchSize").intConf
+    buildConf("spark.gluten.sql.columnar.maxBatchSize")
+      .passToNative()
+      .intConf
       .checkValue(_ > 0, s"must be positive.")
       .createWithDefault(4096)
 
   val GLUTEN_COLUMNAR_TO_ROW_MEM_THRESHOLD =
     buildConf("spark.gluten.sql.columnarToRowMemoryThreshold")
+      .passToNative()
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("64MB")
 
   // if not set, use COLUMNAR_MAX_BATCH_SIZE instead
+  // No `passToNative`: `ColumnarShuffleWriter` and `CelebornColumnarShuffleWriter` read it JVM-side
+  // and hand it over as the `nativeBufferSize` JNI argument. The key string appears nowhere under
+  // `cpp/` or `cpp-ch/`.
   val SHUFFLE_WRITER_BUFFER_SIZE =
-    buildConf("spark.gluten.shuffleWriter.bufferSize").intConf
+    buildConf("spark.gluten.shuffleWriter.bufferSize")
+      .intConf
       .checkValue(_ > 0, s"must be positive.")
       .createOptional
 
@@ -1286,6 +1341,7 @@ object GlutenConfig extends ConfigRegistry {
   val COLUMNAR_MEMORY_BACKTRACE_ALLOCATION =
     buildConf("spark.gluten.memory.backtrace.allocation")
       .internal()
+      .passToNative()
       .doc("Print backtrace information for large memory allocations. This helps debugging when " +
         "Spark OOM happens due to large acquire requests.")
       .booleanConf
@@ -1356,6 +1412,7 @@ object GlutenConfig extends ConfigRegistry {
   val DEBUG_ENABLED =
     buildConf("spark.gluten.sql.debug")
       .internal()
+      .passToNative()
       .booleanConf
       .createWithDefault(false)
 
@@ -1384,6 +1441,7 @@ object GlutenConfig extends ConfigRegistry {
   val DEBUG_CUDF =
     buildStaticConf("spark.gluten.sql.debug.cudf")
       .internal()
+      .passToNative()
       .booleanConf
       .createWithDefault(false)
 
@@ -1414,8 +1472,11 @@ object GlutenConfig extends ConfigRegistry {
   val BENCHMARK_SAVE_DIR =
     buildConf("spark.gluten.saveDir")
       .internal()
+      .passToNative()
+      // No default: `VeloxRuntime::enableDumping` checks the key is present, not that it is
+      // non-empty, so delivering an empty default would let it proceed with an empty dump path.
       .stringConf
-      .createWithDefault("")
+      .createOptional
 
   val NATIVE_WRITER_ENABLED =
     buildConf("spark.gluten.sql.native.writer.enabled")
@@ -1714,6 +1775,7 @@ object GlutenConfig extends ConfigRegistry {
   val COLUMNAR_CUDF_ENABLED =
     buildConf("spark.gluten.sql.columnar.cudf")
       .experimental()
+      .passToNative()
       .doc("Enable or disable cudf support. This is an experimental feature.")
       .booleanConf
       .createWithDefault(false)
@@ -1781,4 +1843,8 @@ object GlutenConfig extends ConfigRegistry {
           " Other stages will be executed on CPU.")
       .booleanConf
       .createWithDefault(false)
+
+  // Native conf registrations, declared at the end of the object body so that all the entry vals
+  // above are initialized.
+  registerNativeConfs()
 }
