@@ -192,7 +192,7 @@ class GlutenByteInputStream : public ByteInputStream {
   /// bytes. The size of the value may be less if the current byte
   /// range ends within 'size' bytes from the current position.  The
   /// size will be 0 if at end.
-  std::string_view nextView(int64_t size) {
+  virtual std::string_view nextView(int64_t size) {
     VELOX_CHECK_GE(size, 0, "Attempting to view negative number of bytes");
     if (current_->position == current_->size) {
       if (current_ == &ranges_.back()) {

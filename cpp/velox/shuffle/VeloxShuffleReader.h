@@ -180,6 +180,8 @@ class VeloxRssSortShuffleReaderDeserializer : public ShuffleReaderDeserializer {
 
   void loadNextStream();
 
+  facebook::velox::RowVectorPtr readPage();
+
   std::shared_ptr<StreamReader> streamReader_;
   VeloxMemoryManager* memoryManager_;
   facebook::velox::RowTypePtr rowType_;
