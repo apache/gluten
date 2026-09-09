@@ -166,11 +166,11 @@ void appendLe(std::vector<uint8_t>& out, T value) {
 std::vector<uint8_t> buildTruncatedCompressedPage(int32_t compressedSize, int32_t bodyBytes) {
   std::vector<uint8_t> out;
   out.reserve(21 + bodyBytes);
-  appendLe<int32_t>(out, /*numRows=*/1);
-  appendLe<int8_t>(out, /*pageCodecMarker=*/1); // kCompressedBitMask, no checksum
-  appendLe<int32_t>(out, /*uncompressedSize=*/compressedSize + 64);
+  appendLe<int32_t>(out, 1); // numRows
+  appendLe<int8_t>(out, 1); // pageCodecMarker = kCompressedBitMask, no checksum
+  appendLe<int32_t>(out, compressedSize + 64); // uncompressedSize
   appendLe<int32_t>(out, compressedSize);
-  appendLe<int64_t>(out, /*checksum=*/0);
+  appendLe<int64_t>(out, 0); // checksum
   for (int i = 0; i < bodyBytes; ++i) {
     out.push_back(static_cast<uint8_t>(i & 0xFF));
   }
@@ -190,11 +190,11 @@ class VeloxShuffleReaderTest : public ::testing::Test, public test::VectorTestBa
   }
 
   std::shared_ptr<VeloxRssSortShuffleReaderDeserializer> makeDeserializer(
-      std::shared_ptr<arrow::io::InputStream> in,
+      const std::shared_ptr<arrow::io::InputStream>& in,
       const RowTypePtr& rowType = ROW({"c0"}, {INTEGER()})) {
     int64_t deserializeTime = 0;
     return std::make_shared<VeloxRssSortShuffleReaderDeserializer>(
-        std::make_shared<TestStreamReader>(std::move(in)),
+        std::make_shared<TestStreamReader>(in),
         getDefaultMemoryManager(),
         rowType,
         /*batchSize=*/1024,
