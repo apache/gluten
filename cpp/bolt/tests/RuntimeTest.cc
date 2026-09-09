@@ -106,12 +106,12 @@ class DummyRuntime final : public Runtime {
     throw GlutenException("Not yet implemented");
   }
   Metrics* getMetrics(ColumnarBatchIterator* rawIter, int64_t exportNanos) override {
-    static Metrics m(1);
+    static Metrics m(1, "");
     return &m;
   }
   std::shared_ptr<ShuffleReader> createShuffleReader(
       std::shared_ptr<arrow::Schema> schema,
-      ShuffleReaderOptions options) override {
+      const std::shared_ptr<ShuffleReaderOptions>& options) override {
     throw GlutenException("Not yet implemented");
   }
   std::unique_ptr<ColumnarBatchSerializer> createColumnarBatchSerializer(struct ArrowSchema* cSchema) override {
@@ -163,10 +163,14 @@ TEST(TestRuntime, CreateRuntime) {
 }
 
 TEST(TestRuntime, CreateBoltRuntime) {
-  BoltBackend::create(AllocationListener::noop(), {{kSparkOffHeapMemory, "7516192768"}});
+  // Disable the Bolt memory manager: enabling it makes BoltRuntime fetch the
+  // Spark task attempt id through JNI, which requires a live JVM.
+  const std::unordered_map<std::string, std::string> conf = {
+      {kSparkOffHeapMemory, "7516192768"}, {"spark.gluten.useBoltMemoryManager", "false"}};
+  BoltBackend::create(AllocationListener::noop(), conf);
   auto mm = MemoryManager::create(kBoltBackendKind, AllocationListener::noop());
   auto tm = ThreadManager::create(kBoltBackendKind, ThreadInitializer::noop());
-  auto runtime = Runtime::create(kBoltBackendKind, mm, tm, {{kSparkOffHeapMemory, "7516192768"}});
+  auto runtime = Runtime::create(kBoltBackendKind, mm, tm, conf);
   ASSERT_EQ(typeid(*runtime), typeid(BoltRuntime));
   Runtime::release(runtime);
   ThreadManager::release(tm);

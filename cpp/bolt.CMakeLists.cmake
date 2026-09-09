@@ -185,14 +185,10 @@ function(ADD_TEST_CASE TEST_NAME)
   endif()
 
   add_executable(${TEST_NAME} ${SOURCES})
-  target_link_libraries(
-    ${TEST_NAME}
-    gluten
-    bolt::bolt
-    glog::glog
-    GTest::gtest
-    GTest::gtest_main
-    Threads::Threads)
+  # glog (and its gflags) before gluten so the test resolves gflags from the
+  # static archives instead of binding to the copy exported by libgluten.so.
+  target_link_libraries(${TEST_NAME} glog::glog gluten GTest::gtest
+                        GTest::gtest_main Threads::Threads)
   target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/core)
 
   if(ARG_EXTRA_LINK_LIBS)
@@ -302,16 +298,26 @@ if(BUILD_BOLT)
   set(BOLT_NATIVE_PACKAGE_DIR
       "${CMAKE_SOURCE_DIR}/build/package/bolt/${BOLT_PACKAGE_PLATFORM}/${BOLT_PACKAGE_ARCH}"
   )
+  # Flat drop location kept for developers and docs; staged here at build time
+  # so the shared-library flow never needs `cmake --install`.
+  set(BOLT_NATIVE_RELEASES_DIR "${CMAKE_SOURCE_DIR}/build/releases")
   add_custom_target(
     package_bolt_native ALL
     COMMAND ${CMAKE_COMMAND} -E rm -rf "${BOLT_NATIVE_PACKAGE_DIR}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${BOLT_NATIVE_PACKAGE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${BOLT_NATIVE_RELEASES_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:gluten>"
             "${BOLT_NATIVE_PACKAGE_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:bolt_backend>"
             "${BOLT_NATIVE_PACKAGE_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:glutenlibloader>"
             "${BOLT_NATIVE_PACKAGE_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:gluten>"
+            "${BOLT_NATIVE_RELEASES_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:bolt_backend>"
+            "${BOLT_NATIVE_RELEASES_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:glutenlibloader>"
+            "${BOLT_NATIVE_RELEASES_DIR}/"
     DEPENDS gluten bolt_backend glutenlibloader
     COMMENT "Staging Bolt native libraries in ${BOLT_NATIVE_PACKAGE_DIR}"
     VERBATIM)

@@ -106,7 +106,6 @@ build:
 			-s llvm-core/*:build_type=Release -s build_type=${BUILD_TYPE} --build=missing $${ALL_CONAN_OPTIONS} && \
 	cmake --preset `echo conan-${BUILD_TYPE} | tr A-Z a-z` && \
 	cmake --build build/${BUILD_TYPE} -j $(NUM_THREADS) && \
-	if [ "${SHARED_LIBRARY}" = "True" ]; then  cmake --build ${BUILD_DIR}/${BUILD_TYPE} --target install ; fi && \
 	if [ "${SHARED_LIBRARY}" = "False" ]; then \
 	    conan export-pkg . --name=gluten --version=${GLUTEN_BUILD_VERSION} --user=${BUILD_USER} --channel=${BUILD_CHANNEL} -s build_type=${BUILD_TYPE} \
 		$${ALL_CONAN_OPTIONS} ; \

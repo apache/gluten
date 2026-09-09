@@ -56,10 +56,7 @@ class MemoryManagerTest : public ::testing::Test {
 
   void SetUp() override {
     vmm_ = std::make_unique<BoltMemoryManager>(
-        gluten::kBoltBackendKind,
-        std::make_unique<MockAllocationListener>(),
-        *BoltBackend::get()->getBackendConf(),
-        "memory-manager-test");
+        gluten::kBoltBackendKind, std::make_unique<MockAllocationListener>(), *BoltBackend::get()->getBackendConf());
     listener_ = vmm_->getListener();
     allocator_ = vmm_->allocator();
   }
@@ -344,10 +341,7 @@ class MultiMemoryManagerTest : public ::testing::Test {
 
   std::unique_ptr<BoltMemoryManager> newBoltMemoryManager(std::unique_ptr<AllocationListener> listener) {
     return std::make_unique<BoltMemoryManager>(
-        gluten::kBoltBackendKind,
-        std::move(listener),
-        *BoltBackend::get()->getBackendConf(),
-        "multi-memory-manager-test");
+        gluten::kBoltBackendKind, std::move(listener), *BoltBackend::get()->getBackendConf());
   }
 };
 
