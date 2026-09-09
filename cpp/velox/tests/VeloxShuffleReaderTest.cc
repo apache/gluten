@@ -40,6 +40,8 @@
 
 #include <arrow/buffer.h>
 #include <arrow/io/interfaces.h>
+#include <arrow/result.h>
+#include <arrow/status.h>
 
 #include <cstdint>
 #include <cstring>
@@ -120,6 +122,14 @@ class FakeInputStream final : public arrow::io::InputStream {
           " consecutive calls");
     }
     return toRead; // 0 == EOS when payload exhausted
+  }
+
+  arrow::Result<std::shared_ptr<arrow::Buffer>> Read(int64_t nbytes) override {
+    ARROW_ASSIGN_OR_RAISE(auto buffer, arrow::AllocateResizableBuffer(nbytes));
+    ARROW_ASSIGN_OR_RAISE(int64_t bytesRead, Read(nbytes, buffer->mutable_data()));
+    ARROW_RETURN_NOT_OK(buffer->Resize(bytesRead, false));
+    buffer->ZeroPadding();
+    return std::move(buffer);
   }
 
  private:
