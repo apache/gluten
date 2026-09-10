@@ -171,6 +171,17 @@ public class RelBuilder {
     return new InputIteratorRelNode(typeList, nameList, iteratorIndex);
   }
 
+  public static RelNode makeVirtualTableReadRel(
+      List<TypeNode> types,
+      List<String> names,
+      List<List<Expression.Literal>> rows,
+      SubstraitContext context,
+      Long operatorId) {
+    RelNode node = new VirtualTableRelNode(types, names, rows);
+    context.registerRelToOperator(operatorId);
+    return node;
+  }
+
   // only used in CHHashAggregateExecTransformer for CH backend
   public static RelNode makeReadRelForInputIteratorWithoutRegister(
       List<TypeNode> typeList, List<String> nameList, SubstraitContext context) {

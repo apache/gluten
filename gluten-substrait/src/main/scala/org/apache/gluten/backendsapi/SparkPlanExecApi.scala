@@ -645,6 +645,8 @@ trait SparkPlanExecApi {
 
   def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec
 
+  def genOneRowRelationExecTransformer(plan: SparkPlan): SparkPlan = plan
+
   def genColumnarTailExec(limit: Int, plan: SparkPlan): ColumnarCollectTailBaseExec
 
   def genColumnarToCarrierRow(plan: SparkPlan): SparkPlan

@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.utils.BackendTestUtils
+
 import org.apache.spark.SparkException
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.internal.SQLConf
@@ -166,27 +168,32 @@ class GlutenSQLQuerySuite extends SQLQuerySuite with GlutenSQLTestsTrait {
         === Array(plan.stripMargin)
     )
 
+    val oneRowPlan =
+      if (BackendTestUtils.isVeloxBackendLoaded()) {
+        """== Physical Plan ==
+          |ColumnarToRow
+          |+- ^(1) ProjectExecTransformer [1 AS 1#N]
+          |   +- ^(1) OneRowRelationExecTransformer
+          |
+          |""".stripMargin
+      } else {
+        """== Physical Plan ==
+          |ColumnarToRow
+          |+- ^(1) ProjectExecTransformer [1 AS 1#N]
+          |   +- ^(1) InputIteratorTransformer[]
+          |      +- RowToColumnar
+          |         +- *(1) Scan OneRowRelation[]
+          |
+          |""".stripMargin
+      }
+
     checkQueryPlan(
       spark.sql("explain select ?", Array(1)),
-      """== Physical Plan ==
-        |ColumnarToRow
-        |+- ^(1) ProjectExecTransformer [1 AS 1#N]
-        |   +- ^(1) InputIteratorTransformer[]
-        |      +- RowToColumnar
-        |         +- *(1) Scan OneRowRelation[]
-        |
-        |"""
+      oneRowPlan
     )
     checkQueryPlan(
       spark.sql("explain select :first", Map("first" -> 1)),
-      """== Physical Plan ==
-        |ColumnarToRow
-        |+- ^(1) ProjectExecTransformer [1 AS 1#N]
-        |   +- ^(1) InputIteratorTransformer[]
-        |      +- RowToColumnar
-        |         +- *(1) Scan OneRowRelation[]
-        |
-        |"""
+      oneRowPlan
     )
 
     checkQueryPlan(

@@ -1416,6 +1416,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
   override def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec =
     ColumnarRangeExec(rangeExec.range)
 
+  override def genOneRowRelationExecTransformer(plan: SparkPlan): SparkPlan = {
+    val transformer = OneRowRelationExecTransformer()
+    transformer.copyTagsFrom(plan)
+    transformer
+  }
+
   override def genColumnarTailExec(limit: Int, child: SparkPlan): ColumnarCollectTailBaseExec =
     ColumnarCollectTailExec(limit, child)
 
