@@ -2340,16 +2340,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       })
   }
 
-  test("Expression unsupported by backend can be handled by ColumnarPartialProject") {
-    runQueryAndCompare(
-      "SELECT c_custkey, map_from_arrays(array(c_name), array(c_comment)) FROM customer") {
-      df =>
-        val executedPlan = getExecutedPlan(df)
-        assert(executedPlan.count(_.isInstanceOf[ProjectExec]) == 0)
-        assert(executedPlan.count(_.isInstanceOf[ColumnarPartialProjectExec]) == 1)
-    }
-  }
-
   testWithMinSparkVersion("Left single join should not result into exception", "4.0") {
     withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
       spark.sql("create temp view x (x1, x2) as values (1, 1), (2, 2);")

@@ -646,6 +646,16 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("length check for input string values: with implicit cast")
     .exclude("char/varchar type values length check: partitioned columns of other types")
     .exclude("SPARK-42611: check char/varchar length in reordered structs within arrays")
+    // Overridden.
+    .exclude("length check for input string values: nested in map key")
+    // Overridden.
+    .exclude("length check for input string values: nested in map value")
+    // Overridden.
+    .exclude("length check for input string values: nested in both map key and value")
+    // Overridden.
+    .exclude("SPARK-42611: check char/varchar length in reordered structs within map keys")
+    // Overridden.
+    .exclude("SPARK-42611: check char/varchar length in reordered structs within map values")
   enableSuite[GlutenColumnExpressionSuite]
     // Velox raise_error('errMsg') throws a velox_user_error exception with the message 'errMsg'.
     // The final caught Spark exception's getCause().getMessage() contains 'errMsg' but does not
@@ -688,6 +698,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("aggregate function - array for non-primitive type")
     // Rewrite this test because Velox sorts rows by key for primitive data types, which disrupts the original row sequence.
     .exclude("map_zip_with function - map of primitive types")
+    // Overridden.
+    .exclude("map with arrays")
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
   enableSuite[GlutenDataFrameJoinSuite]
@@ -945,6 +957,12 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("NOT NULL checks for nested structs, arrays, maps (byPosition)")
     .exclude("NOT NULL checks for nullable array with required element (byPosition)")
     .exclude("not null checks for fields inside nullable array (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for nullable map with required values (byName)")
+    // Overridden.
+    .exclude("NOT NULL checks for nullable map with required values (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for fields inside nullable maps (byPosition)")
   enableSuite[GlutenTableOptionsConstantFoldingSuite]
   enableSuite[GlutenDeltaBasedMergeIntoTableSuite]
   enableSuite[GlutenDeltaBasedMergeIntoTableUpdateAsDeleteAndInsertSuite]
