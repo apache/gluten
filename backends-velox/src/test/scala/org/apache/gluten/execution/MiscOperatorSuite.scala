@@ -2342,7 +2342,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
 
   test("Expression unsupported by backend can be handled by ColumnarPartialProject") {
     runQueryAndCompare(
-      "SELECT c_custkey, map_from_arrays(array(c_name), array(c_comment)) FROM customer") {
+      "SELECT c_custkey, c_name, sequence(c_custkey, c_custkey + 2) FROM customer") {
       df =>
         val executedPlan = getExecutedPlan(df)
         assert(executedPlan.count(_.isInstanceOf[ProjectExec]) == 0)
