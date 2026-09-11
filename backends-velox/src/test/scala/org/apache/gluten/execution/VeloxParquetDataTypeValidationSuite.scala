@@ -461,7 +461,7 @@ class VeloxParquetDataTypeValidationSuite extends VeloxWholeStageTransformerSuit
     }
   }
 
-  testWithMinSparkVersion("TimestampNTZ type scan", "3.4") {
+  test("TimestampNTZ type scan") {
     withTempDir {
       dir =>
         val path = new File(dir, "ntz_data").toURI.getPath
@@ -475,9 +475,7 @@ class VeloxParquetDataTypeValidationSuite extends VeloxWholeStageTransformerSuit
     }
   }
 
-  testWithMinSparkVersion(
-    "Schema validation for TimestampNTZ respects enableTimestampNtzValidation",
-    "3.4") {
+  test("Schema validation for TimestampNTZ respects enableTimestampNtzValidation") {
     val ntzType = spark.sql("SELECT TIMESTAMP_NTZ'2024-01-01'").schema.head.dataType
     Seq("true", "false").foreach {
       enabled =>
