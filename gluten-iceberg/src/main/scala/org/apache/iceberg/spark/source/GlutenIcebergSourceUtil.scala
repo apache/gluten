@@ -117,17 +117,17 @@ object GlutenIcebergSourceUtil {
    * scheme(s) without enumerating every data file.
    *
    * We deliberately read this from table metadata (Table.location() plus the write.data.path /
-   * write.folder-storage.path properties, when set) rather than from the actual planned scan
-   * tasks (task.file().path()): resolving the real per-file paths requires planning the Iceberg
-   * scan's input partitions, but doing so eagerly -- before Spark has pushed down its dynamic
-   * partition pruning runtime filters -- breaks DPP's subquery-reuse detection for
-   * SupportsRuntimeV2Filtering scans (see https://github.com/apache/gluten/issues/12712).
+   * write.folder-storage.path properties, when set) rather than from the actual planned scan tasks
+   * (task.file().path()): resolving the real per-file paths requires planning the Iceberg scan's
+   * input partitions, but doing so eagerly -- before Spark has pushed down its dynamic partition
+   * pruning runtime filters -- breaks DPP's subquery-reuse detection for SupportsRuntimeV2Filtering
+   * scans (see https://github.com/apache/gluten/issues/12712).
    *
    * This mirrors how the non-Iceberg BatchScanExecTransformer.getRootPathsInternal resolves root
-   * paths purely from FileIndex metadata (fileScan.fileIndex.rootPaths) without planning any
-   * input partitions. Just like that metadata-only approach, this does not reflect files
-   * relocated by an entirely custom LocationProvider that ignores both properties above, but it
-   * is a strict improvement over unconditionally returning Seq.empty.
+   * paths purely from FileIndex metadata (fileScan.fileIndex.rootPaths) without planning any input
+   * partitions. Just like that metadata-only approach, this does not reflect files relocated by an
+   * entirely custom LocationProvider that ignores both properties above, but it is a strict
+   * improvement over unconditionally returning Seq.empty.
    */
   def getRootPaths(table: Table): Seq[String] = {
     val properties = table.properties()

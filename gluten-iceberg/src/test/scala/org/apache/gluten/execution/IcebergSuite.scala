@@ -84,7 +84,8 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
           assert(
             rootPaths.exists(actualFilePath.startsWith),
             s"expected one of root paths ($rootPaths) to be a prefix of the actual scanned " +
-              s"file ($actualFilePath)")
+              s"file ($actualFilePath)"
+          )
       }
     }
   }
@@ -112,7 +113,8 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
               assert(
                 rootPaths.exists(_.contains(dataDir.getCanonicalPath)),
                 s"expected root paths ($rootPaths) to include the configured " +
-                  s"write.data.path (${dataDir.getCanonicalPath})")
+                  s"write.data.path (${dataDir.getCanonicalPath})"
+              )
           }
         }
     }
