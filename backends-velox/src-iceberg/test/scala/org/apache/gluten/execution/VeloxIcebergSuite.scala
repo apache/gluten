@@ -125,7 +125,8 @@ class VeloxIcebergSuite extends IcebergSuite {
           assert(
             !VeloxFileSystemValidationJniWrapper.allSupportedByRegisteredFileSystems(
               Array("unsupported-test-scheme://bucket/path/file.parquet")),
-            "expected an unsupported scheme to fail native filesystem validation")
+            "expected an unsupported scheme to fail native filesystem validation"
+          )
       }
     }
   }
