@@ -17,7 +17,7 @@
 package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.{BackendsApiManager, RuleApi}
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.extension._
 import org.apache.gluten.extension.columnar._
 import org.apache.gluten.extension.columnar.MiscColumnarRules.{PreventBatchTypeMismatchInTableCache, RemoveGlutenTableCacheColumnarToRow, RemoveTopmostColumnarToRow, RewriteSubqueryBroadcast}
@@ -34,6 +34,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.noop.GlutenNoopWriterRule
+import org.apache.spark.sql.expression.UDFResolver
 
 class VeloxRuleApi extends RuleApi {
   import VeloxRuleApi._
@@ -66,6 +67,10 @@ object VeloxRuleApi {
 
     if (BackendsApiManager.getSettings.supportAppendDataExec()) {
       injector.injectPlannerStrategy(SparkShimLoader.getSparkShims.getRewriteCreateTableAsSelect(_))
+    }
+
+    if (VeloxConfig.nativeUDFBypassRegistration) {
+      UDFResolver.getFunctionDescriptions.foreach(injector.injectFunction)
     }
   }
 

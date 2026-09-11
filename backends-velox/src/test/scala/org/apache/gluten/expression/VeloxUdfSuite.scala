@@ -17,12 +17,14 @@
 package org.apache.gluten.expression
 
 import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
+import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 import org.apache.gluten.execution.WindowExecTransformer
 import org.apache.gluten.tags.{SkipTest, UDFTest}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
+import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.plans.SQLHelper
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.execution.window.WindowExec
@@ -294,6 +296,30 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
         }
     }
   }
+
+  test("native udf with a plain name is callable without a hive udf class") {
+    // No CREATE TEMPORARY FUNCTION and no Java class: the session extension put the name in
+    // Spark's registry via SparkInjector.injectFunction, which is the only writer for it.
+    assert(
+      spark.sessionState.functionRegistry
+        .lookupFunction(FunctionIdentifier("myudf_plus_one"))
+        .isDefined)
+
+    val df = spark.sql("SELECT myudf_plus_one(col1) FROM VALUES (1L), (2L), (3L) AS t(col1)")
+    checkGlutenPlan[ProjectExecTransformer](df)
+    checkAnswer(df, Seq(Row(2L), Row(3L), Row(4L)))
+  }
+
+  test("native udf with a plain name fails at analysis when gluten is disabled") {
+    withSQLConf(("spark.gluten.enabled", "false")) {
+      val e = intercept[Exception] {
+        spark.sql("SELECT myudf_plus_one(col1) FROM VALUES (1L) AS t(col1)").collect()
+      }
+      // The injected function has no JVM implementation to fall back to, so the call is
+      // rejected rather than silently returning a result from somewhere else.
+      assert(e.getMessage.contains("myudf_plus_one"))
+    }
+  }
 }
 
 @UDFTest
@@ -305,6 +331,8 @@ class VeloxUdfSuiteLocal extends VeloxUdfSuite {
       .set("spark.files", udfLibPath)
       .set(VeloxBackendSettings.GLUTEN_VELOX_UDF_LIB_PATHS, udfLibRelativePath)
       .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
+      // Off by default, so the by-name tests below have to opt in.
+      .set(VeloxConfig.NATIVE_UDF_BYPASS_REGISTRATION.key, "true")
   }
 }
 
