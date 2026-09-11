@@ -16,9 +16,17 @@
  */
 package org.apache.spark.sql.delta
 
+import org.apache.gluten.execution.HashAggregateExecTransformer
+
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
+import org.apache.spark.sql.delta.stats.GlutenDeltaJobStatsTracker
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
+import org.apache.spark.sql.execution.SparkPlan
+
+import java.util.concurrent.ConcurrentLinkedQueue
+
+import scala.collection.JavaConverters._
 
 class GlutenDeltaStatsSuite extends DeltaSQLCommandTest {
 
@@ -37,7 +45,22 @@ class GlutenDeltaStatsSuite extends DeltaSQLCommandTest {
               "cast(input as timestamp_ntz) as ts",
               "struct(cast(input as timestamp_ntz) as ts) as nested")
 
-          data.coalesce(1).write.format("delta").save(path)
+          val statsPlans = new ConcurrentLinkedQueue[SparkPlan]()
+          GlutenDeltaJobStatsTracker.withStatsPlanObserver {
+            (statsPath, plan) =>
+              if (statsPath.toUri.getPath == path) {
+                statsPlans.add(plan)
+              }
+          } {
+            data.coalesce(1).write.format("delta").save(path)
+          }
+          assert(!statsPlans.isEmpty, "The write did not use the native Delta statistics tracker")
+          statsPlans.asScala.foreach {
+            plan =>
+              assert(
+                plan.exists(_.isInstanceOf[HashAggregateExecTransformer]),
+                s"Expected a native statistics aggregate, but got:\n${plan.treeString}")
+          }
 
           val actual = spark.read.format("delta").load(path)
           assert(actual.collect().toSet == data.collect().toSet)

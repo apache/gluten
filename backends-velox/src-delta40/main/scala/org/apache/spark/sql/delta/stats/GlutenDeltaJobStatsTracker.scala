@@ -39,12 +39,12 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, BindReferences, EmptyRow, Expression, RuntimeReplaceable, SortOrder, SpecificInternalRow}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
-import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExecNode, ProjectExec}
+import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExecNode, ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.aggregate.SortAggregateExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, WriteJobStatsTracker, WriteTaskStats, WriteTaskStatsTracker}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
-import org.apache.spark.util.{SerializableConfiguration, SparkDirectoryUtil}
+import org.apache.spark.util.{SerializableConfiguration, SparkDirectoryUtil, Utils}
 
 import com.google.common.collect.Lists
 import org.apache.hadoop.conf.Configuration
@@ -86,6 +86,22 @@ private[stats] class GlutenDeltaJobStatsTracker(val delegate: DeltaJobStatistics
 }
 
 object GlutenDeltaJobStatsTracker extends Logging {
+  private val statsPlanObserverLock = new Object
+  @volatile private var statsPlanObserver: Option[(Path, SparkPlan) => Unit] = None
+
+  /** Observes task-local statistics plans in local-mode tests; callbacks run on task threads. */
+  private[delta] def withStatsPlanObserver[T](observer: (Path, SparkPlan) => Unit)(f: => T): T =
+    statsPlanObserverLock.synchronized {
+      require(Utils.isTesting, "Statistics plan observation is only available in tests")
+      require(statsPlanObserver.isEmpty, "A statistics plan observer is already registered")
+      statsPlanObserver = Some(observer)
+      try {
+        f
+      } finally {
+        statsPlanObserver = None
+      }
+    }
+
   def apply(tracker: WriteJobStatsTracker): WriteJobStatsTracker = tracker match {
     case tracker: BasicWriteJobStatsTracker =>
       new GlutenDeltaJobStatsRowCountingTracker(tracker)
@@ -175,6 +191,9 @@ object GlutenDeltaJobStatsTracker extends Logging {
         .asInstanceOf[WholeStageTransformer]
         .child
         .asInstanceOf[TransformSupport]
+      if (Utils.isTesting) {
+        statsPlanObserver.foreach(_(rootPath, wholeStageTransformer))
+      }
       val substraitContext = new SubstraitContext
       TransformerState.enterValidation
       val transformedNode =
