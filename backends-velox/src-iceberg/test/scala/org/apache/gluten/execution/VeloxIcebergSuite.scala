@@ -109,7 +109,7 @@ class VeloxIcebergSuite extends IcebergSuite {
           assert(scans.size == 1)
           val rootPaths = scans.head.getRootPathsInternal
           assert(rootPaths.nonEmpty)
-          // Confirm these are real per-file scan paths (registered as `file` scheme), which
+          // Confirm these are real table root paths (registered as `file` scheme), which
           // VeloxBackendSettings.distinctRootPaths always excludes from scheme validation (the
           // local filesystem is always registered) -- so a real root path from this suite
           // passes validation, as expected for a supported local table.

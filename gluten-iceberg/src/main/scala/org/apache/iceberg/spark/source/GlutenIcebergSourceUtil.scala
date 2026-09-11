@@ -23,7 +23,6 @@ import org.apache.gluten.execution.SparkDataSourceRDDPartition
 import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
-import org.apache.spark.Partition
 import org.apache.spark.softaffinity.SoftAffinity
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.connector.read.Scan
@@ -114,28 +113,29 @@ object GlutenIcebergSourceUtil {
   }
 
   /**
-   * Returns one representative data file path per planned Spark input partition, so callers can
-   * validate the underlying filesystem scheme(s) without enumerating every data file.
+   * Returns the table-level root path(s) so callers can validate the underlying filesystem
+   * scheme(s) without enumerating every data file.
    *
-   * We deliberately read the actual scanned file paths (task.file().path()) rather than the Iceberg
-   * table's declared base location (Table.location()): Iceberg lets a table relocate its actual
-   * data files independently of the table location via the write.data.path property or a custom
-   * LocationProvider, so the table location is not guaranteed to reflect the filesystem the data is
-   * actually read from. This also works uniformly across all supported Spark versions, since it
-   * does not depend on BatchScanExec exposing its Table (only added in Spark 3.4; see
-   * SparkShims.getBatchScanExecTable).
+   * We deliberately read this from table metadata (Table.location() plus the write.data.path /
+   * write.folder-storage.path properties, when set) rather than from the actual planned scan
+   * tasks (task.file().path()): resolving the real per-file paths requires planning the Iceberg
+   * scan's input partitions, but doing so eagerly -- before Spark has pushed down its dynamic
+   * partition pruning runtime filters -- breaks DPP's subquery-reuse detection for
+   * SupportsRuntimeV2Filtering scans (see https://github.com/apache/gluten/issues/12712).
+   *
+   * This mirrors how the non-Iceberg BatchScanExecTransformer.getRootPathsInternal resolves root
+   * paths purely from FileIndex metadata (fileScan.fileIndex.rootPaths) without planning any
+   * input partitions. Just like that metadata-only approach, this does not reflect files
+   * relocated by an entirely custom LocationProvider that ignores both properties above, but it
+   * is a strict improvement over unconditionally returning Seq.empty.
    */
-  def getRootPaths(partitions: Seq[Partition]): Seq[String] = {
-    partitions.flatMap {
-      case p: SparkDataSourceRDDPartition =>
-        p.inputPartitions.flatMap {
-          case ip: SparkInputPartition =>
-            val tasks = ip.taskGroup[ScanTask]().tasks().asScala
-            asFileScanTask(tasks.toList).headOption.map(_.file().path().toString)
-          case _ => None
-        }
-      case _ => Seq.empty
-    }
+  def getRootPaths(table: Table): Seq[String] = {
+    val properties = table.properties()
+    Seq(
+      Option(table.location()),
+      Option(properties.get(TableProperties.WRITE_DATA_LOCATION)),
+      Option(properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION))
+    ).flatten.distinct
   }
 
   def getFieldIds(sparkScan: Scan): JHashMap[String, Integer] = {
