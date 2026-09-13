@@ -615,6 +615,14 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
         runQueryAndCompare("select timestampadd(hour, 1, ts) from view") {
           checkGlutenPlan[ProjectExecTransformer]
         }
+        // convert_timezone(timestamp_ntz) runs natively; output stays timestamp_ntz.
+        runQueryAndCompare("select convert_timezone('America/Los_Angeles', ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare(
+          "select convert_timezone('America/Los_Angeles', 'Asia/Shanghai', ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
 
         // cast(timestamp_ntz as timestamp)
         runQueryAndCompare("select cast(ts as timestamp) from view") {

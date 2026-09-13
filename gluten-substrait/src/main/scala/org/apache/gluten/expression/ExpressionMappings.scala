@@ -308,6 +308,7 @@ object ExpressionMappings {
     Sig[KnownNullable](KNOWN_NULLABLE),
     Sig[TimestampAdd](TIMESTAMP_ADD),
     Sig[TimestampDiff](TIMESTAMP_DIFF),
+    Sig[ConvertTimezone](CONVERT_TIMEZONE),
     Sig[RoundFloor](FLOOR),
     Sig[RoundCeil](CEIL)
   ) ++ SparkShimLoader.getSparkShims.scalarExpressionMappings
