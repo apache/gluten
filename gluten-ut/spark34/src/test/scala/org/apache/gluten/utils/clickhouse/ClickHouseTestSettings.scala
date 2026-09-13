@@ -167,6 +167,13 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeGlutenTest("length check for input string values: with implicit cast")
     .excludeGlutenTest("char/varchar type values length check: partitioned columns of other types")
     .excludeGlutenTest("SPARK-42611: check char/varchar length in reordered structs within arrays")
+    .excludeGlutenTest("length check for input string values: nested in map key")
+    .excludeGlutenTest("length check for input string values: nested in map value")
+    .excludeGlutenTest("length check for input string values: nested in both map key and value")
+    .excludeGlutenTest(
+      "SPARK-42611: check char/varchar length in reordered structs within map keys")
+    .excludeGlutenTest(
+      "SPARK-42611: check char/varchar length in reordered structs within map values")
   enableSuite[GlutenDSV2SQLInsertTestSuite]
   enableSuite[GlutenDataFrameAggregateSuite]
     .exclude("average")
@@ -195,6 +202,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Expected exception org.apache.spark.SparkException to be thrown, but no exception was thrown
     .exclude("map_concat function")
     .exclude("map with arrays")
+    .excludeGlutenTest("map with arrays")
     .exclude("flatten function")
     .exclude("aggregate function - array for primitive type not containing null")
     .exclude("aggregate function - array for primitive type containing null")
@@ -391,6 +399,9 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeGlutenTest("length check for input string values: nested in array of array")
     .excludeGlutenTest("length check for input string values: nested in array of struct")
     .excludeGlutenTest("length check for input string values: nested in array")
+    .excludeGlutenTest("length check for input string values: nested in map key")
+    .excludeGlutenTest("length check for input string values: nested in map value")
+    .excludeGlutenTest("length check for input string values: nested in both map key and value")
   enableSuite[GlutenFileSourceSQLInsertTestSuite]
     .exclude("SPARK-33474: Support typed literals as partition spec values")
     .exclude(

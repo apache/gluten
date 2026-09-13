@@ -16,10 +16,75 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.exception.GlutenException
+
+import org.apache.spark.SparkException
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.{IntegerType, MapType, StringType}
 
 class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenSQLTestsTrait {
   import testImplicits._
+
+  // scalastyle:off line.size.limit
+  /**
+   * Source:
+   * https://github.com/apache/spark/blob/v3.5.5/sql/core/src/test/scala/org/apache/spark/sql/DataFrameFunctionsSuite.scala#L148
+   *
+   * Why:
+   * https://github.com/apache/spark/blob/v3.5.5/sql/core/src/test/scala/org/apache/spark/sql/DataFrameFunctionsSuite.scala#L151
+   * calls `map_from_arrays` directly. This PR drops the function from `kBlackList` in
+   * cpp/velox/substrait/SubstraitToVeloxPlanValidator.cc, so it now runs in Velox, which raises its
+   * own errors for a null map key and for mismatched key/value array lengths.
+   */
+  // scalastyle:on line.size.limit
+  testGluten("map with arrays") {
+    val df1 = Seq((Seq(1, 2), Seq("a", "b"))).toDF("k", "v")
+    val expectedType = MapType(IntegerType, StringType, valueContainsNull = true)
+    val row = df1.select(map_from_arrays($"k", $"v")).first()
+    assert(row.schema(0).dataType === expectedType)
+    assert(row.getMap[Int, String](0) === Map(1 -> "a", 2 -> "b"))
+    checkAnswer(df1.select(map_from_arrays($"k", $"v")), Seq(Row(Map(1 -> "a", 2 -> "b"))))
+
+    val df2 = Seq((Seq(1, 2), Seq(null, "b"))).toDF("k", "v")
+    checkAnswer(df2.select(map_from_arrays($"k", $"v")), Seq(Row(Map(1 -> null, 2 -> "b"))))
+
+    val df3 = Seq((null, null)).toDF("k", "v")
+    checkAnswer(df3.select(map_from_arrays($"k", $"v")), Seq(Row(null)))
+
+    val df4 = Seq((1, "a")).toDF("k", "v")
+    checkError(
+      exception = intercept[AnalysisException] {
+        df4.select(map_from_arrays($"k", $"v"))
+      },
+      errorClass = "DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE",
+      parameters = Map(
+        "sqlExpr" -> "\"map_from_arrays(k, v)\"",
+        "paramIndex" -> "1",
+        "requiredType" -> "\"ARRAY\"",
+        "inputSql" -> "\"k\"",
+        "inputType" -> "\"INT\""
+      )
+    )
+
+    val df5 = Seq((Seq("a", null), Seq(1, 2))).toDF("k", "v")
+    val e1 = intercept[SparkException] {
+      df5.select(map_from_arrays($"k", $"v")).collect
+    }
+    // Before: assert(e1.getCause.isInstanceOf[SparkRuntimeException])
+    assert(e1.getCause.isInstanceOf[GlutenException])
+    // Before: checkError(
+    //           exception = e1.getCause.asInstanceOf[SparkRuntimeException],
+    //           errorClass = "NULL_MAP_KEY",
+    //           parameters = Map.empty
+    //         )
+    assert(e1.getCause.getMessage.contains("Cannot use null as map key"))
+
+    val df6 = Seq((Seq(1, 2), Seq("a"))).toDF("k", "v")
+    val msg2 = intercept[Exception] {
+      df6.select(map_from_arrays($"k", $"v")).collect
+    }.getMessage
+    assert(msg2.contains("The key array and value array of MapData must have the same length"))
+  }
 
   testGluten("map_zip_with function - map of primitive types") {
     val df = Seq(

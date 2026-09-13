@@ -489,6 +489,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Rewrite this test because Velox sorts rows by key for primitive data types, which disrupts the original row sequence.
     .includeCH("map_zip_with function - map of primitive types")
     .excludeCH("map with arrays")
+    .excludeGlutenTest("map with arrays")
     .excludeCH("flatten function")
     .excludeCH("SPARK-41233: array prepend")
     .excludeCH("array_insert functions")
@@ -2002,6 +2003,9 @@ class ClickHouseTestSettings extends BackendTestSettings {
   enableSuite[GlutenResolvedDataSourceSuite]
   enableSuite[GlutenReuseExchangeAndSubquerySuite]
   enableSuite[GlutenRuntimeNullChecksV2Writes]
+    .excludeGlutenTest("NOT NULL checks for nullable map with required values (byName)")
+    .excludeGlutenTest("NOT NULL checks for nullable map with required values (byPosition)")
+    .excludeGlutenTest("NOT NULL checks for fields inside nullable maps (byPosition)")
   enableSuite[GlutenSQLAggregateFunctionSuite]
     .excludeGlutenTest("Return NaN or null when dividing by zero")
   enableSuite[GlutenSQLQuerySuite]
