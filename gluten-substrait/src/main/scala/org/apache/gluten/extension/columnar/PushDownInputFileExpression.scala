@@ -17,6 +17,7 @@
 package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.execution.{BatchScanExecTransformerBase, FileSourceScanExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.expression.ConverterUtils
 
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, NamedExpression}
 import org.apache.spark.sql.catalyst.optimizer.CollapseProjectShim
@@ -24,8 +25,6 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{DeserializeToObjectExec, FileSourceScanExec, FilterExec, LeafExecNode, ProjectExec, SerializeFromObjectExec, SparkPlan, UnionExec}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
-
-import java.util.Locale
 
 import scala.collection.mutable
 
@@ -58,7 +57,7 @@ object PushDownInputFileExpression {
     expr match {
       case _: InputFileName | _: InputFileBlockStart | _: InputFileBlockLength => true
       case a: AttributeReference =>
-        INPUT_FILE_ATTR_NAMES.contains(a.name.toLowerCase(Locale.ROOT))
+        INPUT_FILE_ATTR_NAMES.contains(ConverterUtils.normalizeColName(a.name))
       case _ => expr.children.exists(containsInputFileRelatedExpr)
     }
   }
@@ -175,10 +174,17 @@ object PushDownInputFileExpression {
         val newProjectList = projectList.map {
           expr => rewriteExpr(expr, replacedExprs).asInstanceOf[NamedExpression]
         }
-        val existingNames = child.output.map(_.name.toLowerCase(Locale.ROOT)).toSet
+        // Use expression ID to determine whether the injected metadata attribute is already
+        // present in the scan output. Name-based dedup via toLowerCase is incorrect under
+        // caseSensitive=true: a user column named e.g. "Input_File_Name" would collapse to
+        // "input_file_name" and be treated as a duplicate of the injected metadata attribute,
+        // causing the metadata attr to be dropped while the rewritten project list still holds
+        // a reference to it, producing a dangling-attribute IllegalStateException.
+        // The injected attributes are freshly created (new exprId) so identity is reliable.
+        val existingExprIds = child.output.map(_.exprId).toSet
         val inputFileAttrs = replacedExprs.values.toSeq
           .map(_.toAttribute.asInstanceOf[AttributeReference])
-          .filterNot(attr => existingNames.contains(attr.name.toLowerCase(Locale.ROOT)))
+          .filterNot(attr => existingExprIds.contains(attr.exprId))
         p.copy(
           projectList = newProjectList,
           child = child.withOutput(child.output ++ inputFileAttrs))

@@ -21,7 +21,26 @@ Gluten currently doesn't support ANSI mode. If ANSI is enabled, Spark plan's exe
 We now have a issue tracker on ANSI support progress. Please check [issue-10134](https://github.com/apache/gluten/issues/10134).
 
 #### Case Sensitive mode
-Gluten only supports spark default case-insensitive mode. If case-sensitive mode is enabled, user may get incorrect result.
+Gluten respects Spark's case-sensitive configuration (`spark.sql.caseSensitive`). Since
+[GLUTEN-1577](https://github.com/apache/gluten/issues/1577) (merged 2023-05), column-name
+normalisation in the core engine uses `ConverterUtils.normalizeColName`, which preserves the
+original casing when `caseSensitiveAnalysis=true` and lowercases only when it is `false` (the
+Spark default). Standard data operations such as scan, filter, aggregation, and join are
+therefore correct in both modes.
+
+**Narrow exception — Iceberg metadata columns:** `IcebergScanTransformer` previously used
+unconditional `toLowerCase` in its allowed-metadata-column check and read-schema field set,
+which could mismatch metadata-column names (e.g. `input_file_name`, `input_file_block_start`,
+`input_file_block_length`) when case-sensitive mode was active. This inconsistency is addressed
+by this change; `ConverterUtils.normalizeColName` is now used consistently throughout the
+Iceberg scan path.
+
+**Known follow-up:** `PushDownInputFileExpression` (in `gluten-substrait`) also uses
+unconditional lowercasing when deduplicating injected metadata attributes against existing
+scan output (lines 178/181). Querying a data column named `Input_File_Name` (mixed case) and
+`input_file_name()` in the same projection under `caseSensitive=true` is not yet supported and
+will fail with a plan-binding error. This is a pre-existing limitation unrelated to the
+`IcebergScanTransformer` fix.
 
 #### Regexp functions
 In Velox, regexp functions (`rlike`, `regexp_extract`, etc.) are implemented based on RE2, while in Spark they are based on `java.util.regex`.
