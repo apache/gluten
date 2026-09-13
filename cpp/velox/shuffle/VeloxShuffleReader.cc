@@ -845,7 +845,7 @@ VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::VeloxInputStream(
     std::shared_ptr<arrow::io::InputStream> input,
     facebook::velox::BufferPtr buffer)
     : in_(std::move(input)), buffer_(std::move(buffer)) {
-  next(true);
+  next(false);
 }
 
 bool VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::hasNext() {
@@ -853,7 +853,7 @@ bool VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::hasNext() {
     return false;
   }
   if (ranges()[0].position >= ranges()[0].size) {
-    next(true);
+    next(false);
     return offset_ != 0;
   }
   return true;
@@ -861,11 +861,15 @@ bool VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::hasNext() {
 
 void VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::next(bool throwIfPastEnd) {
   const uint32_t readBytes = buffer_->capacity();
-  offset_ = in_->Read(readBytes, buffer_->asMutable<char>()).ValueOr(0);
-  if (offset_ > 0) {
-    int32_t realBytes = offset_;
-    VELOX_CHECK_LT(0, realBytes, "Reading past end of file.");
-    setRange({buffer_->asMutable<uint8_t>(), realBytes, 0});
+  offset_ = 0;
+  int64_t realBytes = in_->Read(readBytes, buffer_->asMutable<char>()).ValueOr(0);
+  VELOX_CHECK_LE(0, realBytes, "Read returned negative value: {}", realBytes);
+  if (realBytes > 0) {
+    offset_ = realBytes;
+    setRange({buffer_->asMutable<uint8_t>(), static_cast<int32_t>(realBytes), 0});
+  } else if (throwIfPastEnd) {
+    VELOX_FAIL(
+        "Reading past end of VeloxRssSortShuffleReaderDeserializer::VeloxInputStream, real bytes = {}", realBytes);
   }
 }
 
