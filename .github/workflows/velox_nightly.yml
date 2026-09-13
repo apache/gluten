@@ -42,17 +42,18 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos7-release-default-${{github.sha}}
+          key: ccache-almalinux8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-centos7-release-default
+            ccache-almalinux8-release-default
       - name: Build Gluten velox third party
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
+            yum install bison -y
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
             export CCACHE_MAXSIZE=1G
-            bash dev/ci-velox-buildstatic-centos-7.sh
+            bash dev/ci-velox-buildstatic-centos-8.sh
             ccache -s
             mkdir -p /work/.m2/repository/org/apache/arrow/
             cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
@@ -67,7 +68,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: .m2/repository/org/apache/arrow/
-          name: velox-arrow-jar-centos-7-${{github.sha}}
+          name: velox-arrow-jar-centos-8-x86-${{github.sha}}
 
   build-bundle-package-centos8-jdk8-x86:
     if: ${{ startsWith(github.repository, 'apache/') }}
@@ -84,7 +85,7 @@ jobs:
       - name: Download All Arrow Jar Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-arrow-jar-centos-7-${{github.sha}}
+          name: velox-arrow-jar-centos-8-x86-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
       - name: Setup java
         run: |
@@ -121,7 +122,7 @@ jobs:
       - name: Download All Arrow Jar Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-arrow-jar-centos-7-${{github.sha}}
+          name: velox-arrow-jar-centos-8-x86-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
       - name: Setup java
         run: |
@@ -159,7 +160,7 @@ jobs:
       - name: Download All Arrow Jar Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-arrow-jar-centos-7-${{github.sha}}
+          name: velox-arrow-jar-centos-8-x86-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
       - name: Setup java
         run: |
@@ -183,16 +184,16 @@ jobs:
   build-native-lib-centos-8-arm64:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-24.04-arm
-    container: apache/gluten:vcpkg-centos-8-gcc13
+    container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
+          key: ccache-almalinux8-release-default-${{runner.arch}}-${{github.sha}}
           restore-keys: |
-            ccache-centos8-release-default-${{runner.arch}}
+            ccache-almalinux8-release-default-${{runner.arch}}
       - name: Build Gluten native libraries
         run: |
           df -a
@@ -207,7 +208,7 @@ jobs:
         id: ccache
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
+          key: ccache-almalinux8-release-default-${{runner.arch}}-${{github.sha}}
       - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
@@ -429,16 +430,17 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-enhanced-centos7-release-default-${{github.sha}}
+          key: ccache-enhanced-almalinux8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-enhanced-centos7-release-default
+            ccache-enhanced-almalinux8-release-default
       - name: Build Gluten velox third party
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
+            yum install bison -y
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
-            bash dev/ci-velox-buildstatic-centos-7-enhanced-features.sh
+            bash dev/ci-velox-buildstatic-centos-8-enhanced-features.sh
             ccache -s
             mkdir -p /work/.m2/repository/org/apache/arrow/
             cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
@@ -453,7 +455,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           path: .m2/repository/org/apache/arrow/
-          name: velox-arrow-jar-centos-7-enhanced-${{github.sha}}
+          name: velox-arrow-jar-centos-8-enhanced-${{github.sha}}
 
   build-bundle-enhanced-package-centos8-jdk17:
     if: ${{ startsWith(github.repository, 'apache/') }}
@@ -470,7 +472,7 @@ jobs:
       - name: Download All Arrow Jar Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-arrow-jar-centos-7-enhanced-${{github.sha}}
+          name: velox-arrow-jar-centos-8-enhanced-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
       - name: Setup java and maven
         run: |

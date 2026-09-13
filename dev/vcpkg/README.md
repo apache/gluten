@@ -9,9 +9,10 @@ except for those overridden in `vcpkg.json`, `vcpkg-configuration.json`, and ove
 ## Build in docker
 
 For main branch code, you can follow the commands below.
-- Pull the docker image: `docker pull apache/gluten:vcpkg-centos-7-gcc13`
-- Build native code: `bash dev/ci-velox-buildstatic-centos-7.sh`
-- Build JVM code: `mvn clean install -Pbackends-velox -Pspark-3.5 -DskipTests`
+
+- Pull the docker image: `docker pull apache/gluten:vcpkg-almalinux-8-gcc13`
+- Build native code: `bash dev/ci-velox-buildstatic-centos-8.sh`
+- Build JVM code: `./build/mvn clean install -Pbackends-velox -Pspark-3.5 -DskipTests`
 
 The gluten packages will be placed in `$GLUTEN_REPO/package/target/gluten-velox-bundle-*.jar`.
 
