@@ -25,7 +25,6 @@ import org.apache.gluten.execution.WriteFilesExecTransformer
 import org.apache.gluten.expression.WindowFunctionsBuilder
 import org.apache.gluten.extension.columnar.cost.{LegacyCoster, LongCoster, RoughCoster}
 import org.apache.gluten.extension.columnar.transition.{Convention, ConventionFunc}
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.LocalFilesNode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat.{DwrfReadFormat, OrcReadFormat, ParquetReadFormat}
@@ -40,8 +39,7 @@ import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.execution.{ColumnarCachedBatchSerializer, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
-import org.apache.spark.sql.execution.command.CreateDataSourceTableAsSelectCommand
-import org.apache.spark.sql.execution.datasources.{FileFormat, InsertIntoHadoopFsRelationCommand}
+import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.datasources.parquet.{ParquetFileFormat, ParquetOptions}
 import org.apache.spark.sql.hive.execution.HiveFileFormat
 import org.apache.spark.sql.internal.SQLConf
@@ -537,12 +535,6 @@ object BoltBackendSettings extends BackendSettingsApi {
 
   override def insertPostProjectForGenerate(): Boolean = true
 
-  override def skipNativeCtas(ctas: CreateDataSourceTableAsSelectCommand): Boolean = true
-
-  override def skipNativeInsertInto(insertInto: InsertIntoHadoopFsRelationCommand): Boolean = {
-    insertInto.bucketSpec.nonEmpty
-  }
-
   override def alwaysFailOnMapExpression(): Boolean = true
 
   override def requiredChildOrderingForWindowGroupLimit(): Boolean = false
@@ -550,9 +542,7 @@ object BoltBackendSettings extends BackendSettingsApi {
   override def staticPartitionWriteOnly(): Boolean = true
 
   override def enableNativeWriteFiles(): Boolean = {
-    GlutenConfig.get.enableNativeWriter.getOrElse(
-      SparkShimLoader.getSparkShims.enableNativeWriteFilesByDefault()
-    )
+    GlutenConfig.get.enableNativeWriter.getOrElse(true)
   }
 
   override def shouldRewriteCount(): Boolean = {

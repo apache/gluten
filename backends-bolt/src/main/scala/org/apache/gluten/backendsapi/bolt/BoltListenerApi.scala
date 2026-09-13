@@ -39,7 +39,6 @@ import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.shuffle.{ColumnarShuffleDependency, LookupKey, ShuffleManagerRegistry}
 import org.apache.spark.shuffle.sort.ColumnarShuffleManager
 import org.apache.spark.sql.execution.ColumnarCachedBatchSerializer
-import org.apache.spark.sql.execution.datasources.GlutenWriterColumnarRules
 import org.apache.spark.sql.execution.datasources.bolt.{BoltParquetWriterInjects, BoltRowSplitter}
 import org.apache.spark.sql.expression.UDFResolver
 import org.apache.spark.sql.internal.{GlutenConfigUtil, StaticSQLConf}
@@ -231,8 +230,6 @@ class BoltListenerApi extends ListenerApi with Logging {
 
     // Inject backend-specific implementations to override spark classes.
     GlutenFormatFactory.register(new BoltParquetWriterInjects)
-    GlutenFormatFactory.injectPostRuleFactory(
-      session => GlutenWriterColumnarRules.NativeWritePostRule(session))
     GlutenFormatFactory.register(new BoltRowSplitter())
   }
 

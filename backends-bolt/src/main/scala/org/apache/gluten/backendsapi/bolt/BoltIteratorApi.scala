@@ -26,6 +26,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.plan.PlanNode
 import org.apache.gluten.substrait.rel.{LocalFilesBuilder, LocalFilesNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
+import org.apache.gluten.utils.FileMetadataUtil
 import org.apache.gluten.vectorized._
 
 import org.apache.spark.{Partition, SparkConf, TaskContext}
@@ -114,8 +115,7 @@ class BoltIteratorApi extends IteratorApi with Logging {
     val (fileSizes, modificationTimes) = getFileInfo(partitionFiles).unzip
     val partitionColumns = getPartitionColumns(partitionSchema, partitionFiles)
     val metadataColumns = partitionFiles
-      .map(
-        f => SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
+      .map(f => FileMetadataUtil.generateMetadataColumns(f, metadataColumnNames).asJava)
     val otherMetadataColumns = partitionFiles
       .map(f => SparkShimLoader.getSparkShims.getOtherConstantMetadataColumnValues(f))
     setFileSchemaForLocalFiles(
