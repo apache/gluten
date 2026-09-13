@@ -86,6 +86,11 @@ case class IcebergScanTransformer(
   }
 
   override def doValidateInternal(): ValidationResult = {
+    if (GlutenIcebergSourceUtil.hasVendedCredentials(scan)) {
+      return ValidationResult.failed(
+        "Iceberg scan uses catalog-vended credentials, which native readers do not support")
+    }
+
     val validationResult = super.doValidateInternal()
     if (!validationResult.ok()) {
       return validationResult
