@@ -36,6 +36,8 @@
 #include "velox/vector/arrow/Bridge.h"
 
 #include <algorithm>
+#include <array>
+#include <cstring>
 
 #include "VeloxGpuAsyncShuffleReader.h"
 #include "config/VeloxConfig.h"
@@ -65,6 +67,41 @@ uint32_t validateHashShuffleReaderBatchSize(int32_t batchSize) {
   GLUTEN_CHECK(batchSize > 0, fmt::format("Hash shuffle reader batch size must be positive, but got {}", batchSize));
   return static_cast<uint32_t>(batchSize);
 }
+
+// The Presto page wire header (velox/serializers/PrestoSerializer.h):
+// numRows:int32, pageCodecMarker:int8, uncompressedSize:int32,
+// compressedSize:int32, checksum:int64 — 21 bytes in machine byte order.
+// Parsed manually instead of via PrestoHeader to avoid depending on
+// velox-internal serde detail headers; the wire format itself is frozen by
+// protocol compatibility.
+struct PrestoPageHeader {
+  static constexpr int32_t kSize = 21;
+  static constexpr int8_t kCompressedBitMask = 1;
+
+  int32_t numRows;
+  int8_t pageCodecMarker;
+  int32_t uncompressedSize;
+  int32_t compressedSize;
+  int64_t checksum;
+
+  static PrestoPageHeader read(const uint8_t* data) {
+    PrestoPageHeader h;
+    std::memcpy(&h.numRows, data, sizeof(h.numRows));
+    data += sizeof(h.numRows);
+    std::memcpy(&h.pageCodecMarker, data, sizeof(h.pageCodecMarker));
+    data += sizeof(h.pageCodecMarker);
+    std::memcpy(&h.uncompressedSize, data, sizeof(h.uncompressedSize));
+    data += sizeof(h.uncompressedSize);
+    std::memcpy(&h.compressedSize, data, sizeof(h.compressedSize));
+    data += sizeof(h.compressedSize);
+    std::memcpy(&h.checksum, data, sizeof(h.checksum));
+    return h;
+  }
+
+  bool isCompressed() const {
+    return (pageCodecMarker & kCompressedBitMask) != 0;
+  }
+};
 
 struct BufferViewReleaser {
   BufferViewReleaser() : BufferViewReleaser(nullptr) {}
@@ -826,6 +863,15 @@ void VeloxSortShuffleReaderDeserializer::readNextRow() {
   ++cachedRows_;
 }
 
+// A single-window refill stream: each next() overwrites the sole range with up
+// to buffer_ capacity bytes from the underlying InputStream. This contrasts
+// with the base class (GlutenByteInputStream), which supports multiple stable
+// ranges traversed sequentially. Because earlier windows are physically
+// discarded on refill, operations that assume stable multi-range data (e.g.
+// arbitrary rewinds across refill boundaries) are unsupported and will throw.
+// Overrides nextView/tellp/seekp/size/atEnd preserve safe behavior under this
+// single-window contract — callers can always read forward and rewind within
+// the current window, but cannot revisit bytes from prior windows.
 class VeloxRssSortShuffleReaderDeserializer::VeloxInputStream : public facebook::velox::GlutenByteInputStream {
  public:
   VeloxInputStream(std::shared_ptr<arrow::io::InputStream> input, facebook::velox::BufferPtr buffer);
@@ -836,16 +882,49 @@ class VeloxRssSortShuffleReaderDeserializer::VeloxInputStream : public facebook:
 
   size_t remainingSize() const override;
 
+  size_t size() const override {
+    return atEnd_ ? totalBytesRead_ : std::numeric_limits<size_t>::max();
+  }
+
+  bool atEnd() const override {
+    return atEnd_;
+  }
+
+  std::string_view nextView(int64_t size) override;
+
+  std::streampos tellp() const override;
+
+  void seekp(std::streampos position) override;
+
+  int32_t remainingInWindow() const {
+    if (ranges().empty()) {
+      return 0;
+    }
+    return ranges()[0].size - ranges()[0].position;
+  }
+
+  uint8_t* data() const {
+    return ranges().empty() ? nullptr : ranges()[0].buffer + ranges()[0].position;
+  }
+
+  void advance(int32_t n) {
+    VELOX_CHECK(!ranges_.empty() && ranges_[0].position + n <= ranges_[0].size);
+    ranges_[0].position += n;
+  }
+
+ private:
   std::shared_ptr<arrow::io::InputStream> in_;
   const facebook::velox::BufferPtr buffer_;
   uint64_t offset_ = -1;
+  uint64_t totalBytesRead_ = 0;
+  bool atEnd_ = false;
 };
 
 VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::VeloxInputStream(
     std::shared_ptr<arrow::io::InputStream> input,
     facebook::velox::BufferPtr buffer)
     : in_(std::move(input)), buffer_(std::move(buffer)) {
-  next(true);
+  next(false);
 }
 
 bool VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::hasNext() {
@@ -853,7 +932,7 @@ bool VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::hasNext() {
     return false;
   }
   if (ranges()[0].position >= ranges()[0].size) {
-    next(true);
+    next(false);
     return offset_ != 0;
   }
   return true;
@@ -861,11 +940,23 @@ bool VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::hasNext() {
 
 void VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::next(bool throwIfPastEnd) {
   const uint32_t readBytes = buffer_->capacity();
-  offset_ = in_->Read(readBytes, buffer_->asMutable<char>()).ValueOr(0);
-  if (offset_ > 0) {
-    int32_t realBytes = offset_;
-    VELOX_CHECK_LT(0, realBytes, "Reading past end of file.");
-    setRange({buffer_->asMutable<uint8_t>(), realBytes, 0});
+  offset_ = 0;
+  int64_t realBytes = in_->Read(readBytes, buffer_->asMutable<char>()).ValueOr(0);
+  VELOX_CHECK_LE(0, realBytes, "Read returned negative value: {}", realBytes);
+  if (realBytes > 0) {
+    offset_ = realBytes;
+    totalBytesRead_ += realBytes;
+    atEnd_ = false;
+    setRange({buffer_->asMutable<uint8_t>(), static_cast<int32_t>(realBytes), 0});
+  } else {
+    atEnd_ = true;
+    if (throwIfPastEnd) {
+      VELOX_FAIL(
+          "Reading past end of VeloxRssSortShuffleReaderDeserializer::VeloxInputStream, real bytes = {}, "
+          "totalBytesRead = {}",
+          realBytes,
+          totalBytesRead_);
+    }
   }
 }
 
@@ -906,19 +997,13 @@ std::shared_ptr<ColumnarBatch> VeloxRssSortShuffleReaderDeserializer::next() {
 
   ScopedTimer timer(&deserializeTime_);
 
-  RowVectorPtr rowVector;
-  VectorStreamGroup::read(
-      in_.get(), memoryManager_->getLeafMemoryPool().get(), rowType_, serde_, &rowVector, &serdeOptions_);
-
+  auto rowVector = readPage();
   if (rowVector->size() >= batchSize_) {
     return std::make_shared<VeloxColumnarBatch>(std::move(rowVector));
   }
 
   while (rowVector->size() < batchSize_ && in_->hasNext()) {
-    RowVectorPtr rowVectorTemp;
-    VectorStreamGroup::read(
-        in_.get(), memoryManager_->getLeafMemoryPool().get(), rowType_, serde_, &rowVectorTemp, &serdeOptions_);
-    rowVector->append(rowVectorTemp.get());
+    rowVector->append(readPage().get());
   }
 
   return std::make_shared<VeloxColumnarBatch>(std::move(rowVector));
@@ -950,6 +1035,114 @@ void VeloxRssSortShuffleReaderDeserializer::loadNextStream() {
 
 size_t VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::remainingSize() const {
   return std::numeric_limits<unsigned long>::max();
+}
+
+std::string_view VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::nextView(int64_t size) {
+  VELOX_CHECK_GE(size, 0, "Attempting to view negative number of bytes");
+  if (ranges_.empty()) {
+    return std::string_view(nullptr, 0);
+  }
+  if (ranges_[0].position == ranges_[0].size) {
+    // Current window is exhausted. For single-window refill streams, next()
+    // overwrites the window with fresh data, so attempt refill before
+    // reporting end-of-stream.
+    next(false);
+    if (ranges_.empty() || ranges_[0].position == ranges_[0].size) {
+      return std::string_view(nullptr, 0);
+    }
+  }
+  VELOX_DCHECK(ranges_[0].size > 0);
+  const int32_t position = ranges_[0].position;
+  const int64_t viewSize = std::min<int64_t>(ranges_[0].size - ranges_[0].position, size);
+  ranges_[0].position += static_cast<int32_t>(viewSize);
+  return std::string_view(reinterpret_cast<char*>(ranges_[0].buffer) + position, viewSize);
+}
+
+std::streampos VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::tellp() const {
+  if (ranges_.empty()) {
+    return 0;
+  }
+  return static_cast<std::streampos>(
+      static_cast<int64_t>(totalBytesRead_) - (ranges_[0].size - ranges_[0].position));
+}
+
+void VeloxRssSortShuffleReaderDeserializer::VeloxInputStream::seekp(std::streampos position) {
+  if (ranges_.empty() && position == 0) {
+    return;
+  }
+  VELOX_CHECK(!ranges_.empty(), "Cannot seek an empty VeloxInputStream");
+  const int64_t windowStart = static_cast<int64_t>(totalBytesRead_) - ranges_[0].size;
+  const int64_t windowEnd = static_cast<int64_t>(totalBytesRead_);
+  const int64_t target = static_cast<int64_t>(position);
+  VELOX_CHECK(
+      target >= windowStart && target <= windowEnd,
+      "VeloxInputStream::seekp({}) is outside the resident window [{}, {}): bytes before the "
+      "window were already consumed from the underlying stream (totalBytesRead={})",
+      target,
+      windowStart,
+      windowEnd,
+      totalBytesRead_);
+  ranges_[0].position = static_cast<int32_t>(target - windowStart);
+}
+
+RowVectorPtr VeloxRssSortShuffleReaderDeserializer::readPage() {
+  constexpr int32_t kPrestoHeaderSize = PrestoPageHeader::kSize;
+
+  // Fast path: peek the header without consuming; if the whole page fits in
+  // the current window, deserialize in-situ from in_ directly.
+  if (in_->remainingInWindow() >= kPrestoHeaderSize) {
+    const auto peekedHeader = PrestoPageHeader::read(in_->data());
+    if (peekedHeader.numRows >= 0) {
+      const int32_t payloadSize = peekedHeader.isCompressed() ? peekedHeader.compressedSize
+                                                              : peekedHeader.uncompressedSize;
+      const int64_t totalSize = kPrestoHeaderSize + static_cast<int64_t>(payloadSize);
+      if (payloadSize >= 0 && totalSize <= in_->remainingInWindow()) {
+        RowVectorPtr rowVector;
+        VectorStreamGroup::read(
+            in_.get(),
+            memoryManager_->getLeafMemoryPool().get(),
+            rowType_,
+            serde_,
+            &rowVector,
+            &serdeOptions_);
+        return rowVector;
+      }
+    }
+  }
+
+  // Slow path: the page spans multiple read windows. Reassemble it into a
+  // contiguous BufferInputStream so the serde's backward seek never touches
+  // window data overwritten by a refill.
+  std::array<uint8_t, kPrestoHeaderSize> headerStorage;
+  in_->readBytes(headerStorage.data(), kPrestoHeaderSize);
+  const auto header = PrestoPageHeader::read(headerStorage.data());
+  VELOX_CHECK_GE(header.numRows, 0, "Invalid Presto page row count: {}", header.numRows);
+
+  const int32_t payloadSize = header.isCompressed() ? header.compressedSize : header.uncompressedSize;
+  VELOX_CHECK_GE(payloadSize, 0, "Invalid Presto page payload size: {}", payloadSize);
+
+  // Payload is still in the window: stitch [copied header, in-situ payload].
+  if (payloadSize <= in_->remainingInWindow()) {
+    in_->advance(payloadSize);
+    BufferInputStream pageStream(std::vector<ByteRange>{
+        ByteRange{headerStorage.data(), kPrestoHeaderSize, 0},
+        ByteRange{in_->data() - payloadSize, payloadSize, 0}});
+    RowVectorPtr rowVector;
+    VectorStreamGroup::read(
+        &pageStream, memoryManager_->getLeafMemoryPool().get(), rowType_, serde_, &rowVector, &serdeOptions_);
+    return rowVector;
+  }
+
+  // Payload spans windows: copy it into a contiguous buffer.
+  auto payloadBuffer = AlignedBuffer::allocate<char>(payloadSize, memoryManager_->getLeafMemoryPool().get());
+  in_->readBytes(payloadBuffer->asMutable<uint8_t>(), payloadSize);
+  BufferInputStream pageStream(std::vector<ByteRange>{
+      ByteRange{headerStorage.data(), kPrestoHeaderSize, 0},
+      ByteRange{payloadBuffer->asMutable<uint8_t>(), payloadSize, 0}});
+  RowVectorPtr rowVector;
+  VectorStreamGroup::read(
+      &pageStream, memoryManager_->getLeafMemoryPool().get(), rowType_, serde_, &rowVector, &serdeOptions_);
+  return rowVector;
 }
 
 VeloxShuffleReader::VeloxShuffleReader(
