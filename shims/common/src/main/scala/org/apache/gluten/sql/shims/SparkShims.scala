@@ -22,7 +22,7 @@ import org.apache.gluten.expression.Sig
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryArithmetic, Expression, RaiseError}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, BinaryArithmetic, Expression, RaiseError}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -36,7 +36,7 @@ import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.window.WindowGroupLimitExecShim
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DecimalType, StringType, StructType}
+import org.apache.spark.sql.types.{DecimalType, StringType, StructField, StructType}
 import org.apache.spark.storage.{GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 import org.apache.spark.util.SparkShimVersionUtil
 
@@ -122,9 +122,20 @@ trait SparkShims {
       partitionValues: InternalRow,
       metadata: Map[String, Any] = Map.empty): Seq[PartitionedFile]
 
-  def structFromAttributes(attrs: Seq[Attribute]): StructType
+  def structFromAttributes(attrs: Seq[Attribute]): StructType =
+    StructType(attrs.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
 
-  def attributesFromStruct(structType: StructType): Seq[Attribute]
+  def attributesFromStruct(structType: StructType): Seq[Attribute] =
+    structType.fields.map {
+      field => AttributeReference(field.name, field.dataType, field.nullable, field.metadata)()
+    }
+
+  // https://issues.apache.org/jira/browse/SPARK-40400
+  protected def invalidBucketFile(path: String): Throwable =
+    new SparkException(
+      errorClass = "INVALID_BUCKET_FILE",
+      messageParameters = Map("path" -> path),
+      cause = null)
 
   // For compatibility with Spark-3.5.
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan]

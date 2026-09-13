@@ -96,14 +96,6 @@ class Spark34Shims extends SparkShims {
       }
   }
 
-  // https://issues.apache.org/jira/browse/SPARK-40400
-  private def invalidBucketFile(path: String): Throwable = {
-    new SparkException(
-      errorClass = "INVALID_BUCKET_FILE",
-      messageParameters = Map("path" -> path),
-      cause = null)
-  }
-
   def setJobDescriptionOrTagForBroadcastExchange(
       sc: SparkContext,
       broadcastExchange: BroadcastExchangeLike): Unit = {
@@ -169,16 +161,6 @@ class Spark34Shims extends SparkShims {
       isSplitable,
       maxSplitBytes,
       partitionValues)
-  }
-
-  def structFromAttributes(attrs: Seq[Attribute]): StructType = {
-    StructType(attrs.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
-  }
-
-  def attributesFromStruct(structType: StructType): Seq[Attribute] = {
-    structType.fields.map {
-      field => AttributeReference(field.name, field.dataType, field.nullable, field.metadata)()
-    }
   }
 
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan] = {

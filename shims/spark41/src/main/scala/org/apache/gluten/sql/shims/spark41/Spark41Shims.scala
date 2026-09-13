@@ -30,7 +30,6 @@ import org.apache.spark.sql.catalyst.plans.{JoinType, LeftSingle}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.plans.physical.{KeyGroupedPartitioning, KeyGroupedShuffleSpec, Partitioning}
-import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.catalyst.util.{CollationFactory, InternalRowComparableWrapper, MapData}
 import org.apache.spark.sql.catalyst.util.RebaseDateTime.RebaseSpec
 import org.apache.spark.sql.connector.read.{HasPartitionKey, InputPartition, Scan}
@@ -109,14 +108,6 @@ class Spark41Shims extends SparkShims {
             .getBucketId(f.toPath.getName)
             .getOrElse(throw invalidBucketFile(f.urlEncodedPath))
       }
-  }
-
-  // https://issues.apache.org/jira/browse/SPARK-40400
-  private def invalidBucketFile(path: String): Throwable = {
-    new SparkException(
-      errorClass = "INVALID_BUCKET_FILE",
-      messageParameters = Map("path" -> path),
-      cause = null)
   }
 
   override def isWindowGroupLimitExec(plan: SparkPlan): Boolean = plan match {
@@ -223,14 +214,6 @@ class Spark41Shims extends SparkShims {
       isSplitable,
       maxSplitBytes,
       partitionValues)
-  }
-
-  def structFromAttributes(attrs: Seq[Attribute]): StructType = {
-    DataTypeUtils.fromAttributes(attrs)
-  }
-
-  def attributesFromStruct(structType: StructType): Seq[Attribute] = {
-    DataTypeUtils.toAttributes(structType)
   }
 
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan] = {
