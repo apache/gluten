@@ -256,6 +256,11 @@ public class ExpressionBuilder {
     return new SingularOrListNode(value, expressionNodes);
   }
 
+  public static SingularOrListNode makeSingularOrListNode(
+      ExpressionNode value, List<Object> rawValues, org.apache.spark.sql.types.DataType dataType) {
+    return new SingularOrListNode(value, rawValues, dataType);
+  }
+
   public static WindowFunctionNode makeWindowFunction(
       Integer functionId,
       List<ExpressionNode> expressionNodes,
