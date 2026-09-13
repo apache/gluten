@@ -162,6 +162,23 @@ function apply_compilation_fixes {
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
 }
 
+# Adds an 'hive.s3.ssl.ca-file' config (falling back to the SSL_CERT_FILE env
+# var) so the S3 client's TLS CA bundle path can be overridden at runtime
+# instead of relying solely on the HTTP client's compiled-in default path.
+# See apache/gluten#12711 for the underlying problem this addresses: a
+# statically-built libcurl/OpenSSL (e.g. via vcpkg on Rocky/CentOS) bakes in
+# a compile-time default CA bundle path that may not exist on a different
+# runtime OS.
+function apply_s3_ssl_ca_override_patch {
+  pushd $VELOX_HOME
+  (git apply --check ${CURRENT_DIR}/s3-ssl-ca-override.patch && \
+   git apply ${CURRENT_DIR}/s3-ssl-ca-override.patch) || {
+    echo "Failed to apply s3-ssl-ca-override.patch"
+    exit 1
+  }
+  popd
+}
+
 function setup_linux {
   local LINUX_DISTRIBUTION=$(. /etc/os-release && echo ${ID})
   local LINUX_VERSION_ID=$(. /etc/os-release && echo ${VERSION_ID})
@@ -242,6 +259,8 @@ if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
 fi
 
 apply_provided_velox_patch
+
+apply_s3_ssl_ca_override_patch
 
 apply_compilation_fixes
 
