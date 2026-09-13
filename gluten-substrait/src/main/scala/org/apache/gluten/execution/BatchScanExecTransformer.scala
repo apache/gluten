@@ -161,7 +161,7 @@ abstract class BatchScanExecTransformerBase(
     }
 
     if (
-      SparkShimLoader.getSparkShims.findRowIndexColumnIndexInSchema(schema) > 0 &&
+      output.exists(isRowIndexMetadataColumn) &&
       !BackendsApiManager.getSettings.supportNativeRowIndexColumn()
     ) {
       return ValidationResult.failed("Unsupported row index column scan in native.")
