@@ -32,6 +32,7 @@ import io.github.zhztheplayer.velox4j.variant.DoubleValue;
 import io.github.zhztheplayer.velox4j.variant.HugeIntValue;
 import io.github.zhztheplayer.velox4j.variant.IntegerValue;
 import io.github.zhztheplayer.velox4j.variant.SmallIntValue;
+import io.github.zhztheplayer.velox4j.variant.TimestampValue;
 import io.github.zhztheplayer.velox4j.variant.TinyIntValue;
 import io.github.zhztheplayer.velox4j.variant.VarBinaryValue;
 import io.github.zhztheplayer.velox4j.variant.VarCharValue;
@@ -130,6 +131,13 @@ public class RexNodeConverter {
         }
       case SYMBOL:
         return new VarCharValue(literal.getValue().toString());
+      case TIMESTAMP:
+        java.sql.Timestamp ts = literal.getValueAs(java.sql.Timestamp.class);
+        long epochSeconds = ts.getTime() / 1000L;
+        // java.sql.Timestamp#getNanos returns nanos within the second, so it
+        // complements epochSeconds rather than being a full epoch in nanos.
+        long nanos = ts.getNanos();
+        return TimestampValue.create(epochSeconds, nanos);
       default:
         throw new RuntimeException(
             "Unsupported rex node type: " + literal.getType().getSqlTypeName());

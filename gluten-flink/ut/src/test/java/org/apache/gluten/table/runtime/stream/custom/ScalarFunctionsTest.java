@@ -354,4 +354,91 @@ class ScalarFunctionsTest extends GlutenStreamingTestBase {
     String query = "select a from tblIsNull where b is null";
     runAndCheck(query, Arrays.asList("+I[2]"));
   }
+
+  @Test
+  void testQuarterAndWeekFromTimestamp() {
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    List<Row> rows =
+        Arrays.asList(
+            Row.of(1, LocalDateTime.parse("2024-01-15 03:04:05", formatter)),
+            Row.of(2, LocalDateTime.parse("2024-04-15 03:04:05", formatter)),
+            Row.of(3, LocalDateTime.parse("2024-07-15 03:04:05", formatter)),
+            Row.of(4, LocalDateTime.parse("2024-10-15 03:04:05", formatter)));
+    createSimpleBoundedValuesTable("tblTs", "a int, b Timestamp(3)", rows);
+    String query = "select QUARTER(b), WEEK(b) from tblTs";
+    runAndCheck(query, Arrays.asList("+I[1, 3]", "+I[2, 16]", "+I[3, 29]", "+I[4, 42]"));
+  }
+
+  @Test
+  void testHourFromTimestamp() {
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    List<Row> rows =
+        Arrays.asList(
+            Row.of(1, LocalDateTime.parse("2024-03-15 10:30:45", formatter)),
+            Row.of(2, LocalDateTime.parse("2024-06-30 23:59:59", formatter)),
+            Row.of(3, LocalDateTime.parse("2024-12-31 00:00:00", formatter)));
+    createSimpleBoundedValuesTable("tblHour", "a int, b Timestamp(3)", rows);
+    String query = "select HOUR(b) from tblHour";
+    runAndCheck(query, Arrays.asList("+I[10]", "+I[23]", "+I[0]"));
+  }
+
+  @Test
+  void testMinuteSecondFromTimestamp() {
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    List<Row> rows =
+        Arrays.asList(
+            Row.of(1, LocalDateTime.parse("2024-03-15 10:30:45", formatter)),
+            Row.of(2, LocalDateTime.parse("2024-06-30 23:59:59", formatter)),
+            Row.of(3, LocalDateTime.parse("2024-12-31 00:00:00", formatter)));
+    createSimpleBoundedValuesTable("tblMs", "a int, b Timestamp(3)", rows);
+    String query = "select MINUTE(b), SECOND(b) from tblMs";
+    runAndCheck(query, Arrays.asList("+I[30, 45]", "+I[59, 59]", "+I[0, 0]"));
+  }
+
+  @Test
+  void testDayFieldsFromTimestamp() {
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    List<Row> rows =
+        Arrays.asList(
+            Row.of(1, LocalDateTime.parse("2024-03-15 10:30:45", formatter)),
+            Row.of(2, LocalDateTime.parse("2024-06-30 23:59:59", formatter)),
+            Row.of(3, LocalDateTime.parse("2024-12-31 00:00:00", formatter)));
+    createSimpleBoundedValuesTable("tblDay", "a int, b Timestamp(3)", rows);
+    String query = "select DAYOFMONTH(b), DAYOFWEEK(b), DAYOFYEAR(b) from tblDay";
+    runAndCheck(query, Arrays.asList("+I[15, 6, 75]", "+I[30, 1, 182]", "+I[31, 3, 366]"));
+  }
+
+  @Test
+  void testSubstring() {
+    List<Row> rows = Arrays.asList(Row.of("hello world"), Row.of("abcdefghij"));
+    createSimpleBoundedValuesTable("tblSubstr", "s varchar", rows);
+    String query = "select SUBSTRING(s, 1, 5), SUBSTRING(s, 7) from tblSubstr";
+    runAndCheck(query, Arrays.asList("+I[hello, world]", "+I[abcde, ghij]"));
+  }
+
+  @Test
+  void testCoalesce() {
+    List<Row> rows = Arrays.asList(Row.of("a", "b"), Row.of(null, "b"), Row.of("a", null));
+    createSimpleBoundedValuesTable("tblCoalesce", "s1 varchar, s2 varchar", rows);
+    String query = "select COALESCE(s1, s2) from tblCoalesce";
+    runAndCheck(query, Arrays.asList("+I[a]", "+I[b]", "+I[a]"));
+  }
+
+  @Test
+  void testFromBase64() {
+    List<Row> rows = Arrays.asList(Row.of("aGVsbG8="), Row.of("d29ybGQ="));
+    createSimpleBoundedValuesTable("tblFromBase64", "s varchar", rows);
+    String query = "select FROM_BASE64(s) from tblFromBase64";
+    runAndCheck(query, Arrays.asList("+I[hello]", "+I[world]"));
+  }
+
+  @Test
+  void testJsonValue() {
+    List<Row> rows =
+        Arrays.asList(
+            Row.of("{\"name\":\"alice\",\"age\":30}"), Row.of("{\"name\":\"bob\",\"age\":25}"));
+    createSimpleBoundedValuesTable("tblJson", "s varchar", rows);
+    String query = "select JSON_VALUE(s, '$.name') from tblJson";
+    runAndCheck(query, Arrays.asList("+I[alice]", "+I[bob]"));
+  }
 }

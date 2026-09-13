@@ -112,7 +112,22 @@ public class RexCallConverterFactory {
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
           Map.entry("IS TRUE", Arrays.asList(() -> new IsTrueRexCallConverter())),
           Map.entry("CONCAT", Arrays.asList(() -> new DefaultRexCallConverter("concat"))),
-          Map.entry("CONCAT_WS", Arrays.asList(() -> new DefaultRexCallConverter("concat_ws"))));
+          Map.entry("CONCAT_WS", Arrays.asList(() -> new DefaultRexCallConverter("concat_ws"))),
+          Map.entry("YEAR", Arrays.asList(() -> new DefaultRexCallConverter("year"))),
+          Map.entry("MONTH", Arrays.asList(() -> new DefaultRexCallConverter("month"))),
+          Map.entry("DAYOFMONTH", Arrays.asList(() -> new DefaultRexCallConverter("dayofmonth"))),
+          Map.entry("DAYOFYEAR", Arrays.asList(() -> new DefaultRexCallConverter("dayofyear"))),
+          Map.entry("DAYOFWEEK", Arrays.asList(() -> new DefaultRexCallConverter("dayofweek"))),
+          Map.entry("QUARTER", Arrays.asList(() -> new DefaultRexCallConverter("quarter"))),
+          Map.entry("HOUR", Arrays.asList(() -> new DefaultRexCallConverter("hour"))),
+          Map.entry("MINUTE", Arrays.asList(() -> new DefaultRexCallConverter("minute"))),
+          Map.entry("SECOND", Arrays.asList(() -> new DefaultRexCallConverter("second"))),
+          Map.entry("WEEK", Arrays.asList(() -> new DefaultRexCallConverter("week_of_year"))),
+          Map.entry("SUBSTRING", Arrays.asList(() -> new DefaultRexCallConverter("substring"))),
+          Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))),
+          Map.entry("FROM_BASE64", Arrays.asList(() -> new DefaultRexCallConverter("from_base64"))),
+          Map.entry(
+              "JSON_VALUE", Arrays.asList(() -> new DefaultRexCallConverter("get_json_object"))));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {
     String operatorName = callNode.getOperator().getName();
