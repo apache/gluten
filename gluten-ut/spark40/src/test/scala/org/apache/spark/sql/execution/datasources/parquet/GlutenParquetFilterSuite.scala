@@ -28,25 +28,16 @@ import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.parseColumnPath
 import org.apache.spark.sql.execution.datasources.{DataSourceStrategy, HadoopFsRelation, LogicalRelation, PushableColumnAndNestedColumn}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2ScanRelation
 import org.apache.spark.sql.execution.datasources.v2.parquet.ParquetScan
-import org.apache.spark.sql.internal.LegacyBehaviorPolicy.{CORRECTED, LEGACY}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.internal.SQLConf.ParquetOutputTimestampType.INT96
 import org.apache.spark.sql.types._
 import org.apache.spark.tags.ExtendedSQLTest
 import org.apache.spark.util.Utils
 
 import org.apache.hadoop.fs.Path
-import org.apache.parquet.filter2.predicate.{FilterApi, FilterPredicate, Operators}
+import org.apache.parquet.filter2.predicate.{FilterApi, FilterPredicate}
 import org.apache.parquet.filter2.predicate.FilterApi._
-import org.apache.parquet.filter2.predicate.Operators.{Column => _, Eq, Gt, GtEq, Lt, LtEq, NotEq}
 import org.apache.parquet.hadoop.{ParquetFileReader, ParquetInputFormat, ParquetOutputFormat}
 import org.apache.parquet.hadoop.util.HadoopInputFile
-
-import java.sql.{Date, Timestamp}
-import java.time.LocalDate
-
-import scala.reflect.ClassTag
-import scala.reflect.runtime.universe.TypeTag
 
 abstract class GlutenParquetFilterSuite extends ParquetFilterSuite with GlutenSQLTestsBaseTrait {
   protected def checkFilterPredicate(
@@ -66,44 +57,6 @@ abstract class GlutenParquetFilterSuite extends ParquetFilterSuite with GlutenSQ
   override protected def readResourceParquetFile(name: String): DataFrame = {
     spark.read.parquet(
       getWorkspaceFilePath("sql", "core", "src", "test", "resources").toString + "/" + name)
-  }
-
-  testGluten("filter pushdown - timestamp") {
-    Seq(true, false).foreach {
-      java8Api =>
-        Seq(CORRECTED, LEGACY).foreach {
-          rebaseMode =>
-            val millisData = Seq(
-              "1000-06-14 08:28:53.123",
-              "1582-06-15 08:28:53.001",
-              "1900-06-16 08:28:53.0",
-              "2018-06-17 08:28:53.999")
-            // INT96 doesn't support pushdown
-            withSQLConf(
-              SQLConf.DATETIME_JAVA8API_ENABLED.key -> java8Api.toString,
-              SQLConf.PARQUET_INT96_REBASE_MODE_IN_WRITE.key -> rebaseMode.toString,
-              SQLConf.PARQUET_OUTPUT_TIMESTAMP_TYPE.key -> INT96.toString
-            ) {
-              import testImplicits._
-              withTempPath {
-                file =>
-                  millisData
-                    .map(i => Tuple1(Timestamp.valueOf(i)))
-                    .toDF
-                    .write
-                    .format(dataSourceName)
-                    .save(file.getCanonicalPath)
-                  readParquetFile(file.getCanonicalPath) {
-                    df =>
-                      val schema = new SparkToParquetSchemaConverter(conf).convert(df.schema)
-                      assertResult(None) {
-                        createParquetFilters(schema).createFilter(sources.IsNull("_1"))
-                      }
-                  }
-              }
-            }
-        }
-    }
   }
 
   testGluten("SPARK-12218: 'Not' is included in Parquet filter pushdown") {
@@ -427,155 +380,6 @@ class GlutenParquetV2FilterSuite extends GlutenParquetFilterSuite with GlutenSQL
 
         case _ => assert(false, "Can not match ParquetTable in the query.")
       }
-    }
-  }
-
-  /**
-   * Takes a sequence of products `data` to generate multi-level nested dataframes as new test data.
-   * It tests both non-nested and nested dataframes which are written and read back with Parquet
-   * datasource.
-   *
-   * This is different from [[ParquetTest.withParquetDataFrame]] which does not test nested cases.
-   */
-  private def withNestedParquetDataFrame[T <: Product: ClassTag: TypeTag](data: Seq[T])(
-      runTest: (DataFrame, String, Any => Any) => Unit): Unit =
-    withNestedParquetDataFrame(spark.createDataFrame(data))(runTest)
-
-  private def withNestedParquetDataFrame(inputDF: DataFrame)(
-      runTest: (DataFrame, String, Any => Any) => Unit): Unit = {
-    withNestedDataFrame(inputDF).foreach {
-      case (newDF, colName, resultFun) =>
-        withTempPath {
-          file =>
-            newDF.write.format(dataSourceName).save(file.getCanonicalPath)
-            readParquetFile(file.getCanonicalPath)(df => runTest(df, colName, resultFun))
-        }
-    }
-  }
-
-  testGluten("filter pushdown - date") {
-    implicit class StringToDate(s: String) {
-      def date: Date = Date.valueOf(s)
-    }
-
-    val data = Seq("1000-01-01", "2018-03-19", "2018-03-20", "2018-03-21")
-    import testImplicits._
-
-    // Velox backend does not support rebaseMode being LEGACY.
-    Seq(false, true).foreach {
-      java8Api =>
-        Seq(CORRECTED).foreach {
-          rebaseMode =>
-            withSQLConf(
-              SQLConf.DATETIME_JAVA8API_ENABLED.key -> java8Api.toString,
-              SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key -> rebaseMode.toString) {
-              val dates = data.map(i => Tuple1(Date.valueOf(i))).toDF()
-              withNestedParquetDataFrame(dates) {
-                case (inputDF, colName, fun) =>
-                  implicit val df: DataFrame = inputDF
-
-                  def resultFun(dateStr: String): Any = {
-                    val parsed = if (java8Api) LocalDate.parse(dateStr) else Date.valueOf(dateStr)
-                    fun(parsed)
-                  }
-
-                  val dateAttr: Expression = df(colName).expr
-                  assert(df(colName).expr.dataType === DateType)
-
-                  checkFilterPredicate(dateAttr.isNull, classOf[Eq[_]], Seq.empty[Row])
-                  checkFilterPredicate(
-                    dateAttr.isNotNull,
-                    classOf[NotEq[_]],
-                    data.map(i => Row.apply(resultFun(i))))
-
-                  checkFilterPredicate(
-                    dateAttr === "1000-01-01".date,
-                    classOf[Eq[_]],
-                    resultFun("1000-01-01"))
-                  logWarning(s"java8Api: $java8Api, rebaseMode, $rebaseMode")
-                  checkFilterPredicate(
-                    dateAttr <=> "1000-01-01".date,
-                    classOf[Eq[_]],
-                    resultFun("1000-01-01"))
-                  checkFilterPredicate(
-                    dateAttr =!= "1000-01-01".date,
-                    classOf[NotEq[_]],
-                    Seq("2018-03-19", "2018-03-20", "2018-03-21").map(i => Row.apply(resultFun(i))))
-
-                  checkFilterPredicate(
-                    dateAttr < "2018-03-19".date,
-                    classOf[Lt[_]],
-                    resultFun("1000-01-01"))
-                  checkFilterPredicate(
-                    dateAttr > "2018-03-20".date,
-                    classOf[Gt[_]],
-                    resultFun("2018-03-21"))
-                  checkFilterPredicate(
-                    dateAttr <= "1000-01-01".date,
-                    classOf[LtEq[_]],
-                    resultFun("1000-01-01"))
-                  checkFilterPredicate(
-                    dateAttr >= "2018-03-21".date,
-                    classOf[GtEq[_]],
-                    resultFun("2018-03-21"))
-
-                  checkFilterPredicate(
-                    Literal("1000-01-01".date) === dateAttr,
-                    classOf[Eq[_]],
-                    resultFun("1000-01-01"))
-                  checkFilterPredicate(
-                    Literal("1000-01-01".date) <=> dateAttr,
-                    classOf[Eq[_]],
-                    resultFun("1000-01-01"))
-                  checkFilterPredicate(
-                    Literal("2018-03-19".date) > dateAttr,
-                    classOf[Lt[_]],
-                    resultFun("1000-01-01"))
-                  checkFilterPredicate(
-                    Literal("2018-03-20".date) < dateAttr,
-                    classOf[Gt[_]],
-                    resultFun("2018-03-21"))
-                  checkFilterPredicate(
-                    Literal("1000-01-01".date) >= dateAttr,
-                    classOf[LtEq[_]],
-                    resultFun("1000-01-01"))
-                  checkFilterPredicate(
-                    Literal("2018-03-21".date) <= dateAttr,
-                    classOf[GtEq[_]],
-                    resultFun("2018-03-21"))
-
-                  checkFilterPredicate(
-                    !(dateAttr < "2018-03-21".date),
-                    classOf[GtEq[_]],
-                    resultFun("2018-03-21"))
-                  checkFilterPredicate(
-                    dateAttr < "2018-03-19".date || dateAttr > "2018-03-20".date,
-                    classOf[Operators.Or],
-                    Seq(Row(resultFun("1000-01-01")), Row(resultFun("2018-03-21"))))
-
-                  Seq(3, 20).foreach {
-                    threshold =>
-                      withSQLConf(
-                        SQLConf.PARQUET_FILTER_PUSHDOWN_INFILTERTHRESHOLD.key -> s"$threshold") {
-                        checkFilterPredicate(
-                          In(
-                            dateAttr,
-                            Array(
-                              "2018-03-19".date,
-                              "2018-03-20".date,
-                              "2018-03-21".date,
-                              "2018-03-22".date).map(Literal.apply)),
-                          if (threshold == 3) classOf[Operators.In[_]] else classOf[Operators.Or],
-                          Seq(
-                            Row(resultFun("2018-03-19")),
-                            Row(resultFun("2018-03-20")),
-                            Row(resultFun("2018-03-21")))
-                        )
-                      }
-                  }
-              }
-            }
-        }
     }
   }
 }
