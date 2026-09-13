@@ -71,6 +71,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableBroadcastBuildOncePerExecutor: Boolean =
     getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
 
+  def broadcastNestedLoopJoinFullOuterRewriteThreshold: Long =
+    getConf(VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD)
+
   def veloxBroadcastHashTableBuildTargetBytes: Long =
     getConf(COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_TARGET_BYTES)
 
@@ -239,6 +242,17 @@ object VeloxConfig extends ConfigRegistry {
           " as these consistently provided the most significant performance gains.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("32MB")
+
+  val VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD =
+    buildConf(
+      "spark.gluten.sql.columnar.backend.velox.broadcastNLJ.fullOuterRewriteThreshold")
+      .doc(
+        "Maximum per-side plan size in bytes for rewriting a full outer broadcast nested loop " +
+          "join into a left outer join and an existence join followed by union. The rewrite is " +
+          "applied only when both sides have known statistics and each side is at or below this " +
+          "threshold. Set to -1 to disable the rewrite.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("10MB")
 
   val COLUMNAR_VELOX_ASYNC_TIMEOUT_ON_TASK_STOPPING =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping")

@@ -88,6 +88,7 @@ object VeloxRuleApi {
 
     // Legacy: Pre-transform rules.
     injector.injectPreTransform(_ => RemoveTransitions)
+    injector.injectPreTransform(_ => VeloxBroadcastNestedLoopJoinRewriteRule())
     injector.injectPreTransform(_ => PushDownInputFileExpression.PreOffload)
     injector.injectPreTransform(c => FallbackOnANSIMode.apply(c.session))
     injector.injectPreTransform(c => FallbackMultiCodegens.apply(c.session))
