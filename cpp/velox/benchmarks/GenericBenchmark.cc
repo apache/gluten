@@ -30,6 +30,8 @@
 #include "compute/VeloxRuntime.h"
 #include "config/GlutenConfig.h"
 #include "config/VeloxConfig.h"
+#include "jni/JniHashTable.h"
+#include "memory/VeloxMemoryManager.h"
 #include "operators/reader/FileReaderIterator.h"
 #include "operators/writer/VeloxColumnarBatchWriter.h"
 #include "shuffle/LocalPartitionWriter.h"
@@ -40,9 +42,11 @@
 #include "tests/utils/TestStreamReader.h"
 #include "threads/ThreadInitializer.h"
 #include "utils/Exception.h"
+#include "utils/HashTableDumpFile.h"
 #include "utils/StringUtil.h"
 #include "utils/Timer.h"
 #include "utils/VeloxArrowUtils.h"
+#include "velox/exec/HashTableCache.h"
 #include "velox/exec/PlanNodeStats.h"
 
 using namespace gluten;
@@ -70,6 +74,13 @@ DEFINE_string(
     "",
     "Path to input json file of the splits. Only valid for simulating the first stage. Use comma-separated list for multiple splits.");
 DEFINE_string(data, "", "Path to input data files in parquet format. Use comma-separated list for multiple files.");
+DEFINE_string(
+    hash_table,
+    "",
+    "Path to dumped hashtable_*.bin files holding the pre-built hash tables of the stage's broadcast hash joins. "
+    "Use comma-separated list for multiple files. Without these a BHJ is replayed against its build side input, "
+    "which is empty unless the stage was dumped with "
+    "spark.gluten.velox.buildHashTableOncePerExecutor.enabled=false.");
 DEFINE_string(conf, "", "Path to the configuration file.");
 DEFINE_string(write_path, "/tmp", "Path to save the output from write tasks.");
 DEFINE_int64(memory_limit, std::numeric_limits<int64_t>::max(), "Memory limit used to trigger spill.");
@@ -381,6 +392,37 @@ void setQueryTraceConfig(std::unordered_map<std::string, std::string>& configs) 
     configs[kQueryTraceTaskRegExp] = FLAGS_query_trace_task_reg_exp;
   }
 }
+
+// Makes the pre-built hash tables dumped from a real run available to this process, so a broadcast
+// hash join replays against the table it used in production rather than rebuilding it from a build
+// side that was never streamed to the native operator.
+//
+// Registering with HashTableCache is what lets HashBuild take its cached path: an externally added
+// entry is already build-complete, so HashBuild calls noMoreInput() and never reads the build side.
+// Registering with getJoin() is what makes the plan converter choose that path in the first place.
+void loadHashTables(const std::vector<std::string>& paths) {
+  for (const auto& path : paths) {
+    std::ifstream in{path, std::ios::binary};
+    GLUTEN_CHECK(in.is_open(), "Failed to open hash table dump: " + path);
+    const std::string content{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+
+    const auto dump = gluten::decodeHashTableDump(content);
+    auto builder = gluten::deserializeHashTable(
+        dump.payload.data(), dump.payload.size(), dump.ignoreNullKeys, dump.joinHasNullKeys);
+    GLUTEN_CHECK(builder != nullptr, "Failed to deserialize hash table dump: " + path);
+
+    auto* cache = facebook::velox::exec::HashTableCache::instance();
+    GLUTEN_CHECK(
+        !cache->exist(dump.cacheKey),
+        "A hash table is already cached for cache key: " + dump.cacheKey +
+            ". Pass each hashtable_*.bin file to --hash_table at most once.");
+    cache->add(dump.cacheKey, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+    gluten::registerLocalHashTable(dump.cacheKey, gluten::getHashTableObjStore()->save(builder));
+
+    LOG(INFO) << "Loaded pre-built hash table for cache key: " << dump.cacheKey << " from " << path << " ("
+              << dump.payload.size() << " bytes)";
+  }
+}
 } // namespace
 
 using RuntimeFactory = std::function<VeloxRuntime*(MemoryManager* memoryManager, ThreadManager* threadManager)>;
@@ -640,6 +682,20 @@ int main(int argc, char** argv) {
 
   initVeloxBackend(backendConf);
   memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
+
+  // Load before any plan is converted: the converter asks getJoin() whether a broadcast hash join
+  // has a pre-built table, and only takes the cached path if it already does. Loading once, rather
+  // than per benchmark iteration, is also what keeps HashTableCache::add from rejecting a
+  // duplicate key on the second iteration.
+  if (!FLAGS_hash_table.empty()) {
+    try {
+      loadHashTables(gluten::splitPaths(FLAGS_hash_table, true));
+    } catch (const std::exception& e) {
+      LOG(ERROR) << "Failed to load the hash tables passed to --hash_table: " << e.what();
+      ::benchmark::Shutdown();
+      std::exit(EXIT_FAILURE);
+    }
+  }
 
   // Parse substrait plan, split file and data files.
   std::string substraitJsonFile = FLAGS_plan;

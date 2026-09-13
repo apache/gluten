@@ -36,6 +36,16 @@ class VeloxWholeStageDumper final : public WholeStageDumper {
 
   void dumpInputSplit(int32_t splitIndex, const std::string& splitJson) override;
 
+  // Writes the pre-built hash table of a broadcast hash join next to the plan, so the micro
+  // benchmark can replay the join against it rather than against a build side that was never
+  // streamed to the native operator. See docs/developers/MicroBenchmarks.md.
+  void dumpHashTable(
+      const std::string& cacheKey,
+      bool ignoreNullKeys,
+      bool joinHasNullKeys,
+      const uint8_t* data,
+      size_t size);
+
   std::shared_ptr<ColumnarBatchIterator> dumpInputIterator(
       int32_t iteratorIndex,
       const std::shared_ptr<ColumnarBatchIterator>& inputIterator) override;
