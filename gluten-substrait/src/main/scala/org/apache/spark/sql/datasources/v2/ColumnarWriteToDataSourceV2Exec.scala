@@ -18,9 +18,10 @@ package org.apache.spark.sql.datasources.v2
 
 import org.apache.gluten.connector.write.ColumnarBatchDataWriterFactory
 
-import org.apache.spark.TaskContext
+import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.connector.write._
+import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.datasources.v2.StreamWriterCommitProgress
 import org.apache.spark.sql.execution.metric.{CustomMetrics, SQLMetric}
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -40,6 +41,7 @@ trait WritingColumnarBatchSparkTask[W <: DataWriter[ColumnarBatch]]
       factory: ColumnarBatchDataWriterFactory,
       context: TaskContext,
       iter: Iterator[ColumnarBatch],
+      useCommitCoordinator: Boolean,
       customMetrics: Map[String, SQLMetric]): DataWritingColumnarBatchSparkTaskResult = {
     val stageId = context.stageId()
     val stageAttempt = context.stageAttemptNumber()
@@ -48,21 +50,46 @@ trait WritingColumnarBatchSparkTask[W <: DataWriter[ColumnarBatch]]
     val attemptId = context.attemptNumber()
     val dataWriter = factory.createWriter(partId, taskId).asInstanceOf[W]
 
-    var count = 0
+    var count = 0L
+    var committed = false
     // write the data and commit this writer.
     Utils.tryWithSafeFinallyAndFailureCallbacks(block = {
       while (iter.hasNext) {
         CustomMetrics.updateMetrics(dataWriter.currentMetricsValues, customMetrics)
         val batch = iter.next()
         // Count is here.
-        count += batch.numRows()
+        count += batch.numRows().toLong
         write(dataWriter, batch)
       }
 
       CustomMetrics.updateMetrics(dataWriter.currentMetricsValues, customMetrics)
-      logInfo(s"Writer for partition ${context.partitionId()} is committing.")
-
-      val msg = dataWriter.commit()
+      val msg = if (useCommitCoordinator) {
+        val coordinator = SparkEnv.get.outputCommitCoordinator
+        val commitAuthorized = coordinator.canCommit(stageId, stageAttempt, partId, attemptId)
+        if (commitAuthorized) {
+          logInfo(
+            s"Commit authorized for partition $partId (task $taskId, attempt $attemptId, " +
+              s"stage $stageId.$stageAttempt)")
+          val commitMessage = dataWriter.commit()
+          committed = true
+          commitMessage
+        } else {
+          val commitDeniedException = QueryExecutionErrors.commitDeniedError(
+            partId,
+            taskId,
+            attemptId,
+            stageId,
+            stageAttempt)
+          logInfo(commitDeniedException.getMessage)
+          // throwing CommitDeniedException will trigger the catch block for abort
+          throw commitDeniedException
+        }
+      } else {
+        logInfo(s"Writer for partition ${context.partitionId()} is committing.")
+        val commitMessage = dataWriter.commit()
+        committed = true
+        commitMessage
+      }
       // Native write's metrics should be updated again after commit.
       CustomMetrics.updateMetrics(dataWriter.currentMetricsValues, customMetrics)
 
@@ -74,14 +101,20 @@ trait WritingColumnarBatchSparkTask[W <: DataWriter[ColumnarBatch]]
 
     })(
       catchBlock = {
-        // If there is an error, abort this writer
-        logError(
-          s"Aborting commit for partition $partId (task $taskId, attempt $attemptId, " +
-            s"stage $stageId.$stageAttempt)")
-        dataWriter.abort()
-        logError(
-          s"Aborted commit for partition $partId (task $taskId, attempt $attemptId, " +
-            s"stage $stageId.$stageAttempt)")
+        if (!committed) {
+          // If there is an error before commit has completed, abort this writer.
+          logError(
+            s"Aborting commit for partition $partId (task $taskId, attempt $attemptId, " +
+              s"stage $stageId.$stageAttempt)")
+          dataWriter.abort()
+          logError(
+            s"Aborted commit for partition $partId (task $taskId, attempt $attemptId, " +
+              s"stage $stageId.$stageAttempt)")
+        } else {
+          logError(
+            s"Skipping abort for already committed partition $partId (task $taskId, " +
+              s"attempt $attemptId, stage $stageId.$stageAttempt)")
+        }
       },
       finallyBlock = {
         dataWriter.close()
