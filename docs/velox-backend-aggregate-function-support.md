@@ -1,6 +1,6 @@
 # Aggregate Functions Support Status
 
-**Out of 62 aggregate functions in Spark 3.5, Gluten currently fully supports 52 functions and partially supports 1 function.**
+**Out of 62 aggregate functions in Spark 3.5, Gluten currently fully supports 53 functions and partially supports 1 function.**
 
 ## Aggregate Functions
 
@@ -15,7 +15,7 @@
 | bit_and               | BitAndAgg                          | S        |                |
 | bit_or                | BitOrAgg                           | S        |                |
 | bit_xor               | BitXorAgg                          | S        |                |
-| bitmap_construct_agg  | BitmapConstructAgg                 |          |                |
+| bitmap_construct_agg  | BitmapConstructAgg                 | S        |                |
 | bitmap_or_agg         | BitmapOrAgg                        |          |                |
 | bool_and              | BoolAnd                            | S        |                |
 | bool_or               | BoolOr                             | S        |                |
