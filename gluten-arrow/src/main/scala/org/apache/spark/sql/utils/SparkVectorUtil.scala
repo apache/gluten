@@ -20,6 +20,7 @@ import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.vectorized.ArrowWritableColumnVector
 
 import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.util.Utils
 
 import org.apache.arrow.memory.ArrowBuf
 import org.apache.arrow.vector._
@@ -59,9 +60,9 @@ object SparkVectorUtil {
       // The variadic-buffer constructor was added after Arrow 15. Keep this reflective so the
       // default Arrow 15 build remains binary-compatible.
       val bodyCompressionClass =
-        Class.forName("org.apache.arrow.vector.ipc.message.ArrowBodyCompression")
+        Utils.classForName("org.apache.arrow.vector.ipc.message.ArrowBodyCompression")
       val noCompressionClass =
-        Class.forName("org.apache.arrow.vector.compression.NoCompressionCodec")
+        Utils.classForName("org.apache.arrow.vector.compression.NoCompressionCodec")
       val bodyCompression =
         noCompressionClass.getField("DEFAULT_BODY_COMPRESSION").get(null)
       classOf[ArrowRecordBatch]

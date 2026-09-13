@@ -1099,17 +1099,16 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
   }
 
   private static class ViewStringAccessor extends ArrowVectorAccessor {
-    private final ValueVector accessor;
+    private final ArrowViewVectorAccessor accessor;
 
     ViewStringAccessor(ValueVector vector) {
       super(vector);
-      this.accessor = vector;
+      this.accessor = new ArrowViewVectorAccessor(vector);
     }
 
     @Override
     final UTF8String getUTF8String(int rowId) {
-      Object value = accessor.getObject(rowId);
-      return value == null ? null : UTF8String.fromString(value.toString());
+      return accessor.getUTF8String(rowId);
     }
   }
 
@@ -1141,19 +1140,17 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
 
   private static class DictionaryEncodedViewStringAccessor extends ArrowVectorAccessor {
     private final IntVector index;
-    private final ValueVector dictionary;
+    private final ArrowViewVectorAccessor dictionary;
 
     DictionaryEncodedViewStringAccessor(IntVector index, ValueVector dictionary) {
       super(index);
       this.index = index;
-      this.dictionary = dictionary;
+      this.dictionary = new ArrowViewVectorAccessor(dictionary);
     }
 
     @Override
     final UTF8String getUTF8String(int rowId) {
-      int idx = index.get(rowId);
-      Object value = dictionary.getObject(idx);
-      return value == null ? null : UTF8String.fromString(value.toString());
+      return dictionary.getUTF8String(index.get(rowId));
     }
   }
 
@@ -1186,16 +1183,16 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
   }
 
   private static class ViewBinaryAccessor extends ArrowVectorAccessor {
-    private final ValueVector accessor;
+    private final ArrowViewVectorAccessor accessor;
 
     ViewBinaryAccessor(ValueVector vector) {
       super(vector);
-      this.accessor = vector;
+      this.accessor = new ArrowViewVectorAccessor(vector);
     }
 
     @Override
     final byte[] getBinary(int rowId) {
-      return (byte[]) accessor.getObject(rowId);
+      return accessor.getBinary(rowId);
     }
 
     @Override
@@ -1224,18 +1221,17 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
 
   private static class DictionaryEncodedViewBinaryAccessor extends ArrowVectorAccessor {
     private final IntVector index;
-    private final ValueVector dictionary;
+    private final ArrowViewVectorAccessor dictionary;
 
     DictionaryEncodedViewBinaryAccessor(IntVector index, ValueVector dictionary) {
       super(index);
       this.index = index;
-      this.dictionary = dictionary;
+      this.dictionary = new ArrowViewVectorAccessor(dictionary);
     }
 
     @Override
     final byte[] getBinary(int rowId) {
-      int idx = index.get(rowId);
-      return (byte[]) dictionary.getObject(idx);
+      return dictionary.getBinary(index.get(rowId));
     }
   }
 

@@ -428,17 +428,16 @@ public class ArrowColumnVector extends ColumnVector {
 
   static class ViewStringAccessor extends ArrowVectorAccessor {
 
-    private final ValueVector accessor;
+    private final ArrowViewVectorAccessor accessor;
 
     ViewStringAccessor(ValueVector vector) {
       super(vector);
-      this.accessor = vector;
+      this.accessor = new ArrowViewVectorAccessor(vector);
     }
 
     @Override
     final UTF8String getUTF8String(int rowId) {
-      Object value = accessor.getObject(rowId);
-      return value == null ? null : UTF8String.fromString(value.toString());
+      return accessor.getUTF8String(rowId);
     }
   }
 
@@ -459,16 +458,16 @@ public class ArrowColumnVector extends ColumnVector {
 
   static class ViewBinaryAccessor extends ArrowVectorAccessor {
 
-    private final ValueVector accessor;
+    private final ArrowViewVectorAccessor accessor;
 
     ViewBinaryAccessor(ValueVector vector) {
       super(vector);
-      this.accessor = vector;
+      this.accessor = new ArrowViewVectorAccessor(vector);
     }
 
     @Override
     final byte[] getBinary(int rowId) {
-      return (byte[]) accessor.getObject(rowId);
+      return accessor.getBinary(rowId);
     }
   }
 
