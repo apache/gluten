@@ -122,6 +122,30 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("2-arg ceiling / floor on decimals (RoundCeil / RoundFloor)") {
+    // The 2-arg forms produce Spark RoundCeil / RoundFloor and dispatch to the Velox
+    // decimal_ceil / decimal_floor special forms. The projection is native only when the
+    // expression offloads, so checkGlutenPlan[ProjectExecTransformer] doubles as an offload
+    // assertion; runQueryAndCompare additionally validates results against vanilla Spark.
+    runQueryAndCompare(
+      "SELECT ceiling(cast(l_quantity as decimal(12, 2)), 1) FROM lineitem limit 10") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare(
+      "SELECT floor(cast(l_quantity as decimal(12, 2)), 1) FROM lineitem limit 10") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Negative scale rounds to the left of the decimal point.
+    runQueryAndCompare(
+      "SELECT ceiling(cast(l_extendedprice as decimal(20, 4)), -2) FROM lineitem limit 10") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare(
+      "SELECT floor(cast(l_extendedprice as decimal(20, 4)), -2) FROM lineitem limit 10") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
   test("cos") {
     runQueryAndCompare("SELECT cos(l_orderkey) from lineitem limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
