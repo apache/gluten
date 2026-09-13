@@ -265,7 +265,7 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
   configs[facebook::velox::connector::hive::HiveConfig::kReadTimestampUnitSession] = std::string("6");
   configs[facebook::velox::connector::hive::HiveConfig::kMaxPartitionsPerWritersSession] =
       conf->get<std::string>(kMaxPartitions, "10000");
-  configs[facebook::velox::connector::hive::HiveConfig::kParquetMaxTargetFileSize] =
+  configs[facebook::velox::connector::hive::HiveConfig::kParquetMaxTargetFileSizeSession] =
       conf->get<std::string>(kParquetMaxTargetFileSize, "0B"); // 0 means no limit on target file size
   configs[facebook::velox::connector::hive::HiveConfig::kIgnoreMissingFilesSession] =
       conf->get<bool>(kIgnoreMissingFiles, false) ? "true" : "false";
