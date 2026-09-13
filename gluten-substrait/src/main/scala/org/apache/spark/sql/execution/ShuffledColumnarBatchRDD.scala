@@ -50,7 +50,8 @@ class ShuffledColumnarBatchRDD(
     var dependency: ShuffleDependency[Int, ColumnarBatch, ColumnarBatch],
     metrics: Map[String, SQLMetric],
     partitionSpecs: Array[ShufflePartitionSpec],
-    executionMode: StageExecutionMode)
+    executionMode: StageExecutionMode,
+    readerOrder: Option[Int])
   extends RDD[ColumnarBatch](dependency.rdd.context, Nil) {
 
   override val partitioner: Option[Partitioner] =
@@ -79,7 +80,8 @@ class ShuffledColumnarBatchRDD(
       dependency,
       metrics,
       Array.tabulate(dependency.partitioner.numPartitions)(i => CoalescedPartitionSpec(i, i + 1)),
-      executionMode
+      executionMode,
+      None
     )
   }
 
@@ -124,7 +126,8 @@ class ShuffledColumnarBatchRDD(
           endReducerIndex,
           context,
           sqlMetricsReporter,
-          executionMode)
+          executionMode,
+          readerOrder)
 
       case PartialReducerPartitionSpec(reducerIndex, startMapIndex, endMapIndex, _) =>
         getReader(
@@ -136,7 +139,9 @@ class ShuffledColumnarBatchRDD(
           reducerIndex + 1,
           context,
           sqlMetricsReporter,
-          executionMode)
+          executionMode,
+          readerOrder
+        )
 
       case PartialMapperPartitionSpec(mapIndex, startReducerIndex, endReducerIndex) =>
         getReader(
@@ -148,7 +153,9 @@ class ShuffledColumnarBatchRDD(
           endReducerIndex,
           context,
           sqlMetricsReporter,
-          executionMode)
+          executionMode,
+          readerOrder
+        )
 
       case CoalescedMapperPartitionSpec(startMapIndex, endMapIndex, numReducers) =>
         getReader(
@@ -160,7 +167,8 @@ class ShuffledColumnarBatchRDD(
           numReducers,
           context,
           sqlMetricsReporter,
-          executionMode)
+          executionMode,
+          readerOrder)
     }
     new ShuffleReaderWithMetricsIterator(
       reader.read().asInstanceOf[Iterator[Product2[Int, ColumnarBatch]]],
@@ -183,7 +191,8 @@ object ShuffledColumnarBatchRDD {
       endPartition: Int,
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter,
-      executionMode: StageExecutionMode): ShuffleReader[K, C] = {
+      executionMode: StageExecutionMode,
+      readerOrder: Option[Int]): ShuffleReader[K, C] = {
     shuffleManager match {
       case columnarShuffleManager: ColumnarShuffleManager =>
         columnarShuffleManager.getReader(
@@ -194,7 +203,8 @@ object ShuffledColumnarBatchRDD {
           endPartition,
           context,
           metrics,
-          executionMode)
+          executionMode,
+          readerOrder)
       case _ =>
         shuffleManager.getReader(
           handle,
@@ -214,7 +224,8 @@ object ShuffledColumnarBatchRDD {
       endPartition: Int,
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter,
-      executionMode: StageExecutionMode): ShuffleReader[K, C] = {
+      executionMode: StageExecutionMode,
+      readerOrder: Option[Int]): ShuffleReader[K, C] = {
     getReader[K, C](
       shuffleManager,
       handle,
@@ -224,6 +235,7 @@ object ShuffledColumnarBatchRDD {
       endPartition,
       context,
       metrics,
-      executionMode)
+      executionMode,
+      readerOrder)
   }
 }

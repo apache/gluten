@@ -37,7 +37,8 @@ class ShuffleReader {
   // FIXME iterator should be unique_ptr or un-copyable singleton
   virtual std::shared_ptr<ResultIterator> read(
       const std::shared_ptr<StreamReader>& streamReader,
-      const OutputType& outputType) = 0;
+      const OutputType& outputType,
+      int32_t priority) = 0;
 
   virtual int64_t getDecompressTime() const = 0;
 

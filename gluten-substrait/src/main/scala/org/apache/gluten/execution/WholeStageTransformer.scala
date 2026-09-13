@@ -26,7 +26,7 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.plan.{PlanBuilder, PlanNode}
 import org.apache.gluten.substrait.rel.{LocalFilesNode, RelNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
-import org.apache.gluten.utils.SubstraitPlanPrinterUtil
+import org.apache.gluten.utils.{ShuffleReaderOrderUtil, SubstraitPlanPrinterUtil}
 
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
@@ -398,6 +398,11 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
   override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     assert(child.isInstanceOf[TransformSupport])
     val pipelineTime: SQLMetric = longMetric("pipelineTime")
+
+    if (offloadCuda) {
+      ShuffleReaderOrderUtil.assign(child)
+    }
+
     // We should do transform first to make sure all subqueries are materialized
     val wsCtx = GlutenTimeMetric.withMillisTime {
       doWholeStageTransform()

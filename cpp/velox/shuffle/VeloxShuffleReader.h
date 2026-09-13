@@ -202,8 +202,8 @@ class VeloxShuffleReader final : public ShuffleReader {
       VeloxMemoryManager* memoryManager,
       const std::shared_ptr<ShuffleReaderOptions>& options);
 
-  std::shared_ptr<ResultIterator> read(const std::shared_ptr<StreamReader>& streamReader, const OutputType& outputType)
-      override;
+  std::shared_ptr<ResultIterator>
+  read(const std::shared_ptr<StreamReader>& streamReader, const OutputType& outputType, int32_t priority) override;
 
   int64_t getDecompressTime() const override;
 
@@ -214,7 +214,8 @@ class VeloxShuffleReader final : public ShuffleReader {
  private:
   void initFromSchema();
 
-  void createDeserializer(const std::shared_ptr<StreamReader>& streamReader, const OutputType& outputType);
+  void
+  createDeserializer(const std::shared_ptr<StreamReader>& streamReader, const OutputType& outputType, int32_t priority);
 
   std::shared_ptr<arrow::Schema> schema_;
   VeloxMemoryManager* memoryManager_;

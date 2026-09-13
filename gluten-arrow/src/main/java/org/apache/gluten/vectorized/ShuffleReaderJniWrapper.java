@@ -71,10 +71,13 @@ public class ShuffleReaderJniWrapper implements RuntimeAware {
       long gpuAsyncReaderMaxPrefetchBytes);
 
   public native long read(
-      long shuffleReaderHandle, ShuffleStreamReader streamReader, int executionMode);
+      long shuffleReaderHandle,
+      ShuffleStreamReader streamReader,
+      int executionMode,
+      int readerOrder);
 
   public long read(long shuffleReaderHandle, ShuffleStreamReader streamReader) {
-    return read(shuffleReaderHandle, streamReader, CPUStageMode.id());
+    return read(shuffleReaderHandle, streamReader, CPUStageMode.id(), 0);
   }
 
   public native void populateMetrics(long shuffleReaderHandle, ShuffleReaderMetrics metrics);
