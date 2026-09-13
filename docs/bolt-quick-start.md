@@ -24,7 +24,7 @@ Before you begin, ensure you have the following:
 > **Note**:
 > This guide does not restate the full build process. If you need to build from scratch, please refer to the Gluten repository's migration and build documents:
 > - [Bolt Backend (Prerequisites & Build)](gluten/README.md#bolt-backend)
-> - [Guide to Migrating from Velox to Bolt Backend in Gluten](gluten/docs/migrate-velox-to-bolt.md)
+> - [Guide to Migrating from Velox to Bolt Backend in Gluten](velox-to-bolt-migration-guide.md)
 
 ---
 
