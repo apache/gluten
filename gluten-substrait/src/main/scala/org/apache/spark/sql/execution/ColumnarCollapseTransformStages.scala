@@ -20,7 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.extension.ApplyStageInputStatsRule
-import org.apache.gluten.extension.columnar.transition.{Convention, ConventionReq}
+import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.rel.{InputIteratorRelNode, RelBuilder}
@@ -215,21 +215,16 @@ case class ColumnarCollapseTransformStages(glutenConf: GlutenConfig) extends Rul
   }
 }
 
-// TODO: Make this inherit from GlutenPlan.
 case class ColumnarInputAdapter(child: SparkPlan)
-  extends InputAdapterGenerateTreeStringShim
-  with Convention.KnownBatchType
-  with Convention.KnownRowType
-  with ConventionReq.KnownChildConvention {
+  extends GlutenPlan
+  with InputAdapterGenerateTreeStringShim {
   override def output: Seq[Attribute] = child.output
-  final override val supportsColumnar: Boolean = true
-  final override val supportsRowBased: Boolean = false
+  // Row output is unsupported, so GlutenPlan derives supportsRowBased = false.
   override def rowType(): Convention.RowType = Convention.RowType.None
+  // Columnar output only, so GlutenPlan derives supportsColumnar = true. GlutenPlan's default
+  // requiredChildConvention then requires the same batch type from the child.
   override def batchType(): Convention.BatchType =
     BackendsApiManager.getSettings.primaryBatchType
-  override def requiredChildConvention(): Seq[ConventionReq] = Seq(
-    ConventionReq.ofBatch(
-      ConventionReq.BatchType.Is(BackendsApiManager.getSettings.primaryBatchType)))
   override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = child.executeColumnar()
   override def outputPartitioning: Partitioning = child.outputPartitioning
