@@ -92,8 +92,9 @@ public class ColumnarBatchTest extends VeloxBackendTestBase {
 
           final ColumnarBatch offloaded =
               ColumnarBatches.offload(ArrowBufferAllocators.contextInstance(), batch);
+          final ColumnarBatch veloxBatch = VeloxColumnarBatches.toVeloxBatch(offloaded);
           final ColumnarBatch loaded =
-              ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), offloaded);
+              ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), veloxBatch);
           ColumnarBatch reloaded = null;
           try {
             final ArrowWritableColumnVector loadedStrings =
