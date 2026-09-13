@@ -16,11 +16,15 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <jni.h>
 #include <Core/Block.h>
+#include <DataTypes/DataTypeArray.h>
 #include <DataTypes/DataTypeFactory.h>
+#include <DataTypes/DataTypeMap.h>
 #include <DataTypes/DataTypeNullable.h>
+#include <DataTypes/DataTypeTuple.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <Parser/CHColumnToSparkRow.h>
 #include <Parser/TypeParser.h>
@@ -170,6 +174,25 @@ private:
 class SparkRowReader
 {
 public:
+    static bool needNestedNullNormalization(const DB::DataTypePtr & type)
+    {
+        const auto type_without_nullable = DB::removeNullable(type);
+
+        if (const auto * array_type = typeid_cast<const DB::DataTypeArray *>(type_without_nullable.get()))
+            return needNullNormalization(array_type->getNestedType());
+
+        if (const auto * map_type = typeid_cast<const DB::DataTypeMap *>(type_without_nullable.get()))
+            return needNullNormalization(map_type->getKeyType()) || needNullNormalization(map_type->getValueType());
+
+        if (const auto * tuple_type = typeid_cast<const DB::DataTypeTuple *>(type_without_nullable.get()))
+        {
+            const auto & element_types = tuple_type->getElements();
+            return std::any_of(element_types.begin(), element_types.end(), needNullNormalization);
+        }
+
+        return false;
+    }
+
     explicit SparkRowReader(const DB::DataTypes & field_types_)
         : field_types(field_types_)
         , num_fields(field_types.size())
@@ -177,6 +200,7 @@ public:
         , field_offsets(num_fields)
         , support_raw_datas(num_fields)
         , is_big_endians_in_spark_row(num_fields)
+        , need_nested_null_normalizations(num_fields)
         , fixed_length_data_readers(num_fields)
         , variable_length_data_readers(num_fields)
     {
@@ -186,6 +210,7 @@ public:
             field_offsets[ordinal] = bit_set_width_in_bytes + ordinal * 8L;
             support_raw_datas[ordinal] = BackingDataLengthCalculator::isDataTypeSupportRawData(type_without_nullable);
             is_big_endians_in_spark_row[ordinal] = BackingDataLengthCalculator::isBigEndianInSparkRow(type_without_nullable);
+            need_nested_null_normalizations[ordinal] = needNestedNullNormalization(field_types[ordinal]);
             if (BackingDataLengthCalculator::isFixedLengthDataType(type_without_nullable))
                 fixed_length_data_readers[ordinal] = std::make_shared<FixedLengthDataReader>(field_types[ordinal]);
             else if (BackingDataLengthCalculator::isVariableLengthDataType(type_without_nullable))
@@ -207,6 +232,12 @@ public:
     {
         assertIndexIsValid(ordinal);
         return is_big_endians_in_spark_row[ordinal];
+    }
+
+    bool needNestedNullNormalization(size_t ordinal) const
+    {
+        assertIndexIsValid(ordinal);
+        return need_nested_null_normalizations[ordinal];
     }
 
     std::shared_ptr<FixedLengthDataReader> getFixedLengthDataReader(int ordinal) const
@@ -374,11 +405,17 @@ private:
     std::vector<int64_t> field_offsets;
     std::vector<bool> support_raw_datas;
     std::vector<bool> is_big_endians_in_spark_row;
+    std::vector<bool> need_nested_null_normalizations;
     std::vector<std::shared_ptr<FixedLengthDataReader>> fixed_length_data_readers;
     std::vector<std::shared_ptr<VariableLengthDataReader>> variable_length_data_readers;
 
     const char * buffer;
     int32_t length;
+
+    static bool needNullNormalization(const DB::DataTypePtr & type)
+    {
+        return !type->isNullable() || needNestedNullNormalization(type);
+    }
 };
 
 }

@@ -49,6 +49,10 @@ namespace local_engine
             Int32 field_index = static_cast<Int32>(field.safeGet<Int32>() + 1); \
             const auto * index_node = addColumnToActionsDAG(actions_dag, std::make_shared<DB::DataTypeUInt32>(), field_index); \
             parsed_args.emplace_back(index_node); \
+            if (substrait_func.output_type().has_list() \
+                && substrait_func.output_type().list().nullability() == substrait::Type_Nullability_NULLABILITY_NULLABLE \
+                && !parsed_args[0]->result_type->isNullable()) \
+                parsed_args[0] = toFunctionNode(actions_dag, "toNullable", {parsed_args[0]}); \
             const auto * func_node = toFunctionNode(actions_dag, ch_function_name, parsed_args); \
             return convertNodeTypeIfNeeded(substrait_func, func_node, actions_dag); \
         } \

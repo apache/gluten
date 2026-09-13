@@ -84,7 +84,8 @@ DB::DataTypePtr TypeParser::getCHTypeByName(const String & spark_type_name)
     return DB::DataTypeFactory::instance().get(ch_type_name);
 }
 
-DB::DataTypePtr TypeParser::parseType(const substrait::Type & substrait_type, std::list<String> * field_names)
+DB::DataTypePtr TypeParser::parseType(
+    const substrait::Type & substrait_type, std::list<String> * field_names, bool keep_list_nullability)
 {
     DB::DataTypePtr ch_type = nullptr;
 
@@ -185,14 +186,14 @@ DB::DataTypePtr TypeParser::parseType(const substrait::Type & substrait_type, st
             for (int i = 0; i < types.size(); ++i)
             {
                 struct_field_names.push_back(field_names->front());
-                struct_field_types[i] = parseType(types[i], field_names);
+                struct_field_types[i] = parseType(types[i], field_names, keep_list_nullability);
             }
         }
         else
         {
             /// Construct CH tuple type without DFS rule.
             for (int i = 0; i < types.size(); ++i)
-                struct_field_types[i] = parseType(types[i]);
+                struct_field_types[i] = parseType(types[i], nullptr, keep_list_nullability);
 
             const auto & names = substrait_type.struct_().names();
             for (const auto & name : names)
@@ -209,9 +210,16 @@ DB::DataTypePtr TypeParser::parseType(const substrait::Type & substrait_type, st
     }
     else if (substrait_type.has_list())
     {
-        auto ch_nested_type = parseType(substrait_type.list().type());
+        auto ch_nested_type = parseType(substrait_type.list().type(), nullptr, true);
         ch_type = std::make_shared<DB::DataTypeArray>(ch_nested_type);
-        ch_type = tryWrapNullable(substrait_type.list().nullability(), ch_type);
+        /// ClickHouse doesn't support Nullable(Array(...)) well in many execution paths.
+        /// In our parquet reader path, null arrays are represented as empty arrays (no null map).
+        /// So for top-level Substrait LIST, we intentionally drop outer nullability and keep Array(...).
+        ///
+        /// Note: element nullability is still preserved via ch_nested_type; if the element is also a LIST,
+        /// its own nullability must be preserved to represent Array(Nullable(Array(...))).
+        if (keep_list_nullability)
+            ch_type = tryWrapNullable(substrait_type.list().nullability(), ch_type);
     }
     else if (substrait_type.has_map())
     {
@@ -223,8 +231,8 @@ DB::DataTypePtr TypeParser::parseType(const substrait::Type & substrait_type, st
         }
         else
         {
-            auto ch_key_type = parseType(substrait_type.map().key());
-            auto ch_val_type = parseType(substrait_type.map().value());
+            auto ch_key_type = parseType(substrait_type.map().key(), nullptr, keep_list_nullability);
+            auto ch_val_type = parseType(substrait_type.map().value(), nullptr, keep_list_nullability);
             ch_type = std::make_shared<DB::DataTypeMap>(ch_key_type, ch_val_type);
             ch_type = tryWrapNullable(substrait_type.map().nullability(), ch_type);
         }

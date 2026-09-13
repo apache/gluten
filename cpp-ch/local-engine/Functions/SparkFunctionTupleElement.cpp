@@ -129,7 +129,7 @@ public:
         Columns null_maps;
         while (const DataTypeArray * array_type = checkAndGetDataType<DataTypeArray>(removeNullable(input_type).get()))
         {
-            const ColumnNullable * nullable_array_col = input_type->isNullable() ? checkAndGetColumn<ColumnNullable>(input_col) : nullptr;
+            const ColumnNullable * nullable_array_col = checkAndGetColumn<ColumnNullable>(input_col);
             const ColumnArray * array_col = nullable_array_col ? checkAndGetColumn<ColumnArray>(&nullable_array_col->getNestedColumn())
                                                                : checkAndGetColumn<ColumnArray>(input_col);
 
@@ -147,8 +147,7 @@ public:
                 getName(),
                 input_arg.type->getName());
 
-        const ColumnNullable * input_col_as_nullable_tuple
-            = input_type->isNullable() ? checkAndGetColumn<ColumnNullable>(input_col) : nullptr;
+        const ColumnNullable * input_col_as_nullable_tuple = checkAndGetColumn<ColumnNullable>(input_col);
         const ColumnTuple * input_col_as_tuple = input_col_as_nullable_tuple
             ? checkAndGetColumn<ColumnTuple>(&input_col_as_nullable_tuple->getNestedColumn())
             : checkAndGetColumn<ColumnTuple>(input_col);

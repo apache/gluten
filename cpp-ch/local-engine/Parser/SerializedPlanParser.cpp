@@ -26,6 +26,7 @@
 #include <Core/Names.h>
 #include <Core/Settings.h>
 #include <DataTypes/DataTypeAggregateFunction.h>
+#include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/IDataType.h>
 #include <Functions/FunctionFactory.h>
@@ -148,6 +149,8 @@ void SerializedPlanParser::adjustOutput(const DB::QueryPlanPtr & query_plan, con
             const auto & origin_column = origin_columns[i];
             const auto & origin_type = origin_column.type;
             auto final_type = TypeParser::parseType(output_schema.types(i));
+            if (origin_type->isNullable() && !final_type->isNullable())
+                final_type = makeNullable(final_type);
 
             /// Intermediate aggregate data is special, no check here.
             if (typeid_cast<const DataTypeAggregateFunction *>(origin_column.type.get()) || origin_type->equals(*final_type))

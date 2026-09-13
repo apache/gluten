@@ -18,7 +18,11 @@
 #include <iostream>
 #include <incbin.h>
 
+#include <Columns/ColumnNullable.h>
+#include <Columns/ColumnsNumber.h>
 #include <Disks/DiskLocal.h>
+#include <DataTypes/DataTypeNullable.h>
+#include <DataTypes/DataTypeString.h>
 #include <Formats/FormatFactory.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/registerInterpreters.h>
@@ -57,6 +61,36 @@ TEST(TESTUtil, TestByteToLong)
     std::cout << std::to_string(result);
 
     ASSERT_EQ(expected, result);
+}
+
+TEST(BlockUtil, ConvertNullableColumnAsNecessary)
+{
+    auto string_type = std::make_shared<DataTypeString>();
+    auto nullable_string_type = std::make_shared<DataTypeNullable>(string_type);
+
+    auto nested = string_type->createColumn();
+    nested->insert("A");
+    nested->insert("B");
+    auto null_map = ColumnUInt8::create(2, 0);
+    ColumnWithTypeAndName nullable_column(
+        ColumnNullable::create(std::move(nested), std::move(null_map)), nullable_string_type, "col_1");
+    ColumnWithTypeAndName sample_column(string_type, "broadcast_right_col_1");
+
+    auto converted = BlockUtil::convertColumnAsNecessary(nullable_column, sample_column);
+    ASSERT_TRUE(converted.type->equals(*string_type));
+    ASSERT_EQ("broadcast_right_col_1", converted.name);
+    ASSERT_FALSE(converted.column->isNullable());
+
+    auto nested_with_null = string_type->createColumn();
+    nested_with_null->insert("A");
+    nested_with_null->insertDefault();
+    auto null_map_with_null = ColumnUInt8::create();
+    null_map_with_null->insertValue(0);
+    null_map_with_null->insertValue(1);
+    ColumnWithTypeAndName nullable_column_with_null(
+        ColumnNullable::create(std::move(nested_with_null), std::move(null_map_with_null)), nullable_string_type, "col_1");
+
+    ASSERT_THROW(BlockUtil::convertColumnAsNecessary(nullable_column_with_null, sample_column), DB::Exception);
 }
 
 TEST(ReadBufferFromFile, seekBackwards)
