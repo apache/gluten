@@ -45,7 +45,11 @@ void JniHashTableContext::finalize(JNIEnv* env) {
   }
 }
 
-jlong JniHashTableContext::callJavaGet(const std::string& id) const {
+std::optional<jlong> JniHashTableContext::callJavaGet(const std::string& id) const {
+  if (vm_ == nullptr) {
+    return std::nullopt;
+  }
+
   JNIEnv* env;
   if (vm_->GetEnv(reinterpret_cast<void**>(&env), jniVersion) != JNI_OK) {
     throw gluten::GlutenException("JNIEnv was not attached to current thread");
@@ -53,6 +57,8 @@ jlong JniHashTableContext::callJavaGet(const std::string& id) const {
 
   const jstring s = env->NewStringUTF(id.c_str());
   auto result = env->CallStaticLongMethod(jniVeloxBroadcastBuildSideCache_, jniGet_, s);
+  env->DeleteLocalRef(s);
+  checkException(env);
   return result;
 }
 
@@ -161,7 +167,18 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
 }
 
 long getJoin(const std::string& hashTableId) {
-  return JniHashTableContext::getInstance().callJavaGet(hashTableId);
+  const auto handle = JniHashTableContext::getInstance().callJavaGet(hashTableId);
+  if (!handle.has_value()) {
+    // The JVM side VeloxBroadcastBuildSideCache holding the pre-built hash tables is unreachable,
+    // e.g. in the standalone micro benchmark. Report a miss, the same way that cache reports one,
+    // and let the caller build the hash table from the join's build side input instead.
+    LOG(WARNING) << "No JVM is attached to this process, cannot look up the pre-built hash table for cache key: "
+                 << hashTableId
+                 << ". A new hash table will be built from the build side input, which is empty unless the stage was "
+                    "dumped with spark.gluten.velox.buildHashTableOncePerExecutor.enabled=false.";
+    return 0;
+  }
+  return handle.value();
 }
 
 size_t serializedHashTableSize(std::shared_ptr<HashTableBuilder> builder) {
