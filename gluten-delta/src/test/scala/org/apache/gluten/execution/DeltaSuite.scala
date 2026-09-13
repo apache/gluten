@@ -461,7 +461,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("delta: change data feed read with deletion vectors", "3.4") {
+  test("delta: change data feed read with deletion vectors") {
     withTable("delta_cdf_dv") {
       spark.sql(s"""
                    |create table delta_cdf_dv (id int, name string) using delta
@@ -605,7 +605,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("deletion vector", "3.4") {
+  test("deletion vector") {
     withTempPath {
       p =>
         import testImplicits._
@@ -632,7 +632,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("deletion vector on partitioned table", "3.4") {
+  test("deletion vector on partitioned table") {
     withTempPath {
       p =>
         import testImplicits._
@@ -671,7 +671,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("deletion vector on shallow-cloned table", "3.4") {
+  test("deletion vector on shallow-cloned table") {
     withTable("dv_clone_source", "dv_clone_target") {
       import testImplicits._
       // Shallow clone is the case the old data-file walk-up got wrong. The clone's AddFile paths
@@ -840,10 +840,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // TIMESTAMP_NTZ was introduced in Spark 3.4 / Delta 2.4
-  testWithMinSparkVersion(
-    "delta: create table with TIMESTAMP_NTZ and return correct results",
-    "3.4") {
+  test("delta: create table with TIMESTAMP_NTZ and return correct results") {
     withTable("delta_ntz") {
       spark.sql("CREATE TABLE delta_ntz(c1 STRING, c2 TIMESTAMP, c3 TIMESTAMP_NTZ) USING DELTA")
       spark.sql("""INSERT INTO delta_ntz VALUES
@@ -858,9 +855,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion(
-    "delta: TIMESTAMP_NTZ as partition column should fallback and return correct results",
-    "3.4") {
+  test("delta: TIMESTAMP_NTZ as partition column should fallback and return correct results") {
     withTable("delta_ntz_part") {
       spark.sql("""CREATE TABLE delta_ntz_part(c1 STRING, c2 TIMESTAMP, c3 TIMESTAMP_NTZ)
                   |USING DELTA PARTITIONED BY (c3)""".stripMargin)
@@ -886,9 +881,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion(
-    "delta: filter on TIMESTAMP_NTZ column should fallback and return correct results",
-    "3.4") {
+  test("delta: filter on TIMESTAMP_NTZ column should fallback and return correct results") {
     withTable("delta_ntz_filter") {
       spark.sql("CREATE TABLE delta_ntz_filter(id INT, ts TIMESTAMP_NTZ) USING DELTA")
       spark.sql("""INSERT INTO delta_ntz_filter VALUES
@@ -902,9 +895,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion(
-    "merge with column mapping handles struct field metadata correctly",
-    "3.4") {
+  test("merge with column mapping handles struct field metadata correctly") {
     withTable("merge_struct_source", "merge_struct_target") {
       spark.sql("""
                   |CREATE TABLE merge_struct_target(
@@ -941,9 +932,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion(
-    "merge with column mapping handles array-of-struct field metadata correctly",
-    "3.4") {
+  test("merge with column mapping handles array-of-struct field metadata correctly") {
     withTable("merge_arraystruct_source", "merge_arraystruct_target") {
       spark.sql("""
                   |CREATE TABLE merge_arraystruct_target(
@@ -976,9 +965,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion(
-    "merge with column mapping handles map-of-struct field metadata correctly",
-    "3.4") {
+  test("merge with column mapping handles map-of-struct field metadata correctly") {
     withTable("merge_mapstruct_source", "merge_mapstruct_target") {
       spark.sql("""
                   |CREATE TABLE merge_mapstruct_target(
@@ -1011,9 +998,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion(
-    "merge with column mapping handles nested struct-within-struct field metadata correctly",
-    "3.4") {
+  test("merge with column mapping handles nested struct-within-struct field metadata correctly") {
     withTable("merge_nestedstruct_source", "merge_nestedstruct_target") {
       spark.sql("""
                   |CREATE TABLE merge_nestedstruct_target(
@@ -1044,9 +1029,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion(
-    "merge with column mapping handles array with null struct elements correctly",
-    "3.4") {
+  test("merge with column mapping handles array with null struct elements correctly") {
     withTable("merge_arraynull_source", "merge_arraynull_target") {
       spark.sql("""
                   |CREATE TABLE merge_arraynull_target(

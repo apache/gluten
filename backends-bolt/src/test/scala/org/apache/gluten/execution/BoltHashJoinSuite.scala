@@ -74,7 +74,7 @@ class BoltHashJoinSuite extends BoltWholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("generate hash join plan - v2", "3.2") {
+  test("generate hash join plan - v2") {
     withSQLConf(
       ("spark.sql.autoBroadcastJoinThreshold", "-1"),
       ("spark.sql.adaptive.enabled", "false"),
@@ -92,9 +92,7 @@ class BoltHashJoinSuite extends BoltWholeStageTransformerSuite {
 
       // The computing is combined into one single whole stage transformer.
       val wholeStages = plan.collect { case wst: WholeStageTransformer => wst }
-      if (SparkShimLoader.getSparkVersion.startsWith("3.2.")) {
-        assert(wholeStages.length == 1)
-      } else if (SparkShimLoader.getSparkVersion.startsWith("3.5.")) {
+      if (SparkShimLoader.getSparkVersion.startsWith("3.5.")) {
         assert(wholeStages.length == 5)
       } else {
         assert(wholeStages.length == 3)
@@ -107,11 +105,7 @@ class BoltHashJoinSuite extends BoltWholeStageTransformerSuite {
           case _: ShuffledHashJoinExecTransformer => 1
         }.getOrElse(0)
       }.sum
-      if (SparkShimLoader.getSparkVersion.startsWith("3.2.")) {
-        assert(countSHJ == 1)
-      } else {
-        assert(countSHJ == 2)
-      }
+      assert(countSHJ == 2)
     }
   }
 

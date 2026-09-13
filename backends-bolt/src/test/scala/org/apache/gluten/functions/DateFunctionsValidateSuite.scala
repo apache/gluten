@@ -262,7 +262,7 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("timestampadd", "3.3") {
+  test("timestampadd") {
     withTempPath {
       path =>
         val ts = Timestamp.valueOf("2020-02-29 00:00:00.500")
@@ -276,7 +276,7 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("timestampdiff", "3.3") {
+  test("timestampdiff") {
     withTempPath {
       path =>
         val t1 = Timestamp.valueOf("2020-03-01 00:00:00.500")

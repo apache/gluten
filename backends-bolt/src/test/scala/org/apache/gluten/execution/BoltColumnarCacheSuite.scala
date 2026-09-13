@@ -87,7 +87,7 @@ class BoltColumnarCacheSuite extends BoltWholeStageTransformerSuite with Adaptiv
     }
   }
 
-  testWithMinSparkVersion("input row", "3.2") {
+  test("input row") {
     withTable("t") {
       sql("CREATE TABLE t USING json AS SELECT * FROM values(1, 'a', (2, 'b'), (3, 'c'))")
       runQueryAndCompare("SELECT * FROM t", cache = true) {
@@ -110,7 +110,7 @@ class BoltColumnarCacheSuite extends BoltWholeStageTransformerSuite with Adaptiv
   }
 
   // See issue https://github.com/apache/incubator-gluten/issues/8497.
-  testWithMinSparkVersion("Input fallen back vanilla Spark columnar scan", "3.3") {
+  test("Input fallen back vanilla Spark columnar scan") {
     def withId(id: Int): Metadata =
       new MetadataBuilder().putLong("parquet.field.id", id).build()
 

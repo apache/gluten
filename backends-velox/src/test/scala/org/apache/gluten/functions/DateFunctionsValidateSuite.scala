@@ -569,7 +569,7 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("read as timestamp_ntz", "3.4") {
+  test("read as timestamp_ntz") {
     val inputs: Seq[String] = Seq(
       "1970-01-01",
       "1970-01-01 00:00:00-02:00",
