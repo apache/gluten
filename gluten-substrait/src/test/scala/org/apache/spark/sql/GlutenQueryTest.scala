@@ -97,7 +97,6 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
     shouldRun
   }
 
-
   /** Run the test if the current spark version less than the maxVersion */
   def testWithMaxSparkVersion(testName: String, maxVersion: String)(testFun: => Any): Unit = {
     if (matchSparkVersion(maxSparkVersion = Some(maxVersion))) {
