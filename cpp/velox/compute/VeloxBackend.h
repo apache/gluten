@@ -30,6 +30,7 @@
 #include "velox/connectors/Connector.h"
 
 #include "jni/JniHashTable.h"
+#include "memory/SparkMmapAllocator.h"
 #include "memory/VeloxMemoryManager.h"
 #include "shuffle/ReaderThreadPool.h"
 
@@ -50,6 +51,8 @@ class VeloxBackend {
   static VeloxBackend* get();
 
   facebook::velox::cache::AsyncDataCache* getAsyncDataCache() const;
+
+  SparkMmapAllocator* getCacheAllocator() const;
 
   ReaderThreadPool* getReaderThreadPool();
 
@@ -126,7 +129,7 @@ class VeloxBackend {
   std::unique_ptr<folly::Executor> spillExecutor_;
   std::unique_ptr<folly::Executor> ioExecutor_;
   std::unique_ptr<folly::Executor> ssdCacheExecutor_;
-  std::shared_ptr<facebook::velox::memory::MmapAllocator> cacheAllocator_;
+  std::shared_ptr<SparkMmapAllocator> cacheAllocator_;
   std::shared_ptr<facebook::velox::config::ConfigBase> hiveConnectorConfig_;
 
   std::string cachePathPrefix_;
