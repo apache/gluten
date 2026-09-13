@@ -35,7 +35,6 @@ changed `Unbounded` in `WindowFunction` into `Unbounded_Preceding` and `Unbounde
 * Added `TopNRel` ([#5409](https://github.com/apache/gluten/pull/5409)).
 * Added `ref` field in window bound `Preceding` and `Following` ([#5626](https://github.com/apache/gluten/pull/5626)).
 * Added `BucketSpec` field in `WriteRel`([#8386](https://github.com/apache/gluten/pull/8386))
-* Added `StreamKafka` in `ReadRel`([#8321](https://github.com/apache/gluten/pull/8321))
 * Rebased the `WriteRel` body onto upstream `v0.98.0`: field 7 is now `common`, with `create_mode` (8) and
 `advanced_extension` (9) added, and the `OutputMode` value `OUTPUT_MODE_MODIFIED_TUPLES` renamed to
 `OUTPUT_MODE_MODIFIED_RECORDS`. Gluten's `BucketSpec` field moved off field 7 to 1000. The enclosing

@@ -69,7 +69,7 @@ message ReadRel {
     LocalFiles local_files = 6;
     NamedTable named_table = 7;
     ExtensionTable extension_table = 8;
-    bool stream_kafka = 9;
+    IcebergTable iceberg_table = 9;
   }
 
   // A base table. The list of string is used to represent namespacing (e.g., mydb.mytable).
@@ -77,6 +77,29 @@ message ReadRel {
   message NamedTable {
     repeated string names = 1;
     substrait.extensions.AdvancedExtension advanced_extension = 10;
+  }
+
+  // Read an Iceberg Table
+  message IcebergTable {
+    oneof table_type {
+      MetadataFileRead direct = 1;
+      // future: add catalog table types (e.g. rest api, latest metadata in path, etc)
+    }
+
+    // Read an Iceberg table using a metadata file. Implicit assumption: required credentials are already known by plan consumer.
+    message MetadataFileRead {
+      // the specific uri of a metadata file (e.g. s3://mybucket/mytable/<ver>-<uuid>.metadata.json)
+      string metadata_uri = 1;
+
+      // snapshot options. if none set, uses the current snapshot listed in the metadata file
+      oneof snapshot {
+        // the snapshot id to read.
+        string snapshot_id = 2;
+
+        // the timestamp that should be used to select the snapshot (Time passed in microseconds since 1970-01-01 00:00:00.000000 in UTC)
+        int64 snapshot_timestamp = 3;
+      }
+    }
   }
 
   // A table composed of expressions.
@@ -91,22 +114,6 @@ message ReadRel {
   // the specification.
   message ExtensionTable {
     google.protobuf.Any detail = 1;
-  }
-
-  // Used to KafkaBatch or KafkaContinuous source
-  message StreamKafka {
-    message TopicPartition {
-      string topic = 1;
-      int32 partition = 2;
-    }
-
-    TopicPartition topic_partition = 1;
-    int64 start_offset = 2;
-    int64 end_offset = 3;
-    map<string, string> params = 4;
-    int64 poll_timeout_ms = 5;
-    bool  fail_on_data_loss = 6;
-    bool include_headers = 7;
   }
 
   // Represents a list of files in input of a scan operation

@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.proto.StreamKafka
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.rel.{ReadRelNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
@@ -105,7 +107,13 @@ case class MicroBatchScanExecTransformer(
 
   override protected def doTransform(context: SubstraitContext): TransformContext = {
     val ctx = super.doTransform(context)
-    ctx.root.asInstanceOf[ReadRelNode].setStreamKafka(true)
+    // Mark this read as a Kafka stream by stamping an empty gluten.StreamKafka into the in-plan
+    // ReadRel.ExtensionTable. The native consumer discriminates on the detail's type_url; the real
+    // per-partition offsets/params still ride the split-info payload (see StreamKafkaSourceNode).
+    ctx.root
+      .asInstanceOf[ReadRelNode]
+      .setExtensionTableDetail(
+        BackendsApiManager.getTransformerApiInstance.packPBMessage(StreamKafka.getDefaultInstance))
     ctx
   }
 }
