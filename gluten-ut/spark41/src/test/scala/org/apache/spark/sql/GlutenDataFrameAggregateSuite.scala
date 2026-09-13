@@ -19,6 +19,7 @@ package org.apache.spark.sql
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{HashAggregateExecBaseTransformer, HashAggregateExecTransformer}
 
+import org.apache.spark.{SparkException, SparkRuntimeException, SparkThrowable}
 import org.apache.spark.sql.execution.WholeStageCodegenExec
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
@@ -311,6 +312,115 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
       val exchangePlans = collect(aggPlan) { case shuffle: ShuffleExchangeExec => shuffle }
       assert(exchangePlans.length == 1)
     }
+  }
+
+  testGluten("SPARK-16484: hll_*_agg + hll_union negative tests") {
+    val df1 = Seq(
+      (1, "a"),
+      (1, "a"),
+      (1, "a"),
+      (1, "b"),
+      (1, "c"),
+      (1, "c"),
+      (1, "d")
+    ).toDF("id", "value")
+    df1.createOrReplaceTempView("df1")
+
+    val df2 = Seq(
+      (1, "a"),
+      (1, "c"),
+      (1, "d"),
+      (1, "d"),
+      (1, "d"),
+      (1, "e"),
+      (1, "e"),
+      (1, "f")
+    ).toDF("id", "value")
+    df2.createOrReplaceTempView("df2")
+
+    def assertWrappedSparkThrowable(
+        e: Throwable,
+        errorClass: String,
+        messageFragments: Seq[String]): Unit = {
+      val sparkThrowable = e match {
+        case st: SparkThrowable => st
+        case _ => fail(s"Expected SparkThrowable but got ${e.getClass.getName}: ${e.getMessage}", e)
+      }
+      val combinedMessage =
+        Option(e.getMessage).getOrElse("") + "\n" + Option(e.getCause).map(_.toString).getOrElse("")
+      assert(sparkThrowable.getCondition == errorClass || combinedMessage.contains(errorClass))
+      messageFragments.foreach(fragment => assert(combinedMessage.contains(fragment)))
+    }
+
+    val invalidLow = intercept[Throwable] {
+      val res = df1.groupBy("id")
+        .agg(
+          hll_sketch_agg("value", 1).as("hllsketch")
+        )
+      checkAnswer(res, Nil)
+    }
+    assert(
+      invalidLow.isInstanceOf[SparkRuntimeException] || invalidLow.isInstanceOf[SparkException])
+    assertWrappedSparkThrowable(
+      invalidLow,
+      "HLL_INVALID_LG_K",
+      Seq("`hll_sketch_agg`", "1"))
+
+    val invalidHigh = intercept[Throwable] {
+      val res = df1.groupBy("id")
+        .agg(
+          hll_sketch_agg("value", 25).as("hllsketch")
+        )
+      checkAnswer(res, Nil)
+    }
+    assert(
+      invalidHigh.isInstanceOf[SparkRuntimeException] || invalidHigh.isInstanceOf[SparkException])
+    assertWrappedSparkThrowable(
+      invalidHigh,
+      "HLL_INVALID_LG_K",
+      Seq("`hll_sketch_agg`", "25"))
+
+    val unionError = intercept[Throwable] {
+      val i1 = df1.groupBy("id")
+        .agg(
+          hll_sketch_agg("value").as("hllsketch_left")
+        )
+      val i2 = df2.groupBy("id")
+        .agg(
+          hll_sketch_agg("value", 20).as("hllsketch_right")
+        )
+      val res = i1.join(i2).withColumn("union", hll_union("hllsketch_left", "hllsketch_right"))
+      checkAnswer(res, Nil)
+    }
+    assert(
+      unionError.isInstanceOf[SparkRuntimeException] || unionError.isInstanceOf[SparkException])
+    assertWrappedSparkThrowable(
+      unionError,
+      "HLL_UNION_DIFFERENT_LG_K",
+      Seq("`hll_union`", "12", "20"))
+
+    val unionAggError = intercept[Throwable] {
+      val i1 = df1.groupBy("id")
+        .agg(
+          hll_sketch_agg("value").as("hllsketch")
+        )
+      val i2 = df2.groupBy("id")
+        .agg(
+          hll_sketch_agg("value", 20).as("hllsketch")
+        )
+      val res = i1.union(i2).groupBy("id")
+        .agg(
+          hll_union_agg("hllsketch")
+        )
+      checkAnswer(res, Nil)
+    }
+    assert(
+      unionAggError.isInstanceOf[SparkRuntimeException] ||
+        unionAggError.isInstanceOf[SparkException])
+    assertWrappedSparkThrowable(
+      unionAggError,
+      "HLL_UNION_DIFFERENT_LG_K",
+      Seq("`hll_union_agg`", "12", "20"))
   }
 
   Seq(true, false).foreach {
