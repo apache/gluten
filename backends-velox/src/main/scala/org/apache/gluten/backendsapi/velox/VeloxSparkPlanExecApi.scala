@@ -41,6 +41,7 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.expressions.PythonUDTF
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, CollectList, CollectSet}
 import org.apache.spark.sql.catalyst.expressions.objects.{AssertNotNull, StaticInvoke}
 import org.apache.spark.sql.catalyst.optimizer.BuildSide
@@ -682,6 +683,15 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       child: SparkPlan,
       evalType: Int): SparkPlan = {
     ColumnarArrowEvalPythonExec(udfs, resultAttrs, child, evalType)
+  }
+
+  override def createArrowEvalPythonUDTFTransformer(
+      udtf: PythonUDTF,
+      requiredChildOutput: Seq[Attribute],
+      resultAttrs: Seq[Attribute],
+      child: SparkPlan,
+      evalType: Int): SparkPlan = {
+    ArrowEvalPythonUDTFTransformer(udtf, requiredChildOutput, resultAttrs, child, evalType)
   }
 
   /**
