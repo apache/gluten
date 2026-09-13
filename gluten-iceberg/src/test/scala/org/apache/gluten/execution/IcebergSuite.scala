@@ -60,6 +60,66 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
+  test("iceberg getRootPathsInternal covers the actual scanned data files") {
+    // See https://github.com/apache/gluten/issues/12712: getRootPathsInternal used to always
+    // return Seq.empty for Iceberg scans, silently skipping native filesystem scheme validation.
+    withTable("iceberg_root_paths_tb") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_root_paths_tb (id INT)
+                  |USING iceberg
+                  |""".stripMargin)
+      spark.sql("INSERT INTO iceberg_root_paths_tb VALUES (1), (2)")
+
+      val actualFilePath = spark
+        .sql("SELECT input_file_name() FROM iceberg_root_paths_tb LIMIT 1")
+        .collect()(0)
+        .getString(0)
+
+      runQueryAndCompare("SELECT * FROM iceberg_root_paths_tb") {
+        df =>
+          val scans = getExecutedPlan(df).collect { case i: IcebergScanTransformer => i }
+          assert(scans.size == 1)
+          val rootPaths = scans.head.getRootPathsInternal
+          assert(rootPaths.nonEmpty, "getRootPathsInternal should not be empty for Iceberg tables")
+          assert(
+            rootPaths.exists(actualFilePath.startsWith),
+            s"expected one of root paths ($rootPaths) to be a prefix of the actual scanned " +
+              s"file ($actualFilePath)"
+          )
+      }
+    }
+  }
+
+  test("iceberg getRootPathsInternal reflects a custom write.data.path") {
+    // See https://github.com/apache/gluten/issues/12712 (review discussion): the table's
+    // declared location can differ from where data files actually live, e.g. via the
+    // write.data.path property. getRootPathsInternal must reflect that, not just the table's
+    // default location.
+    withTempDir {
+      dataDir =>
+        withTable("iceberg_custom_data_path_tb") {
+          spark.sql(s"""
+                       |CREATE TABLE iceberg_custom_data_path_tb (id INT)
+                       |USING iceberg
+                       |TBLPROPERTIES ('write.data.path' = '${dataDir.getCanonicalPath}')
+                       |""".stripMargin)
+          spark.sql("INSERT INTO iceberg_custom_data_path_tb VALUES (1), (2)")
+
+          runQueryAndCompare("SELECT * FROM iceberg_custom_data_path_tb") {
+            df =>
+              val scans = getExecutedPlan(df).collect { case i: IcebergScanTransformer => i }
+              assert(scans.size == 1)
+              val rootPaths = scans.head.getRootPathsInternal
+              assert(
+                rootPaths.exists(_.contains(dataDir.getCanonicalPath)),
+                s"expected root paths ($rootPaths) to include the configured " +
+                  s"write.data.path (${dataDir.getCanonicalPath})"
+              )
+          }
+        }
+    }
+  }
+
   test("iceberg input_file_name") {
     withTable("iceberg_input_file_tb") {
       spark.sql("""

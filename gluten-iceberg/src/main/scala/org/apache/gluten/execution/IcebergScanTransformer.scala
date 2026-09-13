@@ -193,8 +193,12 @@ case class IcebergScanTransformer(
 
   override def getDataSchema: StructType = new StructType()
 
-  // TODO: get root paths from table.
-  override def getRootPathsInternal: Seq[String] = Seq.empty
+  override def getRootPathsInternal: Seq[String] = {
+    table match {
+      case t: SparkTable => GlutenIcebergSourceUtil.getRootPaths(t.table())
+      case _ => Seq.empty
+    }
+  }
 
   private lazy val readSchemaFields =
     scan.readSchema().fieldNames.map(_.toLowerCase(Locale.ROOT)).toSet
