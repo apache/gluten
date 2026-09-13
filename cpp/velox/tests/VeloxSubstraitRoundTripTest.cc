@@ -23,6 +23,7 @@
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/exec/tests/utils/OperatorTestBase.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
+#include "velox/functions/sparksql/aggregates/Register.h"
 #include "velox/vector/tests/utils/VectorMaker.h"
 
 #include "substrait/SubstraitToVeloxPlan.h"
@@ -203,6 +204,36 @@ TEST_F(VeloxSubstraitRoundTripTest, countAll) {
                   .planNode();
 
   assertPlanConversion(plan, "SELECT count(*) as num_price FROM tmp WHERE c6 < 24 GROUP BY c0, c1");
+}
+
+TEST_F(VeloxSubstraitRoundTripTest, minMaxTimestampUtc) {
+  const auto minTimestamp = Timestamp(-1, 999'999'000);
+  const auto maxTimestamp = Timestamp(1'704'067'200, 123'456'000);
+  auto input = makeRowVector({makeFlatVector<Timestamp>({maxTimestamp, minTimestamp}, TIMESTAMP_UTC())});
+  auto expected = makeRowVector(
+      {makeFlatVector<Timestamp>({minTimestamp}, TIMESTAMP_UTC()),
+       makeFlatVector<Timestamp>({maxTimestamp}, TIMESTAMP_UTC())});
+  auto plan = PlanBuilder()
+                  .values({input})
+                  .singleAggregation({}, {"spark_min(c0)", "spark_max(c0)"})
+                  .project({"a0", "a1"})
+                  .planNode();
+
+  assertQuery(plan, expected);
+
+  google::protobuf::Arena arena;
+  auto substraitPlan = veloxConvertor_->toSubstrait(arena, plan);
+  auto config = std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
+  auto converter = std::make_shared<SubstraitToVeloxPlanConverter>(
+      pool_.get(),
+      config.get(),
+      std::vector<std::shared_ptr<ResultIterator>>{},
+      VeloxConnectorIds{},
+      std::nullopt,
+      std::nullopt,
+      true);
+
+  assertQuery(converter->toVeloxPlan(substraitPlan), expected);
 }
 
 TEST_F(VeloxSubstraitRoundTripTest, sum) {
@@ -565,6 +596,7 @@ TEST_F(VeloxSubstraitRoundTripTest, avgCompanion) {
 
 int main(int argc, char** argv) {
   gluten::registerAllFunctions();
+  facebook::velox::functions::aggregate::sparksql::registerAggregateFunctions("spark_");
   testing::InitGoogleTest(&argc, argv);
   folly::init(&argc, &argv, false);
   return RUN_ALL_TESTS();

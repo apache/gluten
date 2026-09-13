@@ -25,7 +25,7 @@ import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Cast, Hour, Minute, Second, TimestampAdd}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, Expression, GetStructField, Hour, IsNull, Minute, Second, TimestampAdd}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -34,7 +34,7 @@ import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, ShuffleEx
 import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType, TimestampNTZType}
 
 object Validators {
   implicit class ValidatorBuilderImplicits(builder: Validator.Builder) {
@@ -251,13 +251,19 @@ object Validators {
 
     override def validate(plan: SparkPlan): Validator.OutCome = {
       def containsNTZ(dataType: DataType): Boolean = dataType match {
-        case dt if dt.typeName == "timestamp_ntz" => true
+        case TimestampNTZType => true
         case st: StructType => st.exists(f => containsNTZ(f.dataType))
         case at: ArrayType => containsNTZ(at.elementType)
         case mt: MapType => containsNTZ(mt.keyType) || containsNTZ(mt.valueType)
         case _ => false
       }
-      def isNTZ(dataType: DataType): Boolean = dataType.typeName == "timestamp_ntz"
+      def isNTZ(dataType: DataType): Boolean = dataType == TimestampNTZType
+      def isDirectNtzProjection(expression: Expression): Boolean = expression match {
+        case alias: Alias => isDirectNtzProjection(alias.child)
+        case attribute: Attribute => containsNTZ(attribute.dataType)
+        case field: GetStructField => containsNTZ(field.dataType)
+        case _ => false
+      }
       val hasNTZ = plan.output.exists(a => containsNTZ(a.dataType)) ||
         plan.children.exists(_.output.exists(a => containsNTZ(a.dataType)))
       if (!hasNTZ) {
@@ -273,17 +279,21 @@ object Validators {
           case _ => false
         }
         val isSupportedNtz = plan match {
+          case _: HashAggregateExec | _: ObjectHashAggregateExec | _: SortAggregateExec => true
+          case _: ShuffleExchangeExec => true
           case p: ProjectExec =>
             p.projectList.forall {
               expr =>
                 (!containsNTZ(expr.dataType) &&
                   !expr.references.exists(a => containsNTZ(a.dataType))) ||
+                isDirectNtzProjection(expr) ||
                 expr.exists {
                   case Hour(child, _) => containsNTZ(child.dataType)
                   case Minute(child, _) => containsNTZ(child.dataType)
                   case Second(child, _) => containsNTZ(child.dataType)
                   case TimestampAdd(_, _, child, _) => containsNTZ(child.dataType)
                   case c: Cast if isNTZ(c.dataType) || isNTZ(c.child.dataType) => true
+                  case IsNull(child) => containsNTZ(child.dataType)
                   case _ => false
                 }
             }
