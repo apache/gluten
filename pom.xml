@@ -1213,6 +1213,39 @@
       </properties>
     </profile>
     <profile>
+      <id>arrow-string-view</id>
+      <activation>
+        <jdk>11</jdk>
+      </activation>
+      <properties>
+        <arrow.version>18.1.0</arrow.version>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>enforce-arrow-string-view-java-version</id>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireJavaVersion>
+                      <version>[11,)</version>
+                      <message>The arrow-string-view profile requires JDK 11 or later.</message>
+                    </requireJavaVersion>
+                  </rules>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
       <id>spark-3.4</id>
       <properties>
         <sparkbundle.version>3.4</sparkbundle.version>

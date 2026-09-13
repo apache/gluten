@@ -65,16 +65,24 @@ void VeloxColumnarBatch::ensureFlattened() {
 }
 
 std::shared_ptr<ArrowSchema> VeloxColumnarBatch::exportArrowSchema() {
-  auto out = std::make_shared<ArrowSchema>();
-  ensureFlattened();
-  velox::exportToArrow(rowVector_, *out, ArrowUtils::getBridgeOptions());
-  return out;
+  return exportArrowSchema(ArrowTypeLayout::kDefault);
 }
 
 std::shared_ptr<ArrowArray> VeloxColumnarBatch::exportArrowArray() {
+  return exportArrowArray(ArrowTypeLayout::kDefault);
+}
+
+std::shared_ptr<ArrowSchema> VeloxColumnarBatch::exportArrowSchema(ArrowTypeLayout typeLayout) {
+  auto out = std::make_shared<ArrowSchema>();
+  ensureFlattened();
+  velox::exportToArrow(rowVector_, *out, ArrowUtils::getBridgeOptions(typeLayout));
+  return out;
+}
+
+std::shared_ptr<ArrowArray> VeloxColumnarBatch::exportArrowArray(ArrowTypeLayout typeLayout) {
   auto out = std::make_shared<ArrowArray>();
   ensureFlattened();
-  velox::exportToArrow(rowVector_, *out, rowVector_->pool(), ArrowUtils::getBridgeOptions());
+  velox::exportToArrow(rowVector_, *out, rowVector_->pool(), ArrowUtils::getBridgeOptions(typeLayout));
   return out;
 }
 

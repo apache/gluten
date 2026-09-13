@@ -62,4 +62,27 @@ TEST_F(VeloxColumnarBatchTest, flattenTruncatedVector) {
   ASSERT_NO_THROW(batchOfMap->getFlattenedRowVector());
 }
 
+TEST_F(VeloxColumnarBatchTest, exportsStringViewOnlyWhenRequested) {
+  auto input = makeRowVector({
+      makeNullableFlatVector<StringView>({"short", "a string longer than twelve bytes", std::nullopt}),
+      makeNullableFlatVector<StringView>({"\x01\x02", "binary longer than twelve bytes", std::nullopt}, VARBINARY()),
+  });
+  auto batch = std::make_shared<VeloxColumnarBatch>(input);
+
+  auto defaultSchema = batch->exportArrowSchema();
+  ASSERT_STREQ(defaultSchema->children[0]->format, "u");
+  ASSERT_STREQ(defaultSchema->children[1]->format, "z");
+  defaultSchema->release(defaultSchema.get());
+
+  auto viewSchema = batch->exportArrowSchema(ArrowTypeLayout::kStringView);
+  ASSERT_STREQ(viewSchema->children[0]->format, "vu");
+  ASSERT_STREQ(viewSchema->children[1]->format, "vz");
+  viewSchema->release(viewSchema.get());
+
+  auto viewArray = batch->exportArrowArray(ArrowTypeLayout::kStringView);
+  ASSERT_GT(viewArray->children[0]->n_buffers, 3);
+  ASSERT_GT(viewArray->children[1]->n_buffers, 3);
+  viewArray->release(viewArray.get());
+}
+
 } // namespace gluten

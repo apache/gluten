@@ -39,7 +39,8 @@ public class ColumnarBatchJniWrapper implements RuntimeAware {
 
   public static native long numBytes(long batch);
 
-  public static native void exportToArrow(long batch, long cSchema, long cArray);
+  public static native void exportToArrow(
+      long batch, long cSchema, long cArray, boolean useStringView);
 
   public static native void close(long batch);
 

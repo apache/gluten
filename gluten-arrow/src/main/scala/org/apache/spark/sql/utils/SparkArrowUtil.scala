@@ -71,7 +71,9 @@ object SparkArrowUtil {
     case float: ArrowType.FloatingPoint if float.getPrecision() == FloatingPointPrecision.DOUBLE =>
       DoubleType
     case ArrowType.Utf8.INSTANCE => StringType
+    case view if view.getClass.getSimpleName == "Utf8View" => StringType
     case ArrowType.Binary.INSTANCE => BinaryType
+    case view if view.getClass.getSimpleName == "BinaryView" => BinaryType
     case d: ArrowType.Decimal => DecimalType(d.getPrecision, d.getScale)
     case date: ArrowType.Date if date.getUnit == DateUnit.DAY => DateType
     case ts: ArrowType.Timestamp if ts.getUnit == TimeUnit.MICROSECOND && ts.getTimezone == null =>

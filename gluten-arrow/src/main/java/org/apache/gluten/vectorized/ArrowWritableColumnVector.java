@@ -230,6 +230,14 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     vector.setValueCount(numRows);
   }
 
+  private static boolean isViewVarCharVector(ValueVector vector) {
+    return vector.getClass().getName().equals("org.apache.arrow.vector.ViewVarCharVector");
+  }
+
+  private static boolean isViewVarBinaryVector(ValueVector vector) {
+    return vector.getClass().getName().equals("org.apache.arrow.vector.ViewVarBinaryVector");
+  }
+
   private void createVectorAccessor(ValueVector vector, ValueVector dictionary) {
     if (dictionary != null) {
       if (!(vector instanceof IntVector)) {
@@ -239,8 +247,12 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
       IntVector index = (IntVector) vector;
       if (dictionary instanceof VarBinaryVector) {
         accessor = new DictionaryEncodedBinaryAccessor(index, (VarBinaryVector) dictionary);
+      } else if (isViewVarBinaryVector(dictionary)) {
+        accessor = new DictionaryEncodedViewBinaryAccessor(index, dictionary);
       } else if (dictionary instanceof VarCharVector) {
         accessor = new DictionaryEncodedStringAccessor(index, (VarCharVector) dictionary);
+      } else if (isViewVarCharVector(dictionary)) {
+        accessor = new DictionaryEncodedViewStringAccessor(index, dictionary);
       } else {
         throw new IllegalArgumentException(
             "Unrecognized index value type: " + dictionary.getMinorType());
@@ -265,8 +277,12 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
       accessor = new DecimalAccessor((DecimalVector) vector);
     } else if (vector instanceof VarCharVector) {
       accessor = new StringAccessor((VarCharVector) vector);
+    } else if (isViewVarCharVector(vector)) {
+      accessor = new ViewStringAccessor(vector);
     } else if (vector instanceof VarBinaryVector) {
       accessor = new BinaryAccessor((VarBinaryVector) vector);
+    } else if (isViewVarBinaryVector(vector)) {
+      accessor = new ViewBinaryAccessor(vector);
     } else if (vector instanceof DateDayVector) {
       accessor = new DateAccessor((DateDayVector) vector);
     } else if (vector instanceof TimeStampMicroVector || vector instanceof TimeStampMicroTZVector) {
@@ -336,8 +352,12 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
       return new DecimalWriter((DecimalVector) vector);
     } else if (vector instanceof VarCharVector) {
       return new StringWriter((VarCharVector) vector);
+    } else if (isViewVarCharVector(vector)) {
+      return new ReadOnlyViewWriter(vector);
     } else if (vector instanceof VarBinaryVector) {
       return new BinaryWriter((VarBinaryVector) vector);
+    } else if (isViewVarBinaryVector(vector)) {
+      return new ReadOnlyViewWriter(vector);
     } else if (vector instanceof DateDayVector) {
       return new DateWriter((DateDayVector) vector);
     } else if (vector instanceof TimeStampMicroVector || vector instanceof TimeStampMicroTZVector) {
@@ -1078,6 +1098,20 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     }
   }
 
+  private static class ViewStringAccessor extends ArrowVectorAccessor {
+    private final ArrowViewVectorAccessor accessor;
+
+    ViewStringAccessor(ValueVector vector) {
+      super(vector);
+      this.accessor = new ArrowViewVectorAccessor(vector);
+    }
+
+    @Override
+    final UTF8String getUTF8String(int rowId) {
+      return accessor.getUTF8String(rowId);
+    }
+  }
+
   private static class DictionaryEncodedStringAccessor extends ArrowVectorAccessor {
     private final IntVector index;
     private final VarCharVector dictionary;
@@ -1101,6 +1135,22 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
             stringResult.buffer.memoryAddress() + stringResult.start,
             stringResult.end - stringResult.start);
       }
+    }
+  }
+
+  private static class DictionaryEncodedViewStringAccessor extends ArrowVectorAccessor {
+    private final IntVector index;
+    private final ArrowViewVectorAccessor dictionary;
+
+    DictionaryEncodedViewStringAccessor(IntVector index, ValueVector dictionary) {
+      super(index);
+      this.index = index;
+      this.dictionary = new ArrowViewVectorAccessor(dictionary);
+    }
+
+    @Override
+    final UTF8String getUTF8String(int rowId) {
+      return dictionary.getUTF8String(index.get(rowId));
     }
   }
 
@@ -1132,6 +1182,26 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     }
   }
 
+  private static class ViewBinaryAccessor extends ArrowVectorAccessor {
+    private final ArrowViewVectorAccessor accessor;
+
+    ViewBinaryAccessor(ValueVector vector) {
+      super(vector);
+      this.accessor = new ArrowViewVectorAccessor(vector);
+    }
+
+    @Override
+    final byte[] getBinary(int rowId) {
+      return accessor.getBinary(rowId);
+    }
+
+    @Override
+    final UTF8String getUTF8String(int rowId) {
+      byte[] value = getBinary(rowId);
+      return value == null ? null : UTF8String.fromBytes(value);
+    }
+  }
+
   private static class DictionaryEncodedBinaryAccessor extends ArrowVectorAccessor {
     private final IntVector index;
     private final VarBinaryVector dictionary;
@@ -1146,6 +1216,22 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     final byte[] getBinary(int rowId) {
       int idx = index.get(rowId);
       return dictionary.getObject(idx);
+    }
+  }
+
+  private static class DictionaryEncodedViewBinaryAccessor extends ArrowVectorAccessor {
+    private final IntVector index;
+    private final ArrowViewVectorAccessor dictionary;
+
+    DictionaryEncodedViewBinaryAccessor(IntVector index, ValueVector dictionary) {
+      super(index);
+      this.index = index;
+      this.dictionary = new ArrowViewVectorAccessor(dictionary);
+    }
+
+    @Override
+    final byte[] getBinary(int rowId) {
+      return dictionary.getBinary(index.get(rowId));
     }
   }
 
@@ -1974,6 +2060,22 @@ public final class ArrowWritableColumnVector extends WritableColumnVectorShim {
     void unsafeSetValueNullSafe(SpecializedGetters input, int ordinal) {
       UTF8String value = input.getUTF8String(ordinal);
       writer.set(count, value.getBytes(), 0, value.numBytes());
+    }
+  }
+
+  private static class ReadOnlyViewWriter extends ArrowVectorWriter {
+    ReadOnlyViewWriter(ValueVector vector) {
+      super(vector);
+    }
+
+    @Override
+    void setValueNullSafe(SpecializedGetters input, int ordinal) {
+      throw new UnsupportedOperationException("Imported Arrow view vectors are read-only");
+    }
+
+    @Override
+    void unsafeSetValueNullSafe(SpecializedGetters input, int ordinal) {
+      throw new UnsupportedOperationException("Imported Arrow view vectors are read-only");
     }
   }
 
