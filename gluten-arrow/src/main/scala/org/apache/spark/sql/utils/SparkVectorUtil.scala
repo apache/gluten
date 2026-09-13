@@ -44,11 +44,43 @@ object SparkVectorUtil {
   def toArrowRecordBatch(numRows: Int, cols: List[ValueVector]): ArrowRecordBatch = {
     val nodes = new java.util.ArrayList[ArrowFieldNode]()
     val buffers = new java.util.ArrayList[ArrowBuf]()
+    val variadicBufferCounts = new java.util.ArrayList[java.lang.Long]()
     cols.foreach(
       vector => {
-        appendNodes(vector.asInstanceOf[FieldVector], nodes, buffers)
+        appendNodes(
+          vector.asInstanceOf[FieldVector],
+          nodes,
+          buffers,
+          variadicBufferCounts = variadicBufferCounts)
       })
-    new ArrowRecordBatch(numRows, nodes, buffers)
+    if (variadicBufferCounts.isEmpty) {
+      new ArrowRecordBatch(numRows, nodes, buffers)
+    } else {
+      // The variadic-buffer constructor was added after Arrow 15. Keep this reflective so the
+      // default Arrow 15 build remains binary-compatible.
+      val bodyCompressionClass =
+        Class.forName("org.apache.arrow.vector.ipc.message.ArrowBodyCompression")
+      val noCompressionClass =
+        Class.forName("org.apache.arrow.vector.compression.NoCompressionCodec")
+      val bodyCompression =
+        noCompressionClass.getField("DEFAULT_BODY_COMPRESSION").get(null)
+      classOf[ArrowRecordBatch]
+        .getConstructor(
+          java.lang.Integer.TYPE,
+          classOf[java.util.List[_]],
+          classOf[java.util.List[_]],
+          bodyCompressionClass,
+          classOf[java.util.List[_]],
+          java.lang.Boolean.TYPE)
+        .newInstance(
+          Int.box(numRows),
+          nodes,
+          buffers,
+          bodyCompression,
+          variadicBufferCounts,
+          Boolean.box(true))
+        .asInstanceOf[ArrowRecordBatch]
+    }
   }
 
   def getArrowBuffers(vector: FieldVector): Array[ArrowBuf] = {
@@ -72,13 +104,23 @@ object SparkVectorUtil {
       vector: FieldVector,
       nodes: java.util.List[ArrowFieldNode],
       buffers: java.util.List[ArrowBuf],
-      bits: java.util.List[Boolean] = null): Unit = {
+      bits: java.util.List[Boolean] = null,
+      variadicBufferCounts: java.util.List[java.lang.Long] = null): Unit = {
     if (nodes != null) {
       nodes.add(new ArrowFieldNode(vector.getValueCount, vector.getNullCount))
     }
     val fieldBuffers = getArrowBuffers(vector)
     val expectedBufferCount = TypeLayout.getTypeBufferCount(vector.getField.getType)
-    if (fieldBuffers.size != expectedBufferCount) {
+    val typeName = vector.getField.getType.getClass.getSimpleName
+    val isViewType = typeName == "Utf8View" || typeName == "BinaryView"
+    if (isViewType && variadicBufferCounts != null) {
+      if (fieldBuffers.size < expectedBufferCount) {
+        throw new IllegalArgumentException(
+          s"Wrong number of buffers for field ${vector.getField} in vector " +
+            s"${vector.getClass.getSimpleName}. found: $fieldBuffers")
+      }
+      variadicBufferCounts.add(Long.box(fieldBuffers.size - expectedBufferCount))
+    } else if (fieldBuffers.size != expectedBufferCount) {
       throw new IllegalArgumentException(
         s"Wrong number of buffers for field ${vector.getField} in vector " +
           s"${vector.getClass.getSimpleName}. found: $fieldBuffers")
@@ -89,9 +131,10 @@ object SparkVectorUtil {
       bits_tmp(0) = true
       bits.addAll(bits_tmp.toSeq.asJava)
       vector.getChildrenFromFields.asScala.foreach(
-        child => appendNodes(child, nodes, buffers, bits))
+        child => appendNodes(child, nodes, buffers, bits, variadicBufferCounts))
     } else {
-      vector.getChildrenFromFields.asScala.foreach(child => appendNodes(child, nodes, buffers))
+      vector.getChildrenFromFields.asScala.foreach(
+        child => appendNodes(child, nodes, buffers, variadicBufferCounts = variadicBufferCounts))
     }
   }
 }

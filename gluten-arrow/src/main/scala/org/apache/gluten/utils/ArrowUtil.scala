@@ -35,6 +35,13 @@ object ArrowUtil {
 
   private val defaultTimeZoneId = SparkSchemaUtil.getLocalTimezoneID
 
+  private def containsViewType(field: Field): Boolean = {
+    val typeName = field.getType.getClass.getSimpleName
+    typeName == "Utf8View" ||
+    typeName == "BinaryView" ||
+    field.getChildren.asScala.exists(containsViewType)
+  }
+
   private def getResultType(dataType: DataType): ArrowType = {
     getResultType(dataType, defaultTimeZoneId)
   }
@@ -64,9 +71,19 @@ object ArrowUtil {
     val fields = new util.ArrayList[Field](originFields.size)
     originFields.forEach {
       field =>
-        val dt = SparkArrowUtil.fromArrowField(field)
-        fields.add(
-          SparkArrowUtil.toArrowField(field.getName, dt, true, SparkSchemaUtil.getLocalTimezoneID))
+        if (containsViewType(field)) {
+          // Spark's Arrow conversion does not know view types and normalizes them to Utf8/Binary.
+          // Keep the imported field so its schema remains consistent with the view array layout.
+          fields.add(field)
+        } else {
+          val dt = SparkArrowUtil.fromArrowField(field)
+          fields.add(
+            SparkArrowUtil.toArrowField(
+              field.getName,
+              dt,
+              true,
+              SparkSchemaUtil.getLocalTimezoneID))
+        }
     }
     new Schema(fields)
   }

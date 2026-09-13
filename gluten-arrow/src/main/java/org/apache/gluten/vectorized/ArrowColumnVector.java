@@ -147,6 +147,14 @@ public class ArrowColumnVector extends ColumnVector {
     initAccessor(vector);
   }
 
+  private static boolean isViewVarCharVector(ValueVector vector) {
+    return vector.getClass().getName().equals("org.apache.arrow.vector.ViewVarCharVector");
+  }
+
+  private static boolean isViewVarBinaryVector(ValueVector vector) {
+    return vector.getClass().getName().equals("org.apache.arrow.vector.ViewVarBinaryVector");
+  }
+
   void initAccessor(ValueVector vector) {
     if (vector instanceof BitVector) {
       accessor = new BooleanAccessor((BitVector) vector);
@@ -166,8 +174,12 @@ public class ArrowColumnVector extends ColumnVector {
       accessor = new DecimalAccessor((DecimalVector) vector);
     } else if (vector instanceof VarCharVector) {
       accessor = new StringAccessor((VarCharVector) vector);
+    } else if (isViewVarCharVector(vector)) {
+      accessor = new ViewStringAccessor(vector);
     } else if (vector instanceof VarBinaryVector) {
       accessor = new BinaryAccessor((VarBinaryVector) vector);
+    } else if (isViewVarBinaryVector(vector)) {
+      accessor = new ViewBinaryAccessor(vector);
     } else if (vector instanceof DateDayVector) {
       accessor = new DateAccessor((DateDayVector) vector);
     } else if (vector instanceof TimeStampMicroTZVector) {
@@ -414,6 +426,22 @@ public class ArrowColumnVector extends ColumnVector {
     }
   }
 
+  static class ViewStringAccessor extends ArrowVectorAccessor {
+
+    private final ValueVector accessor;
+
+    ViewStringAccessor(ValueVector vector) {
+      super(vector);
+      this.accessor = vector;
+    }
+
+    @Override
+    final UTF8String getUTF8String(int rowId) {
+      Object value = accessor.getObject(rowId);
+      return value == null ? null : UTF8String.fromString(value.toString());
+    }
+  }
+
   static class BinaryAccessor extends ArrowVectorAccessor {
 
     private final VarBinaryVector accessor;
@@ -426,6 +454,21 @@ public class ArrowColumnVector extends ColumnVector {
     @Override
     final byte[] getBinary(int rowId) {
       return accessor.getObject(rowId);
+    }
+  }
+
+  static class ViewBinaryAccessor extends ArrowVectorAccessor {
+
+    private final ValueVector accessor;
+
+    ViewBinaryAccessor(ValueVector vector) {
+      super(vector);
+      this.accessor = vector;
+    }
+
+    @Override
+    final byte[] getBinary(int rowId) {
+      return (byte[]) accessor.getObject(rowId);
     }
   }
 

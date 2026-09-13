@@ -29,6 +29,11 @@
 
 namespace gluten {
 
+enum class ArrowTypeLayout : int32_t {
+  kDefault = 0,
+  kStringView = 1,
+};
+
 class ColumnarBatch {
  public:
   ColumnarBatch(int32_t numColumns, int32_t numRows);
@@ -46,6 +51,14 @@ class ColumnarBatch {
   virtual std::shared_ptr<ArrowArray> exportArrowArray() = 0;
 
   virtual std::shared_ptr<ArrowSchema> exportArrowSchema() = 0;
+
+  virtual std::shared_ptr<ArrowArray> exportArrowArray(ArrowTypeLayout) {
+    return exportArrowArray();
+  }
+
+  virtual std::shared_ptr<ArrowSchema> exportArrowSchema(ArrowTypeLayout) {
+    return exportArrowSchema();
+  }
 
   virtual int64_t getExportNanos() const;
 

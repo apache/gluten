@@ -751,11 +751,13 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_columnarbatch_ColumnarBatchJniWrap
     jclass,
     jlong batchHandle,
     jlong cSchema,
-    jlong cArray) {
+    jlong cArray,
+    jboolean useStringView) {
   JNI_METHOD_START
   auto batch = ObjectStore::retrieve<ColumnarBatch>(batchHandle);
-  std::shared_ptr<ArrowSchema> exportedSchema = batch->exportArrowSchema();
-  std::shared_ptr<ArrowArray> exportedArray = batch->exportArrowArray();
+  const auto typeLayout = useStringView ? ArrowTypeLayout::kStringView : ArrowTypeLayout::kDefault;
+  std::shared_ptr<ArrowSchema> exportedSchema = batch->exportArrowSchema(typeLayout);
+  std::shared_ptr<ArrowArray> exportedArray = batch->exportArrowArray(typeLayout);
   ArrowSchemaMove(exportedSchema.get(), reinterpret_cast<struct ArrowSchema*>(cSchema));
   ArrowArrayMove(exportedArray.get(), reinterpret_cast<struct ArrowArray*>(cArray));
   JNI_METHOD_END()

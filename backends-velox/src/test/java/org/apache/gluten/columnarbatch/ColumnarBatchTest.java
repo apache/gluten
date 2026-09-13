@@ -29,8 +29,10 @@ import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 import org.apache.spark.task.TaskResources$;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.stream.StreamSupport;
@@ -69,6 +71,61 @@ public class ColumnarBatchTest extends VeloxBackendTestBase {
                   .count();
           Assert.assertEquals(numRows, cnt);
           loaded.close();
+          return null;
+        });
+  }
+
+  @Test
+  public void testLoadUsesArrowStringView() {
+    Assume.assumeTrue(ColumnarBatches.supportsArrowStringView());
+    TaskResources$.MODULE$.runUnsafe(
+        () -> {
+          final int numRows = 3;
+          final ColumnarBatch batch = newArrowBatch("a string, b binary", numRows);
+          final ArrowWritableColumnVector strings = (ArrowWritableColumnVector) batch.column(0);
+          final ArrowWritableColumnVector binaries = (ArrowWritableColumnVector) batch.column(1);
+          for (int i = 0; i < numRows; i++) {
+            byte[] value = ("string-view-value-" + i).getBytes(StandardCharsets.UTF_8);
+            strings.putByteArray(i, value, 0, value.length);
+            binaries.putByteArray(i, value, 0, value.length);
+          }
+
+          final ColumnarBatch offloaded =
+              ColumnarBatches.offload(ArrowBufferAllocators.contextInstance(), batch);
+          final ColumnarBatch loaded =
+              ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), offloaded);
+          ColumnarBatch reloaded = null;
+          try {
+            final ArrowWritableColumnVector loadedStrings =
+                (ArrowWritableColumnVector) loaded.column(0);
+            final ArrowWritableColumnVector loadedBinaries =
+                (ArrowWritableColumnVector) loaded.column(1);
+            Assert.assertEquals(
+                "org.apache.arrow.vector.ViewVarCharVector",
+                loadedStrings.getValueVector().getClass().getName());
+            Assert.assertEquals(
+                "org.apache.arrow.vector.ViewVarBinaryVector",
+                loadedBinaries.getValueVector().getClass().getName());
+            Assert.assertEquals("string-view-value-1", loadedStrings.getUTF8String(1).toString());
+            Assert.assertArrayEquals(
+                "string-view-value-2".getBytes(StandardCharsets.UTF_8),
+                loadedBinaries.getBinary(2));
+
+            final ColumnarBatch reoffloaded =
+                ColumnarBatches.offload(ArrowBufferAllocators.contextInstance(), loaded);
+            reloaded = ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), reoffloaded);
+            Assert.assertEquals(
+                "string-view-value-1", reloaded.column(0).getUTF8String(1).toString());
+            Assert.assertArrayEquals(
+                "string-view-value-2".getBytes(StandardCharsets.UTF_8),
+                reloaded.column(1).getBinary(2));
+          } finally {
+            if (reloaded == null) {
+              loaded.close();
+            } else {
+              reloaded.close();
+            }
+          }
           return null;
         });
   }

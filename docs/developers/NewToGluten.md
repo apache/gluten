@@ -19,8 +19,9 @@ versions.
 Note: Starting with Spark 4.0, the minimum required JDK version is 17. JDK 21 and 25 are also
 supported for Spark 4.0 and later versions.
 We recommend using a higher JDK version now to ease migration when deploying Gluten for Spark 4.0
-in the future. In addition, we may upgrade Arrow from 15.0.0 to a newer release, which will require
-JDK 11 as the minimum version.
+in the future. JDK 11 builds activate the `arrow-string-view` profile and use Arrow 18;
+JDK 8 builds retain Arrow 15. Activate `-Parrow-string-view` explicitly for other supported JDKs
+when building Spark 3.4 or 3.5.
 
 By default, Gluten compiles packages using JDK 8. Enable maven profile by `-Pjava-17`, `-Pjava-21`, `-Pjava-25` or `-Pjava-11` to use the corresponding JDK version, and ensure that the JDK version is available in your environment.
 

@@ -46,6 +46,23 @@ import java.util.NoSuchElementException;
 import scala.collection.JavaConverters;
 
 public final class ColumnarBatches {
+  private static final boolean ARROW_STRING_VIEW_SUPPORTED =
+      isClassAvailable("org.apache.arrow.vector.ViewVarCharVector")
+          && isClassAvailable("org.apache.arrow.vector.ViewVarBinaryVector");
+
+  private static boolean isClassAvailable(String className) {
+    try {
+      Class.forName(className, false, ColumnarBatches.class.getClassLoader());
+      return true;
+    } catch (ClassNotFoundException | LinkageError e) {
+      return false;
+    }
+  }
+
+  public static boolean supportsArrowStringView() {
+    return ARROW_STRING_VIEW_SUPPORTED;
+  }
+
   private static final String INTERNAL_BACKEND_KIND = "internal";
 
   private ColumnarBatches() {}
@@ -196,7 +213,10 @@ public final class ColumnarBatches {
         ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator);
         CDataDictionaryProvider provider = new CDataDictionaryProvider()) {
       ColumnarBatchJniWrapper.exportToArrow(
-          iv.handle(), cSchema.memoryAddress(), cArray.memoryAddress());
+          iv.handle(),
+          cSchema.memoryAddress(),
+          cArray.memoryAddress(),
+          ARROW_STRING_VIEW_SUPPORTED);
 
       Data.exportSchema(
           allocator, ArrowUtil.toArrowSchema(cSchema, allocator, provider), provider, arrowSchema);
