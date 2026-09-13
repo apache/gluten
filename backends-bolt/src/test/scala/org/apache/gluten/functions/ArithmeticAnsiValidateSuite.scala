@@ -61,13 +61,7 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
     runQueryAndCompare("SELECT int_field1 / 2 FROM datatab WHERE int_field1 IS NOT NULL") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    if (isSparkVersionGE("3.4")) {
-      // Spark 3.4+ throws exception for division by zero in ANSI mode
-      intercept[SparkException] {
-        sql("SELECT 1 / 0").collect()
-      }
-    } else {
-      // Spark 3.2 and 3.3 don't throw exception for division by zero in ANSI mode
+    intercept[SparkException] {
       sql("SELECT 1 / 0").collect()
     }
   }

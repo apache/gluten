@@ -878,8 +878,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenReplaceNullWithFalseInPredicateEndToEndSuite]
   enableSuite[GlutenScalaReflectionRelationSuite]
   enableSuite[GlutenSerializationSuite]
-  // following UT is removed in spark3.3.1
-  // enableSuite[GlutenSimpleShowCreateTableSuite]
   enableSuite[GlutenFileSourceSQLInsertTestSuite]
   enableSuite[GlutenDSV2SQLInsertTestSuite]
   enableSuite[org.apache.spark.sql.GlutenSQLQuerySuite]
