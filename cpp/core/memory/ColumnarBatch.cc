@@ -72,13 +72,13 @@ arrow::RecordBatch* ArrowColumnarBatch::getRecordBatch() const {
   return batch_.get();
 }
 
-std::shared_ptr<ArrowSchema> ArrowColumnarBatch::exportArrowSchema() {
+std::shared_ptr<ArrowSchema> ArrowColumnarBatch::exportArrowSchema(bool) {
   auto cSchema = std::make_shared<ArrowSchema>();
   GLUTEN_THROW_NOT_OK(arrow::ExportSchema(*batch_->schema(), cSchema.get()));
   return cSchema;
 }
 
-std::shared_ptr<ArrowArray> ArrowColumnarBatch::exportArrowArray() {
+std::shared_ptr<ArrowArray> ArrowColumnarBatch::exportArrowArray(bool) {
   auto cArray = std::make_shared<ArrowArray>();
   GLUTEN_THROW_NOT_OK(arrow::ExportRecordBatch(*batch_, cArray.get()));
   return cArray;
@@ -116,11 +116,11 @@ int64_t ArrowCStructColumnarBatch::numBytes() {
   return numBytes_.value();
 }
 
-std::shared_ptr<ArrowSchema> ArrowCStructColumnarBatch::exportArrowSchema() {
+std::shared_ptr<ArrowSchema> ArrowCStructColumnarBatch::exportArrowSchema(bool) {
   return cSchema_;
 }
 
-std::shared_ptr<ArrowArray> ArrowCStructColumnarBatch::exportArrowArray() {
+std::shared_ptr<ArrowArray> ArrowCStructColumnarBatch::exportArrowArray(bool) {
   return cArray_;
 }
 

@@ -35,6 +35,7 @@ import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.utils.SparkArrowUtil;
+import org.apache.spark.sql.utils.SparkSchemaUtil;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 import org.apache.spark.sql.vectorized.SparkColumnarBatchUtil;
@@ -196,7 +197,10 @@ public final class ColumnarBatches {
         ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator);
         CDataDictionaryProvider provider = new CDataDictionaryProvider()) {
       ColumnarBatchJniWrapper.exportToArrow(
-          iv.handle(), cSchema.memoryAddress(), cArray.memoryAddress());
+          iv.handle(),
+          cSchema.memoryAddress(),
+          cArray.memoryAddress(),
+          SparkSchemaUtil.enableLargeVarTypes());
 
       Data.exportSchema(
           allocator, ArrowUtil.toArrowSchema(cSchema, allocator, provider), provider, arrowSchema);
