@@ -16,6 +16,9 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.utils.BackendTestUtils
+
+import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
@@ -272,10 +275,12 @@ class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTra
         df.select(to_date(col("s"), "yyyy-MM-dd")),
         Seq(Row(null), Row(Date.valueOf("2014-12-31")), Row(null)))
     }
-    // legacyParserPolicy is not respected by Gluten.
-    // withSQLConf(confKey -> "exception") {
-    //   checkExceptionMessage(df.select(to_date(col("s"), "yyyy-MM-dd")))
-    // }
+
+    if (BackendTestUtils.isBoltBackendLoaded()) {
+      withSQLConf(confKey -> "exception") {
+        checkExceptionMessage(df.select(to_date(col("s"), "yyyy-MM-dd")))
+      }
+    }
 
     // now switch format
     checkAnswer(
@@ -284,12 +289,15 @@ class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTra
 
     // invalid format
     checkAnswer(df.select(to_date(col("s"), "yyyy-hh-MM")), Seq(Row(null), Row(null), Row(null)))
-    // velox getTimestamp function does not throw exception when format is "yyyy-dd-aa".
-    // val e =
-    //   intercept[SparkUpgradeException](df.select(to_date(col("s"), "yyyy-dd-aa")).collect())
-    // assert(e.getCause.isInstanceOf[IllegalArgumentException])
-    // assert(
-    //   e.getMessage.contains("You may get a different result due to the upgrading to Spark"))
+    if (BackendTestUtils.isBoltBackendLoaded()) {
+      Seq("corrected", "exception").foreach(
+        legacyParserPolicy =>
+          withSQLConf(SQLConf.LEGACY_TIME_PARSER_POLICY.key -> legacyParserPolicy) {
+            val e = intercept[SparkException](df.select(to_date(col("s"), "yyyy-dd-aa")).collect())
+            assert(e.getCause.isInstanceOf[RuntimeException])
+            assert(e.getMessage.contains("Fail to parse"))
+          })
+    }
 
     // February
     val x1 = "2016-02-29"

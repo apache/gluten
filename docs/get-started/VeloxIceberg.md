@@ -103,7 +103,7 @@ the added column name is same to the deleted column, the scan will fall back.
 | --- | --- | --- |
 | spark.gluten.sql.columnar.iceberg.enableNativeRead | true | Enable offloading Iceberg scans to the native backend. When disabled, Iceberg scans fall back to vanilla Spark while scans of other formats stay offloaded. |
 | spark.gluten.sql.columnar.iceberg.enableNativeWrite | true | Enable offloading Iceberg writes to the native backend. When disabled, Iceberg writes fall back to vanilla Spark. Note the Velox backend additionally requires `spark.gluten.sql.enable.enhancedFeatures` to be enabled. |
-
+| spark.gluten.sql.columnar.parquet.write.blockSize | 128MB | Target Parquet row-group size for native writes. When explicitly set, overrides the Iceberg table property `write.parquet.row-group-size-bytes`. Accepts byte counts or sizes such as `32MB` and `1GB`. |
 Both options are runtime modifiable, so they can be flipped per session with `SET`.
 
 ### Catalogs
@@ -204,7 +204,7 @@ extracted from https://iceberg.apache.org/docs/latest/configuration/
 | --- | --- | --- | --- |
 | write.format.default | parquet | Default file format for the table; parquet, avro, or orc |  |
 | write.delete.format.default | data file format | Default delete file format for the table; parquet, avro, or orc |  |
-| write.parquet.row-group-size-bytes | 134217728 (128 MB) | Parquet row group size |  |
+| write.parquet.row-group-size-bytes | 134217728 (128 MB) | Target Parquet row-group size in bytes. Overridden by an explicitly set `spark.gluten.sql.columnar.parquet.write.blockSize`. |✅|
 | write.parquet.page-size-bytes | 1048576 (1 MB) | Parquet page size |✅|
 | write.parquet.page-row-limit | 20000 | Parquet page row limit |  |
 | write.parquet.dict-size-bytes | 2097152 (2 MB) | Parquet dictionary page size |  |

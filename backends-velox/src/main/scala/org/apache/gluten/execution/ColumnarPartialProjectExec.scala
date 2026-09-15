@@ -133,6 +133,10 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
       return ValidationResult.failed(
         "Attribute in the partial projected expressions contains unsupported type")
     }
+    if (projectAttributes.isEmpty) {
+      return ValidationResult.failed(
+        "The partial projected expressions do not reference any child column")
+    }
     if (projectAttributes.size == child.output.size) {
       return ValidationResult.failed(
         "The partial projected expressions need all the columns in child output")

@@ -16,8 +16,6 @@
  */
 package org.apache.gluten.execution.tpch
 
-import org.apache.gluten.execution._
-
 import org.apache.spark.SparkConf
 
 class GlutenClickHouseTPCHParquetRFSuite extends GlutenClickHouseTPCHSaltNullParquetSuite {
@@ -55,19 +53,7 @@ class GlutenClickHouseTPCHParquetRFSuite extends GlutenClickHouseTPCHSaltNullPar
           |
           |""".stripMargin,
         compareResult = true,
-        df => {
-          if (spark33) {
-            val filterExecs = df.queryExecution.executedPlan.collect {
-              case filter: FilterExecTransformerBase => filter
-            }
-            assert(filterExecs.size == 4)
-            assert(
-              filterExecs.head
-                .asInstanceOf[FilterExecTransformer]
-                .toString
-                .contains("might_contain"))
-          }
-        }
+        NOOP
       )
     }
   }

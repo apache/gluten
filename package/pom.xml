@@ -374,6 +374,16 @@
       </dependencies>
     </profile>
     <profile>
+      <id>backends-bolt</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>backends-bolt</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
       <id>celeborn</id>
       <dependencies>
         <dependency>

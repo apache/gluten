@@ -78,13 +78,8 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
     runQueryAndCompare("SELECT int_field1 / 2 FROM datatab WHERE int_field1 IS NOT NULL") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    if (isSparkVersionGE("3.4")) {
-      // Spark 3.4+ throws exception for division by zero in ANSI mode
-      intercept[SparkException] {
-        sql("SELECT 1 / 0").collect()
-      }
-    } else {
-      // Spark 3.3 doesn't throw exception for division by zero in ANSI mode
+    // Spark 3.4+ throws exception for division by zero in ANSI mode
+    intercept[SparkException] {
       sql("SELECT 1 / 0").collect()
     }
   }
@@ -93,10 +88,8 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
     runQueryAndCompare("SELECT int_field1 div 2 FROM datatab WHERE int_field1 IS NOT NULL") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    if (isSparkVersionGE("3.4")) {
-      intercept[SparkException] {
-        sql("SELECT 1 div 0 ").collect()
-      }
+    intercept[SparkException] {
+      sql("SELECT 1 div 0 ").collect()
     }
   }
 

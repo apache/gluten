@@ -570,16 +570,15 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           ),
           r
         )
-      case instr: TernaryExpression if instr.getClass.getSimpleName.equals("RegExpInStr") =>
+      case instr: RegExpInStr =>
         // Spark's RegExpInStr carries a third `idx` child but ignores it during
         // evaluation (it always returns the start position of the whole match).
         // Velox's regexp_instr only takes (subject, regexp), so drop the idx child.
-        // Matched by class name because RegExpInStr does not exist in Spark 3.3.
         GenericExpressionTransformer(
           substraitExprName,
           Seq(
-            replaceWithExpressionTransformer0(instr.first, attributeSeq, expressionsMap),
-            replaceWithExpressionTransformer0(instr.second, attributeSeq, expressionsMap)
+            replaceWithExpressionTransformer0(instr.subject, attributeSeq, expressionsMap),
+            replaceWithExpressionTransformer0(instr.regexp, attributeSeq, expressionsMap)
           ),
           instr
         )
@@ -845,9 +844,12 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           replaceWithExpressionTransformer0(a.function, attributeSeq, expressionsMap),
           a
         )
-      case arrayInsert if arrayInsert.getClass.getSimpleName.equals("ArrayInsert") =>
-        // Since spark 3.4.0
-        val children = SparkShimLoader.getSparkShims.extractExpressionArrayInsert(arrayInsert)
+      case arrayInsert: ArrayInsert =>
+        val children = Seq(
+          arrayInsert.srcArrayExpr,
+          arrayInsert.posExpr,
+          arrayInsert.itemExpr,
+          Literal(arrayInsert.legacyNegativeIndex))
         BackendsApiManager.getSparkPlanExecApiInstance.genArrayInsertTransformer(
           substraitExprName,
           children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),

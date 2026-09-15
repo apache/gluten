@@ -1281,6 +1281,39 @@ class VeloxAggregateFunctionsFlushSuite extends VeloxAggregateFunctionsSuite {
     }
   }
 
+  test("flushable aggregate rule - distinct feeding a join keeps final agg regular") {
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+      SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+      SQLConf.FILES_MAX_PARTITION_BYTES.key -> "1k") {
+      // The join key is a strict subset of the distinct keys, so the distinct's final aggregate
+      // is repartitioned by a following exchange and thus visited by FlushableHashAggregateRule.
+      // Flushing it would emit duplicate distinct keys and inflate the join output.
+      runQueryAndCompare("""
+                           |select count(*) from orders
+                           |left join (select distinct l_orderkey, l_partkey from lineitem) d
+                           |  on o_orderkey = d.l_orderkey
+                           |""".stripMargin) {
+        df =>
+          val executedPlan = getExecutedPlan(df)
+          val groupingOnlyFinalAggs = executedPlan.collect {
+            case agg: HashAggregateExecTransformer
+                if agg.aggregateExpressions.isEmpty &&
+                  agg.requiredChildDistributionExpressions.isDefined =>
+              agg
+          }
+          assert(
+            groupingOnlyFinalAggs.nonEmpty,
+            "expected the distinct's final aggregate in the plan")
+          assert(
+            groupingOnlyFinalAggs.forall(
+              agg => !agg.isInstanceOf[FlushableHashAggregateExecTransformer]),
+            "the final aggregate of a grouping-only aggregation must not be flushable"
+          )
+      }
+    }
+  }
+
   test("flushable aggregate decimal sum") {
     withSQLConf(
       SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",

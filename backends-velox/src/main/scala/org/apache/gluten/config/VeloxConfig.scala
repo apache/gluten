@@ -89,6 +89,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def veloxPreferredBatchBytes: Long = getConf(COLUMNAR_VELOX_PREFERRED_BATCH_BYTES)
 
+  def enableRddScan: Boolean = getConf(COLUMNAR_VELOX_RDD_SCAN_ENABLED)
+
   def cudfEnableTableScan: Boolean = getConf(CUDF_ENABLE_TABLE_SCAN)
 
   def cudfEnableValidation: Boolean = getConf(CUDF_ENABLE_VALIDATION)
@@ -703,6 +705,16 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val DECIMAL_TO_FLOAT_HIGH_PRECISION_CAST_ENABLED =
+    buildConf("spark.gluten.velox.decimalToFloatHighPrecisionCastEnabled")
+      .doc(
+        "If true, enables high-precision casts from DECIMAL to REAL/DOUBLE in Velox, " +
+          "which match vanilla Spark for values that cannot be represented exactly by " +
+          "floating-point arithmetic. Disabled by default because it is slower than the " +
+          "default conversion; enable it if precision matters more than throughput.")
+      .booleanConf
+      .createWithDefault(false)
+
   val VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP =
     buildConf("spark.gluten.velox.offHeapBroadcastBuildRelation.enabled")
       .experimental()
@@ -929,6 +941,16 @@ object VeloxConfig extends ConfigRegistry {
       .internal()
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("10MB")
+
+  val COLUMNAR_VELOX_RDD_SCAN_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.rddScan.enabled")
+      .doc(
+        "When true, offload RDDScanExec to Velox by converting the RDD[InternalRow] into" +
+          " columnar batches through the native row-to-columnar path. Schemas that are not" +
+          " supported by the Arrow export path (e.g. map or interval types) fall back to" +
+          " vanilla Spark.")
+      .booleanConf
+      .createWithDefault(true)
 
   val VELOX_MAX_COMPILED_REGEXES =
     buildConf("spark.gluten.sql.columnar.backend.velox.maxCompiledRegexes")

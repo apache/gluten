@@ -120,7 +120,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Excluded in favour of the GlutenCastWithAnsiOffSuite rewrite, which drops the Long.MinValue
     // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
-    .exclude("SPARK-36286: invalid string cast to timestamp")
     .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenTryCastSuite]
     .exclude(
@@ -314,7 +313,6 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-32649",
       "SPARK-34533",
       "SPARK-34781",
-      "SPARK-35585",
       "SPARK-32932",
       "SPARK-33494",
       "SPARK-33933",
