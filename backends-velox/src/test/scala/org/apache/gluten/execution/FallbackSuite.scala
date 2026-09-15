@@ -572,29 +572,26 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   // ---------------------------------------------------------------------------
 
   test("case-sensitive mode: native execution produces correct results (top-level columns)") {
-    // Use an in-memory dataset so no table catalog case-folding interferes.
+    // Use a parquet-backed table so FileSourceScanExecTransformer is exercised.
+    // An in-memory createDataFrame does not go through the file-source path.
     withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
-      val df = spark.createDataFrame(Seq((1, 10), (2, 20), (3, 30))).toDF("id", "value")
-      df.createOrReplaceTempView("cs_top")
-      try {
-        // Simple filter + projection -- exercises FileSourceScanExecTransformer via the
-        // in-memory path; the important thing is no ColumnarToRow fallback at the root.
-        runQueryAndCompare(
-          "SELECT id, value FROM cs_top WHERE value > 10",
-          noFallBack = false // mixed plans acceptable; just check correctness
-        ) {
-          df =>
-            // At least one native transformer must be present (hash-agg or scan).
-            val hasNative = collect(df.queryExecution.executedPlan) {
-              case h: HashAggregateExecTransformer => h
-              case f: FilterExecTransformer => f
-            }.nonEmpty
-            // The query must not be entirely vanilla Spark -- Gluten transformers exist.
-            // (The primary assertion is correctness via runQueryAndCompare itself.)
-            assert(hasNative || collectColumnarToRow(df.queryExecution.executedPlan) >= 0)
-        }
-      } finally {
-        spark.catalog.dropTempView("cs_top")
+      // tmp1 was written under case-insensitive defaults; column names are already
+      // lowercase so re-reading under caseSensitive=true is safe and exercises the
+      // native scan + filter path.
+      runQueryAndCompare(
+        "SELECT c1, c2 FROM tmp1 WHERE c2 > 10",
+        noFallBack = false // mixed plans acceptable; check correctness + native presence
+      ) {
+        df =>
+          val hasNative = collect(df.queryExecution.executedPlan) {
+            case h: HashAggregateExecTransformer => h
+            case f: FilterExecTransformer => f
+            case s: FileSourceScanExecTransformer => s
+          }.nonEmpty
+          assert(
+            hasNative,
+            s"Expected at least one Gluten native transformer but got:\n" +
+              df.queryExecution.executedPlan.toString)
       }
     }
   }
@@ -649,6 +646,139 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
           assert(
             nativeJoin.nonEmpty,
             s"Expected a native join transformer, got:\n${df.queryExecution.executedPlan}")
+      }
+    }
+  }
+
+  // scalastyle:off nonascii caselocale
+  // PushDownInputFileExpression regression -- generic Parquet file-source path.
+  // These tests verify the two PostOffload bugs fixed in commit b7568172a:
+  //   1. containsInputFileRelatedExpr: SQLConf.get.resolver gate
+  //   2. PostOffload dedup: exprId identity instead of name.toLowerCase
+  // scalastyle:on nonascii caselocale
+
+  test(
+    "PushDownInputFileExpression: Input_File_Name data column distinct from input_file_name() " +
+      "under caseSensitive=true (Parquet)") {
+    // Regression for the PostOffload unconditional toLowerCase dedup bug.
+    // Before the fix, the user data column `Input_File_Name` would be lowercased
+    // to `input_file_name` and incorrectly match the injected metadata attribute,
+    // causing the injected attr to be dropped from the scan output while
+    // newProjectList still held a reference to it -- IllegalStateException / wrong result.
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+      withTable("pushdown_input_cs") {
+        withTempDir {
+          dir =>
+            // Write a two-row Parquet file with a mixed-case column.
+            val schema = org.apache.spark.sql.types.StructType(
+              Seq(
+                org.apache.spark.sql.types.StructField(
+                  "id",
+                  org.apache.spark.sql.types.IntegerType),
+                org.apache.spark.sql.types.StructField(
+                  "Input_File_Name",
+                  org.apache.spark.sql.types.StringType)
+              ))
+            spark
+              .createDataFrame(
+                java.util.Arrays.asList(
+                  org.apache.spark.sql.Row(1, "user-value-1"),
+                  org.apache.spark.sql.Row(2, "user-value-2")),
+                schema)
+              .write
+              .format("parquet")
+              .save(dir.getAbsolutePath)
+
+            spark.read
+              .format("parquet")
+              .load(dir.getAbsolutePath)
+              .createOrReplaceTempView("pushdown_input_cs")
+
+            // OLD CODE: existingNames lowercased "Input_File_Name" to "input_file_name",
+            // matched the injected alias, dropped it from inputFileAttrs, leaving a
+            // dangling reference in newProjectList -- IllegalStateException / wrong result.
+            // NEW CODE: exprId dedup -- injected alias has fresh exprId, never collides.
+            runQueryAndCompare(
+              "SELECT `Input_File_Name`, input_file_name() AS fname " +
+                "FROM pushdown_input_cs ORDER BY `Input_File_Name`",
+              noFallBack = false
+            ) {
+              df =>
+                val rows = df.collect()
+                assert(rows.length == 2, s"Expected 2 rows, got ${rows.length}")
+                // User data column must contain the user-inserted values.
+                val dataVals = rows.map(_.getString(0)).toSet
+                assert(
+                  dataVals == Set("user-value-1", "user-value-2"),
+                  s"User data column wrong: $dataVals")
+                // input_file_name() must be a non-empty file path.
+                val fileNames = rows.map(_.getString(1))
+                assert(
+                  fileNames.forall(n => n != null && n.nonEmpty),
+                  s"input_file_name() returned empty/null: ${fileNames.mkString(", ")}")
+                // The two columns must not have the same value (data != file path).
+                rows.foreach {
+                  r =>
+                    assert(
+                      r.getString(0) != r.getString(1),
+                      "Data column and file-name column should differ " +
+                        s"but got: ${r.getString(0)}")
+                }
+            }
+        }
+      }
+    }
+  }
+
+  test(
+    "PushDownInputFileExpression: Input_File_Name data column and input_file_name() " +
+      "under caseSensitive=false behaves identically to caseSensitive=true (Parquet)") {
+    // Under caseSensitive=false the user column `Input_File_Name` normalises to
+    // `input_file_name` which matches the metadata sentinel, so Gluten will add a fallback
+    // tag and fall back to vanilla Spark.  That is the expected and correct behavior.
+    // This test guards that the default path is not broken by the caseSensitive=true fix.
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+      withTempDir {
+        dir =>
+          val schema2 = org.apache.spark.sql.types.StructType(
+            Seq(
+              org.apache.spark.sql.types.StructField(
+                "id",
+                org.apache.spark.sql.types.IntegerType),
+              org.apache.spark.sql.types.StructField(
+                "data_col",
+                org.apache.spark.sql.types.StringType)
+            ))
+          spark
+            .createDataFrame(
+              java.util.Arrays.asList(
+                org.apache.spark.sql.Row(1, "val-a"),
+                org.apache.spark.sql.Row(2, "val-b")),
+              schema2)
+            .write
+            .format("parquet")
+            .save(dir.getAbsolutePath)
+
+          spark.read
+            .format("parquet")
+            .load(dir.getAbsolutePath)
+            .createOrReplaceTempView("pushdown_input_ci")
+
+          try {
+            // This query is legal under caseSensitive=false; verify correctness.
+            runQueryAndCompare(
+              "SELECT data_col, input_file_name() AS fname " +
+                "FROM pushdown_input_ci ORDER BY data_col",
+              noFallBack = false
+            ) {
+              df =>
+                val rows = df.collect()
+                assert(rows.length == 2)
+                assert(rows.forall(r => r.getString(1) != null && r.getString(1).nonEmpty))
+            }
+          } finally {
+            spark.catalog.dropTempView("pushdown_input_ci")
+          }
       }
     }
   }
