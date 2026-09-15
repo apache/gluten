@@ -25,6 +25,10 @@ if(POLICY CMP0126)
   cmake_policy(SET CMP0126 NEW)
 endif()
 
+if(POLICY CMP0069)
+  cmake_policy(SET CMP0069 NEW)
+endif()
+
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   cmake_policy(SET CMP0135 NEW)
 endif()
@@ -42,6 +46,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS
 
 project(gluten)
 
+include(CheckIPOSupported)
+
 option(BUILD_VELOX_BACKEND "Build Velox backend" ON)
 option(BUILD_TESTS "Build Tests" OFF)
 option(BUILD_EXAMPLES "Build Examples" OFF)
@@ -57,6 +63,7 @@ option(ENABLE_ORC "Enable ORC" OFF)
 option(ENABLE_ABFS "Enable ABFS" OFF)
 option(ENABLE_GPU "Enable GPU" OFF)
 option(ENABLE_ENHANCED_FEATURES "Enable enhanced features" OFF)
+option(ENABLE_LTO "Enable IPO/LTO" OFF)
 
 set(root_directory ${PROJECT_BINARY_DIR})
 get_filename_component(GLUTEN_HOME ${CMAKE_SOURCE_DIR} DIRECTORY)
@@ -178,6 +185,23 @@ if(COMMAND_STATUS EQUAL "1")
 endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SCRIPT_CXX_FLAGS}")
+
+if(ENABLE_LTO)
+  check_ipo_supported(
+    RESULT GLUTEN_IPO_SUPPORTED
+    OUTPUT GLUTEN_IPO_ERROR
+    LANGUAGES CXX)
+  if(NOT GLUTEN_IPO_SUPPORTED)
+    message(
+      FATAL_ERROR
+        "ENABLE_LTO requested, but IPO/LTO is not supported: ${GLUTEN_IPO_ERROR}"
+    )
+  endif()
+
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+
+  message(STATUS "ENABLE_LTO enabled for ${CMAKE_BUILD_TYPE} builds")
+endif()
 
 #
 # Dependencies

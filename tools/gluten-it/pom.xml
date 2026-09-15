@@ -32,12 +32,12 @@
     <java.version>1.8</java.version>
     <maven.compiler.source>${java.version}</maven.compiler.source>
     <maven.compiler.target>${java.version}</maven.compiler.target>
-    <scala.version>2.12.17</scala.version>
+    <scala.version>2.12.18</scala.version>
     <scala.binary.version>2.12</scala.binary.version>
-    <spark.version>3.4.4</spark.version>
+    <spark.version>3.5.5</spark.version>
     <spark.major.version>3</spark.major.version>
-    <delta.package.name>delta-core</delta.package.name>
-    <delta.version>2.4.0</delta.version>
+    <delta.package.name>delta-spark</delta.package.name>
+    <delta.version>3.3.2</delta.version>
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
     <gluten.version>1.8.0-SNAPSHOT</gluten.version>
@@ -288,16 +288,6 @@
       </properties>
     </profile>
     <profile>
-      <id>spark-3.3</id>
-      <properties>
-        <spark.version>3.3.1</spark.version>
-        <scala.version>2.12.15</scala.version>
-        <scala.binary.version>2.12</scala.binary.version>
-        <delta.package.name>delta-core</delta.package.name>
-        <delta.version>2.3.0</delta.version>
-      </properties>
-    </profile>
-    <profile>
       <id>spark-3.4</id>
       <properties>
         <spark.version>3.4.4</spark.version>
@@ -314,7 +304,7 @@
         <scala.version>2.12.18</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
         <delta.package.name>delta-spark</delta.package.name>
-        <delta.version>3.3.1</delta.version>
+        <delta.version>3.3.2</delta.version>
       </properties>
     </profile>
     <profile>
@@ -324,7 +314,7 @@
         <scala.version>2.13.17</scala.version>
         <scala.binary.version>2.13</scala.binary.version>
         <delta.package.name>delta-spark</delta.package.name>
-        <delta.version>4.0.0</delta.version>
+        <delta.version>4.0.1</delta.version>
       </properties>
     </profile>
     <profile>
@@ -333,8 +323,8 @@
         <spark.version>4.1.1</spark.version>
         <scala.version>2.13.17</scala.version>
         <scala.binary.version>2.13</scala.binary.version>
-        <delta.package.name>delta-spark</delta.package.name>
-        <delta.version>4.0.0</delta.version>
+        <delta.package.name>delta-spark_4.1</delta.package.name>
+        <delta.version>4.1.0</delta.version>
       </properties>
     </profile>
     <profile>

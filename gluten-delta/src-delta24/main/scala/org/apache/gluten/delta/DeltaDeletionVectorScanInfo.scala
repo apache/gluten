@@ -18,6 +18,7 @@ package org.apache.gluten.delta
 
 import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
 
+import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.execution.datasources.PartitionedFile
 
 import org.apache.hadoop.fs.Path
@@ -29,5 +30,30 @@ object DeltaDeletionVectorScanInfo {
   def normalize(
       partitionFiles: Seq[PartitionedFile],
       tablePath: Path)
+      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = {
+    normalize(partitionFiles, tablePath, None)
+  }
+
+  def normalize(
+      partitionFiles: Seq[PartitionedFile],
+      tablePath: Path,
+      readMetrics: Option[DeletionVectorReadMetrics])
+      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = None
+
+  private[gluten] def buildAddFileLookup(
+      tablePath: Path,
+      addFiles: Seq[AddFile]): DeltaAddFileLookup = DeltaAddFileLookup.empty
+
+  private[gluten] def normalizeFromAddFiles(
+      partitionFiles: Seq[PartitionedFile],
+      tablePath: Path,
+      addFileLookup: DeltaAddFileLookup)
+      : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = None
+
+  private[gluten] def normalizeFromAddFiles(
+      partitionFiles: Seq[PartitionedFile],
+      tablePath: Path,
+      addFileLookup: DeltaAddFileLookup,
+      readMetrics: Option[DeletionVectorReadMetrics])
       : Option[(Seq[JMap[String, Object]], Seq[DeltaFileReadOptions])] = None
 }

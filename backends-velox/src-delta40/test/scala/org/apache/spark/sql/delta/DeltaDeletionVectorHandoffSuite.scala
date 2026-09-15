@@ -88,11 +88,18 @@ class DeltaDeletionVectorHandoffSuite
 
         val df = spark.read.format("delta").load(path)
         val executedPlan = df.queryExecution.executedPlan
-        assert(executedPlan.collect { case _: DeltaScanTransformer => true }.nonEmpty)
+        val nativeScans = executedPlan.collect { case scan: DeltaScanTransformer => scan }
+        assert(nativeScans.nonEmpty)
         val planText = executedPlan.toString()
         assert(!planText.contains("__delta_internal_is_row_deleted"))
         assert(!planText.contains("__delta_internal_row_index"))
         checkAnswer(df, Seq((1, "a"), (2, "b")).toDF())
+
+        val metrics = nativeScans.head.metrics
+        assert(metrics("dvDescriptorCount").value == 1L)
+        assert(metrics("dvPayloadReadAttempts").value == 1L)
+        assert(metrics("dvPayloadReadBytes").value > 0L)
+        assert(metrics("dvPayloadReadTime").value > 0L)
     }
   }
 }

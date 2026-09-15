@@ -61,7 +61,7 @@ jobs:
       shims35: ${{ steps.filter.outputs.shims35 }}
       shims40: ${{ steps.filter.outputs.shims40 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Detect changed paths
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Get Ccache from Apache Stash
         id: ccache-stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-enhanced-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}

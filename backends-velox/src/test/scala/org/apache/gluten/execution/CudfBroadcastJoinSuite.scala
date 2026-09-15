@@ -21,7 +21,7 @@ import org.apache.gluten.tags.CudfTest
 import org.apache.spark.SparkConf
 
 /**
- * Regression tests for GLUTEN-12471: broadcast hash joins on the cuDF (GPU) backend silently
+ * Regression tests for GLUTEN-12812: broadcast hash joins on the cuDF (GPU) backend silently
  * returned empty results because CudfHashJoin built its hash table from the empty build-side
  * iterator instead of the prebuilt CPU table.
  *
@@ -53,7 +53,7 @@ class CudfBroadcastJoinSuite extends VeloxWholeStageTransformerSuite {
     createTPCHNotNullTables()
   }
 
-  test("GLUTEN-12471: cuDF broadcast hash join returns non-empty, correct results") {
+  test("GLUTEN-12812: cuDF broadcast hash join returns non-empty, correct results") {
     val query =
       """
         |SELECT l.l_orderkey, o.o_orderdate, l.l_extendedprice
@@ -72,7 +72,33 @@ class CudfBroadcastJoinSuite extends VeloxWholeStageTransformerSuite {
         // demoted or fallen back.
         val bhj = collect(plan) { case j: BroadcastHashJoinExecTransformer => j }
         assert(bhj.nonEmpty, s"expected an offloaded broadcast hash join, got:\n$plan")
-        assert(df.count() > 0, "broadcast join must not return empty results (GLUTEN-12471)")
+        assert(df.count() > 0, "broadcast join must not return empty results (GLUTEN-12812)")
+    }
+  }
+
+  test("GLUTEN-12838: broadcast build side follows the consuming stage's cuDF tag") {
+    // We need a broadcast that lands in a CPU stage. NOT IN gives us one for free: it
+    // becomes a null-aware anti join, which Spark can only run as a broadcast, and the
+    // stage reading it has a table scan, so cuDF never claims it.
+    val query =
+      """
+        |SELECT p_partkey, p_brand
+        |FROM part
+        |WHERE p_partkey NOT IN (
+        |  SELECT ps_partkey FROM partsupp WHERE ps_availqty < 10
+        |)
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        val plan = df.queryExecution.executedPlan
+        val bhj = collect(plan) { case j: BroadcastHashJoinExecTransformer => j }
+        assert(bhj.nonEmpty, s"expected a broadcast hash join for the anti join, got:\n$plan")
+        // The point of the test: the join must stay off cuDF, so the build side has to
+        // arrive on the host.
+        assert(
+          bhj.forall(!_.offloadCuda),
+          s"expected the broadcast hash join to be un-tagged for cuDF, got:\n$plan")
     }
   }
 

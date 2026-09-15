@@ -149,6 +149,48 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
     }
   }
 
+  testGluten("ORC positional and Parquet name mapping can coexist in one Velox query") {
+    val hiveClient: HiveClient =
+      spark.sharedState.externalCatalog.unwrapped.asInstanceOf[HiveExternalCatalog].client
+
+    withSQLConf(
+      "spark.sql.hive.convertMetastoreOrc" -> "false",
+      "spark.sql.hive.convertMetastoreParquet" -> "false",
+      "spark.hadoop.orc.force.positional.evolution" -> "true"
+    ) {
+      withTempDir {
+        dir =>
+          val orcLoc = dir.toPath.resolve("test_orc_pos").toUri.toString
+          val parquetLoc = dir.toPath.resolve("test_parquet_name").toUri.toString
+          withTable(
+            "test_orc_pos",
+            "test_orc_pos_renamed",
+            "test_parquet_name",
+            "test_parquet_name_reordered") {
+            hiveClient.runSqlHive(
+              s"create table test_orc_pos(c1 int, c2 int) stored as orc location '$orcLoc'")
+            hiveClient.runSqlHive("insert into test_orc_pos select 1, 2")
+            hiveClient.runSqlHive(
+              s"create table test_orc_pos_renamed(x int, y int) stored as orc location '$orcLoc'")
+
+            hiveClient.runSqlHive(
+              s"create table test_parquet_name(p int, q int) stored as parquet " +
+                s"location '$parquetLoc'")
+            hiveClient.runSqlHive("insert into test_parquet_name select 3, 4")
+            hiveClient.runSqlHive(
+              s"create table test_parquet_name_reordered(q int, p int) stored as parquet " +
+                s"location '$parquetLoc'")
+
+            val df = sql(
+              "select o.x, o.y, p.q, p.p from test_orc_pos_renamed o " +
+                "cross join test_parquet_name_reordered p")
+            checkAnswer(df, Seq(Row(1, 2, 4, 3)))
+            checkOperatorMatch[HiveTableScanExecTransformer](df)
+          }
+      }
+    }
+  }
+
   testGluten(
     "GLUTEN: Hive ORC files with _col* names read by position without positional flag") {
     // Regression for the case where two ORC tables must use OPPOSITE column

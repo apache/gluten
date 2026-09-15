@@ -37,19 +37,12 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
       .set("spark.memory.offHeap.size", "2g")
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
+      .set(
+        "spark.sql.extensions",
+        "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
       .set("spark.sql.catalog.spark_catalog", "org.apache.iceberg.spark.SparkCatalog")
       .set("spark.sql.catalog.spark_catalog.type", "hadoop")
       .set("spark.sql.catalog.spark_catalog.warehouse", s"file://$rootPath/tpch-data-iceberg-velox")
-  }
-
-  test("iceberg system procedures are registered by the Gluten plugin") {
-    spark.sessionState.sqlParser.parsePlan(
-      """
-        |CALL spark_catalog.system.register_table(
-        |  table => 'default.issue_12693',
-        |  metadata_file => 'file:///tmp/does-not-exist.metadata.json'
-        |)
-        |""".stripMargin)
   }
 
   test("iceberg transformer exists") {

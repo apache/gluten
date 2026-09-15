@@ -164,6 +164,25 @@ bool SubstraitParser::parseReferenceSegment(
   }
 }
 
+bool SubstraitParser::isTopLevelFieldSelection(const ::substrait::Expression& expression) {
+  if (!expression.has_selection()) {
+    return false;
+  }
+
+  const auto& selection = expression.selection();
+  if (!selection.has_direct_reference() || selection.has_expression() || selection.has_outer_reference()) {
+    return false;
+  }
+
+  const auto& reference = selection.direct_reference();
+  if (!reference.has_struct_field()) {
+    return false;
+  }
+
+  const auto& field = reference.struct_field();
+  return field.field() >= 0 && !field.has_child();
+}
+
 std::vector<std::string> SubstraitParser::makeNames(const std::string& prefix, int size) {
   std::vector<std::string> names;
   names.reserve(size);

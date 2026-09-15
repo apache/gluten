@@ -22,7 +22,7 @@ MVN_CMD="${BASEDIR}/../build/mvn"
 # If a new profile is introduced for new modules, please add it here to ensure
 # the new modules are covered.
 PROFILES="-Pbackends-velox,backends-clickhouse -Pceleborn,uniffle -Piceberg,delta,hudi,paimon \
-          -Pspark-3.3,spark-3.4,spark-3.5,spark-4.0,spark-4.1 -Pspark-ut -Pkafka"
+          -Pspark-3.4,spark-3.5,spark-4.0,spark-4.1 -Pspark-ut -Pkafka"
 
 COMMAND=$1
 

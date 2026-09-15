@@ -79,8 +79,6 @@ trait Component {
   def info(): Map[String, String] = Map.empty
   def dependencies(): Seq[Class[_ <: Component]]
 
-  def sparkSessionExtensions(): Seq[String] = Nil
-
   /** Spark listeners. */
   def onDriverStart(sc: SparkContext, pc: PluginContext): Unit = {}
   def onDriverShutdown(): Unit = {}

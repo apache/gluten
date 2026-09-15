@@ -31,7 +31,7 @@ export PROMPT_ALWAYS_RESPOND=y
 
 # ClickHouse backend — build native first, then Maven.
 bash ./ep/build-clickhouse/src/build-clickhouse.sh
-./build/mvn clean package -Pbackends-clickhouse -Pspark-3.3 -DskipTests
+./build/mvn clean package -Pbackends-clickhouse -Pspark-3.5 -DskipTests
 ```
 
 For incremental builds, cloud-FS flags, the Spark/Scala/JDK matrix, table-format

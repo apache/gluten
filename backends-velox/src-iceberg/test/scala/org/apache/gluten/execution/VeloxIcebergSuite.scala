@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
@@ -27,6 +27,32 @@ import org.apache.iceberg.spark.source.SparkTable
 import org.apache.iceberg.types.{Type, Types}
 
 class VeloxIcebergSuite extends IcebergSuite {
+  test("iceberg parquet split uses name mapping for projected columns") {
+    withTable("iceberg_parquet_name_mapping") {
+      withSQLConf(VeloxConfig.PARQUET_USE_COLUMN_NAMES.key -> "false") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_parquet_name_mapping (
+                    |  id BIGINT,
+                    |  amount DECIMAL(12, 2),
+                    |  note STRING
+                    |)
+                    |USING iceberg
+                    |TBLPROPERTIES ('write.format.default' = 'parquet')
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_parquet_name_mapping
+                    |VALUES (CAST(1 AS BIGINT), CAST(10.50 AS DECIMAL(12, 2)), 'a')
+                    |""".stripMargin)
+
+        runQueryAndCompare("SELECT amount FROM iceberg_parquet_name_mapping") {
+          df =>
+            checkAnswer(df, Seq(Row(BigDecimal("10.50"))))
+            checkGlutenPlan[IcebergScanTransformer](df)
+        }
+      }
+    }
+  }
+
   testWithMinSparkVersion("iceberg v3 initial default for an added column", "3.4") {
     withTable("iceberg_v3_initial_default") {
       withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {

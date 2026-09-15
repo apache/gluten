@@ -22,6 +22,7 @@ import org.apache.gluten.expression.VeloxDummyExpression
 import org.apache.spark.SparkConf
 import org.apache.spark.shuffle.GlutenShuffleUtils
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.catalyst.expressions.Cast
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
 import org.apache.spark.sql.execution.joins.BaseJoinExec
@@ -1954,6 +1955,35 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     val query = "select cast(ts as date) from values (timestamp'2024-01-01 00:00:00') as tab(ts)"
     runQueryAndCompare(query) {
       checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("cast null type to complex type") {
+    // An outer join whose right side turns out to be empty is replaced with a projection of a
+    // null cast to the type of each of that side's output attributes. Here the right side is only
+    // known to be empty once its stage has run, so AQE adds the casts after constant folding and
+    // they reach the backend as casts from the null type rather than as typed null literals.
+    val query =
+      """
+        |select l.l_orderkey, r.arr, r.m, r.s
+        |from lineitem l left outer join (
+        |  select l_orderkey, array(l_partkey) as arr, map('k', l_partkey) as m,
+        |    struct(l_partkey as a) as s
+        |  from lineitem where l_orderkey < 0
+        |) r on l.l_orderkey = r.l_orderkey
+        |""".stripMargin
+    runQueryAndCompare(query) {
+      df =>
+        val plan = df.queryExecution.executedPlan
+        val castsToComplexTypes = collect(plan) { case p: ProjectExecTransformer => p }
+          .flatMap(_.projectList)
+          .flatMap(_.collect { case c: Cast if c.child.dataType == NullType => c.dataType })
+        assert(
+          castsToComplexTypes.exists(_.isInstanceOf[ArrayType]),
+          s"Expect the null casts to be offloaded in:\n$plan")
+        // The casts must run natively rather than being split out to the JVM.
+        assert(collect(plan) { case p: ColumnarPartialProjectExec => p }.isEmpty)
+        assert(collect(plan) { case p: ProjectExec => p }.isEmpty)
     }
   }
 

@@ -1,6 +1,6 @@
 # Scalar Functions Support Status
 
-**Out of 357 scalar functions in Spark 3.5, Gluten currently fully supports 245 functions and partially supports 28 functions.**
+**Out of 357 scalar functions in Spark 3.5, Gluten currently fully supports 246 functions and partially supports 28 functions.**
 
 **Gluten also fully supports 2 additional functions introduced in Spark 4.0.**
 
@@ -275,7 +275,7 @@
 | power             | Pow                    | S        |                |
 | radians           | ToRadians              |          |                |
 | rand              | Rand                   | S        |                |
-| randn             | Randn                  |          |                |
+| randn             | Randn                  | S        |                |
 | random            | Rand                   | S        |                |
 | rint              | Rint                   | S        |                |
 | round             | Round                  | S        |                |

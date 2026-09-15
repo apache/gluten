@@ -19,6 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.{PaimonLocalFilesBuilder, SplitInfo}
+import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
@@ -83,7 +84,13 @@ case class PaimonScanTransformer(
       throw new GlutenNotSupportException("Only support PaimonScan.")
   }
 
-  override def getDataSchema: StructType = new StructType()
+  override def getDataSchema: StructType = scan match {
+    case paimonScan: PaimonScan =>
+      val partitionKeys = paimonScan.table.partitionKeys()
+      StructType(scan.readSchema().filterNot(field => partitionKeys.contains(field.name)))
+    case _ =>
+      throw new GlutenNotSupportException("Only support PaimonScan.")
+  }
 
   override def withNewPushdownFilters(filters: Seq[Expression]): PaimonScanTransformer = {
     this.copy(pushDownFilters = Some(filters))
@@ -165,7 +172,7 @@ case class PaimonScanTransformer(
             throw new GlutenNotSupportException(s"Unsupported input partition type: $o")
         }
 
-        PaimonLocalFilesBuilder.makePaimonLocalFiles(
+        val localFiles = PaimonLocalFilesBuilder.makePaimonLocalFiles(
           p.index,
           paths.asJava,
           starts.asJava,
@@ -178,7 +185,19 @@ case class PaimonScanTransformer(
             .asJava,
           new JHashMap[String, String]()
         )
+        localFiles.setFileSchema(getDataSchema)
+        paimonColumnMappingMode(fileFormat).foreach(localFiles.setColumnMappingMode)
+        localFiles
       case _ => throw new GlutenNotSupportException()
+    }
+  }
+
+  private def paimonColumnMappingMode(fileFormat: ReadFileFormat): Option[ColumnMappingMode] = {
+    fileFormat match {
+      case ReadFileFormat.ParquetReadFormat | ReadFileFormat.OrcReadFormat =>
+        Some(ColumnMappingMode.NAME)
+      case _ =>
+        None
     }
   }
 
