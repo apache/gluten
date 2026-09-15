@@ -28,19 +28,34 @@ original casing when `caseSensitiveAnalysis=true` and lowercases only when it is
 Spark default). Standard data operations such as scan, filter, aggregation, and join are
 therefore correct in both modes.
 
-**Narrow exception — Iceberg metadata columns:** `IcebergScanTransformer` previously used
-unconditional `toLowerCase` in its allowed-metadata-column check and read-schema field set,
-which could mismatch metadata-column names (e.g. `input_file_name`, `input_file_block_start`,
-`input_file_block_length`) when case-sensitive mode was active. This inconsistency is addressed
-by this change; `ConverterUtils.normalizeColName` is now used consistently throughout the
-Iceberg scan path.
+**This PR additionally addresses the following identified metadata-name collision paths:**
 
-**Known follow-up:** `PushDownInputFileExpression` (in `gluten-substrait`) also uses
-unconditional lowercasing when deduplicating injected metadata attributes against existing
-scan output (lines 178/181). Querying a data column named `Input_File_Name` (mixed case) and
-`input_file_name()` in the same projection under `caseSensitive=true` is not yet supported and
-will fail with a plan-binding error. This is a pre-existing limitation unrelated to the
-`IcebergScanTransformer` fix.
+- `IcebergScanTransformer`: previously used unconditional `equalsIgnoreCase` in
+  `getMetadataColumns` and unconditional `toLowerCase` in the read-schema field set, causing a
+  user data column named `Input_File_Name` (or any mixed-case variant of an Iceberg metadata
+  column name) to be misclassified as a metadata column under `caseSensitive=true`.
+  Fixed by switching to `ConverterUtils.normalizeColName` throughout the Iceberg scan path.
+
+- `PushDownInputFileExpression` (core rule, `gluten-substrait`): two unconditional
+  `toLowerCase` usages — one in `containsInputFileRelatedExpr` and one in the `PostOffload`
+  deduplication — caused incorrect pre-offload rewriting and dangling-attribute plan errors when
+  a data column named `Input_File_Name` was projected alongside `input_file_name()` under
+  `caseSensitive=true`. Fixed by using `SQLConf.get.resolver` for gate detection and
+  `exprId` identity for deduplication.
+
+**Remaining limitations (not fixed by this change):**
+
+Core column-name handling increasingly respects Spark's `caseSensitiveAnalysis` semantics.
+The fixes above address the identified Iceberg and `input_file_name()` metadata name-collision
+paths. Other backend- or data-source-specific case-sensitive paths must be validated
+independently. The following areas are not verified in this change:
+
+- ORC scan under `caseSensitive=true`
+- DSv2 / generic `BatchScanExec` paths
+- Nested-struct column names
+- Partition-column edge cases
+- General write paths
+- Delta optimised writer (fix pending in a separate PR)
 
 #### Regexp functions
 In Velox, regexp functions (`rlike`, `regexp_extract`, etc.) are implemented based on RE2, while in Spark they are based on `java.util.regex`.
