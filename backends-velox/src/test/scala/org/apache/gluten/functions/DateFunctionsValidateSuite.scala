@@ -615,6 +615,11 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
         runQueryAndCompare("select timestampadd(hour, 1, ts) from view") {
           checkGlutenPlan[ProjectExecTransformer]
         }
+        // make_timestamp_ntz runs natively; output stays timestamp_ntz.
+        runQueryAndCompare(
+          "select make_timestamp_ntz(2021, 7, 11, 6, 30, 45.678) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
 
         // cast(timestamp_ntz as timestamp)
         runQueryAndCompare("select cast(ts as timestamp) from view") {
@@ -706,6 +711,15 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
             checkGlutenPlan[ProjectExecTransformer]
           }
         }
+    }
+  }
+
+  testWithMinSparkVersion("try_make_timestamp_ntz", "4.0") {
+    // try_make_timestamp_ntz runs natively; invalid input returns NULL, not an error.
+    runQueryAndCompare(
+      "select try_make_timestamp_ntz(2021, 7, 11, 6, 30, 45.678)," +
+        " try_make_timestamp_ntz(2021, 13, 11, 6, 30, 45.678)") {
+      checkGlutenPlan[ProjectExecTransformer]
     }
   }
 }
