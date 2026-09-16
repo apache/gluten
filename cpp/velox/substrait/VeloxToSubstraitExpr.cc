@@ -23,85 +23,33 @@ namespace gluten {
 namespace {
 const ::substrait::Expression_Literal& toSubstraitNullLiteral(
     google::protobuf::Arena& arena,
-    const velox::TypeKind& typeKind) {
+    const velox::TypePtr& type) {
   ::substrait::Expression_Literal* substraitField =
       google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
-  switch (typeKind) {
-    case velox::TypeKind::BOOLEAN: {
-      ::substrait::Type_Boolean* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_Boolean>(&arena);
-      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      substraitField->mutable_null()->set_allocated_bool_(nullValue);
-      break;
-    }
-    case velox::TypeKind::TINYINT: {
-      ::substrait::Type_I8* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_I8>(&arena);
-
-      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      substraitField->mutable_null()->set_allocated_i8(nullValue);
-      break;
-    }
-    case velox::TypeKind::SMALLINT: {
-      ::substrait::Type_I16* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_I16>(&arena);
-      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      substraitField->mutable_null()->set_allocated_i16(nullValue);
-      break;
-    }
-    case velox::TypeKind::INTEGER: {
-      ::substrait::Type_I32* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_I32>(&arena);
-      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      substraitField->mutable_null()->set_allocated_i32(nullValue);
-      break;
-    }
-    case velox::TypeKind::BIGINT: {
-      ::substrait::Type_I64* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_I64>(&arena);
-      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      substraitField->mutable_null()->set_allocated_i64(nullValue);
-      break;
-    }
-    case velox::TypeKind::VARCHAR: {
-      ::substrait::Type_String* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_String>(&arena);
-      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      substraitField->mutable_null()->set_allocated_string(nullValue);
-      break;
-    }
-    case velox::TypeKind::REAL: {
-      ::substrait::Type_FP32* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_FP32>(&arena);
-      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      substraitField->mutable_null()->set_allocated_fp32(nullValue);
-      break;
-    }
-    case velox::TypeKind::DOUBLE: {
-      ::substrait::Type_FP64* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_FP64>(&arena);
-      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      substraitField->mutable_null()->set_allocated_fp64(nullValue);
-      break;
-    }
-    case velox::TypeKind::ARRAY: {
-      ::substrait::Type_List* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_List>(&arena);
-      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      substraitField->mutable_null()->set_allocated_list(nullValue);
-      break;
-    }
-    case velox::TypeKind::UNKNOWN: {
-      ::substrait::Type_UserDefined* nullValue =
-          google::protobuf::Arena::CreateMessage<::substrait::Type_UserDefined>(&arena);
-      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      nullValue->set_type_reference(0);
-      substraitField->mutable_null()->set_allocated_user_defined(nullValue);
-
-      break;
-    }
-    default: {
-      VELOX_UNSUPPORTED("Unsupported type '{}'", TypeKindName::toName(typeKind));
-    }
-  }
+  VeloxToSubstraitTypeConvertor typeConvertor;
+  substraitField->mutable_null()->MergeFrom(typeConvertor.toSubstraitType(arena, type));
   substraitField->set_nullable(true);
   return *substraitField;
 }
 
-const ::substrait::Expression_Literal& toSubstraitNotNullLiteral(
-    google::protobuf::Arena& arena,
-    const velox::variant& variantValue) {
+const ::substrait::Expression_Literal&
+toSubstraitTimestampLiteral(google::protobuf::Arena& arena, const Timestamp& value, const TypePtr& type) {
+  auto* literal = google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
+  const auto micros = value.toMicros();
+  if (type->equivalent(*TIMESTAMP_UTC())) {
+    literal->set_timestamp(micros);
+  } else {
+    literal->set_timestamp_tz(micros);
+  }
+  literal->set_nullable(false);
+  return *literal;
+}
+
+const ::substrait::Expression_Literal&
+toSubstraitNotNullLiteral(google::protobuf::Arena& arena, const velox::variant& variantValue, const TypePtr& type) {
+  if (variantValue.kind() == TypeKind::TIMESTAMP) {
+    return toSubstraitTimestampLiteral(arena, variantValue.value<TypeKind::TIMESTAMP>(), type);
+  }
   ::substrait::Expression_Literal* literalExpr =
       google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
   switch (variantValue.kind()) {
@@ -131,12 +79,6 @@ const ::substrait::Expression_Literal& toSubstraitNotNullLiteral(
     }
     case velox::TypeKind::DOUBLE: {
       literalExpr->set_fp64(variantValue.value<TypeKind::DOUBLE>());
-      break;
-    }
-    case velox::TypeKind::TIMESTAMP: {
-      auto vTimeStamp = variantValue.value<TypeKind::TIMESTAMP>();
-      auto micros = vTimeStamp.getSeconds() * 1000000 + vTimeStamp.getNanos() / 1000;
-      literalExpr->set_timestamp_tz(micros);
       break;
     }
     case velox::TypeKind::VARCHAR: {
@@ -244,18 +186,6 @@ const ::substrait::Expression_Literal& toSubstraitNotNullLiteral<TypeKind::DOUBL
 }
 
 template <>
-const ::substrait::Expression_Literal& toSubstraitNotNullLiteral<TypeKind::TIMESTAMP>(
-    google::protobuf::Arena& arena,
-    const Timestamp& value) {
-  ::substrait::Expression_Literal* literalExpr =
-      google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
-  auto micros = value.getSeconds() * 1000000 + value.getNanos() / 1000;
-  literalExpr->set_timestamp_tz(micros);
-  literalExpr->set_nullable(false);
-  return *literalExpr;
-}
-
-template <>
 const ::substrait::Expression_Literal& toSubstraitNotNullLiteral<TypeKind::VARCHAR>(
     google::protobuf::Arena& arena,
     const velox::StringView& value) {
@@ -269,6 +199,21 @@ const ::substrait::Expression_Literal& toSubstraitNotNullLiteral<TypeKind::VARCH
   return *literalExpr;
 }
 
+template <TypeKind kind>
+const ::substrait::Expression_Literal&
+scalarVectorToLiteral(google::protobuf::Arena& arena, const VectorPtr& vector, vector_size_t row) {
+  if (vector->isNullAt(row)) {
+    return toSubstraitNullLiteral(arena, vector->type());
+  }
+  using T = typename TypeTraits<kind>::NativeType;
+  const auto value = vector->as<SimpleVector<T>>()->valueAt(row);
+  if constexpr (kind == TypeKind::TIMESTAMP) {
+    return toSubstraitTimestampLiteral(arena, value, vector->type());
+  } else {
+    return toSubstraitNotNullLiteral<kind>(arena, value);
+  }
+}
+
 template <TypeKind Kind>
 void arrayVectorToLiteral(
     google::protobuf::Arena& arena,
@@ -276,15 +221,9 @@ void arrayVectorToLiteral(
     ::substrait::Expression_Literal_List* listLiteral,
     vector_size_t offset,
     vector_size_t size) {
-  using T = typename TypeTraits<Kind>::NativeType;
-  auto elements = arrayVector->elements()->as<SimpleVector<T>>();
   for (auto i = offset; i < offset + size; ++i) {
     ::substrait::Expression_Literal* childLiteral = listLiteral->add_values();
-    if (elements->isNullAt(i)) {
-      childLiteral->MergeFrom(toSubstraitNullLiteral(arena, Kind));
-    } else {
-      childLiteral->MergeFrom(toSubstraitNotNullLiteral<Kind>(arena, elements->valueAt(i)));
-    }
+    childLiteral->MergeFrom(scalarVectorToLiteral<Kind>(arena, arrayVector->elements(), i));
   }
 }
 
@@ -292,24 +231,9 @@ template <TypeKind kind>
 void convertVectorValue(
     google::protobuf::Arena& arena,
     const velox::VectorPtr& vectorValue,
-    ::substrait::Expression_Nested_Struct* litValue,
-    ::substrait::Expression_Literal* substraitField) {
-  const TypePtr& childType = vectorValue->type();
-
-  using T = typename TypeTraits<kind>::NativeType;
-
-  auto childToFlatVec = vectorValue->as<SimpleVector<T>>();
-
-  //  Get the batchSize and convert each value in it.
-  vector_size_t flatVecSize = childToFlatVec->size();
-  for (int64_t i = 0; i < flatVecSize; i++) {
-    substraitField = litValue->add_fields()->mutable_literal();
-    if (childToFlatVec->isNullAt(i)) {
-      // Process the null value.
-      substraitField->MergeFrom(toSubstraitNullLiteral(arena, childType->kind()));
-    } else {
-      substraitField->MergeFrom(toSubstraitNotNullLiteral<kind>(arena, childToFlatVec->valueAt(i)));
-    }
+    ::substrait::Expression_Nested_Struct* litValue) {
+  for (vector_size_t i = 0; i < vectorValue->size(); ++i) {
+    litValue->add_fields()->mutable_literal()->MergeFrom(scalarVectorToLiteral<kind>(arena, vectorValue, i));
   }
 }
 
@@ -516,20 +440,21 @@ const ::substrait::Expression_Literal& VeloxToSubstraitExprConvertor::toSubstrai
   if (constExpr->hasValueVector()) {
     return toSubstraitLiteral(arena, constExpr->valueVector(), litValue);
   } else {
-    return toSubstraitLiteral(arena, constExpr->value());
+    return toSubstraitLiteral(arena, constExpr->value(), constExpr->type());
   }
 }
 
 const ::substrait::Expression_Literal& VeloxToSubstraitExprConvertor::toSubstraitLiteral(
     google::protobuf::Arena& arena,
-    const velox::variant& variantValue) {
+    const velox::variant& variantValue,
+    const TypePtr& type) {
   ::substrait::Expression_Literal* literalExpr =
       google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
 
   if (variantValue.isNull()) {
-    literalExpr->MergeFrom(toSubstraitNullLiteral(arena, variantValue.kind()));
+    literalExpr->MergeFrom(toSubstraitNullLiteral(arena, type));
   } else {
-    literalExpr->MergeFrom(toSubstraitNotNullLiteral(arena, variantValue));
+    literalExpr->MergeFrom(toSubstraitNotNullLiteral(arena, variantValue, type));
   }
   return *literalExpr;
 }
@@ -572,7 +497,7 @@ const ::substrait::Expression_Literal& VeloxToSubstraitExprConvertor::toSubstrai
   if (constantVector->typeKind() == TypeKind::ARRAY) {
     if (constantVector->isNullAt(0)) {
       // Process the null value.
-      substraitField->MergeFrom(toSubstraitNullLiteral(arena, constantVector->typeKind()));
+      substraitField->MergeFrom(toSubstraitNullLiteral(arena, constantVector->type()));
       return *substraitField;
     }
     auto encoding = constantVector->valueVector()->encoding();
@@ -599,8 +524,13 @@ const ::substrait::Expression_Literal& VeloxToSubstraitExprConvertor::toSubstrai
   ::substrait::Expression_Literal* substraitField =
       google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
   if (vectorValue->isScalar()) {
-    VELOX_DYNAMIC_SCALAR_TYPE_DISPATCH(
-        convertVectorValue, vectorValue->type()->kind(), arena, vectorValue, litValue, substraitField);
+    if (litValue == nullptr) {
+      VELOX_CHECK_GT(vectorValue->size(), 0, "A scalar constant must contain a value");
+      substraitField->MergeFrom(
+          VELOX_DYNAMIC_SCALAR_TYPE_DISPATCH(scalarVectorToLiteral, vectorValue->typeKind(), arena, vectorValue, 0));
+      return *substraitField;
+    }
+    VELOX_DYNAMIC_SCALAR_TYPE_DISPATCH(convertVectorValue, vectorValue->type()->kind(), arena, vectorValue, litValue);
     return *substraitField;
   }
 

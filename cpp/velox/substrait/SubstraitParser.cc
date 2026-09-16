@@ -419,7 +419,7 @@ bool SubstraitParser::getLiteralValue(const ::substrait::Expression::Literal& li
 
 template <>
 Timestamp SubstraitParser::getLiteralValue(const ::substrait::Expression::Literal& literal) {
-  return Timestamp::fromMicros(literal.timestamp_tz());
+  return Timestamp::fromMicros(literal.has_timestamp() ? literal.timestamp() : literal.timestamp_tz());
 }
 
 template <>
