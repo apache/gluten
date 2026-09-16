@@ -188,9 +188,19 @@ if [ ! -f "$DPFFS" ]; then
 fi
 sed -i '/hadoopConf().set("parquet.block.size", (1024 \* 50).toString)/a\
     hadoopConf().set("parquet.block.rows", "10000")' "$DPFFS"
-ROW_CAPS=$(grep -c 'hadoopConf().set("parquet.block.rows", "10000")' "$DPFFS" || true)
-if [ "$ROW_CAPS" -ne 1 ]; then
-  echo "ERROR: expected to add one Parquet row-group row cap but added ${ROW_CAPS}." >&2
+ADJACENT_ROW_CAPS=$(
+  awk '
+    previous == "    hadoopConf().set(\"parquet.block.size\", (1024 * 50).toString)" &&
+        $0 == "    hadoopConf().set(\"parquet.block.rows\", \"10000\")" {
+      count++
+    }
+    { previous = $0 }
+    END { print count + 0 }
+  ' "$DPFFS"
+)
+if [ "$ADJACENT_ROW_CAPS" -ne 1 ]; then
+  echo "ERROR: expected exactly one adjacent Parquet block-size and row-cap pair," \
+    "found ${ADJACENT_ROW_CAPS}." >&2
   echo "DeltaParquetFileFormatSuite may have changed in Delta ref '${DELTA_REF}'." >&2
   exit 1
 fi
