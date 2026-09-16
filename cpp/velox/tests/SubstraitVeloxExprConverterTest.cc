@@ -16,6 +16,7 @@
  */
 
 #include "substrait/SubstraitToVeloxExpr.h"
+#include "substrait/VeloxToSubstraitExpr.h"
 
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/core/QueryConfig.h"
@@ -29,6 +30,76 @@ using namespace facebook::velox;
 namespace gluten {
 
 class SubstraitVeloxExprConverterExecutionTest : public exec::test::OperatorTestBase {};
+
+TEST_F(SubstraitVeloxExprConverterExecutionTest, timestampLiterals) {
+  const std::unordered_map<uint64_t, std::string> functionMap;
+  SubstraitVeloxExprConverter converter(pool(), functionMap);
+  for (const auto& type : std::vector<TypePtr>{TIMESTAMP_UTC(), TIMESTAMP()}) {
+    SCOPED_TRACE(type->toString());
+    for (const int64_t micros : {-1LL, 0LL, 1LL, 1'704'067'200'123'456LL}) {
+      SCOPED_TRACE(micros);
+      ::substrait::Expression expression;
+      auto* literal = expression.mutable_literal();
+      if (type->equivalent(*TIMESTAMP_UTC())) {
+        literal->set_timestamp(micros);
+      } else {
+        literal->set_timestamp_tz(micros);
+      }
+      auto result =
+          std::dynamic_pointer_cast<const core::ConstantTypedExpr>(converter.toVeloxExpr(expression, ROW({}, {})));
+      ASSERT_NE(result, nullptr);
+      EXPECT_TRUE(type->equivalent(*result->type()));
+      EXPECT_EQ(result->value().value<Timestamp>().toMicros(), micros);
+    }
+  }
+}
+
+TEST_F(SubstraitVeloxExprConverterExecutionTest, timestampLiteralRoundTrip) {
+  const std::unordered_map<uint64_t, std::string> functionMap;
+  SubstraitVeloxExprConverter reader(pool(), functionMap);
+  auto extensions = std::make_shared<SubstraitExtensionCollector>();
+  VeloxToSubstraitExprConvertor writer(extensions);
+  const std::vector<std::optional<Timestamp>> values = {
+      Timestamp(-1, 999'999'000), Timestamp(1'704'067'200, 123'456'000), std::nullopt};
+
+  for (const auto& type : std::vector<TypePtr>{TIMESTAMP_UTC(), TIMESTAMP()}) {
+    SCOPED_TRACE(type->toString());
+    for (const auto& value : values) {
+      SCOPED_TRACE(value.has_value() ? value->toString() : "null");
+      for (const bool vectorBacked : {false, true}) {
+        SCOPED_TRACE(vectorBacked);
+        auto constant = vectorBacked
+            ? std::make_shared<const core::ConstantTypedExpr>(makeConstant<Timestamp>(value, 1, type))
+            : std::make_shared<const core::ConstantTypedExpr>(
+                  type, value.has_value() ? variant(value.value()) : variant::null(TypeKind::TIMESTAMP));
+        google::protobuf::Arena arena;
+        ::substrait::Expression expression;
+        expression.mutable_literal()->MergeFrom(writer.toSubstraitExpr(arena, constant));
+        const auto& literal = expression.literal();
+        if (value.has_value()) {
+          if (type->equivalent(*TIMESTAMP_UTC())) {
+            ASSERT_TRUE(literal.has_timestamp());
+            EXPECT_EQ(literal.timestamp(), value->toMicros());
+          } else {
+            ASSERT_TRUE(literal.has_timestamp_tz());
+            EXPECT_EQ(literal.timestamp_tz(), value->toMicros());
+          }
+        } else {
+          ASSERT_TRUE(literal.has_null());
+          EXPECT_TRUE(type->equivalent(*SubstraitParser::parseType(literal.null())));
+        }
+        auto result =
+            std::dynamic_pointer_cast<const core::ConstantTypedExpr>(reader.toVeloxExpr(expression, ROW({}, {})));
+        ASSERT_NE(result, nullptr);
+        EXPECT_TRUE(type->equivalent(*result->type()));
+        ASSERT_EQ(result->isNull(), !value.has_value());
+        if (value.has_value()) {
+          EXPECT_EQ(result->value().value<Timestamp>(), value.value());
+        }
+      }
+    }
+  }
+}
 
 // Regression test for a SIGSEGV in
 // SubstraitVeloxExprConverter::toVeloxExpr(Expression::FieldReference, ...).
