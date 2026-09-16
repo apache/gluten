@@ -198,9 +198,12 @@ ADJACENT_ROW_CAPS=$(
     END { print count + 0 }
   ' "$DPFFS"
 )
-if [ "$ADJACENT_ROW_CAPS" -ne 1 ]; then
-  echo "ERROR: expected exactly one adjacent Parquet block-size and row-cap pair," \
-    "found ${ADJACENT_ROW_CAPS}." >&2
+ROW_CAP_LINES=$(
+  grep -Fxc '    hadoopConf().set("parquet.block.rows", "10000")' "$DPFFS" || true
+)
+if [ "$ADJACENT_ROW_CAPS" -ne 1 ] || [ "$ROW_CAP_LINES" -ne 1 ]; then
+  echo "ERROR: expected one adjacent Parquet block-size and row-cap pair and no" \
+    "other row-cap lines; found ${ADJACENT_ROW_CAPS} pair(s) and ${ROW_CAP_LINES} line(s)." >&2
   echo "DeltaParquetFileFormatSuite may have changed in Delta ref '${DELTA_REF}'." >&2
   exit 1
 fi
