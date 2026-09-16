@@ -172,6 +172,33 @@ cherry_pick_delta_fix 46bd45d57eadd7e528002a0ae7bd36ce5a456eca "#7104 (ScanRepor
 cherry_pick_delta_fix 959e00e15f41f56afc1c9bb95d160c55c6dc7068 "#7105 (9 more test suites)"
 echo "::endgroup::"
 
+echo "::group::Capping DeltaParquetFileFormat fixture row groups by row count"
+# DeltaParquetFileFormatSuite generates one 20,000-row Parquet file and sets a
+# 50 KiB block size to ensure that it contains multiple row groups. Velox sizes
+# row groups by compressed buffered bytes, so the highly compressible integer
+# fixture remains a single row group and the DV read tests fail before reaching
+# their assertions. Gluten's native writer also supports parquet.block.rows;
+# cap the fixture at 10,000 rows to create at least two row groups regardless of
+# compression while keeping the native write path enabled.
+DPFFS="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala"
+if [ ! -f "$DPFFS" ]; then
+  echo "Expected file not found in Delta clone: $DPFFS" >&2
+  echo "The Delta directory layout for ref '${DELTA_REF}' may have changed." >&2
+  exit 1
+fi
+sed -i '/hadoopConf().set("parquet.block.size", (1024 \* 50).toString)/a\
+    hadoopConf().set("parquet.block.rows", "10000")' "$DPFFS"
+ROW_CAPS=$(grep -c 'hadoopConf().set("parquet.block.rows", "10000")' "$DPFFS" || true)
+if [ "$ROW_CAPS" -ne 1 ]; then
+  echo "ERROR: expected to add one Parquet row-group row cap but added ${ROW_CAPS}." >&2
+  echo "DeltaParquetFileFormatSuite may have changed in Delta ref '${DELTA_REF}'." >&2
+  exit 1
+fi
+echo "Capped DeltaParquetFileFormat fixture row groups at 10,000 rows."
+git -C "$DELTA_DIR" --no-pager diff -- \
+  "spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala" || true
+echo "::endgroup::"
+
 echo "::group::Force-failing memory-hog DeletionVectorsSuite 2B-row tests"
 # Two DeletionVectorsSuite tests read from / delete from a 2-billion-row table.
 # Under the Gluten Velox bundle they balloon the forked test JVM to ~13G of
