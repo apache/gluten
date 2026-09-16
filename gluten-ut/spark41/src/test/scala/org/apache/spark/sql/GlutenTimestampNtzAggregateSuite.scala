@@ -17,7 +17,7 @@
 package org.apache.spark.sql
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.HashAggregateExecBaseTransformer
+import org.apache.gluten.execution.{HashAggregateExecBaseTransformer, ProjectExecTransformer}
 
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
@@ -109,6 +109,49 @@ class GlutenTimestampNtzAggregateSuite extends GlutenSQLTestsTrait {
             },
             result.queryExecution.executedPlan.treeString
           )
+      }
+    }
+  }
+
+  testGluten("null predicate projections respect timestamp_ntz validation") {
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "false",
+      SQLConf.SESSION_LOCAL_TIMEZONE.key -> "America/Los_Angeles",
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
+      withTempPath {
+        path =>
+          Seq(
+            LocalDateTime.parse("1969-12-31T23:59:59.999999"),
+            LocalDateTime.parse("1970-01-01T00:00:00"),
+            LocalDateTime.parse("2024-01-01T00:00:00.123456"),
+            null
+          ).toDF("ts").write.parquet(path.getCanonicalPath)
+
+          Seq(false, true).foreach {
+            enableValidation =>
+              withSQLConf(
+                "spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" ->
+                  enableValidation.toString) {
+                val result = spark.read
+                  .parquet(path.getCanonicalPath)
+                  .selectExpr("isnull(ts)", "isnotnull(ts)", "if(isnotnull(ts), 1, 0)")
+                checkAnswer(
+                  result,
+                  Seq(
+                    Row(false, true, 1),
+                    Row(false, true, 1),
+                    Row(false, true, 1),
+                    Row(true, false, 0)))
+                val resultOutput = result.queryExecution.executedPlan.outputSet
+                val hasNativeProject = getExecutedPlan(result).exists {
+                  case project: ProjectExecTransformer => project.outputSet == resultOutput
+                  case _ => false
+                }
+                assert(
+                  hasNativeProject == !enableValidation,
+                  result.queryExecution.executedPlan.treeString)
+              }
+          }
       }
     }
   }
