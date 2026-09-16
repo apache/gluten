@@ -24,22 +24,6 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 GLUTEN_DIR="$CURRENT_DIR/.."
-
-# Velox/Arrow build scripts default CPU_TARGET to "avx", which breaks on ARM.
-if [ "$(uname -m)" = "aarch64" ]; then
-  export CPU_TARGET=${CPU_TARGET:-aarch64}
-fi
-
-# As root in a user-namespaced container, tar can't chown extracted files to the
-# archive's original owner; don't try to preserve ownership.
-export TAR_OPTIONS=--no-same-owner
-
-# cpp/CMakeLists.txt derives its JNI include paths from JAVA_HOME; without it,
-# find_package(JNI) can silently resolve to bogus include paths and the build
-# fails with "jni.h: No such file or directory".
-if [ -z "${JAVA_HOME:-}" ] && command -v java >/dev/null 2>&1; then
-  export JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")
-fi
 BUILD_TYPE=Release
 BUILD_TESTS=OFF
 BUILD_EXAMPLES=OFF

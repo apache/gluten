@@ -41,24 +41,6 @@ diff --git a/cpp/cmake_modules/ThirdpartyToolchain.cmake b/cpp/cmake_modules/Thi
 index a2627c190..e453512e6 100644
 --- a/cpp/cmake_modules/ThirdpartyToolchain.cmake
 +++ b/cpp/cmake_modules/ThirdpartyToolchain.cmake
-@@ -970,6 +970,7 @@
-     -DCMAKE_EXPORT_NO_PACKAGE_REGISTRY=${CMAKE_EXPORT_NO_PACKAGE_REGISTRY}
-     -DCMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY=${CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY}
-     -DCMAKE_INSTALL_LIBDIR=lib
-+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-     -DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}
-     -DCMAKE_VERBOSE_MAKEFILE=${CMAKE_VERBOSE_MAKEFILE})
-
-@@ -1633,7 +1633,7 @@
- 
- macro(build_thrift)
-   message(STATUS "Building Apache Thrift from source")
--  set(THRIFT_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/thrift_ep-install")
-+  set(THRIFT_PREFIX "/home/user/gluten-deps")
-   set(THRIFT_INCLUDE_DIR "${THRIFT_PREFIX}/include")
-   set(THRIFT_CMAKE_ARGS
-       ${EP_COMMON_CMAKE_ARGS}
-
 @@ -2557,13 +2557,9 @@ if(ARROW_WITH_ZSTD)
    if(ZSTD_VENDORED)
      set(ARROW_ZSTD_LIBZSTD zstd::libzstd_static)

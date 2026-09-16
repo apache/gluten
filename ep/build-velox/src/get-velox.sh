@@ -66,28 +66,6 @@ fi
 
 function process_setup_ubuntu {
   sed -i "s|run_and_time install_arrow||g" scripts/setup-ubuntu.sh
-  # snowballstem.org is unreachable from some build environments; the distro
-  # package satisfies the same CMake find_library/find_path lookup, so skip
-  # the source build and rely on apt instead.
-  sed -i 's/^  run_and_time install_stemmer/  sudo apt-get install -y libstemmer-dev/' scripts/setup-ubuntu.sh
-  # repo.anaconda.com is unreachable from some build environments. Conda is
-  # only used for optional Python tooling, not the core C++ build, and
-  # install_conda already short-circuits if its target directory exists.
-  mkdir -p "${HOME:-/opt}/miniconda-for-velox"
-  # Ubuntu focal's libxxhash-dev is 0.7.3, which only exposes the XXH3 API
-  # behind XXH_STATIC_LINKING_ONLY. fbthrift's Rocket transport includes
-  # <xxhash.h> expecting XXH3 to be public (stable since xxHash 0.8), so
-  # build a newer xxHash from source into /usr/local, which shadows the
-  # outdated /usr/include header and library.
-  sed -i '/^function install_velox_deps {/i\
-if ! grep -q "XXH_VERSION_MINOR    8" /usr/include/xxhash.h 2>/dev/null; then\
-  TMP_XXHASH_DIR=$(mktemp -d)\
-  curl -L https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.2.tar.gz | tar -xz -C "$TMP_XXHASH_DIR"\
-  make -C "$TMP_XXHASH_DIR"/xxHash-0.8.2 -j"$(nproc)" CC=cc\
-  sudo make -C "$TMP_XXHASH_DIR"/xxHash-0.8.2 install PREFIX=/usr/local\
-  rm -rf "$TMP_XXHASH_DIR"\
-  sudo ldconfig\
-fi' scripts/setup-ubuntu.sh
   echo "Using setup script from Velox"
 }
 
@@ -182,15 +160,6 @@ function apply_compilation_fixes {
   $SUDO_CMD cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
 
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
-
-  # A third-party dep built earlier in this same build (e.g. openzl) installs its own
-  # lz4 CMake package to /usr/local, exporting LZ4::lz4 (uppercase namespace). Since
-  # that Config file is now discoverable via CMAKE_PREFIX_PATH, CMake's default Config
-  # search finds it ahead of Velox's own Findlz4.cmake module, which instead defines
-  # the lowercase lz4::lz4 target that velox/common/compression/CMakeLists.txt links
-  # against, causing "Target \"velox\" links to: lz4::lz4 but the target was not found."
-  # Force Module mode so Velox's own Findlz4.cmake (defining lz4::lz4) is always used.
-  sed -i 's/find_package(lz4 REQUIRED)/find_package(lz4 MODULE REQUIRED)/' ${VELOX_HOME}/CMakeLists.txt
 }
 
 function setup_linux {
