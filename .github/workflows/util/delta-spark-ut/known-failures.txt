@@ -104,6 +104,21 @@ org.apache.spark.sql.delta.DeltaInsertIntoSQLByPathSuite#insertInto: timestamp p
 org.apache.spark.sql.delta.DeltaInsertIntoSQLSuite#insertInto: timestamp partition values with different precisions
 org.apache.spark.sql.delta.DeltaLiteVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaLiteVacuumSuite#vacuum for cdc - update/merge
+org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=true, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
+org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=true, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
+org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=true, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
+org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=false, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
+org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=false, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
+org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=false, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
+org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=true, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
+org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=true, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
+org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=true, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
+org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_CONTAINED, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
+org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_CONTAINED, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
+org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_CONTAINED, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
+org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_NOT_CONTAINED, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
+org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_NOT_CONTAINED, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
+org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_NOT_CONTAINED, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
 org.apache.spark.sql.delta.DeltaSinkIdColumnMappingSuite#partitioned writing and batch reading - column mapping id mode
 org.apache.spark.sql.delta.DeltaSinkNameColumnMappingSuite#partitioned writing and batch reading - column mapping name mode
 org.apache.spark.sql.delta.DeltaSuite#SC-8810: skip deleted file
