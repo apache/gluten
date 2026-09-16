@@ -20,8 +20,10 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.HashAggregateExecBaseTransformer
 
 import org.apache.spark.sql.execution.ProjectExec
+import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 import org.apache.spark.sql.functions.{max, min}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.TimestampNTZType
 
 import java.time.LocalDateTime
 
@@ -52,6 +54,61 @@ class GlutenTimestampNtzAggregateSuite extends GlutenSQLTestsTrait {
           assert(
             getExecutedPlan(result).exists(_.isInstanceOf[HashAggregateExecBaseTransformer]),
             result.queryExecution.executedPlan.treeString)
+      }
+    }
+  }
+
+  testGluten("min and max grouped by timestamp_ntz") {
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "false",
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+      SQLConf.SESSION_LOCAL_TIMEZONE.key -> "America/Los_Angeles",
+      SQLConf.SHUFFLE_PARTITIONS.key -> "2",
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false",
+      "spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "false"
+    ) {
+      withTempPath {
+        path =>
+          val beforeEpoch = LocalDateTime.parse("1969-12-31T23:59:59.999999")
+          val afterEpoch = LocalDateTime.parse("1970-01-01T00:00:00.000001")
+          val firstKey = LocalDateTime.parse("2024-01-01T00:00:00.123456")
+          val secondKey = LocalDateTime.parse("2024-01-01T00:00:00.123457")
+          Seq(
+            (firstKey, beforeEpoch),
+            (firstKey, secondKey),
+            (firstKey, null),
+            (secondKey, afterEpoch),
+            (secondKey, firstKey),
+            (null, beforeEpoch),
+            (null, afterEpoch),
+            (beforeEpoch, null)
+          ).toDF("key", "ts")
+            .write
+            .parquet(path.getCanonicalPath)
+
+          val result = spark.read
+            .parquet(path.getCanonicalPath)
+            .groupBy($"key")
+            .agg(min($"ts"), max($"ts"))
+          checkAnswer(
+            result,
+            Seq(
+              Row(firstKey, beforeEpoch, secondKey),
+              Row(secondKey, afterEpoch, firstKey),
+              Row(null, beforeEpoch, afterEpoch),
+              Row(beforeEpoch, null, null)))
+          val aggregates = getExecutedPlan(result).collect {
+            case aggregate: BaseAggregateExec => aggregate
+          }
+          assert(aggregates.nonEmpty, result.queryExecution.executedPlan.treeString)
+          assert(
+            aggregates.forall {
+              case aggregate: HashAggregateExecBaseTransformer =>
+                aggregate.groupingExpressions.map(_.dataType) == Seq(TimestampNTZType)
+              case _ => false
+            },
+            result.queryExecution.executedPlan.treeString
+          )
       }
     }
   }
