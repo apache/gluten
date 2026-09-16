@@ -25,7 +25,6 @@ include(CheckCXXCompilerFlag)
 message("Core module final CMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}")
 
 set(BOOST_MIN_VERSION "1.42.0")
-
 find_package(Boost REQUIRED)
 include_directories(${Boost_INCLUDE_DIRS})
 set(source_root_directory ${CMAKE_CURRENT_SOURCE_DIR})
@@ -49,7 +48,6 @@ if(CCACHE_FOUND)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
 endif(CCACHE_FOUND)
-
 
 macro(find_protobuf)
   set(CMAKE_FIND_LIBRARY_SUFFIXES_BCK ${CMAKE_FIND_LIBRARY_SUFFIXES})
@@ -213,27 +211,9 @@ if(ENABLE_QAT)
   target_link_libraries(gluten PUBLIC qatzip::qatzip qatzstd::qatzstd)
 endif()
 
-if(ENABLE_IAA)
-  include(BuildQpl)
-  target_include_directories(gluten PUBLIC ${QPL_INCLUDE_DIR})
-  target_sources(gluten PRIVATE utils/qpl/QplJobPool.cc utils/qpl/QplCodec.cc)
-  target_link_libraries(gluten PUBLIC qpl::qpl)
-endif()
-
 find_protobuf()
 message(STATUS "Found Protobuf: ${PROTOBUF_LIBRARY}")
-message(STATUS "Found Protobuf EXECUTABLE: ${Protobuf_PROTOC_EXECUTABLE}")
-
 target_link_libraries(gluten LINK_PUBLIC ${PROTOBUF_LIBRARY})
-target_link_libraries(gluten
-  PUBLIC
-    ${ZLIB_LIBRARIES}
-    ${LZ4_LIBRARIES}
-    ${ZSTD_LIBRARIES}
-)
-
-#find_package(absl REQUIRED)
-#target_link_libraries(gluten PRIVATE absl::base absl::strings absl::status absl::log)
 
 add_custom_command(
   OUTPUT ${SUBSTRAIT_PROTO_OUTPUT_FILES}
@@ -253,7 +233,7 @@ add_custom_command(
 
 add_custom_target(jni_proto ALL DEPENDS ${SUBSTRAIT_PROTO_OUTPUT_FILES}
                                         ${GLUTEN_PROTO_OUTPUT_FILES})
-#add_dependencies(jni_proto protobuf::libprotobuf)
+add_dependencies(jni_proto protobuf::libprotobuf)
 
 target_include_directories(
   gluten

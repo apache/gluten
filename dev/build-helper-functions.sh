@@ -230,10 +230,6 @@ function setup_linux {
   GLUTEN_VELOX_SCRIPT_HOME=$CURRENT_DIR/../ep/build-velox/src
   # Skip UTF-8 validation in JSON parsing. Required for compatibility with Spark.
   export SIMDJSON_SKIPUTF8VALIDATION=ON
-  # Gluten never turns on VELOX_ENABLE_FAISS (defaults OFF, unused by cpp/CMakeLists.txt),
-  # and Velox's own install_faiss hardcodes a clang++/llvm-11 toolchain that isn't
-  # guaranteed to exist on the build host.
-  export BUILD_FAISS=false
 
   if [[ "$LINUX_DISTRIBUTION" == "ubuntu" || "$LINUX_DISTRIBUTION" == "debian" || "$LINUX_DISTRIBUTION" == "pop" ]]; then
     source scripts/setup-ubuntu.sh

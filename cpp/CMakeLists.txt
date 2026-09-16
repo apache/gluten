@@ -173,11 +173,6 @@ endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${KNOWN_WARNINGS}")
 
-# Arrow's bundled arrow/c/helpers.h calls assert() without including <cassert>,
-# relying on it being pulled in transitively by an earlier header. That's not
-# guaranteed, so force it in.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include cassert")
-
 # Keep same compile option with Velox.
 execute_process(
   COMMAND
@@ -188,10 +183,6 @@ execute_process(
 if(COMMAND_STATUS EQUAL "1")
   message(FATAL_ERROR "Unable to determine compiler flags!")
 endif()
-
-message(STATUS "TEST DEBUG: ${CMAKE_CXX_FLAGS} ${SCRIPT_CXX_FLAGS}")
-#get_target_property(dirs INCLUDE_DIRECTORIES)
-#message(STATUS "Include directories for MyExecutable: ${dirs}")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SCRIPT_CXX_FLAGS}")
 
@@ -220,13 +211,6 @@ include(ConfigArrow)
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-
-set(JAVA_AWT_LIBRARY "$ENV{JAVA_HOME}/jre/lib/libjawt.dylib")
-set(JAVA_JVM_LIBRARY "$ENV{JAVA_HOME}/jre/lib/server/libjvm.dylib")
-
-set(JAVA_INCLUDE_PATH "$ENV{JAVA_HOME}/include")
-set(JAVA_INCLUDE_PATH2 "$ENV{JAVA_HOME}/include/linux")
-set(JAVA_AWT_INCLUDE_PATH "$ENV{JAVA_HOME}/include")
 
 find_package(JNI REQUIRED)
 

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 include_guard(GLOBAL)
-include(FetchContent)
 
 set(GLUTEN_GLOG_BUILD_SHA256_CHECKSUM
     8a83bf982f37bb70825df71a9709fa90ea9f4447fb3c099e1d720a439d88bad6)
@@ -26,7 +25,7 @@ message(STATUS "Building glog from source")
 FetchContent_Declare(
   glog
   URL ${GLUTEN_GLOG_SOURCE_URL}
-  URL_HASH ${GLUTEN_GLOG_BUILD_SHA256_CHECKSUM}
+  URL_HASH SHA256=${GLUTEN_GLOG_BUILD_SHA256_CHECKSUM}
   PATCH_COMMAND git apply ${CMAKE_CURRENT_LIST_DIR}/glog/glog-no-export.patch
                 && git apply ${CMAKE_CURRENT_LIST_DIR}/glog/glog-config.patch)
 
