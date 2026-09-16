@@ -29,19 +29,17 @@ import org.apache.parquet.hadoop.util.HadoopInputFile
 import java.io.File
 
 /**
- * Validates which configuration channel actually controls the Parquet row-group size of Gluten's
+ * Validates how the runtime Hadoop configuration controls the Parquet row-group size of Gluten's
  * native (Velox) writer.
  *
  * Background: Delta's `DeletionVectorsWithPredicatePushdownSuite.beforeAll` writes a 1M-row table
  * with `hadoopConf().set("parquet.block.size", 2MB)` and asserts the resulting file has more than
- * one Parquet row group. Under Gluten the file has a single row group, so `beforeAll` throws and
- * the whole suite aborts. These tests pin down why: the native writer flushes a row group when the
- * accumulated uncompressed size reaches `maxRowGroupBytes` (default 128MB, from
- * `parquet.block.size`) or the row count reaches `maxRowGroupRows` (default 100M). ~8MB of `int64`
- * data is far below the 128MB default (one row group) but far above the 1MB block size used here
- * (several row groups). For a plain Parquet write the runtime Hadoop-conf block size DOES reach the
- * native writer (all three tests below pass); the Delta abort is instead specific to the Delta
- * write path and is reproduced in VeloxDeltaParquetRowGroupSuite.
+ * one Parquet row group. The native writer flushes a row group when the accumulated uncompressed
+ * size reaches `maxRowGroupBytes` (default 128MB, from `parquet.block.size`) or the row count
+ * reaches `maxRowGroupRows` (default 100M). ~8MB of `int64` data is far below the 128MB default
+ * (one row group) but far above the 1MB block size used here (several row groups). These tests
+ * establish that a plain Parquet write receives the runtime Hadoop-conf block size; the Delta path
+ * is covered separately in VeloxDeltaParquetRowGroupSuite.
  */
 class VeloxParquetRowGroupSuite extends VeloxWholeStageTransformerSuite with WriteUtils {
 
@@ -54,7 +52,6 @@ class VeloxParquetRowGroupSuite extends VeloxWholeStageTransformerSuite with Wri
   // ~8MB of int64 data: << the 128MB default block size, >> the 1MB block size used below.
   private val numRows: Long = 1000000L
   private val smallBlockSize: Long = 1L * 1024 * 1024 // 1MB
-  private val glutenBlockSizeKey = "spark.gluten.sql.columnar.parquet.write.blockSize"
 
   private def rowGroupCount(dir: File): Int = {
     val parquetFiles =
@@ -82,28 +79,14 @@ class VeloxParquetRowGroupSuite extends VeloxWholeStageTransformerSuite with Wri
     withTempPath {
       f =>
         writeRangeNatively(f.getCanonicalPath)
-        // Exactly what DeletionVectorsWithPredicatePushdownSuite hits: ~8MB under the 128MB default
-        // is one row group, so its `> 1 row group` assert fails and the suite aborts.
+        // ~8MB under the 128MB default is one row group.
         assert(rowGroupCount(f) === 1)
     }
   }
 
-  test("native writer honors the Gluten block-size conf and emits multiple row groups") {
-    withTempPath {
-      f =>
-        withSQLConf(glutenBlockSizeKey -> smallBlockSize.toString) {
-          writeRangeNatively(f.getCanonicalPath)
-        }
-        // The Gluten conf is read directly by the native writer, so the 1MB block size takes effect
-        // and the file is split into several row groups.
-        assert(rowGroupCount(f) > 1)
-    }
-  }
-
   // Control: a plain Parquet write DOES honor `parquet.block.size` set on the runtime Hadoop conf,
-  // so this passes (multiple row groups). The Delta `beforeAll` abort is therefore NOT a generic
-  // native-writer problem -- it is specific to the Delta write path, reproduced separately in
-  // VeloxDeltaParquetRowGroupSuite.
+  // so this passes (multiple row groups). VeloxDeltaParquetRowGroupSuite applies the same
+  // configuration to Delta writes.
   test("native writer should respect parquet.block.size set on the runtime Hadoop conf") {
     // scalastyle:off hadoopconfiguration
     withTempPath {

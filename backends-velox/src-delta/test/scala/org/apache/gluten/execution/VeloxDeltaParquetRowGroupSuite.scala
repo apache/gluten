@@ -27,22 +27,19 @@ import org.apache.parquet.hadoop.util.HadoopInputFile
 import java.io.File
 
 /**
- * Reproduction for the Parquet row-group sizing bug behind Delta's
- * `DeletionVectorsWithPredicatePushdownSuite` abort.
+ * Covers the Delta write path implicated in `DeletionVectorsWithPredicatePushdownSuite` row-group
+ * setup failures.
  *
  * That suite sets `parquet.block.size = 2MB` on `spark.sparkContext.hadoopConfiguration`, writes a
- * 1M-row Delta table, and asserts the resulting data file has more than one row group. Under Gluten
- * the data file has a single row group, so `beforeAll` throws and the whole suite aborts.
+ * 1M-row Delta table, and asserts the resulting data file has more than one row group.
  *
  * VeloxParquetRowGroupSuite already showed that a *plain* Parquet write (`INSERT OVERWRITE
  * DIRECTORY ... USING PARQUET`) DOES honor `parquet.block.size` from that same runtime Hadoop conf
  * (multiple row groups). These tests isolate the remaining difference -- the *Delta* write path --
- * using the same conf source and data. They assert the desired behavior (> 1 row group) and are
- * expected to FAIL today, reproducing the Delta abort; they should turn green once the Hadoop-conf
- * block size is plumbed through the Delta write path to the native writer. The deletion-vectors
- * variant matches the original suite (which enables DVs on the table); the initial write is
- * identical with or without DVs, so both cases pin down the write path rather than DVs or
- * checkpoints.
+ * using the same conf source and data. Each case first requires the single-partition write to
+ * produce exactly one Parquet data file, then asserts that file has multiple row groups. The
+ * deletion-vectors variant matches the original suite; the initial write is identical with or
+ * without DVs, so both cases pin down the write path rather than DVs or checkpoints.
  */
 class VeloxDeltaParquetRowGroupSuite extends DeltaSuite {
 
@@ -60,20 +57,25 @@ class VeloxDeltaParquetRowGroupSuite extends DeltaSuite {
       entries.filter(_.isDirectory).flatMap(listParquetFiles)
   }
 
-  private def rowGroupCount(dir: File): Int = {
+  private def onlyParquetFile(dir: File): File = {
     val parquetFiles = listParquetFiles(dir)
-    assert(parquetFiles.nonEmpty, s"no parquet file written under ${dir.getAbsolutePath}")
-    parquetFiles.map {
-      file =>
-        val in = HadoopInputFile
-          .fromPath(new Path(file.getAbsolutePath), spark.sessionState.newHadoopConf())
-        val reader = ParquetFileReader.open(in)
-        try {
-          reader.getFooter.getBlocks.size().toInt
-        } finally {
-          reader.close()
-        }
-    }.sum
+    assert(
+      parquetFiles.size === 1,
+      s"expected exactly one Parquet data file under ${dir.getAbsolutePath}, found " +
+        parquetFiles.map(_.getAbsolutePath).mkString("[", ", ", "]")
+    )
+    parquetFiles.head
+  }
+
+  private def rowGroupCount(file: File): Int = {
+    val in = HadoopInputFile
+      .fromPath(new Path(file.getAbsolutePath), spark.sessionState.newHadoopConf())
+    val reader = ParquetFileReader.open(in)
+    try {
+      reader.getFooter.getBlocks.size().toInt
+    } finally {
+      reader.close()
+    }
   }
 
   private def writeDelta(path: String, enableDeletionVectors: Boolean): Unit = {
@@ -97,7 +99,7 @@ class VeloxDeltaParquetRowGroupSuite extends DeltaSuite {
     withTempPath {
       dir =>
         writeDelta(dir.getCanonicalPath, enableDeletionVectors = false)
-        assert(rowGroupCount(dir) > 1)
+        assert(rowGroupCount(onlyParquetFile(dir)) > 1)
     }
   }
 
@@ -107,7 +109,7 @@ class VeloxDeltaParquetRowGroupSuite extends DeltaSuite {
     withTempPath {
       dir =>
         writeDelta(dir.getCanonicalPath, enableDeletionVectors = true)
-        assert(rowGroupCount(dir) > 1)
+        assert(rowGroupCount(onlyParquetFile(dir)) > 1)
     }
   }
 }
