@@ -981,9 +981,12 @@ object VeloxConfig extends ConfigRegistry {
   val ENABLE_TIMESTAMP_NTZ_VALIDATION =
     buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")
       .doc(
-        "Enable validation fallback for TimestampNTZ type. When true, any plan " +
-          "containing TimestampNTZ will fall back to Spark execution. When false, " +
-          "allows native execution for TimestampNTZ scan.")
+        "Enable validation fallback for TimestampNTZ type. When true, plans with " +
+          "TimestampNTZ in their input or output schemas fall back to Spark execution. " +
+          "When false, supported TimestampNTZ scans, aggregates, shuffles and projections " +
+          "are eligible for native execution. Supported projections include direct columns " +
+          "and struct fields, casts, hour/minute/second extraction, timestamp addition " +
+          "and null checks. Other operator, expression and native validation rules still apply.")
       .booleanConf
       .createWithDefault(false)
 
