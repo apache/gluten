@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 
 import org.apache.spark.SparkException
@@ -324,52 +325,44 @@ class GlutenDataFrameSuite extends DataFrameSuite with GlutenSQLTestsTrait {
   }
 
   testGluten("Allow leading/trailing whitespace in string before casting") {
-    withSQLConf("spark.gluten.velox.castFromVarcharAddTrimNode" -> "true") {
-      def checkResult(df: DataFrame, expectedResult: Seq[Row]): Unit = {
-        checkAnswer(df, expectedResult)
-        assert(
-          find(df.queryExecution.executedPlan)(_.isInstanceOf[ProjectExecTransformer]).isDefined)
+    def checkResult(sql: String): Unit = {
+      var expected: Seq[Row] = null
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        expected = spark.sql(sql).collect()
       }
-
-      // scalastyle:off nonascii
-      Seq(
-        " 123",
-        "123 ",
-        " 123 ",
-        "\u2000123\n\n\n",
-        "123\r\r\r",
-        "123\f\f\f",
-        "123\u000C",
-        "123\u0000")
-        .toDF("col1")
-        .createOrReplaceTempView("t1")
-      // scalastyle:on nonascii
-      val expectedIntResult = Row(123) :: Row(123) ::
-        Row(123) :: Row(123) :: Row(123) :: Row(123) :: Row(123) :: Row(123) :: Nil
-      var df = spark.sql("select cast(col1 as int) from t1")
-      checkResult(df, expectedIntResult)
-      df = spark.sql("select cast(col1 as long) from t1")
-      checkResult(df, expectedIntResult)
-
-      Seq(" 123.5", "123.5 ", " 123.5 ", "123.5\n\n\n", "123.5\r\r\r", "123.5\f\f\f", "123.5\u000C")
-        .toDF("col1")
-        .createOrReplaceTempView("t1")
-      val expectedFloatResult = Row(123.5) :: Row(123.5) ::
-        Row(123.5) :: Row(123.5) :: Row(123.5) :: Row(123.5) :: Row(123.5) :: Nil
-      df = spark.sql("select cast(col1 as float) from t1")
-      checkResult(df, expectedFloatResult)
-      df = spark.sql("select cast(col1 as double) from t1")
-      checkResult(df, expectedFloatResult)
-
-      // scalastyle:off nonascii
-      val rawData =
-        Seq(" abc", "abc ", " abc ", "\u2000abc\n\n\n", "abc\r\r\r", "abc\f\f\f", "abc\u000C")
-      // scalastyle:on nonascii
-      rawData.toDF("col1").createOrReplaceTempView("t1")
-      val expectedBinaryResult = rawData.map(d => Row(d.getBytes(StandardCharsets.UTF_8))).seq
-      df = spark.sql("select cast(col1 as binary) from t1")
-      checkResult(df, expectedBinaryResult)
+      val df = spark.sql(sql)
+      checkAnswer(df, expected)
+      assert(find(df.queryExecution.executedPlan)(_.isInstanceOf[ProjectExecTransformer]).isDefined)
     }
+
+    // scalastyle:off nonascii
+    Seq(
+      " 123",
+      "123 ",
+      " 123 ",
+      "\u2000123\n\n\n",
+      "123\r\r\r",
+      "123\f\f\f",
+      "123\u000C",
+      "123\u0000")
+      .toDF("col1")
+      .createOrReplaceTempView("t1")
+    // scalastyle:on nonascii
+    checkResult("select cast(col1 as int) from t1")
+    checkResult("select cast(col1 as long) from t1")
+
+    Seq(" 123.5", "123.5 ", " 123.5 ", "123.5\n\n\n", "123.5\r\r\r", "123.5\f\f\f", "123.5\u000C")
+      .toDF("col1")
+      .createOrReplaceTempView("t1")
+    checkResult("select cast(col1 as float) from t1")
+    checkResult("select cast(col1 as double) from t1")
+
+    // scalastyle:off nonascii
+    val rawData =
+      Seq(" abc", "abc ", " abc ", "\u2000abc\n\n\n", "abc\r\r\r", "abc\f\f\f", "abc\u000C")
+    // scalastyle:on nonascii
+    rawData.toDF("col1").createOrReplaceTempView("t1")
+    checkResult("select cast(col1 as binary) from t1")
   }
 
   testGluten("SPARK-27439: Explain result should match collected result after view change") {
