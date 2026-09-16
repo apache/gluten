@@ -983,10 +983,8 @@ object VeloxConfig extends ConfigRegistry {
       .doc(
         "Enable validation fallback for TimestampNTZ type. When true, plans with " +
           "TimestampNTZ in their input or output schemas fall back to Spark execution. " +
-          "When false, supported TimestampNTZ scans, aggregates, shuffles and projections " +
-          "are eligible for native execution. Supported projections include direct columns " +
-          "and struct fields, casts, hour/minute/second extraction, timestamp addition " +
-          "and null checks. Other operator, expression and native validation rules still apply.")
+          "When false, supported TimestampNTZ operations are eligible for native execution, " +
+          "subject to other validation rules.")
       .booleanConf
       .createWithDefault(false)
 
