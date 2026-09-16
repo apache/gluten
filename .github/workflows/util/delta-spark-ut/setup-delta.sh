@@ -172,39 +172,45 @@ cherry_pick_delta_fix 46bd45d57eadd7e528002a0ae7bd36ce5a456eca "#7104 (ScanRepor
 cherry_pick_delta_fix 959e00e15f41f56afc1c9bb95d160c55c6dc7068 "#7105 (9 more test suites)"
 echo "::endgroup::"
 
-echo "::group::Reducing DeltaParquetFileFormat fixture block size"
+echo "::group::Capping DeltaParquetFileFormat fixture row groups by row count"
 # DeltaParquetFileFormatSuite generates one 20,000-row Parquet file and sets a
 # 50 KiB block size to ensure that it contains multiple row groups. Velox sizes
-# row groups by compressed buffered bytes, so the highly compressible integer
-# fixture remains a single row group and the DV read tests fail before reaching
-# their assertions. Reduce the fixture block size to 5 KiB so the compressed
-# data crosses the threshold while keeping the native write path enabled.
+# row groups by buffered bytes after writing each input batch. Because this
+# fixture arrives in one batch, lowering the byte threshold cannot split it.
+# Scope Gluten's native row-count limit around the fixture write so Arrow splits
+# the 20,000 rows deterministically while keeping the native write path enabled.
 DPFFS="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala"
 if [ ! -f "$DPFFS" ]; then
   echo "Expected file not found in Delta clone: $DPFFS" >&2
   echo "The Delta directory layout for ref '${DELTA_REF}' may have changed." >&2
   exit 1
 fi
-ORIGINAL_BLOCK_SIZE_LINES=$(
-  grep -Fxc '    hadoopConf().set("parquet.block.size", (1024 * 50).toString)' "$DPFFS" || true
+ORIGINAL_WRITES=$(
+  grep -Fxc '    df.write.format("delta").mode("append").save(tablePath)' "$DPFFS" || true
 )
-if [ "$ORIGINAL_BLOCK_SIZE_LINES" -ne 1 ]; then
-  echo "ERROR: expected exactly one original 50 KiB Parquet block-size line;" \
-    "found ${ORIGINAL_BLOCK_SIZE_LINES}." >&2
+if [ "$ORIGINAL_WRITES" -ne 1 ]; then
+  echo "ERROR: expected exactly one DeltaParquetFileFormat fixture write;" \
+    "found ${ORIGINAL_WRITES}." >&2
   echo "DeltaParquetFileFormatSuite may have changed in Delta ref '${DELTA_REF}'." >&2
   exit 1
 fi
-sed -i '/parquet.block.size/s/(1024 \* 50)/(1024 * 5)/' "$DPFFS"
-BLOCK_SIZE_LINES=$(
-  grep -Fxc '    hadoopConf().set("parquet.block.size", (1024 * 5).toString)' "$DPFFS" || true
+sed -i \
+  's|^    df.write.format("delta").mode("append").save(tablePath)$|    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "10000") {\
+      df.write.format("delta").mode("append").save(tablePath)\
+    }|' \
+  "$DPFFS"
+ROW_CAP_SCOPES=$(
+  grep -Fxc \
+    '    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "10000") {' \
+    "$DPFFS" || true
 )
-if [ "$BLOCK_SIZE_LINES" -ne 1 ]; then
-  echo "ERROR: expected exactly one 5 KiB Parquet block-size line;" \
-    "found ${BLOCK_SIZE_LINES}." >&2
+if [ "$ROW_CAP_SCOPES" -ne 1 ]; then
+  echo "ERROR: expected exactly one native Parquet row-count scope;" \
+    "found ${ROW_CAP_SCOPES}." >&2
   echo "DeltaParquetFileFormatSuite may have changed in Delta ref '${DELTA_REF}'." >&2
   exit 1
 fi
-echo "Reduced DeltaParquetFileFormat fixture block size to 5 KiB."
+echo "Capped DeltaParquetFileFormat fixture row groups at 10,000 rows."
 git -C "$DELTA_DIR" --no-pager diff -- \
   "spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala" || true
 echo "::endgroup::"
