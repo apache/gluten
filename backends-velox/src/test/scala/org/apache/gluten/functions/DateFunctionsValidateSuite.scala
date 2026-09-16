@@ -615,6 +615,41 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
         runQueryAndCompare("select timestampadd(hour, 1, ts) from view") {
           checkGlutenPlan[ProjectExecTransformer]
         }
+        // date_trunc(timestamp_ntz) runs natively; output is timestamp (no NTZ propagation).
+        runQueryAndCompare("select date_trunc('year', ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // date_add/date_sub(timestamp_ntz) run natively; output is date (no NTZ propagation).
+        runQueryAndCompare("select date_add(ts, 1) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare("select date_sub(ts, 1) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // datediff(timestamp_ntz) runs natively; output is int (no NTZ propagation).
+        runQueryAndCompare("select datediff(ts, ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // date_format(timestamp_ntz) runs natively; output is string (no NTZ propagation).
+        runQueryAndCompare("select date_format(ts, 'yyyy') from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // to_utc_timestamp(timestamp_ntz) runs natively; output is timestamp (no NTZ propagation).
+        runQueryAndCompare("select to_utc_timestamp(ts, 'America/Los_Angeles') from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // from_utc_timestamp(timestamp_ntz) runs natively; output is timestamp (no NTZ).
+        runQueryAndCompare("select from_utc_timestamp(ts, 'America/Los_Angeles') from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // year/month/day(timestamp_ntz) run natively; output is int (no NTZ propagation).
+        runQueryAndCompare("select year(ts), month(ts), day(ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // extract(timestamp_ntz) runs natively; output is int (no NTZ propagation).
+        runQueryAndCompare("select extract(year from ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
 
         // cast(timestamp_ntz as timestamp)
         runQueryAndCompare("select cast(ts as timestamp) from view") {
