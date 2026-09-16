@@ -25,7 +25,7 @@ import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNull, Minute, Second, TimestampAdd}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNotNull, IsNull, Minute, Second, TimestampAdd}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -295,6 +295,7 @@ object Validators {
                   case ConvertTimezone(_, _, child) => containsNTZ(child.dataType)
                   case c: Cast if isNTZ(c.dataType) || isNTZ(c.child.dataType) => true
                   case IsNull(child) => containsNTZ(child.dataType)
+                  case IsNotNull(child) => containsNTZ(child.dataType)
                   case _ => false
                 }
             }
