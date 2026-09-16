@@ -177,8 +177,9 @@ echo "::group::Capping DeltaParquetFileFormat fixture row groups by row count"
 # 50 KiB block size to ensure that it contains multiple row groups. Velox sizes
 # row groups by compressed buffered bytes, so the highly compressible integer
 # fixture remains a single row group and the DV read tests fail before reaching
-# their assertions. Gluten's native writer also supports parquet.block.rows;
-# cap the fixture at 10,000 rows to create at least two row groups regardless of
+# their assertions. Delta filters parquet.block.rows out of the write options,
+# so scope Gluten's native writer row limit around this fixture write. Cap the
+# fixture at 10,000 rows to create at least two row groups regardless of
 # compression while keeping the native write path enabled.
 DPFFS="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala"
 if [ ! -f "$DPFFS" ]; then
@@ -186,24 +187,38 @@ if [ ! -f "$DPFFS" ]; then
   echo "The Delta directory layout for ref '${DELTA_REF}' may have changed." >&2
   exit 1
 fi
-sed -i '/hadoopConf().set("parquet.block.size", (1024 \* 50).toString)/a\
-    hadoopConf().set("parquet.block.rows", "10000")' "$DPFFS"
-ADJACENT_ROW_CAPS=$(
+sed -i '
+  /^    val df = Seq.range(0, 20000).toDF().repartition(1)$/ {
+    n
+    s|^    df.write.format("delta").mode("append").save(tablePath)$|    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "10000") {\
+      df.write.format("delta").mode("append").save(tablePath)\
+    }|
+  }
+' "$DPFFS"
+SCOPED_ROW_CAPS=$(
   awk '
-    previous == "    hadoopConf().set(\"parquet.block.size\", (1024 * 50).toString)" &&
-        $0 == "    hadoopConf().set(\"parquet.block.rows\", \"10000\")" {
+    BEGIN {
+      expectedDf = "    val df = Seq.range(0, 20000).toDF().repartition(1)"
+      expectedScope = "    withSQLConf(\"spark.gluten.sql.native.parquet.write.blockRows\"" \
+        " -> \"10000\") {"
+      expectedWrite = "      df.write.format(\"delta\").mode(\"append\").save(tablePath)"
+    }
+    previous3 == expectedDf && previous2 == expectedScope &&
+        previous1 == expectedWrite && $0 == "    }" {
       count++
     }
-    { previous = $0 }
+    { previous3 = previous2; previous2 = previous1; previous1 = $0 }
     END { print count + 0 }
   ' "$DPFFS"
 )
-ROW_CAP_LINES=$(
-  grep -Fxc '    hadoopConf().set("parquet.block.rows", "10000")' "$DPFFS" || true
+ROW_CAP_SCOPES=$(
+  grep -Fxc \
+    '    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "10000") {' \
+    "$DPFFS" || true
 )
-if [ "$ADJACENT_ROW_CAPS" -ne 1 ] || [ "$ROW_CAP_LINES" -ne 1 ]; then
-  echo "ERROR: expected one adjacent Parquet block-size and row-cap pair and no" \
-    "other row-cap lines; found ${ADJACENT_ROW_CAPS} pair(s) and ${ROW_CAP_LINES} line(s)." >&2
+if [ "$SCOPED_ROW_CAPS" -ne 1 ] || [ "$ROW_CAP_SCOPES" -ne 1 ]; then
+  echo "ERROR: expected exactly one scoped native Parquet row cap around the fixture write;" \
+    "found ${SCOPED_ROW_CAPS} valid block(s) and ${ROW_CAP_SCOPES} scope line(s)." >&2
   echo "DeltaParquetFileFormatSuite may have changed in Delta ref '${DELTA_REF}'." >&2
   exit 1
 fi
