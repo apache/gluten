@@ -18,7 +18,7 @@ Dockerfile.centos8-gcc13-static-build | apache/gluten:vcpkg-centos-8-gcc13 | cen
 Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk8 | centos 8, dynamic link, jdk8
 Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk11 | centos 8, dynamic link, jdk11
 Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk17 | centos 8, dynamic link, jdk17
-cudf/Dockerfile | apache/gluten:centos-9-jdk8-cudf | centos 9, dynamic link, jdk8
+cudf/Dockerfile.centos-9-jdk17-cuda13.1-cudf | apache/gluten:centos-9-jdk17-cuda13.1-cudf | centos 9, dynamic link, jdk17
 
 The Docker images can be found at [https://hub.docker.com/r/apache/gluten/tags](https://hub.docker.com/r/apache/gluten/tags).
 

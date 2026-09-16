@@ -214,6 +214,8 @@ object CHExpressionUtil {
     DIV -> DefaultValidator(),
     REGEXP_INSTR -> DefaultValidator(),
     DAY_NAME -> DefaultValidator(),
-    MONTH_NAME -> DefaultValidator()
+    MONTH_NAME -> DefaultValidator(),
+    FORMAT_NUMBER -> DefaultValidator(),
+    RANDN -> DefaultValidator()
   )
 }

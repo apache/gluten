@@ -19,7 +19,6 @@ package org.apache.spark.sql.execution.benchmarks
 import org.apache.gluten.backendsapi.clickhouse.CHBackendSettings
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{FileSourceScanExecTransformer, ProjectExecTransformer, WholeStageTransformer}
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkEnv
 import org.apache.spark.benchmark.Benchmark
@@ -29,8 +28,9 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, ColumnarShuffleExchangeExec, FileSourceScanExec, WholeStageCodegenExec}
 import org.apache.spark.sql.execution.benchmark.SqlBasedBenchmark
 import org.apache.spark.sql.execution.benchmarks.utils.FakeFileOutputStream
-import org.apache.spark.sql.execution.datasources.{FilePartition, PartitionedFile}
+import org.apache.spark.sql.execution.datasources.{FilePartition, FileScanRDD, PartitionedFile}
 import org.apache.spark.sql.execution.exchange.{ENSURE_REQUIREMENTS, ShuffleExchangeExec}
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.storage.ShuffleBlockId
 
@@ -330,9 +330,15 @@ object CHAggAndShuffleBenchmark extends SqlBasedBenchmark with CHSqlBasedBenchma
         )
 
       val newFileScanRDD =
-        SparkShimLoader.getSparkShims
-          .generateFileScanRDD(spark, readFile, filePartitions, sparkFileScan)
-          .asInstanceOf[RDD[ColumnarBatch]]
+        new FileScanRDD(
+          spark,
+          readFile,
+          filePartitions,
+          new StructType(
+            sparkFileScan.requiredSchema.fields ++
+              sparkFileScan.relation.partitionSchema.fields),
+          sparkFileScan.fileConstantMetadataColumns
+        ).asInstanceOf[RDD[ColumnarBatch]]
 
       // Get the total row count
       val rowCnt = newFileScanRDD

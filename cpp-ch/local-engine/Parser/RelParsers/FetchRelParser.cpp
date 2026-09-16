@@ -31,7 +31,9 @@ public:
     DB::QueryPlanPtr parse(DB::QueryPlanPtr query_plan, const substrait::Rel & rel, std::list<const substrait::Rel *> &)
     {
         const auto & limit = rel.fetch();
-        auto limit_step = std::make_unique<DB::LimitStep>(query_plan->getCurrentHeader(), limit.count(), limit.offset());
+        size_t count = limit.has_count_expr() ? limit.count_expr().literal().i64() : 0;
+        size_t offset = limit.has_offset_expr() ? limit.offset_expr().literal().i64() : 0;
+        auto limit_step = std::make_unique<DB::LimitStep>(query_plan->getCurrentHeader(), count, offset);
         limit_step->setStepDescription("LIMIT");
         steps.push_back(limit_step.get());
         query_plan->addStep(std::move(limit_step));

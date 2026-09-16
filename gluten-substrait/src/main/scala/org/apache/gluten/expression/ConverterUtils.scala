@@ -160,7 +160,7 @@ object ConverterUtils extends Logging {
         (StringType, isNullable(substraitType.getString.getNullability))
       case Type.KindCase.BINARY =>
         (BinaryType, isNullable(substraitType.getBinary.getNullability))
-      case Type.KindCase.TIMESTAMP =>
+      case Type.KindCase.PRECISION_TIMESTAMP =>
         try {
           (
             Class
@@ -168,13 +168,13 @@ object ConverterUtils extends Logging {
               .getField("MODULE$")
               .get(null)
               .asInstanceOf[DataType],
-            isNullable(substraitType.getTimestamp.getNullability))
+            isNullable(substraitType.getPrecisionTimestamp.getNullability))
         } catch {
           case _: ReflectiveOperationException =>
             throw new GlutenNotSupportException(s"Type $substraitType not supported.")
         }
-      case Type.KindCase.TIMESTAMP_TZ =>
-        (TimestampType, isNullable(substraitType.getTimestampTz.getNullability))
+      case Type.KindCase.PRECISION_TIMESTAMP_TZ =>
+        (TimestampType, isNullable(substraitType.getPrecisionTimestampTz.getNullability))
       case Type.KindCase.DATE =>
         (DateType, isNullable(substraitType.getDate.getNullability))
       case Type.KindCase.DECIMAL =>

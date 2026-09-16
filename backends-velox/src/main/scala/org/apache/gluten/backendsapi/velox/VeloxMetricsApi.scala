@@ -695,6 +695,15 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashProbeDynamicFiltersProduced" -> SQLMetrics.createMetric(
         sparkContext,
         "number of hash probe dynamic filters produced"),
+      "hashProbeBloomFilterTestedRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of rows tested by the hash probe bloom filter"),
+      "hashProbeBloomFilterAcceptedRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of rows accepted by the hash probe bloom filter"),
+      "hashProbeBloomFilterBypassed" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of hash probe bloom filter bypass decisions"),
       "bloomFilterBlocksByteSize" -> SQLMetrics.createSizeMetric(
         sparkContext,
         "bloom filter blocks byte size"),

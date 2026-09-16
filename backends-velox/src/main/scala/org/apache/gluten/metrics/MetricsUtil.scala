@@ -80,6 +80,9 @@ object MetricsUtil extends Logging {
       customMetricSum(node, "abandonedPartialAggregationRows")
     metrics.loadedToValueHook = customMetricSum(node, "loadedToValueHook")
     metrics.bloomFilterBlocksByteSize = customMetricSum(node, "bloomFilterSize")
+    metrics.bloomFilterTestedRows = customMetricSum(node, "bloomFilterTestedRows")
+    metrics.bloomFilterAcceptedRows = customMetricSum(node, "bloomFilterAcceptedRows")
+    metrics.bloomFilterBypassed = customMetricSum(node, "bloomFilterBypassed")
     metrics.scanTime = customMetricSum(node, "totalScanTime")
     metrics.skippedSplits = customMetricSum(node, "skippedSplits")
     metrics.processedSplits = customMetricSum(node, "processedSplits")
@@ -92,7 +95,7 @@ object MetricsUtil extends Logging {
     metrics.localReadBytes = customMetricSum(node, "localReadBytes")
     metrics.ramReadBytes = customMetricSum(node, "ramReadBytes")
     metrics.preloadSplits = customMetricSum(node, "readyPreloadedSplits")
-    metrics.pageLoadTime = customMetricSum(node, "pageLoadTimeNs")
+    metrics.pageLoadTime = customMetricSum(node, "parquet.pageLoadTimeNanos")
     metrics.dataSourceAddSplitTime = customMetricSum(node, "dataSourceAddSplitWallNanos") +
       customMetricSum(node, "waitForPreloadSplitNanos")
     metrics.dataSourceReadTime = customMetricSum(node, "dataSourceReadWallNanos")
@@ -240,6 +243,9 @@ object MetricsUtil extends Logging {
     var abandonedPartialAggregationRows: Long = 0
     var loadedToValueHook: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
+    var bloomFilterTestedRows: Long = 0
+    var bloomFilterAcceptedRows: Long = 0
+    var bloomFilterBypassed: Long = 0
     var scanTime: Long = 0
     var skippedSplits: Long = 0
     var processedSplits: Long = 0
@@ -278,6 +284,9 @@ object MetricsUtil extends Logging {
       abandonedPartialAggregationRows += metrics.abandonedPartialAggregationRows
       loadedToValueHook += metrics.loadedToValueHook
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
+      bloomFilterTestedRows += metrics.bloomFilterTestedRows
+      bloomFilterAcceptedRows += metrics.bloomFilterAcceptedRows
+      bloomFilterBypassed += metrics.bloomFilterBypassed
       scanTime += metrics.scanTime
       skippedSplits += metrics.skippedSplits
       processedSplits += metrics.processedSplits
@@ -297,7 +306,7 @@ object MetricsUtil extends Logging {
       loadLazyVectorTime += metrics.loadLazyVectorTime
     }
 
-    new OperatorMetrics(
+    val aggregated = new OperatorMetrics(
       inputRows,
       inputVectors,
       inputBytes,
@@ -343,6 +352,10 @@ object MetricsUtil extends Logging {
       numWrittenFiles,
       loadLazyVectorTime
     )
+    aggregated.bloomFilterTestedRows = bloomFilterTestedRows
+    aggregated.bloomFilterAcceptedRows = bloomFilterAcceptedRows
+    aggregated.bloomFilterBypassed = bloomFilterBypassed
+    aggregated
   }
 
   // FIXME: Metrics updating code is too magical to maintain. Tree-walking algorithm should be made
@@ -382,7 +395,8 @@ object MetricsUtil extends Logging {
         }
         smj.updateJoinMetrics(operatorMetrics, singleMetrics, joinParams)
       case ju: JoinMetricsUpdaterBase =>
-        // JoinRel and CrossRel output two suites of metrics respectively for build and probe.
+        // JoinRel and NestedLoopJoinRel output two suites of metrics respectively for build and
+        // probe.
         // Therefore, fetch one more suite of metrics here.
         operatorMetrics.add(nativeMetrics.get(curMetricsIdx))
         curMetricsIdx -= 1

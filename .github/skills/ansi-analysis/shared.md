@@ -53,7 +53,7 @@ Each recommendation includes:
 Key source locations (for reference):
 
 Spark plan layer (Scala):
-- ANSI Cast/arithmetic detection: shims/sparkXX/src/main/scala/org/apache/gluten/sql/shims/sparkXX/SparkXXShims.scala (withAnsiEvalMode). Variants per Spark version: shims/spark34/, shims/spark35/, shims/spark40/, shims/spark41/
+- ANSI Cast/arithmetic detection: gluten-substrait/src/main/scala/org/apache/gluten/expression/ExpressionUtils.scala (withAnsiEvalMode)
 - ANSI fallback rule: gluten-substrait/src/main/scala/org/apache/gluten/extension/columnar/FallbackRules.scala (enableAnsiMode && enableAnsiFallback check)
 - ANSI config: gluten-substrait/src/main/scala/org/apache/gluten/config/GlutenConfig.scala (enableAnsiFallback, GLUTEN_ANSI_FALLBACK_ENABLED = spark.gluten.sql.ansiFallback.enabled, default true)
 
@@ -97,7 +97,7 @@ You SHOULD:
 1. Extract Velox file path + line number from failCause strings
 2. Read those Velox source files to verify your root cause analysis
 3. Always check `isAnsiSupported()` in SparkCastExpr.cpp when the failure involves Cast — this function gates which casts honor ANSI semantics. Currently only String→{Boolean, Date, Integral} are supported; all other ANSI casts silently fall back to try_cast (most common root cause of NO_EXCEPTION failures involving Cast). Use grep to locate the current implementation.
-4. Cross-reference with `withAnsiEvalMode` in the appropriate shims/sparkXX/.../SparkXXShims.scala to confirm the Spark plan sent the expression with the ANSI tag.
+4. Cross-reference with `withAnsiEvalMode` in gluten-substrait/src/main/scala/org/apache/gluten/expression/ExpressionUtils.scala to confirm the Spark plan sent the expression with the ANSI tag.
 5. **For Fallback (🔴) records — the highest-priority class — you MUST trace which validator rejected the expression**:
    a. First grep `getTypeNode` and `GlutenNotSupportException` in `gluten-substrait/.../ConverterUtils.scala` to check whether the expression's input/output Spark DataType is in the unsupported list (interval types, certain complex/nested types, etc.). This is the single most common Fallback cause.
    b. If the type is supported, check `Validators.scala` (`fallbackByBackendSettings`, `fallbackByUserOptions`, `fallbackByTimestampNTZ`, `fallbackByNativeValidation`, etc.) to identify which gate fires.

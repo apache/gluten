@@ -364,6 +364,13 @@ trait SparkPlanExecApi {
     throw new GlutenNotSupportException("ArrayInsert is not supported")
   }
 
+  /** Whether the backend supports offloading the given [[LocalTableScanExec]] to native. */
+  def isSupportLocalTableScanExec(plan: LocalTableScanExec): Boolean = false
+
+  /** Returns the backend transformer that replaces the given [[LocalTableScanExec]]. */
+  def getLocalTableScanTransform(plan: LocalTableScanExec): LocalTableScanTransformer =
+    throw new GlutenNotSupportException("LocalTableScanExec is not supported")
+
   // For date_add(cast('2001-01-01' as Date), interval 1 day), backends may handle it in different
   // ways
   def genDateAddTransformer(
@@ -654,6 +661,17 @@ trait SparkPlanExecApi {
 
   def getRDDScanTransform(plan: RDDScanExec): RDDScanTransformer =
     throw new GlutenNotSupportException("RDDScanExec is not supported")
+
+  /**
+   * Whether the backend supports offloading the given empty-relation plan to a columnar
+   * transformer. Typed as [[SparkPlan]] because EmptyRelationExec only exists on Spark 4.0+;
+   * callers must first confirm the type through `SparkShims.isEmptyRelationExec`.
+   */
+  def isSupportEmptyRelationExec(plan: SparkPlan): Boolean = false
+
+  /** Returns the backend transformer that replaces the given empty-relation plan. */
+  def getEmptyRelationExecTransform(plan: SparkPlan): EmptyRelationExecTransformer =
+    throw new GlutenNotSupportException("EmptyRelationExec is not supported")
 
   def copyColumnarBatch(batch: ColumnarBatch): ColumnarBatch =
     throw new GlutenNotSupportException("Copying ColumnarBatch is not supported")

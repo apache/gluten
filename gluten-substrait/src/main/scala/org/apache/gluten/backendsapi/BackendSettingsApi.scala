@@ -27,8 +27,7 @@ import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions.{Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.connector.read.Scan
-import org.apache.spark.sql.execution.command.CreateDataSourceTableAsSelectCommand
-import org.apache.spark.sql.execution.datasources.{FileFormat, InsertIntoHadoopFsRelationCommand}
+import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.types.{StructField, StructType}
 
 import org.apache.hadoop.conf.Configuration
@@ -123,10 +122,6 @@ trait BackendSettingsApi {
 
   def insertPostProjectForGenerate(): Boolean = false
 
-  def skipNativeCtas(ctas: CreateDataSourceTableAsSelectCommand): Boolean = false
-
-  def skipNativeInsertInto(insertInto: InsertIntoHadoopFsRelationCommand): Boolean = false
-
   def alwaysFailOnMapExpression(): Boolean = false
 
   def requiredChildOrderingForWindowGroupLimit(): Boolean = true
@@ -151,6 +146,8 @@ trait BackendSettingsApi {
   def needPreComputeRangeFrameBoundary(): Boolean = false
 
   def supportIcebergEqualityDeleteRead(): Boolean = true
+
+  def supportIcebergInitialDefaultRead(): Boolean = false
 
   def reorderColumnsForPartitionWrite(): Boolean = false
 

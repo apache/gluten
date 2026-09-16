@@ -16,8 +16,6 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.gluten.execution.VeloxColumnarToCarrierRowExec
-
 import org.apache.spark.sql.{DataFrame, GlutenQueryTest}
 import org.apache.spark.sql.catalyst.expressions.{BitwiseAnd, Expression, HiveHash, Literal, Pmod, UnsafeProjection}
 import org.apache.spark.sql.functions._
@@ -39,11 +37,7 @@ trait WriteUtils extends GlutenQueryTest with SQLTestUtils {
       override def onFailure(f: String, qe: QueryExecution, e: Exception): Unit = {}
       override def onSuccess(funcName: String, qe: QueryExecution, duration: Long): Unit = {
         if (!nativeUsed) {
-          nativeUsed = if (isSparkVersionGE("3.4")) {
-            qe.executedPlan.exists(_.isInstanceOf[ColumnarWriteFilesExec])
-          } else {
-            qe.executedPlan.exists(_.isInstanceOf[VeloxColumnarToCarrierRowExec])
-          }
+          nativeUsed = qe.executedPlan.exists(_.isInstanceOf[ColumnarWriteFilesExec])
         }
       }
     }

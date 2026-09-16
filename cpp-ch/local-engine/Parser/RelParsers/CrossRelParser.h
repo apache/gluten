@@ -55,13 +55,13 @@ private:
     std::vector<DB::QueryPlanPtr> extra_plan_holder;
 
 
-    DB::QueryPlanPtr parseJoin(const substrait::CrossRel & join, DB::QueryPlanPtr left, DB::QueryPlanPtr right);
+    DB::QueryPlanPtr parseJoin(const substrait::NestedLoopJoinRel & join, DB::QueryPlanPtr left, DB::QueryPlanPtr right);
     void renamePlanColumns(DB::QueryPlan & left, DB::QueryPlan & right, const StorageJoinFromReadBuffer & storage_join);
     void addConvertStep(DB::TableJoin & table_join, DB::QueryPlan & left, DB::QueryPlan & right);
-    void addPostFilter(DB::QueryPlan & query_plan, const substrait::CrossRel & join);
+    void addPostFilter(DB::QueryPlan & query_plan, const substrait::NestedLoopJoinRel & join);
     bool applyJoinFilter(
         DB::TableJoin & table_join,
-        const substrait::CrossRel & join_rel,
+        const substrait::NestedLoopJoinRel & join_rel,
         DB::QueryPlan & left,
         DB::QueryPlan & right,
         bool allow_mixed_condition);

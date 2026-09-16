@@ -83,7 +83,7 @@ public class StorageJoinBuilder {
       joinType =
           JoinTypeTransform.toSubstraitJoinType(broadcastContext.joinType(), buildRight).ordinal();
     } else {
-      joinType = SubstraitUtil.toCrossRelSubstrait(broadcastContext.joinType()).ordinal();
+      joinType = SubstraitUtil.toNestedLoopJoinSubstrait(broadcastContext.joinType()).ordinal();
     }
 
     return nativeBuild(

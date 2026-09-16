@@ -34,7 +34,6 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.noop.GlutenNoopWriterRule
-import org.apache.spark.util.SparkVersionUtil
 
 class VeloxRuleApi extends RuleApi {
   import VeloxRuleApi._
@@ -104,12 +103,10 @@ object VeloxRuleApi {
       Seq(
         RewriteIn,
         RewriteMultiChildrenCount,
-        RewriteJoin) ++
-        (if (SparkVersionUtil.eqSpark33) Seq(AlignExpandOutputTypes) else Seq.empty) ++
-        Seq(
-          PullOutPreProject,
-          PullOutPostProject,
-          ProjectColumnPruning)
+        RewriteJoin,
+        PullOutPreProject,
+        PullOutPostProject,
+        ProjectColumnPruning)
     injector.injectTransform(
       c =>
         HeuristicTransform.WithRewrites(
@@ -138,9 +135,6 @@ object VeloxRuleApi {
 
     // Gluten columnar: Post rules.
     injector.injectPost(c => RemoveTopmostColumnarToRow(c.session, c.caller.isAqe()))
-    SparkShimLoader.getSparkShims
-      .getExtendedColumnarPostRules()
-      .foreach(each => injector.injectPost(c => each(c.session)))
     injector.injectPost(c => ColumnarCollapseTransformStages(new GlutenConfig(c.sqlConf)))
     injector.injectPost(_ => GenerateTransformStageId())
     injector.injectPost(c => CudfNodeValidationRule(new GlutenConfig(c.sqlConf)))

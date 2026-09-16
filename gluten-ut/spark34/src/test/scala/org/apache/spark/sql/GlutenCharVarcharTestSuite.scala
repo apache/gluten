@@ -63,7 +63,8 @@ class GlutenFileSourceCharVarcharTestSuite
       typeName =>
         sql(s"CREATE TABLE t(c MAP<$typeName(5), STRING>) USING $format")
         val e = intercept[SparkException](sql("INSERT INTO t VALUES (map('123456', 'a'))"))
-        assert(e.getMessage.contains(ERROR_MESSAGE))
+        // Gluten exception differs from Spark
+        assert(e.getMessage.contains(VELOX_ERROR_MESSAGE))
     }
   }
 
@@ -74,7 +75,8 @@ class GlutenFileSourceCharVarcharTestSuite
         sql("INSERT INTO t VALUES (map('a', null))")
         checkAnswer(spark.table("t"), Row(Map("a" -> null)))
         val e = intercept[SparkException](sql("INSERT INTO t VALUES (map('a', '123456'))"))
-        assert(e.getMessage.contains(ERROR_MESSAGE))
+        // Gluten exception differs from Spark
+        assert(e.getMessage.contains(VELOX_ERROR_MESSAGE))
     }
   }
 
@@ -83,9 +85,11 @@ class GlutenFileSourceCharVarcharTestSuite
       typeName =>
         sql(s"CREATE TABLE t(c MAP<$typeName(5), $typeName(5)>) USING $format")
         val e1 = intercept[SparkException](sql("INSERT INTO t VALUES (map('123456', 'a'))"))
-        assert(e1.getMessage.contains(ERROR_MESSAGE))
+        // Gluten exception differs from Spark
+        assert(e1.getMessage.contains(VELOX_ERROR_MESSAGE))
         val e2 = intercept[SparkException](sql("INSERT INTO t VALUES (map('a', '123456'))"))
-        assert(e2.getMessage.contains(ERROR_MESSAGE))
+        // Gluten exception differs from Spark
+        assert(e2.getMessage.contains(VELOX_ERROR_MESSAGE))
     }
   }
 
@@ -297,6 +301,71 @@ class GlutenDSV2CharVarcharTestSuite extends DSV2CharVarcharTestSuite with Glute
           sql(s"CREATE TABLE t(a ARRAY<STRUCT<n_c: $typ, n_i: INT>>) USING $format")
           val inputDF = sql("SELECT array(named_struct('n_i', 1, 'n_c', '123456')) AS a")
           val e = intercept[SparkException](inputDF.writeTo("t").append())
+          assert(e.getMessage.contains(VELOX_ERROR_MESSAGE))
+        }
+    }
+  }
+
+  testGluten("length check for input string values: nested in map key") {
+    testTableWrite {
+      typeName =>
+        sql(s"CREATE TABLE t(c MAP<$typeName(5), STRING>) USING $format")
+        val e = intercept[SparkException](sql("INSERT INTO t VALUES (map('123456', 'a'))"))
+        // Gluten exception differs from Spark
+        assert(e.getMessage.contains(VELOX_ERROR_MESSAGE))
+    }
+  }
+
+  testGluten("length check for input string values: nested in map value") {
+    testTableWrite {
+      typeName =>
+        sql(s"CREATE TABLE t(c MAP<STRING, $typeName(5)>) USING $format")
+        sql("INSERT INTO t VALUES (map('a', null))")
+        checkAnswer(spark.table("t"), Row(Map("a" -> null)))
+        val e = intercept[SparkException](sql("INSERT INTO t VALUES (map('a', '123456'))"))
+        // Gluten exception differs from Spark
+        assert(e.getMessage.contains(VELOX_ERROR_MESSAGE))
+    }
+  }
+
+  testGluten("length check for input string values: nested in both map key and value") {
+    testTableWrite {
+      typeName =>
+        sql(s"CREATE TABLE t(c MAP<$typeName(5), $typeName(5)>) USING $format")
+        val e1 = intercept[SparkException](sql("INSERT INTO t VALUES (map('123456', 'a'))"))
+        // Gluten exception differs from Spark
+        assert(e1.getMessage.contains(VELOX_ERROR_MESSAGE))
+        val e2 = intercept[SparkException](sql("INSERT INTO t VALUES (map('a', '123456'))"))
+        // Gluten exception differs from Spark
+        assert(e2.getMessage.contains(VELOX_ERROR_MESSAGE))
+    }
+  }
+
+  testGluten("SPARK-42611: check char/varchar length in reordered structs within map keys") {
+    Seq("CHAR(5)", "VARCHAR(5)").foreach {
+      typ =>
+        withTable("t") {
+          sql(s"CREATE TABLE t(m MAP<STRUCT<n_c: $typ, n_i: INT>, INT>) USING $format")
+
+          val inputDF = sql("SELECT map(named_struct('n_i', 1, 'n_c', '123456'), 1) AS m")
+
+          val e = intercept[SparkException](inputDF.writeTo("t").append())
+          // Gluten exception differs from Spark
+          assert(e.getMessage.contains(VELOX_ERROR_MESSAGE))
+        }
+    }
+  }
+
+  testGluten("SPARK-42611: check char/varchar length in reordered structs within map values") {
+    Seq("CHAR(5)", "VARCHAR(5)").foreach {
+      typ =>
+        withTable("t") {
+          sql(s"CREATE TABLE t(m MAP<INT, STRUCT<n_c: $typ, n_i: INT>>) USING $format")
+
+          val inputDF = sql("SELECT map(1, named_struct('n_i', 1, 'n_c', '123456')) AS m")
+
+          val e = intercept[SparkException](inputDF.writeTo("t").append())
+          // Gluten exception differs from Spark
           assert(e.getMessage.contains(VELOX_ERROR_MESSAGE))
         }
     }

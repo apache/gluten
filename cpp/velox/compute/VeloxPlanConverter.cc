@@ -53,6 +53,10 @@ VeloxPlanConverter::VeloxPlanConverter(
 }
 
 namespace {
+// Keep this key in sync with the JVM-side constant
+// LocalFilesNode.COLUMN_MAPPING_MODE_METADATA_KEY.
+constexpr std::string_view kColumnMappingModeMetadataKey = "__gluten.column_mapping_mode";
+
 std::optional<std::string> unpackMetadataValue(const google::protobuf::Any& value) {
   google::protobuf::BytesValue bytesValue;
   if (value.UnpackTo(&bytesValue)) {
@@ -79,14 +83,23 @@ std::optional<std::string> unpackMetadataValue(const google::protobuf::Any& valu
     return std::to_string(doubleValue.value());
   }
 
-  // Matches the string encoding the JVM side uses for booleans, which are packed through
-  // SubstraitUtil.convertJavaObjectToAny's toString fallback rather than as BoolValue.
+  // Matches the string encoding the JVM side uses for booleans, which are
+  // packed through SubstraitUtil.convertJavaObjectToAny's toString fallback
+  // rather than as BoolValue.
   google::protobuf::BoolValue boolValue;
   if (value.UnpackTo(&boolValue)) {
     return boolValue.value() ? "true" : "false";
   }
 
   return std::nullopt;
+}
+
+std::optional<velox::dwio::common::ColumnMappingMode> parseColumnMappingMode(const google::protobuf::Any& value) {
+  auto unpacked = unpackMetadataValue(value);
+  if (!unpacked.has_value()) {
+    return std::nullopt;
+  }
+  return velox::dwio::common::ColumnMappingModeName::tryToColumnMappingMode(*unpacked);
 }
 
 delta::DeltaRowIndexFilterType parseDeltaRowIndexFilterType(int filterType) {
@@ -137,9 +150,10 @@ std::shared_ptr<DeltaSplitInfo> parseDeltaSplitInfo(
 
 std::shared_ptr<SplitInfo> parseScanSplitInfo(
     const facebook::velox::config::ConfigBase* veloxCfg,
-    const google::protobuf::RepeatedPtrField<substrait::ReadRel_LocalFiles_FileOrFiles>& fileList) {
+    const substrait::ReadRel_LocalFiles& localFiles) {
   using SubstraitFileFormatCase = ::substrait::ReadRel_LocalFiles_FileOrFiles::FileFormatCase;
 
+  const auto& fileList = localFiles.items();
   auto splitInfo = std::make_shared<SplitInfo>();
   splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
   splitInfo->paths.reserve(fileList.size());
@@ -163,6 +177,15 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
       metadataColumnMap[metadataColumn.key()] = metadataColumn.value();
     }
     for (const auto& otherMetadataColumn : file.other_const_metadata_columns()) {
+      if (otherMetadataColumn.key() == kColumnMappingModeMetadataKey) {
+        auto mode = parseColumnMappingMode(otherMetadataColumn.value());
+        VELOX_CHECK(mode.has_value(), "Invalid column mapping mode metadata for key {}", kColumnMappingModeMetadataKey);
+        if (splitInfo->columnMappingMode.has_value()) {
+          VELOX_CHECK_EQ(*splitInfo->columnMappingMode, *mode, "A single SplitInfo cannot mix column mapping modes");
+        }
+        splitInfo->columnMappingMode = *mode;
+        continue;
+      }
       if (auto unpackedValue = unpackMetadataValue(otherMetadataColumn.value())) {
         metadataColumnMap[otherMetadataColumn.key()] = std::move(*unpackedValue);
       }
@@ -193,7 +216,8 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
         splitInfo->format = dwio::common::FileFormat::TEXT;
         break;
       case SubstraitFileFormatCase::kIceberg:
-        splitInfo = IcebergPlanConverter::parseIcebergSplitInfo(file, std::move(splitInfo));
+        splitInfo =
+            IcebergPlanConverter::parseIcebergSplitInfo(file, localFiles.advanced_extension(), std::move(splitInfo));
         break;
       case SubstraitFileFormatCase::kDelta:
         splitInfo = parseDeltaSplitInfo(file, std::move(splitInfo));
@@ -237,8 +261,7 @@ void parseLocalFileNodes(
   std::vector<std::shared_ptr<SplitInfo>> splitInfos;
   splitInfos.reserve(localFiles.size());
   for (const auto& localFile : localFiles) {
-    const auto& fileList = localFile.items();
-    splitInfos.push_back(parseScanSplitInfo(veloxCfg, fileList));
+    splitInfos.push_back(parseScanSplitInfo(veloxCfg, localFile));
   }
 
   planConverter->setSplitInfos(std::move(splitInfos));

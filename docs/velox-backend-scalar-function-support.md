@@ -1,6 +1,8 @@
 # Scalar Functions Support Status
 
-**Out of 357 scalar functions in Spark 3.5, Gluten currently fully supports 245 functions and partially supports 27 functions.**
+**Out of 357 scalar functions in Spark 3.5, Gluten currently fully supports 247 functions and partially supports 28 functions.**
+
+**Gluten also fully supports 2 additional functions introduced in Spark 4.0.**
 
 ## Array Functions
 
@@ -115,6 +117,7 @@
 | datediff            | DateDiff                             | S        |                |
 | datepart            | DatePartExpressionBuilder            |          |                |
 | day                 | DayOfMonth                           | S        |                |
+| dayname             | DayName                              | S        | Spark 4.0+     |
 | dayofmonth          | DayOfMonth                           | S        |                |
 | dayofweek           | DayOfWeek                            | S        |                |
 | dayofyear           | DayOfYear                            | S        |                |
@@ -133,6 +136,7 @@
 | make_ym_interval    | MakeYMInterval                       | S        |                |
 | minute              | Minute                               | S        |                |
 | month               | Month                                | S        |                |
+| monthname           | MonthName                            | S        | Spark 4.0+     |
 | months_between      | MonthsBetween                        | S        |                |
 | next_day            | NextDay                              | S        |                |
 | now                 | Now                                  |          |                |
@@ -211,7 +215,7 @@
 | map_concat        | MapConcat           | PS       |                                                                             |
 | map_contains_key  | MapContainsKey      | S        |                                                                             |
 | map_entries       | MapEntries          | S        |                                                                             |
-| map_from_arrays   | MapFromArrays       |          |                                                                             |
+| map_from_arrays   | MapFromArrays       | S        |                                                                             |
 | map_from_entries  | MapFromEntries      | S        |                                                                             |
 | map_keys          | MapKeys             | S        |                                                                             |
 | map_values        | MapValues           | S        |                                                                             |
@@ -271,7 +275,7 @@
 | power             | Pow                    | S        |                |
 | radians           | ToRadians              |          |                |
 | rand              | Rand                   | S        |                |
-| randn             | Randn                  |          |                |
+| randn             | Randn                  | S        |                |
 | random            | Rand                   | S        |                |
 | rint              | Rint                   | S        |                |
 | round             | Round                  | S        |                |
@@ -370,7 +374,7 @@
 | encode             | Encode                      |          |                                                         |
 | endswith           | EndsWithExpressionBuilder   | PS       | BinaryType unsupported                                  |
 | find_in_set        | FindInSet                   | S        |                                                         |
-| format_number      | FormatNumber                |          |                                                         |
+| format_number      | FormatNumber                | PS       | format_number only supports tinyint, smallint, integer, bigint, float and double input; DecimalType input is not supported in Velox<br>format_number with a string format argument (e.g. '#,###.##') is not supported in Velox; only an integer number of decimal places is supported |
 | format_string      | FormatString                |          |                                                         |
 | initcap            | InitCap                     | S        |                                                         |
 | instr              | StringInstr                 | S        |                                                         |

@@ -183,12 +183,21 @@ case class OffloadOthers() extends OffloadSingleNode with LogLevelUtil {
 }
 
 object OffloadOthers {
+  // A limit of -1 means only an offset was given, so fetch every remaining row.
+  private def limitAndOffset(limit: Int, offset: Int): (Int, Int) = {
+    if (limit == -1) {
+      (Int.MaxValue, offset)
+    } else {
+      assert(limit > offset)
+      (limit - offset, offset)
+    }
+  }
+
   // Utility to replace single node within transformed Gluten node.
   // Children will be preserved as they are as children of the output node.
   //
-  // Do not look up on children on the input node in this rule. Otherwise,
-  // it may break RAS which would group all the possible input nodes to
-  // search for validate candidates.
+  // Do not look up on children on the input node in this rule. Children are
+  // offloaded separately by the traversal that drives this utility.
   private class ReplaceSingleNode extends LogLevelUtil with Logging {
 
     def doReplace(p: SparkPlan): SparkPlan = {
@@ -244,7 +253,7 @@ object OffloadOthers {
           SortExecTransformer(plan.sortOrder, plan.global, child, plan.testSpillFrequency)
         case plan: TakeOrderedAndProjectExec =>
           val child = plan.child
-          val (limit, offset) = SparkShimLoader.getSparkShims.getLimitAndOffsetFromTopK(plan)
+          val (limit, offset) = limitAndOffset(plan.limit, plan.offset)
           TakeOrderedAndProjectExecTransformer(
             limit,
             plan.sortOrder,
@@ -270,8 +279,7 @@ object OffloadOthers {
           )
         case plan: GlobalLimitExec =>
           val child = plan.child
-          val (limit, offset) =
-            SparkShimLoader.getSparkShims.getLimitAndOffsetFromGlobalLimit(plan)
+          val (limit, offset) = limitAndOffset(plan.limit, plan.offset)
           LimitExecTransformer(child, offset, limit)
         case plan: LocalLimitExec =>
           val child = plan.child
@@ -315,6 +323,13 @@ object OffloadOthers {
             child)
         case plan: RDDScanExec if RDDScanTransformer.isSupportRDDScanExec(plan) =>
           RDDScanTransformer.getRDDScanTransform(plan)
+        case plan
+            if SparkShimLoader.getSparkShims.isEmptyRelationExec(plan) &&
+              EmptyRelationExecTransformer.isSupportEmptyRelationExec(plan) =>
+          EmptyRelationExecTransformer.getEmptyRelationExecTransform(plan)
+        case plan: LocalTableScanExec
+            if LocalTableScanTransformer.isSupportLocalTableScanExec(plan) =>
+          LocalTableScanTransformer.getLocalTableScanTransform(plan)
         case p if !p.isInstanceOf[GlutenPlan] =>
           logDebug(s"Transformation for ${p.getClass} is currently not supported.")
           p

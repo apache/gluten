@@ -29,7 +29,7 @@ import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.types.DataType
 
 import com.google.protobuf.Any
-import io.substrait.proto.{CrossRel, JoinRel}
+import io.substrait.proto.{JoinRel, NestedLoopJoinRel}
 
 import scala.collection.JavaConverters._
 
@@ -312,8 +312,8 @@ object JoinUtils {
     )
   }
 
-  def createCrossRel(
-      substraitJoinType: CrossRel.JoinType,
+  def createNestedLoopJoinRel(
+      substraitJoinType: NestedLoopJoinRel.JoinType,
       condition: Option[Expression],
       inputStreamedRelNode: RelNode,
       inputBuildRelNode: RelNode,
@@ -335,7 +335,7 @@ object JoinUtils {
     val extensionNode =
       createJoinExtensionNode(joinParameters, inputStreamedOutput ++ inputBuildOutput)
 
-    RelBuilder.makeCrossRel(
+    RelBuilder.makeNestedLoopJoinRel(
       inputStreamedRelNode,
       inputBuildRelNode,
       substraitJoinType,

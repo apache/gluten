@@ -16,6 +16,9 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.utils.BackendTestUtils
+
+import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
@@ -272,10 +275,12 @@ class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTra
         df.select(to_date(col("s"), "yyyy-MM-dd")),
         Seq(Row(null), Row(Date.valueOf("2014-12-31")), Row(null)))
     }
-    // legacyParserPolicy is not respected by Gluten.
-    // withSQLConf(confKey -> "exception") {
-    //   checkExceptionMessage(df.select(to_date(col("s"), "yyyy-MM-dd")))
-    // }
+
+    if (BackendTestUtils.isBoltBackendLoaded()) {
+      withSQLConf(confKey -> "exception") {
+        checkExceptionMessage(df.select(to_date(col("s"), "yyyy-MM-dd")))
+      }
+    }
 
     // now switch format
     checkAnswer(
@@ -284,17 +289,38 @@ class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTra
 
     // invalid format
     checkAnswer(df.select(to_date(col("s"), "yyyy-hh-MM")), Seq(Row(null), Row(null), Row(null)))
-    // velox getTimestamp function does not throw exception when format is "yyyy-dd-aa".
-    // val e =
-    //   intercept[SparkUpgradeException](df.select(to_date(col("s"), "yyyy-dd-aa")).collect())
-    // assert(e.getCause.isInstanceOf[IllegalArgumentException])
-    // assert(
-    //   e.getMessage.contains("You may get a different result due to the upgrading to Spark"))
+    if (BackendTestUtils.isBoltBackendLoaded()) {
+      Seq("corrected", "exception").foreach(
+        legacyParserPolicy =>
+          withSQLConf(SQLConf.LEGACY_TIME_PARSER_POLICY.key -> legacyParserPolicy) {
+            val e = intercept[SparkException](df.select(to_date(col("s"), "yyyy-dd-aa")).collect())
+            assert(e.getCause.isInstanceOf[RuntimeException])
+            assert(e.getMessage.contains("Fail to parse"))
+          })
+    }
 
     // February
     val x1 = "2016-02-29"
     val x2 = "2017-02-29"
     val df1 = Seq(x1, x2).toDF("x")
     checkAnswer(df1.select(to_date(col("x"))), Row(Date.valueOf("2016-02-29")) :: Row(null) :: Nil)
+  }
+
+  testGluten("date_from_unix_date") {
+    // -100000 and 200000 are outside ClickHouse's native Date32 range
+    // [1900-01-01, 2299-12-31]. They guard against implementations that clamp to that
+    // range (e.g. mapping to CH toDate32), which would silently diverge from Spark.
+    val df = Seq(Some(0), Some(1000), Some(-100000), Some(200000), None).toDF("unix_date")
+    val expected = Seq(
+      Row(Date.valueOf("1970-01-01")),
+      Row(Date.valueOf("1972-09-27")),
+      Row(Date.valueOf("1696-03-17")),
+      Row(Date.valueOf("2517-08-01")),
+      Row(null))
+
+    // Go through expr() so the same case works on every supported version: the Scala
+    // functions API does not expose date_from_unix_date before Spark 3.5.
+    checkAnswer(df.select(expr("date_from_unix_date(unix_date)")), expected)
+    checkAnswer(df.selectExpr("date_from_unix_date(unix_date)"), expected)
   }
 }

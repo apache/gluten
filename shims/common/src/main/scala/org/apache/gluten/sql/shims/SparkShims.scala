@@ -20,22 +20,16 @@ import org.apache.gluten.GlutenBuildInfo.SPARK_COMPILE_VERSION
 import org.apache.gluten.expression.Sig
 
 import org.apache.spark.{SparkContext, SparkException}
-import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.catalog.BucketSpec
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryArithmetic, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, RaiseError, SortOrder, UnBase64}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryArithmetic, Expression, RaiseError}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
-import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read.{InputPartition, Scan}
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFilters
 import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV2ScanExecBase}
@@ -53,7 +47,6 @@ import org.apache.parquet.schema.MessageType
 import java.util.{Map => JMap}
 
 import scala.collection.JavaConverters._
-import scala.reflect.ClassTag
 
 case class SparkShimDescriptor(major: Int, minor: Int, patch: Int) {
   override def toString(): String = s"$major.$minor.$patch"
@@ -85,67 +78,20 @@ trait SparkShims {
 
   def runtimeReplaceableExpressionMappings: Seq[Sig]
 
-  def generateFileScanRDD(
-      sparkSession: SparkSession,
-      readFunction: PartitionedFile => Iterator[InternalRow],
-      filePartitions: Seq[FilePartition],
-      fileSourceScanExec: FileSourceScanExec): FileScanRDD
-
   def filesGroupedToBuckets(
       selectedPartitions: Array[PartitionDirectory]): Map[Int, Array[PartitionedFile]]
 
-  // Spark3.4 new add table parameter in BatchScanExec.
-  def getBatchScanExecTable(batchScan: BatchScanExec): Table
-
-  // The PartitionedFile API changed in spark 3.4
-  def generatePartitionedFile(
-      partitionValues: InternalRow,
-      filePath: String,
-      start: Long,
-      length: Long,
-      @transient locations: Array[String] = Array.empty): PartitionedFile
-
   def isWindowGroupLimitExec(plan: SparkPlan): Boolean = false
+
+  /**
+   * Whether the given plan is an EmptyRelationExec. The node only exists on Spark 4.0+
+   * (SPARK-47217) so the default implementation returns false; Spark 4.0+ shims override it.
+   */
+  def isEmptyRelationExec(plan: SparkPlan): Boolean = false
 
   def getWindowGroupLimitExecShim(plan: SparkPlan): WindowGroupLimitExecShim = null
 
   def getWindowGroupLimitExec(windowGroupLimitExecShim: WindowGroupLimitExecShim): SparkPlan = null
-
-  def getLimitAndOffsetFromGlobalLimit(plan: GlobalLimitExec): (Int, Int) = (plan.limit, 0)
-
-  def getLimitAndOffsetFromTopK(plan: TakeOrderedAndProjectExec): (Int, Int) = (plan.limit, 0)
-
-  def getExtendedColumnarPostRules(): List[SparkSession => Rule[SparkPlan]]
-
-  def writeFilesExecuteTask(
-      description: WriteJobDescription,
-      jobTrackerID: String,
-      sparkStageId: Int,
-      sparkPartitionId: Int,
-      sparkAttemptNumber: Int,
-      committer: FileCommitProtocol,
-      iterator: Iterator[InternalRow]): WriteTaskResult = {
-    throw new UnsupportedOperationException()
-  }
-
-  def enableNativeWriteFilesByDefault(): Boolean = false
-
-  // Planned V1 writes were introduced in Spark 3.4. Older versions do not expose a required
-  // ordering utility and keep the default empty ordering.
-  // TODO: Remove this shim after dropping Spark 3.3 support.
-  def getV1WriteRequiredOrdering(
-      outputColumns: Seq[Attribute],
-      partitionColumns: Seq[Attribute],
-      bucketSpec: Option[BucketSpec],
-      options: Map[String, String],
-      numStaticPartitionCols: Int): Seq[SortOrder] = Seq.empty
-
-  def broadcastInternal[T: ClassTag](sc: SparkContext, value: T): Broadcast[T] = {
-    // Since Spark 3.4, the `sc.broadcast` has been optimized to use `sc.broadcastInternal`.
-    // More details see SPARK-39983.
-    // TODO, remove this shim once we drop Spark3.3 and previous
-    sc.broadcast(value)
-  }
 
   // To be compatible with Spark-3.5 and later
   // See https://github.com/apache/spark/pull/41440
@@ -180,24 +126,10 @@ trait SparkShims {
 
   def attributesFromStruct(structType: StructType): Seq[Attribute]
 
-  def generateMetadataColumns(
-      file: PartitionedFile,
-      metadataColumnNames: Seq[String] = Seq.empty): Map[String, String] = {
-    val requested = metadataColumnNames.toSet
-    Seq(
-      InputFileName().prettyName -> file.filePath.toString,
-      InputFileBlockStart().prettyName -> file.start.toString,
-      InputFileBlockLength().prettyName -> file.length.toString
-    ).collect { case (name, value) if requested.contains(name) => name -> value }.toMap
-  }
-
   // For compatibility with Spark-3.5.
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan]
 
-  def getKeyGroupedPartitioning(batchScan: BatchScanExec): Option[Seq[Expression]] = Option(Seq())
-
-  def getCommonPartitionValues(batchScan: BatchScanExec): Option[Seq[(InternalRow, Int)]] =
-    Option(Seq())
+  def getCommonPartitionValues(batchScan: BatchScanExec): Option[Seq[(InternalRow, Int)]]
 
   /**
    * Most of the code in this method is copied from
@@ -212,18 +144,9 @@ trait SparkShims {
       commonPartitionValues: Option[Seq[(InternalRow, Int)]],
       applyPartialClustering: Boolean,
       replicatePartitions: Boolean,
-      joinKeyPositions: Option[Seq[Int]] = None): Seq[Seq[InputPartition]] =
-    filteredPartitions
+      joinKeyPositions: Option[Seq[Int]] = None): Seq[Seq[InputPartition]]
 
-  def extractExpressionTimestampAddUnit(timestampAdd: Expression): Option[Seq[String]] =
-    Option.empty
-
-  def extractExpressionTimestampDiffUnit(timestampDiff: Expression): Option[String] =
-    Option.empty
-
-  def withTryEvalMode(expr: Expression): Boolean = false
-
-  def withAnsiEvalMode(expr: Expression): Boolean = false
+  def extractExpressionTimestampAddUnit(timestampAdd: Expression): Option[Seq[String]]
 
   def isNullIntolerant(expr: Expression): Boolean
 
@@ -231,10 +154,6 @@ trait SparkShims {
       conf: SQLConf,
       schema: MessageType,
       caseSensitive: Option[Boolean] = None): ParquetFilters
-
-  def extractExpressionArrayInsert(arrayInsert: Expression): Seq[Expression] = {
-    throw new UnsupportedOperationException("ArrayInsert not supported.")
-  }
 
   /** Shim method for usages from GlutenExplainUtils.scala. */
   def withOperatorIdMap[T](idMap: java.util.Map[QueryPlan[_], Int])(body: => T): T = {
@@ -250,16 +169,20 @@ trait SparkShims {
   /** Shim method for usages from GlutenExplainUtils.scala. */
   def unsetOperatorId(plan: QueryPlan[_]): Unit
 
+  /**
+   * Returns the streaming source associated with a [[LocalTableScanExec]], if any. The `stream`
+   * field only exists on Spark 4.0+ (where `LocalTableScanExec` mixes in
+   * `StreamSourceAwareSparkPlan`); on Spark 3.x local relations have no streaming concept, so the
+   * default implementation returns None.
+   */
+  def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] = None
+
   def isParquetFileEncrypted(footer: ParquetMetadata): Boolean
 
   def shouldFallbackForParquetVariantAnnotation(footer: ParquetMetadata): Boolean = false
 
   def getOtherConstantMetadataColumnValues(file: PartitionedFile): JMap[String, Object] =
     Map.empty[String, Any].asJava.asInstanceOf[JMap[String, Object]]
-
-  def getCollectLimitOffset(plan: CollectLimitExec): Int = 0
-
-  def unBase64FunctionFailsOnError(unBase64: UnBase64): Boolean = false
 
   def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType
 
@@ -303,8 +226,6 @@ trait SparkShims {
       sparkSession: SparkSession,
       planner: SparkPlanner,
       plan: LogicalPlan): SparkPlan
-
-  def isFinalAdaptivePlan(p: AdaptiveSparkPlanExec): Boolean
 
   /**
    * Checks if the given JoinType is LeftSingle. LeftSingle is a Spark 4.0+ join type, semantically

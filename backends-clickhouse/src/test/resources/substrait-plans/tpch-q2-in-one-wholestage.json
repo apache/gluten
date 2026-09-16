@@ -750,14 +750,15 @@
                                                                                     }
                                                                                   },
                                                                                   "groupings": [{
-                                                                                    "groupingExpressions": [{
-                                                                                      "selection": {
-                                                                                        "directReference": {
-                                                                                          "structField": {
-                                                                                          }
+                                                                                    "expressionReferences": [0]
+                                                                                  }],
+                                                                                  "groupingExpressions": [{
+                                                                                    "selection": {
+                                                                                      "directReference": {
+                                                                                        "structField": {
                                                                                         }
                                                                                       }
-                                                                                    }]
+                                                                                    }
                                                                                   }],
                                                                                   "measures": [{
                                                                                     "measure": {
@@ -784,14 +785,15 @@
                                                                                 }
                                                                               },
                                                                               "groupings": [{
-                                                                                "groupingExpressions": [{
-                                                                                  "selection": {
-                                                                                    "directReference": {
-                                                                                      "structField": {
-                                                                                      }
+                                                                                "expressionReferences": [0]
+                                                                              }],
+                                                                              "groupingExpressions": [{
+                                                                                "selection": {
+                                                                                  "directReference": {
+                                                                                    "structField": {
                                                                                     }
                                                                                   }
-                                                                                }]
+                                                                                }
                                                                               }],
                                                                               "measures": [{
                                                                                 "measure": {

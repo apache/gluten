@@ -23,6 +23,7 @@ import org.apache.gluten.metrics.GlutenTimeMetric
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.{broadcast, SparkException}
+import org.apache.spark.SparkContextUtils
 import org.apache.spark.launcher.SparkLauncher
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -86,9 +87,7 @@ case class ColumnarBroadcastExchangeExec(mode: BroadcastMode, child: SparkPlan)
         val broadcasted = GlutenTimeMetric.millis(longMetric("broadcastTime")) {
           _ =>
             // Broadcast the relation
-            SparkShimLoader.getSparkShims.broadcastInternal(
-              sparkContext,
-              relation.asInstanceOf[Any])
+            SparkContextUtils.broadcastInternal(sparkContext, relation.asInstanceOf[Any])
         }
 
         // Update driver metrics

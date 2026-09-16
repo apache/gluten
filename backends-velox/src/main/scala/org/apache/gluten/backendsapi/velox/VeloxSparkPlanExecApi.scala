@@ -37,6 +37,7 @@ import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterParameters, GlutenShuffleReaderWrapper, GlutenShuffleWriterWrapper, VeloxShuffleUtils}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
@@ -148,7 +149,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       right: ExpressionTransformer,
       original: Expression,
       checkArithmeticExprName: String): ExpressionTransformer = {
-    if (SparkShimLoader.getSparkShims.withTryEvalMode(original)) {
+    if (ExpressionUtils.withTryEvalMode(original)) {
       original.dataType match {
         case LongType | IntegerType | ShortType | ByteType =>
         case _ =>
@@ -159,7 +160,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         ExpressionMappings.expressionsMap(classOf[TryEval]),
         Seq(GenericExpressionTransformer(checkArithmeticExprName, Seq(left, right), original)),
         original)
-    } else if (SparkShimLoader.getSparkShims.withAnsiEvalMode(original)) {
+    } else if (ExpressionUtils.withAnsiEvalMode(original)) {
       GenericExpressionTransformer(checkArithmeticExprName, Seq(left, right), original)
     } else {
       GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
@@ -1240,7 +1241,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       substraitExprName: String,
       child: ExpressionTransformer,
       expr: UnBase64): ExpressionTransformer = {
-    if (SparkShimLoader.getSparkShims.unBase64FunctionFailsOnError(expr)) {
+    if (expr.failOnError) {
       GlutenExceptionUtil
         .throwsNotFullySupported(
           ExpressionNames.UNBASE64,
@@ -1416,12 +1417,85 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
   override def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec =
     ColumnarRangeExec(rangeExec.range)
 
+  override def isSupportRDDScanExec(plan: RDDScanExec): Boolean = {
+    if (!VeloxConfig.get.enableRddScan) {
+      logDebug(
+        "RDDScan offload skipped: " +
+          s"${VeloxConfig.COLUMNAR_VELOX_RDD_SCAN_ENABLED.key}=false")
+      return false
+    }
+    // Exclude any scan planned within a Structured Streaming query (micro-batch or its
+    // foreachBatch callback). The per-batch source RDD is a materialized snapshot that
+    // otherwise slips past the plan-level logicalLink.isStreaming fallback, yet offloading
+    // it into a streaming/state-store pipeline can deadlock the micro-batch.
+    if (isWithinStreamingQuery) {
+      logDebug("RDDScan offload skipped: within a streaming query (micro-batch/foreachBatch)")
+      return false
+    }
+    true
+  }
+
+  /**
+   * Whether the current thread is planning/executing a Structured Streaming query -- including the
+   * `DataFrameWriter.foreachBatch` user callback, which Spark runs on the StreamExecution driver
+   * thread. That thread sets the `sql.streaming.queryId` local property
+   * (`StreamExecution.QUERY_ID_KEY`) for the whole lifetime of the query. We match on the literal
+   * key rather than referencing the class so this stays agnostic to the per-Spark-version package
+   * of `StreamExecution` across shims.
+   */
+  private def isWithinStreamingQuery: Boolean =
+    SparkSession.getActiveSession
+      .map(_.sparkContext)
+      .flatMap(sc => Option(sc.getLocalProperty("sql.streaming.queryId")))
+      .isDefined
+
+  override def getRDDScanTransform(plan: RDDScanExec): RDDScanTransformer =
+    VeloxRDDScanTransformer.replace(plan)
+
   override def genColumnarTailExec(limit: Int, child: SparkPlan): ColumnarCollectTailBaseExec =
     ColumnarCollectTailExec(limit, child)
 
   override def genColumnarToCarrierRow(plan: SparkPlan): SparkPlan = {
     VeloxColumnarToCarrierRowExec.enforce(plan)
   }
+
+  override def isSupportEmptyRelationExec(plan: SparkPlan): Boolean = {
+    if (!GlutenConfig.get.enableColumnarEmptyRelation) {
+      logDebug(
+        "EmptyRelationExec offload skipped: " +
+          s"${GlutenConfig.COLUMNAR_EMPTY_RELATION_ENABLED.key}=false")
+      return false
+    }
+    true
+  }
+
+  override def isSupportLocalTableScanExec(plan: LocalTableScanExec): Boolean = {
+    // `rows` is @transient, so it becomes null after Java serialization (e.g. an AQE sub-plan
+    // shipped across an RPC boundary). A null rows payload signals a deserialized plan that can
+    // no longer be executed natively, so offload must be skipped to avoid a later NPE.
+    if (plan.rows == null) {
+      logDebug("LocalTableScan offload skipped: deserialized plan with null transient rows")
+      return false
+    }
+    // A streaming source (Spark 4.0+ only) must keep vanilla execution.
+    if (SparkShimLoader.getSparkShims.getLocalTableScanStream(plan).isDefined) {
+      logDebug("LocalTableScan offload skipped: streaming source detected")
+      return false
+    }
+    if (!GlutenConfig.get.enableColumnarLocalTableScan) {
+      logDebug(
+        "LocalTableScan offload skipped: " +
+          s"${GlutenConfig.COLUMNAR_LOCAL_TABLE_SCAN_ENABLED.key}=false")
+      return false
+    }
+    true
+  }
+
+  override def getEmptyRelationExecTransform(plan: SparkPlan): EmptyRelationExecTransformer =
+    EmptyRelationExecTransformer(plan.output)
+
+  override def getLocalTableScanTransform(plan: LocalTableScanExec): LocalTableScanTransformer =
+    VeloxLocalTableScanTransformer.replace(plan)
 
   override def genTimestampAddTransformer(
       substraitExprName: String,
@@ -1432,7 +1506,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     val extract =
       SparkShimLoader.getSparkShims.extractExpressionTimestampAddUnit(original)
     if (extract.isEmpty) {
-      throw new UnsupportedOperationException(s"Not support expression TimestampAdd.")
+      throw new UnsupportedOperationException("Not support expression TimestampAdd.")
     }
     TimestampAddTransformer(substraitExprName, extract.get.head, left, right, original)
   }
@@ -1442,13 +1516,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: Expression): ExpressionTransformer = {
-    // Since spark 3.3.0
-    val extract =
-      SparkShimLoader.getSparkShims.extractExpressionTimestampDiffUnit(original)
-    if (extract.isEmpty) {
-      throw new UnsupportedOperationException(s"Not support expression TimestampDiff.")
+    val unit = original match {
+      case timestampDiff: TimestampDiff => timestampDiff.unit
+      case _ =>
+        throw new UnsupportedOperationException("Not support expression TimestampDiff.")
     }
-    TimestampDiffTransformer(substraitExprName, extract.get, left, right, original)
+    TimestampDiffTransformer(substraitExprName, unit, left, right, original)
   }
 
   override def genToUnixTimestampTransformer(

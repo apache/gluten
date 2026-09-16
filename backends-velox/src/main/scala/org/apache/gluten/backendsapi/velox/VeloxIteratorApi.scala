@@ -25,7 +25,9 @@ import org.apache.gluten.metrics.{IMetrics, IteratorMetricsJniWrapper}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.plan.PlanNode
 import org.apache.gluten.substrait.rel.{LocalFilesBuilder, LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
+import org.apache.gluten.utils.FileMetadataUtil
 import org.apache.gluten.vectorized._
 
 import org.apache.spark.{Partition, SparkConf, TaskContext}
@@ -35,6 +37,7 @@ import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.catalyst.util.{DateFormatter, TimestampFormatter}
 import org.apache.spark.sql.execution.datasources.{FilePartition, PartitionedFile}
 import org.apache.spark.sql.execution.metric.SQLMetric
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.utils.SparkInputMetricsUtil.InputMetricsWrapper
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -66,8 +69,30 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     ) {
       localFilesNode.setFileSchema(fileSchema)
     }
+    columnMappingMode(fileFormat).foreach(localFilesNode.setColumnMappingMode)
 
     localFilesNode
+  }
+
+  private def columnMappingMode(fileFormat: ReadFileFormat): Option[ColumnMappingMode] = {
+    fileFormat match {
+      case ReadFileFormat.OrcReadFormat | ReadFileFormat.DwrfReadFormat =>
+        val defaultForcePosition =
+          org.apache.spark.SparkEnv.get.conf.get(
+            GlutenConfig.SPARK_ORC_FORCE_POSITIONAL_EVOLUTION,
+            "false")
+        val forcePosition =
+          SQLConf.get
+            .getConfString(GlutenConfig.SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, defaultForcePosition)
+            .toBoolean
+        Some(if (forcePosition) ColumnMappingMode.POSITION else ColumnMappingMode.NAME)
+      case ReadFileFormat.ParquetReadFormat =>
+        Some(
+          if (VeloxConfig.get.parquetUseColumnNames) ColumnMappingMode.NAME
+          else ColumnMappingMode.POSITION)
+      case _ =>
+        None
+    }
   }
 
   override def genSplitInfo(
@@ -104,7 +129,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
         partitionFiles
           .map(
             f =>
-              SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
+              FileMetadataUtil.generateMetadataColumns(f, metadataColumnNames).asJava)
           .asJava
       } else {
         java.util.Collections.nCopies(partitionFiles.size, emptyMetadataColumn)

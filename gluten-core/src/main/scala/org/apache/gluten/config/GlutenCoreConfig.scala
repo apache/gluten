@@ -89,7 +89,7 @@ object GlutenCoreConfig extends ConfigRegistry {
       .doc(
         "The class name of user-defined cost model that will be used by Gluten's transition " +
           "planner. If not specified, a legacy built-in cost model will be " +
-          "used. The legacy cost model helps RAS planner exhaustively offload computations, and " +
+          "used. The legacy cost model exhaustively offloads computations, and " +
           "helps transition planner choose columnar-to-columnar transition over others.")
       .stringConf
       .createWithDefaultString("legacy")

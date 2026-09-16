@@ -40,8 +40,20 @@ env:
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
   SPARK_ANSI_SQL_MODE: true
 
+# `issue_comment` fires on every comment posted on an issue or a PR, and
+# `github.event.issue.number` puts such a run in the same group as an in-flight
+# ANSI run for that PR, so `cancel-in-progress` kills it while `check-comment`
+# below skips the newcomer, leaving no replacement. Give only that case a group
+# of its own, so every other trigger keeps the exact group name it has today.
+# The negated condition is that job's `if` verbatim.
 concurrency:
-  group: ${{ github.repository }}-ansi-${{ github.event.issue.number || inputs.pr_number }}
+  group: >-
+    ${{ github.repository }}-ansi-${{ github.event.issue.number || inputs.pr_number }}${{
+      !((github.event_name == 'workflow_dispatch') ||
+        (github.event.issue.pull_request &&
+         (contains(github.event.comment.body, '/ansi-test') ||
+          contains(github.event.comment.body, '/ansi-analyze'))))
+      && format('-comment-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -172,7 +184,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
           -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee backends-velox-test-output.log
       - name: "Parse test results"
         if: always()
@@ -241,7 +253,7 @@ jobs:
           $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
           -DwildcardSuites='org.apache.spark.' -Dtest=none -DfailIfNoTests=false \
           -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee spark-ut-test-output.log
       - name: "Parse test results"
         if: always()
@@ -318,7 +330,7 @@ jobs:
           java -version
           $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox \
           -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee backends-velox-spark40-test-output.log
       - name: "Parse test results"
         if: always()
@@ -387,7 +399,7 @@ jobs:
           $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
           -DwildcardSuites='org.apache.spark.' -Dtest=none -DfailIfNoTests=false \
           -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/ -Dspark.gluten.sql.ansiFallback.enabled=false" \
-          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.SkipTest \
+          -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           2>&1 | tee spark-ut-spark40-test-output.log
       - name: "Parse test results"
         if: always()

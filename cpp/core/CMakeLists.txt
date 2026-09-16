@@ -87,7 +87,8 @@ set(PROTO_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/proto")
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)
 
 # List Substrait Proto compiled files
-file(GLOB SUBSTRAIT_PROTO_FILES ${SUBSTRAIT_PROTO_SRC_DIR}/substrait/*.proto
+file(GLOB SUBSTRAIT_PROTO_FILES CONFIGURE_DEPENDS
+     ${SUBSTRAIT_PROTO_SRC_DIR}/substrait/*.proto
      ${SUBSTRAIT_PROTO_SRC_DIR}/substrait/extensions/*.proto)
 foreach(PROTO ${SUBSTRAIT_PROTO_FILES})
   file(RELATIVE_PATH REL_PROTO ${SUBSTRAIT_PROTO_SRC_DIR} ${PROTO})
@@ -99,11 +100,9 @@ set(SUBSTRAIT_PROTO_OUTPUT_FILES ${SUBSTRAIT_PROTO_HDRS}
                                  ${SUBSTRAIT_PROTO_SRCS})
 set_source_files_properties(${SUBSTRAIT_PROTO_OUTPUT_FILES} PROPERTIES GENERATED
                                                                        TRUE)
-get_filename_component(SUBSTRAIT_PROTO_DIR ${SUBSTRAIT_PROTO_SRC_DIR}/
-                       DIRECTORY)
 
 # List Gluten Proto compiled files
-file(GLOB GLUTEN_PROTO_FILES ${GLUTEN_PROTO_SRC_DIR}/*.proto)
+file(GLOB GLUTEN_PROTO_FILES CONFIGURE_DEPENDS ${GLUTEN_PROTO_SRC_DIR}/*.proto)
 foreach(PROTO ${GLUTEN_PROTO_FILES})
   file(RELATIVE_PATH REL_PROTO ${GLUTEN_PROTO_SRC_DIR} ${PROTO})
   string(REGEX REPLACE "\\.proto" "" PROTO_NAME ${REL_PROTO})
@@ -113,7 +112,6 @@ endforeach()
 set(GLUTEN_PROTO_OUTPUT_FILES ${GLUTEN_PROTO_HDRS} ${GLUTEN_PROTO_SRCS})
 set_source_files_properties(${GLUTEN_PROTO_OUTPUT_FILES} PROPERTIES GENERATED
                                                                     TRUE)
-get_filename_component(GLUTEN_PROTO_DIR ${GLUTEN_PROTO_SRC_DIR}/ DIRECTORY)
 
 set(SPARK_COLUMNAR_PLUGIN_SRCS
     ${SUBSTRAIT_PROTO_SRCS}
@@ -221,7 +219,7 @@ add_custom_command(
   OUTPUT ${SUBSTRAIT_PROTO_OUTPUT_FILES}
   COMMAND ${PROTOC_BIN} --proto_path ${SUBSTRAIT_PROTO_SRC_DIR}/ --cpp_out
           ${PROTO_OUTPUT_DIR} ${SUBSTRAIT_PROTO_FILES}
-  DEPENDS ${SUBSTRAIT_PROTO_DIR}
+  DEPENDS ${SUBSTRAIT_PROTO_FILES}
   COMMENT "Running Substrait PROTO compiler"
   VERBATIM)
 
@@ -229,7 +227,7 @@ add_custom_command(
   OUTPUT ${GLUTEN_PROTO_OUTPUT_FILES}
   COMMAND ${PROTOC_BIN} --proto_path ${GLUTEN_PROTO_SRC_DIR}/ --cpp_out
           ${PROTO_OUTPUT_DIR} ${GLUTEN_PROTO_FILES}
-  DEPENDS ${GLUTEN_PROTO_DIR}
+  DEPENDS ${GLUTEN_PROTO_FILES}
   COMMENT "Running Gluten PROTO compiler"
   VERBATIM)
 

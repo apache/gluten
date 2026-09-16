@@ -268,6 +268,41 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  test("Hash probe uses build-side bloom filter for left outer join misses") {
+    withSQLConf(
+      "spark.sql.autoBroadcastJoinThreshold" -> "-1",
+      "spark.sql.adaptive.enabled" -> "false",
+      GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "true",
+      VeloxConfig.HASH_PROBE_DYNAMIC_FILTER_PUSHDOWN_ENABLED.key -> "true",
+      VeloxConfig.HASH_PROBE_BLOOM_FILTER_PUSHDOWN_MAX_SIZE.key -> "1TB",
+      VeloxConfig.HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_ROWS.key -> "100",
+      VeloxConfig.HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_PCT.key -> "85"
+    ) {
+      val probe = spark.range(200000).selectExpr("id * 1000 + 1 AS probe_key")
+      val build = spark.range(200000).selectExpr("id * 1000 AS build_key")
+
+      withTempView("probe_table", "build_table") {
+        probe.createOrReplaceTempView("probe_table")
+        build.createOrReplaceTempView("build_table")
+
+        runQueryAndCompare(
+          "SELECT probe_key, build_key FROM probe_table " +
+            "LEFT OUTER JOIN build_table ON probe_key = build_key"
+        ) {
+          df =>
+            val join = df.queryExecution.executedPlan.collectFirst {
+              case shj: ShuffledHashJoinExecTransformer => shj
+            }
+            assert(join.isDefined)
+            val metrics = join.get.metrics
+            assert(metrics("hashProbeBloomFilterTestedRows").value == 200000)
+            assert(metrics("hashProbeBloomFilterAcceptedRows").value < 20000)
+            assert(metrics("hashProbeBloomFilterBypassed").value == 0)
+        }
+      }
+    }
+  }
+
   test("Broadcast join preserves original cast expression in join keys") {
     withSQLConf(
       ("spark.sql.autoBroadcastJoinThreshold", "10MB"),

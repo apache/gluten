@@ -550,6 +550,42 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("map_from_arrays offloads to Velox under both mapKeyDedupPolicy values") {
+    // l_orderkey is repeated.
+    val duplicateKeyQuery =
+      "select map_from_arrays(array(l_orderkey, l_orderkey + 1, l_orderkey), " +
+        "array(l_partkey, l_suppkey, l_linenumber)) as m, " +
+        "map_keys(map_from_arrays(array(l_orderkey, l_orderkey + 1, l_orderkey), " +
+        "array(l_partkey, l_suppkey, l_linenumber))) as k from lineitem limit 10"
+
+    // l_orderkey is not repeated.
+    val distinctKeyQuery =
+      "select map_from_arrays(array(l_orderkey, l_orderkey + 1), " +
+        "array(l_partkey, l_suppkey)) from lineitem limit 10"
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.EXCEPTION.toString) {
+      // EXCEPTION policy passes when there is no duplicate.
+      runQueryAndCompare(distinctKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      // EXCEPTION policy raises on a duplicate.
+      val df = sql(duplicateKeyQuery)
+      checkGlutenPlan[ProjectExecTransformer](df)
+      val e = intercept[SparkException] {
+        df.collect()
+      }
+      assert(e.getMessage.contains("Duplicate map key"))
+    }
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+      // LAST_WIN policy keeps the duplicate's first position and its last value.
+      runQueryAndCompare(duplicateKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
   test("raise_error, assert_true") {
     runQueryAndCompare("""SELECT assert_true(l_orderkey >= 1), l_orderkey
                          | from lineitem limit 100""".stripMargin) {
@@ -746,6 +782,36 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   testWithMinSparkVersion("monthname", "4.0") {
     runQueryAndCompare("SELECT monthname(l_shipdate) FROM lineitem limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("format_number") {
+    // Integer / bigint input with different decimal places.
+    runQueryAndCompare("SELECT format_number(l_partkey, 0) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare("SELECT format_number(l_orderkey, 2) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Floating-point input, exercising HALF_EVEN rounding and thousands separators.
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_quantity as double), 1) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_discount as double), 3) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double.
+    // Decimal input has no matching signature, so it must fall back to vanilla Spark.
+    runQueryAndCompare("SELECT format_number(l_quantity, 1) FROM lineitem limit 50") {
+      checkSparkPlan[ProjectExec]
+    }
+    // Velox only implements the integer decimal-places form. The string-format form
+    // (e.g. '#,###.##') has no matching signature, so it must fall back to vanilla Spark.
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_quantity as double), '#,###.##') FROM lineitem limit 50") {
+      checkSparkPlan[ProjectExec]
     }
   }
 

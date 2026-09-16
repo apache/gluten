@@ -17,6 +17,8 @@
 
 #include "IcebergPlanConverter.h"
 
+#include "IcebergReadExtension.pb.h"
+
 namespace gluten {
 
 namespace {
@@ -39,6 +41,7 @@ std::unordered_map<int32_t, std::string> parseBounds(const SubstraitDeleteBounds
 
 std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
     substrait::ReadRel_LocalFiles_FileOrFiles file,
+    const substrait::extensions::AdvancedExtension& extension,
     std::shared_ptr<SplitInfo> splitInfo) {
   using SubstraitFileFormatCase = ::substrait::ReadRel_LocalFiles_FileOrFiles::IcebergReadOptions::FileFormatCase;
   using SubstraitDeleteFileFormatCase =
@@ -57,6 +60,29 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
     default:
       icebergSplitInfo->format = dwio::common::FileFormat::UNKNOWN;
       break;
+  }
+
+  if (icebergSplitInfo->columns.empty() && extension.has_enhancement() &&
+      extension.enhancement().Is<::gluten::IcebergReadExtension>()) {
+    ::gluten::IcebergReadExtension icebergExtension;
+    VELOX_USER_CHECK(extension.enhancement().UnpackTo(&icebergExtension), "Failed to unpack Iceberg read extension");
+    for (const auto& column : icebergExtension.column_field_ids()) {
+      auto [it, inserted] =
+          icebergSplitInfo->columns.try_emplace(column.name(), IcebergColumnInfo{column.field_id(), std::nullopt});
+      if (!inserted) {
+        VELOX_USER_CHECK_EQ(
+            it->second.fieldId, column.field_id(), "Conflicting Iceberg field IDs for column '{}'", column.name());
+      }
+    }
+    for (const auto& column : icebergExtension.column_defaults()) {
+      auto [it, inserted] = icebergSplitInfo->columns.try_emplace(
+          column.name(), IcebergColumnInfo{column.field_id(), column.initial_default()});
+      if (!inserted) {
+        VELOX_USER_CHECK_EQ(
+            it->second.fieldId, column.field_id(), "Conflicting Iceberg field IDs for column '{}'", column.name());
+        it->second.initialDefault = column.initial_default();
+      }
+    }
   }
   if (icebergReadOption.delete_files_size() > 0) {
     auto deleteFiles = icebergReadOption.delete_files();

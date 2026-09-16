@@ -185,7 +185,7 @@ jobs:
             ccache-centos9-cudf-release-shared-${{runner.arch}}
       - name: Build Gluten shared libraries
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:centos-9-jdk8-cudf bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:centos-9-jdk17-cuda13.1-cudf bash -c "
           rm -rf /opt/rh/gcc-toolset-12 && ln -s /opt/rh/gcc-toolset-14 /opt/rh/gcc-toolset-12 # hack to use gcc 14, should upgrade in Velox build script later
           df -a
           dnf autoremove -y && dnf clean all

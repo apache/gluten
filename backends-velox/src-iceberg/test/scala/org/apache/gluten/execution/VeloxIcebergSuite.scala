@@ -16,4 +16,78 @@
  */
 package org.apache.gluten.execution
 
-class VeloxIcebergSuite extends IcebergSuite
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
+
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
+
+import org.apache.iceberg.UpdateSchema
+import org.apache.iceberg.expressions.Literal
+import org.apache.iceberg.spark.source.SparkTable
+import org.apache.iceberg.types.{Type, Types}
+
+class VeloxIcebergSuite extends IcebergSuite {
+  test("iceberg parquet split uses name mapping for projected columns") {
+    withTable("iceberg_parquet_name_mapping") {
+      withSQLConf(VeloxConfig.PARQUET_USE_COLUMN_NAMES.key -> "false") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_parquet_name_mapping (
+                    |  id BIGINT,
+                    |  amount DECIMAL(12, 2),
+                    |  note STRING
+                    |)
+                    |USING iceberg
+                    |TBLPROPERTIES ('write.format.default' = 'parquet')
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_parquet_name_mapping
+                    |VALUES (CAST(1 AS BIGINT), CAST(10.50 AS DECIMAL(12, 2)), 'a')
+                    |""".stripMargin)
+
+        runQueryAndCompare("SELECT amount FROM iceberg_parquet_name_mapping") {
+          df =>
+            checkAnswer(df, Seq(Row(BigDecimal("10.50"))))
+            checkGlutenPlan[IcebergScanTransformer](df)
+        }
+      }
+    }
+  }
+
+  testWithMinSparkVersion("iceberg v3 initial default for an added column", "3.4") {
+    withTable("iceberg_v3_initial_default") {
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_v3_initial_default (id INT)
+                    |USING iceberg
+                    |TBLPROPERTIES ('format-version' = '3')
+                    |""".stripMargin)
+        spark.sql("INSERT INTO iceberg_v3_initial_default VALUES (1), (2)")
+
+        val catalog = spark.sessionState.catalogManager
+          .catalog("spark_catalog")
+          .asInstanceOf[TableCatalog]
+        val updateSchema = catalog
+          .loadTable(Identifier.of(Array("default"), "iceberg_v3_initial_default"))
+          .asInstanceOf[SparkTable]
+          .table()
+          .updateSchema()
+        classOf[UpdateSchema]
+          .getMethod(
+            "addColumn",
+            classOf[String],
+            classOf[Type],
+            classOf[Literal[_]])
+          .invoke(updateSchema, "country", Types.StringType.get(), Literal.of("IN"))
+        updateSchema.commit()
+        spark.catalog.refreshTable("iceberg_v3_initial_default")
+      }
+
+      runQueryAndCompare(
+        "SELECT id, country FROM iceberg_v3_initial_default ORDER BY id") {
+        df =>
+          checkAnswer(df, Seq(Row(1, "IN"), Row(2, "IN")))
+          checkGlutenPlan[IcebergScanTransformer](df)
+      }
+    }
+  }
+}

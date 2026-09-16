@@ -71,13 +71,8 @@ declare -A MODULE_MAP=(
   ["backends-velox"]="backends-velox"
   ["backends-clickhouse"]="backends-clickhouse"
 
-  # RAS modules
-  ["gluten-ras/common"]="gluten-ras-common"
-  ["gluten-ras/planner"]="gluten-ras-planner"
-
   # Shims modules
   ["shims/common"]="spark-sql-columnar-shims-common"
-  ["shims/spark33"]="spark-sql-columnar-shims-spark33"
   ["shims/spark34"]="spark-sql-columnar-shims-spark34"
   ["shims/spark35"]="spark-sql-columnar-shims-spark35"
   ["shims/spark40"]="spark-sql-columnar-shims-spark40"
@@ -86,7 +81,6 @@ declare -A MODULE_MAP=(
   # Unit test modules
   ["gluten-ut/common"]="gluten-ut-common"
   ["gluten-ut/test"]="gluten-ut-test"
-  ["gluten-ut/spark33"]="gluten-ut-spark33"
   ["gluten-ut/spark34"]="gluten-ut-spark34"
   ["gluten-ut/spark35"]="gluten-ut-spark35"
   ["gluten-ut/spark40"]="gluten-ut-spark40"

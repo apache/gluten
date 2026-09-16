@@ -68,7 +68,7 @@ jobs:
           chmod +x /usr/local/bin/jq
           gh --version && jq --version
       - name: Get Ccache from Apache Stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-weekly-centos-${{ matrix.os }}-${{ hashFiles('ep/build-velox/src/**') }}
@@ -138,7 +138,7 @@ jobs:
           chmod +x /usr/local/bin/jq
           gh --version && jq --version
       - name: Get Ccache from Apache Stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-weekly-ubuntu-${{ matrix.os }}-${{ hashFiles('ep/build-velox/src/**') }}
@@ -226,7 +226,7 @@ jobs:
           chmod +x /usr/local/bin/jq
           gh --version && jq --version
       - name: Get Ccache from Apache Stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-weekly-openeuler-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
@@ -284,7 +284,7 @@ jobs:
           chmod +x /usr/local/bin/jq
           gh --version && jq --version
       - name: Get Ccache from Apache Stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-weekly-openeuler-vcpkg-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
@@ -332,15 +332,20 @@ jobs:
       - name: Install Dependencies
         run: brew install wget pkgconfig ccache
       - name: Get Ccache from Apache Stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-weekly-macos-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Fix JAVA_HOME on macOS
+        run: echo "JAVA_HOME=$(/usr/libexec/java_home -v 17)" >> $GITHUB_ENV
       - name: Build
         run: |
+          echo "JAVA_HOME: $JAVA_HOME"
           export CCACHE_MAXSIZE=1G
           mkdir -p $CCACHE_DIR
           ./dev/buildbundle-veloxbe.sh --run_setup_script=ON --build_arrow=ON --build_tests=ON --build_benchmarks=ON --spark_version=3.5
+          cd $GITHUB_WORKSPACE/tools/gluten-it
+          $GITHUB_WORKSPACE/build/mvn -ntp clean install -Pspark-3.5
       - name: Clean Ccache tmp before save
         if: always()
         run: rm -rf '${{ env.CCACHE_DIR }}/tmp'
@@ -352,3 +357,8 @@ jobs:
           key: ccache-weekly-macos-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
           retention-days: '7'
+      - name: Run TPC-H
+        run: |
+          echo "JAVA_HOME: $JAVA_HOME"
+          cd $GITHUB_WORKSPACE/tools/gluten-it
+          $TPCH_TEST

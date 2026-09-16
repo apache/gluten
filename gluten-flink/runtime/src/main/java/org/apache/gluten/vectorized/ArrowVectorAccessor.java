@@ -31,6 +31,7 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.TimeStampMicroVector;
+import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
@@ -56,6 +57,7 @@ public abstract class ArrowVectorAccessor {
       Map.ofEntries(
           Map.entry(BitVector.class, vector -> new BooleanVectorAccessor(vector)),
           Map.entry(IntVector.class, vector -> new IntVectorAccessor(vector)),
+          Map.entry(TinyIntVector.class, vector -> new TinyIntVectorAccessor(vector)),
           Map.entry(BigIntVector.class, vector -> new BigIntVectorAccessor(vector)),
           Map.entry(Float8Vector.class, vector -> new DoubleVectorAccessor(vector)),
           Map.entry(DecimalVector.class, vector -> new DecimalVectorAccessor(vector)),
@@ -119,6 +121,17 @@ class BooleanVectorAccessor extends BaseArrowVectorAccessor<BitVector> {
 
 class IntVectorAccessor extends BaseArrowVectorAccessor<IntVector> {
   public IntVectorAccessor(FieldVector vector) {
+    super(vector);
+  }
+
+  @Override
+  protected Object getImpl(int rowIndex) {
+    return typedVector.get(rowIndex);
+  }
+}
+
+class TinyIntVectorAccessor extends BaseArrowVectorAccessor<TinyIntVector> {
+  public TinyIntVectorAccessor(FieldVector vector) {
     super(vector);
   }
 

@@ -34,7 +34,7 @@ import org.apache.spark.sql.execution.joins.BaseJoinExec
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
-import io.substrait.proto.CrossRel
+import io.substrait.proto.NestedLoopJoinRel
 
 import java.io.{IOException, ObjectOutputStream}
 
@@ -67,8 +67,8 @@ case class CartesianProductExecTransformer(
 
   override def rightKeys: Seq[Expression] = Nil
 
-  protected lazy val substraitJoinType: CrossRel.JoinType =
-    SubstraitUtil.toCrossRelSubstrait(joinType)
+  protected lazy val substraitJoinType: NestedLoopJoinRel.JoinType =
+    SubstraitUtil.toNestedLoopJoinSubstrait(joinType)
 
   // Note: "metrics" is made transient to avoid sending driver-side metrics to tasks.
   @transient override lazy val metrics: Map[String, SQLMetric] =
@@ -102,7 +102,7 @@ case class CartesianProductExecTransformer(
       joinParams.isWithCondition = true
     }
 
-    val currRel = RelBuilder.makeCrossRel(
+    val currRel = RelBuilder.makeNestedLoopJoinRel(
       inputLeftRelNode,
       inputRightRelNode,
       substraitJoinType,
@@ -139,7 +139,7 @@ case class CartesianProductExecTransformer(
     val extensionNode =
       JoinUtils.createExtensionNode(left.output ++ right.output, validation = true)
 
-    val currRel = RelBuilder.makeCrossRel(
+    val currRel = RelBuilder.makeNestedLoopJoinRel(
       null,
       null,
       substraitJoinType,
