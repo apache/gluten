@@ -99,6 +99,8 @@ set(VELOX_TEST_COMMON_SRCS JsonToProtoConverter.cc FilePathGenerator.cc)
 
 add_velox_test(velox_shuffle_writer_test SOURCES VeloxShuffleWriterTest.cc)
 
+add_velox_test(velox_shuffle_reader_test SOURCES VeloxShuffleReaderTest.cc)
+
 add_velox_test(velox_hash_shuffle_writer_input_encoding_test SOURCES
                VeloxHashShuffleWriterInputEncodingTest.cc)
 
