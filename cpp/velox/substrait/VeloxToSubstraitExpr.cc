@@ -23,7 +23,93 @@ namespace gluten {
 namespace {
 const ::substrait::Expression_Literal& toSubstraitNullLiteral(
     google::protobuf::Arena& arena,
+    const velox::TypeKind& typeKind) {
+  ::substrait::Expression_Literal* substraitField =
+      google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
+  switch (typeKind) {
+    case velox::TypeKind::BOOLEAN: {
+      ::substrait::Type_Boolean* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_Boolean>(&arena);
+      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      substraitField->mutable_null()->set_allocated_bool_(nullValue);
+      break;
+    }
+    case velox::TypeKind::TINYINT: {
+      ::substrait::Type_I8* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_I8>(&arena);
+
+      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      substraitField->mutable_null()->set_allocated_i8(nullValue);
+      break;
+    }
+    case velox::TypeKind::SMALLINT: {
+      ::substrait::Type_I16* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_I16>(&arena);
+      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      substraitField->mutable_null()->set_allocated_i16(nullValue);
+      break;
+    }
+    case velox::TypeKind::INTEGER: {
+      ::substrait::Type_I32* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_I32>(&arena);
+      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      substraitField->mutable_null()->set_allocated_i32(nullValue);
+      break;
+    }
+    case velox::TypeKind::BIGINT: {
+      ::substrait::Type_I64* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_I64>(&arena);
+      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      substraitField->mutable_null()->set_allocated_i64(nullValue);
+      break;
+    }
+    case velox::TypeKind::VARCHAR: {
+      ::substrait::Type_String* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_String>(&arena);
+      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      substraitField->mutable_null()->set_allocated_string(nullValue);
+      break;
+    }
+    case velox::TypeKind::REAL: {
+      ::substrait::Type_FP32* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_FP32>(&arena);
+      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      substraitField->mutable_null()->set_allocated_fp32(nullValue);
+      break;
+    }
+    case velox::TypeKind::DOUBLE: {
+      ::substrait::Type_FP64* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_FP64>(&arena);
+      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      substraitField->mutable_null()->set_allocated_fp64(nullValue);
+      break;
+    }
+    case velox::TypeKind::ARRAY: {
+      ::substrait::Type_List* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_List>(&arena);
+      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      substraitField->mutable_null()->set_allocated_list(nullValue);
+      break;
+    }
+    case velox::TypeKind::UNKNOWN: {
+      ::substrait::Type_UserDefined* nullValue =
+          google::protobuf::Arena::CreateMessage<::substrait::Type_UserDefined>(&arena);
+      nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      nullValue->set_type_reference(0);
+      substraitField->mutable_null()->set_allocated_user_defined(nullValue);
+
+      break;
+    }
+    default: {
+      VELOX_UNSUPPORTED("Unsupported type '{}'", TypeKindName::toName(typeKind));
+    }
+  }
+  substraitField->set_nullable(true);
+  return *substraitField;
+}
+
+const ::substrait::Expression_Literal& toSubstraitNullLiteral(
+    google::protobuf::Arena& arena,
     const velox::TypePtr& type) {
+  auto nestedType = type;
+  while (nestedType->isArray()) {
+    nestedType = nestedType->asArray().elementType();
+  }
+  // Preserve physical-kind encoding for non-timestamp nulls.
+  if (nestedType->kind() != TypeKind::TIMESTAMP) {
+    return toSubstraitNullLiteral(arena, type->kind());
+  }
   ::substrait::Expression_Literal* substraitField =
       google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
   VeloxToSubstraitTypeConvertor typeConvertor;
