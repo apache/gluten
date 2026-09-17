@@ -57,7 +57,9 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
     case scan: FileSourceScanExec if shouldFallbackSpark34DeletionVectorScan(scan) =>
       FallbackTags.add(scan, "fallback Spark 3.4 Delta DV scan")
       scan
-    case scan: FileSourceScanExec if shouldFallbackGeneratedDeletionVectorMetadataScan(scan) =>
+    case scan: FileSourceScanExec
+        if DeltaScanUtils.isDeltaScan(scan) &&
+          shouldFallbackGeneratedDeletionVectorMetadataScan(scan) =>
       FallbackTags.add(scan, "fallback Delta scan requiring generated DV metadata")
       scan
     case scan: FileSourceScanExec if DeltaScanUtils.isDeltaScan(scan) =>
