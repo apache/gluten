@@ -185,20 +185,30 @@ if [ ! -f "$DPFFS" ]; then
   echo "The Delta directory layout for ref '${DELTA_REF}' may have changed." >&2
   exit 1
 fi
-ORIGINAL_WRITES=$(
-  grep -Fxc '    df.write.format("delta").mode("append").save(tablePath)' "$DPFFS" || true
-)
-if [ "$ORIGINAL_WRITES" -ne 1 ]; then
-  echo "ERROR: expected exactly one DeltaParquetFileFormat fixture write;" \
-    "found ${ORIGINAL_WRITES}." >&2
-  echo "DeltaParquetFileFormatSuite may have changed in Delta ref '${DELTA_REF}'." >&2
+if ! sed 's/^__BLANK_CONTEXT__$/ /' <<'PATCH' | git -C "$DELTA_DIR" apply -
+diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala b/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala
+--- a/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala
++++ b/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala
+@@ -68,9 +68,11 @@ trait DeltaParquetFileFormatSuiteBase
+   protected def generateData(tablePath: String): Unit = {
+     // This is to generate a Parquet file with two row groups
+     hadoopConf().set("parquet.block.size", (1024 * 50).toString)
+__BLANK_CONTEXT__
+     // Keep the number of partitions to 1 to generate a single Parquet data file
+     val df = Seq.range(0, 20000).toDF().repartition(1)
+-    df.write.format("delta").mode("append").save(tablePath)
++    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "10000") {
++      df.write.format("delta").mode("append").save(tablePath)
++    }
+__BLANK_CONTEXT__
+     // Set DFS block size to be less than Parquet rowgroup size, to allow
+PATCH
+then
+  echo "ERROR: DeltaParquetFileFormat fixture patch did not apply." >&2
+  echo "The patch expects the Delta v4.2.0 generateData fixture shape;" \
+    "ref '${DELTA_REF}' must remain source-compatible." >&2
   exit 1
 fi
-sed -i \
-  's|^    df.write.format("delta").mode("append").save(tablePath)$|    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "10000") {\
-      df.write.format("delta").mode("append").save(tablePath)\
-    }|' \
-  "$DPFFS"
 ROW_CAP_SCOPES=$(
   grep -Fxc \
     '    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "10000") {' \
