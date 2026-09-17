@@ -101,6 +101,30 @@ TEST_F(SubstraitVeloxExprConverterExecutionTest, timestampLiteralRoundTrip) {
   }
 }
 
+TEST_F(SubstraitVeloxExprConverterExecutionTest, dateLiteralEncoding) {
+  auto extensions = std::make_shared<SubstraitExtensionCollector>();
+  VeloxToSubstraitExprConvertor writer(extensions);
+  for (const auto& value : std::vector<std::optional<int32_t>>{std::nullopt, 19'723}) {
+    SCOPED_TRACE(value.has_value() ? std::to_string(value.value()) : "null");
+    for (const bool vectorBacked : {false, true}) {
+      SCOPED_TRACE(vectorBacked);
+      auto constant = vectorBacked
+          ? std::make_shared<const core::ConstantTypedExpr>(makeConstant<int32_t>(value, 1, DATE()))
+          : std::make_shared<const core::ConstantTypedExpr>(
+                DATE(), value.has_value() ? variant(value.value()) : variant::null(TypeKind::INTEGER));
+      google::protobuf::Arena arena;
+      const auto& literal = writer.toSubstraitExpr(arena, constant);
+      if (value.has_value()) {
+        ASSERT_TRUE(literal.has_i32());
+        EXPECT_EQ(literal.i32(), value.value());
+      } else {
+        ASSERT_TRUE(literal.has_null());
+        EXPECT_TRUE(literal.null().has_i32());
+      }
+    }
+  }
+}
+
 // Regression test for a SIGSEGV in
 // SubstraitVeloxExprConverter::toVeloxExpr(Expression::FieldReference, ...).
 // The direct-reference loop descends one nested struct_field at a time with
