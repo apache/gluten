@@ -27,9 +27,10 @@ import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
+import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.types.StructField
+import org.apache.spark.sql.types.{LongType, StructField}
 import org.apache.spark.tags.ExtendedSQLTest
 
 import org.apache.hadoop.fs.Path
@@ -78,7 +79,7 @@ class DeltaDeletionVectorHandoffSuite
       syntheticFields: StructField*): DataFrame = {
     val deltaLog = DeltaLog.forTable(spark, new Path(path))
     val metadata = deltaLog.snapshot.metadata
-    val fileIndex = TahoeLogFileIndex(spark, deltaLog)
+    val fileIndex = TahoeLogFileIndex(spark, deltaLog, None)
     val readingSchema = syntheticFields.foldLeft(metadata.schema)(_.add(_))
     val relation = HadoopFsRelation(
       fileIndex,
@@ -91,7 +92,8 @@ class DeltaDeletionVectorHandoffSuite
         nullableRowTrackingConstantFields = false,
         nullableRowTrackingGeneratedFields = false,
         optimizationsEnabled = false),
-      options = Map.empty)(spark)
+      options = Map.empty
+    )(spark)
     DataFrameUtils.ofRows(spark, LogicalRelation(relation))
   }
 
@@ -204,6 +206,28 @@ class DeltaDeletionVectorHandoffSuite
               .collect()
               .map(_.getByte(0))
               .toSet === Set(0.toByte))
+        }
+    }
+  }
+
+  test("Delta temporary row-index scan should fall back when metadata row index is disabled") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        Seq(0, 1, 2).toDF("value").coalesce(1).write.format("delta").save(path)
+        val temporaryRowIndexField =
+          StructField(ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME, LongType)
+
+        withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "false") {
+          val rowIndexDf = dataframeWithSyntheticColumns(path, temporaryRowIndexField)
+
+          assert(!containsNativeDeltaScan(rowIndexDf.queryExecution.executedPlan))
+          assert(
+            rowIndexDf
+              .select(ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME)
+              .collect()
+              .map(_.getLong(0))
+              .toSet === Set(0L, 1L, 2L))
         }
     }
   }
