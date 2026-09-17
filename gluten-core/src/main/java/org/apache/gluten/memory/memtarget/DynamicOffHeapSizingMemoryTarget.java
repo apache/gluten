@@ -148,22 +148,24 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
     long freeHeapMemory = Runtime.getRuntime().freeMemory();
     long usedOffHeapMemory = USED_OFF_HEAP_BYTES.get();
 
-    // Adds the total JVM memory which is the actual memory the JVM occupied from the operating
-    // system into the counter.
-    if (exceedsMaxMemoryUsage(totalHeapMemory, usedOffHeapMemory, size, 1.0)) {
+    // Use actual used heap (totalMemory - freeMemory) rather than committed heap (totalMemory).
+    // Committed heap includes pages the JVM holds but hasn't filled yet; using it overstates
+    // pressure and causes spurious OOMs between stages when the JVM hasn't had time to return
+    // committed-but-free pages to the OS.
+    if (exceedsMaxMemoryUsage(totalHeapMemory - freeHeapMemory, usedOffHeapMemory, size, 1.0)) {
       // Perform GC synchronously to shrink memory; native tasks need to wait for this to obtain
       // more memory.
       synchronized (JVM_SHRINK_SYNC_OBJECT) {
         totalHeapMemory = Runtime.getRuntime().totalMemory();
         freeHeapMemory = Runtime.getRuntime().freeMemory();
-        if (exceedsMaxMemoryUsage(totalHeapMemory, usedOffHeapMemory, size, 1.0)) {
+        if (exceedsMaxMemoryUsage(totalHeapMemory - freeHeapMemory, usedOffHeapMemory, size, 1.0)) {
           shrinkOnHeapMemory(totalHeapMemory, freeHeapMemory, false);
           totalHeapMemory = Runtime.getRuntime().totalMemory();
           freeHeapMemory = Runtime.getRuntime().freeMemory();
         }
       }
       // Check if we can allocate the requested size again after JVM shrinking(GC).
-      if (exceedsMaxMemoryUsage(totalHeapMemory, usedOffHeapMemory, size, 1.0)) {
+      if (exceedsMaxMemoryUsage(totalHeapMemory - freeHeapMemory, usedOffHeapMemory, size, 1.0)) {
         LOG.warn(
             String.format(
                 "Failing allocation as unified memory is OOM. "
@@ -199,18 +201,21 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
           });
     }
 
-    USED_OFF_HEAP_BYTES.addAndGet(size);
-    recorder.inc(size);
-    target.borrow(size);
-    return size;
+    final long granted = target.borrow(size);
+    USED_OFF_HEAP_BYTES.addAndGet(granted);
+    recorder.inc(granted);
+    return granted;
   }
 
   @Override
   public long repay(long size) {
-    USED_OFF_HEAP_BYTES.addAndGet(-size);
-    recorder.inc(-size);
-    target.repay(size);
-    return size;
+    if (size == 0) {
+      return 0;
+    }
+    final long freed = target.repay(size);
+    USED_OFF_HEAP_BYTES.addAndGet(-freed);
+    recorder.inc(-freed);
+    return freed;
   }
 
   @Override
@@ -260,8 +265,8 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
   }
 
   private static boolean exceedsMaxMemoryUsage(
-      long totalOnHeapMemory, long totalOffHeapMemory, long requestedSize, double ratio) {
-    return requestedSize + totalOffHeapMemory + totalOnHeapMemory >= TOTAL_MEMORY_SHARED * ratio;
+      long usedOnHeapMemory, long totalOffHeapMemory, long requestedSize, double ratio) {
+    return requestedSize + totalOffHeapMemory + usedOnHeapMemory >= TOTAL_MEMORY_SHARED * ratio;
   }
 
   private static boolean shouldTriggerAsyncOnHeapMemoryShrink(
@@ -272,7 +277,7 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
 
     boolean exceedsMaxMemoryUsageRatio =
         exceedsMaxMemoryUsage(
-            totalOnHeapMemory,
+            totalOnHeapMemory - freeOnHeapMemory,
             totalOffHeapMemory,
             requestedSize,
             ASYNC_GC_MAX_TOTAL_MEMORY_USAGE_RATIO);
