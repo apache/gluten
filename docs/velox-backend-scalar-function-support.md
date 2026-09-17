@@ -241,7 +241,7 @@
 | atan2             | Atan2                  | S        |                |
 | atanh             | Atanh                  | S        |                |
 | bin               | Bin                    | S        |                |
-| bround            | BRound                 |          |                |
+| bround            | BRound                 | PS       | Requires Velox `bround` and `decimal_bround` support. Native scale range is [-400, 400]; other scales fall back. FLOAT/DOUBLE with nonzero scale requires Java 21 or later; older JVMs fall back to preserve their decimal-conversion semantics. |
 | cbrt              | Cbrt                   | S        |                |
 | ceil              | CeilExpressionBuilder  | PS       |                |
 | ceiling           | CeilExpressionBuilder  | PS       |                |
@@ -453,4 +453,3 @@
 | xpath_number      | XPathDouble         |          |                |
 | xpath_short       | XPathShort          |          |                |
 | xpath_string      | XPathString         |          |                |
-
