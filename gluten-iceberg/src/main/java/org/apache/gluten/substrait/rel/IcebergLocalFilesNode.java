@@ -73,10 +73,9 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
         BackendsApiManager.getTransformerApiInstance()
             .packIcebergReadExtension(fieldIds, initialDefaults);
 
-    return localFiles
-        .toBuilder()
-        .setAdvancedExtension(AdvancedExtension.newBuilder().setEnhancement(extension))
-        .build();
+    ReadRel.LocalFiles.Builder builder = localFiles.toBuilder();
+    builder.setAdvancedExtension(AdvancedExtension.newBuilder().setEnhancement(extension));
+    return builder.build();
   }
 
   @Override

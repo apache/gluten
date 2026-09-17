@@ -98,10 +98,18 @@ function install_minio {
   apt-get update -y
   apt-get install -y curl
 
-  curl -fsSL -o /usr/local/bin/minio https://dl.min.io/server/minio/release/linux-amd64/minio
+  # dl.min.io no longer serves the community binaries (HTTP 410), so pull pinned
+  # release assets from GitHub. minio's latest release ships no assets, so the
+  # server has to be pinned to the last release that still has them.
+  local minio_version="RELEASE.2025-09-07T16-13-09Z"
+  local mc_version="RELEASE.2025-08-13T08-35-41Z"
+
+  curl -fsSL -o /usr/local/bin/minio \
+    "https://github.com/minio/minio/releases/download/${minio_version}/minio.linux-amd64.${minio_version}"
   chmod +x /usr/local/bin/minio
 
-  curl -fsSL -o /usr/local/bin/mc https://dl.min.io/client/mc/release/linux-amd64/mc
+  curl -fsSL -o /usr/local/bin/mc \
+    "https://github.com/minio/mc/releases/download/${mc_version}/mc.linux-amd64.${mc_version}"
   chmod +x /usr/local/bin/mc
 
   echo "MinIO installed successfully"

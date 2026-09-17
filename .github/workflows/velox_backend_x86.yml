@@ -1198,6 +1198,13 @@ jobs:
           --conf $(realpath backends-velox/generated-native-benchmark/conf_12_0_*.ini) \
           --plan $(realpath backends-velox/generated-native-benchmark/plan_12_0_*.json) \
           --data $(realpath backends-velox/generated-native-benchmark/data_12_0_*_0.parquet),$(realpath backends-velox/generated-native-benchmark/data_12_0_*_1.parquet)
+      - name: "Save ccache"
+        if: always()
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
       - name: Upload test report
         uses: actions/upload-artifact@v7
         with:
@@ -1261,6 +1268,14 @@ jobs:
           build/mvn clean package -Pbackends-velox -Pspark-3.4 -DskipTests
           ccache -s
           "
+
+      - name: "Save ccache"
+        if: always()
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
 
   build-fast-build-test:
     needs: detect-changes

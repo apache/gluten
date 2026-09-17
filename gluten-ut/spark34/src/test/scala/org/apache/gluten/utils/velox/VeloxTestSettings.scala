@@ -686,6 +686,16 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("length check for input string values: nested in array of struct")
     .exclude("length check for input string values: nested in array of array")
     .exclude("length check for input string values: with implicit cast")
+    // Overridden.
+    .exclude("length check for input string values: nested in map key")
+    // Overridden.
+    .exclude("length check for input string values: nested in map value")
+    // Overridden.
+    .exclude("length check for input string values: nested in both map key and value")
+    // Overridden.
+    .exclude("SPARK-42611: check char/varchar length in reordered structs within map keys")
+    // Overridden.
+    .exclude("SPARK-42611: check char/varchar length in reordered structs within map values")
 
   enableSuite[GlutenColumnExpressionSuite]
     // Velox raise_error('errMsg') throws a velox_user_error exception with the message 'errMsg'.
@@ -729,6 +739,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("map_zip_with function - map of primitive types")
     // Exception class different.
     .exclude("array_insert functions")
+    // Overridden.
+    .exclude("map with arrays")
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
   enableSuite[GlutenDataFrameJoinSuite]

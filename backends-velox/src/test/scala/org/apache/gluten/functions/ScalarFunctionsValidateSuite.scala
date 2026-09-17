@@ -550,6 +550,42 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("map_from_arrays offloads to Velox under both mapKeyDedupPolicy values") {
+    // l_orderkey is repeated.
+    val duplicateKeyQuery =
+      "select map_from_arrays(array(l_orderkey, l_orderkey + 1, l_orderkey), " +
+        "array(l_partkey, l_suppkey, l_linenumber)) as m, " +
+        "map_keys(map_from_arrays(array(l_orderkey, l_orderkey + 1, l_orderkey), " +
+        "array(l_partkey, l_suppkey, l_linenumber))) as k from lineitem limit 10"
+
+    // l_orderkey is not repeated.
+    val distinctKeyQuery =
+      "select map_from_arrays(array(l_orderkey, l_orderkey + 1), " +
+        "array(l_partkey, l_suppkey)) from lineitem limit 10"
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.EXCEPTION.toString) {
+      // EXCEPTION policy passes when there is no duplicate.
+      runQueryAndCompare(distinctKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      // EXCEPTION policy raises on a duplicate.
+      val df = sql(duplicateKeyQuery)
+      checkGlutenPlan[ProjectExecTransformer](df)
+      val e = intercept[SparkException] {
+        df.collect()
+      }
+      assert(e.getMessage.contains("Duplicate map key"))
+    }
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+      // LAST_WIN policy keeps the duplicate's first position and its last value.
+      runQueryAndCompare(duplicateKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
   test("raise_error, assert_true") {
     runQueryAndCompare("""SELECT assert_true(l_orderkey >= 1), l_orderkey
                          | from lineitem limit 100""".stripMargin) {

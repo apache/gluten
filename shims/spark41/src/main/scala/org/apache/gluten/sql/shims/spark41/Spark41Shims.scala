@@ -23,7 +23,6 @@ import org.apache.gluten.sql.shims.SparkShims
 import org.apache.spark._
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.{ExtendedAnalysisException, InternalRow}
-import org.apache.spark.sql.catalyst.analysis.DecimalPrecisionTypeCoercion
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.{JoinType, LeftSingle}
@@ -464,10 +463,6 @@ class Spark41Shims extends SparkShims {
         Option.apply(Seq(timestampAdd.unit, timestampAdd.timeZoneId.getOrElse("")))
       case _ => Option.empty
     }
-  }
-
-  override def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType = {
-    DecimalPrecisionTypeCoercion.widerDecimalType(d1, d2)
   }
 
   override def decimalAllowPrecisionLoss(expr: BinaryArithmetic): Boolean = expr match {
