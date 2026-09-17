@@ -16,6 +16,9 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.utils.BackendTestUtils
+
+import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
@@ -189,7 +192,13 @@ class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTra
 
           // invalid format
           val invalid = df1.selectExpr(s"to_unix_timestamp(x, 'yyyy-MM-dd bb:HH:ss')")
-          checkAnswer(invalid, Seq(Row(null), Row(null), Row(null), Row(null)))
+          // Only the Velox backend throws for an invalid pattern; others still return NULL.
+          if (legacyParserPolicy == "legacy" || !BackendTestUtils.isVeloxBackendLoaded()) {
+            checkAnswer(invalid, Seq(Row(null), Row(null), Row(null), Row(null)))
+          } else {
+            val e = intercept[SparkException](invalid.collect())
+            assert(e.getMessage.contains("Specifier b is not supported"))
+          }
         }
     }
   }
