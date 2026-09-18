@@ -225,6 +225,67 @@ git -C "$DELTA_DIR" --no-pager diff -- \
   "spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala" || true
 echo "::endgroup::"
 
+echo "::group::Capping predicate-pushdown DV fixture row groups by row count"
+# DeletionVectorsWithPredicatePushdownSuite writes one 1,000,000-row Parquet
+# file and expects its 2 MiB block size to produce two row groups. The rows can
+# arrive at Velox in one Arrow batch, so the native writer cannot evaluate its
+# buffered-byte flush threshold until the whole batch is already in one group.
+# Cap this fixture at 500,000 rows per group so Arrow splits the batch while
+# retaining the native write path and the existing Hadoop block-size setting.
+DV_SUITE="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala"
+if [ ! -f "$DV_SUITE" ]; then
+  echo "Expected file not found in Delta clone: $DV_SUITE" >&2
+  echo "The Delta directory layout for ref '${DELTA_REF}' may have changed." >&2
+  exit 1
+fi
+if ! sed 's/^__BLANK_CONTEXT__$/ /' <<'PATCH' | git -C "$DELTA_DIR" apply -
+diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala b/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala
+--- a/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala
++++ b/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala
+@@ -913,12 +913,14 @@ class DeletionVectorsWithPredicatePushdownSuite extends DeletionVectorsSuite {
+     super.beforeAll()
+__BLANK_CONTEXT__
+     // 2MB rowgroups.
+     hadoopConf().set("parquet.block.size", (2 * 1024 * 1024).toString)
+__BLANK_CONTEXT__
+-    spark.range(0, multiRowgroupTableRowsNum, 1, 1).toDF("id")
+-      .write
+-      .option(DeltaConfigs.ENABLE_DELETION_VECTORS_CREATION.key, true.toString)
+-      .format("delta")
+-      .saveAsTable(multiRowgroupTable)
++    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "500000") {
++      spark.range(0, multiRowgroupTableRowsNum, 1, 1).toDF("id")
++        .write
++        .option(DeltaConfigs.ENABLE_DELETION_VECTORS_CREATION.key, true.toString)
++        .format("delta")
++        .saveAsTable(multiRowgroupTable)
++    }
+__BLANK_CONTEXT__
+     val deltaLog = DeltaLog.forTable(spark, TableIdentifier(multiRowgroupTable))
+     val files = deltaLog.update().allFiles.collect()
+PATCH
+then
+  echo "ERROR: predicate-pushdown DV fixture patch did not apply." >&2
+  echo "The patch expects the Delta v4.2.0 beforeAll fixture shape;" \
+    "ref '${DELTA_REF}' must remain source-compatible." >&2
+  exit 1
+fi
+DV_ROW_CAP_SCOPES=$(
+  grep -Fxc \
+    '    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "500000") {' \
+    "$DV_SUITE" || true
+)
+if [ "$DV_ROW_CAP_SCOPES" -ne 1 ]; then
+  echo "ERROR: expected exactly one predicate-pushdown DV row-count scope;" \
+    "found ${DV_ROW_CAP_SCOPES}." >&2
+  echo "DeletionVectorsSuite may have changed in Delta ref '${DELTA_REF}'." >&2
+  exit 1
+fi
+echo "Capped predicate-pushdown DV fixture row groups at 500,000 rows."
+git -C "$DELTA_DIR" --no-pager diff -- \
+  "spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala" || true
+echo "::endgroup::"
+
 echo "::group::Force-failing memory-hog DeletionVectorsSuite 2B-row tests"
 # Two DeletionVectorsSuite tests read from / delete from a 2-billion-row table.
 # Under the Gluten Velox bundle they balloon the forked test JVM to ~13G of
