@@ -34,11 +34,11 @@ enum class BufferType { kNull, kLength, kValue, kBooleanValue, kTimestampValue }
 using namespace facebook;
 using namespace facebook::velox;
 
-std::shared_ptr<ArrowSchema> GpuBufferColumnarBatch::exportArrowSchema() {
+std::shared_ptr<ArrowSchema> GpuBufferColumnarBatch::exportArrowSchema(bool) {
   throw GlutenException("GpuBufferColumnarBatch does not support exportArrowSchema");
 }
 
-std::shared_ptr<ArrowArray> GpuBufferColumnarBatch::exportArrowArray() {
+std::shared_ptr<ArrowArray> GpuBufferColumnarBatch::exportArrowArray(bool) {
   throw GlutenException("GpuBufferColumnarBatch does not support exportArrowArray");
 }
 
