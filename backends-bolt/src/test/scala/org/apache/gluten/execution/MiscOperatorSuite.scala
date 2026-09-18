@@ -315,7 +315,7 @@ class MiscOperatorSuite extends BoltWholeStageTransformerSuite with AdaptiveSpar
     checkLengthAndPlan(df, 5)
   }
 
-  testWithMinSparkVersion("coalesce validation", "3.4") {
+  test("coalesce validation") {
     withTempPath {
       path =>
         val data = "2019-09-09 01:02:03.456789"

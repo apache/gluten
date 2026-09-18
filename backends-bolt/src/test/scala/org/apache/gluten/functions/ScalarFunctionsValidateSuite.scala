@@ -51,7 +51,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_append - INT", "3.4") {
+  test("array_append - INT") {
     withTempPath {
       path =>
         Seq[(Array[Int], Int)](
@@ -76,7 +76,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_append - STRING", "3.4") {
+  test("array_append - STRING") {
     withTempPath {
       path =>
         Seq[(Array[String], String)](
@@ -124,7 +124,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_compact", "3.4") {
+  test("array_compact") {
     withTempPath {
       path =>
         Seq[Array[String]](
@@ -145,7 +145,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("null input for array_size", "3.3") {
+  test("null input for array_size") {
     withTempPath {
       path =>
         Seq[Array[Int]](
@@ -321,7 +321,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("map_contains_key", "3.3") {
+  test("map_contains_key") {
     withTempPath {
       path =>
         Seq(
@@ -629,7 +629,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("url_decode", "3.4") {
+  test("url_decode") {
     withTempPath {
       path =>
         Seq("https%3A%2F%2Fspark.apache.org")
@@ -643,7 +643,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("url_encode", "3.4") {
+  test("url_encode") {
     withTempPath {
       path =>
         Seq("https://spark.apache.org")
@@ -680,7 +680,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("mask", "3.4") {
+  test("mask") {
     runQueryAndCompare("SELECT mask(c_comment) FROM customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
     }
@@ -883,7 +883,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("get", "3.4") {
+  test("get") {
     withTempPath {
       path =>
         Seq[Seq[Integer]](Seq(1, null, 5, 4), Seq(5, -1, 8, 9, -7, 2), Seq.empty, null)
@@ -1044,7 +1044,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array insert", "3.4") {
+  test("array insert") {
     withTempPath {
       path =>
         Seq[Seq[Integer]](Seq(1, null, 5, 4), Seq(5, -1, 8, 9, -7, 2), Seq.empty, null)
@@ -1091,7 +1091,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("try_cast", "3.4") {
+  test("try_cast") {
     withTempView("try_cast_table") {
       withTempPath {
         path =>
@@ -1475,7 +1475,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("equal_null", "3.4") {
+  test("equal_null") {
     Seq[(Integer, Integer)]().toDF("a", "b")
     withTempPath {
       path =>
