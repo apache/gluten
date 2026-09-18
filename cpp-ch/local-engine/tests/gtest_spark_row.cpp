@@ -444,6 +444,41 @@ TEST(SparkRow, ArrayMapTypes)
 }
 
 
+TEST(SparkRow, NestedNullsIntoNonNullableComplexTypes)
+{
+    const auto source_array_type = std::make_shared<DataTypeArray>(
+        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()));
+    const auto target_array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    const auto source_tuple_type = std::make_shared<DataTypeTuple>(DataTypes{
+        std::make_shared<DataTypeNullable>(target_array_type),
+        source_array_type});
+    const auto target_tuple_type = std::make_shared<DataTypeTuple>(DataTypes{target_array_type, target_array_type});
+
+    DataTypeAndFields source_type_and_fields = {
+        {source_array_type, Array{Null{}, Int32(7)}},
+        {source_tuple_type, []() -> Field
+         {
+             Tuple tuple(2);
+             tuple[0] = Null{};
+             tuple[1] = Array{Null{}, Int32(3)};
+             return std::move(tuple);
+         }()},
+    };
+
+    SparkRowInfoPtr spark_row_info;
+    BlockPtr source_block;
+    std::tie(spark_row_info, source_block) = mockSparkRowInfoAndBlock(source_type_and_fields);
+
+    ColumnsWithTypeAndName target_columns(2);
+    target_columns[0] = ColumnWithTypeAndName(target_array_type, "a");
+    target_columns[1] = ColumnWithTypeAndName(target_tuple_type, "b");
+    Block target_header(target_columns);
+
+    auto out = SparkRowToCHColumn::convertSparkRowInfoToCHColumn(*spark_row_info, target_header);
+    EXPECT_EQ((*out->getByPosition(0).column)[0], Field(Array{Int32(0), Int32(7)}));
+    EXPECT_EQ((*out->getByPosition(1).column)[0], Field(Tuple{Array{}, Array{Int32(0), Int32(3)}}));
+}
+
 TEST(SparkRow, NullableComplexTypes)
 {
     const auto map_type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>());

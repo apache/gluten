@@ -72,6 +72,24 @@ else()
   endif()
 endif()
 
+set(CH_PATCH_FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/patches/fix-orc-missing-nullable-complex-columns.patch)
+foreach(CH_PATCH_FILE IN LISTS CH_PATCH_FILES)
+  execute_process(
+    COMMAND git apply --reverse --check ${CH_PATCH_FILE}
+    WORKING_DIRECTORY ${CH_SOURCE_DIR}
+    RESULT_VARIABLE CH_PATCH_REVERSE_CHECK_RESULT
+    OUTPUT_QUIET ERROR_QUIET)
+  if(NOT CH_PATCH_REVERSE_CHECK_RESULT EQUAL 0)
+    execute_process(
+      COMMAND git apply --check ${CH_PATCH_FILE}
+      WORKING_DIRECTORY ${CH_SOURCE_DIR} COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(
+      COMMAND git apply ${CH_PATCH_FILE}
+      WORKING_DIRECTORY ${CH_SOURCE_DIR} COMMAND_ERROR_IS_FATAL ANY)
+  endif()
+endforeach()
+
 if(EXISTS "${CH_SOURCE_DIR}/utils/extern-local-engine")
   execute_process(COMMAND rm -rf ${CH_SOURCE_DIR}/utils/extern-local-engine)
 endif()

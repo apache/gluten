@@ -35,7 +35,8 @@ namespace local_engine
         static DB::DataTypePtr getCHTypeByName(const String& spark_type_name);
 
         /// When parsing named structure, we need the field names.
-        static DB::DataTypePtr parseType(const substrait::Type& substrait_type, std::list<String>* field_names);
+        static DB::DataTypePtr
+        parseType(const substrait::Type& substrait_type, std::list<String>* field_names, bool keep_list_nullability = false);
 
         inline static DB::DataTypePtr parseType(const substrait::Type& substrait_type)
         {
