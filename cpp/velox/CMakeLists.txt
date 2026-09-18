@@ -172,6 +172,7 @@ set(VELOX_SRCS
     jni/VeloxJniWrapper.cc
     jni/JniHashTable.cc
     memory/BufferOutputStream.cc
+    memory/SparkMmapAllocator.cc
     memory/VeloxColumnarBatch.cc
     memory/VeloxMemoryManager.cc
     operators/functions/RegistrationAllFunctions.cc

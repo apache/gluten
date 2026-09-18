@@ -43,3 +43,6 @@ if(ENABLE_S3)
 endif()
 
 add_velox_benchmark(delta_bitmap_benchmark DeltaBitmapBenchmark.cc)
+
+add_velox_benchmark(spark_mmap_allocator_benchmark
+                    SparkMmapAllocatorBenchmark.cc)

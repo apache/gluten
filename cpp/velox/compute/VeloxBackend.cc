@@ -318,6 +318,10 @@ facebook::velox::cache::AsyncDataCache* VeloxBackend::getAsyncDataCache() const 
   return asyncDataCache_.get();
 }
 
+SparkMmapAllocator* VeloxBackend::getCacheAllocator() const {
+  return cacheAllocator_.get();
+}
+
 ReaderThreadPool* VeloxBackend::getReaderThreadPool() {
   static std::once_flag readerThreadPoolInit;
   std::call_once(readerThreadPoolInit, [this] {
@@ -380,18 +384,15 @@ void VeloxBackend::initCache() {
 
     velox::memory::MmapAllocator::Options options;
     options.capacity = memCacheSize;
-    cacheAllocator_ = std::make_shared<velox::memory::MmapAllocator>(options);
+    cacheAllocator_ = std::make_shared<SparkMmapAllocator>(options);
+
     if (ssdCacheSize == 0) {
       LOG(INFO) << "AsyncDataCache will do memory caching only as ssd cache size is 0";
-      // TODO: this is not tracked by Spark.
       asyncDataCache_ = velox::cache::AsyncDataCache::create(cacheAllocator_.get());
     } else {
-      // TODO: this is not tracked by Spark.
       auto ssd = initSsdCache(ssdCacheSize);
       asyncDataCache_ = velox::cache::AsyncDataCache::create(cacheAllocator_.get(), std::move(ssd));
     }
-
-    VELOX_CHECK_NOT_NULL(dynamic_cast<velox::cache::AsyncDataCache*>(asyncDataCache_.get()));
     LOG(INFO) << "AsyncDataCache is ready";
   }
 }
@@ -475,7 +476,7 @@ void VeloxBackend::tearDown() {
   globalMemoryManager_.reset();
 
   // dump cache stats on exit if enabled
-  if (dynamic_cast<facebook::velox::cache::AsyncDataCache*>(asyncDataCache_.get())) {
+  if (asyncDataCache_ != nullptr) {
     LOG(INFO) << asyncDataCache_->toString();
     for (const auto& entry : std::filesystem::directory_iterator(cachePathPrefix_)) {
       if (entry.path().filename().string().find(cacheFilePrefix_) != std::string::npos) {
