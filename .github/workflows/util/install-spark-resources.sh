@@ -122,6 +122,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
       install_spark "4.1.1" "3" "2.12"
       mv /opt/shims/spark41/spark_home/assembly/target/scala-2.12 /opt/shims/spark41/spark_home/assembly/target/scala-2.13
       ;;
+  4.2)
+      # Spark-4.x, scala 2.12 // using 2.12 as a hack as 4.2 does not have a 2.13 suffix
+      cd ${INSTALL_DIR} && \
+      install_spark "4.2.0" "3" "2.12"
+      mv /opt/shims/spark42/spark_home/assembly/target/scala-2.12 /opt/shims/spark42/spark_home/assembly/target/scala-2.13
+      ;;
   *)
       echo "Spark version is expected to be specified."
       exit 1
