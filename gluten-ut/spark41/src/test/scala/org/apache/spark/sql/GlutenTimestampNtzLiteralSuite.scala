@@ -105,4 +105,33 @@ class GlutenTimestampNtzLiteralSuite extends GlutenSQLTestsTrait {
       )
     }
   }
+
+  testGluten("timestamp_ntz literals nested in native expressions ignore the session timezone") {
+    Seq("UTC", "America/Los_Angeles").foreach {
+      timeZone =>
+        withSQLConf(
+          SQLConf.ANSI_ENABLED.key -> "false",
+          SQLConf.SESSION_LOCAL_TIMEZONE.key -> timeZone,
+          GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false",
+          "spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "false"
+        ) {
+          val result = spark.range(2).selectExpr(
+            """hour(element_at(
+              |  array(
+              |    TIMESTAMP_NTZ '2024-01-01 00:00:00',
+              |    TIMESTAMP_NTZ '2024-01-01 01:00:00'),
+              |  CAST(id + 1 AS INT))) AS hour
+              |""".stripMargin)
+          checkAnswer(result, Seq(Row(0), Row(1)))
+          val resultOutput = result.queryExecution.executedPlan.outputSet
+          assert(
+            getExecutedPlan(result).exists {
+              case project: ProjectExecTransformer => project.outputSet == resultOutput
+              case _ => false
+            },
+            result.queryExecution.executedPlan.treeString
+          )
+        }
+    }
+  }
 }
