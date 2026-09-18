@@ -652,7 +652,7 @@ class GlutenClickHouseMergeTreePathBasedWriteSuite extends CreateMergeTreeSuite 
     }
   }
 
-  testSparkVersionLE33("test mergetree path based write with bucket table") {
+  ignoreSpark33OnlyCase("test mergetree path based write with bucket table") {
     val dataPath = s"$dataHome/lineitem_mergetree_bucket"
     clearDataPath(dataPath)
 

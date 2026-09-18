@@ -19,13 +19,16 @@ package org.apache.spark.sql.expression
 import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
 import org.apache.gluten.exception.{GlutenException, GlutenNotSupportException}
 import org.apache.gluten.expression._
+import org.apache.gluten.extension.injector.FunctionDescription
 import org.apache.gluten.jni.JniWorkspace
 
 import org.apache.spark.{SparkConf, SparkFiles}
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
+import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Cast, Expression, Unevaluable}
+import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Cast, Expression, ExpressionInfo, Unevaluable}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateFunction
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
@@ -37,6 +40,7 @@ import org.apache.spark.util.Utils
 import java.io.File
 import java.net.URI
 import java.nio.file.{Files, FileVisitOption, Paths}
+import java.util.Locale
 
 import scala.collection.JavaConverters.asScalaIteratorConverter
 import scala.collection.mutable
@@ -336,6 +340,50 @@ object UDFResolver extends Logging {
     SQLConf.get
       .getConfString(VeloxBackendSettings.GLUTEN_VELOX_UDF_ALLOW_TYPE_CONVERSION, "false")
       .toBoolean
+  }
+
+  /**
+   * One Spark function per loaded UDF whose name contains no dot. A dotted name is a Hive UDF class
+   * name, which VeloxHiveUDFTransformer already resolves, so it is skipped here.
+   *
+   * A name is also skipped when it collides with a Spark built-in: the names are unqualified, so
+   * injecting one would redirect that built-in to a native implementation with possibly different
+   * semantics for every query on the session.
+   *
+   * Names differing only in case are skipped as a group. Spark lowercases a function name when it
+   * registers it, so they would collapse to one entry and the last registration would win, leaving
+   * a call to either name running the other one's implementation.
+   */
+  def getFunctionDescriptions: Seq[FunctionDescription] = {
+    val candidates = UDFNames.toSeq.filterNot(_.contains(".")).sorted
+    val byLowerCase = candidates.groupBy(_.toLowerCase(Locale.ROOT))
+
+    val (ambiguous, distinct) =
+      candidates.partition(name => byLowerCase(name.toLowerCase(Locale.ROOT)).size > 1)
+
+    val (shadowing, injectable) =
+      distinct.partition(name => FunctionRegistry.builtin.functionExists(FunctionIdentifier(name)))
+
+    ambiguous.foreach(
+      name =>
+        logWarning(
+          s"Not registering UDF '$name' by name: it differs only in case from another UDF " +
+            s"loaded from the same libraries, and Spark function names are case-insensitive. " +
+            s"Rename it in the UDF library to call it directly."))
+
+    shadowing.foreach(
+      name =>
+        logWarning(
+          s"Not registering UDF '$name' by name: it shadows a Spark built-in. " +
+            s"Rename it in the UDF library to call it directly."))
+
+    injectable.map {
+      name =>
+        (
+          FunctionIdentifier(name),
+          new ExpressionInfo(classOf[UDFExpression].getName, name),
+          (children: Seq[Expression]) => getUdfExpression(name, name)(children))
+    }
   }
 
   def getUdfExpression(name: String, alias: String)(children: Seq[Expression]): UDFExpression = {

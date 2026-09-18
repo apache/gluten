@@ -51,7 +51,7 @@ done
 
 pushd $GLUTEN_HOME/release/
 
-SPARK_VERSIONS="3.3 3.4 3.5 4.0 4.1"
+SPARK_VERSIONS="3.4 3.5 4.0 4.1"
 
 for v in $SPARK_VERSIONS; do
   # Spark 4.x requires Scala 2.13; the spark-4.x Maven profiles enforce it.

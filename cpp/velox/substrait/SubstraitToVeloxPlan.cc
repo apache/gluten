@@ -904,7 +904,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
           makeLocationHandle(writePath, fileName, fileFormat, compressionKind, bucketProperty != nullptr),
           writerOptions,
           fileFormat,
-          compressionKind));
+          compressionKind),
+      folly::F14FastSet<std::string>{});
   return std::make_shared<core::TableWriteNode>(
       nextPlanNodeId(),
       inputType,
@@ -1072,7 +1073,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     unnest.emplace_back(unnestFieldExpr);
   }
 
-  std::vector<std::string> unnestNames;
+  std::vector<std::optional<std::string>> unnestNames;
   int unnestIndex = 0;
   for (const auto& variable : unnest) {
     if (variable->type()->isArray()) {

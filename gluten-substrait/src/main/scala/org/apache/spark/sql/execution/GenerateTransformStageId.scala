@@ -18,7 +18,6 @@ package org.apache.spark.sql.execution
 
 import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.execution.WholeStageTransformer
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AdaptiveSparkPlanHelper, BroadcastQueryStageExec, ShuffleQueryStageExec}
@@ -62,7 +61,7 @@ case class GenerateTransformStageId() extends Rule[SparkPlan] with AdaptiveSpark
           case _ =>
             throw new GlutenException(s"wrong plan for shuffle stage:\n ${plan.treeString}")
         }
-      case aqe: AdaptiveSparkPlanExec if SparkShimLoader.getSparkShims.isFinalAdaptivePlan(aqe) =>
+      case aqe: AdaptiveSparkPlanExec if aqe.isFinalPlan =>
         updateStageId(stripAQEPlan(aqe))
       case wst: WholeStageTransformer if !wholeStageTransformerCache.contains(wst) =>
         updateStageId(wst.child)

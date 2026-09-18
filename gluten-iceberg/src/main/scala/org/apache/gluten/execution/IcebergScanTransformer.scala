@@ -21,6 +21,7 @@ import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.{LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
@@ -217,11 +218,15 @@ case class IcebergScanTransformer(
   override def getSplitInfosFromPartitions(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
     val metadataColumnNames = getMetadataColumns().map(_.name)
-    partitions.map { case (partition, _) => partitionToSplitInfo(partition, metadataColumnNames) }
+    partitions.map {
+      case (partition, readFileFormat) =>
+        partitionToSplitInfo(partition, readFileFormat, metadataColumnNames)
+    }
   }
 
   private def partitionToSplitInfo(
       partition: Partition,
+      readFileFormat: ReadFileFormat,
       metadataColumnNames: Seq[String]): SplitInfo = {
     val splitInfo = partition match {
       case p: SparkDataSourceRDDPartition =>
@@ -233,8 +238,19 @@ case class IcebergScanTransformer(
           icebergInitialDefaults)
       case _ => throw new GlutenNotSupportException()
     }
-    numSplits.add(splitInfo.asInstanceOf[LocalFilesNode].getPaths.size())
+    val localFiles = splitInfo.asInstanceOf[LocalFilesNode]
+    icebergColumnMappingMode(readFileFormat).foreach(localFiles.setColumnMappingMode)
+    numSplits.add(localFiles.getPaths.size())
     splitInfo
+  }
+
+  private def icebergColumnMappingMode(fileFormat: ReadFileFormat): Option[ColumnMappingMode] = {
+    fileFormat match {
+      case ReadFileFormat.ParquetReadFormat | ReadFileFormat.OrcReadFormat =>
+        Some(ColumnMappingMode.NAME)
+      case _ =>
+        None
+    }
   }
 
   override def doCanonicalize(): IcebergScanTransformer = {
@@ -340,14 +356,14 @@ object IcebergScanTransformer {
       batchScan.output.map(a => a.withName(AvroSchemaUtil.makeCompatibleName(a.name))),
       batchScan.scan,
       batchScan.runtimeFilters,
-      table = SparkShimLoader.getSparkShims.getBatchScanExecTable(batchScan),
-      keyGroupedPartitioning = SparkShimLoader.getSparkShims.getKeyGroupedPartitioning(batchScan),
+      table = batchScan.table,
+      keyGroupedPartitioning = batchScan.keyGroupedPartitioning,
       commonPartitionValues = SparkShimLoader.getSparkShims.getCommonPartitionValues(batchScan)
     )
   }
 
   def supportsBatchScan(scan: Scan): Boolean = {
-    scan.getClass == GlutenIcebergSourceUtil.getClassOfSparkBatchQueryScan
+    GlutenIcebergSourceUtil.isSupportedScan(scan)
   }
 
   private def containsUuidOrFixedType(dataType: Type): Boolean = {

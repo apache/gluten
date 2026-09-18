@@ -41,7 +41,6 @@ RUN set -ex; \
     wget -nv ${mirror_host}/celeborn/celeborn-0.6.3/apache-celeborn-0.6.3-bin.tgz?action=download -O /opt/apache-celeborn-0.6.3-bin.tgz; \
     git clone --depth=1 --branch "${GLUTEN_BRANCH}" "${GLUTEN_REPO}" /opt/gluten; \
     cd /opt/gluten/.github/workflows/util/; \
-    ./install-spark-resources.sh 3.3; \
     ./install-spark-resources.sh 3.4; \
     ./install-spark-resources.sh 3.5; \
     ./install-spark-resources.sh 3.5-scala2.13; \

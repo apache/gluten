@@ -26,3 +26,9 @@ ${MVN_CMD} clean test \
   -Dtest=none \
   -DfailIfNoTests=false \
   -DwildcardSuites=org.apache.gluten.config.AllGlutenConfiguration,org.apache.gluten.config.AllVeloxConfiguration
+
+${MVN_CMD} clean test \
+  -Pspark-3.5 -Pscala-2.12 -Pbackends-bolt -pl backends-bolt -am \
+  -Dtest=none \
+  -DfailIfNoTests=false \
+  -DwildcardSuites=org.apache.gluten.config.AllGlutenConfiguration,org.apache.gluten.config.AllBoltConfiguration

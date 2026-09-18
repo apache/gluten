@@ -91,10 +91,6 @@ object GlutenImplicits {
     }
   }
 
-  private def isFinalAdaptivePlan(p: AdaptiveSparkPlanExec): Boolean = {
-    SparkShimLoader.getSparkShims.isFinalAdaptivePlan(p)
-  }
-
   private def collectFallbackNodes(
       spark: SparkSession,
       plan: QueryPlan[_]): GlutenExplainUtils.FallbackInfo = {
@@ -107,7 +103,7 @@ object GlutenImplicits {
         case p: V2CommandExec
             if !GlutenExplainUtils.shouldIgnoreInFallbackStats(p) =>
           GlutenExplainUtils.handleVanillaSparkPlan(p, fallbackNodeToReason)
-        case p: AdaptiveSparkPlanExec if isFinalAdaptivePlan(p) =>
+        case p: AdaptiveSparkPlanExec if p.isFinalPlan =>
           collect(p.executedPlan)
         case p: AdaptiveSparkPlanExec =>
           // if we are here that means we are inside table cache.
@@ -196,7 +192,7 @@ object GlutenImplicits {
     // For query, e.g., `SELECT * FROM ...`
     if (qe.executedPlan.find(_.isInstanceOf[CommandResultExec]).isEmpty) {
       val isMaterialized = qe.executedPlan.find {
-        case a: AdaptiveSparkPlanExec if isFinalAdaptivePlan(a) => true
+        case a: AdaptiveSparkPlanExec if a.isFinalPlan => true
         case _ => false
       }.isDefined
       handlePlanWithAQEAndTableCache(qe.executedPlan, qe.analyzed, isMaterialized)

@@ -71,11 +71,19 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
   }
 
   /**
+   * Returns true if the aggregate applies no aggregate functions and is the final (or complete)
+   * stage, e.g. the last step of `SELECT DISTINCT`, or of a `GROUP BY` without aggregate functions.
+   */
+  private def isGroupingOnlyFinalAgg(agg: HashAggregateExecTransformer): Boolean = {
+    agg.aggregateExpressions.isEmpty && agg.requiredChildDistributionExpressions.isDefined
+  }
+
+  /**
    * Walks the plan downward, applying func to each RegularHashAggregateExecTransformer or
    * SortHashAggregateExecTransformer that is eligible for flushable conversion. An aggregate is
-   * eligible when all expressions are Partial/PartialMerge, it is not the protected PartialMerge
-   * aggregate directly below a distinct-partial aggregate, and no aggregate function disallows
-   * flushing.
+   * eligible when all expressions are Partial/PartialMerge, it is not the final stage of a
+   * grouping-only aggregate, it is not the protected PartialMerge aggregate directly below a
+   * distinct-partial aggregate, and no aggregate function disallows flushing.
    */
   private def replaceEligibleAggregates(
       plan: SparkPlan,
@@ -93,6 +101,9 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
     }
 
     def transformDown: SparkPlan => SparkPlan = {
+      case agg: RegularHashAggregateExecTransformer if isGroupingOnlyFinalAgg(agg) =>
+        // Final stage of a grouping-only aggregate. It must fully aggregate. Skip.
+        agg
       case agg: RegularHashAggregateExecTransformer
           if !agg.aggregateExpressions.forall(p => p.mode == Partial || p.mode == PartialMerge) =>
         // Not an intermediate agg. Skip.
@@ -110,6 +121,9 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
       case agg: RegularHashAggregateExecTransformer =>
         // All guards passed; replace with the flushable variant.
         toFlushableAgg(agg)
+      case agg: SortHashAggregateExecTransformer if isGroupingOnlyFinalAgg(agg) =>
+        // See the RegularHashAggregateExecTransformer branch above.
+        agg
       case agg: SortHashAggregateExecTransformer
           if !agg.aggregateExpressions.forall(p => p.mode == Partial || p.mode == PartialMerge) =>
         // Not an intermediate agg. Skip.

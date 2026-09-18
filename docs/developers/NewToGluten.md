@@ -13,8 +13,8 @@ Gluten supports Ubuntu 20.04/22.04, CentOS 7/8, and MacOS.
 
 ### JDK
 
-Gluten supports JDK 8 for Spark 3.3, 3.4, and 3.5. For Spark 3.3 and later versions, Gluten
-also supports JDK 11 and 17.
+Gluten supports JDK 8 for Spark 3.4 and 3.5, and also supports JDK 11 and 17 for those
+versions.
 
 Note: Starting with Spark 4.0, the minimum required JDK version is 17. JDK 21 and 25 are also
 supported for Spark 4.0 and later versions.

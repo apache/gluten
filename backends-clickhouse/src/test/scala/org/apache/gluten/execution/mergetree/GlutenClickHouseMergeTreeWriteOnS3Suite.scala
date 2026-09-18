@@ -378,7 +378,7 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
 
   }
 
-  testSparkVersionLE33("test mergetree write with bucket table") {
+  ignoreSpark33OnlyCase("test mergetree write with bucket table") {
     spark.sql(s"""
                  |DROP TABLE IF EXISTS lineitem_mergetree_bucket_s3;
                  |""".stripMargin)
@@ -448,7 +448,7 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
     spark.sql("drop table lineitem_mergetree_bucket_s3")
   }
 
-  testSparkVersionLE33("test mergetree write with the path based bucket table") {
+  ignoreSpark33OnlyCase("test mergetree write with the path based bucket table") {
     val dataPath = s"s3a://$BUCKET_NAME/lineitem_mergetree_bucket_s3"
 
     val sourceDF = spark.sql(s"""

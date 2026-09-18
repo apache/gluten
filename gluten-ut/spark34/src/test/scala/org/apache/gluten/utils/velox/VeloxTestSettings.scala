@@ -103,7 +103,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Excluded in favour of the GlutenCastSuite rewrite, which drops the Long.MinValue
     // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
-    .exclude("SPARK-36286: invalid string cast to timestamp")
     .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenTryCastSuite]
     .exclude(
@@ -392,27 +391,18 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenOrcV1SchemaPruningSuite]
   enableSuite[GlutenOrcV2SchemaPruningSuite]
   enableSuite[GlutenParquetColumnIndexSuite]
-    // Rewrite by just removing test timestamp.
-    .exclude("test reading unaligned pages - test all types")
-    // Rewrite by converting smaller integral value to timestamp.
-    .exclude("test reading unaligned pages - test all types (dict encode)")
   enableSuite[GlutenParquetCompressionCodecPrecedenceSuite]
   enableSuite[GlutenParquetDeltaByteArrayEncodingSuite]
   enableSuite[GlutenParquetDeltaEncodingInteger]
   enableSuite[GlutenParquetDeltaEncodingLong]
   enableSuite[GlutenParquetDeltaLengthByteArrayEncodingSuite]
   enableSuite[GlutenParquetEncodingSuite]
-    // Velox does not support rle encoding, but it can pass when native writer enabled.
-    .exclude("parquet v2 pages - rle encoding for boolean value columns")
   enableSuite[GlutenParquetFieldIdIOSuite]
   enableSuite[GlutenParquetFileFormatV1Suite]
   enableSuite[GlutenParquetFileFormatV2Suite]
   enableSuite[GlutenParquetV1FilterSuite]
     // Rewrite.
     .exclude("SPARK-23852: Broken Parquet push-down for partially-written stats")
-    // Rewrite for supported INT96 - timestamp.
-    .exclude("filter pushdown - timestamp")
-    .exclude("filter pushdown - date")
     // Exception bebaviour.
     .exclude("SPARK-25207: exception when duplicate fields in case-insensitive mode")
     // Ignore Spark's filter pushdown check.
@@ -428,9 +418,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenParquetV2FilterSuite]
     // Rewrite.
     .exclude("SPARK-23852: Broken Parquet push-down for partially-written stats")
-    // Rewrite for supported INT96 - timestamp.
-    .exclude("filter pushdown - timestamp")
-    .exclude("filter pushdown - date")
     // Exception bebaviour.
     .exclude("SPARK-25207: exception when duplicate fields in case-insensitive mode")
     // Ignore Spark's filter pushdown check.
@@ -444,6 +431,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("filter pushdown - StringPredicate")
     .exclude("SPARK-38825: in and notIn filters")
   enableSuite[GlutenParquetInteroperabilitySuite]
+    // Disabled because Velox does not implement Spark’s legacy Impala INT96 timestamp conversion semantics.
     .exclude("parquet timestamp conversion")
   enableSuite[GlutenParquetIOSuite]
     // Velox doesn't write file metadata into parquet file.
@@ -452,16 +440,15 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-35640: read binary as timestamp should throw schema incompatible error")
     // Exception msg.
     .exclude("SPARK-35640: int as long should throw schema incompatible error")
-    // Velox parquet reader not allow offset zero.
-    .exclude("SPARK-40128 read DELTA_LENGTH_BYTE_ARRAY encoded strings")
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
   enableSuite[GlutenParquetProtobufCompatibilitySuite]
   enableSuite[GlutenParquetV1QuerySuite]
+    // No fix needed: INT read as LONG is allowed.
     .exclude("row group skipping doesn't overflow when reading into larger type")
     // Unsupport spark.sql.files.ignoreCorruptFiles.
     .exclude("Enabling/disabling ignoreCorruptFiles")
-    // decimal failed ut
+    // No fix needed: narrowing the scale should not be allowed.
     .exclude("SPARK-34212 Parquet should read decimals correctly")
     // new added in spark-3.3 and need fix later, random failure may caused by memory free
     .exclude("SPARK-39833: pushed filters with project without filter columns")
@@ -469,18 +456,19 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite because the filter after datasource is not needed.
     .exclude(
       "SPARK-26677: negated null-safe equality comparison should not filter matched row groups")
-    // Velox currently does not distinguish `isAdjustedToUTC` in Parquet.
+    // No fix needed: read TimestampLTZ as TimestampNTZ is allowed.
     .exclude("SPARK-36182: can't read TimestampLTZ as TimestampNTZ")
   enableSuite[GlutenParquetV2QuerySuite]
+    // No fix needed: INT read as LONG is allowed.
     .exclude("row group skipping doesn't overflow when reading into larger type")
     // Unsupport spark.sql.files.ignoreCorruptFiles.
     .exclude("Enabling/disabling ignoreCorruptFiles")
-    // decimal failed ut
+    // No fix needed: narrowing the scale should not be allowed.
     .exclude("SPARK-34212 Parquet should read decimals correctly")
     // Rewrite because the filter after datasource is not needed.
     .exclude(
       "SPARK-26677: negated null-safe equality comparison should not filter matched row groups")
-    // Velox currently does not distinguish `isAdjustedToUTC` in Parquet.
+    // No fix needed: read TimestampLTZ as TimestampNTZ is allowed.
     .exclude("SPARK-36182: can't read TimestampLTZ as TimestampNTZ")
   enableSuite[GlutenParquetV1SchemaPruningSuite]
   enableSuite[GlutenParquetV2SchemaPruningSuite]
@@ -527,8 +515,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenFileMetadataStructRowIndexSuite]
   enableSuite[GlutenParquetV1AggregatePushDownSuite]
   enableSuite[GlutenParquetV2AggregatePushDownSuite]
-    // TODO: Timestamp columns stats will lost if using int64 in parquet writer.
-    .exclude("aggregate push down - different data types")
   enableSuite[GlutenOrcV1AggregatePushDownSuite]
     .exclude("nested column: Count(nested sub-field) not push down")
   enableSuite[GlutenOrcV2AggregatePushDownSuite]
@@ -687,6 +673,16 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("length check for input string values: nested in array of struct")
     .exclude("length check for input string values: nested in array of array")
     .exclude("length check for input string values: with implicit cast")
+    // Overridden.
+    .exclude("length check for input string values: nested in map key")
+    // Overridden.
+    .exclude("length check for input string values: nested in map value")
+    // Overridden.
+    .exclude("length check for input string values: nested in both map key and value")
+    // Overridden.
+    .exclude("SPARK-42611: check char/varchar length in reordered structs within map keys")
+    // Overridden.
+    .exclude("SPARK-42611: check char/varchar length in reordered structs within map values")
 
   enableSuite[GlutenColumnExpressionSuite]
     // Velox raise_error('errMsg') throws a velox_user_error exception with the message 'errMsg'.
@@ -730,6 +726,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("map_zip_with function - map of primitive types")
     // Exception class different.
     .exclude("array_insert functions")
+    // Overridden.
+    .exclude("map with arrays")
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
   enableSuite[GlutenDataFrameJoinSuite]

@@ -55,7 +55,7 @@ class ClickHouseIcebergSuite extends GlutenClickHouseWholeStageTransformerSuite 
     }
   }
 
-  testWithSpecifiedSparkVersion("iceberg bucketed join", "3.3", "3.5") {
+  testWithSpecifiedSparkVersion("iceberg bucketed join", "3.5") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -135,7 +135,7 @@ class ClickHouseIcebergSuite extends GlutenClickHouseWholeStageTransformerSuite 
     }
   }
 
-  testWithSpecifiedSparkVersion("iceberg bucketed join with partition", "3.3", "3.5") {
+  testWithSpecifiedSparkVersion("iceberg bucketed join with partition", "3.5") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -371,7 +371,7 @@ class ClickHouseIcebergSuite extends GlutenClickHouseWholeStageTransformerSuite 
     }
   }
 
-  testWithSpecifiedSparkVersion("iceberg bucketed join with partition filter", "3.3", "3.5") {
+  testWithSpecifiedSparkVersion("iceberg bucketed join with partition filter", "3.5") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {

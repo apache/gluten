@@ -29,7 +29,6 @@ import org.apache.gluten.extension.columnar.validator.{Validator, Validators}
 import org.apache.gluten.extension.injector.{Injector, SparkInjector}
 import org.apache.gluten.extension.injector.GlutenInjector.LegacyInjector
 import org.apache.gluten.parser.{GlutenCacheFilesSqlParser, GlutenClickhouseSqlParser}
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.catalyst.{CHAggregateFunctionRewriteRule, EqualToRewrite}
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -146,9 +145,6 @@ object CHRuleApi {
     // Gluten columnar: Post rules.
     injector.injectPost(c => RemoveTopmostColumnarToRow(c.session, c.caller.isAqe()))
     injector.injectPost(c => CHRemoveTopmostColumnarToRow(c.session, c.caller.isAqe()))
-    SparkShimLoader.getSparkShims
-      .getExtendedColumnarPostRules()
-      .foreach(each => injector.injectPost(c => intercept(each(c.session))))
     injector.injectPost(c => ColumnarCollapseTransformStages(new GlutenConfig(c.sqlConf)))
     injector.injectPost(_ => GenerateTransformStageId())
     injector.injectPost(

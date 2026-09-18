@@ -18,20 +18,27 @@ package org.apache.spark.softaffinity
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.softaffinity.SoftAffinityManager
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
+import org.apache.spark.paths.SparkPath
 import org.apache.spark.scheduler.{SparkListenerExecutorAdded, SparkListenerExecutorRemoved}
 import org.apache.spark.scheduler.cluster.ExecutorInfo
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
-import org.apache.spark.sql.execution.datasources.FilePartition
+import org.apache.spark.sql.execution.datasources.{FilePartition, PartitionedFile}
 import org.apache.spark.sql.test.SharedSparkSession
 
 import scala.collection.mutable.ListBuffer
 
 class SoftAffinitySuite extends QueryTest with SharedSparkSession with PredicateHelper {
+
+  private def partitionedFile(
+      path: String,
+      start: Long,
+      length: Long,
+      locations: Array[String]): PartitionedFile =
+    PartitionedFile(InternalRow.empty, SparkPath.fromPathString(path), start, length, locations)
 
   override protected def sparkConf: SparkConf = super.sparkConf
     .set(GlutenConfig.GLUTEN_SOFT_AFFINITY_ENABLED.key, "true")
@@ -45,20 +52,8 @@ class SoftAffinitySuite extends QueryTest with SharedSparkSession with Predicate
     val partition = FilePartition(
       0,
       Seq(
-        SparkShimLoader.getSparkShims.generatePartitionedFile(
-          InternalRow.empty,
-          "fakePath0",
-          0,
-          100,
-          Array("host-1", "host-2")
-        ),
-        SparkShimLoader.getSparkShims.generatePartitionedFile(
-          InternalRow.empty,
-          "fakePath1",
-          0,
-          200,
-          Array("host-2", "host-3")
-        )
+        partitionedFile("fakePath0", 0, 100, Array("host-1", "host-2")),
+        partitionedFile("fakePath1", 0, 200, Array("host-2", "host-3"))
       ).toArray
     )
 
@@ -75,20 +70,8 @@ class SoftAffinitySuite extends QueryTest with SharedSparkSession with Predicate
     val partition = FilePartition(
       0,
       Seq(
-        SparkShimLoader.getSparkShims.generatePartitionedFile(
-          InternalRow.empty,
-          "fakePath0",
-          0,
-          100,
-          Array("192.168.22.1", "host-2")
-        ),
-        SparkShimLoader.getSparkShims.generatePartitionedFile(
-          InternalRow.empty,
-          "fakePath1",
-          0,
-          200,
-          Array("192.168.22.1", "host-5")
-        )
+        partitionedFile("fakePath0", 0, 100, Array("192.168.22.1", "host-2")),
+        partitionedFile("fakePath1", 0, 200, Array("192.168.22.1", "host-5"))
       ).toArray
     )
 
@@ -105,20 +88,8 @@ class SoftAffinitySuite extends QueryTest with SharedSparkSession with Predicate
     val partition = FilePartition(
       0,
       Seq(
-        SparkShimLoader.getSparkShims.generatePartitionedFile(
-          InternalRow.empty,
-          "fakePath0",
-          0,
-          100,
-          Array("host-1", "host-2")
-        ),
-        SparkShimLoader.getSparkShims.generatePartitionedFile(
-          InternalRow.empty,
-          "fakePath1",
-          0,
-          200,
-          Array("host-5", "host-6")
-        )
+        partitionedFile("fakePath0", 0, 100, Array("host-1", "host-2")),
+        partitionedFile("fakePath1", 0, 200, Array("host-5", "host-6"))
       ).toArray
     )
 
@@ -135,20 +106,8 @@ class SoftAffinitySuite extends QueryTest with SharedSparkSession with Predicate
     val partition = FilePartition(
       0,
       Seq(
-        SparkShimLoader.getSparkShims.generatePartitionedFile(
-          InternalRow.empty,
-          "fakePath0",
-          0,
-          100,
-          Array("host-1", "host-2")
-        ),
-        SparkShimLoader.getSparkShims.generatePartitionedFile(
-          InternalRow.empty,
-          "fakePath1",
-          0,
-          200,
-          Array("host-5", "host-6")
-        )
+        partitionedFile("fakePath0", 0, 100, Array("host-1", "host-2")),
+        partitionedFile("fakePath1", 0, 200, Array("host-5", "host-6"))
       ).toArray
     )
 
