@@ -132,6 +132,8 @@ abstract class FileSourceScanExecTransformerBase(
 
   override def scanFilters: Seq[Expression] = dataFilters
 
+  override def readerOptions: Map[String, String] = relation.options
+
   override def getMetadataColumns(): Seq[AttributeReference] = metadataColumns
 
   override def getPartitions: Seq[Partition] = {

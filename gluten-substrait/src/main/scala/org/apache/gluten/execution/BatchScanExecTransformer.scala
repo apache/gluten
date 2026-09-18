@@ -117,6 +117,8 @@ abstract class BatchScanExecTransformerBase(
     postDriverMetrics()
   }
 
+  override def readerOptions: Map[String, String] = Map.empty
+
   override def scanFilters: Seq[Expression] = scan match {
     case fileScan: FileScan => fileScan.dataFilters
     case _ =>
