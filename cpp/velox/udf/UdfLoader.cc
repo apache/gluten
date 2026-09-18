@@ -18,8 +18,11 @@
 #include <dlfcn.h>
 #include <google/protobuf/arena.h>
 #include <vector>
+#include "velox/exec/Aggregate.h"
 #include "velox/expression/SignatureBinder.h"
 #include "velox/expression/VectorFunction.h"
+#include "velox/functions/FunctionRegistry.h"
+#include "velox/type/TypeCoercer.h"
 #include "velox/type/fbhive/HiveTypeParser.h"
 
 #include "Udaf.h"
@@ -132,6 +135,69 @@ std::unordered_set<std::shared_ptr<UdfLoader::UdfSignature>> UdfLoader::getRegis
   return signatures_;
 }
 
+void UdfLoader::loadRegistryNames() {
+  if (registryNamesLoaded_) {
+    return;
+  }
+  registryNamesLoaded_ = true;
+
+  for (const auto& item : handles_) {
+    const auto& libPath = item.first;
+    const auto& handle = item.second;
+
+    loadRegistryEntries<RegistryUdfEntry>(
+        handle,
+        libPath,
+        GLUTEN_TOSTRING(GLUTEN_GET_NUM_REGISTRY_UDF),
+        GLUTEN_TOSTRING(GLUTEN_GET_REGISTRY_UDF_ENTRIES),
+        registryUdfNames_);
+
+    loadRegistryEntries<RegistryUdafEntry>(
+        handle,
+        libPath,
+        GLUTEN_TOSTRING(GLUTEN_GET_NUM_REGISTRY_UDAF),
+        GLUTEN_TOSTRING(GLUTEN_GET_REGISTRY_UDAF_ENTRIES),
+        registryUdafNames_);
+  }
+}
+
+template <typename Entry>
+void UdfLoader::loadRegistryEntries(
+    void* handle,
+    const std::string& libPath,
+    const std::string& numSym,
+    const std::string& entriesSym,
+    std::unordered_set<std::string>& names) {
+  void* getNumSym = loadSymFromLibrary(handle, libPath, numSym, false);
+  if (!getNumSym) {
+    return;
+  }
+  auto getNum = reinterpret_cast<int (*)()>(getNumSym);
+  const int num = getNum();
+  if (num <= 0) {
+    return;
+  }
+
+  std::vector<Entry> entries(num);
+  void* getEntriesSym = loadSymFromLibrary(handle, libPath, entriesSym);
+  auto getEntries = reinterpret_cast<void (*)(Entry*)>(getEntriesSym);
+  getEntries(entries.data());
+
+  for (const auto& entry : entries) {
+    names.insert(entry.name);
+  }
+}
+
+std::unordered_set<std::string> UdfLoader::getRegistryUdfNames() {
+  loadRegistryNames();
+  return registryUdfNames_;
+}
+
+std::unordered_set<std::string> UdfLoader::getRegistryUdafNames() {
+  loadRegistryNames();
+  return registryUdafNames_;
+}
+
 std::unordered_set<std::string> UdfLoader::getRegisteredUdafNames() {
   if (handles_.empty()) {
     return {};
@@ -147,7 +213,46 @@ std::unordered_set<std::string> UdfLoader::getRegisteredUdafNames() {
       names_.insert(sig->name);
     }
   }
+  // A RegistryUdafEntry advertises no intermediate type, so the loop above
+  // cannot see it, but the plan validator gates AggregateRel on this set.
+  loadRegistryNames();
+  names_.insert(registryUdafNames_.begin(), registryUdafNames_.end());
   return names_;
+}
+
+facebook::velox::TypePtr UdfLoader::resolveUdfType(
+    const std::string& name,
+    const std::vector<facebook::velox::TypePtr>& argTypes) {
+  // Covers both simple and vector functions, and returns nullptr when nothing
+  // binds.
+  return facebook::velox::resolveFunction(name, argTypes);
+}
+
+std::optional<std::pair<facebook::velox::TypePtr, facebook::velox::TypePtr>> UdfLoader::resolveUdafTypes(
+    const std::string& name,
+    const std::vector<facebook::velox::TypePtr>& argTypes) {
+  using namespace facebook::velox;
+
+  auto signatures = exec::getAggregateFunctionSignatures(name);
+  if (!signatures.has_value()) {
+    return std::nullopt;
+  }
+
+  // exec::resolveResultType and exec::resolveIntermediateType do this, but each
+  // binds separately and both throw rather than report a miss. Binding once
+  // also guarantees the two types come from the same signature.
+  for (const auto& signature : signatures.value()) {
+    exec::SignatureBinder binder(*signature, argTypes, TypeCoercer::defaults());
+    if (!binder.tryBind()) {
+      continue;
+    }
+    auto returnType = binder.tryResolveReturnType();
+    auto intermediateType = binder.tryResolveType(signature->intermediateType());
+    if (returnType != nullptr && intermediateType != nullptr) {
+      return std::make_pair(returnType, intermediateType);
+    }
+  }
+  return std::nullopt;
 }
 
 void UdfLoader::registerUdf() {

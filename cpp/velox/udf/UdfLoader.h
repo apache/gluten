@@ -19,7 +19,11 @@
 
 #include <boost/container_hash/hash.hpp>
 #include <google/protobuf/arena.h>
+#include <optional>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 #include "substrait/VeloxToSubstraitType.h"
 #include "velox/type/Type.h"
@@ -74,12 +78,43 @@ class UdfLoader {
 
   std::unordered_set<std::shared_ptr<UdfSignature>> getRegisteredUdfSignatures();
 
+  /// Names declared through RegistryUdfEntry. Their signatures live in the Velox
+  /// function registry and are resolved per call site by resolveUdfType.
+  std::unordered_set<std::string> getRegistryUdfNames();
+
+  /// Names declared through RegistryUdafEntry, resolved by resolveUdafTypes.
+  std::unordered_set<std::string> getRegistryUdafNames();
+
   std::unordered_set<std::string> getRegisteredUdafNames();
+
+  /// Resolves the return type of scalar function 'name' called with 'argTypes'.
+  /// Returns nullptr if no registered signature binds.
+  static facebook::velox::TypePtr resolveUdfType(
+      const std::string& name,
+      const std::vector<facebook::velox::TypePtr>& argTypes);
+
+  /// Resolves the return and intermediate types of aggregate function 'name'
+  /// called with 'argTypes'. Returns std::nullopt if no registered signature
+  /// binds. Both types come from the same bound signature, so they cannot
+  /// disagree with each other.
+  static std::optional<std::pair<facebook::velox::TypePtr, facebook::velox::TypePtr>> resolveUdafTypes(
+      const std::string& name,
+      const std::vector<facebook::velox::TypePtr>& argTypes);
 
   void registerUdf();
 
  private:
   void loadUdfLibrariesInternal(const std::vector<std::string>& libPaths);
+
+  void loadRegistryNames();
+
+  template <typename Entry>
+  void loadRegistryEntries(
+      void* handle,
+      const std::string& libPath,
+      const std::string& numSym,
+      const std::string& entriesSym,
+      std::unordered_set<std::string>& names);
 
   std::string toSubstraitTypeStr(const std::string& type);
 
@@ -93,6 +128,10 @@ class UdfLoader {
 
   std::unordered_set<std::shared_ptr<UdfSignature>> signatures_;
   std::unordered_set<std::string> names_;
+
+  bool registryNamesLoaded_{false};
+  std::unordered_set<std::string> registryUdfNames_;
+  std::unordered_set<std::string> registryUdafNames_;
 };
 
 } // namespace gluten
