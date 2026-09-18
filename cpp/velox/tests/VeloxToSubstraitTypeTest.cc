@@ -62,4 +62,13 @@ TEST_F(VeloxToSubstraitTypeTest, basic) {
   testTypeConversion(ROW({}, {}));
 }
 
+TEST_F(VeloxToSubstraitTypeTest, timestampUtc) {
+  google::protobuf::Arena arena;
+  const auto& substraitType = typeConvertor_->toSubstraitType(arena, TIMESTAMP_UTC());
+
+  ASSERT_TRUE(substraitType.has_precision_timestamp());
+  ASSERT_EQ(substraitType.precision_timestamp().precision(), 6);
+  ASSERT_TRUE(SubstraitParser::parseType(substraitType)->equivalent(*TIMESTAMP_UTC()));
+}
+
 } // namespace gluten
