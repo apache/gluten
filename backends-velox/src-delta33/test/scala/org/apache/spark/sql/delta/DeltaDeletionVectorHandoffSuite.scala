@@ -19,7 +19,7 @@ package org.apache.spark.sql.delta
 import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.gluten.execution.DeltaScanTransformer
 
-import org.apache.spark.sql.{DataFrame, Dataset, QueryTest}
+import org.apache.spark.sql.{DataFrame, Dataset, QueryTest, Row}
 import org.apache.spark.sql.delta.files.TahoeLogFileIndex
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
@@ -152,19 +152,22 @@ class DeltaDeletionVectorHandoffSuite
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
-        Seq(0, 1, 2).toDF("value").coalesce(1).write.format("delta").save(path)
+        Seq(0, 1, 2)
+          .toDF("value")
+          .coalesce(1)
+          .sortWithinPartitions("value")
+          .write
+          .format("delta")
+          .save(path)
 
         withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "false") {
           val rowIndexDf =
             dataframeWithSyntheticColumns(path, DeltaParquetFileFormat.ROW_INDEX_STRUCT_FIELD)
 
           assert(!containsNativeDeltaScan(rowIndexDf.queryExecution.executedPlan))
-          assert(
-            rowIndexDf
-              .select(DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME)
-              .collect()
-              .map(_.getLong(0))
-              .toSet === Set(0L, 1L, 2L))
+          checkAnswer(
+            rowIndexDf.select("value", DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME),
+            Seq(Row(0, 0L), Row(1, 1L), Row(2, 2L)))
         }
     }
   }
@@ -196,7 +199,13 @@ class DeltaDeletionVectorHandoffSuite
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
-        Seq(0, 1, 2).toDF("value").coalesce(1).write.format("delta").save(path)
+        Seq(0, 1, 2)
+          .toDF("value")
+          .coalesce(1)
+          .sortWithinPartitions("value")
+          .write
+          .format("delta")
+          .save(path)
         val temporaryRowIndexField =
           StructField(ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME, LongType)
 
@@ -204,12 +213,9 @@ class DeltaDeletionVectorHandoffSuite
           val rowIndexDf = dataframeWithSyntheticColumns(path, temporaryRowIndexField)
 
           assert(!containsNativeDeltaScan(rowIndexDf.queryExecution.executedPlan))
-          assert(
-            rowIndexDf
-              .select(ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME)
-              .collect()
-              .map(_.getLong(0))
-              .toSet === Set(0L, 1L, 2L))
+          checkAnswer(
+            rowIndexDf.select("value", ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME),
+            Seq(Row(0, 0L), Row(1, 1L), Row(2, 2L)))
         }
     }
   }
