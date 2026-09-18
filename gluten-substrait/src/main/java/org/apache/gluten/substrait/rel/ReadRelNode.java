@@ -44,7 +44,7 @@ public class ReadRelNode implements RelNode, Serializable {
   private final List<ColumnTypeNode> columnTypeNodes = new ArrayList<>();
   private final ExpressionNode filterNode;
   private final AdvancedExtensionNode extensionNode;
-  private boolean streamKafka = false;
+  private Any extensionTableDetail;
 
   private BigInt rowCount;
   private InputStats inputStats;
@@ -78,8 +78,9 @@ public class ReadRelNode implements RelNode, Serializable {
     this.inputStats = inputStats;
   }
 
-  public void setStreamKafka(boolean streamKafka) {
-    this.streamKafka = streamKafka;
+  /** Sets the detail of the {@code read_type} oneof's {@code extension_table} member. */
+  public void setExtensionTableDetail(Any extensionTableDetail) {
+    this.extensionTableDetail = extensionTableDetail;
   }
 
   @Override
@@ -93,7 +94,11 @@ public class ReadRelNode implements RelNode, Serializable {
     ReadRel.Builder readBuilder = ReadRel.newBuilder();
     readBuilder.setCommon(relCommonBuilder.build());
     readBuilder.setBaseSchema(nStructBuilder.build());
-    readBuilder.setStreamKafka(streamKafka);
+
+    if (extensionTableDetail != null) {
+      readBuilder.setExtensionTable(
+          ReadRel.ExtensionTable.newBuilder().setDetail(extensionTableDetail).build());
+    }
 
     if (filterNode != null) {
       readBuilder.setFilter(filterNode.toProtobuf());

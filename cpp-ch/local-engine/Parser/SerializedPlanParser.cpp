@@ -270,6 +270,12 @@ QueryPlanPtr SerializedPlanParser::parseOp(const substrait::Rel & rel, std::list
         }
         else if (read_rel_parser->isReadFromStreamKafka(read))
         {
+            /// Unlike MergeTree/Range above, a Kafka read is *identified* by an in-plan extension_table
+            /// (its detail's type_url is gluten.StreamKafka), so has_extension_table() is always true here
+            /// yet the real per-partition payload still rides split-info -- we must consume a split
+            /// unconditionally. Do NOT add a `!read.has_extension_table()` guard like the siblings have:
+            /// that would stop split_info_index from advancing and hand later leaves the wrong split.
+            chassert(read.has_extension_table());
             read_rel_parser->setSplitInfo(nextSplitInfo());
         }
     }
