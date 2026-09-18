@@ -82,6 +82,7 @@ void getS3HiveConfig(
       {S3Config::Keys::kIamRoleSessionName, std::make_pair("iam.role.session.name", "gluten-session")},
       {S3Config::Keys::kEndpointRegion, std::make_pair("endpoint.region", std::nullopt)},
       {S3Config::Keys::kIMDSEnabled, std::make_pair("aws.imds.enabled", "true")},
+      {S3Config::Keys::kSSLCAFile, std::make_pair("ssl.ca-file", std::nullopt)},
   };
 
   // get Velox S3 config key from Spark Suffix.
@@ -144,6 +145,11 @@ void getS3HiveConfig(
   setConfigIfPresent(S3Config::Keys::kConnectTimeout);
   setConfigIfPresent(S3Config::Keys::kEndpointRegion);
   setConfigIfPresent(S3Config::Keys::kIMDSEnabled);
+  // See apache/gluten#12711: allows overriding the TLS CA bundle used to
+  // verify S3 endpoints via `spark.hadoop.fs.s3a.ssl.ca-file`, in addition
+  // to the SSL_CERT_FILE environment variable fallback handled directly in
+  // Velox's S3FileSystem.
+  setConfigIfPresent(S3Config::Keys::kSSLCAFile);
 
   hiveConfMap[S3Config::kS3LogLevel] = conf->get<std::string>(kVeloxAwsSdkLogLevel, kVeloxAwsSdkLogLevelDefault);
   hiveConfMap[S3Config::baseConfigKey(S3Config::Keys::kUseProxyFromEnv)] =
