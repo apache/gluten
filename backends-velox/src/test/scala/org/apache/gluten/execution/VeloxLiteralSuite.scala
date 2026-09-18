@@ -146,27 +146,15 @@ class VeloxLiteralSuite extends VeloxWholeStageTransformerSuite {
     validateOffloadResult("SELECT TIMESTAMP'2020-12-31', TIMESTAMP'2020-12-30'")
     validateOffloadResult("SELECT X'1234', X'a'")
     validateOffloadResult("SELECT DATE'2020-12-31', DATE'2020-12-30'")
-  }
-
-  test("debug") {
     validateOffloadResult("select CAST(null as struct<u:integer,v:string>)")
-    validateOffloadResult("SELECT array(struct(1, 'a'), null, struct(1, 'a'))") // failed
+    validateOffloadResult("SELECT array(struct(1, 'a'), null, struct(1, 'a'))")
     validateOffloadResult(
       "select array(struct(1, 'a'), " +
         "CAST(null AS struct<col1:integer,col2:string>))"
-    ) // failed
+    )
 
-    validateOffloadResult("SELECT struct(cast(null as struct<a: string>))") // failed
+    validateOffloadResult("SELECT struct(cast(null as struct<a: string>))")
     validateOffloadResult("select array(null, array(\'str\', \'a\'))")
-  }
-
-  test("debug2") {
-
     validateOffloadResult("select array(null)")
-
-  }
-
-  test("Literal Fallback") {
-//    validateFallbackResult("SELECT array(null)")
   }
 }
