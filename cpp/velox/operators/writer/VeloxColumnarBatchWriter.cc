@@ -57,6 +57,11 @@ arrow::Status VeloxColumnarBatchWriter::write(const std::shared_ptr<ColumnarBatc
 }
 
 arrow::Status VeloxColumnarBatchWriter::close() {
+  // The writer takes its schema from the first batch, so it is only created once something has been
+  // written. Closing a writer that never received a batch is a no-op rather than a null dereference.
+  if (writer_ == nullptr) {
+    return arrow::Status::OK();
+  }
   writer_->close();
   return arrow::Status::OK();
 }

@@ -438,6 +438,65 @@ VeloxMemoryManager* VeloxRuntime::memoryManager() {
   return vmm;
 }
 
+namespace {
+void collectCachedHashJoinKeys(const velox::core::PlanNodePtr& node, std::vector<std::string>& cacheKeys) {
+  if (node == nullptr) {
+    return;
+  }
+  if (const auto* join = dynamic_cast<const velox::core::HashJoinNode*>(node.get())) {
+    if (join->useHashTableCache() && join->cacheKey().has_value()) {
+      cacheKeys.push_back(join->cacheKey().value());
+    }
+  }
+  for (const auto& source : node->sources()) {
+    collectCachedHashJoinKeys(source, cacheKeys);
+  }
+}
+} // namespace
+
+void VeloxRuntime::dumpCachedHashTables(const velox::core::PlanNodePtr& plan) {
+  std::vector<std::string> cacheKeys;
+  collectCachedHashJoinKeys(plan, cacheKeys);
+  if (cacheKeys.empty()) {
+    return;
+  }
+
+  // A hash table dump is Velox specific, so it is not on the backend agnostic WholeStageDumper.
+  // This runtime always builds a VeloxWholeStageDumper, in enableDumping().
+  auto* dumper = dynamic_cast<VeloxWholeStageDumper*>(dumper_.get());
+  GLUTEN_CHECK(dumper != nullptr, "VeloxRuntime is dumping through a non-Velox whole stage dumper");
+
+  for (const auto& cacheKey : cacheKeys) {
+    try {
+      // The converter resolved this key a moment ago, so the table is in the JVM side cache. Ask
+      // the same way it did rather than reaching into the cache directly.
+      const auto handle = getJoin(cacheKey);
+      if (handle == 0) {
+        LOG(WARNING) << "No pre-built hash table to dump for cache key: " << cacheKey;
+        continue;
+      }
+      auto builder = ObjectStore::retrieve<HashTableBuilder>(handle);
+      GLUTEN_CHECK(builder != nullptr, "Pre-built hash table disappeared for cache key: " + cacheKey);
+
+      auto hashTable = builder->hashTable();
+      GLUTEN_CHECK(hashTable != nullptr, "Pre-built hash table is empty for cache key: " + cacheKey);
+      const bool ignoreNullKeys = dynamic_cast<velox::exec::HashTable<true>*>(hashTable.get()) != nullptr;
+
+      const auto size = serializedHashTableSize(builder);
+      std::vector<uint8_t> serialized(size);
+      serializeHashTableTo(builder, serialized.data(), size);
+
+      dumper->dumpHashTable(cacheKey, ignoreNullKeys, builder->joinHasNullKeys(), serialized.data(), size);
+      LOG(INFO) << "Dumped pre-built hash table for cache key: " << cacheKey << " (" << size << " bytes)";
+    } catch (const std::exception& e) {
+      // Dumping runs inside a real task. A stage that cannot be replayed is better than a query
+      // that fails because of the debugging aid attached to it.
+      LOG(WARNING) << "Failed to dump the pre-built hash table for cache key: " << cacheKey << ", error: " << e.what()
+                   << ". The micro benchmark will not be able to replay this join.";
+    }
+  }
+}
+
 std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
     const std::string& spillDir,
     const std::vector<std::shared_ptr<ResultIterator>>& inputs) {
@@ -454,6 +513,10 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
   LOG_IF(INFO, debugModeEnabled_ && taskInfo_.has_value())
       << "############### Velox plan for task " << taskInfo_.value() << " ###############" << std::endl
       << veloxPlan_->toString(true, true);
+
+  if (dumper_ != nullptr) {
+    dumpCachedHashTables(veloxPlan_);
+  }
 
   // Scan node can be required.
   std::vector<std::shared_ptr<SplitInfo>> scanInfos;
