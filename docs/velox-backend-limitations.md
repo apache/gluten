@@ -21,7 +21,41 @@ Gluten currently doesn't support ANSI mode. If ANSI is enabled, Spark plan's exe
 We now have a issue tracker on ANSI support progress. Please check [issue-10134](https://github.com/apache/gluten/issues/10134).
 
 #### Case Sensitive mode
-Gluten only supports spark default case-insensitive mode. If case-sensitive mode is enabled, user may get incorrect result.
+Gluten respects Spark's case-sensitive configuration (`spark.sql.caseSensitive`). Since
+[GLUTEN-1577](https://github.com/apache/gluten/issues/1577) (merged 2023-05), column-name
+normalisation in the core engine uses `ConverterUtils.normalizeColName`, which preserves the
+original casing when `caseSensitiveAnalysis=true` and lowercases only when it is `false` (the
+Spark default). Standard data operations such as scan, filter, aggregation, and join are
+therefore correct in both modes.
+
+**This PR additionally addresses the following identified metadata-name collision paths:**
+
+- `IcebergScanTransformer`: previously used unconditional `equalsIgnoreCase` in
+  `getMetadataColumns` and unconditional `toLowerCase` in the read-schema field set, causing a
+  user data column named `Input_File_Name` (or any mixed-case variant of an Iceberg metadata
+  column name) to be misclassified as a metadata column under `caseSensitive=true`.
+  Fixed by switching to `ConverterUtils.normalizeColName` throughout the Iceberg scan path.
+
+- `PushDownInputFileExpression` (core rule, `gluten-substrait`): two unconditional
+  `toLowerCase` usages — one in `containsInputFileRelatedExpr` and one in the `PostOffload`
+  deduplication — caused incorrect pre-offload rewriting and dangling-attribute plan errors when
+  a data column named `Input_File_Name` was projected alongside `input_file_name()` under
+  `caseSensitive=true`. Fixed by using `SQLConf.get.resolver` for gate detection and
+  `exprId` identity for deduplication.
+
+**Remaining limitations (not fixed by this change):**
+
+Core column-name handling increasingly respects Spark's `caseSensitiveAnalysis` semantics.
+The fixes above address the identified Iceberg and `input_file_name()` metadata name-collision
+paths. Other backend- or data-source-specific case-sensitive paths must be validated
+independently. The following areas are not verified in this change:
+
+- ORC scan under `caseSensitive=true`
+- DSv2 / generic `BatchScanExec` paths
+- Nested-struct column names
+- Partition-column edge cases
+- General write paths
+- Delta optimised writer (fix pending in a separate PR)
 
 #### Regexp functions
 In Velox, regexp functions (`rlike`, `regexp_extract`, etc.) are implemented based on RE2, while in Spark they are based on `java.util.regex`.
