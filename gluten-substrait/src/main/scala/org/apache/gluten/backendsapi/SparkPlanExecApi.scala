@@ -31,6 +31,7 @@ import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterPar
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.expressions.PythonUDTF
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
 import org.apache.spark.sql.catalyst.optimizer.BuildSide
@@ -467,6 +468,14 @@ trait SparkPlanExecApi {
   /** Create ColumnarArrowEvalPythonExec, for velox backend */
   def createColumnarArrowEvalPythonExec(
       udfs: Seq[PythonUDF],
+      resultAttrs: Seq[Attribute],
+      child: SparkPlan,
+      evalType: Int): SparkPlan
+
+  /** Create ArrowEvalPythonUDTFTransformer for Python UDTF execution */
+  def createArrowEvalPythonUDTFTransformer(
+      udtf: PythonUDTF,
+      requiredChildOutput: Seq[Attribute],
       resultAttrs: Seq[Attribute],
       child: SparkPlan,
       evalType: Int): SparkPlan
