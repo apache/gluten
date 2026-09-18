@@ -52,6 +52,15 @@ void dumpToStorage(const std::string& saveDir, const std::string& fileName, cons
   outFile << content;
   outFile.close();
 }
+
+// Stands in for an input iterator that turned out to be empty, for which no parquet file was
+// written. Keeps the running task seeing exactly what the original iterator produced: nothing.
+class EmptyColumnarBatchIterator final : public ColumnarBatchIterator {
+ public:
+  std::shared_ptr<ColumnarBatch> next() override {
+    return nullptr;
+  }
+};
 } // namespace
 
 VeloxWholeStageDumper::VeloxWholeStageDumper(
@@ -117,10 +126,37 @@ std::shared_ptr<ColumnarBatchIterator> VeloxWholeStageDumper::dumpInputIterator(
   auto writer = std::make_shared<VeloxColumnarBatchWriter>(
       dumpPath, batchSize_, pool_->addAggregateChild(fmt::format("dump_iterator.{}", iteratorIndex)));
 
+  bool wroteBatch = false;
   while (auto cb = inputIterator->next()) {
     GLUTEN_THROW_NOT_OK(writer->write(cb));
+    wroteBatch = true;
   }
   GLUTEN_THROW_NOT_OK(writer->close());
+
+  if (!wroteBatch) {
+    // The writer takes its schema from the first batch, so an iterator that yielded nothing leaves
+    // no parquet file behind. Record the gap explicitly: the benchmark binds the files passed to
+    // --data to iterator indexes by position, so a silently absent file shifts every later
+    // iterator onto the wrong input. The marker keeps the gap visible in the dump directory, which
+    // is where whoever replays the stage is looking.
+    //
+    // The usual cause is the build side of a broadcast hash join, which is handed to the native
+    // operator through a process local hash table cache rather than streamed. See
+    // docs/developers/MicroBenchmarks.md.
+    dumpToStorage(
+        saveDir_,
+        fileName + ".empty",
+        fmt::format(
+            "Input iterator {} of {} produced no batches, so {} was not written.\n"
+            "If this is the build side of a broadcast hash join, re-dump with\n"
+            "spark.gluten.velox.buildHashTableOncePerExecutor.enabled=false to capture it.\n",
+            iteratorIndex,
+            taskInfo_.toString(),
+            fileName));
+    LOG(WARNING) << "Input iterator " << iteratorIndex << " of " << taskInfo_ << " produced no batches, so no "
+                 << fileName << " was written. Left a " << fileName << ".empty marker instead.";
+    return std::make_shared<EmptyColumnarBatchIterator>();
+  }
 
   // Velox parquet reader requires leaf memory pool.
   return std::make_shared<ParquetStreamReaderIterator>(
