@@ -19,7 +19,7 @@
 # Applies temporary Gluten compatibility patches to a delta-io/delta checkout.
 #
 # Usage:
-#   apply-delta-test-patches.sh <delta_dir> <delta_ref>
+#   apply-delta-test-patches.sh <delta_ref> <delta_dir>
 #
 # Remove each patch group when DELTA_REF contains the corresponding upstream
 # fix or Gluten no longer needs the workaround.
@@ -28,12 +28,12 @@
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
-  echo "Usage: $0 <delta_dir> <delta_ref>" >&2
+  echo "Usage: $0 <delta_ref> <delta_dir>" >&2
   exit 1
 fi
 
-DELTA_DIR="$1"
-DELTA_REF="$2"
+DELTA_REF="$1"
+DELTA_DIR="$2"
 
 # Delta's tests collect file-source scans by matching the concrete
 # `FileSourceScanExec` case class; Gluten offloads the scan to

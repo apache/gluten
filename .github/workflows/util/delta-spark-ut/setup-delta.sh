@@ -126,7 +126,7 @@ git -C "$DELTA_DIR" --no-pager diff -- "spark/src/test/scala/org/apache/spark/sq
 echo "::endgroup::"
 
 PATCH_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/apply-delta-test-patches.sh"
-bash "$PATCH_SCRIPT" "$DELTA_DIR" "$DELTA_REF"
+bash "$PATCH_SCRIPT" "$DELTA_REF" "$DELTA_DIR"
 
 echo "::group::Disabling Delta scalastyle HeaderMatchesChecker"
 # Our reused DeltaSQLCommandTest carries Gluten's ASF-only license header, which
