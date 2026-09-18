@@ -118,15 +118,12 @@ VectorPtr constructFlatVector(
     const TypePtr& type,
     memory::MemoryPool* pool) {
   VELOX_CHECK(type->isPrimitiveType());
-  FLAGS_logtostderr = 1;
-  LOG(ERROR) << "constructFlatVectorForStruct" << type->kind();
   auto vector = BaseVector::create(type, size, pool);
   using T = typename TypeTraits<kind>::NativeType;
   auto flatVector = vector->as<FlatVector<T>>();
 
   for (int i = 0; i < size; i++) {
     auto element = elementAt(i);
-    LOG(ERROR) << "constructFlatVectorForStruct debug" << i;
     setLiteralValue(element, flatVector, i);
   }
   return vector;
@@ -523,7 +520,6 @@ VectorPtr SubstraitVeloxExprConverter::literalsToVector(
     const ::substrait::Expression::Literal& childLiteral,
     vector_size_t childSize,
     std::function<::substrait::Expression::Literal(vector_size_t /* idx */)> elementAtFunc) {
-    FLAGS_logtostderr = 1;
   auto childTypeCase = childLiteral.literal_type_case();
   auto child = elementAtFunc(0);
   if (child.has_null()) {
@@ -760,7 +756,6 @@ core::TypedExprPtr SubstraitVeloxExprConverter::toVeloxExpr(
 core::TypedExprPtr SubstraitVeloxExprConverter::toVeloxExpr(
     const ::substrait::Expression& substraitExpr,
     const RowTypePtr& inputType) {
-    FLAGS_logtostderr = 1;
   auto typeCase = substraitExpr.rex_type_case();
   switch (typeCase) {
     case ::substrait::Expression::RexTypeCase::kLiteral:

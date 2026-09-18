@@ -397,22 +397,15 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
 
   override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     assert(child.isInstanceOf[TransformSupport])
-    logOnLevel(
-      GlutenConfig.get.substraitPlanLogLevel,
-      s"Generating substrait plan:\n$substraitPlanJson")
     val pipelineTime: SQLMetric = longMetric("pipelineTime")
     // We should do transform first to make sure all subqueries are materialized
     val wsCtx = GlutenTimeMetric.withMillisTime {
       doWholeStageTransform()
     }(
-      t => {
+      t =>
         logOnLevel(
           GlutenConfig.get.substraitPlanLogLevel,
-          s"$nodeName generating the substrait plan took: $t ms.")
-        logOnLevel(
-          GlutenConfig.get.substraitPlanLogLevel,
-          s"naive plan:\n$verboseStringWithOperatorId")
-      })
+          s"$nodeName generating the substrait plan took: $t ms."))
     val inputRDDs = new ColumnarInputRDDsWrapper(columnarInputRDDs)
 
     val leafTransformers = findAllLeafTransformers()
