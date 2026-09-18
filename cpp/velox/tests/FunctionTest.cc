@@ -91,6 +91,13 @@ TEST_F(FunctionTest, getNameBeforeDelimiter) {
   ASSERT_EQ(funcName, "lte");
 }
 
+TEST_F(FunctionTest, mapDecimalRoundingFunctions) {
+  EXPECT_EQ(SubstraitParser::mapToVeloxFunction("round", true), "decimal_round");
+  EXPECT_EQ(SubstraitParser::mapToVeloxFunction("bround", true), "decimal_bround");
+  EXPECT_EQ(SubstraitParser::mapToVeloxFunction("round", false), "round");
+  EXPECT_EQ(SubstraitParser::mapToVeloxFunction("bround", false), "bround");
+}
+
 TEST_F(FunctionTest, constructFunctionMap) {
   std::string planPath = FilePathGenerator::getDataFilePath("q1_first_stage.json");
   ::substrait::Plan substraitPlan;
