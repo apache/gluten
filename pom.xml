@@ -979,7 +979,7 @@
               <rules>
                 <requireActiveProfile>
                   <!-- Spark 4.0 requires Java 17+ -->
-                  <profiles>spark-3.4,spark-3.5,spark-4.0,spark-4.1</profiles>
+                  <profiles>spark-3.4,spark-3.5,spark-4.0,spark-4.1,spark-4.2</profiles>
                   <all>false</all>
                   <message>Missing spark version profile: -Pspark-&lt;version&gt;</message>
                 </requireActiveProfile>
@@ -1436,6 +1436,94 @@
                       <!-- Spark 4.1 requires Scala 2.13 -->
                       <profiles>scala-2.13</profiles>
                       <message>"-P spark-4.1" requires Scala 2.13</message>
+                    </requireActiveProfile>
+                  </rules>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>spark-4.2</id>
+      <properties>
+        <sparkbundle.version>4.2</sparkbundle.version>
+        <sparkshim.artifactId>spark-sql-columnar-shims-spark42</sparkshim.artifactId>
+        <spark.version>4.2.0</spark.version>
+        <!-- No Spark 4.2 artifacts published for Iceberg/Delta/Hudi yet. These values are
+             placeholders inherited from spark-4.1; the delta/iceberg/hudi profiles are
+             opt-in (activeByDefault=false) and are NOT enabled on the Spark 4.2 CI lane. -->
+        <iceberg.version>1.11.0</iceberg.version>
+        <delta.package.name>delta-spark_4.1</delta.package.name>
+        <delta.version>4.1.0</delta.version>
+        <delta.binary.version>40</delta.binary.version>
+        <hudi.version>1.2.0</hudi.version>
+        <fasterxml.version>2.18.2</fasterxml.version>
+        <fasterxml.jackson.version>2.18.2</fasterxml.jackson.version>
+        <fasterxml.jackson.databind.version>2.18.2</fasterxml.jackson.databind.version>
+        <hadoop.version>3.4.1</hadoop.version>
+        <antlr4.version>4.13.1</antlr4.version>
+        <guava.version>33.4.0-jre</guava.version>
+        <slf4j.version>2.0.16</slf4j.version>
+        <log4j.version>2.24.3</log4j.version>
+        <commons-lang3.version>3.17.0</commons-lang3.version>
+        <!-- Must track Spark 4.2's own Arrow (19.0.0): scope is provided and Gluten
+             deliberately lets Spark's Arrow through. -->
+        <arrow.version>19.0.0</arrow.version>
+        <arrow.deps.scope>provided</arrow.deps.scope>
+        <arrow-memory.scope>provided</arrow-memory.scope>
+        <!-- Matches no groupId: let Spark's own Arrow through. -->
+        <spark.arrow.exclusion.groupId>none</spark.arrow.exclusion.groupId>
+        <scala.compiler.version>4.9.5</scala.compiler.version>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-api</artifactId>
+          <version>${slf4j.version}</version>
+          <scope>provided</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.logging.log4j</groupId>
+          <artifactId>log4j-slf4j2-impl</artifactId>
+          <version>${log4j.version}</version>
+          <scope>provided</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>enforce-java-17+</id>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireActiveProfile>
+                      <!-- Spark 4.2 requires Java 17+ -->
+                      <profiles>java-17,java-21,java-25</profiles>
+                      <all>false</all>
+                      <message>"-P spark-4.2" requires JDK 17+</message>
+                    </requireActiveProfile>
+                  </rules>
+                </configuration>
+              </execution>
+              <execution>
+                <id>enforce-scala-213</id>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireActiveProfile>
+                      <!-- Spark 4.2 requires Scala 2.13 -->
+                      <profiles>scala-2.13</profiles>
+                      <message>"-P spark-4.2" requires Scala 2.13</message>
                     </requireActiveProfile>
                   </rules>
                 </configuration>

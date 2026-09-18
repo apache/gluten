@@ -77,6 +77,7 @@ declare -A MODULE_MAP=(
   ["shims/spark35"]="spark-sql-columnar-shims-spark35"
   ["shims/spark40"]="spark-sql-columnar-shims-spark40"
   ["shims/spark41"]="spark-sql-columnar-shims-spark41"
+  ["shims/spark42"]="spark-sql-columnar-shims-spark42"
 
   # Unit test modules
   ["gluten-ut/common"]="gluten-ut-common"
@@ -85,6 +86,7 @@ declare -A MODULE_MAP=(
   ["gluten-ut/spark35"]="gluten-ut-spark35"
   ["gluten-ut/spark40"]="gluten-ut-spark40"
   ["gluten-ut/spark41"]="gluten-ut-spark41"
+  ["gluten-ut/spark42"]="gluten-ut-spark42"
 
   # Data lake modules
   ["gluten-delta"]="gluten-delta"

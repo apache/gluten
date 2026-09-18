@@ -1,0 +1,128 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [item_sk,d_date,web_sales,store_sales,web_cumulative,store_cumulative]
+    WholeStageCodegenTransformer (47)
+      FilterExecTransformer [web_cumulative,store_cumulative]
+        RegularHashAggregateExecTransformer [item_sk,d_date,web_sales,store_sales,web_sales,store_sales] [max(web_sales),max(store_sales),web_cumulative,store_cumulative,max,max]
+          ProjectExecTransformer [item_sk,d_date,web_sales,store_sales,web_sales,store_sales]
+            ShuffledHashJoinExecTransformer [item_sk,item_sk,rk,rk]
+              WindowExecTransformer [item_sk,d_date]
+                SortExecTransformer [item_sk,d_date]
+                  InputIteratorTransformer
+                    InputAdapter
+                      ColumnarExchange [item_sk,d_date,web_sales,store_sales] #1
+                        VeloxResizeBatches
+                          WholeStageCodegenTransformer (23)
+                            ProjectExecTransformer [item_sk,item_sk,d_date,d_date,cume_sales,cume_sales]
+                              FilterExecTransformer [item_sk,item_sk]
+                                ShuffledHashJoinExecTransformer [item_sk,d_date,item_sk,d_date]
+                                  InputIteratorTransformer
+                                    InputAdapter
+                                      ColumnarExchange [item_sk,d_date,cume_sales] #2
+                                        VeloxResizeBatches
+                                          WholeStageCodegenTransformer (11)
+                                            ProjectExecTransformer [item_sk,d_date,sum(sumws)]
+                                              RegularHashAggregateExecTransformer [item_sk,d_date,sumws,sumws] [sum(sumws),sum,isEmpty]
+                                                ProjectExecTransformer [item_sk,d_date,sumws,sumws]
+                                                  ShuffledHashJoinExecTransformer [item_sk,item_sk,rk,rk]
+                                                    InputIteratorTransformer
+                                                      InputAdapter
+                                                        ColumnarExchange [item_sk,d_date,sumws,rk] #3
+                                                          VeloxResizeBatches
+                                                            WholeStageCodegenTransformer (5)
+                                                              ProjectExecTransformer [item_sk,d_date,sumws,rk]
+                                                                WindowExecTransformer [ws_item_sk,d_date]
+                                                                  SortExecTransformer [ws_item_sk,d_date]
+                                                                    InputIteratorTransformer
+                                                                      InputAdapter
+                                                                        ColumnarExchange [ws_item_sk,item_sk,d_date,sumws] #4
+                                                                          VeloxResizeBatches
+                                                                            WholeStageCodegenTransformer (4)
+                                                                              ProjectExecTransformer [ws_item_sk,d_date,sum(UnscaledValue(ws_sales_price))]
+                                                                                RegularHashAggregateExecTransformer [ws_item_sk,d_date,sum] [sum(UnscaledValue(ws_sales_price)),sum]
+                                                                                  InputIteratorTransformer
+                                                                                    InputAdapter
+                                                                                      ColumnarExchange [ws_item_sk,d_date,sum] #5
+                                                                                        VeloxResizeBatches
+                                                                                          WholeStageCodegenTransformer (3)
+                                                                                            ProjectExecTransformer [ws_item_sk,d_date,sum]
+                                                                                              FlushableHashAggregateExecTransformer [ws_item_sk,d_date,_pre_x] [sum,sum,sum]
+                                                                                                ProjectExecTransformer [ws_item_sk,d_date,ws_sales_price]
+                                                                                                  BroadcastHashJoinExecTransformer [ws_sold_date_sk,d_date_sk]
+                                                                                                    FilterExecTransformer [ws_item_sk]
+                                                                                                      FileSourceScanExecTransformer parquet spark_catalog.default.web_sales [ws_item_sk,ws_sales_price,ws_sold_date_sk]
+                                                                                                        ColumnarSubqueryBroadcast [d_date_sk] #1
+                                                                                                          ColumnarBroadcastExchange #6
+                                                                                                            WholeStageCodegenTransformer (1)
+                                                                                                              ProjectExecTransformer [d_date_sk,d_date]
+                                                                                                                FilterExecTransformer [d_month_seq,d_date_sk]
+                                                                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_date,d_month_seq]
+                                                                                                    InputIteratorTransformer
+                                                                                                      InputAdapter
+                                                                                                        ReusedExchange [d_date_sk,d_date] #6
+                                                    InputIteratorTransformer
+                                                      InputAdapter
+                                                        ColumnarExchange [item_sk,sumws,rk] #7
+                                                          VeloxResizeBatches
+                                                            WholeStageCodegenTransformer (10)
+                                                              ProjectExecTransformer [item_sk,sumws,rk]
+                                                                WindowExecTransformer [ws_item_sk,d_date]
+                                                                  SortExecTransformer [ws_item_sk,d_date]
+                                                                    InputIteratorTransformer
+                                                                      InputAdapter
+                                                                        ReusedExchange [item_sk,d_date,sumws,ws_item_sk] #4
+                                  InputIteratorTransformer
+                                    InputAdapter
+                                      ColumnarExchange [item_sk,d_date,cume_sales] #8
+                                        VeloxResizeBatches
+                                          WholeStageCodegenTransformer (22)
+                                            ProjectExecTransformer [item_sk,d_date,sum(sumss)]
+                                              RegularHashAggregateExecTransformer [item_sk,d_date,sumss,sumss] [sum(sumss),sum,isEmpty]
+                                                ProjectExecTransformer [item_sk,d_date,sumss,sumss]
+                                                  ShuffledHashJoinExecTransformer [item_sk,item_sk,rk,rk]
+                                                    InputIteratorTransformer
+                                                      InputAdapter
+                                                        ColumnarExchange [item_sk,d_date,sumss,rk] #9
+                                                          VeloxResizeBatches
+                                                            WholeStageCodegenTransformer (16)
+                                                              ProjectExecTransformer [item_sk,d_date,sumss,rk]
+                                                                WindowExecTransformer [ss_item_sk,d_date]
+                                                                  SortExecTransformer [ss_item_sk,d_date]
+                                                                    InputIteratorTransformer
+                                                                      InputAdapter
+                                                                        ColumnarExchange [ss_item_sk,item_sk,d_date,sumss] #10
+                                                                          VeloxResizeBatches
+                                                                            WholeStageCodegenTransformer (15)
+                                                                              ProjectExecTransformer [ss_item_sk,d_date,sum(UnscaledValue(ss_sales_price))]
+                                                                                RegularHashAggregateExecTransformer [ss_item_sk,d_date,sum] [sum(UnscaledValue(ss_sales_price)),sum]
+                                                                                  InputIteratorTransformer
+                                                                                    InputAdapter
+                                                                                      ColumnarExchange [ss_item_sk,d_date,sum] #11
+                                                                                        VeloxResizeBatches
+                                                                                          WholeStageCodegenTransformer (14)
+                                                                                            ProjectExecTransformer [ss_item_sk,d_date,sum]
+                                                                                              FlushableHashAggregateExecTransformer [ss_item_sk,d_date,_pre_x] [sum,sum,sum]
+                                                                                                ProjectExecTransformer [ss_item_sk,d_date,ss_sales_price]
+                                                                                                  BroadcastHashJoinExecTransformer [ss_sold_date_sk,d_date_sk]
+                                                                                                    FilterExecTransformer [ss_item_sk]
+                                                                                                      FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_item_sk,ss_sales_price,ss_sold_date_sk]
+                                                                                                        ReusedSubquery [d_date_sk] #1
+                                                                                                    InputIteratorTransformer
+                                                                                                      InputAdapter
+                                                                                                        ReusedExchange [d_date_sk,d_date] #6
+                                                    InputIteratorTransformer
+                                                      InputAdapter
+                                                        ColumnarExchange [item_sk,sumss,rk] #12
+                                                          VeloxResizeBatches
+                                                            WholeStageCodegenTransformer (21)
+                                                              ProjectExecTransformer [item_sk,sumss,rk]
+                                                                WindowExecTransformer [ss_item_sk,d_date]
+                                                                  SortExecTransformer [ss_item_sk,d_date]
+                                                                    InputIteratorTransformer
+                                                                      InputAdapter
+                                                                        ReusedExchange [item_sk,d_date,sumss,ss_item_sk] #10
+              ProjectExecTransformer [item_sk,web_sales,store_sales,rk]
+                WindowExecTransformer [item_sk,d_date]
+                  SortExecTransformer [item_sk,d_date]
+                    InputIteratorTransformer
+                      InputAdapter
+                        ReusedExchange [item_sk,d_date,web_sales,store_sales] #1

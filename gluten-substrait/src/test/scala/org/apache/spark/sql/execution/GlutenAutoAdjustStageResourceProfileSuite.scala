@@ -123,7 +123,11 @@ class GlutenAutoAdjustStageResourceProfileSuite extends AnyFunSuite {
     SQLConf.withExistingConf(new SQLConf) {
       val e = intercept[IllegalArgumentException](
         GlutenAutoAdjustStageResourceProfile.updateResourceSetting(rp, sparkConf))
-      assert(e.getMessage.contains("spark.task.cpus should be positive"))
+      // Spark 4.2 validates spark.task.cpus in its typed config and throws a
+      // SparkIllegalArgumentException ([INVALID_CONF_VALUE.REQUIREMENT]) before Gluten's own
+      // require fires, so assert on substrings common to both the Spark and Gluten messages.
+      assert(
+        e.getMessage.contains("spark.task.cpus") && e.getMessage.contains("should be positive"))
     }
   }
 }
