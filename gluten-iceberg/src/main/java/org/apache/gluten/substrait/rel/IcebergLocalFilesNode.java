@@ -24,8 +24,13 @@ import io.substrait.proto.ReadRel;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 
+import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class IcebergLocalFilesNode extends LocalFilesNode {
   private final List<List<DeleteFile>> deleteFilesList;
@@ -125,16 +130,34 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
         deleteFileBuilder.setLowerBounds(encodeBounds(delete.lowerBounds()));
         deleteFileBuilder.setUpperBounds(encodeBounds(delete.upperBounds()));
       }
-      switch (delete.format()) {
-        case PARQUET:
+      switch (delete.format().name()) {
+        case "PARQUET":
           ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions parquetReadOptions =
               ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions.newBuilder().build();
           deleteFileBuilder.setParquet(parquetReadOptions);
           break;
-        case ORC:
+        case "ORC":
           ReadRel.LocalFiles.FileOrFiles.OrcReadOptions orcReadOptions =
               ReadRel.LocalFiles.FileOrFiles.OrcReadOptions.newBuilder().build();
           deleteFileBuilder.setOrc(orcReadOptions);
+          break;
+        case "PUFFIN":
+          ReadRel.LocalFiles.FileOrFiles.PuffinReadOptions puffinReadOptions =
+              ReadRel.LocalFiles.FileOrFiles.PuffinReadOptions.newBuilder().build();
+          deleteFileBuilder.setPuffin(puffinReadOptions);
+          Long contentOffset = (Long) invokeOptionalDeleteFileMethod(delete, "contentOffset");
+          if (contentOffset != null) {
+            deleteFileBuilder.setContentOffset(contentOffset);
+          }
+          Long contentSize = (Long) invokeOptionalDeleteFileMethod(delete, "contentSizeInBytes");
+          if (contentSize != null) {
+            deleteFileBuilder.setContentSizeInBytes(contentSize);
+          }
+          String referencedDataFile =
+              (String) invokeOptionalDeleteFileMethod(delete, "referencedDataFile");
+          if (referencedDataFile != null) {
+            deleteFileBuilder.setReferencedDataFile(referencedDataFile);
+          }
           break;
         default:
           throw new UnsupportedOperationException(
@@ -142,6 +165,9 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
       }
       if (delete.equalityFieldIds() != null && !delete.equalityFieldIds().isEmpty()) {
         deleteFileBuilder.addAllEqualityFieldIds(delete.equalityFieldIds());
+      }
+      if (delete.dataSequenceNumber() != null) {
+        deleteFileBuilder.setDataSequenceNumber(delete.dataSequenceNumber());
       }
       icebergBuilder.addDeleteFiles(deleteFileBuilder);
     }
@@ -174,5 +200,16 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
     }
 
     return builder.build();
+  }
+
+  private static Object invokeOptionalDeleteFileMethod(DeleteFile delete, String methodName) {
+    try {
+      return DeleteFile.class.getMethod(methodName).invoke(delete);
+    } catch (NoSuchMethodException e) {
+      // Iceberg 1.5 (Spark 3.3) does not expose V3 deletion-vector metadata.
+      return null;
+    } catch (IllegalAccessException | InvocationTargetException e) {
+      throw new IllegalStateException("Failed to read Iceberg delete-file metadata", e);
+    }
   }
 }
