@@ -22,7 +22,7 @@ import org.apache.gluten.expression.Sig
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryArithmetic, Expression, RaiseError}
+import org.apache.spark.sql.catalyst.expressions.{BinaryArithmetic, Expression, RaiseError}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -121,10 +121,6 @@ trait SparkShims {
       maxSplitBytes: Long,
       partitionValues: InternalRow,
       metadata: Map[String, Any] = Map.empty): Seq[PartitionedFile]
-
-  def structFromAttributes(attrs: Seq[Attribute]): StructType
-
-  def attributesFromStruct(structType: StructType): Seq[Attribute]
 
   // For compatibility with Spark-3.5.
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan]
