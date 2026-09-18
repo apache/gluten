@@ -57,7 +57,7 @@ case class ColumnarAQEShuffleReadExec(
       case a: AQEShuffleReadExec => a.stringArgs
       case _ => super.stringArgs
     }
-  }
+  } ++ Iterator(s"[order=$readerOrder]")
 
   override protected def withNewChildInternal(newChild: SparkPlan): ColumnarAQEShuffleReadExec = {
     delegate match {
@@ -81,8 +81,13 @@ case class ColumnarAQEShuffleReadExec(
           s"Cannot get aqeReader from delegate node ${delegate.nodeName}.")
     }
   }
-
   @transient override lazy val metrics: Map[String, SQLMetric] = aqeReader.metrics
+
+  private var readerOrder: Int = 0
+
+  def setReaderOrder(readerOrder: Int): Unit = {
+    this.readerOrder = readerOrder
+  }
 
   private def shuffleStage = {
     val method = classOf[AQEShuffleReadExec].getDeclaredMethod("shuffleStage")
@@ -105,7 +110,10 @@ case class ColumnarAQEShuffleReadExec(
         }
         stage.shuffle match {
           case columnarShuffle: ColumnarShuffleExchangeExec =>
-            columnarShuffle.getShuffleRDD(aqeReader.partitionSpecs.toArray, executionMode)
+            columnarShuffle.getShuffleRDD(
+              aqeReader.partitionSpecs.toArray,
+              executionMode,
+              readerOrder)
           case _ =>
             throw new IllegalStateException("shuffle stage is not a ColumnarShuffleExchangeExec")
         }

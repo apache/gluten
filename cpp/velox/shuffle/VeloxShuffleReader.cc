@@ -968,7 +968,8 @@ VeloxShuffleReader::VeloxShuffleReader(
 
 void VeloxShuffleReader::createDeserializer(
     const std::shared_ptr<StreamReader>& streamReader,
-    const OutputType& outputType) {
+    const OutputType& outputType,
+    int32_t priority) {
   switch (options_->shuffleWriterType) {
     case ShuffleWriterType::kHashShuffle: {
       if (outputType == OutputType::kCudfTable) {
@@ -976,6 +977,7 @@ void VeloxShuffleReader::createDeserializer(
         VELOX_CHECK(!hasComplexType_);
         if (options_->enableGpuAsyncReader) {
           deserializer_ = std::make_unique<VeloxGpuAsyncHashShuffleReaderDeserializer>(
+              priority,
               streamReader,
               schema_,
               codec_,
@@ -1069,9 +1071,9 @@ void VeloxShuffleReader::initFromSchema() {
 
 std::shared_ptr<ResultIterator> VeloxShuffleReader::read(
     const std::shared_ptr<StreamReader>& streamReader,
-    const OutputType& outputType) {
-  // TODO: Support reader priority for async reader.
-  createDeserializer(streamReader, outputType);
+    const OutputType& outputType,
+    int32_t priority) {
+  createDeserializer(streamReader, outputType, priority);
   return std::make_shared<ResultIterator>(deserializer_->deserializeStreams());
 }
 
