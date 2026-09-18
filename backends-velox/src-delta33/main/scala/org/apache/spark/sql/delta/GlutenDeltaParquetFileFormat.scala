@@ -278,7 +278,8 @@ case class GlutenDeltaParquetFileFormat(
       job: Job,
       options: Map[String, String],
       dataSchema: StructType): OutputWriterFactory = {
-    val factory = super.prepareWrite(sparkSession, job, options, dataSchema)
+    val writeOptions = GlutenDeltaParquetFieldId.withParquetFieldIds(options, dataSchema, metadata)
+    val factory = super.prepareWrite(sparkSession, job, writeOptions, dataSchema)
     val conf = ContextUtil.getConfiguration(job)
     // Always write timestamp as TIMESTAMP_MICROS for Iceberg compat based on Iceberg spec
     if (IcebergCompatV1.isEnabled(metadata) || IcebergCompatV2.isEnabled(metadata)) {
