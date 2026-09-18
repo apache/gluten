@@ -26,7 +26,6 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.{SPARK_VERSION_SHORT, SparkConf}
 import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.util._
 import org.apache.spark.sql.classic.ClassicConversions._
@@ -45,7 +44,7 @@ import scala.collection.JavaConverters._
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe
 
-abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
+abstract class GlutenQueryTest extends QueryTest with AdaptiveSparkPlanHelper {
 
   // TODO: remove this if we can suppress unused import error.
   locally {
@@ -147,7 +146,7 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
   }
 
   /** Runs the plan and makes sure the answer contains all of the keywords. */
-  def checkKeywordsExist(df: DataFrame, keywords: String*): Unit = {
+  override def checkKeywordsExist(df: DataFrame, keywords: String*): Unit = {
     val outputs = df.collect().map(_.mkString).mkString
     for (key <- keywords) {
       assert(outputs.contains(key), s"Failed for $df ($key doesn't exist in result)")
@@ -155,7 +154,7 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
   }
 
   /** Runs the plan and makes sure the answer does NOT contain any of the keywords. */
-  def checkKeywordsNotExist(df: DataFrame, keywords: String*): Unit = {
+  override def checkKeywordsNotExist(df: DataFrame, keywords: String*): Unit = {
     val outputs = df.collect().map(_.mkString).mkString
     for (key <- keywords) {
       assert(!outputs.contains(key), s"Failed for $df ($key existed in the result)")
@@ -166,7 +165,7 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
    * Evaluates a dataset to make sure that the result of calling collect matches the given expected
    * answer.
    */
-  protected def checkDataset[T](ds: => Dataset[T], expectedAnswer: T*): Unit = {
+  override protected def checkDataset[T](ds: => Dataset[T], expectedAnswer: T*): Unit = {
     val result = getResult(ds)
 
     if (!GlutenQueryTest.compare(result.toSeq, expectedAnswer)) {
@@ -183,7 +182,9 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
    * Evaluates a dataset to make sure that the result of calling collect matches the given expected
    * answer, after sort.
    */
-  protected def checkDatasetUnorderly[T: Ordering](ds: => Dataset[T], expectedAnswer: T*): Unit = {
+  override protected def checkDatasetUnorderly[T: Ordering](
+      ds: => Dataset[T],
+      expectedAnswer: T*): Unit = {
     val result = getResult(ds)
 
     if (!GlutenQueryTest.compare(result.toSeq.sorted, expectedAnswer.sorted)) {
@@ -240,7 +241,7 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
    * @param expectedAnswer
    *   the expected result in a [[Seq]] of [[Row]]s.
    */
-  protected def checkAnswer(df: => DataFrame, expectedAnswer: Seq[Row]): Unit = {
+  override protected def checkAnswer(df: => DataFrame, expectedAnswer: Seq[Row]): Unit = {
     val analyzedDF =
       try df
       catch {
@@ -263,11 +264,11 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
     GlutenQueryTest.checkAnswer(analyzedDF, expectedAnswer)
   }
 
-  protected def checkAnswer(df: => DataFrame, expectedAnswer: Row): Unit = {
+  override protected def checkAnswer(df: => DataFrame, expectedAnswer: Row): Unit = {
     checkAnswer(df, Seq(expectedAnswer))
   }
 
-  protected def checkAnswer(df: => DataFrame, expectedAnswer: DataFrame): Unit = {
+  override protected def checkAnswer(df: => DataFrame, expectedAnswer: DataFrame): Unit = {
     checkAnswer(df, expectedAnswer.collect())
   }
 
@@ -281,7 +282,7 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
    * @param absTol
    *   the absolute tolerance between actual and expected answers.
    */
-  protected def checkAggregatesWithTol(
+  override protected def checkAggregatesWithTol(
       dataFrame: DataFrame,
       expectedAnswer: Seq[Row],
       absTol: Double): Unit = {
@@ -297,7 +298,7 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
     }
   }
 
-  protected def checkAggregatesWithTol(
+  override protected def checkAggregatesWithTol(
       dataFrame: DataFrame,
       expectedAnswer: Row,
       absTol: Double): Unit = {
@@ -305,7 +306,7 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
   }
 
   /** Asserts that a given [[Dataset]] will be executed using the given number of cached results. */
-  def assertCached(query: Dataset[_], numCachedTables: Int = 1): Unit = {
+  override def assertCached(query: Dataset[_], numCachedTables: Int = 1): Unit = {
     val planWithCaching = query.queryExecution.withCachedData
     val cachedData = planWithCaching.collect { case cached: InMemoryRelation => cached }
 
@@ -319,7 +320,10 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
    * Asserts that a given [[Dataset]] will be executed using the cache with the given name and
    * storage level.
    */
-  def assertCached(query: Dataset[_], cachedName: String, storageLevel: StorageLevel): Unit = {
+  override def assertCached(
+      query: Dataset[_],
+      cachedName: String,
+      storageLevel: StorageLevel): Unit = {
     val planWithCaching = query.queryExecution.withCachedData
     val matched = planWithCaching
       .collectFirst {
@@ -337,7 +341,7 @@ abstract class GlutenQueryTest extends PlanTest with AdaptiveSparkPlanHelper {
   }
 
   /** Asserts that a given [[Dataset]] does not have missing inputs in all the analyzed plans. */
-  def assertEmptyMissingInput(query: Dataset[_]): Unit = {
+  override def assertEmptyMissingInput(query: Dataset[_]): Unit = {
     assert(
       query.queryExecution.analyzed.missingInput.isEmpty,
       s"The analyzed logical plan has missing inputs:\n${query.queryExecution.analyzed}")

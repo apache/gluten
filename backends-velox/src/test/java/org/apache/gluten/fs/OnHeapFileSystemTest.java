@@ -35,7 +35,7 @@ public class OnHeapFileSystemTest {
     JniFilesystem.WriteFile writeFile = fs.openFileForWrite(path);
     try {
       byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-      ByteBuffer buf = PlatformDependent.allocateDirectNoCleaner(bytes.length);
+      ByteBuffer buf = ByteBuffer.allocateDirect(bytes.length);
       buf.put(bytes);
       writeFile.append(bytes.length, PlatformDependent.directBufferAddress(buf));
       writeFile.flush();
@@ -47,7 +47,7 @@ public class OnHeapFileSystemTest {
 
     JniFilesystem.ReadFile readFile = fs.openFileForRead(path);
     Assert.assertEquals(fileSize, readFile.size());
-    ByteBuffer buf = PlatformDependent.allocateDirectNoCleaner((int) fileSize);
+    ByteBuffer buf = ByteBuffer.allocateDirect((int) fileSize);
     readFile.pread(0, fileSize, PlatformDependent.directBufferAddress(buf));
     byte[] out = new byte[(int) fileSize];
     buf.get(out);
