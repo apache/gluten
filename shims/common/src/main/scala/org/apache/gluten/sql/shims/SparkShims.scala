@@ -36,7 +36,7 @@ import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.window.WindowGroupLimitExecShim
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DecimalType, StringType, StructType}
+import org.apache.spark.sql.types.{StringType, StructType}
 import org.apache.spark.storage.{GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 import org.apache.spark.util.SparkShimVersionUtil
 
@@ -183,8 +183,6 @@ trait SparkShims {
 
   def getOtherConstantMetadataColumnValues(file: PartitionedFile): JMap[String, Object] =
     Map.empty[String, Any].asJava.asInstanceOf[JMap[String, Object]]
-
-  def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType
 
   // Spark 4.1+ (SPARK-53968) embeds allowDecimalPrecisionLoss in each arithmetic expression's
   // evalContext at analysis time. Spark41Shims overrides this to read from the expression.

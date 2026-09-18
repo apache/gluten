@@ -22,7 +22,6 @@ import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 import org.apache.spark.sql.execution.datasources.BlockStripe;
 import org.apache.spark.sql.execution.datasources.BlockStripes;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.Iterator;
 
@@ -34,7 +33,7 @@ public class BoltBlockStripes extends BlockStripes {
   }
 
   @Override
-  public @NotNull Iterator<BlockStripe> iterator() {
+  public Iterator<BlockStripe> iterator() {
     return new Iterator<BlockStripe>() {
       private int index = 0;
 

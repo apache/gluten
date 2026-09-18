@@ -16,7 +16,9 @@
  */
 package org.apache.gluten.config
 
+import org.apache.spark.SparkEnv
 import org.apache.spark.network.util.ByteUnit
+import org.apache.spark.sql.internal.SparkConfigUtil._
 import org.apache.spark.sql.internal.SQLConf
 
 import java.util.Locale
@@ -131,6 +133,16 @@ object VeloxConfig extends ConfigRegistry {
   override def get: VeloxConfig = {
     new VeloxConfig(SQLConf.get)
   }
+
+  /**
+   * Reads the flag straight off the SparkConf instead of going through [[get]].
+   *
+   * Session extensions are applied while the SparkSession is still being built, so `SQLConf.get`
+   * returns defaults at that point and [[get]] would report this flag as off however the user set
+   * it.
+   */
+  def nativeUDFBypassRegistration: Boolean =
+    Option(SparkEnv.get).exists(_.conf.get(NATIVE_UDF_BYPASS_REGISTRATION))
 
   // velox caching options.
   val COLUMNAR_VELOX_CACHE_ENABLED =
@@ -695,6 +707,16 @@ object VeloxConfig extends ConfigRegistry {
       .doc("Enable velox orc scan. If disabled, vanilla spark orc scan will be used.")
       .booleanConf
       .createWithDefault(true)
+
+  val NATIVE_UDF_BYPASS_REGISTRATION =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.nativeUDF.bypassRegistration")
+      .doc(
+        "If true, a UDF from udfLibraryPaths can be called by the name it was registered " +
+          "with, so you do not have to write a Java class for it or run CREATE TEMPORARY " +
+          "FUNCTION. In exchange, there is no Java version to fall back to, so any query " +
+          "Gluten cannot run natively will fail instead of running on Spark. Off by default.")
+      .booleanConf
+      .createWithDefault(false)
 
   val CAST_FROM_VARCHAR_ADD_TRIM_NODE =
     buildConf("spark.gluten.velox.castFromVarcharAddTrimNode")
