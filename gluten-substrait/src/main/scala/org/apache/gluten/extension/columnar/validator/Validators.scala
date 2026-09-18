@@ -93,9 +93,12 @@ object Validators {
       builder.add(new FallbackByTestInjects())
     }
 
-    /** Fails validation if a plan node's input or output schema contains TimestampNTZType. */
+    /**
+     * Fails validation for unsupported TimestampNTZType schemas, and for NTZ expressions on
+     * backends without TimestampNTZ support.
+     */
     def fallbackByTimestampNTZ(): Validator.Builder = {
-      builder.add(new FallbackByTimestampNTZ(veloxConf))
+      builder.add(new FallbackByTimestampNTZ(veloxConf, settings.supportTimestampNtz))
     }
 
     /**
@@ -232,7 +235,10 @@ object Validators {
     }
   }
 
-  private class FallbackByTimestampNTZ(veloxConf: Option[Any]) extends Validator {
+  private[validator] class FallbackByTimestampNTZ(
+      veloxConf: Option[Any],
+      backendSupportsTimestampNtz: Boolean)
+    extends Validator {
     // Check if TimestampNTZ validation is enabled via VeloxConfig
     // Default to true (enabled) if VeloxConfig is not available or method call fails
     private val enableValidation: Boolean = veloxConf
@@ -247,8 +253,6 @@ object Validators {
       }
       .getOrElse(true)
 
-    private val backendSupportsTimestampNtz = BackendsApiManager.getSettings.supportTimestampNtz
-
     override def validate(plan: SparkPlan): Validator.OutCome = {
       def containsNTZ(dataType: DataType): Boolean = dataType match {
         case dt if dt.typeName == "timestamp_ntz" => true
@@ -261,6 +265,12 @@ object Validators {
       val hasNTZ = plan.output.exists(a => containsNTZ(a.dataType)) ||
         plan.children.exists(_.output.exists(a => containsNTZ(a.dataType)))
       if (!hasNTZ) {
+        if (
+          !backendSupportsTimestampNtz &&
+          plan.expressions.exists(_.exists(expr => containsNTZ(expr.dataType)))
+        ) {
+          return fail(s"${plan.nodeName} has TimestampNTZType in expressions")
+        }
         return pass()
       }
 

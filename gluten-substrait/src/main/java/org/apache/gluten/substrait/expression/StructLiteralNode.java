@@ -58,7 +58,7 @@ public class StructLiteralNode extends LiteralNodeWithValue<InternalRow> {
     if (type instanceof DateTypeNode) {
       return ExpressionBuilder.makeLiteral(value.getInt(index), type);
     }
-    if (type instanceof TimestampTypeNode) {
+    if (type instanceof TimestampTypeNode || type instanceof TimestampNTZTypeNode) {
       return ExpressionBuilder.makeLiteral(value.getLong(index), type);
     }
     if (type instanceof StringTypeNode) {
