@@ -91,6 +91,7 @@ TypePtr SubstraitParser::parseType(const ::substrait::Type& substraitType, bool 
     case ::substrait::Type::KindCase::kNothing:
       return UNKNOWN();
     default:
+      //VELOX_NYI("Parsing for Substrait type not supported: {}", std::to_string(static_cast<int>(substraitType.kind_case())));
       VELOX_NYI("Parsing for Substrait type not supported: {}", substraitType.DebugString());
   }
 }
