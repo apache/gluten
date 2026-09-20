@@ -179,7 +179,7 @@ object SparkArrowUtil {
   }
 
   /** Maps schema from Spark to Arrow. NOTE: timeZoneId required for TimestampType in StructType */
-  private[utils] def toArrowSchema(
+  def toArrowSchema(
       schema: StructType,
       timeZoneId: String,
       largeVarTypes: Boolean = false): Schema = {
