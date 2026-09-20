@@ -32,6 +32,7 @@ import io.github.zhztheplayer.velox4j.variant.DoubleValue;
 import io.github.zhztheplayer.velox4j.variant.HugeIntValue;
 import io.github.zhztheplayer.velox4j.variant.IntegerValue;
 import io.github.zhztheplayer.velox4j.variant.SmallIntValue;
+import io.github.zhztheplayer.velox4j.variant.TimestampValue;
 import io.github.zhztheplayer.velox4j.variant.TinyIntValue;
 import io.github.zhztheplayer.velox4j.variant.VarBinaryValue;
 import io.github.zhztheplayer.velox4j.variant.VarCharValue;
@@ -130,6 +131,13 @@ public class RexNodeConverter {
         }
       case SYMBOL:
         return new VarCharValue(literal.getValue().toString());
+      case TIMESTAMP:
+        // RexLiteral#getValueAs does not support java.sql.Timestamp, so take the
+        // epoch millis directly. It keeps the wall time as UTC, which is the same
+        // base as TimestampData#getMillisecond used by the row serializer.
+        long epochMillis = literal.getValueAs(Long.class);
+        return TimestampValue.create(
+            Math.floorDiv(epochMillis, 1000L), Math.floorMod(epochMillis, 1000L) * 1_000_000L);
       default:
         throw new RuntimeException(
             "Unsupported rex node type: " + literal.getType().getSqlTypeName());
