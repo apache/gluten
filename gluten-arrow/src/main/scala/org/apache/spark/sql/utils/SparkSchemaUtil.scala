@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.utils
 
+import org.apache.gluten.backendsapi.BackendsApiManager
+
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructType}
 
@@ -50,7 +52,8 @@ object SparkSchemaUtil {
   }
 
   def enableLargeVarTypes: Boolean = {
-    SQLConf.get.getConfString("spark.sql.execution.arrow.useLargeVarTypes", "false").toBoolean
+    SQLConf.get.getConfString("spark.sql.execution.arrow.useLargeVarTypes", "false").toBoolean &&
+    BackendsApiManager.getSettings.supportLargeVarTypes
   }
 
   def timeZoneIDEquals(one: String, other: String): Boolean = {

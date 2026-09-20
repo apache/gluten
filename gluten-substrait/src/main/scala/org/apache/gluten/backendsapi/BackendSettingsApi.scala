@@ -143,6 +143,8 @@ trait BackendSettingsApi {
 
   def supportColumnarArrowUdf(): Boolean = false
 
+  def supportLargeVarTypes(): Boolean = false
+
   def needPreComputeRangeFrameBoundary(): Boolean = false
 
   def supportIcebergEqualityDeleteRead(): Boolean = true
