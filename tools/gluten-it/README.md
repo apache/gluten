@@ -26,6 +26,17 @@ Note: **Spark-Version** can only be **spark-3.4**, **spark-3.5**, **spark-4.0** 
 
 ## Usage
 
+### Query timings
+
+For benchmark SELECT queries, `Planning Time (Millis)` measures wall time from
+before `spark.sql` through initial physical planning and SQL execution setup.
+`Query Time (Millis)` measures the remaining time through result collection,
+including runtime preparation, AQE replanning and subquery execution.
+Both use one monotonic clock; their sum is the elapsed query time rounded down
+to milliseconds. Explicit explain output, listener draining and metric extraction
+are outside this interval. Eager commands can execute during `spark.sql`, so this
+split should not be interpreted as pure planning versus execution for commands.
+
 ### CMD args
 
 ```

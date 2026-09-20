@@ -21,20 +21,16 @@ import org.apache.gluten.integration.metrics.{MetricMapper, PlanMetric}
 
 import org.apache.spark.{SparkContext, Success, TaskKilled}
 import org.apache.spark.executor.ExecutorMetrics
-import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent, SparkListenerExecutorMetricsUpdate, SparkListenerTaskEnd, SparkListenerTaskStart}
-import org.apache.spark.sql.catalyst.QueryPlanningTracker
-import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
+import org.apache.spark.scheduler.{SparkListener, SparkListenerExecutorMetricsUpdate, SparkListenerTaskEnd, SparkListenerTaskStart}
+import org.apache.spark.sql.catalyst.encoders.encoderFor
+import org.apache.spark.sql.execution.{QueryExecution, SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, QueryStageExec}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
-import org.apache.spark.sql.execution.ui.{SparkListenerSQLExecutionEnd, SparkListenerSQLExecutionStart}
 
 import org.apache.commons.lang3.RandomUtils
 
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-import scala.collection.JavaConverters._
-import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 
 object SparkQueryRunner {
@@ -83,10 +79,6 @@ object SparkQueryRunner {
     val metricsListener = new MetricsListener(em)
     sc.addSparkListener(metricsListener)
 
-    // Execution time listener.
-    val executionTimeListener = new ExecutionTimeListener()
-    sc.addSparkListener(executionTimeListener)
-
     // kill task listener.
     val killTaskListener: Option[KillTaskListener] = if (randomKillTasks) {
       Some(new KillTaskListener(sc))
@@ -97,28 +89,38 @@ object SparkQueryRunner {
 
     println(s"Executing SQL query from resource path ${query.path}...")
     try {
-      val otherTracker = new QueryPlanningTracker
+      val startNanos = System.nanoTime()
       val df = spark.sql(query.sql)
-      val rows = QueryPlanningTracker.withTracker(otherTracker) {
-        df.collect()
+      val qe = df.queryExecution
+      // Keep planning and collection in one SQL execution so planning rules see its execution ID.
+      val (rows, planMillis) = SQLExecution.withNewExecutionId(qe, Some("collect")) {
+        QueryExecution.withInternalError("The \"collect\" action failed.") {
+          val plan = qe.executedPlan
+          val planMillis = (System.nanoTime() - startNanos) / 1000000L
+          plan.resetMetrics()
+          val fromRow = encoderFor(df.encoder)
+            .resolveAndBind(qe.commandExecuted.output, spark.sessionState.analyzer)
+            .createDeserializer()
+          (plan.executeCollect().map(fromRow), planMillis)
+        }
       }
+      val totalMillis = (System.nanoTime() - startNanos) / 1000000L
       if (explain) {
         df.explain(extended = true)
       }
-      // TODO: sparkTracker and otherTracker include planning time information,
-      //  while they are not accurate enough so we paused on using them for now.
-      val sparkTracker = df.queryExecution.tracker
-      // This makes sure all the SparkListenerSQLExecutionEnd event is processed before we
-      // get the execution time and metrics.
+      // Drain listener events before reading metrics, outside the measured interval.
       sc.listenerBus.waitUntilEmpty()
-      val totalMillis = executionTimeListener.wallMillis()
       val collectedExecutorMetrics =
         executorMetrics.map(name => (name, em.getMetricValue(name))).toMap
       val collectedSQLMetrics = collectSQLMetrics(query.path, metricMapper, df.queryExecution)
-      RunResult(rows, totalMillis, collectedSQLMetrics, collectedExecutorMetrics)
+      RunResult(
+        rows,
+        planMillis,
+        totalMillis - planMillis,
+        collectedSQLMetrics,
+        collectedExecutorMetrics)
     } finally {
       sc.removeSparkListener(metricsListener)
-      sc.removeSparkListener(executionTimeListener)
       killTaskListener.foreach(
         l => {
           sc.removeSparkListener(l)
@@ -165,6 +167,7 @@ object SparkQueryRunner {
 
 case class RunResult(
     rows: Seq[Row],
+    planningTimeMillis: Long,
     executionTimeMillis: Long,
     sqlMetrics: Seq[PlanMetric],
     executorMetrics: Map[String, Long])
@@ -264,25 +267,4 @@ class KillTaskListener(val sc: SparkContext) extends SparkListener {
 
 object KillTaskListener {
   private val INIT_WAIT_TIME_MS: Long = 50L
-}
-
-class ExecutionTimeListener extends SparkListener {
-  private val executionStart = new ConcurrentHashMap[Long, Long]().asScala
-  private val executionEnd = new ConcurrentHashMap[Long, Long]().asScala
-
-  override def onOtherEvent(event: SparkListenerEvent): Unit = event match {
-    case e: SparkListenerSQLExecutionStart =>
-      executionStart(e.executionId) = e.time
-    case e: SparkListenerSQLExecutionEnd =>
-      executionEnd(e.executionId) = e.time
-    case _ =>
-  }
-
-  def wallMillis(): Long = {
-    executionEnd.map {
-      case (executionId, endTime) =>
-        val startTime = executionStart(executionId)
-        endTime - startTime
-    }.sum
-  }
 }
