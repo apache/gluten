@@ -172,6 +172,59 @@ cherry_pick_delta_fix 46bd45d57eadd7e528002a0ae7bd36ce5a456eca "#7104 (ScanRepor
 cherry_pick_delta_fix 959e00e15f41f56afc1c9bb95d160c55c6dc7068 "#7105 (9 more test suites)"
 echo "::endgroup::"
 
+echo "::group::Capping DeltaParquetFileFormat fixture row groups by row count"
+# DeltaParquetFileFormatSuite generates one 20,000-row Parquet file and sets a
+# 50 KiB block size to ensure that it contains multiple row groups. Velox sizes
+# row groups by buffered bytes after writing each input batch. Because this
+# fixture arrives in one batch, lowering the byte threshold cannot split it.
+# Scope Gluten's native row-count limit around the fixture write so Arrow splits
+# the 20,000 rows deterministically while keeping the native write path enabled.
+DPFFS="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala"
+if [ ! -f "$DPFFS" ]; then
+  echo "Expected file not found in Delta clone: $DPFFS" >&2
+  echo "The Delta directory layout for ref '${DELTA_REF}' may have changed." >&2
+  exit 1
+fi
+if ! sed 's/^__BLANK_CONTEXT__$/ /' <<'PATCH' | git -C "$DELTA_DIR" apply -
+diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala b/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala
+--- a/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala
++++ b/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala
+@@ -68,9 +68,11 @@ trait DeltaParquetFileFormatSuiteBase
+   protected def generateData(tablePath: String): Unit = {
+     // This is to generate a Parquet file with two row groups
+     hadoopConf().set("parquet.block.size", (1024 * 50).toString)
+__BLANK_CONTEXT__
+     // Keep the number of partitions to 1 to generate a single Parquet data file
+     val df = Seq.range(0, 20000).toDF().repartition(1)
+-    df.write.format("delta").mode("append").save(tablePath)
++    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "10000") {
++      df.write.format("delta").mode("append").save(tablePath)
++    }
+__BLANK_CONTEXT__
+     // Set DFS block size to be less than Parquet rowgroup size, to allow
+PATCH
+then
+  echo "ERROR: DeltaParquetFileFormat fixture patch did not apply." >&2
+  echo "The patch expects the Delta v4.2.0 generateData fixture shape;" \
+    "ref '${DELTA_REF}' must remain source-compatible." >&2
+  exit 1
+fi
+ROW_CAP_SCOPES=$(
+  grep -Fxc \
+    '    withSQLConf("spark.gluten.sql.native.parquet.write.blockRows" -> "10000") {' \
+    "$DPFFS" || true
+)
+if [ "$ROW_CAP_SCOPES" -ne 1 ]; then
+  echo "ERROR: expected exactly one native Parquet row-count scope;" \
+    "found ${ROW_CAP_SCOPES}." >&2
+  echo "DeltaParquetFileFormatSuite may have changed in Delta ref '${DELTA_REF}'." >&2
+  exit 1
+fi
+echo "Capped DeltaParquetFileFormat fixture row groups at 10,000 rows."
+git -C "$DELTA_DIR" --no-pager diff -- \
+  "spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala" || true
+echo "::endgroup::"
+
 echo "::group::Force-failing memory-hog DeletionVectorsSuite 2B-row tests"
 # Two DeletionVectorsSuite tests read from / delete from a 2-billion-row table.
 # Under the Gluten Velox bundle they balloon the forked test JVM to ~13G of

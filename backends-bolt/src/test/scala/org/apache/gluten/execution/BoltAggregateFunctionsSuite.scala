@@ -389,7 +389,7 @@ abstract class BoltAggregateFunctionsSuite extends BoltWholeStageTransformerSuit
     }
   }
 
-  testWithMinSparkVersion("regr_r2", "3.3") {
+  test("regr_r2") {
     runQueryAndCompare("""
                          |select regr_r2(l_partkey, l_suppkey) from lineitem;
                          |""".stripMargin) {
@@ -408,7 +408,7 @@ abstract class BoltAggregateFunctionsSuite extends BoltWholeStageTransformerSuit
     }
   }
 
-  testWithMinSparkVersion("regr_slope", "3.4") {
+  test("regr_slope") {
     runQueryAndCompare("""
                          |select regr_slope(l_partkey, l_suppkey) from lineitem;
                          |""".stripMargin) {
@@ -427,7 +427,7 @@ abstract class BoltAggregateFunctionsSuite extends BoltWholeStageTransformerSuit
     }
   }
 
-  testWithMinSparkVersion("regr_intercept", "3.4") {
+  test("regr_intercept") {
     runQueryAndCompare("""
                          |select regr_intercept(l_partkey, l_suppkey) from lineitem;
                          |""".stripMargin) {
@@ -446,7 +446,7 @@ abstract class BoltAggregateFunctionsSuite extends BoltWholeStageTransformerSuit
     }
   }
 
-  testWithMinSparkVersion("regr_sxy regr_sxx regr_syy", "3.4") {
+  test("regr_sxy regr_sxx regr_syy") {
     runQueryAndCompare("""
                          |select regr_sxy(l_quantity, l_tax) from lineitem;
                          |""".stripMargin) {

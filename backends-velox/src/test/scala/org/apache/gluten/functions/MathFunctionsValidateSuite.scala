@@ -415,7 +415,7 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("width_bucket", "3.4") {
+  test("width_bucket") {
     withTempPath {
       path =>
         Seq[(Integer, Integer, Integer, Integer)](
@@ -456,6 +456,14 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
             }
           }
       }
+    }
+  }
+
+  test("GLUTEN-7082: nested decimal arithmetic with a literal") {
+    runQueryAndCompare(
+      "select cast(l_orderkey as decimal(20,0)) / (cast(l_partkey as decimal(20,0)) + 0.00001)" +
+        " from lineitem") {
+      checkGlutenPlan[ProjectExecTransformer]
     }
   }
 

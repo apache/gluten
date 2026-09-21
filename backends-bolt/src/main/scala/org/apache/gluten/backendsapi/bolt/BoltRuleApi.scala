@@ -126,9 +126,6 @@ object BoltRuleApi {
 
     // Gluten columnar: Post rules.
     injector.injectPost(c => RemoveTopmostColumnarToRow(c.session, c.caller.isAqe()))
-    SparkShimLoader.getSparkShims
-      .getExtendedColumnarPostRules()
-      .foreach(each => injector.injectPost(c => each(c.session)))
     injector.injectPost(c => ColumnarCollapseTransformStages(new GlutenConfig(c.sqlConf)))
     injector.injectPost(c => CudfNodeValidationRule(new GlutenConfig(c.sqlConf)))
 

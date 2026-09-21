@@ -155,7 +155,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("iceberg bucketed join", "3.4") {
+  test("iceberg bucketed join") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -229,7 +229,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("iceberg bucketed join with partition", "3.4") {
+  test("iceberg bucketed join with partition") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -303,7 +303,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("iceberg bucketed join partition value not exists", "3.4") {
+  test("iceberg bucketed join partition value not exists") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -378,9 +378,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion(
-    "iceberg bucketed join partition value not exists partial cluster",
-    "3.4") {
+  test("iceberg bucketed join partition value not exists partial cluster") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -455,7 +453,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("iceberg bucketed join with partition filter", "3.4") {
+  test("iceberg bucketed join with partition filter") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
