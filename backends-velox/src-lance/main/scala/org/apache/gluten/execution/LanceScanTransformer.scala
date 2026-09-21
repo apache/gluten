@@ -34,7 +34,6 @@ import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
 import org.apache.arrow.c.{ArrowArrayStream, Data}
 import org.apache.arrow.vector.FieldVector
-
 import org.lance.spark.internal.LanceArrowStreamScanner
 import org.lance.spark.read.{LanceInputPartition, LanceScan}
 
@@ -48,9 +47,9 @@ import scala.collection.JavaConverters._
  * This replaces a vanilla [[BatchScanExec]] over a [[LanceScan]]. Each Spark partition maps to one
  * Lance fragment. For every fragment the leaf asks lance-spark to export the planned scan as an
  * [[ArrowArrayStream]] ([[LanceArrowStreamScanner.export]]) and hands back only the C-struct
- * address. The address is re-wrapped with Gluten's own Arrow build and imported here, so lance-spark
- * and Gluten never share Arrow Java objects across their classloaders -- only the version-stable C
- * ABI struct crosses the boundary. This is the consumer side of lance-core's
+ * address. The address is re-wrapped with Gluten's own Arrow build and imported here, so
+ * lance-spark and Gluten never share Arrow Java objects across their classloaders -- only the
+ * version-stable C ABI struct crosses the boundary. This is the consumer side of lance-core's
  * {@code LanceScanner#exportArrowStream(long)} (lance#7259).
  *
  * Each imported batch is transferred out of the reader's root into independent Arrow buffers so the

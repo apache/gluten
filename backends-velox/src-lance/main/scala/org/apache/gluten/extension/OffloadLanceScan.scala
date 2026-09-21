@@ -26,7 +26,9 @@ import org.apache.gluten.extension.injector.Injector
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 
-/** Replaces a vanilla Lance [[BatchScanExec]] with a [[LanceScanTransformer]] offloaded to Velox. */
+/**
+ * Replaces a vanilla Lance [[BatchScanExec]] with a [[LanceScanTransformer]] offloaded to Velox.
+ */
 case class OffloadLanceScan() extends OffloadSingleNode {
   override def offload(plan: SparkPlan): SparkPlan = plan match {
     case scan: BatchScanExec
