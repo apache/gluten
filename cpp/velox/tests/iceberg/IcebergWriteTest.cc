@@ -17,7 +17,7 @@
 
 #include "compute/iceberg/IcebergWriter.h"
 #include "memory/VeloxColumnarBatch.h"
-#include "velox/dwio/parquet/RegisterParquetWriter.h"
+#include "utils/VeloxWriterUtils.h"
 #include "velox/exec/tests/utils/TempDirectoryPath.h"
 #include "velox/vector/tests/utils/VectorTestBase.h"
 
@@ -30,7 +30,7 @@ class VeloxIcebergWriteTest : public ::testing::Test, public test::VectorTestBas
  protected:
   static void SetUpTestCase() {
     memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
-    parquet::registerParquetWriterFactory();
+    dwio::common::registerWriterFactory(std::make_shared<GlutenParquetWriterFactory>());
     Type::registerSerDe();
     dwio::common::registerFileSinks();
     filesystems::registerLocalFileSystem();
@@ -39,6 +39,26 @@ class VeloxIcebergWriteTest : public ::testing::Test, public test::VectorTestBas
 
   std::shared_ptr<memory::MemoryPool> connectorPool_ = rootPool_->addAggregateChild("connector");
 };
+
+TEST_F(VeloxIcebergWriteTest, parquetWriterOptions) {
+  GlutenParquetWriterFactory factory;
+  const config::ConfigBase empty(std::unordered_map<std::string, std::string>{});
+  auto defaults = std::static_pointer_cast<parquet::ParquetWriterOptions>(factory.createFormatOptions(empty, empty));
+  EXPECT_EQ(defaults->codecOptions, nullptr);
+  EXPECT_FALSE(defaults->useParquetDataPageV2.value_or(false));
+
+  for (auto level : {-5, 1, 9}) {
+    for (const auto& version : {"V1", "V2"}) {
+      const config::ConfigBase session(std::unordered_map<std::string, std::string>{
+          {"writer_compression_level", std::to_string(level)}, {"writer_datapage_version", version}});
+      auto options =
+          std::static_pointer_cast<parquet::ParquetWriterOptions>(factory.createFormatOptions(empty, session));
+      ASSERT_NE(options->codecOptions, nullptr);
+      EXPECT_EQ(options->codecOptions->compressionLevel, level);
+      EXPECT_EQ(options->useParquetDataPageV2.value(), std::string(version) == "V2");
+    }
+  }
+}
 
 TEST_F(VeloxIcebergWriteTest, write) {
   auto vector = makeRowVector({makeFlatVector<int8_t>({1, 2}), makeFlatVector<int16_t>({1, 2})});
@@ -64,7 +84,7 @@ TEST_F(VeloxIcebergWriteTest, write) {
       partitionSpec,
       root,
       std::unordered_map<std::string, std::string>(),
-      pool_,
+      rootPool_,
       connectorPool_);
   auto batch = VeloxColumnarBatch(vector);
   writer->write(batch);

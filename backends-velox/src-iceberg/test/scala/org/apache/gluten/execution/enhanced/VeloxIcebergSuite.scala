@@ -656,6 +656,89 @@ class VeloxIcebergSuite extends IcebergSuite {
     }
   }
 
+  Seq("v1", "v2", "V2").foreach {
+    version =>
+      test(s"iceberg parquet page version $version") {
+        withTable("iceberg_page_version") {
+          spark.sql(s"""
+          CREATE TABLE iceberg_page_version (id BIGINT) USING iceberg
+          TBLPROPERTIES ('write.parquet.page-version' = '$version')
+        """)
+          val df = spark.sql("INSERT INTO iceberg_page_version SELECT id FROM range(1000)")
+          assert(
+            df.queryExecution.executedPlan
+              .asInstanceOf[CommandResultExec]
+              .commandPhysicalPlan
+              .isInstanceOf[VeloxIcebergAppendDataExec])
+          val files =
+            spark.sql("SELECT file_path FROM default.iceberg_page_version.files").collect()
+          assert(files.nonEmpty)
+          files.foreach {
+            file =>
+              val reader = ParquetFileReader.open(HadoopInputFile.fromPath(
+                new Path(file.getString(0)),
+                spark.sparkContext.hadoopConfiguration))
+              try {
+                val column = reader.getFooter.getFileMetaData.getSchema.getColumns.get(0)
+                val page = reader.readNextRowGroup().getPageReader(column).readPage()
+                assert(page != null)
+                assert(page.isInstanceOf[DataPageV2] == version.equalsIgnoreCase("v2"))
+              } finally {
+                reader.close()
+              }
+          }
+          checkAnswer(spark.sql("SELECT count(*) FROM iceberg_page_version"), Seq(Row(1000L)))
+        }
+      }
+  }
+
+  Seq("gzip", "zstd").foreach {
+    codec =>
+      test(s"iceberg parquet $codec compression level and write option precedence") {
+        withSQLConf("spark.sql.shuffle.partitions" -> "1") {
+          withTable("iceberg_compression_level") {
+            spark.sql(s"""
+            CREATE TABLE iceberg_compression_level (value STRING) USING iceberg
+            TBLPROPERTIES (
+              'write.parquet.compression-codec' = '$codec',
+              'write.parquet.compression-level' = '1',
+              'write.parquet.dict-size-bytes' = '1B')
+          """)
+            val data = spark.range(0, 10000, 1, 1)
+              .selectExpr("concat(cast(id as string), repeat('abcdefghij', 100)) AS value")
+
+            def writeSize(level: Option[String]): Long = {
+              spark.sql("TRUNCATE TABLE iceberg_compression_level")
+              val writer = data.writeTo("iceberg_compression_level")
+              level.foreach(writer.option("compression-level", _))
+              TestUtils.checkExecutedPlanContains[VeloxIcebergAppendDataExec](spark) {
+                writer.append()
+              }
+              checkAnswer(
+                spark.sql("SELECT count(*) FROM iceberg_compression_level"),
+                Seq(Row(10000L)))
+              spark.sql(
+                "SELECT sum(file_size_in_bytes) FROM default.iceberg_compression_level.files")
+                .head().getLong(0)
+            }
+
+            val low = writeSize(None)
+            val high = writeSize(Some("9"))
+            assert(high < low, s"Expected level 9 to compress better than level 1: $high >= $low")
+            spark.sql("""
+            ALTER TABLE iceberg_compression_level SET TBLPROPERTIES
+              ('write.parquet.compression-level' = '9')
+          """)
+            assert(writeSize(None) == high)
+            withSQLConf("spark.sql.iceberg.compression-level" -> "1") {
+              assert(writeSize(None) == low)
+              assert(writeSize(Some("9")) == high)
+            }
+          }
+        }
+      }
+  }
+
   test("iceberg table page row limit") {
     val table = "iceberg_page_row_limit"
 

@@ -104,7 +104,10 @@ the added column name is same to the deleted column, the scan will fall back.
 | spark.gluten.sql.columnar.iceberg.enableNativeRead | true | Enable offloading Iceberg scans to the native backend. When disabled, Iceberg scans fall back to vanilla Spark while scans of other formats stay offloaded. |
 | spark.gluten.sql.columnar.iceberg.enableNativeWrite | true | Enable offloading Iceberg writes to the native backend. When disabled, Iceberg writes fall back to vanilla Spark. Note the Velox backend additionally requires `spark.gluten.sql.enable.enhancedFeatures` to be enabled. |
 | spark.gluten.sql.columnar.parquet.write.blockSize | 128MB | Target Parquet row-group size for native writes. When explicitly set, overrides the Iceberg table property `write.parquet.row-group-size-bytes`. Accepts byte counts or sizes such as `32MB` and `1GB`. |
-Both options are runtime modifiable, so they can be flipped per session with `SET`.
+| spark.gluten.sql.columnar.backend.velox.parquet_writer_compression_level | (unset) | Overrides Iceberg's Parquet compression level for gzip and zstd. |
+| spark.gluten.sql.columnar.backend.velox.parquet_writer_datapage_version | (unset) | Overrides `write.parquet.page-version`; accepts `V1` or `V2`. |
+
+These options can be changed per session with `SET`.
 
 ### Catalogs
 All the catalog configurations are transparent to Gluten
@@ -136,7 +139,7 @@ The "Gluten Support" column is now ready to be populated with:
 | spark.wap.id | null | Write-Audit-Publish snapshot staging ID | |
 | spark.wap.branch | null | WAP branch name for snapshot commit | |
 | spark.sql.iceberg.compression-codec | Table default | Write compression codec (e.g., zstd, snappy) | |
-| spark.sql.iceberg.compression-level | Table default | Compression level for Parquet/Avro | |
+| spark.sql.iceberg.compression-level | Table default | Compression level for Parquet/Avro |⚠️ Parquet (gzip, zstd) only|
 | spark.sql.iceberg.compression-strategy | Table default | Compression strategy for ORC | |
 | spark.sql.iceberg.data-planning-mode | AUTO | Scan planning mode for data files (AUTO, LOCAL, DISTRIBUTED) | |
 | spark.sql.iceberg.delete-planning-mode | AUTO | Scan planning mode for delete files (AUTO, LOCAL, DISTRIBUTED) | |
@@ -177,7 +180,7 @@ The "Gluten Support" column is now ready to be populated with:
 | isolation-level | null | Desired isolation level for Dataframe overwrite operations. null => no checks (for idempotent writes), serializable => check for concurrent inserts or deletes in destination partitions, snapshot => checks for concurrent deletes in destination partitions. | |
 | validate-from-snapshot-id | null | If isolation level is set, id of base snapshot from which to check concurrent write conflicts into a table. Should be the snapshot before any reads from the table. Can be obtained via Table API or Snapshots table. If null, the table's oldest known snapshot is used. | |
 | compression-codec | Table write.(fileformat).compression-codec | Overrides this table's compression codec for this write | |
-| compression-level | Table write.(fileformat).compression-level | Overrides this table's compression level for Parquet and Avro tables for this write | |
+| compression-level | Table write.(fileformat).compression-level | Overrides the Iceberg session and table compression levels for this write |⚠️ Parquet (gzip, zstd) only|
 | compression-strategy | Table write.orc.compression-strategy | Overrides this table's compression strategy for ORC tables for this write | |
 | distribution-mode | See Spark Writes for defaults | Override this table's distribution mode for this write |🚫|
 | delete-granularity | file | Override this table's delete granularity for this write | |
@@ -206,10 +209,11 @@ extracted from https://iceberg.apache.org/docs/latest/configuration/
 | write.delete.format.default | data file format | Default delete file format for the table; parquet, avro, or orc |  |
 | write.parquet.row-group-size-bytes | 134217728 (128 MB) | Target Parquet row-group size in bytes. Overridden by an explicitly set `spark.gluten.sql.columnar.parquet.write.blockSize`. |✅|
 | write.parquet.page-size-bytes | 1048576 (1 MB) | Parquet page size |✅|
+| write.parquet.page-version | v1 | Parquet data page version: `v1` or `v2` (case-insensitive) |✅|
 | write.parquet.page-row-limit | 20000 | Parquet page row limit |  |
 | write.parquet.dict-size-bytes | 2097152 (2 MB) | Parquet dictionary page size |  |
 | write.parquet.compression-codec | zstd | Parquet compression codec: zstd, brotli, lz4, gzip, snappy, uncompressed |  |
-| write.parquet.compression-level | null | Parquet compression level |  |
+| write.parquet.compression-level | null | Parquet compression level; unset uses the codec default. Overridden by `spark.sql.iceberg.compression-level` and the per-write `compression-level` option. |✅ gzip, zstd|
 | write.parquet.bloom-filter-enabled.column.col1 | (not set) | Hint to parquet to write a bloom filter for the column: 'col1' |  |
 | write.parquet.bloom-filter-max-bytes | 1048576 (1 MB) | The maximum number of bytes for a bloom filter bitset |  |
 | write.parquet.bloom-filter-fpp.column.col1 | 0.01 | The false positive probability for a bloom filter applied to 'col1' (must > 0.0 and < 1.0) |  |
