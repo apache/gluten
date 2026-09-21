@@ -23,8 +23,9 @@ import org.apache.gluten.extension.injector.Injector
 import org.apache.spark.util.SparkReflectionUtil
 
 /**
- * Registers the Lance-over-Velox scan offload. Inert unless lance-spark is on the runtime classpath,
- * so the default Velox bundle carries this component without requiring Lance for other workloads.
+ * Registers the Lance-over-Velox scan offload. Inert unless lance-spark is on the runtime
+ * classpath, so the default Velox bundle carries this component without requiring Lance for other
+ * workloads.
  */
 class VeloxLanceComponent extends Component {
   override def name(): String = "velox-lance"
