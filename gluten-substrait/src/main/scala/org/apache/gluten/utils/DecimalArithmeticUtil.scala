@@ -19,8 +19,8 @@ package org.apache.gluten.utils
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.sql.shims.SparkShimLoader
 
-import org.apache.spark.sql.catalyst.expressions.{Add, BinaryArithmetic, Cast, Divide, Expression, Literal, Multiply, Pmod, PromotePrecision, Remainder, Subtract}
-import org.apache.spark.sql.types.{ByteType, Decimal, DecimalType, IntegerType, LongType, ShortType}
+import org.apache.spark.sql.catalyst.expressions.{Add, BinaryArithmetic, Divide, Multiply, Pmod, Remainder, Subtract}
+import org.apache.spark.sql.types.DecimalType
 import org.apache.spark.sql.utils.DecimalTypeUtil
 
 object DecimalArithmeticUtil {
@@ -62,6 +62,9 @@ object DecimalArithmeticUtil {
           resultPrecision = intDig + decDig
           resultScale = decDig
         }
+      // Remainder and Pmod land here: isDecimalArithmetic admits them but no result type is
+      // derived above. On the transformCheckOverflow path this throw is what makes decimal % and
+      // pmod fall back.
       case other =>
         throw new GlutenNotSupportException(s"$other is not supported.")
     }
@@ -78,9 +81,9 @@ object DecimalArithmeticUtil {
     DecimalType(Math.min(precision, MAX_PRECISION), Math.min(scale, MAX_SCALE))
   }
 
-  // If casting between DecimalType, unnecessary cast is skipped to avoid data loss,
-  // because argument input type of "cast" is actually the res type of "+-*/".
-  // Cast will use a wider input type, then calculates result type with less scale than expected.
+  // Whether the expression is an arithmetic over two decimals. Remainder and Pmod are admitted on
+  // purpose even though getResultType rejects them: dropping them here would send both through the
+  // generic arm and offload them. See the comment on that rejection in getResultType.
   def isDecimalArithmetic(b: BinaryArithmetic): Boolean = {
     if (
       b.left.dataType.isInstanceOf[DecimalType] &&
@@ -91,131 +94,5 @@ object DecimalArithmeticUtil {
         case _ => false
       }
     } else false
-  }
-
-  // For decimal * 10 case, dec will be Decimal(38, 18), then the result precision is wrong,
-  // so here we will get the real precision and scale of the literal.
-  private def getNewPrecisionScale(dec: Decimal): (Integer, Integer) = {
-    val input = dec.abs.toJavaBigDecimal.toPlainString()
-    val dotIndex = input.indexOf(".")
-    if (dotIndex == -1) {
-      return (input.length, 0)
-    }
-    if (dec.toBigDecimal.isValidLong) {
-      return (dotIndex, 0)
-    }
-    (dec.precision, dec.scale)
-  }
-
-  // Change the precision and scale to the actual precision and scale of a literal,
-  // otherwise the result precision loses.
-  def rescaleLiteral(arithmeticExpr: BinaryArithmetic): BinaryArithmetic = {
-    if (
-      arithmeticExpr.left.isInstanceOf[PromotePrecision] &&
-      arithmeticExpr.right.isInstanceOf[Literal]
-    ) {
-      val lit = arithmeticExpr.right.asInstanceOf[Literal]
-      lit.value match {
-        case decLit: Decimal =>
-          val (precision, scale) = getNewPrecisionScale(decLit)
-          if (precision != decLit.precision || scale != decLit.scale) {
-            arithmeticExpr
-              .withNewChildren(Seq(arithmeticExpr.left, Cast(lit, DecimalType(precision, scale))))
-              .asInstanceOf[BinaryArithmetic]
-          } else arithmeticExpr
-        case _ => arithmeticExpr
-      }
-    } else if (
-      arithmeticExpr.right.isInstanceOf[PromotePrecision]
-      && arithmeticExpr.left.isInstanceOf[Literal]
-    ) {
-      val lit = arithmeticExpr.left.asInstanceOf[Literal]
-      lit.value match {
-        case decLit: Decimal =>
-          val (precision, scale) = getNewPrecisionScale(decLit)
-          if (precision != decLit.precision || scale != decLit.scale) {
-            arithmeticExpr
-              .withNewChildren(Seq(Cast(lit, DecimalType(precision, scale)), arithmeticExpr.right))
-              .asInstanceOf[BinaryArithmetic]
-          } else arithmeticExpr
-        case _ => arithmeticExpr
-      }
-    } else {
-      arithmeticExpr
-    }
-  }
-
-  // Returns whether the input expression is a combination of PromotePrecision(Cast as DecimalType).
-  private def isPromoteCast(expr: Expression): Boolean = expr match {
-    case PromotePrecision(Cast(_, _: DecimalType, _, _)) => true
-    case _ => false
-  }
-
-  def rescaleCastForDecimal(left: Expression, right: Expression): (Expression, Expression) = {
-
-    def doScale(e1: Expression, e2: Expression): (Expression, Expression) = {
-      val newE2 = rescaleCastForOneSide(e2)
-      val isWiderType = checkIsWiderType(
-        e1.dataType.asInstanceOf[DecimalType],
-        newE2.dataType.asInstanceOf[DecimalType],
-        e2.dataType.asInstanceOf[DecimalType])
-      if (isWiderType) (e1, newE2) else (e1, e2)
-    }
-
-    if (!isPromoteCast(left) && isPromoteCastIntegral(right)) {
-      // Have removed PromotePrecision(Cast(DecimalType)).
-      // Decimal * cast int.
-      doScale(left, right)
-    } else if (!isPromoteCast(right) && isPromoteCastIntegral(left)) {
-      // Cast int * decimal.
-      val (r, l) = doScale(right, left)
-      (l, r)
-    } else {
-      (left, right)
-    }
-  }
-
-  /**
-   * Remove the Cast when child is PromotePrecision and PromotePrecision is Cast(Decimal, Decimal)
-   *
-   * @param arithmeticExpr
-   *   BinaryArithmetic left or right
-   * @return
-   *   expression removed child PromotePrecision->Cast
-   */
-  def removeCastForDecimal(arithmeticExpr: Expression): Expression = arithmeticExpr match {
-    case PromotePrecision(_ @Cast(child, _: DecimalType, _, _))
-        if child.dataType.isInstanceOf[DecimalType] =>
-      child
-    case _ => arithmeticExpr
-  }
-
-  private def isPromoteCastIntegral(expr: Expression): Boolean = expr match {
-    case PromotePrecision(_ @Cast(child, _: DecimalType, _, _)) =>
-      child.dataType match {
-        case IntegerType | ByteType | ShortType | LongType => true
-        case _ => false
-      }
-    case _ => false
-  }
-
-  private def rescaleCastForOneSide(expr: Expression): Expression = expr match {
-    case precision @ PromotePrecision(_ @Cast(child, _: DecimalType, _, _)) =>
-      child.dataType match {
-        case IntegerType | ByteType | ShortType =>
-          precision.withNewChildren(Seq(Cast(child, DecimalType(10, 0))))
-        case LongType =>
-          precision.withNewChildren(Seq(Cast(child, DecimalType(20, 0))))
-        case _ => expr
-      }
-    case _ => expr
-  }
-
-  private def checkIsWiderType(
-      left: DecimalType,
-      right: DecimalType,
-      wider: DecimalType): Boolean = {
-    val widerType = SparkShimLoader.getSparkShims.widerDecimalType(left, right)
-    widerType.equals(wider)
   }
 }

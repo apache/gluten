@@ -25,9 +25,11 @@ import io.github.zhztheplayer.velox4j.type.Type;
 
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.types.RowKind;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.table.Table;
 
 import java.util.ArrayList;
@@ -35,11 +37,19 @@ import java.util.List;
 
 /** Converter between velox RowVector and Flink RowData. */
 public class FlinkRowToVLVectorConvertor {
+
+  // Matches the C++ kRowKindColumnName in velox/experimental/stateful/RowKind.h.
+  // The merged RowVector carries per-row RowKind bytes as a trailing TINYINT column
+  // with this name. Java appends it in fromRowData; C++ strips it via
+  // StreamRecord::create and re-appends it on output via
+  // StreamRecord::toMergedRowVector (only when the stream is not appendOnly).
+  public static final String ROW_KIND_COLUMN_NAME = "$row_kind";
+
   public static RowVector fromRowData(
       RowData row, BufferAllocator allocator, Session session, RowType rowType) {
-    List<FieldVector> arrowVectors = new ArrayList<>(rowType.size());
     List<Type> fieldTypes = rowType.getChildren();
     List<String> fieldNames = rowType.getNames();
+    List<FieldVector> arrowVectors = new ArrayList<>(rowType.size() + 1);
     for (int i = 0; i < rowType.size(); i++) {
       ArrowVectorWriter writer =
           ArrowVectorWriter.create(fieldNames.get(i), fieldTypes.get(i), allocator);
@@ -47,6 +57,11 @@ public class FlinkRowToVLVectorConvertor {
       writer.finish();
       arrowVectors.add(i, writer.getVector());
     }
+    TinyIntVector rowKindVector = new TinyIntVector(ROW_KIND_COLUMN_NAME, allocator);
+    rowKindVector.allocateNew(1);
+    rowKindVector.setSafe(0, row.getRowKind().toByteValue());
+    rowKindVector.setValueCount(1);
+    arrowVectors.add(rowKindVector);
 
     return session.arrowOps().fromArrowTable(allocator, new Table(arrowVectors));
   }
@@ -62,14 +77,20 @@ public class FlinkRowToVLVectorConvertor {
       // The result is StructVector
       structVector = Arrow.toArrowVector(allocator, loadedVector);
       final List<FieldVector> fieldVectors = structVector.getChildrenFromFields();
-      List<ArrowVectorAccessor> accessors = buildArrowVectorAccessors(fieldVectors);
+      List<ArrowVectorAccessor> accessors =
+          buildArrowVectorAccessors(fieldVectors.subList(0, rowType.size()));
+      byte[] rowKinds = extractRowKindsIfPresent(fieldVectors, rowType.size(), rowVector.getSize());
       List<RowData> rowDatas = new ArrayList<>(rowVector.getSize());
       for (int j = 0; j < rowVector.getSize(); j++) {
         Object[] fieldValues = new Object[rowType.size()];
         for (int i = 0; i < rowType.size(); i++) {
           fieldValues[i] = accessors.get(i).get(j);
         }
-        rowDatas.add(GenericRowData.of(fieldValues));
+        if (rowKinds != null) {
+          rowDatas.add(GenericRowData.ofKind(RowKind.fromByteValue(rowKinds[j]), fieldValues));
+        } else {
+          rowDatas.add(GenericRowData.of(fieldValues));
+        }
       }
       return rowDatas;
     } finally {
@@ -83,6 +104,26 @@ public class FlinkRowToVLVectorConvertor {
         loadedVector.close();
       }
     }
+  }
+
+  private static byte[] extractRowKindsIfPresent(
+      List<FieldVector> fieldVectors, int schemaSize, int rowCount) {
+    if (fieldVectors.size() != schemaSize + 1) {
+      return null;
+    }
+    FieldVector lastVector = fieldVectors.get(schemaSize);
+    if (!ROW_KIND_COLUMN_NAME.equals(lastVector.getField().getName())) {
+      return null;
+    }
+    if (!(lastVector instanceof TinyIntVector)) {
+      return null;
+    }
+    TinyIntVector tinyInt = (TinyIntVector) lastVector;
+    byte[] rowKinds = new byte[rowCount];
+    for (int i = 0; i < rowCount; i++) {
+      rowKinds[i] = tinyInt.get(i);
+    }
+    return rowKinds;
   }
 
   private static List<ArrowVectorAccessor> buildArrowVectorAccessors(List<FieldVector> vectors) {

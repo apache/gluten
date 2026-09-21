@@ -56,7 +56,7 @@ const char* extractFileName(const char* file) {
 const std::unordered_set<std::string> kRegexFunctions =
     {"regexp_extract", "regexp_extract_all", "regexp_replace", "regexp_instr", "rlike", "split"};
 
-const std::unordered_set<std::string> kBlackList = {"split_part", "sequence", "approx_percentile", "map_from_arrays"};
+const std::unordered_set<std::string> kBlackList = {"split_part", "sequence", "approx_percentile"};
 } // namespace
 
 bool SubstraitToVeloxPlanValidator::parseVeloxType(
@@ -247,6 +247,14 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
     return false;
   }
 
+  // Casting from UNKNOWN, e.g. a null constant, is allowed for any target type,
+  // including complex ones. The input is all nulls, so Velox short-circuits the
+  // cast to a null constant of the target type without ever looking at the
+  // input values.
+  if (fromType->kind() == TypeKind::UNKNOWN) {
+    return true;
+  }
+
   // Limited support for DATE to X.
   if (fromType->isDate() && !toType->isTimestamp() && !toType->isVarchar()) {
     return false;
@@ -297,13 +305,15 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
   // Limited support for TimestampNTZ from/to X
   // Casts between Timestamp and TimestampNTZ are handled in from/to timestamp.
   if (fromType->equivalent(*TIMESTAMP_UTC())) {
-    if (toType->isVarchar() || toType->isVarbinary()) {
+    if (toType->isDate() || toType->isVarchar() || toType->isVarbinary()) {
       return true;
     }
     return false;
   }
   if (toType->equivalent(*TIMESTAMP_UTC())) {
-    // Only supports from Timestamp to TimestampNTZ.
+    if (fromType->isDate() || fromType->isVarchar()) {
+      return true;
+    }
     return false;
   }
 
@@ -629,6 +639,11 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::ExpandRel& expan
         const auto& typeCase = projectExpr.rex_type_case();
         switch (typeCase) {
           case ::substrait::Expression::RexTypeCase::kSelection:
+            if (!SubstraitParser::isTopLevelFieldSelection(projectExpr)) {
+              LOG_VALIDATION_MSG("Expand Operator only supports a top-level field or literal.");
+              return false;
+            }
+            break;
           case ::substrait::Expression::RexTypeCase::kLiteral:
             break;
           default:
@@ -1296,13 +1311,9 @@ bool SubstraitToVeloxPlanValidator::validate(const ::substrait::AggregateRel& ag
     if (smea.has_filter()) {
       ::substrait::Expression aggRelMask = smea.filter();
       if (aggRelMask.ByteSizeLong() > 0) {
-        auto typeCase = aggRelMask.rex_type_case();
-        switch (typeCase) {
-          case ::substrait::Expression::RexTypeCase::kSelection:
-            break;
-          default:
-            LOG_VALIDATION_MSG("Only field is supported in aggregate filter expression.");
-            return false;
+        if (!SubstraitParser::isTopLevelFieldSelection(aggRelMask)) {
+          LOG_VALIDATION_MSG("Aggregation Operator only supports a top-level field mask.");
+          return false;
         }
       }
     }

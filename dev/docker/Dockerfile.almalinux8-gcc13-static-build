@@ -25,6 +25,9 @@
 
 FROM almalinux:8
 
+ARG GLUTEN_REPO=https://github.com/apache/gluten
+ARG GLUTEN_BRANCH=main
+
 ENV JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
 ENV PATH=$JAVA_HOME/bin:$PATH
 
@@ -50,7 +53,7 @@ RUN set -ex; \
     rm -f cmake-3.31.12-linux-$(uname -m).sh; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     dnf clean all; \
-    git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
+    git clone --depth=1 --branch "${GLUTEN_BRANCH}" "${GLUTEN_REPO}" /opt/gluten; \
     mkdir -p ${VCPKG_PATH}; \
     echo "Build arrow, then install the native libs to system paths and jar package to .m2/ directory."; \
     if [ "$(uname -m)" = "aarch64" ]; then \

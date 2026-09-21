@@ -28,6 +28,8 @@ ENABLE_HDFS=OFF
 ENABLE_ABFS=OFF
 # Enable GPU support
 ENABLE_GPU=OFF
+# Enable LTO/IPO support.
+ENABLE_LTO=OFF
 # CMake build type for Velox.
 BUILD_TYPE=release
 # May be deprecated in Gluten build.
@@ -68,6 +70,10 @@ for arg in "$@"; do
     ;;
   --enable_gpu=*)
     ENABLE_GPU=("${arg#*=}")
+    shift # Remove argument name from processing
+    ;;
+  --enable_lto=*)
+    ENABLE_LTO=("${arg#*=}")
     shift # Remove argument name from processing
     ;;
   --build_type=*)
@@ -139,6 +145,9 @@ function compile {
     # INSTALL_PREFIX, producing a version mismatch. BUNDLED skips find_package.
     COMPILE_OPTION="$COMPILE_OPTION -Dfmt_SOURCE=BUNDLED"
   fi
+  if [ $ENABLE_LTO == "ON" ]; then
+    COMPILE_OPTION="$COMPILE_OPTION -DVELOX_ENABLE_LTO=ON"
+  fi
   if [ $BUILD_TEST_UTILS == "ON" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_BUILD_TEST_UTILS=ON"
   fi
@@ -168,6 +177,12 @@ function compile {
     echo "enable GPU support."
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_ENABLE_CUDF=ON -DCMAKE_CUDA_ARCHITECTURES=75 \
         -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc"
+    # TODO: Remove once cudf builds with CUDA 13.1. cudf 26.10 (Velox pin 456580f)
+    # made cudf::ast::literal::ast_scalar a private nested struct, and nvcc 13.1 +
+    # gcc 14 wrongly rejects join/filter_join_indices/filter_join_indices.cu with
+    # "'struct cudf::ast::literal::ast_scalar' is private within this context".
+    # Velox CI does not hit this because its adapters image ships CUDA 12.9.
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_CUDA_FLAGS=-Xcompiler=-fno-access-control"
   fi
   if [ -n "${GLUTEN_VCPKG_ENABLED:-}" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_GFLAGS_TYPE=static"
@@ -246,6 +261,7 @@ echo "ENABLE_GCS=${ENABLE_GCS}"
 echo "ENABLE_HDFS=${ENABLE_HDFS}"
 echo "ENABLE_ABFS=${ENABLE_ABFS}"
 echo "ENABLE_GPU=${ENABLE_GPU}"
+echo "ENABLE_LTO=${ENABLE_LTO}"
 echo "BUILD_TYPE=${BUILD_TYPE}"
 
 cd ${VELOX_HOME}

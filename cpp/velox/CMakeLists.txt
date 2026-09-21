@@ -176,6 +176,7 @@ set(VELOX_SRCS
     memory/VeloxMemoryManager.cc
     operators/functions/RegistrationAllFunctions.cc
     operators/functions/delta/DeltaBitmapAggregator.cc
+    operators/functions/overlay/RegisterFunctionOverlay.cc
     operators/functions/RowConstructorWithNull.cc
     operators/functions/SparkExprToSubfieldFilterParser.cc
     operators/plannodes/RowVectorStream.cc
@@ -549,6 +550,12 @@ endif()
 
 if(ENABLE_GPU)
   set(cudf_DIR "${VELOX_BUILD_PATH}/_deps/cudf-build")
+  # cudf's build-tree export only calls find_dependency(rapids_logger) when
+  # rapids_logger is not a static library, which is the case since rapids_logger
+  # 0.3.0 (rapids-cmake 26.10). rapids_logger is built inside Velox's _deps tree
+  # and never installed, so its config is findable only there. Harmless when
+  # rapids_logger is static and never searched for.
+  set(rapids_logger_DIR "${VELOX_BUILD_PATH}/_deps/rapids_logger-build")
   find_package(cudf CONFIG REQUIRED)
 
   import_library(

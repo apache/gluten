@@ -15,6 +15,8 @@
 
 FROM centos:8
 
+ARG GLUTEN_REPO=https://github.com/apache/gluten
+ARG GLUTEN_BRANCH=main
 
 ENV JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
 ENV PATH=$JAVA_HOME/bin:$PATH
@@ -34,7 +36,7 @@ RUN set -ex; \
     yum install -y java-1.8.0-openjdk-devel patch git perl; \
     rpm -qa | grep tzdata; \
     dnf clean all; \
-    git clone --depth=1 https://github.com/apache/gluten /opt/gluten; \
+    git clone --depth=1 --branch "${GLUTEN_BRANCH}" "${GLUTEN_REPO}" /opt/gluten; \
     cd /opt/gluten && bash ./dev/vcpkg/setup-build-depends.sh; \
     mkdir -p ${VCPKG_PATH}; \
     echo "Build arrow, then install the native libs to system paths and jar package to .m2/ directory."; \

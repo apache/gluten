@@ -215,6 +215,7 @@ object CHExpressionUtil {
     REGEXP_INSTR -> DefaultValidator(),
     DAY_NAME -> DefaultValidator(),
     MONTH_NAME -> DefaultValidator(),
-    FORMAT_NUMBER -> DefaultValidator()
+    FORMAT_NUMBER -> DefaultValidator(),
+    RANDN -> DefaultValidator()
   )
 }

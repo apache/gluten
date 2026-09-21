@@ -16,8 +16,9 @@
  */
 package org.apache.gluten.execution.enhanced
 
+import org.apache.gluten.config.GlutenConfig.COLUMNAR_PARQUET_WRITE_BLOCK_SIZE
 import org.apache.gluten.config.GlutenIcebergConfig
-import org.apache.gluten.config.VeloxConfig.MAX_TARGET_FILE_SIZE_SESSION
+import org.apache.gluten.config.VeloxConfig.{MAX_TARGET_FILE_SIZE_SESSION, PARQUET_DICT_SIZE_BYTES, PARQUET_PAGE_SIZE_BYTES}
 import org.apache.gluten.execution._
 import org.apache.gluten.tags.EnhancedFeaturesTest
 
@@ -475,73 +476,92 @@ class VeloxIcebergSuite extends IcebergSuite {
       )
     }
   }
-  test("iceberg native write respects target file size bytes") {
-    withTable("iceberg_small_target_tbl") {
-      spark.sql(
-        """
-          |CREATE TABLE iceberg_small_target_tbl (
-          |  id INT,
-          |  payload STRING
-          |) USING iceberg
-          |TBLPROPERTIES (
-          |  'write.format.default' = 'parquet',
-          |  'write.parquet.compression-codec' = 'uncompressed',
-          |  'write.parquet.page-size-bytes' = '1024',
-          |  'write.target-file-size-bytes' = '8192'
-          |)
-          |""".stripMargin)
+  Seq(None, Some("8192"), Some("8KB"), Some("0")).foreach {
+    targetFileSizeOverride =>
+      val description = targetFileSizeOverride.map(v => s" with session override $v").getOrElse("")
+      test(s"iceberg native write respects target file size bytes$description") {
+        val overrides = targetFileSizeOverride.toSeq.flatMap {
+          value =>
+            Seq(
+              MAX_TARGET_FILE_SIZE_SESSION.key -> value,
+              PARQUET_PAGE_SIZE_BYTES.key -> "1024",
+              PARQUET_DICT_SIZE_BYTES.key -> "2048")
+        }
+        withSQLConf(overrides: _*) {
+          withTable("iceberg_small_target_tbl") {
+            spark.sql(
+              """
+                |CREATE TABLE iceberg_small_target_tbl (
+                |  id INT,
+                |  payload STRING
+                |) USING iceberg
+                |TBLPROPERTIES (
+                |  'write.format.default' = 'parquet',
+                |  'write.parquet.compression-codec' = 'uncompressed',
+                |  'write.parquet.page-size-bytes' = '1024',
+                |  'write.target-file-size-bytes' = '8192'
+                |)
+                |""".stripMargin)
 
-      checkAnswer(
-        spark.sql(
-          """
-            |SHOW TBLPROPERTIES iceberg_small_target_tbl
-            |('write.target-file-size-bytes')
-            |""".stripMargin),
-        Seq(Row("write.target-file-size-bytes", "8192"))
-      )
+            checkAnswer(
+              spark.sql(
+                """
+                  |SHOW TBLPROPERTIES iceberg_small_target_tbl
+                  |('write.target-file-size-bytes')
+                  |""".stripMargin),
+              Seq(Row("write.target-file-size-bytes", "8192"))
+            )
 
-      val df = spark.sql(
-        """
-          |INSERT INTO iceberg_small_target_tbl
-          |SELECT /*+ COALESCE(1) */
-          |  CAST(id AS INT),
-          |  concat(
-          |    CAST(id AS STRING),
-          |    '-',
-          |    sha2(CAST(id AS STRING), 256),
-          |    '-',
-          |    sha2(CAST(id + 1000 AS STRING), 256)
-          |  )
-          |FROM range(1000)
-          |""".stripMargin)
+            val df = spark.sql(
+              """
+                |INSERT INTO iceberg_small_target_tbl
+                |SELECT /*+ COALESCE(1) */
+                |  CAST(id AS INT),
+                |  concat(
+                |    CAST(id AS STRING),
+                |    '-',
+                |    sha2(CAST(id AS STRING), 256),
+                |    '-',
+                |    sha2(CAST(id + 1000 AS STRING), 256)
+                |  )
+                |FROM range(0, 1000, 1, 16)
+                |""".stripMargin)
 
-      val commandPlan =
-        df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
+            val commandPlan =
+              df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
 
-      assert(commandPlan.isInstanceOf[VeloxIcebergAppendDataExec])
+            assert(commandPlan.isInstanceOf[VeloxIcebergAppendDataExec])
 
-      checkAnswer(
-        spark.sql("SELECT COUNT(*) FROM iceberg_small_target_tbl"),
-        Seq(Row(1000L)))
+            checkAnswer(
+              spark.sql("SELECT COUNT(*) FROM iceberg_small_target_tbl"),
+              Seq(Row(1000L)))
 
-      val files = spark.sql(
-        """
-          |SELECT file_size_in_bytes
-          |FROM default.iceberg_small_target_tbl.files
-          |""".stripMargin).collect().map(_.getLong(0))
+            val files = spark.sql(
+              """
+                |SELECT file_size_in_bytes
+                |FROM default.iceberg_small_target_tbl.files
+                |""".stripMargin).collect().map(_.getLong(0))
 
-      assert(files.nonEmpty)
+            assert(files.nonEmpty)
 
-      assert(
-        files.length > 1,
-        s"Expected write.target-file-size-bytes=8192 to create multiple files, " +
-          s"but got files=${files.mkString("[", ", ", "]")}")
+            if (targetFileSizeOverride.contains("0")) {
+              assert(
+                files.length == 1,
+                s"Expected the session override to disable file rotation: ${files.mkString(", ")}")
+            } else {
+              assert(
+                files.length > 1,
+                s"Expected write.target-file-size-bytes=8192 to create multiple files, " +
+                  s"but got files=${files.mkString("[", ", ", "]")}")
 
-      assert(
-        files.max < 64L * 1024L,
-        s"Expected small target file size to keep max file size reasonably small, " +
-          s"but got files=${files.mkString("[", ", ", "]")}")
-    }
+              assert(
+                files.max < 64L * 1024L,
+                s"Expected small target file size to keep max file size reasonably small, " +
+                  s"but got files=${files.mkString("[", ", ", "]")}")
+            }
+          }
+        }
+      }
   }
 
   test("iceberg parquet writer respects dictionary page size bytes") {
@@ -652,10 +672,94 @@ class VeloxIcebergSuite extends IcebergSuite {
     }
   }
 
-  // Ignored due to velox parquet row-group flush semantics change after velox#16998.
-  test("iceberg parquet writer default row group size test") {
-    val table = "iceberg_default_row_group_size"
-    val defaultRowGroupBytes = 128L * 1024 * 1024
+  test("iceberg table page row limit") {
+    val table = "iceberg_page_row_limit"
+
+    def dataPageRowCounts(table: String, columnName: String): Seq[Int] = {
+      val conf = spark.sparkContext.hadoopConfiguration
+      val files = spark.sql(s"""
+        SELECT file_path
+        FROM default.$table.files
+      """).collect().map(_.getString(0)).toSeq
+
+      files.flatMap {
+        file =>
+          val inputFile = HadoopInputFile.fromPath(new Path(file), conf)
+          val reader = ParquetFileReader.open(inputFile, ParquetReadOptions.builder().build())
+
+          try {
+            val column = reader
+              .getFooter
+              .getFileMetaData
+              .getSchema
+              .getColumns
+              .asScala
+              .find(_.getPath.toSeq == Seq(columnName))
+              .getOrElse(fail(s"Column $columnName was not found in Parquet file $file"))
+
+            val rowCounts = scala.collection.mutable.ArrayBuffer.empty[Int]
+            var rowGroup = reader.readNextRowGroup()
+            while (rowGroup != null) {
+              val pageReader = rowGroup.getPageReader(column)
+              pageReader.readDictionaryPage()
+
+              var page = pageReader.readPage()
+              while (page != null) {
+                rowCounts += page.getValueCount
+                page = pageReader.readPage()
+              }
+
+              rowGroup = reader.readNextRowGroup()
+            }
+            rowCounts
+          } finally {
+            reader.close()
+          }
+      }
+    }
+
+    withSQLConf("spark.sql.shuffle.partitions" -> "1") {
+      withTable(table) {
+        spark.sql(s"""
+          CREATE TABLE $table (
+            value SMALLINT
+          ) USING iceberg
+          TBLPROPERTIES (
+            'write.format.default' = 'parquet',
+            'write.parquet.compression-codec' = 'uncompressed',
+            'write.parquet.page-size-bytes' = '1MB',
+            'write.parquet.page-row-limit' = '1000'
+          )
+        """)
+
+        val df = spark.sql(s"""
+          INSERT INTO $table
+          SELECT CAST(id AS SMALLINT)
+          FROM range(0, 5000, 1, 1)
+        """)
+
+        assert(
+          df.queryExecution.executedPlan
+            .asInstanceOf[CommandResultExec]
+            .commandPhysicalPlan
+            .isInstanceOf[VeloxIcebergAppendDataExec])
+
+        val pageRowCounts = dataPageRowCounts(table, "value")
+        assert(
+          pageRowCounts.size > 1,
+          s"Expected the Iceberg page-row limit to create multiple data pages: $pageRowCounts")
+        assert(
+          pageRowCounts.sum == 5000,
+          s"Expected 5000 values across all data pages: $pageRowCounts")
+      }
+    }
+  }
+
+  test("iceberg table row group size and Gluten override") {
+    val table = "iceberg_row_group_size"
+    val overrideTable = "iceberg_row_group_size_override"
+    val rowGroupBytes = 2L * 1024 * 1024
+    val overrideRowGroupBytes = 32L * 1024 * 1024
 
     def parquetFiles(table: String): Seq[String] = {
       spark.sql(s"""
@@ -703,44 +807,52 @@ class VeloxIcebergSuite extends IcebergSuite {
       }
     }
 
-    withSQLConf(
-      MAX_TARGET_FILE_SIZE_SESSION.key -> "0",
-      "spark.sql.shuffle.partitions" -> "1"
-    ) {
-      withTable(table) {
-        spark.sql(s"""
+    def createTable(table: String): Unit = {
+      spark.sql(s"""
         CREATE TABLE $table (
           id BIGINT,
           payload STRING
         ) USING iceberg
         TBLPROPERTIES (
-          'write.parquet.compression-codec' = 'uncompressed'
+          'write.parquet.compression-codec' = 'uncompressed',
+          'write.parquet.row-group-size-bytes' = '$rowGroupBytes'
         )
       """)
+    }
 
-        val df = spark.sql(s"""
+    def writeRows(table: String): Unit = {
+      val df = spark.sql(s"""
         INSERT INTO $table
         SELECT
           id,
           array_join(
             transform(
-              sequence(0, 63),
+              sequence(0, 31),
               x -> md5(concat(CAST(id AS STRING), ':', CAST(x AS STRING)))
             ),
             ''
           ) AS payload
-        FROM range(0, 90000, 1, 1)
+        FROM range(0, 10000, 1, 1)
       """)
 
-        assert(
-          df.queryExecution.executedPlan
-            .asInstanceOf[CommandResultExec]
-            .commandPhysicalPlan
-            .isInstanceOf[VeloxIcebergAppendDataExec])
+      assert(
+        df.queryExecution.executedPlan
+          .asInstanceOf[CommandResultExec]
+          .commandPhysicalPlan
+          .isInstanceOf[VeloxIcebergAppendDataExec])
 
-        checkAnswer(
-          spark.sql(s"SELECT count(*) FROM $table"),
-          Seq(Row(90000L)))
+      checkAnswer(
+        spark.sql(s"SELECT count(*) FROM $table"),
+        Seq(Row(10000L)))
+    }
+
+    withSQLConf(
+      MAX_TARGET_FILE_SIZE_SESSION.key -> "0",
+      "spark.sql.shuffle.partitions" -> "1"
+    ) {
+      withTable(table, overrideTable) {
+        createTable(table)
+        writeRows(table)
         val rowGroups =
           collectRowGroups(table).sortBy(info => (info.file, info.ordinal))
 
@@ -749,27 +861,27 @@ class VeloxIcebergSuite extends IcebergSuite {
           s"Expected one Parquet file, found: ${rowGroups.map(_.file).distinct}")
 
         assert(
-          rowGroups.size == 2,
-          s"Expected 2 row groups, found ${rowGroups.size}: $rowGroups")
+          rowGroups.size > 1,
+          s"Expected the Iceberg row-group size to create multiple row groups: $rowGroups")
 
         assert(
-          rowGroups.map(_.rowCount).sum == 90000L,
-          s"Expected 90000 rows across all row groups: $rowGroups")
-
-        val firstRowGroup = rowGroups.head
-        val finalRowGroup = rowGroups.last
+          rowGroups.map(_.rowCount).sum == 10000L,
+          s"Expected 10000 rows across all row groups: $rowGroups")
 
         assert(
-          firstRowGroup.compressedSize >= defaultRowGroupBytes,
-          s"Expected the first row group to reach the default row-group size " +
-            s"$defaultRowGroupBytes, but found ${firstRowGroup.compressedSize}"
-        )
+          rowGroups.dropRight(1).forall(_.compressedSize >= rowGroupBytes),
+          s"Expected each complete row group to reach $rowGroupBytes bytes: $rowGroups")
 
-        assert(
-          finalRowGroup.compressedSize < defaultRowGroupBytes,
-          s"Expected the final row group to be smaller than the default row-group " +
-            s"size $defaultRowGroupBytes, but found ${finalRowGroup.compressedSize}"
-        )
+        withSQLConf(COLUMNAR_PARQUET_WRITE_BLOCK_SIZE.key -> overrideRowGroupBytes.toString) {
+          createTable(overrideTable)
+          writeRows(overrideTable)
+          val overriddenRowGroups = collectRowGroups(overrideTable)
+
+          assert(
+            overriddenRowGroups.size == 1,
+            s"Expected the Gluten row-group size override to create one row group: " +
+              s"$overriddenRowGroups")
+        }
       }
     }
   }

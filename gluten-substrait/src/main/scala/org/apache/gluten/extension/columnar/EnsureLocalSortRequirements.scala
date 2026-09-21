@@ -18,12 +18,11 @@ package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.execution.GlutenPlan
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{ColumnarWriteFilesExec, SortExec, SparkPlan}
-import org.apache.spark.sql.execution.datasources.WriteFilesExec
+import org.apache.spark.sql.execution.datasources.{V1WritesUtils, WriteFilesExec}
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -55,7 +54,7 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
       case writeFiles: WriteFilesExec
           if ColumnarWriteFilesExec.OnNoopLeafPath.unapply(writeFiles).isEmpty =>
         Seq(
-          SparkShimLoader.getSparkShims.getV1WriteRequiredOrdering(
+          V1WritesUtils.getSortOrder(
             writeFiles.child.output,
             writeFiles.partitionColumns,
             writeFiles.bucketSpec,

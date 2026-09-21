@@ -49,40 +49,25 @@ object SparkTaskUtil {
     val partitionId = -1.asInstanceOf[Object]
     val taskAttemptId = -1L.asInstanceOf[Object]
     val attemptNumber = -1.asInstanceOf[Object]
-    val numPartitions = -1.asInstanceOf[Object] // Added in Spark 3.4.
+    val numPartitions = -1.asInstanceOf[Object]
     val taskMemoryManager = new TaskMemoryManager(memoryManager, -1L).asInstanceOf[Object]
     val localProperties = properties.asInstanceOf[Object]
     val metricsSystem =
       MetricsSystem.createMetricsSystem("GLUTEN_UNSAFE", conf).asInstanceOf[Object]
     val taskMetrics = TaskMetrics.empty.asInstanceOf[Object]
-    val cpus = 1.asInstanceOf[Object] // Added in Spark 3.3.
+    val cpus = 1.asInstanceOf[Object]
     val resources = Map.empty.asInstanceOf[Object]
 
     val ctor = {
       val ctors = classOf[TaskContextImpl].getDeclaredConstructors
-      assert(ctors.size == 1)
+      require(
+        ctors.size == 1,
+        s"Expected TaskContextImpl to declare exactly one constructor, found ${ctors.size}")
       ctors.head
     }
 
-    if (SparkVersionUtil.eqSpark33) {
-      return ctor
-        .newInstance(
-          stageId,
-          stageAttemptNumber,
-          partitionId,
-          taskAttemptId,
-          attemptNumber,
-          taskMemoryManager,
-          localProperties,
-          metricsSystem,
-          taskMetrics,
-          cpus,
-          resources
-        )
-        .asInstanceOf[TaskContext]
-    }
-
-    // Since Spark 3.4.
+    // The arguments below are positional: their order must match TaskContextImpl's primary
+    // constructor.
     ctor
       .newInstance(
         stageId,

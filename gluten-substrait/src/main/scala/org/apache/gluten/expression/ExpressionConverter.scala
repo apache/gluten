@@ -122,25 +122,21 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       expr)
   }
 
-  private def genRescaleDecimalTransformer(
+  private def genDecimalArithmeticTransformer(
       substraitName: String,
       b: BinaryArithmetic,
       attributeSeq: Seq[Attribute],
       expressionsMap: Map[Class[_], String]): DecimalArithmeticExpressionTransformer = {
-    val rescaleBinary = DecimalArithmeticUtil.rescaleLiteral(b)
-    val (left, right) = DecimalArithmeticUtil.rescaleCastForDecimal(
-      DecimalArithmeticUtil.removeCastForDecimal(rescaleBinary.left),
-      DecimalArithmeticUtil.removeCastForDecimal(rescaleBinary.right))
     val resultType = DecimalArithmeticUtil.getResultType(
       b,
-      left.dataType.asInstanceOf[DecimalType],
-      right.dataType.asInstanceOf[DecimalType]
+      b.left.dataType.asInstanceOf[DecimalType],
+      b.right.dataType.asInstanceOf[DecimalType]
     )
 
     val leftChild =
-      replaceWithExpressionTransformer0(left, attributeSeq, expressionsMap)
+      replaceWithExpressionTransformer0(b.left, attributeSeq, expressionsMap)
     val rightChild =
-      replaceWithExpressionTransformer0(right, attributeSeq, expressionsMap)
+      replaceWithExpressionTransformer0(b.right, attributeSeq, expressionsMap)
     DecimalArithmeticExpressionTransformer(substraitName, leftChild, rightChild, resultType, b)
   }
 
@@ -570,16 +566,15 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           ),
           r
         )
-      case instr: TernaryExpression if instr.getClass.getSimpleName.equals("RegExpInStr") =>
+      case instr: RegExpInStr =>
         // Spark's RegExpInStr carries a third `idx` child but ignores it during
         // evaluation (it always returns the start position of the whole match).
         // Velox's regexp_instr only takes (subject, regexp), so drop the idx child.
-        // Matched by class name because RegExpInStr does not exist in Spark 3.3.
         GenericExpressionTransformer(
           substraitExprName,
           Seq(
-            replaceWithExpressionTransformer0(instr.first, attributeSeq, expressionsMap),
-            replaceWithExpressionTransformer0(instr.second, attributeSeq, expressionsMap)
+            replaceWithExpressionTransformer0(instr.subject, attributeSeq, expressionsMap),
+            replaceWithExpressionTransformer0(instr.regexp, attributeSeq, expressionsMap)
           ),
           instr
         )
@@ -635,12 +630,7 @@ object ExpressionConverter extends SQLConfHelper with Logging {
             LiteralTransformer(m.nullOnOverflow)),
           m
         )
-      case PromotePrecision(_ @Cast(child, _: DecimalType, _, _))
-          if child.dataType
-            .isInstanceOf[DecimalType] && !BackendsApiManager.getSettings.transformCheckOverflow =>
-        replaceWithExpressionTransformer0(child, attributeSeq, expressionsMap)
-      case _: NormalizeNaNAndZero | _: PromotePrecision | _: TaggingExpression |
-          _: DynamicPruningExpression =>
+      case _: NormalizeNaNAndZero | _: TaggingExpression | _: DynamicPruningExpression =>
         ChildTransformer(
           substraitExprName,
           replaceWithExpressionTransformer0(expr.children.head, attributeSeq, expressionsMap),
@@ -657,18 +647,6 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           substraitExprName,
           expr.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           expr)
-      case CheckOverflow(b: BinaryArithmetic, decimalType, _)
-          if !BackendsApiManager.getSettings.transformCheckOverflow &&
-            DecimalArithmeticUtil.isDecimalArithmetic(b) =>
-        val arithmeticExprName =
-          BackendsApiManager.getSparkPlanExecApiInstance.getDecimalArithmeticExprName(
-            getAndCheckSubstraitName(b, expressionsMap),
-            SparkShimLoader.getSparkShims.decimalAllowPrecisionLoss(b))
-        val left =
-          replaceWithExpressionTransformer0(b.left, attributeSeq, expressionsMap)
-        val right =
-          replaceWithExpressionTransformer0(b.right, attributeSeq, expressionsMap)
-        DecimalArithmeticExpressionTransformer(arithmeticExprName, left, right, decimalType, b)
       case c: CheckOverflow =>
         CheckOverflowTransformer(
           substraitExprName,
@@ -689,9 +667,7 @@ object ExpressionConverter extends SQLConfHelper with Logging {
             expr
           )
         } else {
-          // Without the rescale and remove cast, result is right for high version Spark,
-          // but performance regression in velox
-          genRescaleDecimalTransformer(exprName, b, attributeSeq, expressionsMap)
+          genDecimalArithmeticTransformer(exprName, b, attributeSeq, expressionsMap)
         }
       case n: NaNvl =>
         BackendsApiManager.getSparkPlanExecApiInstance.genNaNvlTransformer(
@@ -845,9 +821,12 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           replaceWithExpressionTransformer0(a.function, attributeSeq, expressionsMap),
           a
         )
-      case arrayInsert if arrayInsert.getClass.getSimpleName.equals("ArrayInsert") =>
-        // Since spark 3.4.0
-        val children = SparkShimLoader.getSparkShims.extractExpressionArrayInsert(arrayInsert)
+      case arrayInsert: ArrayInsert =>
+        val children = Seq(
+          arrayInsert.srcArrayExpr,
+          arrayInsert.posExpr,
+          arrayInsert.itemExpr,
+          Literal(arrayInsert.legacyNegativeIndex))
         BackendsApiManager.getSparkPlanExecApiInstance.genArrayInsertTransformer(
           substraitExprName,
           children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),

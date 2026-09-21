@@ -95,6 +95,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableColumnarWindowGroupLimit: Boolean = getConf(COLUMNAR_WINDOW_GROUP_LIMIT_ENABLED)
 
+  def enableColumnarEmptyRelation: Boolean = getConf(COLUMNAR_EMPTY_RELATION_ENABLED)
+
   def enableColumnarLocalTableScan: Boolean = getConf(COLUMNAR_LOCAL_TABLE_SCAN_ENABLED)
 
   def enableAppendData: Boolean = getConf(COLUMNAR_APPEND_DATA_ENABLED)
@@ -451,6 +453,8 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_S3_AWS_IMDS_ENABLED: String = HADOOP_PREFIX + S3_AWS_IMDS_ENABLED
   val ORC_FORCE_POSITIONAL_EVOLUTION = "orc.force.positional.evolution"
   val SPARK_ORC_FORCE_POSITIONAL_EVOLUTION = HADOOP_PREFIX + ORC_FORCE_POSITIONAL_EVOLUTION
+  val VELOX_PARQUET_USE_COLUMN_NAMES =
+    "spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames"
 
   // ABFS config
   val ABFS_PREFIX = "fs.azure."
@@ -492,6 +496,7 @@ object GlutenConfig extends ConfigRegistry {
     BENCHMARK_SAVE_DIR.key,
     GlutenCoreConfig.COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES.key,
     COLUMNAR_MAX_BATCH_SIZE.key,
+    COLUMNAR_PARQUET_WRITE_BLOCK_SIZE.key,
     SHUFFLE_WRITER_BUFFER_SIZE.key,
     COLUMNAR_CUDF_ENABLED.key,
     SQLConf.LEGACY_SIZE_OF_NULL.key,
@@ -503,6 +508,7 @@ object GlutenConfig extends ConfigRegistry {
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS.key,
     "spark.io.compression.codec",
     "spark.sql.decimalOperations.allowPrecisionLoss",
+    "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing",
     // s3 config
     SPARK_S3_ACCESS_KEY,
     SPARK_S3_SECRET_KEY,
@@ -593,31 +599,19 @@ object GlutenConfig extends ConfigRegistry {
 
     val confPrefixSession = prefixSessionOf(backendName)
     val confPrefix = prefixOf(backendName)
+    // Column mapping mode is passed to Velox through scan splits, not through
+    // native session configs.
+    val veloxSplitColumnMappingConfigs = Set(VELOX_PARQUET_USE_COLUMN_NAMES)
     conf
       .filter {
         case (k, _) =>
-          // Backend's dynamic session conf only.
-          k.startsWith(confPrefix) && !SQLConf.isStaticConfigKey(k) ||
-          // put in all gluten velox configs
-          k.startsWith(confPrefixSession)
+          val isBackendDynamicConf = k.startsWith(confPrefix) && !SQLConf.isStaticConfigKey(k)
+          val isBackendSessionConf = k.startsWith(confPrefixSession)
+          val isVeloxSplitColumnMappingConf =
+            backendName == "velox" && veloxSplitColumnMappingConfigs.contains(k)
+          (isBackendDynamicConf || isBackendSessionConf) && !isVeloxSplitColumnMappingConf
       }
       .foreach { case (k, v) => nativeConfMap.put(k, v) }
-
-    // When `orc.force.positional.evolution=true`, vanilla Spark maps ORC columns by
-    // position rather than by name (see OrcUtils.requestedColumnIds). Forward the flag to
-    // the native (Velox) reader so it maps ORC/DWRF files by position too, otherwise
-    // name-based matching against a mismatched file schema reads columns back as null/empty.
-    // The native reader still decides per file (files with all-`_col*` physical names are
-    // always mapped by position). Harmless for backends that ignore this key.
-    // String literal is used because gluten-substrait cannot depend on backends-velox.
-    if (
-      backendName == "velox" &&
-      conf.getOrElse(SPARK_ORC_FORCE_POSITIONAL_EVOLUTION, "false").toBoolean
-    ) {
-      nativeConfMap.put(
-        "spark.gluten.sql.columnar.backend.velox.orcForcePositionalEvolution",
-        "true")
-    }
 
     // Pass the latest tokens to native
     nativeConfMap.put(
@@ -956,6 +950,16 @@ object GlutenConfig extends ConfigRegistry {
   val COLUMNAR_WINDOW_GROUP_LIMIT_ENABLED =
     buildConf("spark.gluten.sql.columnar.window.group.limit")
       .doc("Enable or disable columnar window group limit.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val COLUMNAR_EMPTY_RELATION_ENABLED =
+    buildConf("spark.gluten.sql.columnar.emptyRelation")
+      .doc(
+        "Enable or disable columnar execution of EmptyRelationExec (Spark 4.0+). When " +
+          "true, Gluten replaces EmptyRelationExec (a leaf node AQE creates when it proves a " +
+          "subtree produces no output) with a columnar transformer, avoiding unnecessary " +
+          "ColumnarToRow / RowToColumnar transitions around the empty relation.")
       .booleanConf
       .createWithDefault(true)
 

@@ -59,7 +59,7 @@ jobs:
       java:     ${{ steps.filter.outputs.java }}
       tools_it: ${{ steps.filter.outputs.tools_it }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Detect changed paths
@@ -96,7 +96,7 @@ jobs:
           gh --version && jq --version
       - name: Get Ccache from Apache Stash
         id: ccache-stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos8-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
@@ -197,7 +197,7 @@ jobs:
           gh --version && jq --version
       - name: Get Ccache from Apache Stash
         id: ccache-stash
-        uses: apache/infrastructure-actions/stash/restore@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}

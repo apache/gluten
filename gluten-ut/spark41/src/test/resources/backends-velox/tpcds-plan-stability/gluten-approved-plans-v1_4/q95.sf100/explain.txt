@@ -2,9 +2,9 @@
 VeloxColumnarToRow (74)
 +- ^ ProjectExecTransformer (72)
    +- ^ RegularHashAggregateExecTransformer (71)
-      +- ^ RegularHashAggregateExecTransformer (70)
+      +- ^ FlushableHashAggregateExecTransformer (70)
          +- ^ RegularHashAggregateExecTransformer (69)
-            +- ^ RegularHashAggregateExecTransformer (68)
+            +- ^ FlushableHashAggregateExecTransformer (68)
                +- ^ ProjectExecTransformer (67)
                   +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (66)
                      :- ^ ProjectExecTransformer (58)
@@ -337,7 +337,7 @@ Join condition: None
 Output [3]: [ws_order_number#4, UnscaledValue(ws_ext_ship_cost#5) AS _pre_1#31, UnscaledValue(ws_net_profit#6) AS _pre_2#32]
 Input [5]: [ws_ship_date_sk#1, ws_order_number#4, ws_ext_ship_cost#5, ws_net_profit#6, d_date_sk#29]
 
-(68) RegularHashAggregateExecTransformer
+(68) FlushableHashAggregateExecTransformer
 Input [3]: [ws_order_number#4, _pre_1#31, _pre_2#32]
 Keys [1]: [ws_order_number#4]
 Functions [2]: [partial_sum(_pre_1#31), partial_sum(_pre_2#32)]
@@ -351,7 +351,7 @@ Functions [2]: [merge_sum(UnscaledValue(ws_ext_ship_cost#5)), merge_sum(Unscaled
 Aggregate Attributes [2]: [sum(UnscaledValue(ws_ext_ship_cost#5))#33, sum(UnscaledValue(ws_net_profit#6))#34]
 Results [3]: [ws_order_number#4, sum#35, sum#36]
 
-(70) RegularHashAggregateExecTransformer
+(70) FlushableHashAggregateExecTransformer
 Input [3]: [ws_order_number#4, sum#35, sum#36]
 Keys: []
 Functions [3]: [merge_sum(UnscaledValue(ws_ext_ship_cost#5)), merge_sum(UnscaledValue(ws_net_profit#6)), partial_count(distinct ws_order_number#4)]

@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution
 import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig}
 import org.apache.gluten.execution.{ColumnarToRowExecBase, CudfTag, GlutenPlan, WholeStageTransformer}
 import org.apache.gluten.logging.LogLevelUtil
+import org.apache.gluten.utils.PlanUtil
 
 import org.apache.spark.SparkConf
 import org.apache.spark.annotation.Experimental
@@ -29,6 +30,7 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{GlutenAutoAdjustStageResourceProfile => GlutenResourceProfile}
 import org.apache.spark.sql.execution.adaptive.QueryStageExec
+import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.execution.command.{DataWritingCommandExec, ExecutedCommandExec}
 import org.apache.spark.sql.execution.exchange.Exchange
 import org.apache.spark.sql.internal.SQLConf
@@ -145,8 +147,13 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
 
     // case 2: check whether fallback exists and decide whether increase heap memory
     // and decrease offheap memory.
-    val fallenNodeCnt = planNodes.count(p => !p.isInstanceOf[GlutenPlan])
-    val totalCount = planNodes.size
+    val countedPlanNodes = planNodes.filterNot(GlutenExplainUtils.shouldIgnoreInFallbackStats)
+    val fallenNodeCnt = countedPlanNodes.count {
+      case _: GlutenPlan => false
+      case i: InMemoryTableScanExec => !PlanUtil.isGlutenTableCache(i)
+      case _ => true
+    }
+    val totalCount = countedPlanNodes.size
 
     if (1.0 * fallenNodeCnt / totalCount >= glutenConf.autoAdjustStageFallenNodeThreshold) {
       val newMemoryAmount = memoryRequest.get.amount * glutenConf.autoAdjustStageRPHeapRatio

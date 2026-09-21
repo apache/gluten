@@ -18,12 +18,13 @@ package org.apache.spark.sql.execution.unsafe
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.BroadcastHashJoinContext
 import org.apache.gluten.expression.ConverterUtils
+import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.{ArrowAbiUtil, SubstraitUtil}
 import org.apache.gluten.vectorized.{ColumnarBatchSerializerJniWrapper, HashJoinBuilder, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
 
@@ -45,6 +46,7 @@ import com.esotericsoftware.kryo.io.{Input, Output}
 import org.apache.arrow.c.ArrowSchema
 
 import java.io.{Externalizable, ObjectInput, ObjectOutput}
+import java.util.Collections
 
 import scala.collection.JavaConverters._
 import scala.collection.JavaConverters.asScalaIteratorConverter
@@ -142,7 +144,7 @@ class UnsafeColumnarBuildSideRelation(
           val allocator = ArrowBufferAllocators.contextInstance()
           val cSchema = ArrowSchema.allocateNew(allocator)
           val arrowSchema = SparkArrowUtil.toArrowSchema(
-            SparkShimLoader.getSparkShims.structFromAttributes(output),
+            ExpressionUtils.structFromAttributes(output),
             SQLConf.get.sessionLocalTimeZone)
           ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
           val handle = jniWrapper
@@ -238,7 +240,7 @@ class UnsafeColumnarBuildSideRelation(
           val allocator = ArrowBufferAllocators.globalInstance()
           val cSchema = ArrowSchema.allocateNew(allocator)
           val arrowSchema = SparkArrowUtil.toArrowSchema(
-            SparkShimLoader.getSparkShims.structFromAttributes(output),
+            ExpressionUtils.structFromAttributes(output),
             SQLConf.get.sessionLocalTimeZone)
           ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
           val handle = jniWrapper
@@ -372,17 +374,26 @@ class UnsafeColumnarBuildSideRelation(
       }
   }
 
-  override def deserialized: Iterator[ColumnarBatch] = {
+  /** Host-resident deserialization, for CPU consumers. */
+  override def deserialized: Iterator[ColumnarBatch] = deserialized(cudfEnabled = false)
+
+  /**
+   * Residency follows the consuming stage: a cuDF-offloaded stage sources from CudfValueStream and
+   * needs device batches, a non-offloaded stage from RowVectorStream and needs host batches.
+   */
+  def deserialized(cudfEnabled: Boolean): Iterator[ColumnarBatch] = {
     val runtime =
       Runtimes.contextInstance(
         BackendsApiManager.getBackendName,
-        "UnsafeBuildSideRelation#deserialize")
+        "UnsafeBuildSideRelation#deserialize",
+        Collections.singletonMap(GlutenConfig.COLUMNAR_CUDF_ENABLED.key, cudfEnabled.toString)
+      )
     val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
     val serializerHandle: Long = {
       val allocator = ArrowBufferAllocators.contextInstance()
       val cSchema = ArrowSchema.allocateNew(allocator)
       val arrowSchema = SparkArrowUtil.toArrowSchema(
-        SparkShimLoader.getSparkShims.structFromAttributes(output),
+        ExpressionUtils.structFromAttributes(output),
         SQLConf.get.sessionLocalTimeZone)
       ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
       val handle = jniWrapper
@@ -431,7 +442,7 @@ class UnsafeColumnarBuildSideRelation(
       val allocator = ArrowBufferAllocators.contextInstance()
       val cSchema = ArrowSchema.allocateNew(allocator)
       val arrowSchema = SparkArrowUtil.toArrowSchema(
-        SparkShimLoader.getSparkShims.structFromAttributes(output),
+        ExpressionUtils.structFromAttributes(output),
         SQLConf.get.sessionLocalTimeZone)
       ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
       val handle = serializerJniWrapper.init(cSchema.memoryAddress())

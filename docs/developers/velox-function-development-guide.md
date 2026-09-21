@@ -39,6 +39,33 @@ registerBinaryIntegral<BitwiseAndFunction>({prefix + "bitwise_and"});
 Functions for complex types have similar implementations. 
 See `ArrayAverageFunction` in [velox/functions/prestosql/ArrayFunctions.h](https://github.com/facebookincubator/velox/blob/main/velox/functions/prestosql/ArrayFunctions.h).
 
+## Gluten Function Overlay
+
+Upstreaming a function to Velox can take a long time. To avoid being blocked on that, Gluten provides a function overlay in
+[cpp/velox/operators/functions/overlay](https://github.com/apache/gluten/tree/main/cpp/velox/operators/functions/overlay),
+where Velox-compatible function implementations can be hosted and managed on the Gluten side. The overlay is registered by
+`gluten::registerFunctionOverlay()` at the end of `gluten::registerAllFunctions()`, after all Velox presto/spark functions.
+Since a later registration with the same name and signature replaces the earlier one in Velox's registries, an overlay function
+takes precedence over the Velox implementation.
+
+Use the overlay when:
+* A Spark function is missing in Velox. Implement it in the overlay first so Gluten can offload it immediately, then upstream it
+  to Velox at your own pace.
+* A Velox `sparksql` function has a semantic gap with Spark. Put the corrected implementation in the overlay to override it while
+  the fix is pending upstream. The `round` function (`overlay/Round.h`) is an example of such an override.
+
+To add a function:
+1. Implement it in a file under `cpp/velox/operators/functions/overlay/`, using Velox's function authoring APIs (simple function,
+   vector function, aggregate, or window function).
+2. Register it in `overlay/RegisterFunctionOverlay.cc`, using the function name Gluten's Substrait plan conversion emits.
+3. If a new `.cc` file is added, list it in `cpp/velox/CMakeLists.txt`.
+4. Add C++ unit tests in `cpp/velox/tests/SparkFunctionTest.cc` and Scala side query tests where applicable.
+5. For a brand-new function, also add the Scala side expression mapping (`ExpressionNames.scala` / `ExpressionMappings.scala`)
+   so the planner offloads it.
+
+The overlay is a staging area, not a permanent fork: once a function is accepted into upstream Velox, remove it from the overlay
+in the same PR that bumps the Velox version.
+
 ### Reference:
 Velox’s official developer guide:
   * [velox/docs/develop/scalar-functions.rst](https://github.com/facebookincubator/velox/blob/main/velox/docs/develop/scalar-functions.rst)

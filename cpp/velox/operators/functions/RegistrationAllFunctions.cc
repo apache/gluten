@@ -16,15 +16,14 @@
  */
 #include "operators/functions/RegistrationAllFunctions.h"
 
-#include "operators/functions/Arithmetic.h"
 #include "operators/functions/RowConstructorWithNull.h"
 #include "operators/functions/RowFunctionWithNull.h"
 #include "operators/functions/delta/DeltaBitmapAggregator.h"
+#include "operators/functions/overlay/RegisterFunctionOverlay.h"
 #include "velox/expression/SpecialFormRegistry.h"
 #include "velox/expression/VectorFunction.h"
 #include "velox/functions/iceberg/Register.h"
 #include "velox/functions/lib/CheckedArithmetic.h"
-#include "velox/functions/lib/RegistrationHelpers.h"
 #include "velox/functions/prestosql/aggregates/RegisterAggregateFunctions.h"
 #include "velox/functions/prestosql/registration/RegistrationFunctions.h"
 #include "velox/functions/prestosql/window/WindowFunctionsRegistration.h"
@@ -50,14 +49,6 @@ namespace gluten {
 namespace {
 
 void registerFunctionOverwrite() {
-  velox::functions::registerUnaryNumeric<RoundFunction>({"round"});
-  velox::registerFunction<RoundFunction, int8_t, int8_t, int32_t>({"round"});
-  velox::registerFunction<RoundFunction, int16_t, int16_t, int32_t>({"round"});
-  velox::registerFunction<RoundFunction, int32_t, int32_t, int32_t>({"round"});
-  velox::registerFunction<RoundFunction, int64_t, int64_t, int32_t>({"round"});
-  velox::registerFunction<RoundFunction, double, double, int32_t>({"round"});
-  velox::registerFunction<RoundFunction, float, float, int32_t>({"round"});
-
   auto kRowConstructorWithNull = RowConstructorWithNullCallToSpecialForm::kRowConstructorWithNull;
   velox::exec::registerVectorFunction(
       kRowConstructorWithNull,
@@ -96,6 +87,10 @@ void registerAllFunctions() {
 
   velox::functions::iceberg::registerFunctions();
   registerDeltaBitmapAggregator();
+
+  // Gluten-managed function implementations. Registered last so they take
+  // precedence over same-name, same-signature Velox functions.
+  registerFunctionOverlay();
 }
 
 } // namespace gluten

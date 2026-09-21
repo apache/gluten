@@ -16,6 +16,9 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.utils.BackendTestUtils
+
+import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
@@ -203,8 +206,16 @@ class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTra
             df.selectExpr("to_unix_timestamp(ts, 'invalid-format')"),
             Seq(Row(secs(ts1.getTime)), Row(secs(ts2.getTime))))
 
+          // Velox rejects the unsupported specifier 'b' while building the Joda
+          // formatter, as vanilla Spark does, though it reports a different
+          // exception type. The legacy formatter returns null instead of failing.
           val invalid = df1.selectExpr(s"to_unix_timestamp(x, 'yyyy-MM-dd bb:HH:ss')")
-          checkAnswer(invalid, Seq(Row(null), Row(null), Row(null), Row(null)))
+          if (legacyParserPolicy == "legacy" || !BackendTestUtils.isVeloxBackendLoaded()) {
+            checkAnswer(invalid, Seq(Row(null), Row(null), Row(null), Row(null)))
+          } else {
+            val e = intercept[SparkException](invalid.collect())
+            assert(e.getMessage.contains("Specifier b is not supported"))
+          }
         }
     }
   }
@@ -296,5 +307,23 @@ class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTra
     val x2 = "2017-02-29"
     val df1 = Seq(x1, x2).toDF("x")
     checkAnswer(df1.select(to_date(col("x"))), Row(Date.valueOf("2016-02-29")) :: Row(null) :: Nil)
+  }
+
+  testGluten("date_from_unix_date") {
+    // -100000 and 200000 are outside ClickHouse's native Date32 range
+    // [1900-01-01, 2299-12-31]. They guard against implementations that clamp to that
+    // range (e.g. mapping to CH toDate32), which would silently diverge from Spark.
+    val df = Seq(Some(0), Some(1000), Some(-100000), Some(200000), None).toDF("unix_date")
+    val expected = Seq(
+      Row(Date.valueOf("1970-01-01")),
+      Row(Date.valueOf("1972-09-27")),
+      Row(Date.valueOf("1696-03-17")),
+      Row(Date.valueOf("2517-08-01")),
+      Row(null))
+
+    // Go through expr() so the same case works on every supported version: the Scala
+    // functions API does not expose date_from_unix_date before Spark 3.5.
+    checkAnswer(df.select(expr("date_from_unix_date(unix_date)")), expected)
+    checkAnswer(df.selectExpr("date_from_unix_date(unix_date)"), expected)
   }
 }

@@ -1,0 +1,410 @@
+== Physical Plan ==
+AdaptiveSparkPlan (47)
++- == Final Plan ==
+   BoltColumnarToRow (30)
+   +- AQEShuffleRead (29)
+      +- ShuffleQueryStage (28), Statistics(X)
+         +- ColumnarExchange (27)
+            +- BoltResizeBatches (26)
+               +- ^ ProjectExecTransformer (24)
+                  +- ^ ShuffledHashJoinExecTransformer Inner BuildRight (23)
+                     :- ^ InputIteratorTransformer (9)
+                     :  +- ShuffleQueryStage (7), Statistics(X)
+                     :     +- ColumnarExchange (6)
+                     :        +- BoltResizeBatches (5)
+                     :           +- ^ ProjectExecTransformer (3)
+                     :              +- ^ FilterExecTransformer (2)
+                     :                 +- ^ ScanTransformer parquet  (1)
+                     +- ^ FilterExecTransformer (22)
+                        +- ^ RegularHashAggregateExecTransformer (21)
+                           +- ^ InputIteratorTransformer (20)
+                              +- ShuffleQueryStage (18), Statistics(X)
+                                 +- ColumnarExchange (17)
+                                    +- BoltResizeBatches (16)
+                                       +- ^ ProjectExecTransformer (14)
+                                          +- ^ FlushableHashAggregateExecTransformer (13)
+                                             +- ^ ProjectExecTransformer (12)
+                                                +- ^ FilterExecTransformer (11)
+                                                   +- ^ ScanTransformer parquet  (10)
++- == Initial Plan ==
+   Sort (46)
+   +- Exchange (45)
+      +- Project (44)
+         +- SortMergeJoin Inner (43)
+            :- Sort (34)
+            :  +- Exchange (33)
+            :     +- Filter (32)
+            :        +- Scan parquet (31)
+            +- Sort (42)
+               +- Filter (41)
+                  +- HashAggregate (40)
+                     +- Exchange (39)
+                        +- HashAggregate (38)
+                           +- Project (37)
+                              +- Filter (36)
+                                 +- Scan parquet (35)
+
+
+(1) ScanTransformer parquet 
+Output [4]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(s_suppkey)]
+ReadSchema: struct<s_suppkey:bigint,s_name:string,s_address:string,s_phone:string>
+
+(2) FilterExecTransformer
+Input [4]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Arguments: isnotnull(s_suppkey#X)
+
+(3) ProjectExecTransformer
+Output [5]: [hash(s_suppkey#X, 42) AS hash_partition_key#X, s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Input [4]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+
+(4) WholeStageCodegenTransformer (X)
+Input [5]: [hash_partition_key#X, s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Arguments: false
+
+(5) BoltResizeBatches
+Input [5]: [hash_partition_key#X, s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Arguments: X, X
+
+(6) ColumnarExchange
+Input [5]: [hash_partition_key#X, s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Arguments: hashpartitioning(s_suppkey#X, 1), ENSURE_REQUIREMENTS, [s_suppkey#X, s_name#X, s_address#X, s_phone#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(7) ShuffleQueryStage
+Output [4]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Arguments: X
+
+(8) InputAdapter
+Input [4]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+
+(9) InputIteratorTransformer
+Input [4]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+
+(10) ScanTransformer parquet 
+Output [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(l_shipdate), GreaterThanOrEqual(l_shipdate,1996-01-01), LessThan(l_shipdate,1996-04-01), IsNotNull(l_suppkey)]
+ReadSchema: struct<l_suppkey:bigint,l_extendedprice:decimal(12,2),l_discount:decimal(12,2),l_shipdate:date>
+
+(11) FilterExecTransformer
+Input [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Arguments: (((isnotnull(l_shipdate#X) AND (l_shipdate#X >= 1996-01-01)) AND (l_shipdate#X < 1996-04-01)) AND isnotnull(l_suppkey#X))
+
+(12) ProjectExecTransformer
+Output [2]: [l_suppkey#X, (l_extendedprice#X * (1 - l_discount#X)) AS _pre_X#X]
+Input [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+
+(13) FlushableHashAggregateExecTransformer
+Input [2]: [l_suppkey#X, _pre_X#X]
+Keys [1]: [l_suppkey#X]
+Functions [1]: [partial_sum(_pre_X#X)]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [3]: [l_suppkey#X, sum#X, isEmpty#X]
+
+(14) ProjectExecTransformer
+Output [4]: [hash(l_suppkey#X, 42) AS hash_partition_key#X, l_suppkey#X, sum#X, isEmpty#X]
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+
+(15) WholeStageCodegenTransformer (X)
+Input [4]: [hash_partition_key#X, l_suppkey#X, sum#X, isEmpty#X]
+Arguments: false
+
+(16) BoltResizeBatches
+Input [4]: [hash_partition_key#X, l_suppkey#X, sum#X, isEmpty#X]
+Arguments: X, X
+
+(17) ColumnarExchange
+Input [4]: [hash_partition_key#X, l_suppkey#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(l_suppkey#X, 1), ENSURE_REQUIREMENTS, [l_suppkey#X, sum#X, isEmpty#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(18) ShuffleQueryStage
+Output [3]: [l_suppkey#X, sum#X, isEmpty#X]
+Arguments: X
+
+(19) InputAdapter
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+
+(20) InputIteratorTransformer
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+
+(21) RegularHashAggregateExecTransformer
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+Keys [1]: [l_suppkey#X]
+Functions [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))]
+Aggregate Attributes [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))#X]
+Results [2]: [l_suppkey#X AS supplier_no#X, sum((l_extendedprice#X * (1 - l_discount#X)))#X AS total_revenue#X]
+
+(22) FilterExecTransformer
+Input [2]: [supplier_no#X, total_revenue#X]
+Arguments: (isnotnull(total_revenue#X) AND (total_revenue#X = Subquery subquery#X, [id=#X]))
+
+(23) ShuffledHashJoinExecTransformer
+Left keys [1]: [s_suppkey#X]
+Right keys [1]: [supplier_no#X]
+Join type: Inner
+Join condition: None
+
+(24) ProjectExecTransformer
+Output [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+Input [6]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, supplier_no#X, total_revenue#X]
+
+(25) WholeStageCodegenTransformer (X)
+Input [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+Arguments: false
+
+(26) BoltResizeBatches
+Input [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+Arguments: X, X
+
+(27) ColumnarExchange
+Input [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+Arguments: rangepartitioning(s_suppkey#X ASC NULLS FIRST, 1), ENSURE_REQUIREMENTS, [plan_id=X], [shuffle_writer_type=hash]
+
+(28) ShuffleQueryStage
+Output [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+Arguments: X
+
+(29) AQEShuffleRead
+Input [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+Arguments: local
+
+(30) BoltColumnarToRow
+Input [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+
+(31) Scan parquet
+Output [4]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(s_suppkey)]
+ReadSchema: struct<s_suppkey:bigint,s_name:string,s_address:string,s_phone:string>
+
+(32) Filter
+Input [4]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Condition : isnotnull(s_suppkey#X)
+
+(33) Exchange
+Input [4]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Arguments: hashpartitioning(s_suppkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(34) Sort
+Input [4]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X]
+Arguments: [s_suppkey#X ASC NULLS FIRST], false, 0
+
+(35) Scan parquet
+Output [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(l_shipdate), GreaterThanOrEqual(l_shipdate,1996-01-01), LessThan(l_shipdate,1996-04-01), IsNotNull(l_suppkey)]
+ReadSchema: struct<l_suppkey:bigint,l_extendedprice:decimal(12,2),l_discount:decimal(12,2),l_shipdate:date>
+
+(36) Filter
+Input [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Condition : (((isnotnull(l_shipdate#X) AND (l_shipdate#X >= 1996-01-01)) AND (l_shipdate#X < 1996-04-01)) AND isnotnull(l_suppkey#X))
+
+(37) Project
+Output [3]: [l_suppkey#X, l_extendedprice#X, l_discount#X]
+Input [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+
+(38) HashAggregate
+Input [3]: [l_suppkey#X, l_extendedprice#X, l_discount#X]
+Keys [1]: [l_suppkey#X]
+Functions [1]: [partial_sum((l_extendedprice#X * (1 - l_discount#X)))]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [3]: [l_suppkey#X, sum#X, isEmpty#X]
+
+(39) Exchange
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(l_suppkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(40) HashAggregate
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+Keys [1]: [l_suppkey#X]
+Functions [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))]
+Aggregate Attributes [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))#X]
+Results [2]: [l_suppkey#X AS supplier_no#X, sum((l_extendedprice#X * (1 - l_discount#X)))#X AS total_revenue#X]
+
+(41) Filter
+Input [2]: [supplier_no#X, total_revenue#X]
+Condition : (isnotnull(total_revenue#X) AND (total_revenue#X = Subquery subquery#X, [id=#X]))
+
+(42) Sort
+Input [2]: [supplier_no#X, total_revenue#X]
+Arguments: [supplier_no#X ASC NULLS FIRST], false, 0
+
+(43) SortMergeJoin
+Left keys [1]: [s_suppkey#X]
+Right keys [1]: [supplier_no#X]
+Join type: Inner
+Join condition: None
+
+(44) Project
+Output [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+Input [6]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, supplier_no#X, total_revenue#X]
+
+(45) Exchange
+Input [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+Arguments: rangepartitioning(s_suppkey#X ASC NULLS FIRST, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(46) Sort
+Input [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+Arguments: [s_suppkey#X ASC NULLS FIRST], true, 0
+
+(47) AdaptiveSparkPlan
+Output [5]: [s_suppkey#X, s_name#X, s_address#X, s_phone#X, total_revenue#X]
+Arguments: isFinalPlan=true
+
+===== Subqueries =====
+
+Subquery:1 Hosting operator id = 22 Hosting Expression = Subquery subquery#X, [id=#X]
+AdaptiveSparkPlan (72)
++- == Final Plan ==
+   BoltColumnarToRow (63)
+   +- ^ RegularHashAggregateExecTransformer (61)
+      +- ^ ProjectExecTransformer (60)
+         +- ^ RegularHashAggregateExecTransformer (59)
+            +- ^ InputIteratorTransformer (58)
+               +- ShuffleQueryStage (56), Statistics(X)
+                  +- ColumnarExchange (55)
+                     +- BoltResizeBatches (54)
+                        +- ^ ProjectExecTransformer (52)
+                           +- ^ FlushableHashAggregateExecTransformer (51)
+                              +- ^ ProjectExecTransformer (50)
+                                 +- ^ FilterExecTransformer (49)
+                                    +- ^ ScanTransformer parquet  (48)
++- == Initial Plan ==
+   HashAggregate (71)
+   +- HashAggregate (70)
+      +- HashAggregate (69)
+         +- Exchange (68)
+            +- HashAggregate (67)
+               +- Project (66)
+                  +- Filter (65)
+                     +- Scan parquet (64)
+
+
+(48) ScanTransformer parquet 
+Output [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(l_shipdate), GreaterThanOrEqual(l_shipdate,1996-01-01), LessThan(l_shipdate,1996-04-01)]
+ReadSchema: struct<l_suppkey:bigint,l_extendedprice:decimal(12,2),l_discount:decimal(12,2),l_shipdate:date>
+
+(49) FilterExecTransformer
+Input [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Arguments: ((isnotnull(l_shipdate#X) AND (l_shipdate#X >= 1996-01-01)) AND (l_shipdate#X < 1996-04-01))
+
+(50) ProjectExecTransformer
+Output [2]: [l_suppkey#X, (l_extendedprice#X * (1 - l_discount#X)) AS _pre_X#X]
+Input [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+
+(51) FlushableHashAggregateExecTransformer
+Input [2]: [l_suppkey#X, _pre_X#X]
+Keys [1]: [l_suppkey#X]
+Functions [1]: [partial_sum(_pre_X#X)]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [3]: [l_suppkey#X, sum#X, isEmpty#X]
+
+(52) ProjectExecTransformer
+Output [4]: [hash(l_suppkey#X, 42) AS hash_partition_key#X, l_suppkey#X, sum#X, isEmpty#X]
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+
+(53) WholeStageCodegenTransformer (X)
+Input [4]: [hash_partition_key#X, l_suppkey#X, sum#X, isEmpty#X]
+Arguments: false
+
+(54) BoltResizeBatches
+Input [4]: [hash_partition_key#X, l_suppkey#X, sum#X, isEmpty#X]
+Arguments: X, X
+
+(55) ColumnarExchange
+Input [4]: [hash_partition_key#X, l_suppkey#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(l_suppkey#X, 1), ENSURE_REQUIREMENTS, [l_suppkey#X, sum#X, isEmpty#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(56) ShuffleQueryStage
+Output [3]: [l_suppkey#X, sum#X, isEmpty#X]
+Arguments: X
+
+(57) InputAdapter
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+
+(58) InputIteratorTransformer
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+
+(59) RegularHashAggregateExecTransformer
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+Keys [1]: [l_suppkey#X]
+Functions [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))]
+Aggregate Attributes [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))#X]
+Results [2]: [l_suppkey#X, sum((l_extendedprice#X * (1 - l_discount#X)))#X]
+
+(60) ProjectExecTransformer
+Output [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))#X AS total_revenue#X]
+Input [2]: [l_suppkey#X, sum((l_extendedprice#X * (1 - l_discount#X)))#X]
+
+(61) RegularHashAggregateExecTransformer
+Input [1]: [total_revenue#X]
+Keys: []
+Functions [1]: [max(total_revenue#X)]
+Aggregate Attributes [1]: [max(total_revenue#X)#X]
+Results [1]: [max(total_revenue#X)#X AS max(total_revenue)#X]
+
+(62) WholeStageCodegenTransformer (X)
+Input [1]: [max(total_revenue)#X]
+Arguments: false
+
+(63) BoltColumnarToRow
+Input [1]: [max(total_revenue)#X]
+
+(64) Scan parquet
+Output [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(l_shipdate), GreaterThanOrEqual(l_shipdate,1996-01-01), LessThan(l_shipdate,1996-04-01)]
+ReadSchema: struct<l_suppkey:bigint,l_extendedprice:decimal(12,2),l_discount:decimal(12,2),l_shipdate:date>
+
+(65) Filter
+Input [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Condition : ((isnotnull(l_shipdate#X) AND (l_shipdate#X >= 1996-01-01)) AND (l_shipdate#X < 1996-04-01))
+
+(66) Project
+Output [3]: [l_suppkey#X, l_extendedprice#X, l_discount#X]
+Input [4]: [l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+
+(67) HashAggregate
+Input [3]: [l_suppkey#X, l_extendedprice#X, l_discount#X]
+Keys [1]: [l_suppkey#X]
+Functions [1]: [partial_sum((l_extendedprice#X * (1 - l_discount#X)))]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [3]: [l_suppkey#X, sum#X, isEmpty#X]
+
+(68) Exchange
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(l_suppkey#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(69) HashAggregate
+Input [3]: [l_suppkey#X, sum#X, isEmpty#X]
+Keys [1]: [l_suppkey#X]
+Functions [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))]
+Aggregate Attributes [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))#X]
+Results [1]: [sum((l_extendedprice#X * (1 - l_discount#X)))#X AS total_revenue#X]
+
+(70) HashAggregate
+Input [1]: [total_revenue#X]
+Keys: []
+Functions [1]: [partial_max(total_revenue#X)]
+Aggregate Attributes [1]: [max#X]
+Results [1]: [max#X]
+
+(71) HashAggregate
+Input [1]: [max#X]
+Keys: []
+Functions [1]: [max(total_revenue#X)]
+Aggregate Attributes [1]: [max(total_revenue#X)#X]
+Results [1]: [max(total_revenue#X)#X AS max(total_revenue)#X]
+
+(72) AdaptiveSparkPlan
+Output [1]: [max(total_revenue)#X]
+Arguments: isFinalPlan=true
