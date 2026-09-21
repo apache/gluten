@@ -49,12 +49,14 @@ therefore correct in both modes.
   previously used `caseInsensitiveResolution` (a hardcoded case-insensitive comparator) for
   partition-column lookup, ignoring `spark.sql.caseSensitive=true`. Fixed by switching to
   `SQLConf.get.resolver`, which honours the session case-sensitivity setting.
-  Resolver contract validated by `GlutenClickHouseCaseSensitiveSchemaSuite`; full end-to-end
-  Delta writer tests require the native Delta backend and are not run in CI for this module.
+  Full end-to-end Delta writer tests require a native Delta backend and are not run in CI for
+  this module; the resolver-semantics contract is validated at the unit level by
+  `GlutenClickHouseCaseSensitiveSchemaSuite`.
 
 - **ClickHouse `CHIteratorApi.getFileSchema`**: previously used `equalsIgnoreCase` for schema
   field matching, ignoring `caseSensitive=true`. Fixed by switching to `SQLConf.get.resolver`.
-  Validated by `GlutenClickHouseCaseSensitiveSchemaSuite`.
+  The resolver-semantics contract is validated by `GlutenClickHouseCaseSensitiveSchemaSuite`
+  (unit-level only; end-to-end requires a running ClickHouse backend).
 
 **Remaining limitations (not addressed by this change):**
 

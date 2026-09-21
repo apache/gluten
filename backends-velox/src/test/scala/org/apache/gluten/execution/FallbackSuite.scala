@@ -732,28 +732,36 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
 
   test(
     "PushDownInputFileExpression: Input_File_Name data column and input_file_name() " +
-      "under caseSensitive=false behaves identically to caseSensitive=true (Parquet)") {
+      "under caseSensitive=false — collision detection triggers fallback (Parquet)") {
     // Under caseSensitive=false the user column `Input_File_Name` normalises to
-    // `input_file_name` which matches the metadata sentinel, so Gluten will add a fallback
-    // tag and fall back to vanilla Spark.  That is the expected and correct behavior.
-    // This test guards that the default path is not broken by the caseSensitive=true fix.
+    // `input_file_name` which matches the metadata sentinel.
+    // containsInputFileRelatedExpr uses the SQLConf resolver, so under caseSensitive=false
+    // it will recognise `Input_File_Name` as an input-file-related attribute and Gluten
+    // will add a fallback tag.  This test verifies:
+    //   1. The physical `Input_File_Name` column values are preserved.
+    //   2. The input_file_name() function returns a non-empty file path.
+    //   3. The two are not confused with each other (data value ≠ file path).
+    //   4. Results match vanilla Spark (runQueryAndCompare enforces this).
+    // noFallBack=false because the fallback tag is the correct, expected behavior here.
     withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
       withTempDir {
         dir =>
+          // Write a Parquet file with a mixed-case column name that matches the
+          // input_file_name sentinel when lowercased.
           val schema2 = org.apache.spark.sql.types.StructType(
             Seq(
               org.apache.spark.sql.types.StructField(
                 "id",
                 org.apache.spark.sql.types.IntegerType),
               org.apache.spark.sql.types.StructField(
-                "data_col",
+                "Input_File_Name",
                 org.apache.spark.sql.types.StringType)
             ))
           spark
             .createDataFrame(
               java.util.Arrays.asList(
-                org.apache.spark.sql.Row(1, "val-a"),
-                org.apache.spark.sql.Row(2, "val-b")),
+                org.apache.spark.sql.Row(1, "user-ci-val-1"),
+                org.apache.spark.sql.Row(2, "user-ci-val-2")),
               schema2)
             .write
             .format("parquet")
@@ -765,16 +773,33 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
             .createOrReplaceTempView("pushdown_input_ci")
 
           try {
-            // This query is legal under caseSensitive=false; verify correctness.
+            // Under caseSensitive=false `Input_File_Name` normalises to `input_file_name`,
+            // matching the sentinel — Gluten falls back.  The results must still be correct.
             runQueryAndCompare(
-              "SELECT data_col, input_file_name() AS fname " +
-                "FROM pushdown_input_ci ORDER BY data_col",
+              "SELECT `Input_File_Name`, input_file_name() AS fname " +
+                "FROM pushdown_input_ci ORDER BY `Input_File_Name`",
               noFallBack = false
             ) {
               df =>
                 val rows = df.collect()
-                assert(rows.length == 2)
-                assert(rows.forall(r => r.getString(1) != null && r.getString(1).nonEmpty))
+                assert(rows.length == 2, s"Expected 2 rows, got ${rows.length}")
+                // Physical column values must be the user-written strings.
+                val dataVals = rows.map(_.getString(0)).toSet
+                assert(
+                  dataVals == Set("user-ci-val-1", "user-ci-val-2"),
+                  s"Physical Input_File_Name column wrong: $dataVals")
+                // input_file_name() must return a non-empty file path.
+                val fileNames = rows.map(_.getString(1))
+                assert(
+                  fileNames.forall(n => n != null && n.nonEmpty),
+                  s"input_file_name() returned empty/null: ${fileNames.mkString(", ")}")
+                // The data column and the function result must differ.
+                rows.foreach {
+                  r =>
+                    assert(
+                      r.getString(0) != r.getString(1),
+                      s"Data column and file-name column should differ, got: ${r.getString(0)}")
+                }
             }
           } finally {
             spark.catalog.dropTempView("pushdown_input_ci")
