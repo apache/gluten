@@ -870,10 +870,17 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
   }
 
   test("array functions with lambda on nullable element array") {
-    withTable("tb_split_array") {
+    withTable("tb_split_array", "tb_null_element_array") {
       sql("create table tb_split_array(s string) using parquet")
       sql("""
-            |insert into tb_split_array values ('a_1,b_2'), ('b_1,c_2'), ('a_3'), (null)
+            |insert into tb_split_array values
+            |('a_1,b_2'), ('b_1,c_2'), ('a_3'), ('a,,b'), (null)
+            |""".stripMargin)
+
+      sql("create table tb_null_element_array(a array<string>) using parquet")
+      sql("""
+            |insert into tb_null_element_array values
+            |(array('a', null)), (array(null)), (array()), (null)
             |""".stripMargin)
 
       // The CH backend declares split's result as Array(Nullable(String)) while Spark infers the
@@ -885,6 +892,14 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
           |from tb_split_array
           |""".stripMargin
       runQueryAndCompare(filter_sql)(checkGlutenPlan[ProjectExecTransformer])
+
+      // The filter path with an index argument is covered by the same alignment.
+      val filter_with_index_sql =
+        """
+          |select filter(split(s, ','), (x, i) -> i = 0 and x is not null)
+          |from tb_split_array
+          |""".stripMargin
+      runQueryAndCompare(filter_with_index_sql)(checkGlutenPlan[ProjectExecTransformer])
 
       val transform_sql =
         """
@@ -906,6 +921,26 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
           |from tb_split_array
           |""".stripMargin
       runQueryAndCompare(zip_with_sql)(checkGlutenPlan[ProjectExecTransformer])
+
+      // Aligning the element type may narrow Array(Nullable(String)) to Array(String). Spark
+      // declares split's elements as non nullable, so the alignment must neither produce nor lose
+      // NULL elements, and empty string elements must be kept as empty strings.
+      val narrow_element_type_sql =
+        """
+          |select filter(split(s, ','), x -> x is null),
+          |       filter(split(s, ','), x -> x = '')
+          |from tb_split_array
+          |""".stripMargin
+      runQueryAndCompare(narrow_element_type_sql)(checkGlutenPlan[ProjectExecTransformer])
+
+      // When the element type is nullable, NULL elements must survive the alignment.
+      val null_element_sql =
+        """
+          |select filter(a, x -> x is null),
+          |       transform(a, x -> x)
+          |from tb_null_element_array
+          |""".stripMargin
+      runQueryAndCompare(null_element_sql)(checkGlutenPlan[ProjectExecTransformer])
     }
   }
 
