@@ -51,9 +51,8 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
 
   protected def getParquetPageSizeBytes: String = {
     val tableProps = IcebergWriteUtil.getTable(write).properties()
-    tableProps.getOrDefault(
-      normalizeCapacityString(PARQUET_PAGE_SIZE_BYTES),
-      normalizeCapacityString(PARQUET_PAGE_SIZE_BYTES_DEFAULT.toString))
+    normalizeCapacityString(
+      tableProps.getOrDefault(PARQUET_PAGE_SIZE_BYTES, PARQUET_PAGE_SIZE_BYTES_DEFAULT.toString))
   }
 
   protected def getTargetFileSizeBytes: String = {
@@ -62,9 +61,8 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
 
   protected def getDictSizeBytes: String = {
     val tableProps = IcebergWriteUtil.getTable(write).properties()
-    tableProps.getOrDefault(
-      normalizeCapacityString(PARQUET_DICT_SIZE_BYTES),
-      normalizeCapacityString(PARQUET_DICT_SIZE_BYTES_DEFAULT.toString))
+    normalizeCapacityString(
+      tableProps.getOrDefault(PARQUET_DICT_SIZE_BYTES, PARQUET_DICT_SIZE_BYTES_DEFAULT.toString))
   }
 
   protected def getPartitionSpec: PartitionSpec = {

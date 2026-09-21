@@ -486,7 +486,7 @@ class VeloxIcebergSuite extends IcebergSuite {
           |TBLPROPERTIES (
           |  'write.format.default' = 'parquet',
           |  'write.parquet.compression-codec' = 'uncompressed',
-          |  'write.parquet.page-size-bytes' = '1024B',
+          |  'write.parquet.page-size-bytes' = '1024',
           |  'write.target-file-size-bytes' = '8192'
           |)
           |""".stripMargin)
@@ -615,7 +615,7 @@ class VeloxIcebergSuite extends IcebergSuite {
                      |TBLPROPERTIES (
                      |  'write.format.default' = 'parquet',
                      |  'write.parquet.compression-codec' = 'uncompressed',
-                     |  'write.parquet.dict-size-bytes' = '1B'
+                     |  'write.parquet.dict-size-bytes' = '1'
                      |)
                      |""".stripMargin)
 
@@ -645,7 +645,7 @@ class VeloxIcebergSuite extends IcebergSuite {
         )
         assert(
           encodings.contains(Encoding.PLAIN),
-          s"Expected write.parquet.dict-size-bytes=1B to make later data pages fall back " +
+          s"Expected write.parquet.dict-size-bytes=1 to make later data pages fall back " +
             s"to PLAIN, but got encodings=${encodings.mkString("[", ", ", "]")}"
         )
       }

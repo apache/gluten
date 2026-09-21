@@ -98,6 +98,17 @@
 
   <profiles>
     <profile>
+      <id>iceberg</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.iceberg</groupId>
+          <artifactId>iceberg-spark-runtime-${sparkbundle.version}_${scala.binary.version}</artifactId>
+          <version>${iceberg.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
       <id>backends-clickhouse</id>
       <activation>
         <activeByDefault>false</activeByDefault>
