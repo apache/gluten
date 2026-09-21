@@ -782,4 +782,95 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
       }
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Comprehensive case-sensitivity scenarios for the Parquet / FileSource path
+  // (Scenarios 3, 6, 7 from the review requirements that are not covered above)
+  // ---------------------------------------------------------------------------
+
+  // Scenario 3 – Ambiguous identifier: caseSensitive=false uses case-insensitive resolution
+  test("case-sensitive mode: ambiguous identifier — caseSensitive=false case-insensitive lookup") {
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+      // tmp1 has lowercase columns c1, c2 written under case-insensitive defaults.
+      // Under caseSensitive=false, C1/c1/C2/c2 all resolve to the same columns.
+      // tmp1 has c1 in range [0,2] and c2=id, so "c1 > 0" always returns some rows.
+      Seq("c1", "C1", "c2", "C2").foreach {
+        colRef =>
+          runQueryAndCompare(
+            s"SELECT `$colRef` FROM tmp1 LIMIT 5",
+            noFallBack = false
+          ) {
+            df =>
+              val rows = df.collect()
+              assert(rows.nonEmpty, s"Expected rows for case-insensitive ref '$colRef'")
+          }
+      }
+    }
+  }
+
+  // Scenario 6 – input_file_name() expression under both caseSensitive modes (FileSource)
+  test("case-sensitive mode: input_file_name() returns non-empty paths (caseSensitive=true)") {
+    // tmp1 is a Parquet-backed table with lowercase columns.
+    // Under caseSensitive=true the column names are already lowercase so there is
+    // no collision with the "input_file_name" metadata sentinel — the function must work.
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+      runQueryAndCompare(
+        "SELECT c1, input_file_name() AS fname FROM tmp1 LIMIT 5",
+        noFallBack = false
+      ) {
+        df =>
+          val rows = df.collect()
+          assert(rows.nonEmpty, "Expected at least one row")
+          assert(
+            rows.forall(r => r.getString(1) != null && r.getString(1).nonEmpty),
+            s"input_file_name() must be non-empty, got: ${rows.map(_.getString(1)).mkString(", ")}")
+      }
+    }
+  }
+
+  test("case-sensitive mode: input_file_name() returns non-empty paths (caseSensitive=false)") {
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+      runQueryAndCompare(
+        "SELECT c1, input_file_name() AS fname FROM tmp1 LIMIT 5",
+        noFallBack = false
+      ) {
+        df =>
+          val rows = df.collect()
+          assert(rows.nonEmpty, "Expected at least one row")
+          assert(
+            rows.forall(r => r.getString(1) != null && r.getString(1).nonEmpty),
+            s"input_file_name() must be non-empty, got: ${rows.map(_.getString(1)).mkString(", ")}")
+      }
+    }
+  }
+
+  // Scenario 7 – Aggregation under both caseSensitive modes
+  test("case-sensitive mode: aggregation produces correct results (caseSensitive=true)") {
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+      runQueryAndCompare(
+        "SELECT c1, count(*) AS cnt, sum(c2) AS total FROM tmp1 GROUP BY c1 ORDER BY c1"
+      ) {
+        df =>
+          val aggCount = collect(df.queryExecution.executedPlan) {
+            case h: HashAggregateExecTransformer => h
+          }.size
+          assert(aggCount == 2, s"Expected 2 HashAggregateExecTransformer, got $aggCount")
+      }
+    }
+  }
+
+  test("case-sensitive mode: aggregation produces correct results (caseSensitive=false)") {
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+      // Same query but with upper-case column refs — must still use native aggregation.
+      runQueryAndCompare(
+        "SELECT C1, count(*) AS cnt, sum(C2) AS total FROM tmp1 GROUP BY C1 ORDER BY C1"
+      ) {
+        df =>
+          val aggCount = collect(df.queryExecution.executedPlan) {
+            case h: HashAggregateExecTransformer => h
+          }.size
+          assert(aggCount == 2, s"Expected 2 HashAggregateExecTransformer, got $aggCount")
+      }
+    }
+  }
 }

@@ -28,34 +28,46 @@ original casing when `caseSensitiveAnalysis=true` and lowercases only when it is
 Spark default). Standard data operations such as scan, filter, aggregation, and join are
 therefore correct in both modes.
 
-**This PR additionally addresses the following identified metadata-name collision paths:**
+**This change addresses the following identified metadata-name collision paths:**
 
 - `IcebergScanTransformer`: previously used unconditional `equalsIgnoreCase` in
   `getMetadataColumns` and unconditional `toLowerCase` in the read-schema field set, causing a
   user data column named `Input_File_Name` (or any mixed-case variant of an Iceberg metadata
   column name) to be misclassified as a metadata column under `caseSensitive=true`.
   Fixed by switching to `ConverterUtils.normalizeColName` throughout the Iceberg scan path.
+  Validated by `IcebergSuite` / `VeloxIcebergSuite`.
 
 - `PushDownInputFileExpression` (core rule, `gluten-substrait`): two unconditional
   `toLowerCase` usages — one in `containsInputFileRelatedExpr` and one in the `PostOffload`
   deduplication — caused incorrect pre-offload rewriting and dangling-attribute plan errors when
   a data column named `Input_File_Name` was projected alongside `input_file_name()` under
-  `caseSensitive=true`. Fixed by using `SQLConf.get.resolver` for gate detection and
+  `caseSensitive=true`. Fixed by using `ConverterUtils.normalizeColName` for gate detection and
   `exprId` identity for deduplication.
+  Validated by `FallbackSuite` (Velox) and `IcebergSuite`.
 
-**Remaining limitations (not fixed by this change):**
+- **Delta optimised writer** (`GlutenDeltaOptimizedWriterExec` / `DeltaOptimizedWriterTransformer`):
+  previously used `caseInsensitiveResolution` (a hardcoded case-insensitive comparator) for
+  partition-column lookup, ignoring `spark.sql.caseSensitive=true`. Fixed by switching to
+  `SQLConf.get.resolver`, which honours the session case-sensitivity setting.
+  Resolver contract validated by `GlutenClickHouseCaseSensitiveSchemaSuite`; full end-to-end
+  Delta writer tests require the native Delta backend and are not run in CI for this module.
+
+- **ClickHouse `CHIteratorApi.getFileSchema`**: previously used `equalsIgnoreCase` for schema
+  field matching, ignoring `caseSensitive=true`. Fixed by switching to `SQLConf.get.resolver`.
+  Validated by `GlutenClickHouseCaseSensitiveSchemaSuite`.
+
+**Remaining limitations (not addressed by this change):**
 
 Core column-name handling increasingly respects Spark's `caseSensitiveAnalysis` semantics.
-The fixes above address the identified Iceberg and `input_file_name()` metadata name-collision
-paths. Other backend- or data-source-specific case-sensitive paths must be validated
-independently. The following areas are not verified in this change:
+The fixes above address the identified Iceberg metadata, `input_file_name()` push-down, Delta
+optimised writer, and ClickHouse schema-matching paths. Other backend- or data-source-specific
+case-sensitive paths must be validated independently. The following areas are not yet verified:
 
 - ORC scan under `caseSensitive=true`
-- DSv2 / generic `BatchScanExec` paths
+- DSv2 / generic `BatchScanExec` paths (non-Iceberg)
 - Nested-struct column names
-- Partition-column edge cases
-- General write paths
-- Delta optimised writer (fix pending in a separate PR)
+- Partition-column edge cases beyond the Delta optimised writer
+- General write paths (other than Delta optimised writer)
 
 #### Regexp functions
 In Velox, regexp functions (`rlike`, `regexp_extract`, etc.) are implemented based on RE2, while in Spark they are based on `java.util.regex`.
