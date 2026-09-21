@@ -75,7 +75,7 @@
     <iceberg.binary.version>10</iceberg.binary.version>
     <paimon.version>1.4.1</paimon.version>
     <delta.package.name>delta-spark</delta.package.name>
-    <delta.version>3.3.2</delta.version>
+    <delta.version>3.3.3</delta.version>
     <delta.binary.version>33</delta.binary.version>
     <aws-java-sdk-dynamodb.version>1.12.797</aws-java-sdk-dynamodb.version>
     <celeborn.version>0.6.3</celeborn.version>
