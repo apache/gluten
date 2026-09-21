@@ -16,7 +16,9 @@
  */
 package org.apache.gluten.config
 
+import org.apache.spark.SparkEnv
 import org.apache.spark.network.util.ByteUnit
+import org.apache.spark.sql.internal.SparkConfigUtil._
 import org.apache.spark.sql.internal.SQLConf
 
 import java.util.Locale
@@ -89,6 +91,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def veloxPreferredBatchBytes: Long = getConf(COLUMNAR_VELOX_PREFERRED_BATCH_BYTES)
 
+  def enableRddScan: Boolean = getConf(COLUMNAR_VELOX_RDD_SCAN_ENABLED)
+
   def cudfEnableTableScan: Boolean = getConf(CUDF_ENABLE_TABLE_SCAN)
 
   def cudfEnableValidation: Boolean = getConf(CUDF_ENABLE_VALIDATION)
@@ -129,6 +133,16 @@ object VeloxConfig extends ConfigRegistry {
   override def get: VeloxConfig = {
     new VeloxConfig(SQLConf.get)
   }
+
+  /**
+   * Reads the flag straight off the SparkConf instead of going through [[get]].
+   *
+   * Session extensions are applied while the SparkSession is still being built, so `SQLConf.get`
+   * returns defaults at that point and [[get]] would report this flag as off however the user set
+   * it.
+   */
+  def nativeUDFBypassRegistration: Boolean =
+    Option(SparkEnv.get).exists(_.conf.get(NATIVE_UDF_BYPASS_REGISTRATION))
 
   // velox caching options.
   val COLUMNAR_VELOX_CACHE_ENABLED =
@@ -694,12 +708,32 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val NATIVE_UDF_BYPASS_REGISTRATION =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.nativeUDF.bypassRegistration")
+      .doc(
+        "If true, a UDF from udfLibraryPaths can be called by the name it was registered " +
+          "with, so you do not have to write a Java class for it or run CREATE TEMPORARY " +
+          "FUNCTION. In exchange, there is no Java version to fall back to, so any query " +
+          "Gluten cannot run natively will fail instead of running on Spark. Off by default.")
+      .booleanConf
+      .createWithDefault(false)
+
   val CAST_FROM_VARCHAR_ADD_TRIM_NODE =
     buildConf("spark.gluten.velox.castFromVarcharAddTrimNode")
       .doc(
         "If true, will add a trim node " +
           "which has the same semantic as vanilla Spark to CAST-from-varchar." +
           "Otherwise, do nothing.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val DECIMAL_TO_FLOAT_HIGH_PRECISION_CAST_ENABLED =
+    buildConf("spark.gluten.velox.decimalToFloatHighPrecisionCastEnabled")
+      .doc(
+        "If true, enables high-precision casts from DECIMAL to REAL/DOUBLE in Velox, " +
+          "which match vanilla Spark for values that cannot be represented exactly by " +
+          "floating-point arithmetic. Disabled by default because it is slower than the " +
+          "default conversion; enable it if precision matters more than throughput.")
       .booleanConf
       .createWithDefault(false)
 
@@ -929,6 +963,16 @@ object VeloxConfig extends ConfigRegistry {
       .internal()
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("10MB")
+
+  val COLUMNAR_VELOX_RDD_SCAN_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.rddScan.enabled")
+      .doc(
+        "When true, offload RDDScanExec to Velox by converting the RDD[InternalRow] into" +
+          " columnar batches through the native row-to-columnar path. Schemas that are not" +
+          " supported by the Arrow export path (e.g. map or interval types) fall back to" +
+          " vanilla Spark.")
+      .booleanConf
+      .createWithDefault(true)
 
   val VELOX_MAX_COMPILED_REGEXES =
     buildConf("spark.gluten.sql.columnar.backend.velox.maxCompiledRegexes")

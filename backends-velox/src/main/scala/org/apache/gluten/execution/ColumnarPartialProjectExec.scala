@@ -23,7 +23,6 @@ import org.apache.gluten.expression.{ArrowProjection, ConverterUtils, Expression
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.`type`.TypeBuilder
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.vectorized.{ArrowColumnarRow, ArrowWritableColumnVector}
@@ -133,6 +132,10 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
       return ValidationResult.failed(
         "Attribute in the partial projected expressions contains unsupported type")
     }
+    if (projectAttributes.isEmpty) {
+      return ValidationResult.failed(
+        "The partial projected expressions do not reference any child column")
+    }
     if (projectAttributes.size == child.output.size) {
       return ValidationResult.failed(
         "The partial projected expressions need all the columns in child output")
@@ -229,7 +232,7 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
     c2a += System.currentTimeMillis() - start
 
     val schema =
-      SparkShimLoader.getSparkShims.structFromAttributes(replacedAlias.map(_.toAttribute))
+      ExpressionUtils.structFromAttributes(replacedAlias.map(_.toAttribute))
     val vectors: Array[ArrowWritableColumnVector] = ArrowWritableColumnVector
       .allocateColumns(numRows, schema)
       .map {

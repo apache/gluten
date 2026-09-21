@@ -120,7 +120,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Excluded in favour of the GlutenCastWithAnsiOffSuite rewrite, which drops the Long.MinValue
     // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
-    .exclude("SPARK-36286: invalid string cast to timestamp")
     .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenTryCastSuite]
     .exclude(
@@ -314,7 +313,6 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-32649",
       "SPARK-34533",
       "SPARK-34781",
-      "SPARK-35585",
       "SPARK-32932",
       "SPARK-33494",
       "SPARK-33933",
@@ -518,9 +516,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenParquetV1FilterSuite]
     // Rewrite.
     .exclude("SPARK-23852: Broken Parquet push-down for partially-written stats")
-    // Rewrite for supported INT96 - timestamp.
-    .exclude("filter pushdown - timestamp")
-    .exclude("filter pushdown - date")
     // Exception bebaviour.
     .exclude("SPARK-25207: exception when duplicate fields in case-insensitive mode")
     // Ignore Spark's filter pushdown check.
@@ -536,9 +531,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenParquetV2FilterSuite]
     // Rewrite.
     .exclude("SPARK-23852: Broken Parquet push-down for partially-written stats")
-    // Rewrite for supported INT96 - timestamp.
-    .exclude("filter pushdown - timestamp")
-    .exclude("filter pushdown - date")
     // Exception bebaviour.
     .exclude("SPARK-25207: exception when duplicate fields in case-insensitive mode")
     // Ignore Spark's filter pushdown check.
@@ -552,6 +544,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("filter pushdown - StringPredicate")
     .exclude("SPARK-38825: in and notIn filters")
   enableSuite[GlutenParquetInteroperabilitySuite]
+    // Disabled because Velox does not implement Spark’s legacy Impala INT96 timestamp conversion semantics.
     .exclude("parquet timestamp conversion")
   enableSuite[GlutenParquetIOSuite]
     // Velox doesn't write file metadata into parquet file.
@@ -560,8 +553,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-35640: read binary as timestamp should throw schema incompatible error")
     // Exception msg.
     .exclude("SPARK-35640: int as long should throw schema incompatible error")
-    // Velox parquet reader not allow offset zero.
-    .exclude("SPARK-40128 read DELTA_LENGTH_BYTE_ARRAY encoded strings")
     // TODO: fix in Spark-4.0
     .exclude("explode nested lists crossing a rowgroup boundary")
     // TODO: fix on Spark-4.1
@@ -572,10 +563,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
   enableSuite[GlutenParquetProtobufCompatibilitySuite]
   enableSuite[GlutenParquetV1QuerySuite]
-    .exclude("row group skipping doesn't overflow when reading into larger type")
     // Unsupport spark.sql.files.ignoreCorruptFiles.
     .exclude("Enabling/disabling ignoreCorruptFiles")
-    // decimal failed ut
+    // No fix needed: narrowing the scale should not be allowed.
     .exclude("SPARK-34212 Parquet should read decimals correctly")
     // new added in spark-3.3 and need fix later, random failure may caused by memory free
     .exclude("SPARK-39833: pushed filters with project without filter columns")
@@ -583,19 +573,14 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite because the filter after datasource is not needed.
     .exclude(
       "SPARK-26677: negated null-safe equality comparison should not filter matched row groups")
-    // Velox currently does not distinguish `isAdjustedToUTC` in Parquet.
-    .exclude("SPARK-36182: can't read TimestampLTZ as TimestampNTZ")
   enableSuite[GlutenParquetV2QuerySuite]
-    .exclude("row group skipping doesn't overflow when reading into larger type")
     // Unsupport spark.sql.files.ignoreCorruptFiles.
     .exclude("Enabling/disabling ignoreCorruptFiles")
-    // decimal failed ut
+    // No fix needed: narrowing the scale should not be allowed.
     .exclude("SPARK-34212 Parquet should read decimals correctly")
     // Rewrite because the filter after datasource is not needed.
     .exclude(
       "SPARK-26677: negated null-safe equality comparison should not filter matched row groups")
-    // Velox currently does not distinguish `isAdjustedToUTC` in Parquet.
-    .exclude("SPARK-36182: can't read TimestampLTZ as TimestampNTZ")
   enableSuite[GlutenParquetV1SchemaPruningSuite]
   enableSuite[GlutenParquetV2SchemaPruningSuite]
   enableSuite[GlutenParquetRebaseDatetimeV1Suite]
@@ -969,6 +954,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Vanilla spark throw SparkRuntimeException, gluten throw SparkException.
     .exclude("map_concat function")
     .exclude("transform keys function - primitive data types")
+    // Overridden.
+    .exclude("map with arrays")
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
   enableSuite[GlutenDataFrameJoinSuite]
@@ -1226,6 +1213,12 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("NOT NULL checks for nested structs, arrays, maps (byPosition)")
     .exclude("NOT NULL checks for nullable array with required element (byPosition)")
     .exclude("not null checks for fields inside nullable array (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for nullable map with required values (byName)")
+    // Overridden.
+    .exclude("NOT NULL checks for nullable map with required values (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for fields inside nullable maps (byPosition)")
   enableSuite[GlutenTableOptionsConstantFoldingSuite]
   enableSuite[GlutenDeltaBasedMergeIntoTableSuite]
     // Replaced by Gluten versions that handle wrapped exceptions

@@ -38,6 +38,43 @@ For incremental builds, cloud-FS flags, the Spark/Scala/JDK matrix, table-format
 and shuffle profiles, see [docs/get-started/Velox.md](docs/get-started/Velox.md)
 and [docs/get-started/ClickHouse.md](docs/get-started/ClickHouse.md).
 
+## Bolt Local Workflow
+
+For the local Bolt Spark 3.5 workflow in this repo, use JDK 11.
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+```
+
+For this repo's local Bolt workflow, treat `fast-build` as mandatory for
+compile/test iterations. It skips style checks and uses incremental Scala
+compilation to speed up local builds.
+
+For Bolt Spark 3.5 packaging, the profile set aligned with `make test_spark35`
+is:
+
+```bash
+-Pbackends-bolt -Pspark-3.5 -Ppaimon -Phadoop-3.2 -Pceleborn -Piceberg
+```
+
+When using direct Maven commands, pass `-Pfast-build` explicitly.
+
+When using `./dev/run-scala-test.sh`, pass the same profile set in its single
+`-P...` argument, plus `scala-2.12` if needed for target selection. That script
+already appends `fast-build` internally, so the effective invocation still
+includes `fast-build`. For example:
+
+```bash
+./dev/run-scala-test.sh \
+  -Pspark-3.5,scala-2.12,backends-bolt,hadoop-3.2,celeborn,iceberg,paimon \
+  -pl backends-bolt \
+  -s org.apache.spark.sql.catalyst.expressions.BoltCastSuite
+```
+
+Do not pass a separate `-Pfast-build` to `run-scala-test.sh`. That script
+already appends `fast-build` internally; passing another `-P...` overrides the
+earlier profile list and can break reactor module selection.
+
 ## Before Committing
 
 You MUST run the following checks and fix any issues before committing.

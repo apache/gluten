@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.IcebergNestedFieldVisitor
+import org.apache.gluten.config.GlutenConfig.COLUMNAR_PARQUET_WRITE_BLOCK_SIZE
 import org.apache.gluten.config.VeloxConfig.{MAX_TARGET_FILE_SIZE_SESSION, PARQUET_DICT_SIZE_BYTES, PARQUET_PAGE_SIZE_BYTES}
 import org.apache.gluten.connector.write.{ColumnarBatchDataWriterFactory, ColumnarStreamingDataWriterFactory, IcebergDataWriteFactory}
 
@@ -31,6 +32,9 @@ import java.util
 import scala.collection.JavaConverters._
 
 abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
+
+  private val parquetPageRowLimitSession =
+    "spark.gluten.sql.columnar.backend.velox.parquet_writer_page_row_limit"
 
   // the writer factory works for both batch and streaming
   private def createIcebergDataWriteFactory(schema: StructType): IcebergDataWriteFactory = {
@@ -48,12 +52,17 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
 
     Seq(
       PARQUET_PAGE_SIZE_BYTES.key -> getParquetPageSizeBytes,
+      COLUMNAR_PARQUET_WRITE_BLOCK_SIZE.key -> getParquetRowGroupSizeBytes,
+      parquetPageRowLimitSession -> getParquetPageRowLimit,
       MAX_TARGET_FILE_SIZE_SESSION.key -> getTargetFileSizeBytes,
       PARQUET_DICT_SIZE_BYTES.key -> getDictSizeBytes
     ).foreach {
       case (key, value) =>
-        if (SQLConf.get.getConfString(key, null) == null) {
+        val overrideValue = SQLConf.get.getConfString(key, null)
+        if (overrideValue == null) {
           icebergProperties.put(key, value)
+        } else if (key == COLUMNAR_PARQUET_WRITE_BLOCK_SIZE.key) {
+          icebergProperties.put(key, normalizeCapacityString(overrideValue))
         }
     }
 

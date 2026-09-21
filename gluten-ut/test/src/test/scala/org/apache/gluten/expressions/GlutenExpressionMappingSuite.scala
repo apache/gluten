@@ -94,9 +94,7 @@ class GlutenExpressionMappingSuite
     }
   }
 
-  testWithMinSparkVersion(
-    "GLUTEN-7213: Check fallback reason with CheckOverflowInTableInsert",
-    "3.4") {
+  test("GLUTEN-7213: Check fallback reason with CheckOverflowInTableInsert") {
     withTable("t1", "t2") {
       sql("create table t1 (a float) using parquet")
       sql("insert into t1 values(1.1)")

@@ -22,6 +22,7 @@ import org.apache.gluten.extension.columnar.validator.FallbackInjects
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.expressions.aggregate.{Final, Partial}
 import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -417,7 +418,7 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
-  testWithMinSparkVersion("regr_slope", "3.4") {
+  test("regr_slope") {
     runQueryAndCompare("""
                          |select regr_slope(l_partkey, l_suppkey) from lineitem;
                          |""".stripMargin) {
@@ -436,7 +437,7 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
-  testWithMinSparkVersion("regr_intercept", "3.4") {
+  test("regr_intercept") {
     runQueryAndCompare("""
                          |select regr_intercept(l_partkey, l_suppkey) from lineitem;
                          |""".stripMargin) {
@@ -455,7 +456,7 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
-  testWithMinSparkVersion("regr_sxy regr_sxx regr_syy", "3.4") {
+  test("regr_sxy regr_sxx regr_syy") {
     runQueryAndCompare("""
                          |select regr_sxy(l_quantity, l_tax) from lineitem;
                          |""".stripMargin) {
@@ -1201,11 +1202,19 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
       ) {
         df =>
           {
-            assert(
-              getExecutedPlan(df).count(
-                plan => {
-                  plan.isInstanceOf[SortHashAggregateExecTransformer]
-                }) == 2)
+            val executedPlan = getExecutedPlan(df)
+            val sortHashCount =
+              executedPlan.count(_.isInstanceOf[SortHashAggregateExecTransformer])
+            val flushableCount =
+              executedPlan.count(_.isInstanceOf[FlushableHashAggregateExecTransformer])
+            assert(sortHashCount + flushableCount == 2)
+            if (VeloxConfig.get.enableVeloxFlushablePartialAggregation) {
+              assert(sortHashCount == 1)
+              assert(flushableCount == 1)
+            } else {
+              assert(sortHashCount == 2)
+              assert(flushableCount == 0)
+            }
           }
       }
     }
@@ -1257,6 +1266,23 @@ class VeloxAggregateFunctionsFlushSuite extends VeloxAggregateFunctionsSuite {
     }
   }
 
+  test("flushable aggregate rule - single-partition partial aggregate") {
+    withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false") {
+      withTempView("single_partition") {
+        spark
+          .range(0, 10, 1, 1)
+          .selectExpr("id % 2 as k")
+          .createOrReplaceTempView("single_partition")
+        runQueryAndCompare("select k, count(*) from single_partition group by k") {
+          df =>
+            val executedPlan = getExecutedPlan(df)
+            assert(!executedPlan.exists(_.isInstanceOf[ShuffleExchangeLike]))
+            assert(executedPlan.exists(_.isInstanceOf[FlushableHashAggregateExecTransformer]))
+        }
+      }
+    }
+  }
+
   test("flushable aggregate rule - count distinct keeps partial merge regular") {
     withSQLConf(
       SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
@@ -1277,6 +1303,39 @@ class VeloxAggregateFunctionsFlushSuite extends VeloxAggregateFunctionsSuite {
             flushableAggCount == 2,
             s"expected 2 flushable hash aggregates in one-distinct pipeline, got" +
               s" $flushableAggCount")
+      }
+    }
+  }
+
+  test("flushable aggregate rule - distinct feeding a join keeps final agg regular") {
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+      SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+      SQLConf.FILES_MAX_PARTITION_BYTES.key -> "1k") {
+      // The join key is a strict subset of the distinct keys, so the distinct's final aggregate
+      // is repartitioned by a following exchange and thus visited by FlushableHashAggregateRule.
+      // Flushing it would emit duplicate distinct keys and inflate the join output.
+      runQueryAndCompare("""
+                           |select count(*) from orders
+                           |left join (select distinct l_orderkey, l_partkey from lineitem) d
+                           |  on o_orderkey = d.l_orderkey
+                           |""".stripMargin) {
+        df =>
+          val executedPlan = getExecutedPlan(df)
+          val groupingOnlyFinalAggs = executedPlan.collect {
+            case agg: HashAggregateExecTransformer
+                if agg.aggregateExpressions.isEmpty &&
+                  agg.requiredChildDistributionExpressions.isDefined =>
+              agg
+          }
+          assert(
+            groupingOnlyFinalAggs.nonEmpty,
+            "expected the distinct's final aggregate in the plan")
+          assert(
+            groupingOnlyFinalAggs.forall(
+              agg => !agg.isInstanceOf[FlushableHashAggregateExecTransformer]),
+            "the final aggregate of a grouping-only aggregation must not be flushable"
+          )
       }
     }
   }

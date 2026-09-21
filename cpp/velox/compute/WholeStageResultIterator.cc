@@ -670,6 +670,9 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     configs[SparkQueryConfig::qualify(SparkQueryConfig::kJsonIgnoreNullFields)] =
         std::to_string(veloxCfg_->get<bool>(kSparkJsonIgnoreNullFields, true));
 
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kDecimalToFloatHighPrecisionCastEnabled)] =
+        std::to_string(veloxCfg_->get<bool>(kDecimalToFloatHighPrecisionCastEnabled, false));
+
     configs[velox::core::QueryConfig::kExprMaxCompiledRegexes] =
         std::to_string(veloxCfg_->get<int32_t>(kExprMaxCompiledRegexes, 100));
 
