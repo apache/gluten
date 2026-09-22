@@ -32,6 +32,7 @@ import org.apache.spark.sql.execution.{GlutenAutoAdjustStageResourceProfile => G
 import org.apache.spark.sql.execution.adaptive.QueryStageExec
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.execution.command.{DataWritingCommandExec, ExecutedCommandExec}
+import org.apache.spark.sql.execution.datasources.v2.{V2CommandExec, V2TableWriteExec}
 import org.apache.spark.sql.execution.exchange.Exchange
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.{SparkResourceUtil, SparkTestUtil}
@@ -52,8 +53,6 @@ import scala.collection.mutable.ArrayBuffer
  *   3. Partial fallback: if the ratio of fallen (non-Gluten) nodes in a stage exceeds
  *      `spark.gluten.auto.adjustStageResources.fallenNode.ratio.threshold`, heap memory is
  *      increased and off-heap memory is decreased proportionally.
- *
- * * Note: Case 2 and 3 are not applied to final (non-Exchange) stages yet.
  */
 @Experimental
 case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark: SparkSession)
@@ -105,10 +104,6 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
       }
     }
 
-    if (!plan.isInstanceOf[Exchange]) {
-      // todo: support set resource profile for final stage
-      return plan
-    }
     val planNodes = GlutenResourceProfile.collectStagePlan(plan)
     if (planNodes.isEmpty) {
       return plan
@@ -120,11 +115,16 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
     logInfo(s"default memory request $memoryRequest")
     logInfo(s"default offheap request $offheapRequest")
 
+    val countedPlanNodes = planNodes.filterNot(GlutenExplainUtils.shouldIgnoreInFallbackStats)
+    if (countedPlanNodes.isEmpty) {
+      return plan
+    }
+
     // case 1: whole stage fallback to vanilla spark in such case we increase the heap
     //
     // one stage is considered as fallback if all node is not GlutenPlan
     // or all GlutenPlan node is C2R node.
-    val wholeStageFallback = planNodes
+    val wholeStageFallback = countedPlanNodes
       .filter(_.isInstanceOf[GlutenPlan])
       .count(!_.isInstanceOf[ColumnarToRowExecBase]) == 0
     if (wholeStageFallback) {
@@ -147,7 +147,6 @@ case class GlutenAutoAdjustStageResourceProfile(glutenConf: GlutenConfig, spark:
 
     // case 2: check whether fallback exists and decide whether increase heap memory
     // and decrease offheap memory.
-    val countedPlanNodes = planNodes.filterNot(GlutenExplainUtils.shouldIgnoreInFallbackStats)
     val fallenNodeCnt = countedPlanNodes.count {
       case _: GlutenPlan => false
       case i: InMemoryTableScanExec => !PlanUtil.isGlutenTableCache(i)
@@ -184,9 +183,14 @@ object GlutenAutoAdjustStageResourceProfile extends Logging {
   def collectStagePlan(plan: SparkPlan): ArrayBuffer[SparkPlan] = {
 
     def collectStagePlan(plan: SparkPlan, planNodes: ArrayBuffer[SparkPlan]): Unit = {
-      if (plan.isInstanceOf[DataWritingCommandExec] || plan.isInstanceOf[ExecutedCommandExec]) {
-        // todo: support set final stage's resource profile
-        return
+      plan match {
+        // V1/V2 writes have a physical computation child and must remain eligible for profiling.
+        case _: DataWritingCommandExec | _: V2TableWriteExec =>
+        case _: CommandResultExec | _: ExecutedCommandExec | _: V2CommandExec =>
+          // Most commands are DDL and expose no physical input plan. Only few commands
+          // (e.g. InsertIntoDataSourceDirCommand) have a physical child plan.
+          return
+        case _ =>
       }
       planNodes += plan
       if (plan.isInstanceOf[QueryStageExec]) {
@@ -269,9 +273,12 @@ object GlutenAutoAdjustStageResourceProfile extends Logging {
       taskResource: mutable.Map[String, TaskResourceRequest],
       rpManager: ResourceProfileManager,
       sparkConf: SparkConf): SparkPlan = {
-    val rp = new ResourceProfile(executorResource.toMap, taskResource.toMap)
-    val finalRP = getFinalResourceProfile(rpManager, rp)
-    updateResourceSetting(finalRP, sparkConf)
+    lazy val finalRP = {
+      val rp = new ResourceProfile(executorResource.toMap, taskResource.toMap)
+      val profile = getFinalResourceProfile(rpManager, rp)
+      updateResourceSetting(profile, sparkConf)
+      profile
+    }
 
     plan match {
       case shuffle: Exchange =>
@@ -279,6 +286,12 @@ object GlutenAutoAdjustStageResourceProfile extends Logging {
         // Wrap the plan with ApplyResourceProfileExec so that we can apply new ResourceProfile
         val wrapperPlan = ApplyResourceProfileExec(shuffle.child, finalRP)
         shuffle.withNewChildren(Seq(wrapperPlan))
+      case command: DataWritingCommandExec =>
+        logInfo(s"Apply resource profile $finalRP for write input ${command.child.nodeName}")
+        command.withNewChildren(Seq(ApplyResourceProfileExec(command.child, finalRP)))
+      case write: V2TableWriteExec =>
+        logInfo(s"Apply resource profile $finalRP for V2 write input ${write.child.nodeName}")
+        write.withNewChildren(Seq(ApplyResourceProfileExec(write.child, finalRP)))
       case other =>
         logInfo(s"Apply resource profile $finalRP for plan ${other.nodeName}")
         ApplyResourceProfileExec(other, finalRP)
