@@ -71,6 +71,16 @@ case-sensitive paths must be validated independently. The following areas are no
 - Partition-column edge cases beyond the Delta optimised writer
 - General write paths (other than Delta optimised writer)
 
+**Known pre-existing issue (not introduced by this PR):**
+
+Aggregation queries (`GROUP BY`) on Iceberg tables that use CamelCase or mixed-case column names
+on a partitioned table may return incorrect results when Gluten native execution is active. The
+symptom is a single row containing corrupted binary data instead of correct aggregated output.
+This occurs only when the group-by column is not the first physical column in the Parquet file
+and the Velox partial aggregation path is involved. Plain `SELECT` without aggregation returns
+correct results. Workaround: set `spark.gluten.enabled=false` for affected aggregation queries,
+or use all-lowercase column names. This issue should be tracked and fixed independently.
+
 #### Regexp functions
 In Velox, regexp functions (`rlike`, `regexp_extract`, etc.) are implemented based on RE2, while in Spark they are based on `java.util.regex`.
 * Lookaround (lookahead/lookbehind) pattern is not supported in RE2.

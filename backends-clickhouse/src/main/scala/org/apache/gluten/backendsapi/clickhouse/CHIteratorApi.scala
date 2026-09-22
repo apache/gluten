@@ -59,7 +59,7 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
     // Use Spark's resolver for pairwise identifier equality.
     // Under caseSensitive=true the resolver is exact equality; under false it is
     // case-insensitive.  This is the correct contract for matching schema field names
-    // to plan output attribute names — it avoids the normalised-Map approach which
+    // to plan output attribute names -- it avoids the normalised-Map approach which
     // can silently discard one of two case-variant keys under case-insensitive mode.
     val resolver = org.apache.spark.sql.internal.SQLConf.get.resolver
     schema.foreach {
