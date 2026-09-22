@@ -74,9 +74,17 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
     }
   }
 
-  test("bround JVM validation does not change round validation") {
-    val expression = new Round(BoundReference(0, DoubleType, nullable = true), Literal(2))
-    assert(validator.doExprValidate("round", expression))
+  test("bround compatibility checks do not change round validation") {
+    Seq(MIN_BROUND_SCALE - 1, -3, 0, 2, MAX_BROUND_SCALE + 1).foreach {
+      scale =>
+        val child = BoundReference(0, DoubleType, nullable = true)
+        val round = new Round(child, Literal(scale))
+        val bround = new BRound(child, Literal(scale))
+        assert(validator.doExprValidate("round", round))
+        val expectNativeBround = scale >= MIN_BROUND_SCALE && scale <= MAX_BROUND_SCALE &&
+          (scale == 0 || Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION))
+        assert(validator.doExprValidate("bround", bround) == expectNativeBround)
+    }
   }
 
   test("unsupported bround scales are rejected before deferred native initialization") {

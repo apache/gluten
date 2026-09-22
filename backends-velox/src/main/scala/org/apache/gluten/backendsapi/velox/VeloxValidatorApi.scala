@@ -46,8 +46,8 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
   /** For velox backend, key validation is on native side. */
   override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = {
     expr match {
-      case round: BRound =>
-        round.scale match {
+      case bround: BRound =>
+        bround.scale match {
           case Literal(null, IntegerType) => true
           case Literal(scale: Int, IntegerType) =>
             if (scale < MIN_BROUND_SCALE || scale > MAX_BROUND_SCALE) {
@@ -58,7 +58,7 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
               false
             } else if (
               scale != 0 &&
-              (round.child.dataType == FloatType || round.child.dataType == DoubleType) &&
+              (bround.child.dataType == FloatType || bround.child.dataType == DoubleType) &&
               !Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION)
             ) {
               logDebug(
