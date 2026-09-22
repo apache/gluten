@@ -1303,6 +1303,33 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_seriali
   JNI_METHOD_END()
 }
 
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_memory_VeloxCacheJniWrapper_setCacheCapacity( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong from,
+    jlong to) {
+  JNI_METHOD_START
+  auto* backend = gluten::VeloxBackend::get();
+  auto* allocator = backend->getCacheAllocator();
+  auto* cache = backend->getAsyncDataCache();
+  if (allocator == nullptr || cache == nullptr) {
+    return 0L;
+  }
+  VELOX_CHECK_GE(from, 0, "Cache capacity cannot be negative");
+  VELOX_CHECK_GE(to, 0, "Cache capacity cannot be negative");
+  const auto want = static_cast<size_t>(to);
+
+  // Give the memory up before narrowing the cap, so that the caller can repay
+  // exactly what was freed. Evicting is best effort: pinned entries stay, and
+  // shrink() asserts a positive argument.
+  const auto used = allocator->allocatedBytes();
+  if (used > want) {
+    cache->shrink(used - want);
+  }
+  return static_cast<jlong>(allocator->setCapacity(static_cast<size_t>(from), want));
+  JNI_METHOD_END(0L)
+}
+
 #ifdef __cplusplus
 }
 #endif
