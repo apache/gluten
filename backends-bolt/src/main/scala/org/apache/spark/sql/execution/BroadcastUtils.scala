@@ -19,8 +19,8 @@ package org.apache.spark.sql.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.BoltConfig
-import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.expression.ExpressionUtils
+import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.vectorized.{ColumnarBatchSerializeResult, ColumnarBatchSerializerJniWrapper}
 
 import org.apache.spark.SparkContext
