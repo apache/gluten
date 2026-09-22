@@ -427,7 +427,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
       GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
         events =>
-          // Execute a query with gluten disabled — this mimics what runQueryAndCompare does for
+          // Execute a query with gluten disabled -- this mimics what runQueryAndCompare does for
           // the vanilla baseline run. No GlutenPlanFallbackEvent should be emitted at all.
           spark.sql("SELECT c1, count(*) FROM tmp1 GROUP BY c1").collect()
           GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
@@ -732,7 +732,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
 
   test(
     "PushDownInputFileExpression: Input_File_Name data column and input_file_name() " +
-      "under caseSensitive=false — collision detection triggers fallback (Parquet)") {
+      "under caseSensitive=false -- collision detection triggers fallback (Parquet)") {
     // Under caseSensitive=false the user column `Input_File_Name` normalises to
     // `input_file_name` which matches the metadata sentinel.
     // containsInputFileRelatedExpr uses the SQLConf resolver, so under caseSensitive=false
@@ -740,7 +740,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     // will add a fallback tag.  This test verifies:
     //   1. The physical `Input_File_Name` column values are preserved.
     //   2. The input_file_name() function returns a non-empty file path.
-    //   3. The two are not confused with each other (data value ≠ file path).
+    //   3. The two are not confused with each other (data value != file path).
     //   4. Results match vanilla Spark (runQueryAndCompare enforces this).
     // noFallBack=false because the fallback tag is the correct, expected behavior here.
     withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
@@ -774,7 +774,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
 
           try {
             // Under caseSensitive=false `Input_File_Name` normalises to `input_file_name`,
-            // matching the sentinel — Gluten falls back.  The results must still be correct.
+            // matching the sentinel -- Gluten falls back.  The results must still be correct.
             runQueryAndCompare(
               "SELECT `Input_File_Name`, input_file_name() AS fname " +
                 "FROM pushdown_input_ci ORDER BY `Input_File_Name`",
@@ -813,8 +813,8 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   // (Scenarios 3, 6, 7 from the review requirements that are not covered above)
   // ---------------------------------------------------------------------------
 
-  // Scenario 3 – Ambiguous identifier: caseSensitive=false uses case-insensitive resolution
-  test("case-sensitive mode: ambiguous identifier — caseSensitive=false case-insensitive lookup") {
+  // Scenario 3 - Ambiguous identifier: caseSensitive=false uses case-insensitive resolution
+  test("case-sensitive mode: ambiguous identifier -- caseSensitive=false case-insensitive lookup") {
     withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
       // tmp1 has lowercase columns c1, c2 written under case-insensitive defaults.
       // Under caseSensitive=false, C1/c1/C2/c2 all resolve to the same columns.
@@ -833,11 +833,11 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
-  // Scenario 6 – input_file_name() expression under both caseSensitive modes (FileSource)
+  // Scenario 6 - input_file_name() expression under both caseSensitive modes (FileSource)
   test("case-sensitive mode: input_file_name() returns non-empty paths (caseSensitive=true)") {
     // tmp1 is a Parquet-backed table with lowercase columns.
     // Under caseSensitive=true the column names are already lowercase so there is
-    // no collision with the "input_file_name" metadata sentinel — the function must work.
+    // no collision with the "input_file_name" metadata sentinel -- the function must work.
     withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
       runQueryAndCompare(
         "SELECT c1, input_file_name() AS fname FROM tmp1 LIMIT 5",
@@ -848,7 +848,8 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
           assert(rows.nonEmpty, "Expected at least one row")
           assert(
             rows.forall(r => r.getString(1) != null && r.getString(1).nonEmpty),
-            s"input_file_name() must be non-empty, got: ${rows.map(_.getString(1)).mkString(", ")}")
+            s"input_file_name() must be non-empty, got: ${rows.map(_.getString(1)).mkString(", ")}"
+          )
       }
     }
   }
@@ -864,12 +865,13 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
           assert(rows.nonEmpty, "Expected at least one row")
           assert(
             rows.forall(r => r.getString(1) != null && r.getString(1).nonEmpty),
-            s"input_file_name() must be non-empty, got: ${rows.map(_.getString(1)).mkString(", ")}")
+            s"input_file_name() must be non-empty, got: ${rows.map(_.getString(1)).mkString(", ")}"
+          )
       }
     }
   }
 
-  // Scenario 7 – Aggregation under both caseSensitive modes
+  // Scenario 7 - Aggregation under both caseSensitive modes
   test("case-sensitive mode: aggregation produces correct results (caseSensitive=true)") {
     withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
       runQueryAndCompare(
@@ -886,7 +888,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
 
   test("case-sensitive mode: aggregation produces correct results (caseSensitive=false)") {
     withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
-      // Same query but with upper-case column refs — must still use native aggregation.
+      // Same query but with upper-case column refs -- must still use native aggregation.
       runQueryAndCompare(
         "SELECT C1, count(*) AS cnt, sum(C2) AS total FROM tmp1 GROUP BY C1 ORDER BY C1"
       ) {

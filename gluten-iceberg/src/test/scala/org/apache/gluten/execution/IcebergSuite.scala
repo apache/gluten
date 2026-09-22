@@ -26,6 +26,7 @@ import org.apache.spark.sql.util.QueryExecutionListener
 
 import org.apache.iceberg.spark.source.GlutenIcebergSourceUtil
 
+import java.util.Locale
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 
 abstract class IcebergSuite extends WholeStageTransformerSuite {
@@ -967,7 +968,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  test("case-sensitive mode: lowercase input_file_name as data column — platform compatibility") {
+  test("case-sensitive mode: lowercase input_file_name as data column -- platform compatibility") {
     // The exact name "input_file_name" (all lowercase) collides with the Spark built-in
     // function of the same name.  Whether a user column with that exact name can be
     // created in an Iceberg table is a platform question, not a Gluten question:
@@ -985,7 +986,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     // Any Error (OOM, AssertionError inside the SQL engine) is allowed to propagate normally.
     withSQLConf("spark.sql.caseSensitive" -> "true") {
       withTable("iceberg_exact_collision") {
-        // ── 1. CREATE TABLE ───────────────────────────────────────────────────
+        // -- 1. CREATE TABLE ---------------------------------------------------
         // Narrow to AnalysisException: that is what the Spark analyzer throws
         // when a column name conflicts with a reserved function name or catalog
         // rules.  Any other exception (OOM, Gluten bug, etc.) must propagate.
@@ -1005,9 +1006,10 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
           createException.isEmpty,
           s"Spark analyzer rejected CREATE TABLE with column named 'input_file_name' " +
             s"(expected platform limitation, not a Gluten defect): " +
-            s"${createException.map(_.getMessage).getOrElse("")}")
+            s"${createException.map(_.getMessage).getOrElse("")}"
+        )
 
-        // ── 2. INSERT ─────────────────────────────────────────────────────────
+        // -- 2. INSERT ---------------------------------------------------------
         // Use a value that is clearly not a file path so we can distinguish it
         // from the result of the input_file_name() function later.
         // Narrow to AnalysisException: Spark may resolve "input_file_name" as a
@@ -1028,12 +1030,13 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
           insertException.isEmpty,
           s"Spark analyzer rejected INSERT INTO table with column named 'input_file_name' " +
             s"(expected platform limitation, not a Gluten defect): " +
-            s"${insertException.map(_.getMessage).getOrElse("")}")
+            s"${insertException.map(_.getMessage).getOrElse("")}"
+        )
 
-        // ── 3. Verify Gluten correctness: data column and function are distinct ─
+        // -- 3. Verify Gluten correctness: data column and function are distinct -
         // Both CREATE and INSERT succeeded: Gluten must return the user data value
         // from the physical column AND a non-empty file path from the function.
-        // They must be different values — if the pre-fix bug is present the physical
+        // They must be different values -- if the pre-fix bug is present the physical
         // column would be replaced by the function result, making them equal.
         val df = runAndCompare("""
                                  |SELECT id, input_file_name, input_file_name() AS fname
@@ -1053,17 +1056,18 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
         assert(
           fname != null && fname.nonEmpty,
           s"input_file_name() must return a non-empty path, got: '$fname'")
-        // The two must not be equal — if they are, the old conflation bug is present.
+        // The two must not be equal -- if they are, the old conflation bug is present.
         assert(
           rows(0).getString(1) != rows(0).getString(2),
           s"Physical column and function result must differ: " +
-            s"col='${rows(0).getString(1)}', fn='${rows(0).getString(2)}'")
+            s"col='${rows(0).getString(1)}', fn='${rows(0).getString(2)}'"
+        )
       }
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Comprehensive case-sensitivity tests — 7 required scenarios
+  // Comprehensive case-sensitivity tests -- 7 required scenarios
   //
   // These tests cover both spark.sql.caseSensitive=true and =false.
   // Under caseSensitive=true a table may have distinct columns id/ID/Id/iD
@@ -1072,11 +1076,11 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
   // Spark's catalog/analyzer will reject a schema with duplicates.
   // ---------------------------------------------------------------------------
 
-  // Scenario 1 – Exact column resolution: each column resolves to its own distinct value.
+  // Scenario 1 - Exact column resolution: each column resolves to its own distinct value.
   // NOTE: Iceberg/Spark will reject a schema with columns that differ only in case when
   // caseSensitive=false (duplicate column error), so the four-column fixture is only
-  // attempted when it is actually supported (guarded by assume).  The primary assertion –
-  // that exact column names return their own values – is always exercised.
+  // attempted when it is actually supported (guarded by assume).  The primary assertion -
+  // that exact column names return their own values - is always exercised.
   test("case-sensitivity: exact column resolution (caseSensitive=true)") {
     withSQLConf("spark.sql.caseSensitive" -> "true") {
       withTable("iceberg_cs_exact") {
@@ -1084,14 +1088,15 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
         // Iceberg may reject this at the catalog level even under caseSensitive=true
         // because many catalog implementations normalize names to lowercase.
         // Narrow to AnalysisException: other exceptions are unexpected and must propagate.
-        val createEx: Option[AnalysisException] = try {
-          spark.sql("""
-                      |CREATE TABLE iceberg_cs_exact
-                      |  (id INT, ID INT, Id INT, iD INT)
-                      |USING iceberg
-                      |""".stripMargin)
-          None
-        } catch { case e: AnalysisException => Some(e) }
+        val createEx: Option[AnalysisException] =
+          try {
+            spark.sql("""
+                        |CREATE TABLE iceberg_cs_exact
+                        |  (id INT, ID INT, Id INT, iD INT)
+                        |USING iceberg
+                        |""".stripMargin)
+            None
+          } catch { case e: AnalysisException => Some(e) }
 
         if (createEx.isDefined) {
           // Four-column case-distinct schema is not supported on this platform.
@@ -1132,7 +1137,8 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
               val vals = df.collect().map(_.getInt(0))
               assert(
                 vals.contains(expected),
-                s"Column '$col' should contain $expected under caseSensitive=true, got: ${vals.mkString(",")}")
+                s"Column '$col' should contain $expected under caseSensitive=true, " +
+                  s"got: ${vals.mkString(",")}")
           }
 
           // Incorrect casing must NOT resolve to a different column's value.
@@ -1148,7 +1154,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // Scenario 2 – Mixed-case identifier lookup under caseSensitive=false.
+  // Scenario 2 - Mixed-case identifier lookup under caseSensitive=false.
   // Under case-insensitive mode any casing of an identifier resolves to the same physical column.
   test("case-sensitivity: mixed-case identifier lookup (caseSensitive=false)") {
     withSQLConf("spark.sql.caseSensitive" -> "false") {
@@ -1177,7 +1183,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // Scenario 3 — Test B: Ambiguous identifier resolution under caseSensitive=false.
+  // Scenario 3 -- Test B: Ambiguous identifier resolution under caseSensitive=false.
   // A table containing two columns that differ only by case cannot be created when
   // caseSensitive=false because Spark's analyzer treats them as duplicates.  This test
   // verifies that attempting such a schema fails at the DDL level (Spark's own behavior),
@@ -1188,8 +1194,9 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
   test("case-sensitivity: ambiguous column schema is rejected at DDL level (caseSensitive=false)") {
     withSQLConf("spark.sql.caseSensitive" -> "false") {
       withTable("iceberg_ci_dup") {
-        // Spark with caseSensitive=false must reject a schema where two columns differ only in case.
-        // This is Spark's own behavior — Gluten must not weaken it.
+        // Spark with caseSensitive=false must reject a schema where two columns
+        // differ only in case.
+        // This is Spark's own behavior -- Gluten must not weaken it.
         // Narrow to AnalysisException: that is what Spark's analyzer raises for duplicate columns.
         val ex = intercept[AnalysisException] {
           spark.sql("""
@@ -1200,16 +1207,17 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
         // Spark raises an AnalysisException about duplicate/ambiguous column names.
         val msg = ex.getMessage + Option(ex.getCause).map(_.getMessage).getOrElse("")
         assert(
-          msg.toLowerCase.contains("duplicate") ||
-            msg.toLowerCase.contains("ambiguous") ||
-            msg.toLowerCase.contains("already exists") ||
-            msg.toLowerCase.contains("column"),
-          s"Expected a duplicate/ambiguous column error but got: $msg")
+          msg.toLowerCase(Locale.ROOT).contains("duplicate") ||
+            msg.toLowerCase(Locale.ROOT).contains("ambiguous") ||
+            msg.toLowerCase(Locale.ROOT).contains("already exists") ||
+            msg.toLowerCase(Locale.ROOT).contains("column"),
+          s"Expected a duplicate/ambiguous column error but got: $msg"
+        )
       }
     }
   }
 
-  // Scenario 4 – Projection and filtering
+  // Scenario 4 - Projection and filtering
   test("case-sensitivity: projection and filtering (caseSensitive=true)") {
     withSQLConf("spark.sql.caseSensitive" -> "true") {
       withTable("iceberg_cs_proj") {
@@ -1222,7 +1230,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
                     |(1, 100, 'a'), (2, 200, 'b'), (3, 300, 'c')
                     |""".stripMargin)
 
-        // Project subset + filter — both must be correctly resolved and offloaded.
+        // Project subset + filter -- both must be correctly resolved and offloaded.
         val df = runAndCompare("""
                                  |SELECT id, tag FROM iceberg_cs_proj
                                  |WHERE value > 100
@@ -1264,7 +1272,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // Scenario 7 – Aggregation
+  // Scenario 7 - Aggregation
   test("case-sensitivity: aggregation (caseSensitive=true)") {
     withSQLConf("spark.sql.caseSensitive" -> "true") {
       withTable("iceberg_cs_agg") {
