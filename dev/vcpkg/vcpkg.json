@@ -48,6 +48,7 @@
         "xsimd",
         "simdjson",
         "xxhash",
+        "libxml2",
         "protobuf",
         "benchmark",
         "icu",
