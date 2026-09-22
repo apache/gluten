@@ -176,7 +176,7 @@ public class RelBuilder {
       List<String> names,
       List<List<Expression.Literal>> rows,
       SubstraitContext context,
-      Long operatorId) {
+      long operatorId) {
     RelNode node = new VirtualTableRelNode(types, names, rows);
     context.registerRelToOperator(operatorId);
     return node;

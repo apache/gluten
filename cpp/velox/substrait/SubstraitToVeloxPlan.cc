@@ -1715,6 +1715,9 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
     // the whole table.
     const ::substrait::Expression_Nested_Struct& rowValue = readVirtualTable.expressions(index);
     const int64_t fieldSize = rowValue.fields_size();
+    if (!readRel.has_base_schema()) {
+      VELOX_USER_CHECK_EQ(fieldSize, 0, "ReadRel.VirtualTable without base_schema cannot contain fields.");
+    }
     // For the empty vectors, eg,vectors = makeRowVector(ROW({}, {}), 1).
     const int64_t batchSize = numColumns == 0 ? 1 : fieldSize / numColumns;
     VELOX_USER_CHECK_EQ(

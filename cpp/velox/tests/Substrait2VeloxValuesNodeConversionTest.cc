@@ -19,6 +19,7 @@
 #include "JsonToProtoConverter.h"
 
 #include <algorithm>
+#include <unordered_map>
 
 #include "velox/common/base/Fs.h"
 #include "velox/common/base/tests/GTestUtils.h"
@@ -269,6 +270,29 @@ TEST_F(Substrait2VeloxValuesNodeConversionTest, rejectsMalformedEmptySchemaValue
     VELOX_ASSERT_THROW(
         planConverter->toVeloxPlan(substraitPlan),
         "ReadRel.VirtualTable field count must be a multiple of the column count.");
+  }
+}
+
+TEST_F(Substrait2VeloxValuesNodeConversionTest, rejectsVirtualTableFieldsWithoutBaseSchemaInAllModes) {
+  auto planPath = FilePathGenerator::getDataFilePath("substrait_virtualTable.json");
+  for (const bool validationMode : {false, true}) {
+    ::substrait::Plan substraitPlan;
+    JsonToProtoConverter::readFromFile(planPath, substraitPlan);
+    substraitPlan.mutable_relations(0)->mutable_root()->mutable_input()->mutable_read()->clear_base_schema();
+
+    auto veloxCfg =
+        std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
+    auto planConverter = std::make_shared<SubstraitToVeloxPlanConverter>(
+        pool_.get(),
+        veloxCfg.get(),
+        std::vector<std::shared_ptr<ResultIterator>>{},
+        VeloxConnectorIds{},
+        std::nullopt,
+        std::nullopt,
+        validationMode);
+
+    VELOX_ASSERT_THROW(
+        planConverter->toVeloxPlan(substraitPlan), "ReadRel.VirtualTable without base_schema cannot contain fields.");
   }
 }
 
