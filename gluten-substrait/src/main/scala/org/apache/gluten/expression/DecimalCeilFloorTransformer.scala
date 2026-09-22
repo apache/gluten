@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, DecimalType}
 
 /**
@@ -39,13 +40,45 @@ case class DecimalCeilFloorTransformer(
     scaleExpr: Expression)
   extends BinaryExpressionTransformer {
 
+  // Velox's `decimal_ceil` / `decimal_floor` return NULL when the rounded result exceeds the
+  // declared decimal precision, whereas Spark's `RoundBase` raises a precision-overflow error
+  // under ANSI mode (e.g. DECIMAL(38, 0) at its maximum value rounded with a negative scale).
+  // Offloading under ANSI would silently substitute NULL for that error, so fall back to vanilla
+  // Spark and preserve the ANSI semantics. Under non-ANSI mode Spark also returns NULL on
+  // overflow, matching Velox, so offloading is safe.
+  if (SQLConf.get.ansiEnabled) {
+    throw new GlutenNotSupportException(
+      s"${original.nodeName} on decimal is not offloaded under ANSI mode because Velox returns " +
+        "NULL on precision overflow while Spark raises. Falling back to Spark.")
+  }
+
+  // Spark requires the scale to be a foldable integer literal, but guard defensively so any
+  // non-foldable scale, evaluation failure, or unexpected value type triggers a clean fallback
+  // via GlutenNotSupportException instead of aborting the whole transformation.
   private val toScale: Int = {
-    val evaluated = scaleExpr.eval(EmptyRow)
-    if (evaluated == null) {
+    if (!scaleExpr.foldable) {
       throw new GlutenNotSupportException(
-        s"Scale expression evaluated to null for ${original.nodeName}. Falling back to Spark.")
+        s"Scale expression is not foldable for ${original.nodeName}. Falling back to Spark.")
     }
-    evaluated.asInstanceOf[Int]
+    val evaluated =
+      try {
+        scaleExpr.eval(EmptyRow)
+      } catch {
+        case e: Exception =>
+          throw new GlutenNotSupportException(
+            s"Failed to evaluate scale expression for ${original.nodeName}: ${e.getMessage}. " +
+              "Falling back to Spark.")
+      }
+    evaluated match {
+      case null =>
+        throw new GlutenNotSupportException(
+          s"Scale expression evaluated to null for ${original.nodeName}. Falling back to Spark.")
+      case i: Int => i
+      case other =>
+        throw new GlutenNotSupportException(
+          s"Scale expression for ${original.nodeName} is expected to be an int but evaluated to " +
+            s"${other.getClass.getSimpleName}. Falling back to Spark.")
+    }
   }
 
   override val dataType: DataType = original.children.head.dataType match {
