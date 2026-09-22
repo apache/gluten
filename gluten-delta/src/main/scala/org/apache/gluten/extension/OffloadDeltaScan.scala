@@ -94,15 +94,15 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
     }))
   }
 
-  private def scanReadsRowIndexColumn(scan: FileSourceScanExec): Boolean = {
-    scanReadsColumn(scan, isRowIndexColumn)
-  }
-
   private def scanReadsGeneratedDeletionVectorMetadataColumn(
       scan: FileSourceScanExec): Boolean = {
     scanReadsColumn(
       scan,
       (name, _) => generatedDeletionVectorMetadataColumnNames.contains(name))
+  }
+
+  private def scanReadsRowIndexColumn(scan: FileSourceScanExec): Boolean = {
+    scanReadsColumn(scan, isRowIndexColumn)
   }
 
   private def scanReadsColumn(
