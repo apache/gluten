@@ -181,7 +181,23 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         children :+ LiteralTransformer(Literal(original.ansiEnabled))
       case _ => children
     }
-    GenericExpressionTransformer(substraitExprName, arguments, original)
+    VeloxRoundingExpressionTransformer(substraitExprName, arguments, original)
+  }
+
+  override def genRoundTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      original: Round): ExpressionTransformer = {
+    val arguments = original.child.dataType match {
+      case ByteType | ShortType | IntegerType | LongType =>
+        children :+ LiteralTransformer(Literal(original.ansiEnabled))
+      case _ => children
+    }
+    val nativeName = original.child.dataType match {
+      case _: DecimalType => "decimal_spark_round"
+      case _ => "spark_round"
+    }
+    VeloxRoundingExpressionTransformer(nativeName, arguments, original)
   }
 
   /** Transform map_entries to Substrait. */

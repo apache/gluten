@@ -16,11 +16,11 @@
  */
 package org.apache.gluten.backendsapi.velox
 
-import org.apache.gluten.expression.LiteralTransformer
+import org.apache.gluten.expression.{ConverterUtils, LiteralTransformer}
 import org.apache.gluten.substrait.SubstraitContext
 
 import org.apache.spark.sql.catalyst.expressions.{BRound, Literal}
-import org.apache.spark.sql.types.Decimal
+import org.apache.spark.sql.types.{BooleanType, Decimal, IntegerType}
 
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -39,8 +39,11 @@ class VeloxBRoundTransformerSuite extends AnyFunSuite {
                 "bround",
                 Seq(LiteralTransformer(value), LiteralTransformer(scale)),
                 original)
-              val function =
-                transformed.doTransform(new SubstraitContext).toProtobuf.getScalarFunction
+              val context = new SubstraitContext
+              val function = transformed.doTransform(context).toProtobuf.getScalarFunction
+              assert(context.registeredFunction.containsKey(ConverterUtils.makeFuncName(
+                "bround",
+                Seq(value.dataType, IntegerType, BooleanType))))
               assert(function.getArgumentsCount == 3)
               val mode = function.getArguments(2).getValue.getLiteral
               assert(mode.hasBoolean)
@@ -58,7 +61,10 @@ class VeloxBRoundTransformerSuite extends AnyFunSuite {
           "bround",
           Seq(LiteralTransformer(value), LiteralTransformer(scale)),
           original)
-        val function = transformed.doTransform(new SubstraitContext).toProtobuf.getScalarFunction
+        val context = new SubstraitContext
+        val function = transformed.doTransform(context).toProtobuf.getScalarFunction
+        assert(context.registeredFunction.containsKey(
+          ConverterUtils.makeFuncName("bround", Seq(value.dataType, IntegerType))))
         assert(function.getArgumentsCount == 2)
     }
   }

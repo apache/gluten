@@ -278,7 +278,7 @@
 | randn             | Randn                  | S        |                |
 | random            | Rand                   | S        |                |
 | rint              | Rint                   | S        |                |
-| round             | Round                  | S        |                |
+| round             | Round                  | PS       | Requires Velox `spark_round` / `decimal_spark_round` capability. Constant INTEGER scales [-400, 400], including negative scales, are supported. Nonzero FLOAT/DOUBLE scales require Java 21 or later; unsupported cases retain Spark execution. |
 | sec               | Sec                    | S        |                |
 | shiftleft         | ShiftLeft              | S        |                |
 | sign              | Signum                 | S        |                |
@@ -295,9 +295,14 @@
 | unhex             | Unhex                  | S        |                |
 | width_bucket      | WidthBucket            | S        |                |
 
-BROUND's scale bounds and minimum Java version for nonzero-scale floating-point inputs
-are defined by `MIN_BROUND_SCALE`, `MAX_BROUND_SCALE`, and `MIN_BROUND_FLOATING_JAVA_VERSION`
+ROUND and BROUND share scale bounds and a minimum Java version for nonzero-scale floating-point inputs.
+These are defined by `MIN_ROUNDING_SCALE`, `MAX_ROUNDING_SCALE`, and `MIN_ROUNDING_FLOATING_JAVA_VERSION`
 in [`VeloxValidatorApi`](../backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxValidatorApi.scala).
+
+ROUND validates the exact capability-specific native call even when general native
+validation is disabled. An older dependency without these functions retains Spark
+execution rather than using Gluten's legacy `round` overlay. Integral calls carry
+the expression's captured ANSI mode, including after a session setting changes.
 
 ## Misc Functions
 

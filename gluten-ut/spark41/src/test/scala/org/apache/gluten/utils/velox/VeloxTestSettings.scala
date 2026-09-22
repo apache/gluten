@@ -1098,6 +1098,7 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: fix on Spark-4.1 introduced by https://github.com/apache/spark/pull/47856
     .exclude("SPARK-49386: test SortMergeJoin (with spill by size threshold)")
   enableSuite[GlutenBRoundSuite]
+  enableSuite[GlutenRoundSuite]
   enableSuite[GlutenMathFunctionsSuite]
   enableSuite[GlutenMapStatusEndToEndSuite]
   enableSuite[GlutenMetadataCacheSuite]

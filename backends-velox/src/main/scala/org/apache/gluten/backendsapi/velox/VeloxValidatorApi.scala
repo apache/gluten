@@ -19,6 +19,7 @@ package org.apache.gluten.backendsapi.velox
 import org.apache.gluten.backendsapi.{BackendsApiManager, ValidatorApi}
 import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.execution.ValidationResult
+import org.apache.gluten.expression.{ConverterUtils, LiteralTransformer}
 import org.apache.gluten.substrait.`type`.TypeNode
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.ExpressionNode
@@ -28,7 +29,7 @@ import org.apache.gluten.validate.NativePlanValidationInfo
 import org.apache.gluten.vectorized.NativePlanEvaluator
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BRound, Expression, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BRound, Expression, Literal, Round}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.types._
@@ -39,6 +40,7 @@ import io.substrait.proto.SimpleExtensionDeclaration
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Properties
+import scala.util.control.NonFatal
 
 class VeloxValidatorApi extends ValidatorApi with Logging {
   import VeloxValidatorApi._
@@ -46,24 +48,46 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
   /** For velox backend, key validation is on native side. */
   override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = {
     expr match {
+      case round: Round =>
+        round.scale match {
+          case scale @ Literal(null, IntegerType) =>
+            validateRoundCapability(round, scale)
+          case literal @ Literal(scale: Int, IntegerType) =>
+            val supportedScale = scale >= MIN_ROUNDING_SCALE && scale <= MAX_ROUNDING_SCALE
+            val needsModernJava = scale != 0 &&
+              (round.child.dataType == FloatType || round.child.dataType == DoubleType)
+            if (
+              !supportedScale ||
+              (needsModernJava && !Properties.isJavaAtLeast(MIN_ROUNDING_FLOATING_JAVA_VERSION))
+            ) {
+              logDebug(
+                "round scale or JVM decimal conversion is unsupported; falling back to Spark.")
+              false
+            } else {
+              validateRoundCapability(round, literal)
+            }
+          case _ =>
+            logDebug("round scale must be a folded INTEGER literal; falling back to Spark.")
+            false
+        }
       case round: BRound =>
         round.scale match {
           case Literal(null, IntegerType) => true
           case Literal(scale: Int, IntegerType) =>
-            if (scale < MIN_BROUND_SCALE || scale > MAX_BROUND_SCALE) {
+            if (scale < MIN_ROUNDING_SCALE || scale > MAX_ROUNDING_SCALE) {
               logDebug(
                 s"bround scale $scale is outside the native " +
-                  s"[$MIN_BROUND_SCALE, $MAX_BROUND_SCALE] interval; " +
+                  s"[$MIN_ROUNDING_SCALE, $MAX_ROUNDING_SCALE] interval; " +
                   "falling back to Spark.")
               false
             } else if (
               scale != 0 &&
               (round.child.dataType == FloatType || round.child.dataType == DoubleType) &&
-              !Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION)
+              !Properties.isJavaAtLeast(MIN_ROUNDING_FLOATING_JAVA_VERSION)
             ) {
               logDebug(
                 "Floating-point bround with nonzero scale requires " +
-                  s"Java $MIN_BROUND_FLOATING_JAVA_VERSION or later " +
+                  s"Java $MIN_ROUNDING_FLOATING_JAVA_VERSION or later " +
                   "for matching decimal conversion; falling back to Spark.")
               false
             } else {
@@ -74,6 +98,31 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
             false
         }
       case _ => true
+    }
+  }
+
+  private def validateRoundCapability(round: Round, scale: Literal): Boolean = {
+    // Bare round is present in older dependencies and may be shadowed by Gluten's overlay.
+    val value = Literal.default(round.child.dataType)
+    val probe = new Round(value, scale, round.ansiEnabled)
+    val context = new SubstraitContext
+    val transformer = new VeloxSparkPlanExecApi().genRoundTransformer(
+      "round",
+      Seq(LiteralTransformer(value), LiteralTransformer(scale)),
+      probe)
+    try {
+      val supported = doNativeValidateExpression(
+        context,
+        transformer.doTransform(context),
+        ConverterUtils.getTypeNode(StructType(Nil), nullable = false))
+      if (!supported) {
+        logDebug("Native Spark-compatible round capability is unavailable; falling back to Spark.")
+      }
+      supported
+    } catch {
+      case NonFatal(error) =>
+        logWarning("Could not validate native round capability; falling back to Spark.", error)
+        false
     }
   }
 
@@ -136,9 +185,9 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
 }
 
 object VeloxValidatorApi {
-  val MIN_BROUND_SCALE: Int = -400
-  val MAX_BROUND_SCALE: Int = 400
-  val MIN_BROUND_FLOATING_JAVA_VERSION: String = "21"
+  val MIN_ROUNDING_SCALE: Int = -400
+  val MAX_ROUNDING_SCALE: Int = 400
+  val MIN_ROUNDING_FLOATING_JAVA_VERSION: String = "21"
 
   private def isPrimitiveType(dataType: DataType): Boolean = {
     val enableTimestampNtzValidation = VeloxConfig.get.enableTimestampNtzValidation
