@@ -246,7 +246,7 @@ class GlutenBRoundSuite extends GlutenSQLTestsTrait {
     }
   }
 
-  testGluten("bround outside the supported native scale interval falls back") {
+  testGluten("bround native scale interval includes its endpoints and rejects adjacent scales") {
     val schema = new StructType()
       .add("integral_value", LongType)
       .add("floating_value", DoubleType)
@@ -257,6 +257,16 @@ class GlutenBRoundSuite extends GlutenSQLTestsTrait {
       Seq("false", "true").foreach {
         ansi =>
           withSQLConf(SQLConf.ANSI_ENABLED.key -> ansi) {
+            // Keep contract values independent of backend constants in this cross-backend module.
+            Seq(-400, 400).foreach {
+              scale =>
+                Seq("integral_value", "floating_value", "decimal_value").foreach {
+                  column =>
+                    checkBround(
+                      s"SELECT bround($column, $scale) FROM bround_input",
+                      expectNative = column != "floating_value" || Properties.isJavaAtLeast("21"))
+                }
+            }
             Seq(-401, 401).foreach {
               scale =>
                 Seq("integral_value", "floating_value", "decimal_value").foreach {

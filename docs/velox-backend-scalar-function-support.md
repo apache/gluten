@@ -295,6 +295,10 @@
 | unhex             | Unhex                  | S        |                |
 | width_bucket      | WidthBucket            | S        |                |
 
+BROUND's scale bounds and minimum Java version for nonzero-scale floating-point inputs
+are defined by `MIN_BROUND_SCALE`, `MAX_BROUND_SCALE`, and `MIN_BROUND_FLOATING_JAVA_VERSION`
+in [`VeloxValidatorApi`](../backends-velox/src/main/scala/org/apache/gluten/backendsapi/velox/VeloxValidatorApi.scala).
+
 ## Misc Functions
 
 | Spark Functions             | Spark Expressions         | Status   | Restrictions   |
