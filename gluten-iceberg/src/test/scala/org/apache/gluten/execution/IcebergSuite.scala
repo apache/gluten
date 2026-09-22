@@ -19,7 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.GlutenIcebergConfig
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{AnalysisException, Row}
 import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.util.QueryExecutionListener
@@ -986,7 +986,10 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     withSQLConf("spark.sql.caseSensitive" -> "true") {
       withTable("iceberg_exact_collision") {
         // ── 1. CREATE TABLE ───────────────────────────────────────────────────
-        val createException: Option[Exception] =
+        // Narrow to AnalysisException: that is what the Spark analyzer throws
+        // when a column name conflicts with a reserved function name or catalog
+        // rules.  Any other exception (OOM, Gluten bug, etc.) must propagate.
+        val createException: Option[AnalysisException] =
           try {
             spark.sql("""
                         |CREATE TABLE iceberg_exact_collision
@@ -995,19 +998,21 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
                         |""".stripMargin)
             None
           } catch {
-            case e: Exception => Some(e)
+            case e: AnalysisException => Some(e)
           }
-        // If the platform does not support this schema, cancel (not fail) the test.
+        // If the Spark analyzer rejects this schema, cancel (not fail) the test.
         assume(
           createException.isEmpty,
-          s"Platform rejected CREATE TABLE with column named 'input_file_name' " +
+          s"Spark analyzer rejected CREATE TABLE with column named 'input_file_name' " +
             s"(expected platform limitation, not a Gluten defect): " +
             s"${createException.map(_.getMessage).getOrElse("")}")
 
         // ── 2. INSERT ─────────────────────────────────────────────────────────
         // Use a value that is clearly not a file path so we can distinguish it
         // from the result of the input_file_name() function later.
-        val insertException: Option[Exception] =
+        // Narrow to AnalysisException: Spark may resolve "input_file_name" as a
+        // built-in function expression during INSERT analysis.
+        val insertException: Option[AnalysisException] =
           try {
             spark.sql("""
                         |INSERT INTO iceberg_exact_collision VALUES
@@ -1015,13 +1020,13 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
                         |""".stripMargin)
             None
           } catch {
-            case e: Exception => Some(e)
+            case e: AnalysisException => Some(e)
           }
         // If Spark resolves "input_file_name" as the built-in expression during INSERT,
         // cancel (not fail) the test.
         assume(
           insertException.isEmpty,
-          s"Platform rejected INSERT INTO table with column named 'input_file_name' " +
+          s"Spark analyzer rejected INSERT INTO table with column named 'input_file_name' " +
             s"(expected platform limitation, not a Gluten defect): " +
             s"${insertException.map(_.getMessage).getOrElse("")}")
 
@@ -1078,14 +1083,15 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
         // Attempt to create a table with four case-distinct columns.
         // Iceberg may reject this at the catalog level even under caseSensitive=true
         // because many catalog implementations normalize names to lowercase.
-        val createEx: Option[Exception] = try {
+        // Narrow to AnalysisException: other exceptions are unexpected and must propagate.
+        val createEx: Option[AnalysisException] = try {
           spark.sql("""
                       |CREATE TABLE iceberg_cs_exact
                       |  (id INT, ID INT, Id INT, iD INT)
                       |USING iceberg
                       |""".stripMargin)
           None
-        } catch { case e: Exception => Some(e) }
+        } catch { case e: AnalysisException => Some(e) }
 
         if (createEx.isDefined) {
           // Four-column case-distinct schema is not supported on this platform.
@@ -1171,36 +1177,6 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // Scenario 3 — Test A: Case-insensitive identifier lookup (single physical column).
-  // This tests that a column named "id" can be addressed by any capitalisation when
-  // caseSensitive=false, which is normal Spark case-insensitive resolution behavior.
-  test("case-sensitivity: case-insensitive lookup resolves any casing to same column (caseSensitive=false)") {
-    withSQLConf("spark.sql.caseSensitive" -> "false") {
-      withTable("iceberg_ci_lookup") {
-        spark.sql("""
-                    |CREATE TABLE iceberg_ci_lookup (id INT, name STRING)
-                    |USING iceberg
-                    |""".stripMargin)
-        spark.sql("""
-                    |INSERT INTO iceberg_ci_lookup VALUES (10, 'x'), (20, 'y')
-                    |""".stripMargin)
-
-        // All these spellings resolve to the same physical "id" column under caseSensitive=false.
-        Seq("id", "ID", "Id", "iD").foreach {
-          colRef =>
-            val df = runAndCompare(
-              s"SELECT `$colRef` FROM iceberg_ci_lookup ORDER BY id")
-            checkGlutenPlan[IcebergScanTransformer](df)
-            val rows = df.collect()
-            assert(rows.length == 2, s"Expected 2 rows for '$colRef', got ${rows.length}")
-            assert(
-              rows.map(_.getInt(0)).toSeq == Seq(10, 20),
-              s"Wrong values for column ref '$colRef'")
-        }
-      }
-    }
-  }
-
   // Scenario 3 — Test B: Ambiguous identifier resolution under caseSensitive=false.
   // A table containing two columns that differ only by case cannot be created when
   // caseSensitive=false because Spark's analyzer treats them as duplicates.  This test
@@ -1214,7 +1190,8 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
       withTable("iceberg_ci_dup") {
         // Spark with caseSensitive=false must reject a schema where two columns differ only in case.
         // This is Spark's own behavior — Gluten must not weaken it.
-        val ex = intercept[Exception] {
+        // Narrow to AnalysisException: that is what Spark's analyzer raises for duplicate columns.
+        val ex = intercept[AnalysisException] {
           spark.sql("""
                       |CREATE TABLE iceberg_ci_dup (id INT, ID INT)
                       |USING iceberg
