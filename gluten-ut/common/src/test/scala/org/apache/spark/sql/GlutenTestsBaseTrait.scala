@@ -24,15 +24,13 @@ import org.scalactic.source.Position
 import org.scalatest.Tag
 import org.scalatest.funsuite.AnyFunSuiteLike
 
-/**
- * Set the `gluten.test.dir` system property to give each test JVM a private directory. Suites
- * recursively delete that directory during cleanup.
- */
+import java.io.File
+
 trait GlutenTestsBaseTrait extends AnyFunSuiteLike {
 
   protected val rootPath: String = getClass.getResource("/").getPath
   protected val basePath: String =
-    sys.props.getOrElse("gluten.test.dir", rootPath + "unit-tests-working-home")
+    new File(sys.props.getOrElse("gluten.test.dir", rootPath), "unit-tests-working-home").getPath
 
   protected val warehouse: String = basePath + "/spark-warehouse"
   protected val metaStorePathAbsolute: String = basePath + "/meta"

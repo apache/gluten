@@ -16,11 +16,15 @@
  */
 package org.apache.spark.sql
 
+import org.apache.commons.io.FileUtils
 import org.scalatest.funsuite.AnyFunSuite
+
+import java.io.File
+import java.nio.file.Files
 
 class GlutenTestsBaseTraitSuite extends AnyFunSuite {
 
-  private class TestPaths extends GlutenTestsBaseTrait {
+  private class TestPaths extends GlutenSQLTestsTrait {
     def defaultDirectory: String = rootPath + "unit-tests-working-home"
     def directories: (String, String, String) = (basePath, warehouse, metaStorePathAbsolute)
   }
@@ -46,13 +50,34 @@ class GlutenTestsBaseTraitSuite extends AnyFunSuite {
     }
   }
 
-  test("use gluten.test.dir for the test, warehouse and metastore directories") {
+  test("create the test working directory under gluten.test.dir") {
     withTestDirectory(Some("custom-test-directory")) {
       paths =>
         assert(paths.directories == ((
-          "custom-test-directory",
-          "custom-test-directory/spark-warehouse",
-          "custom-test-directory/meta")))
+          "custom-test-directory/unit-tests-working-home",
+          "custom-test-directory/unit-tests-working-home/spark-warehouse",
+          "custom-test-directory/unit-tests-working-home/meta")))
+    }
+  }
+
+  test("reset only the test working directory and preserve other files in gluten.test.dir") {
+    val parent = Files.createTempDirectory("gluten-test-dir").toFile
+    try {
+      val retained = new File(parent, "keep")
+      val working = new File(parent, "unit-tests-working-home")
+      val stale = new File(working, "stale")
+      FileUtils.touch(retained)
+      FileUtils.touch(stale)
+      withTestDirectory(Some(parent.getAbsolutePath)) {
+        paths =>
+          paths.prepareWorkDir()
+          assert(retained.isFile)
+          assert(!stale.exists())
+          assert(new File(working, "spark-warehouse").isDirectory)
+          assert(new File(working, "meta").isDirectory)
+      }
+    } finally {
+      FileUtils.deleteDirectory(parent)
     }
   }
 }
