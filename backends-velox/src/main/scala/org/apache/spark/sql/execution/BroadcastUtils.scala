@@ -19,8 +19,8 @@ package org.apache.spark.sql.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.VeloxConfig
+import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.runtime.Runtimes
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.vectorized.{ColumnarBatchSerializeResult, ColumnarBatchSerializerJniWrapper}
 
 import org.apache.spark.SparkContext
@@ -100,20 +100,20 @@ object BroadcastUtils {
         serializeStream(batchItr()) match {
           case ColumnarBatchSerializeResult.EMPTY =>
             ColumnarBuildSideRelation(
-              SparkShimLoader.getSparkShims.attributesFromStruct(schema),
+              ExpressionUtils.attributesFromStruct(schema),
               Array[Array[Byte]](),
               mode)
           case result: ColumnarBatchSerializeResult =>
             if (result.isOffHeap) {
               UnsafeColumnarBuildSideRelation(
-                SparkShimLoader.getSparkShims.attributesFromStruct(schema),
+                ExpressionUtils.attributesFromStruct(schema),
                 result.offHeapData().asScala.toSeq,
                 mode,
                 Seq.empty,
                 result.isOffHeap)
             } else {
               ColumnarBuildSideRelation(
-                SparkShimLoader.getSparkShims.attributesFromStruct(schema),
+                ExpressionUtils.attributesFromStruct(schema),
                 result.onHeapData().asScala.toArray,
                 mode)
             }

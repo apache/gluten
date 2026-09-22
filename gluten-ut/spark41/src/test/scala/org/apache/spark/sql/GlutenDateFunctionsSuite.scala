@@ -16,6 +16,9 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.utils.BackendTestUtils
+
+import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
@@ -203,8 +206,16 @@ class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTra
             df.selectExpr("to_unix_timestamp(ts, 'invalid-format')"),
             Seq(Row(secs(ts1.getTime)), Row(secs(ts2.getTime))))
 
+          // Velox rejects the unsupported specifier 'b' while building the Joda
+          // formatter, as vanilla Spark does, though it reports a different
+          // exception type. The legacy formatter returns null instead of failing.
           val invalid = df1.selectExpr(s"to_unix_timestamp(x, 'yyyy-MM-dd bb:HH:ss')")
-          checkAnswer(invalid, Seq(Row(null), Row(null), Row(null), Row(null)))
+          if (legacyParserPolicy == "legacy" || !BackendTestUtils.isVeloxBackendLoaded()) {
+            checkAnswer(invalid, Seq(Row(null), Row(null), Row(null), Row(null)))
+          } else {
+            val e = intercept[SparkException](invalid.collect())
+            assert(e.getMessage.contains("Specifier b is not supported"))
+          }
         }
     }
   }

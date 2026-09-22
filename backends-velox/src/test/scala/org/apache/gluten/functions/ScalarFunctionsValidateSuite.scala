@@ -52,7 +52,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_append - INT", "3.4") {
+  test("array_append - INT") {
     withTempPath {
       path =>
         Seq[(Array[Int], Int)](
@@ -77,7 +77,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_append - STRING", "3.4") {
+  test("array_append - STRING") {
     withTempPath {
       path =>
         Seq[(Array[String], String)](
@@ -125,7 +125,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_compact", "3.4") {
+  test("array_compact") {
     withTempPath {
       path =>
         Seq[Array[String]](
@@ -658,7 +658,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("url_decode", "3.4") {
+  test("url_decode") {
     withTempPath {
       path =>
         Seq("https%3A%2F%2Fspark.apache.org")
@@ -672,7 +672,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("url_encode", "3.4") {
+  test("url_encode") {
     withTempPath {
       path =>
         Seq("https://spark.apache.org")
@@ -688,8 +688,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
   // Add test suite for CharVarcharCodegenUtils functions.
   // A ProjectExecTransformer is expected to be constructed after expr support.
-  // We currently test below functions with Spark v3.4
-  testWithMinSparkVersion("charTypeWriteSideCheck", "3.4") {
+  test("charTypeWriteSideCheck") {
     withTable("src", "dest") {
 
       sql("create table src(id string) USING PARQUET")
@@ -702,7 +701,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("varcharTypeWriteSideCheck", "3.4") {
+  test("varcharTypeWriteSideCheck") {
     withTable("src", "dest") {
 
       sql("create table src(id string) USING PARQUET")
@@ -715,7 +714,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("readSidePadding", "3.4") {
+  test("readSidePadding") {
     withTable("src", "dest") {
 
       sql("create table tgt(id char(3)) USING PARQUET")
@@ -750,7 +749,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("regexp_instr", "3.4") {
+  test("regexp_instr") {
     // Two-argument form.
     runQueryAndCompare("SELECT regexp_instr(c_comment, '\\w+') FROM customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
@@ -815,7 +814,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("mask", "3.4") {
+  test("mask") {
     runQueryAndCompare("SELECT mask(c_comment) FROM customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
     }
@@ -1018,7 +1017,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("get", "3.4") {
+  test("get") {
     withTempPath {
       path =>
         Seq[Seq[Integer]](Seq(1, null, 5, 4), Seq(5, -1, 8, 9, -7, 2), Seq.empty, null)
@@ -1223,7 +1222,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array insert", "3.4") {
+  test("array insert") {
     withTempPath {
       path =>
         Seq[Seq[Integer]](Seq(1, null, 5, 4), Seq(5, -1, 8, 9, -7, 2), Seq.empty, null)
@@ -1270,7 +1269,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("try_cast", "3.4") {
+  test("try_cast") {
     withTempView("try_cast_table") {
       withTempPath {
         path =>
@@ -1654,7 +1653,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("equal_null", "3.4") {
+  test("equal_null") {
     Seq[(Integer, Integer)]().toDF("a", "b")
     withTempPath {
       path =>
@@ -1715,7 +1714,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("localtimestamp with validation enabled", "3.4") {
+  test("localtimestamp with validation enabled") {
     // localtimestamp() is folded to a TimestampNTZType literal by ComputeCurrentTime. With
     // validation enabled, any Project whose output contains TimestampNTZ falls back to JVM.
     // The Project falls back at the top of the plan (above the one VeloxColumnarToRow), so
@@ -1729,7 +1728,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("localtimestamp with validation disabled", "3.4") {
+  test("localtimestamp with validation disabled") {
     // With validation disabled, scans on TimestampNTZ columns are allowed natively. For
     // localtimestamp(), the expression constant-folds to a TimestampNTZType literal in the
     // Project; Gluten only permits native Projects when NTZ appears in Hour(ntz_col), so
