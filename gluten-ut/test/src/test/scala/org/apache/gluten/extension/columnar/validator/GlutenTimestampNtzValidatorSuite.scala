@@ -17,14 +17,18 @@
 package org.apache.gluten.extension.columnar.validator
 
 import org.apache.spark.SparkFunSuite
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util.GenericArrayData
-import org.apache.spark.sql.execution.{FilterExec, LocalTableScanExec, ProjectExec, SparkPlan}
+import org.apache.spark.sql.execution.{FilterExec, LeafExecNode, ProjectExec, SparkPlan}
 import org.apache.spark.sql.types._
 
 class GlutenTimestampNtzValidatorSuite extends SparkFunSuite {
+  import GlutenTimestampNtzValidatorSuite.InputPlan
+
   private val id = AttributeReference("id", IntegerType, nullable = false)()
-  private val input = LocalTableScanExec(Seq(id), Nil, None)
+  private val input = InputPlan(Seq(id))
 
   private def validator(supportsNtz: Boolean, enableValidation: Boolean): Validator = {
     new Validators.FallbackByTimestampNTZ(
@@ -90,7 +94,7 @@ class GlutenTimestampNtzValidatorSuite extends SparkFunSuite {
     val timestamp = AttributeReference("ts", TimestampNTZType)()
     val plan = ProjectExec(
       Seq(Alias(Hour(timestamp, Some("UTC")), "hour")()),
-      LocalTableScanExec(Seq(timestamp), Nil, None))
+      InputPlan(Seq(timestamp)))
     for {
       supportsNtz <- Seq(false, true)
       enableValidation <- Seq(false, true)
@@ -106,5 +110,10 @@ class GlutenTimestampNtzValidatorSuite extends SparkFunSuite {
 }
 
 object GlutenTimestampNtzValidatorSuite {
+  private case class InputPlan(override val output: Seq[Attribute]) extends LeafExecNode {
+    override protected def doExecute(): RDD[InternalRow] =
+      throw new UnsupportedOperationException("This plan is only used for schema validation.")
+  }
+
   class TestConfig(val enableTimestampNtzValidation: Boolean)
 }
