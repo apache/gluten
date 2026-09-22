@@ -50,25 +50,27 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
         round.scale match {
           case Literal(null, IntegerType) => true
           case Literal(scale: Int, IntegerType) =>
-            if (scale < -400 || scale > 400) {
+            if (scale < MIN_BROUND_SCALE || scale > MAX_BROUND_SCALE) {
               logDebug(
-                s"Bround scale $scale is outside the native [-400, 400] interval; " +
+                s"bround scale $scale is outside the native " +
+                  s"[$MIN_BROUND_SCALE, $MAX_BROUND_SCALE] interval; " +
                   "falling back to Spark.")
               false
             } else if (
               scale != 0 &&
               (round.child.dataType == FloatType || round.child.dataType == DoubleType) &&
-              !Properties.isJavaAtLeast("21")
+              !Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION)
             ) {
               logDebug(
-                "Floating-point bround with nonzero scale requires Java 21 or later " +
+                "Floating-point bround with nonzero scale requires " +
+                  s"Java $MIN_BROUND_FLOATING_JAVA_VERSION or later " +
                   "for matching decimal conversion; falling back to Spark.")
               false
             } else {
               true
             }
           case _ =>
-            logDebug("Bround scale must be a folded INTEGER literal; falling back to Spark.")
+            logDebug("bround scale must be a folded INTEGER literal; falling back to Spark.")
             false
         }
       case _ => true
@@ -134,6 +136,10 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
 }
 
 object VeloxValidatorApi {
+  val MIN_BROUND_SCALE: Int = -400
+  val MAX_BROUND_SCALE: Int = 400
+  val MIN_BROUND_FLOATING_JAVA_VERSION: String = "21"
+
   private def isPrimitiveType(dataType: DataType): Boolean = {
     val enableTimestampNtzValidation = VeloxConfig.get.enableTimestampNtzValidation
     dataType match {

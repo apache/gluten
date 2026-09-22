@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.backendsapi.velox
 
+import org.apache.gluten.backendsapi.velox.VeloxValidatorApi._
+
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, BRound, Literal, Round}
 import org.apache.spark.sql.types._
 
@@ -26,6 +28,12 @@ import scala.util.Properties
 class VeloxValidatorApiSuite extends AnyFunSuite {
   private val validator = new VeloxValidatorApi
 
+  test("bround compatibility constants match the qualified native contract") {
+    assert(MIN_BROUND_SCALE == -400)
+    assert(MAX_BROUND_SCALE == 400)
+    assert(MIN_BROUND_FLOATING_JAVA_VERSION == "21")
+  }
+
   test("floating bround with nonzero scale requires the qualified JVM conversion") {
     Seq(FloatType, DoubleType).foreach {
       dataType =>
@@ -33,7 +41,9 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
           scale =>
             val expression =
               new BRound(BoundReference(0, dataType, nullable = true), Literal(scale))
-            assert(validator.doExprValidate("bround", expression) == Properties.isJavaAtLeast("21"))
+            assert(
+              validator.doExprValidate("bround", expression) ==
+                Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION))
         }
     }
   }
@@ -73,7 +83,7 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
     Seq(ByteType, ShortType, IntegerType, LongType, FloatType, DoubleType, DecimalType(38, 38))
       .foreach {
         dataType =>
-          Seq(Int.MinValue, -401, 401, Int.MaxValue).foreach {
+          Seq(Int.MinValue, MIN_BROUND_SCALE - 1, MAX_BROUND_SCALE + 1, Int.MaxValue).foreach {
             scale =>
               val expression =
                 new BRound(BoundReference(0, dataType, nullable = true), Literal(scale))
@@ -83,13 +93,22 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
   }
 
   test("native bround scale bounds are inclusive") {
-    Seq(IntegerType, DecimalType(38, 38)).foreach {
+    Seq(
+      ByteType,
+      ShortType,
+      IntegerType,
+      LongType,
+      FloatType,
+      DoubleType,
+      DecimalType(38, 38)).foreach {
       dataType =>
-        Seq(-400, 400).foreach {
+        Seq(MIN_BROUND_SCALE, MAX_BROUND_SCALE).foreach {
           scale =>
             val expression =
               new BRound(BoundReference(0, dataType, nullable = true), Literal(scale))
-            assert(validator.doExprValidate("bround", expression))
+            val expectNative = (dataType != FloatType && dataType != DoubleType) ||
+              Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION)
+            assert(validator.doExprValidate("bround", expression) == expectNative)
         }
     }
   }
