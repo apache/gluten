@@ -76,7 +76,7 @@ jobs:
           echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
           echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
 
-  build-native-lib-centos-8:
+  build-native-lib-centos-9:
     needs: detect-changes
     runs-on: ubuntu-24.04-arm
     container: apache/gluten:vcpkg-centos-9
@@ -99,15 +99,15 @@ jobs:
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-centos9-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
         if: steps.ccache-stash.outputs.stash-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
+          key: ccache-centos9-release-default-${{runner.arch}}-${{github.sha}}
           restore-keys: |
-            ccache-centos8-release-default-${{runner.arch}}
+            ccache-centos9-release-default-${{runner.arch}}
       - name: Build Gluten native libraries
         run: |
           df -a
@@ -121,16 +121,16 @@ jobs:
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-centos9-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
       - uses: actions/upload-artifact@v7
         with:
-          name: velox-native-lib-centos-8-${{github.sha}}
+          name: velox-native-lib-centos-9-${{github.sha}}
           path: ./cpp/build/releases/
           if-no-files-found: error
 
   tpc-test-centos8:
-    needs: [detect-changes, build-native-lib-centos-8]
+    needs: [detect-changes, build-native-lib-centos-9]
     if: >-
       needs.detect-changes.outputs.cpp == 'true' ||
       needs.detect-changes.outputs.java == 'true' ||
@@ -148,7 +148,7 @@ jobs:
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: velox-native-lib-centos-8-${{github.sha}}
+          name: velox-native-lib-centos-9-${{github.sha}}
           path: ./cpp/build/releases/
       - name: Update mirror list
         run: |

@@ -471,7 +471,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
             }
           }
         }
-      case _: KeyGroupedPartitioning =>
+      case p if SparkShimLoader.getSparkShims.isKeyGroupedPartitioning(p) =>
         FallbackTags.add(
           shuffle,
           ValidationResult.failed(
@@ -1502,7 +1502,6 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: Expression): ExpressionTransformer = {
-    // Since spark 3.3.0
     val extract =
       SparkShimLoader.getSparkShims.extractExpressionTimestampAddUnit(original)
     if (extract.isEmpty) {

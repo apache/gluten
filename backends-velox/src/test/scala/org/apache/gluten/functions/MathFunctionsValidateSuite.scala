@@ -461,7 +461,7 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("width_bucket", "3.4") {
+  test("width_bucket") {
     withTempPath {
       path =>
         Seq[(Integer, Integer, Integer, Integer)](

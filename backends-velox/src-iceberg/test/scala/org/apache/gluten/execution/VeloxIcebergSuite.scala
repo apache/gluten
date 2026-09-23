@@ -53,7 +53,7 @@ class VeloxIcebergSuite extends IcebergSuite {
     }
   }
 
-  testWithMinSparkVersion("iceberg v3 initial default for an added column", "3.4") {
+  test("iceberg v3 initial default for an added column") {
     withTable("iceberg_v3_initial_default") {
       withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
         spark.sql("""

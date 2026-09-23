@@ -21,10 +21,10 @@ import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.BroadcastHashJoinContext
 import org.apache.gluten.expression.ConverterUtils
+import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.{ArrowAbiUtil, SubstraitUtil}
 import org.apache.gluten.vectorized.{ColumnarBatchSerializerJniWrapper, HashJoinBuilder, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
 
@@ -144,7 +144,7 @@ class UnsafeColumnarBuildSideRelation(
           val allocator = ArrowBufferAllocators.contextInstance()
           val cSchema = ArrowSchema.allocateNew(allocator)
           val arrowSchema = SparkArrowUtil.toArrowSchema(
-            SparkShimLoader.getSparkShims.structFromAttributes(output),
+            ExpressionUtils.structFromAttributes(output),
             SQLConf.get.sessionLocalTimeZone)
           ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
           val handle = jniWrapper
@@ -240,7 +240,7 @@ class UnsafeColumnarBuildSideRelation(
           val allocator = ArrowBufferAllocators.globalInstance()
           val cSchema = ArrowSchema.allocateNew(allocator)
           val arrowSchema = SparkArrowUtil.toArrowSchema(
-            SparkShimLoader.getSparkShims.structFromAttributes(output),
+            ExpressionUtils.structFromAttributes(output),
             SQLConf.get.sessionLocalTimeZone)
           ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
           val handle = jniWrapper
@@ -393,7 +393,7 @@ class UnsafeColumnarBuildSideRelation(
       val allocator = ArrowBufferAllocators.contextInstance()
       val cSchema = ArrowSchema.allocateNew(allocator)
       val arrowSchema = SparkArrowUtil.toArrowSchema(
-        SparkShimLoader.getSparkShims.structFromAttributes(output),
+        ExpressionUtils.structFromAttributes(output),
         SQLConf.get.sessionLocalTimeZone)
       ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
       val handle = jniWrapper
@@ -442,7 +442,7 @@ class UnsafeColumnarBuildSideRelation(
       val allocator = ArrowBufferAllocators.contextInstance()
       val cSchema = ArrowSchema.allocateNew(allocator)
       val arrowSchema = SparkArrowUtil.toArrowSchema(
-        SparkShimLoader.getSparkShims.structFromAttributes(output),
+        ExpressionUtils.structFromAttributes(output),
         SQLConf.get.sessionLocalTimeZone)
       ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
       val handle = serializerJniWrapper.init(cSchema.memoryAddress())

@@ -32,8 +32,19 @@ import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.JavaConverters._
 
+/**
+ * Extends [[SortShuffleManager]] rather than [[ShuffleManager]] on purpose.
+ *
+ * `spark.shuffle.manager` is process-wide, so this manager also serves the row-based exchanges that
+ * Gluten does not offload. `ShuffleExchangeExec.needToCopyObjectsBeforeShuffle` gates the per-row
+ * defensive `UnsafeRow.copy()` on `isInstanceOf[SortShuffleManager]`, falling through to a
+ * catch-all `true` for any other implementation. The copy only protects `ExternalSorter`, which
+ * buffers deserialized rows; the row-based branches below produce the same handles and the same
+ * writers as `SortShuffleManager`, so the copy is pure overhead here. Keeping the subtype
+ * relationship lets Spark take the zero-copy path.
+ */
 class ColumnarShuffleManager(conf: SparkConf)
-  extends ShuffleManager
+  extends SortShuffleManager(conf)
   with SupportsColumnarShuffle
   with Logging {
 

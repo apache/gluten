@@ -32,11 +32,7 @@ case class CudfNodeValidationRule(glutenConf: GlutenConfig) extends Rule[SparkPl
     plan.transformUp {
       case transformer: WholeStageTransformer =>
         if (!BoltConfig.get.cudfEnableTableScan) {
-          // Spark3.2 does not have exists
-          val hasLeaf = transformer.find {
-            case _: LeafTransformSupport => true
-            case _ => false
-          }.isDefined
+          val hasLeaf = transformer.exists(_.isInstanceOf[LeafTransformSupport])
           transformer.setTagValue(CudfTag.CudfValidationTag, !hasLeaf)
         } else {
           transformer.setTagValue(CudfTag.CudfValidationTag, true)

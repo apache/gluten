@@ -292,9 +292,7 @@ class ClickHouseIcebergSuite extends GlutenClickHouseWholeStageTransformerSuite 
     }
   }
 
-  testWithMinSparkVersion(
-    "iceberg bucketed join partition value not exists partial cluster",
-    "3.4") {
+  test("iceberg bucketed join partition value not exists partial cluster") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
