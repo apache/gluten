@@ -25,7 +25,7 @@ import org.apache.gluten.substrait.SubstraitContext
 
 import org.apache.spark.SparkConf
 import org.apache.spark.shuffle.GlutenShuffleUtils
-import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.{DataFrame, GlutenQueryTest, Row}
 import org.apache.spark.sql.catalyst.expressions.Cast
 import org.apache.spark.sql.catalyst.optimizer.BuildRight
 import org.apache.spark.sql.catalyst.plans.Inner
@@ -808,8 +808,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
 
     def checkOneRowRelation(query: String, expected: Seq[Row]): Unit = {
       val df = sql(query)
-      checkAnswer(df, expected)
-      assert(df.count() == expected.size)
+      GlutenQueryTest.checkAnswer(df, expected, checkToRDD = false)
       assert(df.schema.size == expected.head.size)
 
       val plan = df.queryExecution.executedPlan

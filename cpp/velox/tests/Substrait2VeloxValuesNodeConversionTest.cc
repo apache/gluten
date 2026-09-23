@@ -45,16 +45,6 @@ TEST_F(Substrait2VeloxValuesNodeConversionTest, valuesNode) {
 
   ::substrait::Plan substraitPlan;
   JsonToProtoConverter::readFromFile(planPath, substraitPlan);
-  auto veloxCfg = std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
-  std::shared_ptr<SubstraitToVeloxPlanConverter> planConverter_ = std::make_shared<SubstraitToVeloxPlanConverter>(
-      pool_.get(),
-      veloxCfg.get(),
-      std::vector<std::shared_ptr<ResultIterator>>{},
-      VeloxConnectorIds{},
-      std::nullopt,
-      std::nullopt,
-      false);
-  auto veloxPlan = planConverter_->toVeloxPlan(substraitPlan);
 
   RowVectorPtr expectedData = makeRowVector(
       {makeFlatVector<int64_t>({2499109626526694126, 2342493223442167775, 4077358421272316858}),
@@ -66,7 +56,19 @@ TEST_F(Substrait2VeloxValuesNodeConversionTest, valuesNode) {
       });
 
   createDuckDbTable({expectedData});
-  assertQuery(veloxPlan, "SELECT * FROM tmp");
+  for (const bool validationMode : {false, true}) {
+    auto veloxCfg =
+        std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
+    auto planConverter = std::make_shared<SubstraitToVeloxPlanConverter>(
+        pool_.get(),
+        veloxCfg.get(),
+        std::vector<std::shared_ptr<ResultIterator>>{},
+        VeloxConnectorIds{},
+        std::nullopt,
+        std::nullopt,
+        validationMode);
+    assertQuery(planConverter->toVeloxPlan(substraitPlan), "SELECT * FROM tmp");
+  }
 }
 
 TEST_F(Substrait2VeloxValuesNodeConversionTest, zeroColumnOneRowValuesNode) {
@@ -91,7 +93,11 @@ TEST_F(Substrait2VeloxValuesNodeConversionTest, zeroColumnOneRowValuesNode) {
   ASSERT_EQ(valuesNode->values().size(), 1);
   ASSERT_EQ(valuesNode->values().front()->childrenSize(), 0);
   ASSERT_EQ(valuesNode->values().front()->size(), 1);
-  ASSERT_EQ(planConverter->splitInfos().at(valuesNode->id())->leafType, SplitInfo::LeafType::TRIVIAL_LEAF);
+  const auto& splitInfos = planConverter->splitInfos();
+  const auto splitInfo = splitInfos.find(valuesNode->id());
+  ASSERT_NE(splitInfo, splitInfos.end());
+  ASSERT_NE(splitInfo->second, nullptr);
+  ASSERT_EQ(splitInfo->second->leafType, SplitInfo::LeafType::TRIVIAL_LEAF);
 
   CursorParameters params;
   params.planNode = veloxPlan;
