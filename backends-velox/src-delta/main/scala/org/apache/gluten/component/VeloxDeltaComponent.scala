@@ -18,7 +18,7 @@ package org.apache.gluten.component
 
 import org.apache.gluten.backendsapi.velox.VeloxBackend
 import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
-import org.apache.gluten.extension.{DeltaCDFScanRule, DeltaPostTransformRules, OffloadDeltaFilter, OffloadDeltaProject, OffloadDeltaScan}
+import org.apache.gluten.extension.{DeltaCDFScanRule, DeltaPostTransformRules, OffloadDeltaScan}
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
@@ -52,13 +52,11 @@ class VeloxDeltaComponent extends Component {
     // offloads, and DeltaScanTransformer materializes the per-file DV payloads for Velox.
     legacy.injectTransform {
       c =>
+        // Keep IncrementMetric on Spark to measure its impact on Delta test failures (GLUTEN-9003).
         val offload = Seq(
           OffloadDeltaScan(
             enableNativeDmlRowIndexScan =
-              new VeloxDeltaConfig(c.sqlConf).enableNativeDmlRowIndexScan),
-          OffloadDeltaProject(),
-          OffloadDeltaFilter()
-        )
+              new VeloxDeltaConfig(c.sqlConf).enableNativeDmlRowIndexScan))
           .map(_.toStrcitRule())
         HeuristicTransform.Simple(
           Validators.newValidator(new GlutenConfig(c.sqlConf), offload),
