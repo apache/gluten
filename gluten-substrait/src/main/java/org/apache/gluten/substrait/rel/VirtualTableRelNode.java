@@ -49,8 +49,12 @@ public class VirtualTableRelNode implements RelNode, Serializable {
       throw new IllegalArgumentException("Virtual table must contain at least one row.");
     }
 
-    this.types = new ArrayList<>(types);
-    this.names = new ArrayList<>(names);
+    this.types = new ArrayList<>(types.size());
+    this.names = new ArrayList<>(names.size());
+    for (int index = 0; index < types.size(); ++index) {
+      this.types.add(Objects.requireNonNull(types.get(index), "types[" + index + "]"));
+      this.names.add(Objects.requireNonNull(names.get(index), "names[" + index + "]"));
+    }
     this.rows = new ArrayList<>(rows.size());
     for (List<Expression.Literal> row : rows) {
       Objects.requireNonNull(row, "row");

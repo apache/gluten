@@ -19,6 +19,8 @@ package org.apache.gluten.execution
 import org.mockito.Mockito.mock
 import org.scalatest.funsuite.AnyFunSuite
 
+import java.util.concurrent.TimeUnit
+
 class WholeStageNoInputSuite extends AnyFunSuite {
   test("explicit no-input execution creates one dependency-free partition") {
     val wrapper = new ColumnarInputRDDsWrapper(Seq.empty, supportsNoInputExecution = true)
@@ -61,11 +63,22 @@ class WholeStageNoInputSuite extends AnyFunSuite {
     val wrapper = new ColumnarInputRDDsWrapper(Seq.empty, supportsNoInputExecution = true)
     val partitionLengths = Array.fill(32)(0)
     val threads = partitionLengths.indices.map {
-      index => new Thread(() => partitionLengths(index) = wrapper.getPartitionLength)
+      index =>
+        val thread = new Thread(() => partitionLengths(index) = wrapper.getPartitionLength)
+        thread.setDaemon(true)
+        thread
     }
     threads.foreach(_.start())
-    threads.foreach(_.join())
+    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+    threads.foreach {
+      thread =>
+        val remainingNanos = deadlineNanos - System.nanoTime()
+        if (remainingNanos > 0) {
+          thread.join(math.max(1L, TimeUnit.NANOSECONDS.toMillis(remainingNanos)))
+        }
+    }
 
+    assert(threads.forall(thread => !thread.isAlive), "Partition discovery threads timed out")
     assert(partitionLengths.forall(_ == 1))
   }
 }

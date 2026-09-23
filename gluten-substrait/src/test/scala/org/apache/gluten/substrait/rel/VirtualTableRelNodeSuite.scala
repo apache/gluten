@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.substrait.rel
 
-import org.apache.gluten.substrait.`type`.I32TypeNode
+import org.apache.gluten.substrait.`type`.{I32TypeNode, TypeNode}
 import org.apache.gluten.substrait.SubstraitContext
 
 import io.substrait.proto.{Expression, Rel}
@@ -99,6 +99,8 @@ class VirtualTableRelNodeSuite extends AnyFunSuite {
   }
 
   test("rejects malformed schema and null inputs without registering the relation") {
+    val literal = Expression.Literal.newBuilder().setI32(1).build()
+
     assertRejectedWithoutRegistration[IllegalArgumentException]("1 types but 0 names") {
       context =>
         RelBuilder.makeVirtualTableReadRel(
@@ -127,6 +129,25 @@ class VirtualTableRelNodeSuite extends AnyFunSuite {
             Collections.singletonList(Collections.emptyList()),
             context,
             0L)
+      },
+      "types[1]" -> {
+        context =>
+          RelBuilder.makeVirtualTableReadRel(
+            Arrays.asList[TypeNode](new I32TypeNode(false), null),
+            Arrays.asList("c0", "c1"),
+            Collections.singletonList(Arrays.asList(literal, literal)),
+            context,
+            0L)
+      },
+      "names[1]" -> {
+        context =>
+          RelBuilder.makeVirtualTableReadRel(
+            Arrays.asList(new I32TypeNode(false), new I32TypeNode(false)),
+            Arrays.asList[String]("c0", null),
+            Collections.singletonList(Arrays.asList(literal, literal)),
+            context,
+            0L
+          )
       },
       "rows" -> {
         context =>
