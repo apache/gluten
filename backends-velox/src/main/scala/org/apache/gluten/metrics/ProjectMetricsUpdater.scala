@@ -39,7 +39,7 @@ class ProjectMetricsUpdater(
       extraMetrics.foreach {
         case (name, metric) =>
           name match {
-            case "increment_metric" => metric += operatorMetrics.outputRows
+            case "increment_metric_dummy" => metric += operatorMetrics.outputRows
             case slot if slot.startsWith(IncrementMetricCall.functionNamePrefix) =>
               // The counter ran natively: credit the rows Velox evaluated it on.
               metric += operatorMetrics.expressionStats.getOrDefault(slot, 0L)
