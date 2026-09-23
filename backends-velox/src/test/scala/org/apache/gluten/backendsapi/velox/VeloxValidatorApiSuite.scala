@@ -48,6 +48,25 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
     }
   }
 
+  test("floating bround JVM qualification is cached across validator instances") {
+    val expected = Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION)
+    val expression = new BRound(BoundReference(0, DoubleType, nullable = true), Literal(2))
+    assert(validator.doExprValidate("bround", expression) == expected)
+    val property = "java.specification.version"
+    val previous = System.getProperty(property)
+    try {
+      System.setProperty(property, if (expected) "1.8" else "99")
+      assert(validator.doExprValidate("bround", expression) == expected)
+      assert(new VeloxValidatorApi().doExprValidate("bround", expression) == expected)
+    } finally {
+      if (previous == null) {
+        System.clearProperty(property)
+      } else {
+        System.setProperty(property, previous)
+      }
+    }
+  }
+
   test("floating bround at scale zero is supported on every JVM") {
     Seq(FloatType, DoubleType).foreach {
       dataType =>

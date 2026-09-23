@@ -59,7 +59,7 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
             } else if (
               scale != 0 &&
               (bround.child.dataType == FloatType || bround.child.dataType == DoubleType) &&
-              !Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION)
+              !isJavaQualifiedForFloatingBround
             ) {
               logDebug(
                 "Floating-point bround with nonzero scale requires " +
@@ -139,6 +139,9 @@ object VeloxValidatorApi {
   val MIN_BROUND_SCALE: Int = -400
   val MAX_BROUND_SCALE: Int = 400
   val MIN_BROUND_FLOATING_JAVA_VERSION: String = "21"
+
+  private val isJavaQualifiedForFloatingBround =
+    Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION)
 
   private def isPrimitiveType(dataType: DataType): Boolean = {
     val enableTimestampNtzValidation = VeloxConfig.get.enableTimestampNtzValidation
