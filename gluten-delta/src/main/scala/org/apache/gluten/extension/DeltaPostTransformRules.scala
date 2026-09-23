@@ -303,7 +303,7 @@ object DeltaPostTransformRules {
 
   private[gluten] def containsIncrementMetricExpr(expr: Expression): Boolean = {
     expr match {
-      case e if e.prettyName == "increment_metric" => true
+      case e if e.prettyName == "increment_metric_dummy" => true
       case _ => expr.children.exists(containsIncrementMetricExpr)
     }
   }
