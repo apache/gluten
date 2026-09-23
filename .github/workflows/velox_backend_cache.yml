@@ -32,6 +32,7 @@ jobs:
   cache-native-lib-centos-8-static:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
+    container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
@@ -43,13 +44,9 @@ jobs:
             ccache-almalinux8-release-default
       - name: Build Gluten native libraries
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
-            yum install bison -y
-            export CCACHE_DIR=/work/.ccache
-            export CCACHE_MAXSIZE=1G
-            mkdir -p /work/.ccache
-            bash dev/ci-velox-buildstatic-centos-8.sh
-          "
+          yum install bison -y
+          export CCACHE_MAXSIZE=1G
+          bash dev/ci-velox-buildstatic-centos-8.sh
       - name: Save Ccache
         uses: actions/cache/save@v3
         id: ccache
@@ -63,7 +60,7 @@ jobs:
           key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
 
-  cache-native-lib-centos-8:
+  cache-static-lib-centos-9:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ${{ matrix.os }}
     container: apache/gluten:vcpkg-centos-9
@@ -76,9 +73,9 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
+          key: ccache-centos9-release-default-${{runner.arch}}-${{github.sha}}
           restore-keys: |
-            ccache-centos8-release-default-${{runner.arch}}
+            ccache-centos9-release-default-${{runner.arch}}
       - name: Build Gluten native libraries
         run: |
           export CCACHE_MAXSIZE=1G
@@ -88,12 +85,12 @@ jobs:
         id: ccache
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{runner.arch}}-${{github.sha}}
+          key: ccache-centos9-release-default-${{runner.arch}}-${{github.sha}}
       - name: Save Ccache to Apache Stash
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos8-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-centos9-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
 
   cache-shared-lib-centos-9:
@@ -134,6 +131,7 @@ jobs:
   cache-enhanced-native-lib-centos-8-static:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
+    container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
@@ -145,13 +143,9 @@ jobs:
             ccache-enhanced-almalinux8-release-default
       - name: Build Gluten native libraries
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
-            yum install bison -y
-            export CCACHE_DIR=/work/.ccache
-            export CCACHE_MAXSIZE=1G
-            mkdir -p /work/.ccache
-            bash dev/ci-velox-buildstatic-centos-8-enhanced-features.sh
-          "
+          yum install bison -y
+          export CCACHE_MAXSIZE=1G
+          bash dev/ci-velox-buildstatic-centos-8-enhanced-features.sh
       - name: Save Ccache
         uses: actions/cache/save@v3
         id: ccache

@@ -18,11 +18,11 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.{BoltColumnarBatches, ColumnarBatches}
+import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.expression.InterpretedArrowGenerate
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
-import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.vectorized.{ArrowColumnarRow, ArrowWritableColumnVector}
 
 import org.apache.spark.rdd.RDD

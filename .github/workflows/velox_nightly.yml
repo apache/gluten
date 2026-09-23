@@ -37,6 +37,7 @@ jobs:
   build-native-lib-x86:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
+    container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
@@ -48,17 +49,11 @@ jobs:
             ccache-almalinux8-release-default
       - name: Build Gluten velox third party
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
-            yum install bison -y
-            df -a
-            cd /work
-            export CCACHE_DIR=/work/.ccache
-            export CCACHE_MAXSIZE=1G
-            bash dev/ci-velox-buildstatic-centos-8.sh
-            ccache -s
-            mkdir -p /work/.m2/repository/org/apache/arrow/
-            cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
-          "
+          yum install bison -y
+          df -a
+          export CCACHE_MAXSIZE=1G
+          bash dev/ci-velox-buildstatic-centos-8.sh
+          ccache -s
       - name: Upload native libs
         uses: actions/upload-artifact@v7
         with:
@@ -68,7 +63,7 @@ jobs:
       - name: Upload Artifact Arrow Jar
         uses: actions/upload-artifact@v7
         with:
-          path: .m2/repository/org/apache/arrow/
+          path: /root/.m2/repository/org/apache/arrow/
           name: velox-arrow-jar-centos-8-x86-${{github.sha}}
 
   build-bundle-package-centos8-jdk8-x86:
@@ -298,10 +293,9 @@ jobs:
           df -a
           export ARM_BUILD_TARGET=false
           export CCACHE_MAXSIZE=1G
+          yum install bison -y
           bash dev/ci-velox-buildstatic-centos-8.sh
           ccache -s
-          mkdir -p $GITHUB_WORKSPACE/.m2/repository/org/apache/arrow/
-          cp -r /root/.m2/repository/org/apache/arrow/* $GITHUB_WORKSPACE/.m2/repository/org/apache/arrow/
       - name: "Save ccache"
         uses: actions/cache/save@v4
         id: ccache
@@ -316,7 +310,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: velox-arrow-jar-centos-8-${{github.sha}}
-          path: .m2/repository/org/apache/arrow/
+          path: /root/.m2/repository/org/apache/arrow/
           if-no-files-found: error
 
   build-bundle-package-centos8-jdk8-arm64:
@@ -450,7 +444,7 @@ jobs:
           name: nightly-gluten-velox-bundle-package-jdk8-x86-${{ steps.date.outputs.date }}
           path: package/
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@66257cad6bfeb2171d3b6bfa6c9a22279dd9c3a1 # 8.0.5
+        uses: burnett01/rsync-deployments@155b6d6c1219ab2224c20c58d423a3f1b850395f # 9.0.1
         with:
           switches: -avzr --delete
           path: package/gluten-velox-bundle-*.jar
@@ -479,7 +473,7 @@ jobs:
           name: nightly-gluten-velox-bundle-package-jdk17-x86-${{ steps.date.outputs.date }}
           path: package/
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@66257cad6bfeb2171d3b6bfa6c9a22279dd9c3a1 # 8.0.5
+        uses: burnett01/rsync-deployments@155b6d6c1219ab2224c20c58d423a3f1b850395f # 9.0.1
         with:
           switches: -avzr --delete
           path: package/gluten-velox-bundle-*.jar
@@ -508,7 +502,7 @@ jobs:
           name: nightly-gluten-velox-bundle-package-jdk21-x86-${{ steps.date.outputs.date }}
           path: package/
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@66257cad6bfeb2171d3b6bfa6c9a22279dd9c3a1 # 8.0.5
+        uses: burnett01/rsync-deployments@155b6d6c1219ab2224c20c58d423a3f1b850395f # 9.0.1
         with:
           switches: -avzr --delete
           path: package/gluten-velox-bundle-*.jar
@@ -595,7 +589,7 @@ jobs:
           path: package/target/gluten-velox-bundle-*.jar
           retention-days: 7
       - name: rsync to apache nightly
-        uses: burnett01/rsync-deployments@66257cad6bfeb2171d3b6bfa6c9a22279dd9c3a1 # 8.0.5
+        uses: burnett01/rsync-deployments@155b6d6c1219ab2224c20c58d423a3f1b850395f # 9.0.1
         with:
           switches: -avzr
           path: package/target/gluten-velox-bundle-*.jar

@@ -82,7 +82,14 @@ jobs:
   build-native-lib-centos-8:
     needs: detect-changes
     runs-on: ubuntu-22.04
+    container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
+      - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
+        run: |
+          dnf install -y jq bison tzdata
+          dnf module -y install python39 && alternatives --set python3 /usr/bin/python3.9
+          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+          dnf install -y gh --setopt=gpgcheck=0
       - uses: actions/checkout@v7
       - name: Get Ccache from Apache Stash
         id: ccache-stash
@@ -100,19 +107,13 @@ jobs:
             ccache-enhanced-almalinux8-release-default
       - name: Build Gluten native libraries
         run: |
-          docker pull apache/gluten:vcpkg-almalinux-8-gcc13
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
-            set -e
-            yum install tzdata bison -y
-            df -a
-            cd /work
-            export CCACHE_DIR=/work/.ccache
-            export CCACHE_MAXSIZE=1G
-            mkdir -p /work/.ccache
-            ccache -sz
-            bash dev/ci-velox-buildstatic-centos-8-enhanced-features.sh
-            ccache -s
-          "
+          set -e
+          yum install tzdata bison -y
+          df -a
+          export CCACHE_MAXSIZE=1G
+          ccache -sz
+          bash dev/ci-velox-buildstatic-centos-8-enhanced-features.sh
+          ccache -s
 
       - name: "Save ccache"
         if: always()
