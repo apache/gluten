@@ -37,7 +37,7 @@ class FilterMetricsUpdater(
       extraMetrics.foreach {
         case (name, metric) =>
           name match {
-            case "increment_metric" => metric += operatorMetrics.outputRows
+            case "increment_metric_dummy" => metric += operatorMetrics.outputRows
             case _ => // do nothing
           }
       }
