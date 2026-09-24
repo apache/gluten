@@ -343,8 +343,9 @@ object UDFResolver extends Logging {
   }
 
   /**
-   * One Spark function per loaded UDF whose name contains no dot. A dotted name is a Hive UDF class
-   * name, which VeloxHiveUDFTransformer already resolves, so it is skipped here.
+   * One Spark function per loaded UDF or UDAF whose name contains no dot. A dotted name is a Hive
+   * UDF/UDAF class name, which VeloxHiveUDFTransformer and HiveUDAFInspector already resolve, so it
+   * is skipped here.
    *
    * A name is also skipped when it collides with a Spark built-in: the names are unqualified, so
    * injecting one would redirect that built-in to a native implementation with possibly different
@@ -353,36 +354,58 @@ object UDFResolver extends Logging {
    * Names differing only in case are skipped as a group. Spark lowercases a function name when it
    * registers it, so they would collapse to one entry and the last registration would win, leaving
    * a call to either name running the other one's implementation.
+   *
+   * A name loaded as both a UDF and a UDAF is skipped as well. Velox keeps its scalar and aggregate
+   * registries separately, so a library may declare one of each, but a Spark function name resolves
+   * to a single builder and there is nothing in a call site to say which was meant.
    */
   def getFunctionDescriptions: Seq[FunctionDescription] = {
-    val candidates = UDFNames.toSeq.filterNot(_.contains(".")).sorted
+    val candidates = (UDFNames ++ UDAFNames).toSeq.filterNot(_.contains(".")).sorted
     val byLowerCase = candidates.groupBy(_.toLowerCase(Locale.ROOT))
 
     val (ambiguous, distinct) =
       candidates.partition(name => byLowerCase(name.toLowerCase(Locale.ROOT)).size > 1)
 
+    val (bothKinds, oneKind) =
+      distinct.partition(name => UDFNames.contains(name) && UDAFNames.contains(name))
+
     val (shadowing, injectable) =
-      distinct.partition(name => FunctionRegistry.builtin.functionExists(FunctionIdentifier(name)))
+      oneKind.partition(name => FunctionRegistry.builtin.functionExists(FunctionIdentifier(name)))
 
     ambiguous.foreach(
       name =>
         logWarning(
-          s"Not registering UDF '$name' by name: it differs only in case from another UDF " +
+          s"Not registering '$name' by name: it differs only in case from another function " +
             s"loaded from the same libraries, and Spark function names are case-insensitive. " +
             s"Rename it in the UDF library to call it directly."))
+
+    bothKinds.foreach(
+      name =>
+        logWarning(
+          s"Not registering '$name' by name: it is loaded as both a UDF and a UDAF, and a Spark " +
+            s"function name can only resolve to one of them. Rename one of them in the UDF " +
+            s"library to call it directly."))
 
     shadowing.foreach(
       name =>
         logWarning(
-          s"Not registering UDF '$name' by name: it shadows a Spark built-in. " +
+          s"Not registering '$name' by name: it shadows a Spark built-in. " +
             s"Rename it in the UDF library to call it directly."))
 
     injectable.map {
       name =>
-        (
-          FunctionIdentifier(name),
-          new ExpressionInfo(classOf[UDFExpression].getName, name),
-          (children: Seq[Expression]) => getUdfExpression(name, name)(children))
+        // bothKinds took out the overlap above, so exactly one of the two holds here.
+        if (UDAFNames.contains(name)) {
+          (
+            FunctionIdentifier(name),
+            new ExpressionInfo(classOf[UserDefinedAggregateFunction].getName, name),
+            (children: Seq[Expression]) => getUdafExpression(name)(children))
+        } else {
+          (
+            FunctionIdentifier(name),
+            new ExpressionInfo(classOf[UDFExpression].getName, name),
+            (children: Seq[Expression]) => getUdfExpression(name, name)(children))
+        }
     }
   }
 
