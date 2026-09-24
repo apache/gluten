@@ -29,6 +29,7 @@
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
 #include "velox/exec/tests/utils/HiveConnectorTestBase.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
+#include "velox/exec/tests/utils/TempDirectoryPath.h"
 
 #include <limits>
 
@@ -300,11 +301,12 @@ TEST_F(DeltaConnectorExecutionTest, generatedKeyDynamicFiltersHonorJoinReplaceme
 
 TEST_F(DeltaConnectorExecutionTest, generatedMetadataUsesAbsoluteParquetPositionsAfterSplitAndPruning) {
   parquet::registerParquetReaderFactory();
-  const auto file = exec::test::TempFilePath::create();
+  const auto directory = exec::test::TempDirectoryPath::create();
+  const auto filePath = directory->getPath() + "/delta.parquet";
   const auto rowType = ROW({"id"}, {BIGINT()});
   dwio::common::WriterOptions options;
   options.memoryPool = rootPool_.get();
-  auto sink = dwio::common::FileSink::create("file:" + file->getPath(), {.pool = pool()});
+  auto sink = dwio::common::FileSink::create("file:" + filePath, {.pool = pool()});
   parquet::Writer writer(std::move(sink), options, rowType);
   for (int group = 0; group < 6; ++group) {
     writer.write(
@@ -314,7 +316,7 @@ TEST_F(DeltaConnectorExecutionTest, generatedMetadataUsesAbsoluteParquetPosition
   writer.close();
 
   parquet::ParquetReader reader(
-      std::make_unique<dwio::common::BufferedInput>(std::make_shared<LocalReadFile>(file->getPath()), *pool()),
+      std::make_unique<dwio::common::BufferedInput>(std::make_shared<LocalReadFile>(filePath), *pool()),
       dwio::common::ReaderOptions(pool()));
   const auto metadata = reader.fileMetaData();
   ASSERT_EQ(metadata.numRowGroups(), 6);
@@ -333,7 +335,7 @@ TEST_F(DeltaConnectorExecutionTest, generatedMetadataUsesAbsoluteParquetPosition
        makeFlatVector<int64_t>(14, [](auto row) { return 33 + row; }),
        makeFlatVector<int8_t>(14, [](auto row) { return row == 0 || row == 8 || row == 13; })});
   const auto split = makeDeltaSplit(
-      file->getPath(),
+      filePath,
       payload,
       6,
       DeltaRowIndexFilterType::kIfContained,
