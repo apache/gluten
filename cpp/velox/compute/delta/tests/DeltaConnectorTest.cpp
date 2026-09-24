@@ -314,7 +314,7 @@ TEST_F(DeltaConnectorExecutionTest, generatedMetadataUsesAbsoluteParquetPosition
   writer.close();
 
   parquet::ParquetReader reader(
-      std::make_unique<dwio::common::BufferedInput>(std::make_shared<LocalReadFile>(file->getPath()), pool()),
+      std::make_unique<dwio::common::BufferedInput>(std::make_shared<LocalReadFile>(file->getPath()), *pool()),
       dwio::common::ReaderOptions(pool()));
   const auto metadata = reader.fileMetaData();
   ASSERT_EQ(metadata.numRowGroups(), 6);
