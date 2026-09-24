@@ -20,7 +20,7 @@ import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.gluten.execution.DeltaScanTransformer
 
 import org.apache.spark.sql.{DataFrame, Dataset, QueryTest, Row}
-import org.apache.spark.sql.delta.files.TahoeLogFileIndex
+import org.apache.spark.sql.delta.files.{TahoeBatchFileIndex, TahoeFileIndex, TahoeLogFileIndex}
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
 import org.apache.spark.sql.execution.SparkPlan
@@ -42,7 +42,8 @@ class DeltaDeletionVectorHandoffSuite
   with SharedSparkSession
   with DeltaSQLTestUtils
   with DeltaSQLCommandTest
-  with AdaptiveSparkPlanHelper {
+  with AdaptiveSparkPlanHelper
+  with DeltaGeneratedMetadataTests {
 
   import testImplicits._
 
@@ -91,6 +92,48 @@ class DeltaDeletionVectorHandoffSuite
         metadata,
         nullableRowTrackingFields = false,
         optimizationsEnabled = false),
+      options = Map.empty
+    )(spark)
+    Dataset.ofRows(spark, LogicalRelation(relation))
+  }
+
+  override protected def generatedMetadataDataFrame(
+      path: String,
+      fields: Seq[StructField],
+      filterType: Option[RowIndexFilterType]): DataFrame = {
+    val log = DeltaLog.forTable(spark, new Path(path))
+    val snapshot = log.update()
+    val index: TahoeFileIndex = filterType match {
+      case Some(value) =>
+        new TahoeBatchFileIndex(
+          spark,
+          "generated-metadata-test",
+          snapshot.allFiles.collect().toSeq,
+          log,
+          log.dataPath,
+          snapshot) {
+          override def rowIndexFilters: Option[Map[String, RowIndexFilterType]] =
+            Some(addFiles.map(file => file.path -> value).toMap)
+        }
+      case None => TahoeLogFileIndex(spark, log)
+    }
+    val relation = HadoopFsRelation(
+      index,
+      index.partitionSchema,
+      fields.foldLeft(snapshot.metadata.schema)(_.add(_)),
+      bucketSpec = None,
+      DeltaParquetFileFormat(
+        snapshot.protocol,
+        snapshot.metadata,
+        nullableRowTrackingFields = false,
+        optimizationsEnabled = false,
+        tablePath =
+          if (fields.exists(_.name == DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME)) {
+            Some(path)
+          } else {
+            None
+          }
+      ),
       options = Map.empty
     )(spark)
     Dataset.ofRows(spark, LogicalRelation(relation))
@@ -248,12 +291,7 @@ class DeltaDeletionVectorHandoffSuite
                 useMetadataRowIndex.toString) {
               val executedPlans = captureDeletePlans(path, "id IN (3, 4)")
               val planText = executedPlans.map(_.treeString).mkString("\n\n")
-              // With the metadata row index, the DML target scan offloads like any other DV
-              // scan; without it, Delta relies on Spark's injected row-index filter column and
-              // the scan stays on Spark.
-              assert(
-                executedPlans.exists(containsNativeDeltaScan) === useMetadataRowIndex,
-                planText)
+              assert(executedPlans.exists(containsNativeDeltaScan), planText)
 
               assert(activeDvCardinality(path) === 2L)
               checkAnswer(spark.read.format("delta").load(path), Seq((1, "a"), (2, "b")).toDF())
