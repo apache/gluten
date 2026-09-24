@@ -18,6 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.metrics.MetricsUpdater
+import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.{JoinParams, SubstraitContext}
 import org.apache.gluten.utils.SubstraitUtil
 
@@ -93,6 +94,10 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
       joinType match {
         case _: InnerLike => left.outputPartitioning
         case LeftOuter | ExistenceJoin(_) => left.outputPartitioning
+        // LeftSingle (Spark 4.0+) has the same partitioning as LeftOuter: the streamed
+        // (left) side determines the output partitioning.
+        case leftSingle if SparkShimLoader.getSparkShims.isLeftSingleJoinType(leftSingle) =>
+          left.outputPartitioning
         case x =>
           throw new IllegalArgumentException(
             s"BroadcastNestedLoopJoin should not take $x as the JoinType with building right side")
@@ -149,6 +154,11 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
       case _: InnerLike | LeftOuter | RightOuter => ValidationResult.succeeded
       case ExistenceJoin(_) =>
         ValidationResult.succeeded
+      // LeftSingle (Spark 4.0+) is semantically equivalent to LeftOuter: at most one
+      // matching row on the build side is expected. BroadcastNestedLoopJoin handles it
+      // identically to LeftOuter.
+      case leftSingle if SparkShimLoader.getSparkShims.isLeftSingleJoinType(leftSingle) =>
+        ValidationResult.succeeded
       case _ =>
         ValidationResult.failed(s"$joinType join is not supported with BroadcastNestedLoopJoin")
     }
@@ -160,6 +170,11 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
     (joinType, buildSide) match {
       case (LeftOuter, BuildLeft) | (RightOuter, BuildRight) | (ExistenceJoin(_), BuildLeft) =>
         ValidationResult.failed(s"$joinType join is not supported with $buildSide")
+      // LeftSingle (Spark 4.0+) with BuildLeft is invalid for the same reason as LeftOuter with
+      // BuildLeft: the streamed (left) side cannot be broadcast.
+      case (leftSingle, BuildLeft)
+          if SparkShimLoader.getSparkShims.isLeftSingleJoinType(leftSingle) =>
+        ValidationResult.failed(s"$leftSingle join is not supported with $buildSide")
       case _ =>
         ValidationResult.succeeded
     }
