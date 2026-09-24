@@ -22,6 +22,7 @@ import org.apache.gluten.extension.OffloadDeltaScan
 
 import org.apache.spark.sql.{DataFrame, QueryTest, Row}
 import org.apache.spark.sql.delta.files.TahoeBatchFileIndex
+import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.test.SharedSparkSession
@@ -71,15 +72,27 @@ trait DeltaGeneratedMetadataTests {
       append: Boolean = false): Unit = {
     withSQLConf(
       GlutenConfig.NATIVE_WRITER_ENABLED.key -> "false",
-      VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> "false") {
-      values.toDF("value").coalesce(1).sortWithinPartitions("value").write
-        .format("delta")
-        .mode(if (append) "append" else "error")
-        .option("delta.enableDeletionVectors", enableDvs.toString)
-        .option("parquet.block.size", "4096")
-        .option("parquet.page.size", "1024")
-        .option("parquet.enable.dictionary", "false")
-        .save(path)
+      GlutenConfig.COLUMNAR_PARQUET_WRITE_BLOCK_ROWS.key -> "1000",
+      VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> "false"
+    ) {
+      // Delta does not forward arbitrary DataFrameWriter options to the Parquet writer.
+      // scalastyle:off hadoopconfiguration
+      val hadoopConf = spark.sparkContext.hadoopConfiguration
+      // scalastyle:on hadoopconfiguration
+      val previousBlockSize = Option(hadoopConf.get("parquet.block.size"))
+      try {
+        hadoopConf.set("parquet.block.size", "4096")
+        values.toDF("value").coalesce(1).sortWithinPartitions("value").write
+          .format("delta")
+          .mode(if (append) "append" else "error")
+          .option("delta.enableDeletionVectors", enableDvs.toString)
+          .save(path)
+      } finally {
+        previousBlockSize match {
+          case Some(value) => hadoopConf.set("parquet.block.size", value)
+          case None => hadoopConf.unset("parquet.block.size")
+        }
+      }
     }
   }
 
@@ -150,7 +163,7 @@ trait DeltaGeneratedMetadataTests {
         assert(file.deletionVector != null)
         val footer = ParquetFileReader.readFooter(
           spark.sessionState.newHadoopConf(),
-          new Path(log.dataPath, file.path),
+          DeltaFileOperations.absolutePath(log.dataPath.toString, file.path),
           ParquetMetadataConverter.NO_FILTER)
         assert(footer.getBlocks.size() > 1, "fixture must have multiple Parquet row groups")
 
@@ -271,15 +284,16 @@ trait DeltaGeneratedMetadataTests {
           val joined = marked
             .join(ordinary, marked("value") === ordinary("value"))
             .select(marked("value"), marked(rowIndexField.name), marked(deletedField.name))
-          val scans = collectWithSubqueries(joined.queryExecution.executedPlan) {
-            case scan: DeltaScanTransformer => scan
-          }
-          assert(scans.exists(_.generatesDeletionVectorMetadata))
-          assert(scans.exists(!_.generatesDeletionVectorMetadata))
           val expected = (0 until 6).map {
             value => Row(value, value.toLong, (if (value == 0 || value == 2) 1 else 0).toByte)
           }
           checkAnswer(joined, expected)
+          val executedPlan = joined.queryExecution.executedPlan
+          val scans = collectWithSubqueries(executedPlan) {
+            case scan: DeltaScanTransformer => scan
+          }
+          assert(scans.exists(_.generatesDeletionVectorMetadata), executedPlan.treeString)
+          assert(scans.exists(!_.generatesDeletionVectorMetadata), executedPlan.treeString)
           checkAnswer(
             joined.filter(s"${deletedField.name} = 1"),
             expected.filter(_.getByte(2) == 1))
