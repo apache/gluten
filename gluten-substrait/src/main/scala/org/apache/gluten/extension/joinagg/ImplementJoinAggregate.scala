@@ -228,8 +228,12 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
         }
     }
 
+    // Build a projection that exposes exactly [grouping attrs] ++ [unpacked buffer attrs].
+    // The wrapper struct columns from childPlan must NOT be passed through: keeping them would
+    // shift the buffer attribute column indices seen by Velox, causing out-of-range field
+    // reference errors in SubstraitToVeloxExpr.
     val childWithUnpacked = if (unpackAliases.nonEmpty) {
-      ProjectExec(childPlan.output ++ unpackAliases, childPlan)
+      ProjectExec(grouping.map(_.toAttribute) ++ unpackAliases, childPlan)
     } else {
       childPlan
     }

@@ -956,7 +956,12 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
                                  |FROM iceberg_input_file_projection
                                  |ORDER BY id
                                  |""".stripMargin)
-        checkGlutenPlan[IcebergScanTransformer](df)
+        // When the user table has a column whose lowercase name matches the metadata function
+        // "input_file_name", Velox would see two conflicting column handles (Regular vs
+        // PartitionKey) for the same physical name. Gluten detects this conflict and falls the
+        // scan back to Vanilla BatchScanExec so Spark's own FilePartitionReader sets the
+        // InputFileBlockHolder thread-local and input_file_name() returns the correct path.
+        checkSparkPlan[BatchScanExec](df)
         val rows = df.collect()
         assert(rows.length == 2, s"Expected 2 rows, got ${rows.length}")
         assert(rows(0).getString(1) == "user-data-value")
@@ -1043,7 +1048,9 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
                                  |FROM iceberg_exact_collision
                                  |ORDER BY id
                                  |""".stripMargin)
-        checkGlutenPlan[IcebergScanTransformer](df)
+        // The exact lowercase collision "input_file_name" (column) vs input_file_name() (function)
+        // triggers the same Velox conflict detection; the scan falls back to Vanilla BatchScanExec.
+        checkSparkPlan[BatchScanExec](df)
         val rows = df.collect()
         assert(rows.length == 1, s"Expected 1 row, got ${rows.length}")
         // Physical data column must contain the user-inserted value.

@@ -17,7 +17,9 @@
 package org.apache.gluten.extension.columnar.rewrite
 
 import org.apache.spark.sql.catalyst.expressions.AttributeSet
+import org.apache.spark.sql.catalyst.expressions.aggregate.{Final, PartialMerge}
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan, UnaryExecNode}
+import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 
 /**
  * After applying the PullOutPreProject rule, there may be some projects that contain columns not
@@ -33,8 +35,20 @@ object ProjectColumnPruning extends RewriteSingleNode {
 
   private def getReferences(plan: SparkPlan): AttributeSet = {
     // SPARK-55979 - aggregate.references is unreliable.
-    AttributeSet(plan.expressions) -- (plan.producedAttributes -- plan.children.flatMap(
-      _.outputSet))
+    val baseRefs = AttributeSet(plan.expressions) -- (plan.producedAttributes -- plan.children
+      .flatMap(_.outputSet))
+    // Final and PartialMerge aggregates bind their merge expressions against
+    // inputAggBufferAttributes from the child, but those attributes are not part of the
+    // aggregate's expression tree. Include them so ProjectColumnPruning does not strip them.
+    plan match {
+      case agg: BaseAggregateExec
+          if agg.aggregateExpressions.exists(e => e.mode == Final || e.mode == PartialMerge) =>
+        baseRefs ++ AttributeSet(
+          agg.aggregateExpressions
+            .filter(e => e.mode == Final || e.mode == PartialMerge)
+            .flatMap(_.aggregateFunction.inputAggBufferAttributes))
+      case _ => baseRefs
+    }
   }
 
   override def rewrite(plan: SparkPlan): SparkPlan = plan match {
