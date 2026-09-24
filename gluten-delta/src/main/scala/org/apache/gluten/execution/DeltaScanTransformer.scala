@@ -165,7 +165,8 @@ case class DeltaScanTransformer(
             if format.columnMappingMode != NoMapping &&
               format.referenceSchema.fieldNames.exists(generatedTypes.contains) =>
           return ValidationResult.failed("Generated Delta metadata names overlap mapped columns")
-        case format: DeltaParquetFileFormat if format.optimizationsEnabled =>
+        case format: DeltaParquetFileFormat
+            if !DeltaDeletionVectorScanInfo.supportsGeneratedMetadata(format) =>
           return ValidationResult.failed(
             "Delta requires optimizations disabled for generated DV metadata")
         case _ =>

@@ -50,11 +50,14 @@ class DeltaDeletionVectorHandoffSuite
     collectWithSubqueries(plan) { case scan: DeltaScanTransformer => scan }.nonEmpty
   }
 
-  private def captureDeletePlans(path: String, predicate: String): Seq[SparkPlan] = {
+  override protected def captureGeneratedMetadataPlans(sqlText: String): Seq[SparkPlan] = {
     DeltaTestUtils.withAllPlansCaptured(spark) {
-      spark.sql(s"DELETE FROM delta.`$path` WHERE $predicate").collect()
+      spark.sql(sqlText).collect()
     }.map(_.executedPlan)
   }
+
+  private def captureDeletePlans(path: String, predicate: String): Seq[SparkPlan] =
+    captureGeneratedMetadataPlans(s"DELETE FROM delta.`$path` WHERE $predicate")
 
   private def activeDvCardinality(path: String): Long = {
     val log = DeltaLog.forTable(spark, new Path(path))
