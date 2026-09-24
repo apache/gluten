@@ -69,7 +69,7 @@ class DeltaDataSource : public HiveDataSource {
  private:
   const RowTypePtr deltaOutputType_;
   std::optional<column_index_t> rowDeletedChannel_;
-  std::unordered_map<column_index_t, std::unique_ptr<common::Filter>> generatedFilters_;
+  std::unordered_map<column_index_t, std::shared_ptr<common::Filter>> generatedFilters_;
 };
 
 } // namespace gluten::delta

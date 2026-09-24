@@ -137,7 +137,7 @@ void DeltaDataSource::addDynamicFilter(column_index_t outputChannel, const std::
   // Velox may replace a join with its dynamic filter. Honor the filter after materialization,
   // rather than attaching it to a row-index ScanSpec (which cannot evaluate filters).
   if (scanSpec_->getChildByChannel(outputChannel).columnType() == common::ScanSpec::ColumnType::kRowIndex) {
-    common::Filter::merge(generatedFilters_[outputChannel], filter->clone());
+    common::Filter::merge(filter, generatedFilters_[outputChannel]);
     return;
   }
   HiveDataSource::addDynamicFilter(outputChannel, filter);
@@ -146,8 +146,8 @@ void DeltaDataSource::addDynamicFilter(column_index_t outputChannel, const std::
 void DeltaDataSource::setFromDataSource(std::unique_ptr<DataSource> source) {
   auto* deltaSource = dynamic_cast<DeltaDataSource*>(source.get());
   VELOX_CHECK_NOT_NULL(deltaSource, "Expected a preloaded Delta data source");
-  for (auto& [channel, filter] : deltaSource->generatedFilters_) {
-    common::Filter::merge(generatedFilters_[channel], std::move(filter));
+  for (const auto& [channel, filter] : deltaSource->generatedFilters_) {
+    common::Filter::merge(filter, generatedFilters_[channel]);
   }
   HiveDataSource::setFromDataSource(std::move(source));
 }
