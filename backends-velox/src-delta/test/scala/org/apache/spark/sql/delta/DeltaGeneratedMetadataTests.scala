@@ -22,8 +22,7 @@ import org.apache.gluten.extension.OffloadDeltaScan
 
 import org.apache.spark.sql.{DataFrame, QueryTest, Row}
 import org.apache.spark.sql.delta.files.TahoeBatchFileIndex
-import org.apache.spark.sql.delta.sources.DeltaSQLConf
-import org.apache.spark.sql.execution.FileSourceScanExec
+import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{LongType, StringType, StructField, StructType}
@@ -32,7 +31,9 @@ import org.apache.hadoop.fs.Path
 import org.apache.parquet.format.converter.ParquetMetadataConverter
 import org.apache.parquet.hadoop.ParquetFileReader
 
-/** The versioned suites supply only the Delta 3.3/4.0 relation-construction bridge. */
+/**
+ * The Delta 3.3/4.0 suites supply relation and plan-capture bridges; sources also compile on 2.4.
+ */
 trait DeltaGeneratedMetadataTests {
   self: QueryTest with SharedSparkSession with AdaptiveSparkPlanHelper =>
 
@@ -43,10 +44,12 @@ trait DeltaGeneratedMetadataTests {
       fields: Seq[StructField],
       filterType: Option[RowIndexFilterType] = None): DataFrame
 
-  private val rowIndexField = DeltaParquetFileFormat.ROW_INDEX_STRUCT_FIELD
+  protected def captureGeneratedMetadataPlans(sqlText: String): Seq[SparkPlan]
+
+  private val rowIndexField = StructField(DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME, LongType)
   private val deletedField = DeltaParquetFileFormat.IS_ROW_DELETED_STRUCT_FIELD
   private val generatedFields = Seq(rowIndexField, deletedField)
-  private val metadataRowIndexKey = DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key
+  private val metadataRowIndexKey = "spark.databricks.delta.deletionVectors.useMetadataRowIndex"
 
   private def generatedScans(df: DataFrame): Seq[DeltaScanTransformer] = {
     val plan = df.queryExecution.executedPlan
@@ -293,9 +296,8 @@ trait DeltaGeneratedMetadataTests {
           spark.sql(s"DELETE FROM delta.`$path` WHERE value IN (0, 1)")
         }
         withSQLConf(metadataRowIndexKey -> "false") {
-          val plans = DeltaTestUtils.withAllPlansCaptured(spark) {
-            spark.sql(s"DELETE FROM delta.`$path` WHERE value IN (2, 3)").collect()
-          }.map(_.executedPlan)
+          val plans =
+            captureGeneratedMetadataPlans(s"DELETE FROM delta.`$path` WHERE value IN (2, 3)")
           assert(
             plans.exists {
               plan =>
@@ -310,9 +312,8 @@ trait DeltaGeneratedMetadataTests {
           assert(files.flatMap(file => Option(file.deletionVector).map(_.cardinality)).sum == 4L)
 
           withSQLConf(VeloxDeltaConfig.ENABLE_NATIVE_DML_ROW_INDEX_SCAN.key -> "false") {
-            val fallbackPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
-              spark.sql(s"DELETE FROM delta.`$path` WHERE value = 4").collect()
-            }.map(_.executedPlan)
+            val fallbackPlans =
+              captureGeneratedMetadataPlans(s"DELETE FROM delta.`$path` WHERE value = 4")
             assert(
               !fallbackPlans.exists {
                 plan =>
