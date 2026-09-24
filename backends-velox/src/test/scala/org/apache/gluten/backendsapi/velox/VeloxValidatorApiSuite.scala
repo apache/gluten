@@ -40,7 +40,10 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
         Seq(-3, 2).foreach {
           scale =>
             val expression =
-              new BRound(BoundReference(0, dataType, nullable = true), Literal(scale))
+              new BRound(
+                BoundReference(0, dataType, nullable = true),
+                Literal(scale),
+                ansiEnabled = false)
             assert(
               validator.doExprValidate("bround", expression) ==
                 Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION))
@@ -50,7 +53,10 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
 
   test("floating bround JVM qualification is cached across validator instances") {
     val expected = Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION)
-    val expression = new BRound(BoundReference(0, DoubleType, nullable = true), Literal(2))
+    val expression = new BRound(
+      BoundReference(0, DoubleType, nullable = true),
+      Literal(2),
+      ansiEnabled = false)
     assert(validator.doExprValidate("bround", expression) == expected)
     val property = "java.specification.version"
     val previous = System.getProperty(property)
@@ -70,7 +76,10 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
   test("floating bround at scale zero is supported on every JVM") {
     Seq(FloatType, DoubleType).foreach {
       dataType =>
-        val expression = new BRound(BoundReference(0, dataType, nullable = true), Literal(0))
+        val expression = new BRound(
+          BoundReference(0, dataType, nullable = true),
+          Literal(0),
+          ansiEnabled = false)
         assert(validator.doExprValidate("bround", expression))
     }
   }
@@ -80,7 +89,8 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
       dataType =>
         val expression = new BRound(
           BoundReference(0, dataType, nullable = true),
-          Literal.create(null, IntegerType))
+          Literal.create(null, IntegerType),
+          ansiEnabled = false)
         assert(validator.doExprValidate("bround", expression))
     }
   }
@@ -88,7 +98,10 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
   test("integral and decimal bround are independent of floating conversion") {
     Seq(ByteType, ShortType, IntegerType, LongType, DecimalType(38, 38)).foreach {
       dataType =>
-        val expression = new BRound(BoundReference(0, dataType, nullable = true), Literal(-3))
+        val expression = new BRound(
+          BoundReference(0, dataType, nullable = true),
+          Literal(-3),
+          ansiEnabled = false)
         assert(validator.doExprValidate("bround", expression))
     }
   }
@@ -97,8 +110,8 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
     Seq(MIN_BROUND_SCALE - 1, -3, 0, 2, MAX_BROUND_SCALE + 1).foreach {
       scale =>
         val child = BoundReference(0, DoubleType, nullable = true)
-        val round = new Round(child, Literal(scale))
-        val bround = new BRound(child, Literal(scale))
+        val round = new Round(child, Literal(scale), ansiEnabled = false)
+        val bround = new BRound(child, Literal(scale), ansiEnabled = false)
         assert(validator.doExprValidate("round", round))
         val expectNativeBround = scale >= MIN_BROUND_SCALE && scale <= MAX_BROUND_SCALE &&
           (scale == 0 || Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION))
@@ -113,7 +126,10 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
           Seq(Int.MinValue, MIN_BROUND_SCALE - 1, MAX_BROUND_SCALE + 1, Int.MaxValue).foreach {
             scale =>
               val expression =
-                new BRound(BoundReference(0, dataType, nullable = true), Literal(scale))
+                new BRound(
+                  BoundReference(0, dataType, nullable = true),
+                  Literal(scale),
+                  ansiEnabled = false)
               assert(!validator.doExprValidate("bround", expression))
           }
       }
@@ -132,7 +148,10 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
         Seq(MIN_BROUND_SCALE, MAX_BROUND_SCALE).foreach {
           scale =>
             val expression =
-              new BRound(BoundReference(0, dataType, nullable = true), Literal(scale))
+              new BRound(
+                BoundReference(0, dataType, nullable = true),
+                Literal(scale),
+                ansiEnabled = false)
             val expectNative = (dataType != FloatType && dataType != DoubleType) ||
               Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION)
             assert(validator.doExprValidate("bround", expression) == expectNative)
@@ -143,7 +162,8 @@ class VeloxValidatorApiSuite extends AnyFunSuite {
   test("bround scale fields are not accepted as constants") {
     val expression = new BRound(
       BoundReference(0, DoubleType, nullable = true),
-      BoundReference(1, IntegerType, nullable = false))
+      BoundReference(1, IntegerType, nullable = false),
+      ansiEnabled = false)
     assert(!validator.doExprValidate("bround", expression))
   }
 }

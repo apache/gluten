@@ -52,14 +52,18 @@ class VeloxBRoundTransformerSuite extends AnyFunSuite {
   test("floating and decimal bround retain their two-argument signatures") {
     Seq(Literal(2.5f), Literal(2.5d), Literal(Decimal("2.5"))).foreach {
       value =>
-        val scale = Literal(1)
-        val original = new BRound(value, scale)
-        val transformed = api.genBRoundTransformer(
-          "bround",
-          Seq(LiteralTransformer(value), LiteralTransformer(scale)),
-          original)
-        val function = transformed.doTransform(new SubstraitContext).toProtobuf.getScalarFunction
-        assert(function.getArgumentsCount == 2)
+        Seq(false, true).foreach {
+          ansi =>
+            val scale = Literal(1)
+            val original = new BRound(value, scale, ansiEnabled = ansi)
+            val transformed = api.genBRoundTransformer(
+              "bround",
+              Seq(LiteralTransformer(value), LiteralTransformer(scale)),
+              original)
+            val function =
+              transformed.doTransform(new SubstraitContext).toProtobuf.getScalarFunction
+            assert(function.getArgumentsCount == 2)
+        }
     }
   }
 }
