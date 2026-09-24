@@ -1566,6 +1566,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   std::vector<std::string> colNameList;
   std::vector<TypePtr> veloxTypeList;
   std::vector<ColumnType> columnTypes;
+  std::optional<int32_t> deltaRowDeletedColumn;
+  bool deltaMetadataScan = false;
   // Convert field names into lower case when not case-sensitive.
   bool asLowerCase = !veloxCfg_->get<bool>(kCaseSensitive, false);
   if (readRel.has_base_schema()) {
@@ -1580,10 +1582,28 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     }
     veloxTypeList = SubstraitParser::parseNamedStruct(baseSchema, asLowerCase);
     SubstraitParser::parseColumnTypes(baseSchema, columnTypes);
+    for (int32_t i = 0; i < baseSchema.column_types_size(); ++i) {
+      if (baseSchema.column_types(i) == ::substrait::NamedStruct::DELTA_ROW_DELETED_COL) {
+        VELOX_USER_CHECK(!deltaRowDeletedColumn.has_value(), "Duplicate Delta deleted-row column");
+        VELOX_USER_CHECK_EQ(baseSchema.names(i), delta::kRowDeletedColumnName);
+        VELOX_USER_CHECK(veloxTypeList[i]->isTinyint(), "Delta deleted-row output must be TINYINT");
+        deltaRowDeletedColumn = i;
+        deltaMetadataScan = true;
+      } else if (baseSchema.column_types(i) == ::substrait::NamedStruct::DELTA_ROW_INDEX_COL) {
+        VELOX_USER_CHECK(veloxTypeList[i]->isBigint(), "Delta row-index output must be BIGINT");
+        deltaMetadataScan = true;
+      }
+    }
   }
 
+  // DeltaDataSource uses a private BIGINT channel for absolute Parquet positions and returns
+  // byte-valued filter results. Keep the public scan type unchanged, with no extra plan operator.
+  auto scanTypes = veloxTypeList;
+  if (deltaRowDeletedColumn.has_value()) {
+    scanTypes[*deltaRowDeletedColumn] = BIGINT();
+  }
   auto names = colNameList;
-  auto types = veloxTypeList;
+  auto types = scanTypes;
 
   // The columns we project from the file.
   auto baseSchema = ROW(std::move(names), std::move(types));
@@ -1617,7 +1637,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 
   connector::ConnectorTableHandlePtr tableHandle;
   auto remainingFilter = readRel.has_filter() ? exprConverter_->toVeloxExpr(readRel.filter(), baseSchema) : nullptr;
-  auto connectorId = isDeltaSplitInfo(splitInfo) ? connectorIds_.delta : connectorIds_.hive;
+  auto connectorId = isDeltaSplitInfo(splitInfo) || deltaMetadataScan ? connectorIds_.delta : connectorIds_.hive;
   if (std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo)) {
     connectorId = connectorIds_.iceberg;
   }
@@ -1669,7 +1689,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
           icebergColumn->initialDefault);
     } else {
       assignments[outName] = std::make_shared<connector::hive::HiveColumnHandle>(
-          colNameList[idx], columnType, veloxTypeList[idx], veloxTypeList[idx]);
+          colNameList[idx], columnType, scanTypes[idx], scanTypes[idx]);
     }
     outNames.emplace_back(outName);
   }
