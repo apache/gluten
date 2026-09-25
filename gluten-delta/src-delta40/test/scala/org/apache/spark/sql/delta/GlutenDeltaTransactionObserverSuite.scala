@@ -17,7 +17,6 @@
 package org.apache.spark.sql.delta
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.GlutenQueryTest
@@ -27,7 +26,9 @@ import org.apache.spark.sql.test.SharedSparkSession
 
 import io.delta.sql.DeltaSparkSessionExtension
 
-class GlutenDeltaTransactionObserverSuite extends GlutenQueryTest with SharedSparkSession {
+abstract class GlutenDeltaTransactionObserverSuite
+  extends GlutenQueryTest
+  with SharedSparkSession {
 
   private val nativeWriteKey = "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite"
 
@@ -48,7 +49,6 @@ class GlutenDeltaTransactionObserverSuite extends GlutenQueryTest with SharedSpa
   }
 
   test("native Delta DELETE preserves the phase-locking transaction observer") {
-    assume(BackendTestUtils.isVeloxBackendLoaded())
     withTempDir {
       dir =>
         withSQLConf(nativeWriteKey -> "false") {
