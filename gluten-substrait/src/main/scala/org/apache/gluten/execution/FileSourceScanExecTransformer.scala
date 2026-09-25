@@ -50,7 +50,8 @@ case class FileSourceScanExecTransformer(
     override val tableIdentifier: Option[TableIdentifier],
     override val disableBucketedScan: Boolean = false,
     override val pushDownFilters: Option[Seq[Expression]] = None,
-    inputStats: Option[InputStats] = None)
+    inputStats: Option[InputStats] = None,
+    override val requiredMapSubfields: Map[String, Seq[SubfieldPath]] = Map.empty)
   extends FileSourceScanExecTransformerBase(
     relation,
     stream,
@@ -85,12 +86,19 @@ case class FileSourceScanExecTransformer(
       None,
       disableBucketedScan,
       pushDownFilters.map(QueryPlan.normalizePredicates(_, output)),
-      inputStats
+      inputStats,
+      requiredMapSubfields
     )
   }
 
   override def withNewPushdownFilters(filters: Seq[Expression]): FileSourceScanExecTransformer =
     copy(pushDownFilters = Some(filters))
+
+  override def supportsMapKeyPruning: Boolean = true
+
+  override def withRequiredMapSubfields(
+      subfields: Map[String, Seq[SubfieldPath]]): FileSourceScanExecTransformer =
+    copy(requiredMapSubfields = subfields)
 }
 
 abstract class FileSourceScanExecTransformerBase(

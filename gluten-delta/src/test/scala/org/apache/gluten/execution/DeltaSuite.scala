@@ -113,6 +113,35 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
   // broke `PreparedDeltaFileIndex.matchingFiles` and silently returned all files.
   Seq("name", "id").foreach {
     mode =>
+      test(s"map-key pruning is disabled under column mapping mode = $mode") {
+        withTable("delta_cm_map") {
+          spark.sql(s"""
+                       |create table delta_cm_map
+                       |  (id bigint, m map<string, struct<s string, t bigint>>)
+                       |using delta
+                       |tblproperties ("delta.columnMapping.mode" = "$mode")
+                       |""".stripMargin)
+          spark.sql(
+            "insert into delta_cm_map select id, " +
+              "map('a', named_struct('s', concat('v', cast(id % 7 as string)), 't', id), " +
+              "'b', named_struct('s', 'x', 't', id * 2)) from range(0, 500)")
+          val pruningFlag = "spark.gluten.sql.columnar.backend.velox.scanMapKeyPruningEnabled"
+          withSQLConf(pruningFlag -> "true", "spark.sql.adaptive.enabled" -> "false") {
+            runQueryAndCompare(
+              "select sum(m['a'].t), max(m['a'].s) from delta_cm_map where m['a'].s = 'v3'") {
+              df =>
+                val subfields = getExecutedPlan(df)
+                  .collect { case scan: DeltaScanTransformer => scan.requiredMapSubfields }
+                  .flatten
+                assert(subfields.isEmpty, s"physical column names cannot be pruned: $subfields")
+            }
+          }
+        }
+      }
+  }
+
+  Seq("name", "id").foreach {
+    mode =>
       test(s"column mapping mode = $mode with partition filter (single partition col)") {
         withTable("delta_cm_part") {
           spark.sql(s"""
@@ -632,7 +661,62 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  test("deletion vector on partitioned table") {
+  testWithMinSparkVersion("map-key pruning on delta scan with and without deletion vector", "3.4") {
+    withTempPath {
+      p =>
+        val path = p.getCanonicalPath
+        spark
+          .range(0, 2000)
+          .selectExpr(
+            "id",
+            "map('a', named_struct('s', concat('v', cast(id % 7 as string)), 't', id), " +
+              "'b', named_struct('s', 'x', 't', id * 2), " +
+              "'c', named_struct('s', 'y', 't', id + 1)) as m"
+          )
+          .coalesce(1)
+          .write
+          .format("delta")
+          .save(path)
+        val sql = s"SELECT count(*), sum(m['a'].t), max(m['a'].s) " +
+          s"FROM delta.`$path` WHERE m['a'].s = 'v3'"
+        val pruningFlag = "spark.gluten.sql.columnar.backend.velox.scanMapKeyPruningEnabled"
+
+        def scanSubfields(df: DataFrame): Map[String, Seq[String]] =
+          getExecutedPlan(df)
+            .collect { case scan: DeltaScanTransformer => scan.requiredMapSubfields }
+            .flatten
+            .toMap
+            .map { case (col, paths) => col -> paths.map(_.toString) }
+
+        withSQLConf(pruningFlag -> "true", "spark.sql.adaptive.enabled" -> "false") {
+          runQueryAndCompare(sql) {
+            df =>
+              val subfields = scanSubfields(df)
+              assert(subfields.contains("m"), s"expected pruning on m, got $subfields")
+              assert(subfields("m").exists(_.contains("m[\"a\"]")), subfields("m").toString)
+              assert(!subfields("m").exists(_.contains("[\"b\"]")), subfields("m").toString)
+          }
+        }
+
+        spark.sql(
+          s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+        spark.sql(s"DELETE FROM delta.`$path` WHERE id % 10 = 0")
+        if (SparkVersionUtil.gteSpark35) {
+          withSQLConf(pruningFlag -> "true", "spark.sql.adaptive.enabled" -> "false") {
+            runQueryAndCompare(sql) {
+              df =>
+                assert(
+                  df.queryExecution.executedPlan
+                    .collect { case _: DeltaScanTransformer => true }
+                    .nonEmpty)
+                assert(scanSubfields(df).contains("m"))
+            }
+          }
+        }
+    }
+  }
+
+  testWithMinSparkVersion("deletion vector on partitioned table", "3.4") {
     withTempPath {
       p =>
         import testImplicits._

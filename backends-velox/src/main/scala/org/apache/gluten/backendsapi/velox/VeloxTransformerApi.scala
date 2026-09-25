@@ -18,10 +18,10 @@ package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.{BackendsApiManager, TransformerApi}
 import org.apache.gluten.exception.GlutenException
-import org.apache.gluten.execution.WriteFilesExecTransformer
+import org.apache.gluten.execution.{SubfieldElement, SubfieldPath, WriteFilesExecTransformer}
 import org.apache.gluten.execution.datasource.GlutenFormatFactory
 import org.apache.gluten.expression.ConverterUtils
-import org.apache.gluten.proto.{ConfigMap, IcebergReadExtension}
+import org.apache.gluten.proto.{ConfigMap, IcebergReadExtension, RequiredSubfieldsExtension}
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode}
@@ -150,6 +150,32 @@ class VeloxTransformerApi extends TransformerApi with Logging {
             .setInitialDefault(initialDefault))
     }
     packPBMessage(extensionBuilder.build())
+  }
+
+  override def packRequiredSubfields(subfields: Map[String, Seq[SubfieldPath]]): Any = {
+    val extension = RequiredSubfieldsExtension.newBuilder()
+    subfields.toSeq.sortBy(_._1).foreach {
+      case (column, paths) =>
+        val columnBuilder =
+          RequiredSubfieldsExtension.ColumnSubfields.newBuilder().setColumn(column)
+        paths.foreach {
+          path =>
+            val subfield = RequiredSubfieldsExtension.Subfield.newBuilder()
+            path.elements.foreach {
+              element =>
+                val pe = RequiredSubfieldsExtension.PathElement.newBuilder()
+                element match {
+                  case SubfieldElement.Field(name) => pe.setField(name)
+                  case SubfieldElement.StringKey(key) => pe.setStringKey(key)
+                  case SubfieldElement.LongKey(key) => pe.setLongKey(key)
+                }
+                subfield.addElements(pe)
+            }
+            columnBuilder.addSubfields(subfield)
+        }
+        extension.addColumns(columnBuilder)
+    }
+    packPBMessage(extension.build())
   }
 
   override def invalidateSQLExecutionResource(executionId: String): Unit = {

@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.backendsapi
 
-import org.apache.gluten.execution.WriteFilesExecTransformer
+import org.apache.gluten.execution.{SubfieldPath, WriteFilesExecTransformer}
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.ExpressionNode
 
@@ -79,6 +79,14 @@ trait TransformerApi {
       fieldIds: util.Map[String, Integer],
       initialDefaults: util.Map[String, String]): Any = {
     throw new UnsupportedOperationException("Iceberg initial-default reads are not supported")
+  }
+
+  /**
+   * Packs the required subfields of scan columns (map-key pruning) into a backend-specific read
+   * extension; see BasicScanExecTransformer.requiredMapSubfields.
+   */
+  def packRequiredSubfields(subfields: Map[String, Seq[SubfieldPath]]): Any = {
+    throw new UnsupportedOperationException("Map-key pruning is not supported")
   }
 
   /** This method is only used for CH backend tests */

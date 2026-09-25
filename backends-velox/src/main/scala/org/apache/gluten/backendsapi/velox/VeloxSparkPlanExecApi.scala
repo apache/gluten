@@ -1126,10 +1126,11 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: GetMapValue): ExpressionTransformer = {
-    GenericExpressionTransformer(
-      ExpressionMappings.expressionsMap(classOf[ElementAt]),
-      Seq(left, right),
-      original)
+    // Emitted as get_map_value (Gluten function overlay) rather than rewritten
+    // to element_at: the map-only subscript is subfield-pushdown capable, so a
+    // scan remaining filter on m['k'] extracts m["k"] and keeps map-key
+    // pruning effective.
+    GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
   }
 
   override def genStringToMapTransformer(
