@@ -1,0 +1,41 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (8)
+    SortExecTransformer [cntrycode]
+      InputIteratorTransformer
+        InputAdapter
+          ColumnarExchange [cntrycode] #1
+            VeloxResizeBatches
+              WholeStageCodegenTransformer (7)
+                RegularHashAggregateExecTransformer [cntrycode,count,sum,isEmpty] [count(1),sum(c_acctbal),numcust,totacctbal,count,sum,isEmpty]
+                  InputIteratorTransformer
+                    InputAdapter
+                      ColumnarExchange [cntrycode,count,sum,isEmpty] #2
+                        VeloxResizeBatches
+                          WholeStageCodegenTransformer (6)
+                            ProjectExecTransformer [cntrycode,count,sum,isEmpty]
+                              FlushableHashAggregateExecTransformer [cntrycode,c_acctbal] [count,sum,isEmpty,count,sum,isEmpty]
+                                ProjectExecTransformer [c_phone,c_acctbal]
+                                  BroadcastHashJoinExecTransformer [c_custkey,o_custkey]
+                                    FilterExecTransformer [c_acctbal,c_phone]
+                                      ReusedSubquery [avg(c_acctbal)] #1
+                                      FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_custkey,c_phone,c_acctbal]
+                                        Subquery #1
+                                          VeloxColumnarToRow
+                                            WholeStageCodegenTransformer (4)
+                                              ProjectExecTransformer [avg(UnscaledValue(c_acctbal))]
+                                                RegularHashAggregateExecTransformer [sum,count] [avg(UnscaledValue(c_acctbal)),sum,count]
+                                                  InputIteratorTransformer
+                                                    InputAdapter
+                                                      ColumnarExchange #3
+                                                        VeloxResizeBatches
+                                                          WholeStageCodegenTransformer (3)
+                                                            FlushableHashAggregateExecTransformer [_pre_x] [sum,count,sum,count,sum,count]
+                                                              ProjectExecTransformer [c_acctbal]
+                                                                FilterExecTransformer [c_acctbal,c_phone]
+                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_phone,c_acctbal]
+                                        ReusedSubquery [avg(c_acctbal)] #1
+                                    InputIteratorTransformer
+                                      InputAdapter
+                                        ColumnarBroadcastExchange #4
+                                          WholeStageCodegenTransformer (5)
+                                            FileSourceScanExecTransformer parquet spark_catalog.default.orders [o_custkey]
