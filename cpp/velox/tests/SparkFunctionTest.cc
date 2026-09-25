@@ -164,7 +164,7 @@ TEST_F(SparkFunctionTest, nativeCastExceptionAttribution) {
        "Cannot cast BIGINT '9223372036854775807' to INTEGER. Overflow during arithmetic conversion: "},
       {makeFlatVector<double>({1.2345678901234567e19}),
        BIGINT(),
-       "Cannot cast DOUBLE '12345678901234567000' to BIGINT. "
+       "Cannot cast DOUBLE '1.2345678901234567e+19' to BIGINT. "
        "Cannot cast floating-point value to an integral value due to overflow."},
       {makeFlatVector<int64_t>({maxLong}), DECIMAL(7, 2), "Cannot cast BIGINT '9223372036854775807' to DECIMAL(7, 2)"},
       {makeFlatVector<std::string>({"9223372036854775807"}),
