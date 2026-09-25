@@ -42,8 +42,8 @@ starts failing** (a regression).
 | `compare-test-results.py` | Parses the JUnit XML from `sbt spark/test` and gates / seeds / aggregates against the baseline. Standard-library only. |
 | `run-delta-tests.sh` | The shard step's body: runs `sbt spark/test` (tuned JVM/heap flags) under a hang watchdog, prints memory forensics, then gates the results against the baseline via `compare-test-results.py`. |
 | `java-test-args.sh` | Shared Gluten Spark defaults and JVM flags (`--add-opens` + Netty property). Sourced by `run-delta-tests.sh` and by local runs. |
-| `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and patches `DeltaSQLCommandTest`. |
-| `apply-delta-test-patches.sh` | Applies temporary Delta test workarounds: upstream scan fixes, deterministic Parquet row groups, and 2B-row DV fail-fast patches. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
+| `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and applies temporary compatibility patches. Takes `<delta_ref> <delta_dir> <gluten_bundle_jar>`. |
+| `apply-delta-test-patches.sh` | Applies temporary Delta test workarounds: upstream scan fixes, Hadoop-only mock filesystem writes, deterministic Parquet row groups, and 2B-row DV fail-fast patches. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
 
 ## Gluten configuration for every Spark context
 
@@ -59,9 +59,31 @@ in the same JVM. A later context without the Gluten executor plugin would
 therefore use the native serializer without initializing its task resource
 registry, causing `TaskResourceRegistry is not initialized`.
 
-The patched `DeltaSQLCommandTest` still supplies its Delta-specific settings.
-Delta extensions and the Delta catalog are deliberately **not** JVM defaults,
-because some suites test behavior when those settings are absent.
+The remaining defaults formerly injected through `DeltaSQLCommandTest` also
+apply to every suite:
+
+| Setting | Default |
+|---|---|
+| `spark.default.parallelism` | `1` |
+| `spark.sql.shuffle.partitions` | `5` |
+| `spark.unsafe.exceptionOnMemoryLeak` | `true` |
+| `spark.sql.ansi.enabled` | `false` |
+| `spark.gluten.sql.ansiFallback.enabled` | `false` |
+| `spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite` | `true` |
+| `spark.databricks.delta.snapshotPartitions` | `2` |
+| `spark.gluten.sql.fallbackUnexpectedMetadataParquet` | `true` |
+
+Suites can still override these defaults through their Spark configuration.
+In particular, ANSI-specific tests can enable ANSI explicitly.
+
+The path-scheme conversion fixture uses a Hadoop-only mock S3 filesystem.
+Its preparatory write uses Spark's writer because Velox cannot use that mock;
+Gluten remains enabled for the conversion and the original assertion.
+
+Upstream `DeltaSQLCommandTest` is left unchanged, and Delta's license-header
+checks remain enabled. Delta extensions and the Delta catalog stay
+suite-specific rather than becoming JVM defaults, because some suites test
+behavior when those settings are absent.
 
 ## How the gate works
 
