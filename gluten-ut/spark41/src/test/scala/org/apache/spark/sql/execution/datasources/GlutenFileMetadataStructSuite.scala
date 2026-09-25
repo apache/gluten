@@ -196,6 +196,7 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
               assert(footer.getBlocks.asScala.map(_.getRowCount).sum == 0L)
               assert(
                 footer.getFileMetaData.getSchema
+                  .asGroupType()
                   .getType("file_name")
                   .asPrimitiveType()
                   .getPrimitiveTypeName == PrimitiveTypeName.INT64)
