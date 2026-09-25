@@ -30,7 +30,8 @@ object GlutenCastErrors {
     ("""Cannot cast (TINYINT|SMALLINT|INTEGER|BIGINT) '(-?[0-9]{1,19})' to """ +
       """(TINYINT|SMALLINT|INTEGER|BIGINT)\. Overflow during arithmetic conversion: """).r
   private val floatingOverflow =
-    ("""Cannot cast (REAL|DOUBLE) '(-?(?:[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|inf|Infinity)|NaN)' to """ +
+    ("""Cannot cast (REAL|DOUBLE) '""" +
+      """(-?(?:[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|inf|Infinity)|NaN)' to """ +
       """(TINYINT|SMALLINT|INTEGER|BIGINT)\. """ +
       """Cannot cast floating-point value to an integral value due to overflow\.""").r
   private val decimalOverflow =
