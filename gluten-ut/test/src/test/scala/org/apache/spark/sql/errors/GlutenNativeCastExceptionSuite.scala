@@ -112,7 +112,9 @@ class GlutenNativeCastExceptionSuite extends SparkFunSuite {
   }
 
   test("native string metadata preserves quotes, backslashes, newlines, NUL and Unicode") {
+    // scalastyle:off nonascii
     val value = "bad'\"\\\n\r\t\u0000\u00e9\uD83D\uDE00"
+    // scalastyle:on nonascii
     val reason = s"""Cannot cast VARCHAR '$value' to INTEGER. Invalid leading character: """""
     assert(nativeException(reason).getReason == reason)
     checkError(
