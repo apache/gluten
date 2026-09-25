@@ -61,7 +61,7 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
         val overrideValue = SQLConf.get.getConfString(key, null)
         if (overrideValue == null) {
           icebergProperties.put(key, value)
-        } else if (key == COLUMNAR_PARQUET_WRITE_BLOCK_SIZE.key) {
+        } else if (key != parquetPageRowLimitSession) {
           icebergProperties.put(key, normalizeCapacityString(overrideValue))
         }
     }
