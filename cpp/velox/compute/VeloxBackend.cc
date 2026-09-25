@@ -328,6 +328,20 @@ ReaderThreadPool* VeloxBackend::getReaderThreadPool() {
   return readerThreadPool_.get();
 }
 
+folly::Executor* VeloxBackend::hashTableBuildExecutor() {
+  static std::once_flag hashTableBuildExecutorInit;
+  std::call_once(hashTableBuildExecutorInit, [this] {
+    auto numThreads = backendConf_->get<int32_t>(kHashTableBuildThreads, kHashTableBuildThreadsDefault);
+    if (numThreads <= 0) {
+      // Fall back to the executor's task-slot count, matching the sizing this build path
+      // previously inherited from the io executor.
+      numThreads = std::max<int32_t>(1, backendConf_->get<int32_t>(kNumTaskSlotsPerExecutor, 1));
+    }
+    hashTableBuildExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(numThreads);
+  });
+  return hashTableBuildExecutor_.get();
+}
+
 // JNI-or-local filesystem, for spilling-to-heap if we have extra JVM heap spaces
 void VeloxBackend::initJolFilesystem() {
   int64_t maxSpillFileSize = backendConf_->get<int64_t>(kMaxSpillFileSize, kMaxSpillFileSizeDefault);
@@ -472,6 +486,7 @@ void VeloxBackend::tearDown() {
   spillExecutor_.reset();
   ioExecutor_.reset();
   ssdCacheExecutor_.reset();
+  hashTableBuildExecutor_.reset();
   globalMemoryManager_.reset();
 
   // dump cache stats on exit if enabled

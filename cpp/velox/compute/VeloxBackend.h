@@ -53,6 +53,12 @@ class VeloxBackend {
 
   ReaderThreadPool* getReaderThreadPool();
 
+  /// A dedicated CPU thread pool for the parallel broadcast hash-table build. The build is
+  /// CPU-bound, so it must not share ioExecutor() which is reserved for async IO tasks.
+  /// Lazily created on first use since only broadcasts large enough to be split across
+  /// threads reach this path.
+  folly::Executor* hashTableBuildExecutor();
+
   std::shared_ptr<facebook::velox::config::ConfigBase> getBackendConf() const {
     return backendConf_;
   }
@@ -135,6 +141,7 @@ class VeloxBackend {
   std::shared_ptr<facebook::velox::config::ConfigBase> backendConf_;
 
   std::unique_ptr<ReaderThreadPool> readerThreadPool_;
+  std::unique_ptr<folly::Executor> hashTableBuildExecutor_;
 };
 
 } // namespace gluten
