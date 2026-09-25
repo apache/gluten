@@ -32,6 +32,7 @@ import org.apache.spark.sql.execution.ScalarSubquery
 import org.apache.spark.sql.hive.HiveUDFTransformer
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -560,9 +561,38 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           substraitExprName,
           Seq(
             replaceWithExpressionTransformer0(r.subject, attributeSeq, expressionsMap),
-            replaceWithExpressionTransformer0(r.regexp, attributeSeq, expressionsMap),
+            withRe2PatternTranslation(r.regexp, attributeSeq, expressionsMap),
             replaceWithExpressionTransformer0(r.rep, attributeSeq, expressionsMap),
             replaceWithExpressionTransformer0(r.pos, attributeSeq, expressionsMap)
+          ),
+          r
+        )
+      case r: RLike =>
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(
+            replaceWithExpressionTransformer0(r.left, attributeSeq, expressionsMap),
+            withRe2PatternTranslation(r.right, attributeSeq, expressionsMap)
+          ),
+          r
+        )
+      case r: RegExpExtract =>
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(
+            replaceWithExpressionTransformer0(r.subject, attributeSeq, expressionsMap),
+            withRe2PatternTranslation(r.regexp, attributeSeq, expressionsMap),
+            replaceWithExpressionTransformer0(r.idx, attributeSeq, expressionsMap)
+          ),
+          r
+        )
+      case r: RegExpExtractAll =>
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(
+            replaceWithExpressionTransformer0(r.subject, attributeSeq, expressionsMap),
+            withRe2PatternTranslation(r.regexp, attributeSeq, expressionsMap),
+            replaceWithExpressionTransformer0(r.idx, attributeSeq, expressionsMap)
           ),
           r
         )
@@ -574,7 +604,7 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           substraitExprName,
           Seq(
             replaceWithExpressionTransformer0(instr.subject, attributeSeq, expressionsMap),
-            replaceWithExpressionTransformer0(instr.regexp, attributeSeq, expressionsMap)
+            withRe2PatternTranslation(instr.regexp, attributeSeq, expressionsMap)
           ),
           instr
         )
@@ -884,7 +914,7 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         BackendsApiManager.getSparkPlanExecApiInstance.genStringSplitTransformer(
           substraitExprName,
           replaceWithExpressionTransformer0(ss.str, attributeSeq, expressionsMap),
-          replaceWithExpressionTransformer0(ss.regex, attributeSeq, expressionsMap),
+          withRe2PatternTranslation(ss.regex, attributeSeq, expressionsMap),
           replaceWithExpressionTransformer0(ss.limit, attributeSeq, expressionsMap),
           ss
         )
@@ -924,6 +954,30 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           expr.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           expr
         )
+    }
+  }
+
+  /**
+   * Translates the pattern argument of a regex expression to RE2 syntax before it is written into
+   * the Substrait literal. If the pattern is a string literal, Java `\uXXXX` Unicode escapes are
+   * converted to RE2's `\x{XXXX}` form. Patterns that contain constructs with no RE2 equivalent
+   * (lookaheads, lookbehinds, backreferences) throw [[GlutenNotSupportException]] to trigger
+   * graceful fallback. Non-literal (column-referenced) patterns are passed through unchanged.
+   */
+  private def withRe2PatternTranslation(
+      patternChild: Expression,
+      attributeSeq: Seq[Attribute],
+      expressionsMap: Map[Class[_], String]): ExpressionTransformer = {
+    patternChild match {
+      case Literal(patStr: UTF8String, StringType) =>
+        val translated = VeloxRegexUtils
+          .translateJavaPatternToRe2(patStr.toString)
+          .getOrElse(throw new GlutenNotSupportException(
+            s"Regex pattern '$patStr' uses constructs (lookahead/lookbehind/backreference) " +
+              s"that RE2 cannot handle. Falling back to Spark."))
+        LiteralTransformer(Literal(UTF8String.fromString(translated), StringType))
+      case other =>
+        replaceWithExpressionTransformer0(other, attributeSeq, expressionsMap)
     }
   }
 

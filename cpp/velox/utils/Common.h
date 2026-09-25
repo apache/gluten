@@ -30,6 +30,10 @@ namespace gluten {
 // Compile the given pattern and return the RE2 object.
 inline std::unique_ptr<re2::RE2> compilePattern(const std::string& pattern);
 
+/// Converts Java \uXXXX Unicode escapes to RE2's \x{XXXX} syntax.
+/// Returns the input unchanged if no \uXXXX sequences are found (idempotent).
+std::string translateJavaUnicodeToRe2(const std::string& pattern);
+
 bool validatePattern(const std::string& pattern, std::string& error);
 
 static inline void fastCopy(void* dst, const void* src, size_t n) {

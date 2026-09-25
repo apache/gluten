@@ -52,13 +52,35 @@ std::unique_ptr<re2::RE2> compilePattern(const std::string& pattern) {
   return std::make_unique<re2::RE2>(re2::StringPiece(pattern), RE2::Quiet);
 }
 
+std::string translateJavaUnicodeToRe2(const std::string& pattern) {
+  std::string result;
+  result.reserve(pattern.size());
+  for (size_t i = 0; i < pattern.size(); ++i) {
+    if (i + 5 < pattern.size() && // at least 6 chars remain: \ u X X X X
+        pattern[i] == '\\' && pattern[i + 1] == 'u' &&
+        std::isxdigit(static_cast<unsigned char>(pattern[i + 2])) &&
+        std::isxdigit(static_cast<unsigned char>(pattern[i + 3])) &&
+        std::isxdigit(static_cast<unsigned char>(pattern[i + 4])) &&
+        std::isxdigit(static_cast<unsigned char>(pattern[i + 5]))) {
+      result += "\\x{";
+      result += pattern.substr(i + 2, 4);
+      result += '}';
+      i += 5; // loop header adds 1 more, consuming all 6 characters
+    } else {
+      result += pattern[i];
+    }
+  }
+  return result;
+}
+
 bool validatePattern(const std::string& pattern, std::string& error) {
-  auto re2 = compilePattern(pattern);
+  const std::string translated = translateJavaUnicodeToRe2(pattern);
+  auto re2 = compilePattern(translated);
   if (!re2->ok()) {
     error = "Pattern " + pattern + " compilation failed in RE2. Reason: " + re2->error();
     return false;
   }
-  return ensureRegexIsCompatible(pattern, error);
+  return ensureRegexIsCompatible(translated, error);
 }
 
 } // namespace gluten

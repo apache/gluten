@@ -678,4 +678,21 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
       s"select l_orderkey, unbase64(base64(l_comment)) " +
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
   }
+
+  // Regression test: Java \uXXXX Unicode escapes must be translated to RE2 \x{XXXX} syntax so
+  // that CJK Unicode range patterns run natively on Velox instead of falling back to the JVM.
+  test("rlike with Java Unicode escape runs natively") {
+    runQueryAndCompare(
+      s"select l_orderkey, rlike(l_comment, '[\\u0041-\\u005A]+') " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+  }
+
+  // Regression test: lookbehind patterns have no RE2 equivalent and must still fall back
+  // gracefully to the Spark JVM engine rather than crashing or producing wrong results.
+  test("rlike with lookbehind falls back to JVM") {
+    runQueryAndCompare(
+      s"""select rlike(l_comment, "(?<=x)y") from $LINEITEM_TABLE limit 5""",
+      true,
+      false)(_ => {})
+  }
 }

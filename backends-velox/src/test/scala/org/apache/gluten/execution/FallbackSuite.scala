@@ -397,7 +397,10 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
-  test("fallback when join post filter has unsupported expression") {
+  // Regression test: Java \uXXXX Unicode escapes in rlike patterns used to cause a
+  // "Pattern ... compilation failed in RE2" fallback. After the fix, these patterns are
+  // translated to RE2 \x{XXXX} syntax and run natively — no rlike regex fallback should occur.
+  test("no fallback when join post filter contains Java Unicode escape in rlike pattern") {
     GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
       events =>
         val df = spark.sql("""
@@ -414,8 +417,9 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
         }
         assert(broadcastHashJoin.isDefined)
         val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
-        assert(fallbackReasons.nonEmpty)
-        assert(fallbackReasons.forall(_.contains("rlike due to Pattern")))
+        assert(
+          fallbackReasons.forall(!_.contains("rlike due to Pattern")),
+          s"Expected no rlike regex fallback but got: $fallbackReasons")
     }
   }
 
