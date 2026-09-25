@@ -152,6 +152,17 @@ function apply_provided_velox_patch {
   fi
 }
 
+function apply_to_intermediate_aggregates_patch {
+  echo "Applying aggregate toIntermediate patch..."
+  pushd $VELOX_HOME
+  git apply --check ${CURRENT_DIR}/support-to-intermediate-aggregates.patch && \
+    git apply ${CURRENT_DIR}/support-to-intermediate-aggregates.patch || {
+    echo "Failed to apply aggregate toIntermediate patch"
+    exit 1
+  }
+  popd
+}
+
 function apply_compilation_fixes {
   local SUDO_CMD=""
   if [ "$OS" == "Linux" ] && [ "${EUID:-$(id -u)}" -ne 0 ]; then
@@ -244,5 +255,7 @@ fi
 apply_provided_velox_patch
 
 apply_compilation_fixes
+
+apply_to_intermediate_aggregates_patch
 
 echo "Finished getting Velox code"
