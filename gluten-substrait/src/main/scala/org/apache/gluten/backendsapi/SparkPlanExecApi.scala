@@ -471,6 +471,12 @@ trait SparkPlanExecApi {
       child: SparkPlan,
       evalType: Int): SparkPlan
 
+  /**
+   * Create the columnar counterpart of ArrowEvalPythonUDTFExec (Spark 3.5+). Returns the plan
+   * unchanged if not supported by the backend.
+   */
+  def createColumnarArrowEvalPythonUDTFExec(plan: SparkPlan): SparkPlan = plan
+
   def genGetStructFieldTransformer(
       substraitExprName: String,
       childTransformer: ExpressionTransformer,

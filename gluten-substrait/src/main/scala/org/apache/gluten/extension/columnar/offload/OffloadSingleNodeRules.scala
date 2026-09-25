@@ -33,7 +33,7 @@ import org.apache.spark.sql.execution.datasources.WriteFilesExec
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, ShuffleExchangeExec}
 import org.apache.spark.sql.execution.joins._
-import org.apache.spark.sql.execution.python.{ArrowEvalPythonExec, BatchEvalPythonExec, EvalPythonExecTransformer}
+import org.apache.spark.sql.execution.python.{ArrowEvalPythonExec, ArrowEvalPythonUDTFShim, BatchEvalPythonExec, EvalPythonExecTransformer}
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
 
@@ -311,6 +311,10 @@ object OffloadOthers {
               child,
               plan.evalType)
           }
+        case plan @ ArrowEvalPythonUDTFShim(_, _, _, _, _)
+            if BackendsApiManager.getSettings.supportColumnarArrowUdf() &&
+              GlutenConfig.get.enableColumnarArrowUDF =>
+          BackendsApiManager.getSparkPlanExecApiInstance.createColumnarArrowEvalPythonUDTFExec(plan)
         case plan: RangeExec =>
           ColumnarRangeBaseExec.from(plan)
         case plan: SampleExec =>
