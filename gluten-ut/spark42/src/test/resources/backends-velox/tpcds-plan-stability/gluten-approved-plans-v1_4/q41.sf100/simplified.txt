@@ -1,0 +1,34 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [i_product_name]
+    WholeStageCodegenTransformer (4)
+      RegularHashAggregateExecTransformer [i_product_name]
+        InputIteratorTransformer
+          InputAdapter
+            ColumnarExchange [i_product_name] #1
+              VeloxResizeBatches
+                WholeStageCodegenTransformer (3)
+                  ProjectExecTransformer [i_product_name]
+                    FlushableHashAggregateExecTransformer [i_product_name]
+                      ProjectExecTransformer [i_product_name]
+                        BroadcastHashJoinExecTransformer [i_manufact,i_manufact]
+                          ProjectExecTransformer [i_manufact,i_product_name]
+                            FilterExecTransformer [i_manufact_id,i_manufact]
+                              FileSourceScanExecTransformer parquet spark_catalog.default.item [i_manufact_id,i_manufact,i_product_name]
+                          InputIteratorTransformer
+                            InputAdapter
+                              ColumnarBroadcastExchange #2
+                                WholeStageCodegenTransformer (2)
+                                  ProjectExecTransformer [i_manufact]
+                                    FilterExecTransformer [item_cnt]
+                                      ProjectExecTransformer [count(1),i_manufact]
+                                        RegularHashAggregateExecTransformer [i_manufact,count] [count(1),count]
+                                          InputIteratorTransformer
+                                            InputAdapter
+                                              ColumnarExchange [i_manufact,count] #3
+                                                VeloxResizeBatches
+                                                  WholeStageCodegenTransformer (1)
+                                                    ProjectExecTransformer [i_manufact,count]
+                                                      FlushableHashAggregateExecTransformer [i_manufact] [count,count]
+                                                        ProjectExecTransformer [i_manufact]
+                                                          FilterExecTransformer [i_category,i_color,i_units,i_size,i_manufact]
+                                                            FileSourceScanExecTransformer parquet spark_catalog.default.item [i_category,i_manufact,i_size,i_color,i_units]

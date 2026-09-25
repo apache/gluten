@@ -1,0 +1,95 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [qoh,i_product_name,i_brand,i_class,i_category]
+    ColumnarUnion
+      WholeStageCodegenTransformer (6)
+        RegularHashAggregateExecTransformer [i_product_name,i_brand,i_class,i_category,qoh] [avg(qoh),i_product_name,i_brand,i_class,i_category,qoh,sum,count]
+          RegularHashAggregateExecTransformer [i_product_name,i_brand,i_class,i_category,sum,count] [avg(inv_quantity_on_hand),qoh,sum,count]
+            InputIteratorTransformer
+              InputAdapter
+                ColumnarExchange [i_product_name,i_brand,i_class,i_category,sum,count] #1
+                  VeloxResizeBatches
+                    WholeStageCodegenTransformer (5)
+                      ProjectExecTransformer [i_product_name,i_brand,i_class,i_category,sum,count]
+                        FlushableHashAggregateExecTransformer [i_product_name,i_brand,i_class,i_category,inv_quantity_on_hand] [sum,count,sum,count]
+                          ProjectExecTransformer [inv_quantity_on_hand,i_brand,i_class,i_category,i_product_name]
+                            BroadcastHashJoinExecTransformer [inv_warehouse_sk,w_warehouse_sk]
+                              ProjectExecTransformer [inv_warehouse_sk,inv_quantity_on_hand,i_brand,i_class,i_category,i_product_name]
+                                BroadcastHashJoinExecTransformer [inv_item_sk,i_item_sk]
+                                  ProjectExecTransformer [inv_item_sk,inv_warehouse_sk,inv_quantity_on_hand]
+                                    BroadcastHashJoinExecTransformer [inv_date_sk,d_date_sk]
+                                      FilterExecTransformer [inv_item_sk,inv_warehouse_sk]
+                                        FileSourceScanExecTransformer parquet spark_catalog.default.inventory [inv_item_sk,inv_warehouse_sk,inv_quantity_on_hand,inv_date_sk]
+                                          ColumnarSubqueryBroadcast [d_date_sk] #1
+                                            ColumnarBroadcastExchange #2
+                                              WholeStageCodegenTransformer (1)
+                                                ProjectExecTransformer [d_date_sk]
+                                                  FilterExecTransformer [d_month_seq,d_date_sk]
+                                                    FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_month_seq]
+                                      InputIteratorTransformer
+                                        InputAdapter
+                                          ReusedExchange [d_date_sk] #2
+                                  InputIteratorTransformer
+                                    InputAdapter
+                                      ColumnarBroadcastExchange #3
+                                        WholeStageCodegenTransformer (3)
+                                          FilterExecTransformer [i_item_sk]
+                                            FileSourceScanExecTransformer parquet spark_catalog.default.item [i_item_sk,i_brand,i_class,i_category,i_product_name]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ColumnarBroadcastExchange #4
+                                    WholeStageCodegenTransformer (4)
+                                      FilterExecTransformer [w_warehouse_sk]
+                                        FileSourceScanExecTransformer parquet spark_catalog.default.warehouse [w_warehouse_sk]
+      WholeStageCodegenTransformer (13)
+        ProjectExecTransformer [i_product_name,i_brand,i_class,avg(qoh)]
+          RegularHashAggregateExecTransformer [i_product_name,i_brand,i_class,sum,count] [avg(qoh),sum,count]
+            InputIteratorTransformer
+              InputAdapter
+                ColumnarExchange [i_product_name,i_brand,i_class,sum,count] #5
+                  VeloxResizeBatches
+                    WholeStageCodegenTransformer (12)
+                      ProjectExecTransformer [i_product_name,i_brand,i_class,sum,count]
+                        FlushableHashAggregateExecTransformer [i_product_name,i_brand,i_class,qoh] [sum,count,sum,count]
+                          ProjectExecTransformer [i_product_name,i_brand,i_class,avg(inv_quantity_on_hand)]
+                            RegularHashAggregateExecTransformer [i_product_name,i_brand,i_class,i_category,sum,count] [avg(inv_quantity_on_hand),sum,count]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ReusedExchange [i_product_name,i_brand,i_class,i_category,sum,count] #1
+      WholeStageCodegenTransformer (20)
+        ProjectExecTransformer [i_product_name,i_brand,avg(qoh)]
+          RegularHashAggregateExecTransformer [i_product_name,i_brand,sum,count] [avg(qoh),sum,count]
+            InputIteratorTransformer
+              InputAdapter
+                ColumnarExchange [i_product_name,i_brand,sum,count] #6
+                  VeloxResizeBatches
+                    WholeStageCodegenTransformer (19)
+                      ProjectExecTransformer [i_product_name,i_brand,sum,count]
+                        FlushableHashAggregateExecTransformer [i_product_name,i_brand,qoh] [sum,count,sum,count]
+                          ProjectExecTransformer [i_product_name,i_brand,avg(inv_quantity_on_hand)]
+                            RegularHashAggregateExecTransformer [i_product_name,i_brand,i_class,i_category,sum,count] [avg(inv_quantity_on_hand),sum,count]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ReusedExchange [i_product_name,i_brand,i_class,i_category,sum,count] #1
+      WholeStageCodegenTransformer (27)
+        ProjectExecTransformer [i_product_name,avg(qoh)]
+          RegularHashAggregateExecTransformer [i_product_name,sum,count] [avg(qoh),sum,count]
+            InputIteratorTransformer
+              InputAdapter
+                ColumnarExchange [i_product_name,sum,count] #7
+                  VeloxResizeBatches
+                    WholeStageCodegenTransformer (26)
+                      ProjectExecTransformer [i_product_name,sum,count]
+                        FlushableHashAggregateExecTransformer [i_product_name,qoh] [sum,count,sum,count]
+                          ProjectExecTransformer [i_product_name,avg(inv_quantity_on_hand)]
+                            RegularHashAggregateExecTransformer [i_product_name,i_brand,i_class,i_category,sum,count] [avg(inv_quantity_on_hand),sum,count]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ReusedExchange [i_product_name,i_brand,i_class,i_category,sum,count] #1
+      WholeStageCodegenTransformer (33)
+        ProjectExecTransformer [avg(qoh)]
+          RegularHashAggregateExecTransformer [qoh] [avg(qoh),sum,count]
+            ProjectExecTransformer [avg(inv_quantity_on_hand)]
+              RegularHashAggregateExecTransformer [i_product_name,i_brand,i_class,i_category,sum,count] [avg(inv_quantity_on_hand),sum,count]
+                InputIteratorTransformer
+                  InputAdapter
+                    ReusedExchange [i_product_name,i_brand,i_class,i_category,sum,count] #1

@@ -1,0 +1,40 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [revenue,c_custkey,c_name,c_acctbal,n_name,c_address,c_phone,c_comment]
+    WholeStageCodegenTransformer (5)
+      ProjectExecTransformer [c_custkey,c_name,sum((l_extendedprice * (1 - l_discount))),c_acctbal,n_name,c_address,c_phone,c_comment]
+        RegularHashAggregateExecTransformer [c_custkey,c_name,c_acctbal,c_phone,n_name,c_address,c_comment,sum,isEmpty] [sum((l_extendedprice * (1 - l_discount))),sum,isEmpty]
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarExchange [c_custkey,c_name,c_acctbal,c_phone,n_name,c_address,c_comment,sum,isEmpty] #1
+                VeloxResizeBatches
+                  WholeStageCodegenTransformer (4)
+                    ProjectExecTransformer [c_custkey,c_name,c_acctbal,c_phone,n_name,c_address,c_comment,sum,isEmpty]
+                      FlushableHashAggregateExecTransformer [c_custkey,c_name,c_acctbal,c_phone,n_name,c_address,c_comment,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                        ProjectExecTransformer [c_custkey,c_name,c_address,c_phone,c_acctbal,c_comment,n_name,l_extendedprice,l_discount]
+                          BroadcastHashJoinExecTransformer [c_nationkey,n_nationkey]
+                            ProjectExecTransformer [c_custkey,c_name,c_address,c_nationkey,c_phone,c_acctbal,c_comment,l_extendedprice,l_discount]
+                              BroadcastHashJoinExecTransformer [o_orderkey,l_orderkey]
+                                ProjectExecTransformer [c_custkey,c_name,c_address,c_nationkey,c_phone,c_acctbal,c_comment,o_orderkey]
+                                  BroadcastHashJoinExecTransformer [c_custkey,o_custkey]
+                                    FilterExecTransformer [c_custkey,c_nationkey]
+                                      FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_custkey,c_name,c_address,c_nationkey,c_phone,c_acctbal,c_comment]
+                                    InputIteratorTransformer
+                                      InputAdapter
+                                        ColumnarBroadcastExchange #2
+                                          WholeStageCodegenTransformer (1)
+                                            ProjectExecTransformer [o_orderkey,o_custkey]
+                                              FilterExecTransformer [o_orderdate,o_custkey,o_orderkey]
+                                                FileSourceScanExecTransformer parquet spark_catalog.default.orders [o_orderkey,o_custkey,o_orderdate]
+                                InputIteratorTransformer
+                                  InputAdapter
+                                    ColumnarBroadcastExchange #3
+                                      WholeStageCodegenTransformer (2)
+                                        ProjectExecTransformer [l_orderkey,l_extendedprice,l_discount]
+                                          FilterExecTransformer [l_returnflag,l_orderkey]
+                                            FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_orderkey,l_extendedprice,l_discount,l_returnflag]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarBroadcastExchange #4
+                                  WholeStageCodegenTransformer (3)
+                                    FilterExecTransformer [n_nationkey]
+                                      FileSourceScanExecTransformer parquet spark_catalog.default.nation [n_nationkey,n_name]
