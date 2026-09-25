@@ -20,6 +20,19 @@ import org.apache.gluten.execution.WindowExecTransformer
 
 class WindowFunctionsValidateSuite extends FunctionsValidateSuite {
 
+  private def createNtzWindowTable(): Unit = {
+    spark
+      .sql("""
+             |select * from values
+             |  (1, TIMESTAMP_NTZ '2024-01-01 00:00:00', 10),
+             |  (1, TIMESTAMP_NTZ '2024-01-02 00:00:00', 20),
+             |  (2, TIMESTAMP_NTZ '2024-01-01 00:00:00', 30)
+             |as t(k, ts, v)
+          """.stripMargin)
+      .write
+      .saveAsTable("ntz_window_data")
+  }
+
   test("lag/lead window function with negative input offset") {
     runQueryAndCompare(
       "select lag(l_orderkey, -2) over" +
@@ -90,6 +103,120 @@ class WindowFunctionsValidateSuite extends FunctionsValidateSuite {
           "from nullable_window_data") {
         checkGlutenPlan[WindowExecTransformer]
       }
+    }
+  }
+
+  test("window partition/order by TIMESTAMP_NTZ goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+
+      runQueryAndCompare(
+        "select k, ts, rank() over (partition by k order by ts) as rnk " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("lag(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, lag(ts, 1) over (partition by k order by v) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("lead(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, lead(ts, 1) over (partition by k order by v) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("nth_value(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, nth_value(ts, 1) over (partition by k order by v) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("first_value(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, first_value(ts) over (partition by k order by v) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("last_value(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, last_value(ts) over (partition by k order by v) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("count(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, count(ts) over (partition by k) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("min(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, min(ts) over (partition by k) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("max(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, max(ts) over (partition by k) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("unaudited window function argument with TIMESTAMP_NTZ falls back") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+
+      val df = spark.sql(
+        "select k, collect_list(ts) over (partition by k order by v) " +
+          "from ntz_window_data")
+      // This plan never goes native at all, so the helper's count - 1 comes
+      // out negative. collect_list isn't whitelisted yet (unaudited for NTZ
+      // support), so this must always fall back.
+      checkFallbackOperators(df, -1)
     }
   }
 }
