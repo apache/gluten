@@ -15,9 +15,12 @@
  * limitations under the License.
  */
 
+#include <limits>
 #include <string>
+#include <tuple>
 #include <vector>
 
+#include "jni/JniCastException.h"
 #include "operators/functions/RegistrationAllFunctions.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/core/Expressions.h"
@@ -143,4 +146,90 @@ TEST_F(SparkFunctionTest, expressionLevelLegacyCastIgnoresSessionAnsiOn) {
       std::make_shared<const core::CallTypedExpr>(TINYINT(), std::vector<core::TypedExprPtr>{field}, kSparkLegacyCast);
 
   facebook::velox::test::assertEqualVectors(makeFlatVector<int8_t>({-121}), evaluate(legacyCast, input));
+}
+
+TEST_F(SparkFunctionTest, nativeCastExceptionAttribution) {
+  queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), "true"}});
+  const auto maxInt = std::numeric_limits<int32_t>::max();
+  const auto maxLong = std::numeric_limits<int64_t>::max();
+  const std::vector<std::tuple<VectorPtr, TypePtr, std::string>> cases = {
+      {makeFlatVector<int32_t>({maxInt}),
+       TINYINT(),
+       "Cannot cast INTEGER '2147483647' to TINYINT. Overflow during arithmetic conversion: "},
+      {makeFlatVector<int32_t>({maxInt}),
+       SMALLINT(),
+       "Cannot cast INTEGER '2147483647' to SMALLINT. Overflow during arithmetic conversion: "},
+      {makeFlatVector<int64_t>({maxLong}),
+       INTEGER(),
+       "Cannot cast BIGINT '9223372036854775807' to INTEGER. Overflow during arithmetic conversion: "},
+      {makeFlatVector<double>({1.2345678901234567e19}),
+       BIGINT(),
+       "Cannot cast DOUBLE '1.2345678901234567e+19' to BIGINT. "
+       "Cannot cast floating-point value to an integral value due to overflow."},
+      {makeFlatVector<int64_t>({maxLong}), DECIMAL(7, 2), "Cannot cast BIGINT '9223372036854775807' to DECIMAL(7, 2)"},
+      {makeFlatVector<std::string>({"9223372036854775807"}),
+       INTEGER(),
+       "Cannot cast VARCHAR '9223372036854775807' to INTEGER. Overflow during conversion: \"\""},
+      {makeFlatVector<int64_t>({123}, DECIMAL(3, 1)), DECIMAL(3, 2), "Cannot cast DECIMAL '12.3' to DECIMAL(3, 2)"}};
+  for (const auto& [values, target, reason] : cases) {
+    SCOPED_TRACE(reason);
+    core::TypedExprPtr field = std::make_shared<const core::FieldAccessTypedExpr>(values->type(), "c0");
+    auto cast =
+        std::make_shared<const core::CallTypedExpr>(target, std::vector<core::TypedExprPtr>{field}, kSparkAnsiCast);
+    try {
+      evaluate(cast, makeRowVector({values}));
+      FAIL() << "Expected a native cast failure";
+    } catch (const VeloxException& error) {
+      EXPECT_TRUE(gluten::isNativeCastException(error)) << error.what();
+      EXPECT_EQ(error.message(), reason);
+    }
+  }
+
+  auto input = makeRowVector({makeRowVector({"value"}, {makeFlatVector<int64_t>({maxLong})})});
+  try {
+    evaluate("cast(c0.value as integer)", input);
+    FAIL() << "Expected a scalar member cast failure";
+  } catch (const VeloxException& error) {
+    EXPECT_TRUE(gluten::isNativeCastException(error)) << error.what();
+    EXPECT_EQ(
+        error.message(),
+        "Cannot cast BIGINT '9223372036854775807' to INTEGER. Overflow during arithmetic conversion: ");
+  }
+}
+
+TEST_F(SparkFunctionTest, nativeCastAttributionRejectsUnrelatedErrors) {
+  const std::string reason = "Cannot cast INTEGER '2147483647' to TINYINT. Overflow during arithmetic conversion: ";
+  auto error = [&](const std::string& source, const std::string& code) {
+    return VeloxException(__FILE__, __LINE__, __FUNCTION__, "", reason, source, code, false);
+  };
+  EXPECT_FALSE(gluten::isNativeCastException(error("USER", "INVALID_ARGUMENT")));
+
+  ExpressionExceptionProperties properties;
+  properties.functionName = "cast";
+  ExceptionContext context;
+  context.arg = &properties;
+  context.propertiesFunc = [](VeloxException::Type, void* arg) -> std::shared_ptr<const ExceptionContextProperties> {
+    return std::make_shared<ExpressionExceptionProperties>(*static_cast<ExpressionExceptionProperties*>(arg));
+  };
+  ExceptionContextSetter scopedContext(context);
+  EXPECT_TRUE(gluten::isNativeCastException(error("USER", "INVALID_ARGUMENT")));
+  EXPECT_FALSE(gluten::isNativeCastException(error("SYSTEM", "INVALID_ARGUMENT")));
+  EXPECT_FALSE(gluten::isNativeCastException(error("USER", "UNSUPPORTED")));
+  properties.functionName = "plus";
+  EXPECT_FALSE(gluten::isNativeCastException(error("USER", "INVALID_ARGUMENT")));
+  properties.functionName = "try_cast";
+  EXPECT_FALSE(gluten::isNativeCastException(error("USER", "INVALID_ARGUMENT")));
+  properties.functionName = "cast";
+  properties.owner = "user-defined-function";
+  EXPECT_FALSE(gluten::isNativeCastException(error("USER", "INVALID_ARGUMENT")));
+}
+
+TEST_F(SparkFunctionTest, nativeCastErrorsDoNotChangeLegacyOrTryCast) {
+  auto input = makeRowVector({makeFlatVector<std::string>({"9223372036854775807", "invalid"})});
+  auto expected = makeNullableFlatVector<int32_t>({std::nullopt, std::nullopt});
+  queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), "false"}});
+  facebook::velox::test::assertEqualVectors(expected, evaluate("cast(c0 as integer)", input));
+  facebook::velox::test::assertEqualVectors(expected, evaluate("try_cast(c0 as integer)", input));
+  queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), "true"}});
+  facebook::velox::test::assertEqualVectors(expected, evaluate("try_cast(c0 as integer)", input));
 }

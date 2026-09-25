@@ -27,6 +27,8 @@
 #include "compute/delta/DeltaSplit.h"
 #include "compute/delta/DeltaSplitInfo.h"
 #include "config/VeloxConfig.h"
+#include "jni/JniCastException.h"
+#include "jni/VeloxJavaException.h"
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
@@ -289,23 +291,31 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
 }
 
 std::shared_ptr<ColumnarBatch> WholeStageResultIterator::next() {
-  while (true) {
-    if (!cursor_->moveNext()) {
-      return nullptr;
-    }
-    RowVectorPtr vector = cursor_->current();
-    GLUTEN_CHECK(vector != nullptr, "Cursor returned null vector.");
-    uint64_t numRows = vector->size();
-    if (numRows == 0) {
-      continue;
-    }
-    {
-      ScopedTimer timer(&loadLazyVectorTime_);
-      for (auto& child : vector->children()) {
-        child->loadedVector();
+  try {
+    while (true) {
+      if (!cursor_->moveNext()) {
+        return nullptr;
       }
+      RowVectorPtr vector = cursor_->current();
+      GLUTEN_CHECK(vector != nullptr, "Cursor returned null vector.");
+      uint64_t numRows = vector->size();
+      if (numRows == 0) {
+        continue;
+      }
+      {
+        ScopedTimer timer(&loadLazyVectorTime_);
+        for (auto& child : vector->children()) {
+          child->loadedVector();
+        }
+      }
+      return std::make_shared<VeloxColumnarBatch>(vector);
     }
-    return std::make_shared<VeloxColumnarBatch>(vector);
+  } catch (const std::exception& error) {
+    rethrowJavaException(std::current_exception());
+    if (const auto* nativeError = dynamic_cast<const velox::VeloxException*>(&error)) {
+      rethrowNativeCastException(*nativeError);
+    }
+    throw;
   }
 }
 

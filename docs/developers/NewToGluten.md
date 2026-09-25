@@ -94,6 +94,38 @@ To format Java/Scala code using the [Spotless](https://github.com/diffplug/spotl
 ./dev/format-scala-code.sh
 ```
 
+### Java exceptions crossing native code
+
+JNI callbacks must call `checkException(env)` after invoking Java. It throws
+`gluten::JavaException`, which owns a shared global reference to the original Java
+throwable. `JNI_METHOD_END` restores that same object with JNI `Throw`, retaining
+its class, cause, suppressed exceptions, stack trace, and structured Spark error
+metadata. Do not replace this carrier with an exception constructed from `what()`.
+
+Velox input-stream callbacks use `wrapJavaException` before returning to the
+driver, whose generic native-exception handler otherwise keeps only the message.
+At the output boundary, including lazy-vector loading, `rethrowJavaException`
+recovers the carrier through Velox and standard nested exception wrappers. Other
+native errors keep their existing handling; this mechanism does not classify or
+translate native cast failures.
+
+### Native Velox cast failures
+
+After recovering any original Java throwable, the Velox output iterator recognizes
+native `USER` / `INVALID_ARGUMENT` errors attributed to a built-in `cast` by
+`ExpressionExceptionProperties`. `NativeCastException` carries the separate native
+reason and diagnostic through the same `JavaException` transport. Byte arrays
+preserve UTF-8 strings without JNI modified-UTF-8 conversion.
+
+`ColumnarBatchOutIterator` translates recognized numeric overflow, decimal precision,
+and string-to-integral failures using Spark's `QueryExecutionErrors` factories and
+retains the native diagnostic as the cause. Recognition depends on the pinned
+Velox cast-reason grammar, not diagnostic stack traces. Missing attribution,
+unrecognized types/reasons, and ambiguous unescaped string delimiters retain the
+existing error handling. When updating Velox, run the native cast-attribution and
+JVM exception-metadata tests together. Cast evaluation and ANSI, legacy, and TRY
+behavior are unchanged.
+
 ### C++ code development
 
 This guide is for remote debugging by connecting to the remote Linux server using `SSH`.

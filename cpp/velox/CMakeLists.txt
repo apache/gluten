@@ -167,6 +167,7 @@ set(VELOX_SRCS
     compute/delta/DeltaSplitReader.cpp
     compute/delta/RoaringBitmapArray.cpp
     compute/iceberg/IcebergPlanConverter.cc
+    jni/JniCastException.cc
     jni/JniFileSystem.cc
     jni/JniUdf.cc
     jni/VeloxJniWrapper.cc
