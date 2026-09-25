@@ -36,6 +36,7 @@ class ColumnarShuffleReader[K, C](
     context: TaskContext,
     readMetrics: ShuffleReadMetricsReporter,
     executionMode: StageExecutionMode,
+    readerOrder: Option[Int],
     serializerManager: SerializerManager = SparkEnv.get.serializerManager,
     blockManager: BlockManager = SparkEnv.get.blockManager,
     mapOutputTracker: MapOutputTracker = SparkEnv.get.mapOutputTracker,
@@ -108,7 +109,8 @@ class ColumnarShuffleReader[K, C](
           .deserializeStreams(
             shuffleBlockFetcherIterator,
             shuffleBlockFetcherIterator.onComplete,
-            executionMode)
+            executionMode,
+            readerOrder)
           .asKeyValueIterator
       case serializerInstance =>
         // The dependency's serializer is not Gluten's ColumnarBatchSerializerInstance. This

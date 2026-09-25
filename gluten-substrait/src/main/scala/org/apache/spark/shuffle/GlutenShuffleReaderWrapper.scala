@@ -28,5 +28,6 @@ case class GenShuffleReaderParameters[K, C](
     blocksByAddress: Iterator[(BlockManagerId, collection.Seq[(BlockId, Long, Int)])],
     context: TaskContext,
     readMetrics: ShuffleReadMetricsReporter,
-    shouldBatchFetch: Boolean = false,
-    executionMode: StageExecutionMode)
+    shouldBatchFetch: Boolean,
+    executionMode: StageExecutionMode,
+    readerOrder: Option[Int])

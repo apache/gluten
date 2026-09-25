@@ -35,6 +35,7 @@ namespace gluten {
 class VeloxGpuAsyncHashShuffleReaderDeserializer final : public ShuffleReaderDeserializer {
  public:
   VeloxGpuAsyncHashShuffleReaderDeserializer(
+      int32_t priority,
       const std::shared_ptr<StreamReader>& streamReader,
       const std::shared_ptr<arrow::Schema>& schema,
       const std::shared_ptr<arrow::util::Codec>& codec,
@@ -57,6 +58,8 @@ class VeloxGpuAsyncHashShuffleReaderDeserializer final : public ShuffleReaderDes
 
   bool isStopped() const;
 
+  int32_t priority_{0};
+
   std::shared_ptr<StreamReader> streamReader_;
   std::shared_ptr<arrow::Schema> schema_;
   std::shared_ptr<arrow::util::Codec> codec_;
@@ -64,8 +67,6 @@ class VeloxGpuAsyncHashShuffleReaderDeserializer final : public ShuffleReaderDes
   int64_t readerBufferSize_;
   int64_t maxPrefetchBytes_;
   VeloxMemoryManager* memoryManager_;
-
-  int32_t priority_{0};
 
   int64_t& deserializeTime_;
   int64_t& decompressTime_;

@@ -68,7 +68,8 @@ class ColumnarShuffleReaderSuite extends SharedSparkSession {
       Iterator.empty,
       TaskContext.empty(),
       new TempShuffleReadMetrics(),
-      CPUStageMode
+      CPUStageMode,
+      None
     )
     reader.read().toSeq
   }
