@@ -26,6 +26,7 @@
 
 #include <exception>
 #include <type_traits>
+#include "JniCastException.h"
 #include "JniUdf.h"
 #include "compute/Runtime.h"
 #include "compute/VeloxBackend.h"
@@ -101,6 +102,7 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
 
   getJniCommonState()->ensureInitialized(env);
   getJniErrorState()->ensureInitialized(env);
+  initVeloxJniCastException(env);
   initVeloxJniFileSystem(env);
   initVeloxJniUDF(env);
   initVeloxJniHashTable(env, vm);
@@ -126,6 +128,7 @@ void JNI_OnUnload(JavaVM* vm, void*) {
 
   env->DeleteGlobalRef(blockStripesClass);
   env->DeleteGlobalRef(infoCls);
+  finalizeVeloxJniCastException(env);
   finalizeVeloxJniUDF(env);
   finalizeVeloxJniFileSystem(env);
   finalizeVeloxJniHashTable(env);
