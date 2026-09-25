@@ -24,7 +24,8 @@
 #      drops the bundle jar into `spark-unified/lib/` only (NOT `spark/lib/`
 #      -- see setup-delta.sh for the unmanagedJars scoping rationale),
 #      patches Delta's `DeltaSQLCommandTest` to register the Gluten plugin,
-#      and runs `sbt spark/test` sharded across the matrix.
+#      and runs `sbt spark/test` sharded across the matrix with JVM-wide Gluten
+#      defaults for suites that create their own Spark contexts.
 #
 # Limited to Velox + x86 to keep the matrix simple, per the pipeline's purpose
 # of validating Gluten changes against the latest Delta release.
@@ -54,6 +55,7 @@ on:
     paths:
       - '.github/workflows/delta_spark_ut.yml'
       - '.github/workflows/util/delta-spark-ut/**'
+      - 'gluten-ut/test/src/test/python/test_delta_spark_test_args.py'
       # Velox revision updates can change Delta offload behavior.
       - 'ep/build-velox/src/get-velox.sh'
       - 'gluten-delta/**'
@@ -409,6 +411,10 @@ jobs:
           gh --version
           jq --version
 
+      - name: Check shared Gluten JVM configuration
+        if: ${{ matrix.shard == 0 }}
+        run: python3 gluten-ut/test/src/test/python/test_delta_spark_test_args.py -v
+
       - name: Get sbt / Ivy / Coursier from Apache Stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
@@ -446,7 +452,7 @@ jobs:
           # Required by Delta to enable testing-only code paths
           # (see delta build.sbt: "Test / envVars += DELTA_TESTING -> 1").
           DELTA_TESTING: '1'
-          # NOTE: the Gluten/JDK17 test JVM flags (JAVA_TOOL_OPTIONS) live in
+          # NOTE: Gluten defaults and JDK17 JVM flags (JAVA_TOOL_OPTIONS) live in
           # util/delta-spark-ut/java-test-args.sh, which run-delta-tests.sh sources,
           # so CI and local dev runs share one definition.
         run: |
