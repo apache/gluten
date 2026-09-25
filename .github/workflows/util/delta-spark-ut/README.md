@@ -76,14 +76,9 @@ apply to every suite:
 Suites can still override these defaults through their Spark configuration.
 In particular, ANSI-specific tests can enable ANSI explicitly.
 
-The path-scheme conversion fixture uses a Hadoop-only mock S3 filesystem.
-Its preparatory write uses Spark's writer because Velox cannot use that mock;
-Gluten remains enabled for the conversion and the original assertion.
-
-Upstream `DeltaSQLCommandTest` is left unchanged, and Delta's license-header
-checks remain enabled. Delta extensions and the Delta catalog stay
-suite-specific rather than becoming JVM defaults, because some suites test
-behavior when those settings are absent.
+Delta extensions and the Delta catalog remain suite-specific rather than
+becoming JVM defaults, because some suites test behavior when those settings
+are absent.
 
 ## How the gate works
 
