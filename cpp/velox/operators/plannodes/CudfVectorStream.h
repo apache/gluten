@@ -24,6 +24,7 @@
 #include "velox/exec/Operator.h"
 #include "velox/exec/Task.h"
 #include "velox/experimental/cudf/exec/CudfOperator.h"
+#include "velox/experimental/cudf/exec/GpuResources.h"
 #include "velox/experimental/cudf/exec/Utilities.h"
 #include "velox/experimental/cudf/exec/VeloxCudfInterop.h"
 #include "velox/experimental/cudf/vector/CudfVector.h"
@@ -115,11 +116,30 @@ class CudfVectorStream : public CudfVectorStreamBase {
     VELOX_DCHECK(vp != nullptr);
     auto cudfVector = std::dynamic_pointer_cast<facebook::velox::cudf_velox::CudfVector>(vp);
     if (cudfVector == nullptr) {
-      // The vector may comes from BroadcastExchange, in this case, it's not a CudfVector.
-      vp->setType(outputType_);
-      return vp;
+      // BroadcastExchange may return a host RowVector; upload it for GPU operators.
+      auto stream = facebook::velox::cudf_velox::cudfGlobalStreamPool().get_stream();
+      if (vp->childrenSize() == 0 || outputType_->size() == 0) {
+        // Preserve row count because zero-column cuDF tables cannot store it.
+        return std::make_shared<facebook::velox::cudf_velox::CudfVector>(
+            vp->pool(), outputType_, vp->size(), std::make_unique<cudf::table>(), stream);
+      }
+      // Drop extra trailing columns added by broadcast exchange.
+      VELOX_CHECK_GE(
+          vp->childrenSize(),
+          outputType_->size(),
+          "Value stream batch has fewer columns than the declared output type");
+      std::vector<facebook::velox::VectorPtr> children(
+          vp->children().begin(), vp->children().begin() + outputType_->size());
+      for (auto& child : children) {
+        child->loadedVector();
+      }
+      auto host = std::make_shared<facebook::velox::RowVector>(
+          vp->pool(), outputType_, facebook::velox::BufferPtr(0), vp->size(), std::move(children));
+      auto table = facebook::velox::cudf_velox::with_arrow::toCudfTable(
+          host, host->pool(), stream, facebook::velox::cudf_velox::get_output_mr());
+      return std::make_shared<facebook::velox::cudf_velox::CudfVector>(
+          vp->pool(), outputType_, vp->size(), std::move(table), stream);
     }
-    VELOX_CHECK_NOT_NULL(cudfVector);
     return std::make_shared<facebook::velox::cudf_velox::CudfVector>(
         vp->pool(), outputType_, vp->size(), cudfVector->release(), cudfVector->stream());
   }
