@@ -17,6 +17,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.substrait.`type`.TypeBuilder
 import org.apache.gluten.substrait.SubstraitContext
@@ -42,6 +43,8 @@ class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
       .set("spark.memory.offHeap.enabled", "true")
       .set("spark.memory.offHeap.size", "1024MB")
       .set("spark.ui.enabled", "false")
+      // TaskResources.runUnsafe uses stage -1, which would match the default dump stage.
+      .set(GlutenConfig.BENCHMARK_TASK_STAGEID.key, "0")
   }
 
   private def withNativeIterator(input: JIterator[ColumnarBatch])(
