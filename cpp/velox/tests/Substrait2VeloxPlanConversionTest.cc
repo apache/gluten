@@ -17,6 +17,7 @@
 
 #include "JsonToProtoConverter.h"
 
+#include <google/protobuf/wrappers.pb.h>
 #include <filesystem>
 #include <limits>
 #include "compute/VeloxPlanConverter.h"
@@ -85,6 +86,7 @@ class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBa
         splitBuilder.infoColumn(name, value);
       }
       auto split = splitBuilder.build();
+      EXPECT_EQ(split->columnMappingMode, splitInfo->columnMappingMode);
       splits.emplace_back(split);
     }
     return splits;
@@ -106,7 +108,8 @@ class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBa
 
   ::substrait::ReadRel_LocalFiles makeParquetFiles(
       const std::vector<std::string>& paths,
-      const RowTypePtr& tableSchema = nullptr) {
+      const RowTypePtr& tableSchema = nullptr,
+      dwio::common::ColumnMappingMode columnMappingMode = dwio::common::ColumnMappingMode::kName) {
     ::substrait::ReadRel_LocalFiles files;
     google::protobuf::Arena arena;
     VeloxToSubstraitTypeConvertor typeConverter;
@@ -118,6 +121,11 @@ class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBa
       auto* metadata = file->add_metadata_columns();
       metadata->set_key("file_name");
       metadata->set_value(std::filesystem::path(path).filename().string());
+      google::protobuf::StringValue mode;
+      mode.set_value(std::string(dwio::common::ColumnMappingModeName::toName(columnMappingMode)));
+      auto* mapping = file->add_other_const_metadata_columns();
+      mapping->set_key("__gluten.column_mapping_mode");
+      mapping->mutable_value()->PackFrom(mode);
       if (tableSchema) {
         file->mutable_schema()->CopyFrom(typeConverter.toSubstraitNamedStruct(arena, tableSchema));
       }
@@ -155,11 +163,6 @@ class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBa
     parquet::Writer writer(std::move(sink), options, asRowType(rows->type()));
     writer.write(rows);
     writer.close();
-  }
-
-  void setParquetUseColumnNames(bool enabled) {
-    resetHiveConnector(std::make_shared<config::ConfigBase>(
-        std::unordered_map<std::string, std::string>{{"hive.parquet.use-column-names", enabled ? "true" : "false"}}));
   }
 
   std::shared_ptr<exec::test::TempDirectoryPath> tmpDir_{exec::test::TempDirectoryPath::create()};
@@ -452,11 +455,11 @@ TEST_F(Substrait2VeloxPlanConversionTest, explicitFileSchemaPreservesPhysicalFie
 }
 
 TEST_F(Substrait2VeloxPlanConversionTest, parquetMetadataOnlyPreservesRows) {
-  setParquetUseColumnNames(true);
   writeParquet("/first.parquet", makeRowVector({"file_name"}, {makeFlatVector<int64_t>({10, 20})}));
   writeParquet("/second.parquet", makeRowVector({"file_name"}, {makeFlatVector<int64_t>({30})}));
   const auto files = makeParquetFiles({"/first.parquet", "/second.parquet"});
   auto scan = convertRead(makeRead(ROW({"file_name"}, {VARCHAR()}), {::substrait::NamedStruct::METADATA_COL}), files);
+  EXPECT_EQ(planConverter_->splitInfos().at(scan->id())->columnMappingMode, dwio::common::ColumnMappingMode::kName);
   auto expected = makeRowVector({makeFlatVector<std::string>({"first.parquet", "first.parquet", "second.parquet"})});
   exec::test::AssertQueryBuilder(scan).splits(makeSplits(scan)).assertResults(expected);
 
@@ -468,7 +471,6 @@ TEST_F(Substrait2VeloxPlanConversionTest, parquetMetadataOnlyPreservesRows) {
 }
 
 TEST_F(Substrait2VeloxPlanConversionTest, parquetMetadataAndRegularFilters) {
-  setParquetUseColumnNames(true);
   auto rows =
       makeRowVector({"file_name", "keep"}, {makeFlatVector<int64_t>({10, 20}), makeFlatVector<bool>({true, false})});
   writeParquet("/first.parquet", rows);
@@ -499,6 +501,7 @@ TEST_F(Substrait2VeloxPlanConversionTest, parquetMetadataAndRegularFilters) {
         ->mutable_struct_field()
         ->set_field(1);
     auto scan = convertRead(read, files, {"equal:opt_str_str", "and:opt_bool_bool"});
+    EXPECT_EQ(planConverter_->splitInfos().at(scan->id())->columnMappingMode, dwio::common::ColumnMappingMode::kName);
     const int size = filename == "first.parquet" ? 1 : 0;
     auto expected = makeRowVector({
         makeFlatVector<std::string>(size, [&](auto /*row*/) { return filename; }),
@@ -509,16 +512,19 @@ TEST_F(Substrait2VeloxPlanConversionTest, parquetMetadataAndRegularFilters) {
 }
 
 TEST_F(Substrait2VeloxPlanConversionTest, parquetMetadataWithExplicitPositionalSchema) {
-  setParquetUseColumnNames(false);
-  auto rows =
-      makeRowVector({"file_name", "keep"}, {makeFlatVector<int64_t>({10, 20}), makeFlatVector<bool>({true, false})});
+  auto rows = makeRowVector(
+      {"file_name", "physical_keep"}, {makeFlatVector<int64_t>({10, 20}), makeFlatVector<bool>({true, false})});
   writeParquet("/first.parquet", rows);
-  const auto files = makeParquetFiles({"/first.parquet"}, asRowType(rows->type()));
+  const auto files = makeParquetFiles(
+      {"/first.parquet"},
+      ROW({"file_name", "keep"}, {BIGINT(), BOOLEAN()}),
+      dwio::common::ColumnMappingMode::kPosition);
   auto scan = convertRead(
       makeRead(
           ROW({"file_name", "keep"}, {VARCHAR(), BOOLEAN()}),
           {::substrait::NamedStruct::METADATA_COL, ::substrait::NamedStruct::NORMAL_COL}),
       files);
+  EXPECT_EQ(planConverter_->splitInfos().at(scan->id())->columnMappingMode, dwio::common::ColumnMappingMode::kPosition);
   auto expected = makeRowVector({
       makeFlatVector<std::string>({"first.parquet", "first.parquet"}),
       makeFlatVector<bool>({true, false}),
