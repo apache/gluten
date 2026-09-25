@@ -16,6 +16,7 @@
  */
 
 #include "CudfVectorStream.h"
+#include "jni/VeloxJavaException.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "velox/exec/Driver.h"
 #include "velox/exec/Operator.h"
@@ -62,7 +63,7 @@ bool CudfVectorStreamBase::hasNext() {
     // 1. Task A spills task B;
     // 2. Task A tries to grow buffers created by task B, during which spill is requested on task A again.
     SuspendedSection ss(driverCtx_->driver);
-    hasNext = iterator_->hasNext();
+    hasNext = wrapJavaException([&]() { return iterator_->hasNext(); });
   }
   if (!hasNext) {
     finished_ = true;
@@ -79,7 +80,7 @@ std::shared_ptr<ColumnarBatch> CudfVectorStreamBase::nextInternal() {
     // We are leaving Velox task execution and are probably entering Spark code through JNI. Suspend the current
     // driver to make the current task open to spilling.
     SuspendedSection ss(driverCtx_->driver);
-    cb = iterator_->next();
+    cb = wrapJavaException([&]() { return iterator_->next(); });
   }
   return cb;
 }
