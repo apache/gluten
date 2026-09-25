@@ -354,4 +354,43 @@ class ScalarFunctionsTest extends GlutenStreamingTestBase {
     String query = "select a from tblIsNull where b is null";
     runAndCheck(query, Arrays.asList("+I[2]"));
   }
+
+  @Test
+  void testSubstring() {
+    List<Row> rows = Arrays.asList(Row.of("hello world"), Row.of("abcdefghij"));
+    createSimpleBoundedValuesTable("tblSubstr", "s varchar", rows);
+    String query = "select SUBSTRING(s, 1, 5), SUBSTRING(s, 7) from tblSubstr";
+    runAndCheck(query, Arrays.asList("+I[hello, world]", "+I[abcde, ghij]"));
+  }
+
+  @Test
+  void testCoalesce() {
+    List<Row> rows = Arrays.asList(Row.of("a", "b"), Row.of(null, "b"), Row.of("a", null));
+    createSimpleBoundedValuesTable("tblCoalesce", "s1 varchar, s2 varchar", rows);
+    String query = "select COALESCE(s1, s2) from tblCoalesce";
+    runAndCheck(query, Arrays.asList("+I[a]", "+I[b]", "+I[a]"));
+  }
+
+  @Test
+  void testJsonValue() {
+    List<Row> rows =
+        Arrays.asList(
+            Row.of("{\"name\":\"alice\",\"age\":30}"), Row.of("{\"name\":\"bob\",\"age\":25}"));
+    createSimpleBoundedValuesTable("tblJson", "s varchar", rows);
+    String query = "select JSON_VALUE(s, '$.name') from tblJson";
+    runAndCheck(query, Arrays.asList("+I[alice]", "+I[bob]"));
+  }
+
+  @Test
+  void testTimestampLiteral() {
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    List<Row> rows =
+        Arrays.asList(
+            Row.of(1, LocalDateTime.parse("2024-01-15 03:04:05", formatter)), Row.of(2, null));
+    createSimpleBoundedValuesTable("tblTsLiteral", "a int, b Timestamp(3) NULL", rows);
+    String query =
+        "select DATE_FORMAT(COALESCE(b, TIMESTAMP '2024-03-15 10:15:30'), 'yyyy-MM-dd HH:mm:ss') "
+            + "from tblTsLiteral";
+    runAndCheck(query, Arrays.asList("+I[2024-01-15 03:04:05]", "+I[2024-03-15 10:15:30]"));
+  }
 }
