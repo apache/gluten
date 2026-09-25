@@ -27,7 +27,8 @@ import org.apache.gluten.substrait.plan.PlanNode
 import org.apache.gluten.validate.NativePlanValidationInfo
 import org.apache.gluten.vectorized.NativePlanEvaluator
 
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
+import org.apache.spark.internal.Logging
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BRound, Expression, Literal}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.types._
@@ -37,13 +38,44 @@ import io.substrait.proto.SimpleExtensionDeclaration
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
+import scala.util.Properties
 
-class VeloxValidatorApi extends ValidatorApi {
+class VeloxValidatorApi extends ValidatorApi with Logging {
   import VeloxValidatorApi._
 
   /** For velox backend, key validation is on native side. */
-  override def doExprValidate(substraitExprName: String, expr: Expression): Boolean =
-    true
+  override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = {
+    expr match {
+      case bround: BRound =>
+        bround.scale match {
+          case Literal(null, IntegerType) => true
+          case Literal(scale: Int, IntegerType) =>
+            if (scale < MIN_BROUND_SCALE || scale > MAX_BROUND_SCALE) {
+              logDebug(
+                s"bround scale $scale is outside the native " +
+                  s"[$MIN_BROUND_SCALE, $MAX_BROUND_SCALE] interval; " +
+                  "falling back to Spark.")
+              false
+            } else if (
+              scale != 0 &&
+              (bround.child.dataType == FloatType || bround.child.dataType == DoubleType) &&
+              !isJavaQualifiedForFloatingBround
+            ) {
+              logDebug(
+                "Floating-point bround with nonzero scale requires " +
+                  s"Java $MIN_BROUND_FLOATING_JAVA_VERSION or later " +
+                  "for matching decimal conversion; falling back to Spark.")
+              false
+            } else {
+              true
+            }
+          case _ =>
+            logDebug("bround scale must be a folded INTEGER literal; falling back to Spark.")
+            false
+        }
+      case _ => true
+    }
+  }
 
   override def doNativeValidateWithFailureReason(plan: PlanNode): ValidationResult = {
     TaskResources.runUnsafe {
@@ -104,6 +136,13 @@ class VeloxValidatorApi extends ValidatorApi {
 }
 
 object VeloxValidatorApi {
+  val MIN_BROUND_SCALE: Int = -400
+  val MAX_BROUND_SCALE: Int = 400
+  val MIN_BROUND_FLOATING_JAVA_VERSION: String = "21"
+
+  private val isJavaQualifiedForFloatingBround =
+    Properties.isJavaAtLeast(MIN_BROUND_FLOATING_JAVA_VERSION)
+
   private def isPrimitiveType(dataType: DataType): Boolean = {
     val enableTimestampNtzValidation = VeloxConfig.get.enableTimestampNtzValidation
     dataType match {

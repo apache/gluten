@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -123,6 +125,21 @@ TEST_F(SparkFunctionTest, roundWithDecimal) {
   runRoundWithDecimalTest<int32_t>(testRoundWithDecIntegralData<int32_t>());
   runRoundWithDecimalTest<int16_t>(testRoundWithDecIntegralData<int16_t>());
   runRoundWithDecimalTest<int8_t>(testRoundWithDecIntegralData<int8_t>());
+}
+
+TEST_F(SparkFunctionTest, bround) {
+  auto input = makeRowVector({makeNullableFlatVector<double>({2.5, 3.5, -2.5, -3.5, std::nullopt})});
+  facebook::velox::test::assertEqualVectors(
+      makeNullableFlatVector<double>({2.0, 4.0, -2.0, -4.0, std::nullopt}), evaluate("bround(c0)", input));
+}
+
+TEST_F(SparkFunctionTest, broundIntegralOverflowModes) {
+  auto input = makeRowVector({makeFlatVector<int64_t>({std::numeric_limits<int64_t>::max()})});
+  queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), "false"}});
+  facebook::velox::test::assertEqualVectors(
+      makeFlatVector<int64_t>({-8'446'744'073'709'551'616LL}), evaluate("bround(c0, cast(-19 as integer))", input));
+  queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), "true"}});
+  VELOX_ASSERT_THROW(evaluate("bround(c0, cast(-19 as integer))", input), "overflow");
 }
 
 TEST_F(SparkFunctionTest, expressionLevelAnsiCastIgnoresSessionAnsiOff) {

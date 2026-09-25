@@ -656,6 +656,11 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         throw new GlutenNotSupportException(
           "CheckOverflowInTableInsert is used in ANSI mode, but Gluten does not support ANSI mode."
         )
+      case bround: BRound =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genBRoundTransformer(
+          substraitExprName,
+          bround.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          bround)
       case b: BinaryArithmetic if DecimalArithmeticUtil.isDecimalArithmetic(b) =>
         val exprName = BackendsApiManager.getSparkPlanExecApiInstance.getDecimalArithmeticExprName(
           substraitExprName,
