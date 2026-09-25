@@ -1,0 +1,70 @@
+--- a/velox/connectors/hive/storage_adapters/s3fs/S3Config.h
++++ b/velox/connectors/hive/storage_adapters/s3fs/S3Config.h
+@@ -78,6 +78,7 @@
+     kCredentialsProvider,
+     kIMDSEnabled,
+     kMultipartMinPartSize,
++    kSSLCAFile,
+     kEnd
+   };
+ 
+@@ -119,6 +120,7 @@
+             {Keys::kIMDSEnabled, std::make_pair("aws-imds-enabled", "true")},
+             {Keys::kMultipartMinPartSize,
+              std::make_pair("min-part-size", "10MB")},
++            {Keys::kSSLCAFile, std::make_pair("ssl.ca-file", std::nullopt)},
+         };
+     return config;
+   }
+@@ -254,6 +256,15 @@
+     return folly::to<bool>(value);
+   }
+ 
++  /// Custom CA bundle file path used to verify the S3 endpoint's TLS
++  /// certificate, overriding the HTTP client's compiled-in default trust
++  /// store location. If not set, S3FileSystem falls back to the
++  /// SSL_CERT_FILE environment variable before using the compiled-in
++  /// default.
++  std::optional<std::string> sslCAFile() const {
++    return config_.find(Keys::kSSLCAFile)->second;
++  }
++
+   size_t minPartSize() const;
+ 
+  private:
+--- a/velox/connectors/hive/storage_adapters/s3fs/S3FileSystem.cpp
++++ b/velox/connectors/hive/storage_adapters/s3fs/S3FileSystem.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include <fmt/format.h>
+ #include <glog/logging.h>
++#include <cstdlib>
+ #include <memory>
+ #include <stdexcept>
+ 
+@@ -239,6 +240,25 @@
+         Aws::Client::RequestChecksumCalculation::WHEN_REQUIRED;
+     clientConfig.checksumConfig.responseChecksumValidation =
+         Aws::Client::ResponseChecksumValidation::WHEN_REQUIRED;
++
++    // Allow overriding the TLS CA bundle used to verify S3 endpoints.
++    // HTTP client libraries built via static toolchains (e.g. vcpkg) bake
++    // in a compile-time default CA bundle path (for example the RHEL-family
++    // path when built on Rocky/CentOS), which may not exist on a different
++    // runtime OS (e.g. a Debian/Ubuntu container), causing TLS handshake
++    // failures despite the system otherwise having a valid, working CA
++    // bundle elsewhere. Prefer an explicit 'hive.s3.ssl.ca-file' config;
++    // otherwise fall back to the widely-used SSL_CERT_FILE environment
++    // variable convention (also respected by OpenSSL, the curl CLI,
++    // Python, Node.js, etc.), so a runtime image only needs to set one
++    // environment variable to point at its actual CA bundle location,
++    // without requiring a Velox/Spark config change.
++    if (s3Config_->sslCAFile().has_value()) {
++      clientConfig.caFile = awsString(s3Config_->sslCAFile().value());
++    } else if (const char* envCAFile = std::getenv("SSL_CERT_FILE")) {
++      clientConfig.caFile = envCAFile;
++    }
++
+     if (s3Config_->endpoint().has_value()) {
+       clientConfig.endpointOverride = s3Config_->endpoint().value();
+     }
