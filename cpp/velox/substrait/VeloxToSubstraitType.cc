@@ -31,6 +31,14 @@ const ::substrait::Type& VeloxToSubstraitTypeConvertor::toSubstraitType(
     substraitType->set_allocated_date(substraitDate);
     return *substraitType;
   }
+  if (type->equivalent(*velox::TIMESTAMP_UTC())) {
+    auto substraitPrecisionTimestamp =
+        google::protobuf::Arena::CreateMessage<::substrait::Type_PrecisionTimestamp>(&arena);
+    substraitPrecisionTimestamp->set_precision(6);
+    substraitPrecisionTimestamp->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    substraitType->set_allocated_precision_timestamp(substraitPrecisionTimestamp);
+    return *substraitType;
+  }
 
   switch (type->kind()) {
     case velox::TypeKind::BOOLEAN: {

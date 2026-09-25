@@ -121,6 +121,21 @@ class VeloxSubstraitRoundTripTest : public OperatorTestBase {
     }
   }
 
+  void assertTypedPlanConversion(const ::substrait::Plan& plan, const RowVectorPtr& expected) {
+    auto config = std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>());
+    SubstraitToVeloxPlanConverter converter(
+        pool_.get(),
+        config.get(),
+        std::vector<std::shared_ptr<ResultIterator>>{},
+        VeloxConnectorIds{},
+        std::nullopt,
+        std::nullopt,
+        true);
+    auto result = converter.toVeloxPlan(plan);
+    ASSERT_TRUE(expected->type()->equivalent(*result->outputType())) << result->outputType()->toString();
+    assertQuery(result, expected);
+  }
+
   std::shared_ptr<VeloxToSubstraitPlanConvertor> veloxConvertor_ = std::make_shared<VeloxToSubstraitPlanConvertor>();
 };
 
@@ -400,6 +415,78 @@ TEST_F(VeloxSubstraitRoundTripTest, notNullLiteral) {
   assertPlanConversion(plan, "SELECT true, 23, 45, 678, 910, 1.23, 4.56, '789'");
 }
 
+TEST_F(VeloxSubstraitRoundTripTest, timestampLiteralProjection) {
+  const auto beforeEpoch = Timestamp(-1, 999'999'000);
+  const auto afterEpoch = Timestamp(1'704'067'200, 123'456'000);
+  auto input = makeRowVector(ROW({}, {}), 1);
+  for (const auto& type : std::vector<TypePtr>{TIMESTAMP_UTC(), TIMESTAMP()}) {
+    SCOPED_TRACE(type->toString());
+    auto expected = makeRowVector(
+        {makeFlatVector<Timestamp>({beforeEpoch}, type),
+         makeFlatVector<Timestamp>({afterEpoch}, type),
+         makeNullableFlatVector<Timestamp>({std::nullopt}, type)});
+    auto plan = PlanBuilder(pool_.get())
+                    .values({input})
+                    .projectExpressions(
+                        {makeConstantExpr(type, variant(beforeEpoch)),
+                         makeConstantExpr(type, variant(afterEpoch)),
+                         makeConstantExpr(type, variant::null(TypeKind::TIMESTAMP))})
+                    .planNode();
+    assertQuery(plan, expected);
+    google::protobuf::Arena arena;
+    const auto& substraitPlan = veloxConvertor_->toSubstrait(arena, plan);
+    ASSERT_NO_FATAL_FAILURE(assertTypedPlanConversion(substraitPlan, expected));
+  }
+}
+
+TEST_F(VeloxSubstraitRoundTripTest, timestampValues) {
+  const auto beforeEpoch = Timestamp(-1, 999'999'000);
+  const auto afterEpoch = Timestamp(1'704'067'200, 123'456'000);
+  auto input = makeRowVector(
+      {makeNullableFlatVector<Timestamp>({beforeEpoch, afterEpoch, std::nullopt}, TIMESTAMP_UTC()),
+       makeNullableFlatVector<Timestamp>({afterEpoch, std::nullopt, beforeEpoch}, TIMESTAMP())});
+  auto plan = PlanBuilder(pool_.get()).values({input}).planNode();
+  google::protobuf::Arena arena;
+  const auto& substraitPlan = veloxConvertor_->toSubstrait(arena, plan);
+  const auto& fields = substraitPlan.relations(0).root().input().read().virtual_table().expressions(0).fields();
+  ASSERT_EQ(fields.size(), 6);
+  ASSERT_TRUE(fields.Get(0).literal().has_timestamp());
+  EXPECT_EQ(fields.Get(0).literal().timestamp(), beforeEpoch.toMicros());
+  ASSERT_TRUE(fields.Get(2).literal().has_null());
+  EXPECT_TRUE(fields.Get(2).literal().null().has_precision_timestamp());
+  ASSERT_TRUE(fields.Get(3).literal().has_timestamp_tz());
+  EXPECT_EQ(fields.Get(3).literal().timestamp_tz(), afterEpoch.toMicros());
+  ASSERT_TRUE(fields.Get(4).literal().has_null());
+  EXPECT_TRUE(fields.Get(4).literal().null().has_precision_timestamp_tz());
+  assertTypedPlanConversion(substraitPlan, input);
+}
+
+TEST_F(VeloxSubstraitRoundTripTest, timestampArrayLiteral) {
+  const auto beforeEpoch = Timestamp(-1, 999'999'000);
+  const auto afterEpoch = Timestamp(1'704'067'200, 123'456'000);
+  auto input = makeRowVector(ROW({}, {}), 1);
+  for (const auto& type : std::vector<TypePtr>{TIMESTAMP_UTC(), TIMESTAMP()}) {
+    SCOPED_TRACE(type->toString());
+    auto values = makeNullableArrayVector<Timestamp>({{beforeEpoch, std::nullopt, afterEpoch}}, ARRAY(type));
+    auto empty = makeArrayVector<Timestamp>({{}}, type);
+    auto nullArray = BaseVector::createNullConstant(ARRAY(type), 1, pool_.get());
+    auto nullNestedArray = BaseVector::createNullConstant(ARRAY(ARRAY(type)), 1, pool_.get());
+    auto expected = makeRowVector({values, empty, nullArray, nullNestedArray});
+    auto plan = PlanBuilder(pool_.get())
+                    .values({input})
+                    .projectExpressions(
+                        {makeConstantExpr(values),
+                         makeConstantExpr(empty),
+                         makeConstantExpr(nullArray),
+                         makeConstantExpr(nullNestedArray)})
+                    .planNode();
+    assertQuery(plan, expected);
+    google::protobuf::Arena arena;
+    const auto& substraitPlan = veloxConvertor_->toSubstrait(arena, plan);
+    ASSERT_NO_FATAL_FAILURE(assertTypedPlanConversion(substraitPlan, expected));
+  }
+}
+
 TEST_F(VeloxSubstraitRoundTripTest, arrayLiteral) {
   auto vectors = makeRowVector(ROW({}), 1);
   auto plan = PlanBuilder(pool_.get())
@@ -437,6 +524,25 @@ TEST_F(VeloxSubstraitRoundTripTest, arrayLiteral) {
       "array['1992-01-01'::DATE],"
       "array[INTERVAL 54 MILLISECONDS], "
       "array[], array[array[1,2,3], array[4,5]]");
+}
+
+TEST_F(VeloxSubstraitRoundTripTest, dateArrayNullPositions) {
+  auto leadingNull = makeNullableArrayVector<int32_t>({{std::nullopt, 19'723}}, ARRAY(DATE()));
+  auto trailingNull = makeNullableArrayVector<int32_t>({{19'723, std::nullopt}}, ARRAY(DATE()));
+  auto comparison = std::make_shared<const core::CallTypedExpr>(
+      BOOLEAN(),
+      std::vector<core::TypedExprPtr>{makeConstantExpr(leadingNull), makeConstantExpr(trailingNull)},
+      "equalto");
+  auto input = makeRowVector(ROW({}, {}), 1);
+  auto expected = makeRowVector({makeFlatVector<bool>({false})});
+  auto plan = PlanBuilder(pool_.get())
+                  .values({input})
+                  .projectExpressions(std::vector<core::TypedExprPtr>{comparison})
+                  .planNode();
+  assertQuery(plan, expected);
+  google::protobuf::Arena arena;
+  const auto& substraitPlan = veloxConvertor_->toSubstrait(arena, plan);
+  assertTypedPlanConversion(substraitPlan, expected);
 }
 
 // Disabled due to https://github.com/facebookincubator/velox/pull/17318.
