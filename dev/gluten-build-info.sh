@@ -45,10 +45,7 @@ function echo_velox_revision_info() {
 }
 
 function echo_bolt_revision_info() {
-  BACKEND_HOME=$1
-  echo bolt_branch=$(git -C "$BACKEND_HOME" rev-parse --abbrev-ref HEAD)
-  echo bolt_revision=$(git -C "$BACKEND_HOME" rev-parse HEAD)
-  echo bolt_revision_time=$(git -C "$BACKEND_HOME" show -s --format=%ci HEAD)
+  bash "$GLUTEN_ROOT/cpp/bolt/bolt-build-info.sh" "$1/include"
 }
 
 function echo_clickhouse_revision_info() {
