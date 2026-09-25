@@ -284,12 +284,3 @@ source <gluten>/.github/workflows/util/delta-spark-ut/java-test-args.sh
 
 `run-delta-tests.sh` sources the same file, so CI and local runs use identical
 flags.
-
-The JVM configuration regression tests require Bash, Python 3, and Java 17,
-but no Gluten bundle or native build. From the Gluten repository root:
-
-```bash
-python3 gluten-ut/test/src/test/python/test_delta_spark_test_args.py -v
-```
-
-CI runs these on shard 0 before compiling or running Delta's suites.

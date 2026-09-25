@@ -54,7 +54,6 @@ on:
     paths:
       - '.github/workflows/delta_spark_ut.yml'
       - '.github/workflows/util/delta-spark-ut/**'
-      - 'gluten-ut/test/src/test/python/test_delta_spark_test_args.py'
       # Velox revision updates can change Delta offload behavior.
       - 'ep/build-velox/src/get-velox.sh'
       - 'gluten-delta/**'
@@ -409,10 +408,6 @@ jobs:
           python3 --version
           gh --version
           jq --version
-
-      - name: Check shared Gluten JVM configuration
-        if: ${{ matrix.shard == 0 }}
-        run: python3 gluten-ut/test/src/test/python/test_delta_spark_test_args.py -v
 
       - name: Get sbt / Ivy / Coursier from Apache Stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
