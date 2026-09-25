@@ -146,6 +146,11 @@ class VeloxRuntime final : public Runtime {
   void registerConnectors();
   void unregisterConnectors();
 
+  // Dumps the pre-built hash table of every broadcast hash join in the plan that resolved to one,
+  // so the micro benchmark can replay those joins against the real table. Only called while
+  // dumping is enabled.
+  void dumpCachedHashTables(const facebook::velox::core::PlanNodePtr& plan);
+
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
   std::shared_ptr<facebook::velox::config::ConfigBase> veloxCfg_;
   bool debugModeEnabled_{false};
