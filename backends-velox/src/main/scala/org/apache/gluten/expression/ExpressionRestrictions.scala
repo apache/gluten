@@ -83,6 +83,44 @@ object Unbase64Restrictions extends ExpressionRestrictions {
   override val restrictionMessages: Array[String] = Array(NOT_SUPPORT_FAIL_ON_ERROR)
 }
 
+object EltRestrictions extends ExpressionRestrictions {
+  val NOT_SUPPORT_FAIL_ON_ERROR_MISMATCH: String =
+    s"${ExpressionNames.ELT} whose failOnError disagrees with the session's " +
+      s"'${SQLConf.ANSI_ENABLED.key}' is not supported, since Velox derives the ANSI " +
+      s"behavior of elt from the session config"
+
+  override val functionName: String = ExpressionNames.ELT
+
+  override val restrictionMessages: Array[String] = Array(NOT_SUPPORT_FAIL_ON_ERROR_MISMATCH)
+}
+
+object ConvRestrictions extends ExpressionRestrictions {
+  val NOT_SUPPORT_ANSI_ENABLED_MISMATCH: String =
+    s"${ExpressionNames.CONV} whose ansiEnabled disagrees with the session's " +
+      s"'${SQLConf.ANSI_ENABLED.key}' is not supported, since Velox derives the ANSI " +
+      s"behavior of conv from the session config"
+
+  override val functionName: String = ExpressionNames.CONV
+
+  override val restrictionMessages: Array[String] = Array(NOT_SUPPORT_ANSI_ENABLED_MISMATCH)
+}
+
+object ElementAtRestrictions extends ExpressionRestrictions {
+  val NOT_SUPPORT_FAIL_ON_ERROR_MISMATCH: String =
+    s"${ExpressionNames.ELEMENT_AT} over an array whose failOnError disagrees with the " +
+      s"session's '${SQLConf.ANSI_ENABLED.key}' is not supported, since Velox derives the " +
+      s"ANSI behavior of element_at from the session config"
+
+  val NOT_SUPPORT_DEFAULT_VALUE_OUT_OF_BOUND: String =
+    s"${ExpressionNames.ELEMENT_AT} with a default value for an out-of-bound index is not " +
+      s"supported in Velox, which always returns NULL for such an index"
+
+  override val functionName: String = ExpressionNames.ELEMENT_AT
+
+  override val restrictionMessages: Array[String] =
+    Array(NOT_SUPPORT_FAIL_ON_ERROR_MISMATCH, NOT_SUPPORT_DEFAULT_VALUE_OUT_OF_BOUND)
+}
+
 object Base64Restrictions extends ExpressionRestrictions {
   val NOT_SUPPORT_DISABLE_CHUNK_BASE64_STRING: String =
     s"${ExpressionNames.BASE64} with chunkBase64String disabled is not supported"
@@ -125,6 +163,9 @@ object ExpressionRestrictions {
       ToJsonRestrictions,
       Unbase64Restrictions,
       Base64Restrictions,
+      EltRestrictions,
+      ConvRestrictions,
+      ElementAtRestrictions,
       FormatNumberRestrictions
     )
   }

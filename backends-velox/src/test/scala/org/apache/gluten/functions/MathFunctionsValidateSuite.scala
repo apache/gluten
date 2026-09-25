@@ -20,6 +20,7 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.execution.{BatchScanExecTransformer, ProjectExecTransformer}
 
 import org.apache.spark.SparkConf
+import org.apache.spark.SparkException
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.internal.SQLConf
 
@@ -62,6 +63,34 @@ class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
       "select try_subtract(2147483647, cast(l_orderkey as int)), " +
         "try_subtract(-2147483648, cast(l_orderkey as int)) from lineitem") {
       checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("conv") {
+    runQueryAndCompare(
+      "select conv(cast(l_orderkey as string), 10, 16), conv('big', 36, 16) from lineitem") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+
+    // 2^64 - 1 is the largest input that does not overflow, and the sign is applied after
+    // the digits are accumulated, so neither of these raises an error.
+    runQueryAndCompare(
+      "select conv('18446744073709551615', 10, 10), conv('-1', 10, 16) from lineitem") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+
+    // An out-of-range base gives NULL rather than an error.
+    runQueryAndCompare("select conv('15', 1, 10), conv('15', 10, 37) from lineitem") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+
+    // Digits that do not fit in an unsigned 64-bit integer overflow, which raises an
+    // error in ANSI mode instead of saturating. l_orderkey is at least 1, so the
+    // concatenated input always has more than 16 hexadecimal digits.
+    intercept[SparkException] {
+      sql(
+        "select conv(concat(cast(l_orderkey as string), '0000000000000000'), 16, 10)" +
+          " from lineitem").collect()
     }
   }
 }
@@ -351,6 +380,22 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     compareResultsAgainstVanillaSpark("select round(78, 1)", true, { _ => })
     // Scale < 0 should round down even on integral values
     compareResultsAgainstVanillaSpark("select round(44, -1)", true, { _ => })
+  }
+
+  test("conv") {
+    withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+      runQueryAndCompare(
+        "SELECT conv(cast(l_orderkey as string), 10, 16), conv('big', 36, 16) from lineitem") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      // Digits that do not fit in an unsigned 64-bit integer saturate with ANSI mode off.
+      runQueryAndCompare(
+        "SELECT conv(concat(cast(l_orderkey as string), '0000000000000000'), 16, 10)," +
+          " conv('9223372036854775807', 36, 16) from lineitem") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
   }
 
   test("shiftleft") {
