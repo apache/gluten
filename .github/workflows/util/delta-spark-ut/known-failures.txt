@@ -20,9 +20,6 @@
 # Velox forks x ~4G run close to the ~16G runner limit) -- so a baseline captured
 # at a different parallelism spuriously flags them as regressions.
 # ---------------------------------------------------------------------------
-io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using SQL conf
-io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using withExtensions
-io.delta.sql.JavaDeltaSparkSessionExtensionSuite#testSQLConf
 io.delta.tables.DeltaTableHadoopOptionsSuite#delete - with filesystem options
 io.delta.tables.DeltaTableHadoopOptionsSuite#details - with filesystem options.
 io.delta.tables.DeltaTableHadoopOptionsSuite#forPath - with filesystem options
@@ -537,15 +534,3 @@ org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSu
 org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningTableFeatureAdvancedSuite#drop feature after type change DATE -> TIMESTAMP_NTZ
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid unsigned Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid unsigned Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid unsigned Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid unsigned Int ids - Portable
