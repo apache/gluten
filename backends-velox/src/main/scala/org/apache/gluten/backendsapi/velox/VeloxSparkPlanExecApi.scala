@@ -171,6 +171,35 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
     else { exprName }
 
+  override def genBRoundTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      original: BRound): ExpressionTransformer = {
+    val arguments = original.child.dataType match {
+      case ByteType | ShortType | IntegerType | LongType =>
+        // The expression's mode must survive later changes to the session configuration.
+        children :+ LiteralTransformer(Literal(original.ansiEnabled))
+      case _ => children
+    }
+    VeloxRoundingExpressionTransformer(substraitExprName, arguments, original)
+  }
+
+  override def genRoundTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      original: Round): ExpressionTransformer = {
+    val arguments = original.child.dataType match {
+      case ByteType | ShortType | IntegerType | LongType =>
+        children :+ LiteralTransformer(Literal(original.ansiEnabled))
+      case _ => children
+    }
+    val nativeName = original.child.dataType match {
+      case _: DecimalType => "decimal_spark_round"
+      case _ => "spark_round"
+    }
+    VeloxRoundingExpressionTransformer(nativeName, arguments, original)
+  }
+
   /** Transform map_entries to Substrait. */
   override def genMapEntriesTransformer(
       substraitExprName: String,

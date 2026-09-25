@@ -386,10 +386,13 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           d
         )
       case r: Round if r.child.dataType.isInstanceOf[DecimalType] =>
-        DecimalRoundTransformer(
+        BackendsApiManager.getSparkPlanExecApiInstance.genRoundTransformer(
           substraitExprName,
-          replaceWithExpressionTransformer0(r.child, attributeSeq, expressionsMap),
-          r)
+          Seq(
+            replaceWithExpressionTransformer0(r.child, attributeSeq, expressionsMap),
+            LiteralTransformer(Literal.create(r.scale.eval(EmptyRow), IntegerType))),
+          r
+        )
       case t: ToUnixTimestamp =>
         BackendsApiManager.getSparkPlanExecApiInstance.genToUnixTimestampTransformer(
           substraitExprName,
@@ -656,6 +659,16 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         throw new GlutenNotSupportException(
           "CheckOverflowInTableInsert is used in ANSI mode, but Gluten does not support ANSI mode."
         )
+      case round: BRound =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genBRoundTransformer(
+          substraitExprName,
+          round.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          round)
+      case round: Round =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genRoundTransformer(
+          substraitExprName,
+          round.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          round)
       case b: BinaryArithmetic if DecimalArithmeticUtil.isDecimalArithmetic(b) =>
         val exprName = BackendsApiManager.getSparkPlanExecApiInstance.getDecimalArithmeticExprName(
           substraitExprName,
