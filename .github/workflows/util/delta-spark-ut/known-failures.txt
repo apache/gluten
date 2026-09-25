@@ -65,7 +65,6 @@ org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#external tables use correct pa
 org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#external tables use correct path scheme
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = false
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = true
-org.apache.spark.sql.delta.DeltaAllFilesInCrcSuite#test all-files-in-crc verification failure also triggers and logs incremental-commit verification result
 org.apache.spark.sql.delta.DeltaCDCIdColumnMappingSuite#filters with special characters in name should be pushed down - column mapping id mode
 org.apache.spark.sql.delta.DeltaCDCNameColumnMappingSuite#filters with special characters in name should be pushed down - column mapping name mode
 org.apache.spark.sql.delta.DeltaCDCSQLIdColumnMappingSuite#filters with special characters in name should be pushed down - column mapping id mode
@@ -275,15 +274,7 @@ org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#mer
 org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: upsert and delete with conditions - Partitioned = true, CDF = false
 org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: upsert and delete with conditions - Partitioned = true, CDF = true
 org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#operation metrics - merge
-org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Disable Deletion Vectors feature - withUnset: false
-org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Disable Deletion Vectors feature - withUnset: true
-org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Disable row tracking feature - withUnset: false
-org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Disable row tracking feature - withUnset: true
 org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Enable column mapping feature - txnInterleaved: true
-org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Enable deletion vectors feature
-org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Enable row tracking feature concurrent txn: delete
-org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Removing column mapping mode produces conflict - startMode: id
-org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Removing column mapping mode produces conflict - startMode: name
 org.apache.spark.sql.delta.FileSizeHistogramSuite#check CommitStats with deletes
 org.apache.spark.sql.delta.FileSizeHistogramSuite#histogram is re-calculated when files are removed
 org.apache.spark.sql.delta.GeneratedColumnSuite#update_generated_column_with_incorrect_value
@@ -399,49 +390,6 @@ org.apache.spark.sql.delta.SnapshotManagementWithCoordinatedCommitsBatch1Suite#s
 org.apache.spark.sql.delta.SnapshotManagementWithCoordinatedCommitsBatch2Suite#recover from a corrupt checkpoint: previous checkpoint doesn't exist
 org.apache.spark.sql.delta.SnapshotManagementWithCoordinatedCommitsBatch2Suite#should not recover when both the current and previous checkpoints are broken
 org.apache.spark.sql.delta.UpdateMetricsSuite#update-metrics: update one row per file - Partitioned = false, cdfEnabled = false
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#DELETE - Scenario 1
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#DELETE - Scenario 2
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#DELETE - Scenario 3
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#DELETE - Scenario 4
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#DELETE - Scenario 5
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#DELETE - Scenario 6
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#DELETE - Scenario 7
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#OPTIMIZE - Scenario 1
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#OPTIMIZE - Scenario 2
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#OPTIMIZE - Scenario 3
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#OPTIMIZE - Scenario 4
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#OPTIMIZE - Scenario 5
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#OPTIMIZE - Scenario 6
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#OPTIMIZE - Scenario 7
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#UPDATE - Scenario 1
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#UPDATE - Scenario 2
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#UPDATE - Scenario 3
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#UPDATE - Scenario 4
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#UPDATE - Scenario 5
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#UPDATE - Scenario 6
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsDVSuite#UPDATE - Scenario 7
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#DELETE - Scenario 1
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#DELETE - Scenario 2
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#DELETE - Scenario 3
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#DELETE - Scenario 4
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#DELETE - Scenario 5
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#DELETE - Scenario 6
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#DELETE - Scenario 7
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#OPTIMIZE - Scenario 1
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#OPTIMIZE - Scenario 2
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#OPTIMIZE - Scenario 3
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#OPTIMIZE - Scenario 4
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#OPTIMIZE - Scenario 5
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#OPTIMIZE - Scenario 6
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#OPTIMIZE - Scenario 7
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#UPDATE - Scenario 1
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#UPDATE - Scenario 2
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#UPDATE - Scenario 3
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#UPDATE - Scenario 4
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#UPDATE - Scenario 5
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#UPDATE - Scenario 6
-org.apache.spark.sql.delta.commands.backfill.RowTrackingBackfillConflictsSuite#UPDATE - Scenario 7
-org.apache.spark.sql.delta.concurrency.TransactionExecutionObserverSuite#Phase Locking - delete command
 org.apache.spark.sql.delta.coordinatedcommits.CoordinatedCommitsSuite#Incomplete backfills are handled properly by next commit after CC to FS conversion
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#DELETE with DVs with column mapping mode=id
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: delete a small number of rows from tables of 2B rows with DVs
@@ -610,28 +558,16 @@ org.apache.spark.sql.delta.generatedsuites.UpdateBaseTempViewSQLPathBasedSuite#t
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseTempViewSQLPathBasedSuite#test update on temp view - nontrivial projection - SQL TempView
 org.apache.spark.sql.delta.optimize.OptimizeCompactionSQLSuite#optimize - multiple jobs start executing at once
 org.apache.spark.sql.delta.optimize.OptimizeCompactionScalaSuite#optimize - multiple jobs start executing at once
-org.apache.spark.sql.delta.optimize.OptimizeConflictSuite#conflict handling between Optimize and Business Txn
 org.apache.spark.sql.delta.optimize.OptimizeMetricsSuite#optimize ZOrderBy operation metrics in Delta table history
 org.apache.spark.sql.delta.optimize.OptimizeMetricsSuite#optimize metrics on idempotent operations
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#end-to-end test of behaviors of write/read null on partition column
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#five digits year in a date_format yyyy-MM partition column
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#five digits year in a date_format yyyy-MM-dd-HH partition column
-org.apache.spark.sql.delta.rowid.ConflictCheckerRowIdSuite#Re-added files keep their row IDs after conflict with txn not updating high watermark
-org.apache.spark.sql.delta.rowid.ConflictCheckerRowIdSuite#concurrent transactions do not assign overlapping row IDs
-org.apache.spark.sql.delta.rowid.ConflictCheckerRowIdSuite#re-added files keep their row ids
 org.apache.spark.sql.delta.rowid.RowIdSuite#Filter by base Row IDs
 org.apache.spark.sql.delta.rowid.RowIdSuite#Filter by base Row IDs in subquery
 org.apache.spark.sql.delta.rowid.RowIdSuite#No dictionary filtering on _metadata.row_id
 org.apache.spark.sql.delta.rowid.RowIdSuite#missing base row ids and default row commit versions
 org.apache.spark.sql.delta.rowid.RowIdSuite#row ids can be read back
-org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencySuite#Interleaved delete right after protocol downgrade should abort due to protocol change
-org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencySuite#Interleaved update right after protocol downgrade should abort due to protocol change
-org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencySuite#Single Unbackfill batch interleaves delete
-org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencySuite#Single Unbackfill batch interleaves update
-org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencyWithoutDVsSuite#Interleaved delete right after protocol downgrade should abort due to protocol change
-org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencyWithoutDVsSuite#Interleaved update right after protocol downgrade should abort due to protocol change
-org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencyWithoutDVsSuite#Single Unbackfill batch interleaves delete
-org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencyWithoutDVsSuite#Single Unbackfill batch interleaves update
 org.apache.spark.sql.delta.rowtracking.RowTrackingReadWriteSuite#write and read table with all-null materialized columns
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#Data skipping handles aliasing for _metadata fields
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
