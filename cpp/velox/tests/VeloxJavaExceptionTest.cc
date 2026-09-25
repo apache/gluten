@@ -127,7 +127,7 @@ TEST_F(VeloxJavaExceptionTest, lazyOutputRestoresOriginalOutsideDriver) {
   TestJniEnvironment jni;
   auto* backend = VeloxBackend::get();
   auto* memoryManager = backend->getGlobalMemoryManager();
-  auto* pool = memoryManager->getLeafMemoryPool();
+  auto* pool = memoryManager->getLeafMemoryPool().get();
   bool loaded = false;
   bool loadedInDriver = false;
   {
