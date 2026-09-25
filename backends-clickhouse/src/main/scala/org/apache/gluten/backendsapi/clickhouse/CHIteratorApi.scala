@@ -56,12 +56,18 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
 
   private def getFileSchema(schema: StructType, names: Seq[String]): StructType = {
     val dataSchema = ArrayBuffer[StructField]()
+    // Use Spark's resolver for pairwise identifier equality.
+    // Under caseSensitive=true the resolver is exact equality; under false it is
+    // case-insensitive.  This is the correct contract for matching schema field names
+    // to plan output attribute names -- it avoids the normalised-Map approach which
+    // can silently discard one of two case-variant keys under case-insensitive mode.
+    val resolver = org.apache.spark.sql.internal.SQLConf.get.resolver
     schema.foreach {
       field =>
-        // case-insensitive schema matching
-        val newField = names.find(_.equalsIgnoreCase(field.name)) match {
-          case Some(name) => StructField(name, field.dataType, field.nullable, field.metadata)
-          case _ => field
+        val newField = names.find(n => resolver(n, field.name)) match {
+          case Some(physicalName) =>
+            StructField(physicalName, field.dataType, field.nullable, field.metadata)
+          case None => field
         }
         dataSchema += newField
     }

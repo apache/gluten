@@ -18,6 +18,7 @@ package org.apache.gluten.utils
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.expression.{ConverterUtils, ExpressionConverter}
+import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.`type`.{ColumnTypeNode, TypeBuilder, TypeNode}
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.ExpressionNode
@@ -65,6 +66,9 @@ object SubstraitUtil {
       NestedLoopJoinRel.JoinType.JOIN_TYPE_LEFT_SEMI
     case FullOuter =>
       NestedLoopJoinRel.JoinType.JOIN_TYPE_OUTER
+    // LeftSingle (Spark 4.0+) is semantically equivalent to LeftOuter for nested-loop joins.
+    case leftSingle if SparkShimLoader.getSparkShims.isLeftSingleJoinType(leftSingle) =>
+      NestedLoopJoinRel.JoinType.JOIN_TYPE_LEFT
     case _ =>
       NestedLoopJoinRel.JoinType.UNRECOGNIZED
   }

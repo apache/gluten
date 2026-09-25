@@ -21,7 +21,65 @@ Gluten currently doesn't support ANSI mode. If ANSI is enabled, Spark plan's exe
 We now have a issue tracker on ANSI support progress. Please check [issue-10134](https://github.com/apache/gluten/issues/10134).
 
 #### Case Sensitive mode
-Gluten only supports spark default case-insensitive mode. If case-sensitive mode is enabled, user may get incorrect result.
+Gluten respects Spark's case-sensitive configuration (`spark.sql.caseSensitive`). Since
+[GLUTEN-1577](https://github.com/apache/gluten/issues/1577) (merged 2023-05), column-name
+normalisation in the core engine uses `ConverterUtils.normalizeColName`, which preserves the
+original casing when `caseSensitiveAnalysis=true` and lowercases only when it is `false` (the
+Spark default). Standard data operations such as scan, filter, aggregation, and join are
+therefore correct in both modes.
+
+**This change addresses the following identified metadata-name collision paths:**
+
+- `IcebergScanTransformer`: previously used unconditional `equalsIgnoreCase` in
+  `getMetadataColumns` and unconditional `toLowerCase` in the read-schema field set, causing a
+  user data column named `Input_File_Name` (or any mixed-case variant of an Iceberg metadata
+  column name) to be misclassified as a metadata column under `caseSensitive=true`.
+  Fixed by switching to `ConverterUtils.normalizeColName` throughout the Iceberg scan path.
+  Validated by `IcebergSuite` / `VeloxIcebergSuite`.
+
+- `PushDownInputFileExpression` (core rule, `gluten-substrait`): two unconditional
+  `toLowerCase` usages — one in `containsInputFileRelatedExpr` and one in the `PostOffload`
+  deduplication — caused incorrect pre-offload rewriting and dangling-attribute plan errors when
+  a data column named `Input_File_Name` was projected alongside `input_file_name()` under
+  `caseSensitive=true`. Fixed by using `ConverterUtils.normalizeColName` for gate detection and
+  `exprId` identity for deduplication.
+  Validated by `FallbackSuite` (Velox) and `IcebergSuite`.
+
+- **Delta optimised writer** (`GlutenDeltaOptimizedWriterExec` / `DeltaOptimizedWriterTransformer`):
+  previously used `caseInsensitiveResolution` (a hardcoded case-insensitive comparator) for
+  partition-column lookup, ignoring `spark.sql.caseSensitive=true`. Fixed by switching to
+  `SQLConf.get.resolver`, which honours the session case-sensitivity setting.
+  Full end-to-end Delta writer tests require a native Delta backend and are not run in CI for
+  this module; the resolver-semantics contract is validated at the unit level by
+  `GlutenClickHouseCaseSensitiveSchemaSuite`.
+
+- **ClickHouse `CHIteratorApi.getFileSchema`**: previously used `equalsIgnoreCase` for schema
+  field matching, ignoring `caseSensitive=true`. Fixed by switching to `SQLConf.get.resolver`.
+  The resolver-semantics contract is validated by `GlutenClickHouseCaseSensitiveSchemaSuite`
+  (unit-level only; end-to-end requires a running ClickHouse backend).
+
+**Remaining limitations (not addressed by this change):**
+
+Core column-name handling increasingly respects Spark's `caseSensitiveAnalysis` semantics.
+The fixes above address the identified Iceberg metadata, `input_file_name()` push-down, Delta
+optimised writer, and ClickHouse schema-matching paths. Other backend- or data-source-specific
+case-sensitive paths must be validated independently. The following areas are not yet verified:
+
+- ORC scan under `caseSensitive=true`
+- DSv2 / generic `BatchScanExec` paths (non-Iceberg)
+- Nested-struct column names
+- Partition-column edge cases beyond the Delta optimised writer
+- General write paths (other than Delta optimised writer)
+
+**Known pre-existing issue (not introduced by this PR):**
+
+Aggregation queries (`GROUP BY`) on Iceberg tables that use CamelCase or mixed-case column names
+on a partitioned table may return incorrect results when Gluten native execution is active. The
+symptom is a single row containing corrupted binary data instead of correct aggregated output.
+This occurs only when the group-by column is not the first physical column in the Parquet file
+and the Velox partial aggregation path is involved. Plain `SELECT` without aggregation returns
+correct results. Workaround: set `spark.gluten.enabled=false` for affected aggregation queries,
+or use all-lowercase column names. This issue should be tracked and fixed independently.
 
 #### Regexp functions
 In Velox, regexp functions (`rlike`, `regexp_extract`, etc.) are implemented based on RE2, while in Spark they are based on `java.util.regex`.
