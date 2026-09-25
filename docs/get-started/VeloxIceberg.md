@@ -107,7 +107,10 @@ the added column name is same to the deleted column, the scan will fall back.
 Both options are runtime modifiable, so they can be flipped per session with `SET`.
 
 ### Catalogs
-All the catalog configurations are transparent to Gluten
+
+Catalog configuration is passed through to Iceberg. Scans, including staged scans, fall back to Spark when table FileIO exposes storage credentials, an S3 access/secret key pair, or a credential refresh endpoint. Native readers do not support these credentials.
+
+Catalog authentication (`credential`, `token`) and storage settings (`s3.endpoint`, `client.region`) alone do not trigger this fallback.
 
 ### SQL Extensions
 Fallback

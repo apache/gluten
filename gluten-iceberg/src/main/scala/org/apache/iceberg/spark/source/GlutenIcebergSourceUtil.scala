@@ -29,6 +29,7 @@ import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.types.StructType
 
 import org.apache.iceberg._
+import org.apache.iceberg.io.{FileIO, SupportsStorageCredentials}
 import org.apache.iceberg.spark.SparkSchemaUtil
 
 import java.lang.{Long => JLong}
@@ -48,6 +49,26 @@ object GlutenIcebergSourceUtil {
   }
 
   def isSparkStagedScan(sparkScan: Scan): Boolean = sparkScan.isInstanceOf[SparkStagedScan]
+
+  def hasVendedCredentials(sparkScan: Scan): Boolean =
+    isSupportedScan(sparkScan) && hasVendedCredentials(getTable(sparkScan).io())
+
+  private def hasVendedCredentials(io: FileIO): Boolean = {
+    io match {
+      case credentials: SupportsStorageCredentials if !credentials.credentials().isEmpty =>
+        return true
+      case _ =>
+    }
+    val properties =
+      try {
+        io.properties()
+      } catch {
+        case _: UnsupportedOperationException => return false
+      }
+    (Option(properties.get("s3.access-key-id")).exists(_.nonEmpty) &&
+      Option(properties.get("s3.secret-access-key")).exists(_.nonEmpty)) ||
+    Option(properties.get("client.refresh-credentials-endpoint")).exists(_.nonEmpty)
+  }
 
   def deleteExists(p: SparkDataSourceRDDPartition): Boolean = {
     p.inputPartitions.exists {
