@@ -16,25 +16,31 @@
  */
 package org.apache.spark.sql.utils
 
-import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.StructType
+import org.apache.gluten.backendsapi.BackendsApiManager
 
-import org.apache.arrow.vector.types.pojo.Schema
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{DataType, StructType}
+
+import org.apache.arrow.vector.types.pojo.{Field, Schema}
 
 import java.util.{Objects, TimeZone}
 
 object SparkSchemaUtil {
+
+  def toArrowField(name: String, dt: DataType, nullable: Boolean): Field = {
+    SparkArrowUtil.toArrowField(name, dt, nullable, getLocalTimezoneID, enableLargeVarTypes)
+  }
 
   def fromArrowSchema(schema: Schema): StructType = {
     SparkArrowUtil.fromArrowSchema(schema)
   }
 
   def toArrowSchema(schema: StructType): Schema = {
-    SparkArrowUtil.toArrowSchema(schema, getLocalTimezoneID)
+    SparkArrowUtil.toArrowSchema(schema, getLocalTimezoneID, enableLargeVarTypes)
   }
 
   def toArrowSchema(schema: StructType, timeZoneId: String): Schema = {
-    SparkArrowUtil.toArrowSchema(schema, timeZoneId)
+    SparkArrowUtil.toArrowSchema(schema, timeZoneId, enableLargeVarTypes)
   }
 
   def isTimeZoneIDEquivalentToUTC(zoneId: String): Boolean = {
@@ -43,6 +49,11 @@ object SparkSchemaUtil {
 
   def getLocalTimezoneID: String = {
     SQLConf.get.sessionLocalTimeZone
+  }
+
+  def enableLargeVarTypes: Boolean = {
+    SQLConf.get.getConfString("spark.sql.execution.arrow.useLargeVarTypes", "false").toBoolean &&
+    BackendsApiManager.getSettings.supportLargeVarTypes
   }
 
   def timeZoneIDEquals(one: String, other: String): Boolean = {

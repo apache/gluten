@@ -29,9 +29,8 @@ import org.apache.gluten.utils.ArrowAbiUtil
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources._
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.utils.SparkArrowUtil
+import org.apache.spark.sql.utils.SparkSchemaUtil
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import org.apache.arrow.c.ArrowSchema
@@ -56,8 +55,7 @@ trait VeloxFormatWriterInjects extends GlutenFormatWriterInjectsBase {
       }
     }
 
-    val arrowSchema =
-      SparkArrowUtil.toArrowSchema(dataSchema, SQLConf.get.sessionLocalTimeZone)
+    val arrowSchema = SparkSchemaUtil.toArrowSchema(dataSchema)
     val cSchema = ArrowSchema.allocateNew(ArrowBufferAllocators.contextInstance())
     var dsHandle = -1L
     val runtime = Runtimes.contextInstance(BackendsApiManager.getBackendName, "VeloxWriter")

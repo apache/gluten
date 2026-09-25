@@ -18,58 +18,11 @@ package org.apache.gluten.utils
 
 import org.apache.gluten.vectorized.ArrowWritableColumnVector
 
-import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.utils.{SparkArrowUtil, SparkSchemaUtil}
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
-import org.apache.arrow.c.{ArrowSchema, CDataDictionaryProvider, Data}
-import org.apache.arrow.memory.BufferAllocator
-import org.apache.arrow.vector.types.pojo.{ArrowType, Field, Schema}
-
-import java.util
-
-import scala.collection.JavaConverters._
+import org.apache.arrow.vector.types.pojo.{Field, Schema}
 
 object ArrowUtil {
-
-  private val defaultTimeZoneId = SparkSchemaUtil.getLocalTimezoneID
-
-  private def getResultType(dataType: DataType): ArrowType = {
-    getResultType(dataType, defaultTimeZoneId)
-  }
-
-  private def getResultType(dataType: DataType, timeZoneId: String): ArrowType = {
-    dataType match {
-      case other =>
-        SparkArrowUtil.toArrowType(dataType, timeZoneId)
-    }
-  }
-
-  def toArrowSchema(attributes: Seq[Attribute]): Schema = {
-    val fields = attributes.map(
-      attr => {
-        Field
-          .nullable(s"${attr.name}#${attr.exprId.id}", getResultType(attr.dataType))
-      })
-    new Schema(fields.toList.asJava)
-  }
-
-  def toArrowSchema(
-      cSchema: ArrowSchema,
-      allocator: BufferAllocator,
-      provider: CDataDictionaryProvider): Schema = {
-    val schema = Data.importSchema(allocator, cSchema, provider)
-    val originFields = schema.getFields
-    val fields = new util.ArrayList[Field](originFields.size)
-    originFields.forEach {
-      field =>
-        val dt = SparkArrowUtil.fromArrowField(field)
-        fields.add(
-          SparkArrowUtil.toArrowField(field.getName, dt, true, SparkSchemaUtil.getLocalTimezoneID))
-    }
-    new Schema(fields)
-  }
 
   def toSchema(batch: ColumnarBatch): Schema = {
     val fields = new java.util.ArrayList[Field](batch.numCols)
