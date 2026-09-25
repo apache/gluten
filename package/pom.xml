@@ -150,6 +150,7 @@
                     <exclude>org.apache.arrow.memory.**</exclude>
                     <exclude>org.apache.arrow.vector.**</exclude>
                     <exclude>org.apache.arrow.util.**</exclude>
+                    <exclude>org.apache.arrow.flatbuf.**</exclude>
                   </excludes>
                 </relocation>
                 <relocation>
