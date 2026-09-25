@@ -22,10 +22,9 @@
 #      fat jar for Spark 4.1 + Scala 2.13 + Java 17 with the Delta profile.
 #   3. Clones delta-io/delta at the requested release tag (default `v4.2.0`),
 #      drops the bundle jar into `spark-unified/lib/` only (NOT `spark/lib/`
-#      -- see setup-delta.sh for the unmanagedJars scoping rationale),
-#      patches Delta's `DeltaSQLCommandTest` to register the Gluten plugin,
-#      and runs `sbt spark/test` sharded across the matrix with JVM-wide Gluten
-#      defaults for suites that create their own Spark contexts.
+#      -- see setup-delta.sh for the unmanagedJars scoping rationale), applies
+#      temporary compatibility patches, and runs `sbt spark/test` sharded
+#      across the matrix with JVM-wide Gluten defaults from java-test-args.sh.
 #
 # Limited to Velox + x86 to keep the matrix simple, per the pipeline's purpose
 # of validating Gluten changes against the latest Delta release.
@@ -439,8 +438,7 @@ jobs:
           bash "$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut/setup-delta.sh" \
             "${{ steps.resolve.outputs.delta_ref }}" \
             "$GITHUB_WORKSPACE/delta" \
-            "$GLUTEN_JAR" \
-            "$GITHUB_WORKSPACE"
+            "$GLUTEN_JAR"
 
       - name: Run Delta spark module tests (shard ${{ matrix.shard }} / ${{ env.DELTA_NUM_SHARDS }})
         env:

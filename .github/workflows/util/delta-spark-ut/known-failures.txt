@@ -58,8 +58,6 @@ org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch1Suite#shallow clon
 org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch2Suite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableScalaSuite#shallow clone across file systems
-org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#external tables use correct path scheme
-org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#external tables use correct path scheme
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = false
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = true
 org.apache.spark.sql.delta.DeltaAllFilesInCrcSuite#test all-files-in-crc verification failure also triggers and logs incremental-commit verification result

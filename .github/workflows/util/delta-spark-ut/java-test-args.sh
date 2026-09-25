@@ -35,12 +35,12 @@
 # the sbt LAUNCHER JVM) so the flags reach BOTH the launcher and the forked test JVM
 # -- the forked child inherits the parent env.
 #
-# SparkConf also reads spark.* system properties as defaults. Set the Gluten
-# plugin, shuffle manager and off-heap memory here so suites using plain
-# SharedSparkSession, TestHive or their own SparkSession builders initialize
-# Gluten too. Patching DeltaSQLCommandTest alone does not cover those contexts,
-# which can otherwise inherit Spark's JVM-wide Gluten cache serializer without
-# the executor plugin that initializes TaskResources.
+# SparkConf also reads spark.* system properties as defaults. Keep all Gluten
+# test defaults here instead of replacing DeltaSQLCommandTest, so suites using
+# plain SharedSparkSession, TestHive or their own SparkSession builders inherit
+# the same settings. Those contexts must initialize Gluten too: Spark retains
+# its cache serializer across contexts in the same JVM, but the native
+# serializer needs the executor plugin to initialize TaskResources in each task.
 #
 # Keep Delta's extensions and catalog suite-specific: some tests deliberately
 # omit them to check Delta's configuration errors.
@@ -71,4 +71,12 @@ export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+${JAVA_TOOL_OPTIONS} }\
 -Dspark.plugins=org.apache.gluten.GlutenPlugin \
 -Dspark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager \
 -Dspark.memory.offHeap.enabled=true \
--Dspark.memory.offHeap.size=2g"
+-Dspark.memory.offHeap.size=2g \
+-Dspark.default.parallelism=1 \
+-Dspark.sql.shuffle.partitions=5 \
+-Dspark.unsafe.exceptionOnMemoryLeak=true \
+-Dspark.sql.ansi.enabled=false \
+-Dspark.gluten.sql.ansiFallback.enabled=false \
+-Dspark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true \
+-Dspark.databricks.delta.snapshotPartitions=2 \
+-Dspark.gluten.sql.fallbackUnexpectedMetadataParquet=true"

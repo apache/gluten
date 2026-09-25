@@ -60,8 +60,8 @@ chmod +x build/sbt
 # * Forked test JVM: -Xmx2G via the `set ... Test / javaOptions` command
 #   below. Delta caps its fork at -Xmx1024m in build.sbt; `++=` appends
 #   so our -Xmx2G comes last and wins. Gluten offloads data to Velox
-#   off-heap (capped at 2g via spark.memory.offHeap.size in java-test-args.sh
-#   and the patched DeltaSQLCommandTest), so the fork's heap need is modest. A larger
+#   off-heap (capped at 2g via spark.memory.offHeap.size in java-test-args.sh),
+#   so the fork's heap need is modest. A larger
 #   fork heap pushed the cgroup peak past the ~16G OOM threshold and the
 #   kernel OOM-killed the fork mid-shard (no hs_err), wedging sbt -- 2G
 #   keeps headroom. Keep heap-dump-on-OOM so a real >2G heap OOM is

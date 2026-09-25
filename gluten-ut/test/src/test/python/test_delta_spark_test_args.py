@@ -50,6 +50,14 @@ class DeltaSparkTestArgsSuite(unittest.TestCase):
             "spark.shuffle.manager": "org.apache.spark.shuffle.sort.ColumnarShuffleManager",
             "spark.memory.offHeap.enabled": "true",
             "spark.memory.offHeap.size": "2g",
+            "spark.default.parallelism": "1",
+            "spark.sql.shuffle.partitions": "5",
+            "spark.unsafe.exceptionOnMemoryLeak": "true",
+            "spark.sql.ansi.enabled": "false",
+            "spark.gluten.sql.ansiFallback.enabled": "false",
+            "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite": "true",
+            "spark.databricks.delta.snapshotPartitions": "2",
+            "spark.gluten.sql.fallbackUnexpectedMetadataParquet": "true",
         }
         for key, value in expected.items():
             with self.subTest(property=key):
