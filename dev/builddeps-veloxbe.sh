@@ -36,6 +36,7 @@ ENABLE_GCS=OFF
 ENABLE_S3=OFF
 ENABLE_HDFS=OFF
 ENABLE_ABFS=OFF
+ENABLE_KAFKA=OFF
 ENABLE_VCPKG=OFF
 ENABLE_GPU=OFF
 ENABLE_ENHANCED_FEATURES=OFF
@@ -102,6 +103,10 @@ do
         ;;
         --enable_abfs=*)
         ENABLE_ABFS=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
+        --enable_kafka=*)
+        ENABLE_KAFKA=("${arg#*=}")
         shift # Remove argument name from processing
         ;;
         --enable_vcpkg=*)
@@ -205,7 +210,7 @@ function concat_velox_param {
 if [ "$ENABLE_VCPKG" = "ON" ]; then
     # vcpkg will install static depends and init build environment
     BUILD_OPTIONS="--build_tests=$BUILD_TESTS --enable_s3=$ENABLE_S3 --enable_gcs=$ENABLE_GCS \
-                   --enable_hdfs=$ENABLE_HDFS --enable_abfs=$ENABLE_ABFS"
+                   --enable_hdfs=$ENABLE_HDFS --enable_abfs=$ENABLE_ABFS --enable_kafka=$ENABLE_KAFKA"
     source ./dev/vcpkg/env.sh ${BUILD_OPTIONS}
 fi
 
@@ -272,6 +277,7 @@ function build_gluten_cpp {
     "-DENABLE_S3=$ENABLE_S3"
     "-DENABLE_HDFS=$ENABLE_HDFS"
     "-DENABLE_ABFS=$ENABLE_ABFS"
+    "-DENABLE_KAFKA=$ENABLE_KAFKA"
     "-DENABLE_GPU=$ENABLE_GPU"
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
     "-DENABLE_ENHANCED_FEATURES=$ENABLE_ENHANCED_FEATURES"

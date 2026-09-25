@@ -20,6 +20,7 @@ Please set them via `--`, e.g. `--build_type=Release`.
 | enable_gcs             | Build with GCS support.                                                                       | OFF     |
 | enable_hdfs            | Build with HDFS support.                                                                      | OFF     |
 | enable_abfs            | Build with ABFS support.                                                                      | OFF     |
+| enable_kafka           | Build with Kafka streaming read support (librdkafka).                                        | OFF     |
 | enable_vcpkg           | Enable vcpkg for static build.                                                                | OFF     |
 | run_setup_script       | Run setup script to install Velox dependencies.                                               | ON      |
 | velox_repo             | Specify your own Velox repo to build.                                                         | ""      |

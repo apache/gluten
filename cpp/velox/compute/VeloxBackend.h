@@ -89,6 +89,10 @@ class VeloxBackend {
       const std::string& connectorId,
       bool dynamicFilterEnabled) const;
 
+#ifdef ENABLE_KAFKA
+  std::shared_ptr<facebook::velox::connector::Connector> createKafkaConnector(const std::string& connectorId) const;
+#endif
+
 #ifdef GLUTEN_ENABLE_GPU
   std::shared_ptr<facebook::velox::connector::Connector> createCudfHiveConnector(
       const std::string& connectorId,

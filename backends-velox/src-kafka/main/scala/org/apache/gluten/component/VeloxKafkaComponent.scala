@@ -14,26 +14,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.gluten.component
 
-#pragma once
+import org.apache.gluten.backendsapi.velox.VeloxBackend
+import org.apache.gluten.execution.OffloadKafkaScan
+import org.apache.gluten.extension.injector.Injector
 
-#include <string>
+import org.apache.spark.util.SparkReflectionUtil
 
-namespace gluten {
+class VeloxKafkaComponent extends Component {
+  override def name(): String = "velox-kafka"
 
-struct VeloxConnectorIds {
-  std::string hive;
-  std::string iceberg;
-  std::string delta;
-  std::string iterator;
-  std::string kafka;
-  std::string cudfHive;
-  bool hiveRegistered{false};
-  bool icebergRegistered{false};
-  bool deltaRegistered{false};
-  bool iteratorRegistered{false};
-  bool kafkaRegistered{false};
-  bool cudfHiveRegistered{false};
-};
+  override def dependencies(): Seq[Class[_ <: Component]] = classOf[VeloxBackend] :: Nil
 
-} // namespace gluten
+  override def isRuntimeCompatible: Boolean = {
+    SparkReflectionUtil.isClassPresent("org.apache.spark.sql.kafka010.KafkaSourceProvider")
+  }
+
+  override def injectRules(injector: Injector): Unit = {
+    OffloadKafkaScan.inject(injector)
+  }
+}

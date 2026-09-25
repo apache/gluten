@@ -99,6 +99,12 @@
         "azure-identity-cpp"
       ]
     },
+    "velox-kafka": {
+      "description": "Velox Kafka Support",
+      "dependencies": [
+        "librdkafka"
+      ]
+    },
     "duckdb": {
       "description": "DUCKDB",
       "dependencies": [

@@ -26,6 +26,10 @@
 #include "operators/plannodes/RowVectorStream.h"
 #include "utils/ConfigExtractor.h"
 
+#ifdef ENABLE_KAFKA
+#include "operators/reader/KafkaConnector.h"
+#endif
+
 #ifdef GLUTEN_ENABLE_QAT
 #include "utils/qat/QatCodec.h"
 #endif
@@ -420,6 +424,13 @@ std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createValue
     bool dynamicFilterEnabled) const {
   return std::make_shared<ValueStreamConnector>(connectorId, hiveConnectorConfig_, dynamicFilterEnabled);
 }
+
+#ifdef ENABLE_KAFKA
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createKafkaConnector(
+    const std::string& connectorId) const {
+  return std::make_shared<KafkaConnector>(connectorId, hiveConnectorConfig_);
+}
+#endif
 
 #ifdef GLUTEN_ENABLE_GPU
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createCudfHiveConnector(
