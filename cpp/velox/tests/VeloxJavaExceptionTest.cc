@@ -19,6 +19,7 @@
 
 #include "compute/VeloxBackend.h"
 #include "compute/WholeStageResultIterator.h"
+#include "config/GlutenConfig.h"
 #include "jni/VeloxJavaException.h"
 #include "tests/utils/TestJniEnvironment.h"
 #include "velox/exec/Driver.h"
@@ -33,7 +34,7 @@ using namespace facebook::velox;
 class VeloxJavaExceptionTest : public ::testing::Test {
  protected:
   static void SetUpTestSuite() {
-    VeloxBackend::create(AllocationListener::noop(), {});
+    VeloxBackend::create(AllocationListener::noop(), {{kSessionTimezone, "UTC"}});
   }
 
   static void TearDownTestSuite() {
