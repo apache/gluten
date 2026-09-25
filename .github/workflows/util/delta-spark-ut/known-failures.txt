@@ -19,9 +19,6 @@
 # Velox forks x ~4G run close to the ~16G runner limit) -- so a baseline captured
 # at a different parallelism spuriously flags them as regressions.
 # ---------------------------------------------------------------------------
-io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using SQL conf
-io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using withExtensions
-io.delta.sql.JavaDeltaSparkSessionExtensionSuite#testSQLConf
 io.delta.tables.DeltaTableHadoopOptionsSuite#delete - with filesystem options
 io.delta.tables.DeltaTableHadoopOptionsSuite#details - with filesystem options.
 io.delta.tables.DeltaTableHadoopOptionsSuite#forPath - with filesystem options
@@ -61,8 +58,6 @@ org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch1Suite#shallow clon
 org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch2Suite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableScalaSuite#shallow clone across file systems
-org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#external tables use correct path scheme
-org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#external tables use correct path scheme
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = false
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = true
 org.apache.spark.sql.delta.DeltaAllFilesInCrcSuite#test all-files-in-crc verification failure also triggers and logs incremental-commit verification result
@@ -128,6 +123,9 @@ org.apache.spark.sql.delta.DeltaSuite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaSuite#invalid replaceWhere
 org.apache.spark.sql.delta.DeltaSuite#replaceArbitrary should enforce proper usage of backtick
 org.apache.spark.sql.delta.DeltaTableCreationSuite#Default column values: CONVERT TO DELTA keeps EXISTS_DEFAULT
+# Native DOUBLE partition write fallback: https://github.com/apache/gluten/issues/13138
+org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#creating and replacing a table puts the schema and table properties in the metastore
+org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#partitioned table + add column
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - update/merge
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skip deleted file
@@ -289,26 +287,6 @@ org.apache.spark.sql.delta.FileSizeHistogramSuite#histogram is re-calculated whe
 org.apache.spark.sql.delta.GeneratedColumnSuite#update_generated_column_with_incorrect_value
 org.apache.spark.sql.delta.GeneratedColumnSuite#update_source_and_generated_columns_with_incorrect_value
 org.apache.spark.sql.delta.HDFSLogStoreSuite#No AbstractFileSystem - end to end test using data frame
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#Convert a partitioned parquet table with partition schema autofill
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#can convert a partition-like table path
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#can convert table with partition overwrite
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#catalog partition values contain special characters
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert a Hive based external parquet table
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert a Hive based parquet table
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert a delta table where metadata does not reflect that the table is already converted should update the metadata
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert a parquet path to delta while database called parquet exists
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert a parquet table to delta with database name as parquet
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert a parquet table using table name
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert a parquet table with catalog schema - false
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert a parquet table with catalog schema - true
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert an external parquet table
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert partitioned parquet table with catalog partitions - false
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert partitioned parquet table with catalog partitions - true
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert to delta using table name without database name
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert two external tables pointing to same underlying files with differing table properties should error if conf enabled otherwise merge properties
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert with statistics
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert without statistics
-org.apache.spark.sql.delta.HiveConvertToDeltaSuite#negative case: convert parquet path to delta when there is a database called parquet but no table or path exists
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
@@ -723,15 +701,3 @@ org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSu
 org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - unsupported automatic type widening TIMESTAMP_NTZ -> DATE
 org.apache.spark.sql.delta.typewidening.TypeWideningTableFeatureAdvancedSuite#drop feature after type change DATE -> TIMESTAMP_NTZ
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid unsigned Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid unsigned Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid unsigned Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid unsigned Int ids - Portable

@@ -60,8 +60,8 @@ cherry_pick_delta_fix() {
   # empty/conflicting and would -- under `set -e` -- abort the whole setup. We
   # can't use ancestry to tell "already contained" from a genuine conflict here
   # (the clone is shallow, so `merge-base --is-ancestor` can't see past the graft),
-  # so recover the exact paths this fix touches -- leaving other setup such as the
-  # DeltaSQLCommandTest patch intact -- and continue. This is self-correcting: if
+  # so recover only the paths this fix touches and continue, preserving other
+  # setup changes. This is self-correcting: if
   # the fix is genuinely still needed, the FileSourceScanLike failures it prevents
   # resurface as gate regressions rather than being hidden by a hard abort here.
   echo "Cherry-pick of delta-io/delta${pr} did not apply cleanly" \
@@ -80,6 +80,34 @@ cherry_pick_delta_fix() {
 echo "::group::Cherry-picking upstream Delta FileSourceScanLike test fixes"
 cherry_pick_delta_fix 46bd45d57eadd7e528002a0ae7bd36ce5a456eca "#7104 (ScanReportHelper.collectScans)"
 cherry_pick_delta_fix 959e00e15f41f56afc1c9bb95d160c55c6dc7068 "#7105 (9 more test suites)"
+echo "::endgroup::"
+
+echo "::group::Using Spark's writer for the Hadoop-only mock S3 fixture"
+# This test maps s3: paths to local files through a Hadoop FileSystem mock.
+# Velox's native writer cannot use that mock. Only prepare the fixture with
+# Spark's writer; keep Gluten enabled for the conversion and path-scheme check.
+if ! sed 's/^__BLANK_CONTEXT__$/ /' <<'PATCH' | git -C "$DELTA_DIR" apply -
+diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala b/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala
+--- a/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala
++++ b/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala
+@@ -1322,7 +1322,9 @@
+     withTempDir { dir =>
+       withTable("externalTable") {
+         withSQLConf(("fs.s3.impl", classOf[S3LikeLocalFileSystem].getCanonicalName)) {
+-          sql(s"CREATE TABLE externalTable USING parquet LOCATION 's3://$dir' AS SELECT 1")
++          withSQLConf("spark.gluten.sql.native.writer.enabled" -> "false") {
++            sql(s"CREATE TABLE externalTable USING parquet LOCATION 's3://$dir' AS SELECT 1")
++          }
+__BLANK_CONTEXT__
+           // Ideally we would test a successful conversion with a remote filesystem, but there's
+           // no good way to set one up in unit tests. So instead we delete the data, and let the
+PATCH
+then
+  echo "ERROR: mock S3 fixture patch did not apply." >&2
+  echo "The patch expects the Delta v4.2.0 path-scheme fixture;" \
+    "ref '${DELTA_REF}' must remain source-compatible." >&2
+  exit 1
+fi
 echo "::endgroup::"
 
 echo "::group::Capping DeltaParquetFileFormat fixture row groups by row count"
