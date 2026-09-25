@@ -29,4 +29,15 @@ void finalizeVeloxJniUDF(JNIEnv* env);
 
 void jniRegisterFunctionSignatures(JNIEnv* env);
 
+/// Resolves the return type of a registry-declared scalar UDF against the Velox function
+/// registry. 'argTypes' is a serialized substrait Type holding a struct of the
+/// actual argument types. Returns a serialized substrait Type for the return
+/// type, or nullptr if no signature binds.
+jbyteArray jniResolveUdfType(JNIEnv* env, jstring name, jbyteArray argTypes);
+
+/// Like jniResolveUdfType, for a registry-declared UDAF. Returns a serialized substrait
+/// Type holding a struct of {returnType, intermediateType}, or nullptr if no
+/// signature binds.
+jbyteArray jniResolveUdafTypes(JNIEnv* env, jstring name, jbyteArray argTypes);
+
 } // namespace gluten

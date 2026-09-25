@@ -18,6 +18,7 @@
 #include <velox/expression/VectorFunction.h>
 #include <velox/functions/Macros.h>
 #include <velox/functions/Registerer.h>
+#include <velox/functions/prestosql/Cardinality.h>
 #include <iostream>
 #include "udf/Udf.h"
 #include "udf/examples/UdfCommon.h"
@@ -108,6 +109,27 @@ class MyUdfPlusOneRegisterer final : public gluten::UdfRegisterer {
 
 } // namespace myudfplusone
 
+namespace mymapcardinality {
+
+// name: myudf_map_cardinality
+// signatures:
+//    map(K,V) -> bigint
+// type: RegistryUdfEntry
+//
+// A UdfEntry would have to restate this signature, and since K and V are type
+// variables that means enumerating the key and value types the function is
+// allowed to be called with. A RegistryUdfEntry names the function and leaves
+// the signature where it already is, in the Velox function registry, for
+// Gluten to bind against per call site.
+const std::string kMyMapCardinalityName = "myudf_map_cardinality";
+
+void registerMyMapCardinality() {
+  registerFunction<facebook::velox::functions::CardinalityFunction, int64_t, Map<Generic<T1>, Generic<T2>>>(
+      {kMyMapCardinalityName});
+}
+
+} // namespace mymapcardinality
+
 std::vector<std::shared_ptr<gluten::UdfRegisterer>>& globalRegisters() {
   static std::vector<std::shared_ptr<gluten::UdfRegisterer>> registerers;
   return registerers;
@@ -150,4 +172,14 @@ DEFINE_REGISTER_UDF {
   for (const auto& registerer : globalRegisters()) {
     registerer->registerSignatures();
   }
+
+  mymapcardinality::registerMyMapCardinality();
+}
+
+DEFINE_GET_NUM_REGISTRY_UDF {
+  return 1;
+}
+
+DEFINE_GET_REGISTRY_UDF_ENTRIES {
+  registryUdfEntries[0] = {mymapcardinality::kMyMapCardinalityName.c_str()};
 }

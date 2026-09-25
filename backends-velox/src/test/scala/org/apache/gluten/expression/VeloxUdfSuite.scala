@@ -18,6 +18,8 @@ package org.apache.gluten.expression
 
 import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
 import org.apache.gluten.config.VeloxConfig
+import org.apache.gluten.exception.GlutenNotSupportException
+import org.apache.gluten.execution.HashAggregateExecTransformer
 import org.apache.gluten.execution.ProjectExecTransformer
 import org.apache.gluten.execution.WindowExecTransformer
 import org.apache.gluten.tags.{SkipTest, UDFTest}
@@ -25,10 +27,13 @@ import org.apache.gluten.tags.{SkipTest, UDFTest}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.FunctionIdentifier
+import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.catalyst.plans.SQLHelper
 import org.apache.spark.sql.execution.ProjectExec
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.expression.UDFResolver
+import org.apache.spark.sql.types.{ArrayType, DataType, LongType, MapType, StringType}
 
 import java.nio.file.Paths
 
@@ -318,6 +323,126 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
       // The injected function has no JVM implementation to fall back to, so the call is
       // rejected rather than silently returning a result from somewhere else.
       assert(e.getMessage.contains("myudf_plus_one"))
+    }
+  }
+
+  // libmyudf declares myudf_map_cardinality as a RegistryUdfEntry: a name and nothing else. Its
+  // signature, map(K,V) -> bigint, was never restated for Gluten, so the argument and return
+  // types come from binding each call against what Velox holds for the name.
+  test("native udf declared by name resolves its signature from the velox registry") {
+    assert(UDFResolver.UDFNames.contains("myudf_map_cardinality"))
+
+    val df = spark.sql(
+      "SELECT myudf_map_cardinality(map(col1, col2, 'z', col2)) " +
+        "FROM VALUES ('a', 1.0D), ('b', 2.0D) AS t(col1, col2)")
+    checkGlutenPlan[ProjectExecTransformer](df)
+    assert(df.schema.head.dataType == LongType)
+    checkAnswer(df, Seq(Row(2L), Row(2L)))
+  }
+
+  test("native udf declared by name binds a type combination no entry would list") {
+    // A nested value type: the kind of shape that a UdfEntry grid would have to spell out.
+    val df = spark.sql(
+      "SELECT myudf_map_cardinality(map(col1, array(col2, col2))) " +
+        "FROM VALUES ('a', 1L), ('b', 2L) AS t(col1, col2)")
+    checkGlutenPlan[ProjectExecTransformer](df)
+    checkAnswer(df, Seq(Row(1L), Row(1L)))
+  }
+
+  test("native udf declared by name rejects a call that binds to no signature") {
+    // Only map(K,V) is registered in Velox. An array argument resolves to nothing, and since a
+    // by-name udf has no JVM implementation behind it the call is rejected at analysis rather
+    // than offloaded with a guessed type.
+    val e = intercept[Exception] {
+      spark.sql("SELECT myudf_map_cardinality(array(col1)) FROM VALUES (1L) AS t(col1)").collect()
+    }
+    // Pin the reason, so the test cannot pass on an unrelated analysis failure.
+    val causes = Iterator.iterate(e: Throwable)(_.getCause).takeWhile(_ != null).toSeq
+    assert(
+      causes.exists {
+        c =>
+          c.isInstanceOf[GlutenNotSupportException] &&
+          c.getMessage.contains("myudf_map_cardinality -> array<bigint>")
+      },
+      s"expected an unresolved-signature failure, got: ${causes.map(_.toString).mkString("; ")}"
+    )
+  }
+
+  // libmyudaf declares myudaf_arbitrary the same way, and its Velox signature is T -> T with
+  // intermediate T. A UDAF is only reachable from SQL through a hive UDAF class name, so the
+  // resolution is driven directly here. Both the result type and the aggregation buffer come
+  // from the signature that binds.
+  test("native udaf declared by name resolves its return and intermediate types per call site") {
+    assert(UDFResolver.UDAFNames.contains("myudaf_arbitrary"))
+
+    Seq[DataType](
+      LongType,
+      StringType,
+      MapType(StringType, ArrayType(LongType))
+    ).foreach {
+      argType =>
+        val udaf = UDFResolver.getUdafExpression("myudaf_arbitrary")(
+          Seq(AttributeReference("c", argType)()))
+        // arbitrary(T) returns T and accumulates in T.
+        assert(udaf.dataType == argType, s"return type for $argType")
+        assert(
+          udaf.aggBufferAttributes.map(_.dataType) == Seq(argType),
+          s"aggregation buffer for $argType")
+    }
+  }
+
+  test("native udaf declared by name exchanges partial state across a shuffle") {
+    // libmyudaf also registers the aggregate under this hive UDAF class name, which is the only
+    // way a query can reach a UDAF. A grouped aggregation splits into partial and final stages
+    // around a shuffle, so the intermediate type resolved from the Velox signature is what the
+    // two stages have to agree on -- the disagreement a restated intermediateType can introduce
+    // is exactly what would fail here.
+    val tbl = "test_registry_udaf_shuffle"
+    val udafClass = "test.org.apache.spark.sql.MyDoubleSum"
+    withTempPath {
+      dir =>
+        try {
+          assert(UDFResolver.UDAFNames.contains(udafClass))
+
+          spark.sql(s"""
+                       |CREATE TEMPORARY FUNCTION my_arbitrary
+                       |AS '$udafClass'
+                       |""".stripMargin)
+          spark.sql(s"""
+                       |CREATE EXTERNAL TABLE $tbl
+                       |LOCATION 'file://$dir'
+                       |AS SELECT * FROM VALUES
+                       |  ('a', 1.0D), ('a', 1.0D), ('b', 2.0D), ('b', 2.0D) AS t(k, v)
+                       |""".stripMargin)
+
+          val df = spark.sql(
+            s"SELECT k, my_arbitrary(v) AS agg FROM $tbl GROUP BY k ORDER BY k")
+
+          val plan = df.queryExecution.executedPlan
+          val aggregates = plan.collect { case h: HashAggregateExecTransformer => h }
+          assert(
+            aggregates.size >= 2,
+            s"expected a partial and a final native aggregate, got ${aggregates.size} in:\n$plan")
+          assert(
+            plan.exists(_.isInstanceOf[ShuffleExchangeLike]),
+            s"expected the partial state to cross a shuffle in:\n$plan")
+
+          // Every row in a group carries the same value, so which one arbitrary keeps does not
+          // change the answer.
+          checkAnswer(df, Seq(Row("a", 1.0d), Row("b", 2.0d)))
+        } finally {
+          spark.sql(s"DROP TABLE IF EXISTS $tbl")
+          spark.sql("DROP TEMPORARY FUNCTION IF EXISTS my_arbitrary")
+        }
+    }
+  }
+
+  test("native udaf declared by name reports a call that binds to no signature") {
+    // arbitrary takes one argument. A miss has to surface as an unsupported expression so the
+    // aggregate falls back to the JVM, not as a silently wrong buffer schema.
+    intercept[GlutenNotSupportException] {
+      UDFResolver.getUdafExpression("myudaf_arbitrary")(
+        Seq(AttributeReference("a", LongType)(), AttributeReference("b", LongType)()))
     }
   }
 }

@@ -111,6 +111,56 @@ The major difference lies in including and defining specific functions within th
 `gluten::UdafEntry` requires an additional field `intermediateType`, to specify the output type from partial aggregation.
 For detailed implementation, you can refer to the example code in [MyUDAF.cc](../../cpp/velox/udf/examples/MyUDAF.cc)
 
+## Declaring a UDF/UDAF by name
+
+A `UdfEntry` restates a signature that the registered Velox function has already declared. The two
+are written separately and can disagree, and a function can only be called with the combinations the
+library thought to list. For a UDAF the intermediate type is restated too, and a wrong one is not
+visible until a partial aggregation exchanges a state the other side cannot read.
+
+A function can instead be declared by name alone, leaving its signature where it already is:
+
+```
+#include "udf/Udf.h"
+
+const std::string kMyUdfName = "my_udf";
+
+DEFINE_GET_NUM_REGISTRY_UDF { return 1; }
+
+DEFINE_GET_REGISTRY_UDF_ENTRIES { registryUdfEntries[0] = {kMyUdfName.c_str()}; }
+```
+
+The UDAF form is the same, using `DEFINE_GET_NUM_REGISTRY_UDAF` and
+`DEFINE_GET_REGISTRY_UDAF_ENTRIES` from [Udaf.h](../../cpp/velox/udf/Udaf.h). Either way the library
+still registers the function itself through `registerUdf()`, exactly as it does for a `UdfEntry`.
+
+When Gluten plans a call to such a function, it asks Velox to bind the actual argument types against
+the signatures the library registered, and takes the return type — and, for a UDAF, the intermediate
+type — from the signature that binds.
+
+This is worth doing for any function, and it is the only practical option for one whose signature
+carries type variables — `array(T) -> T`, or `(K, V) -> map(K,V)` — where a `UdfEntry` would mean one
+entry per type combination.
+
+Notes:
+
+- A `UdfEntry` wins over a by-name declaration of the same name, so a library can pin one call shape
+  by hand and leave the rest to Velox.
+- Binding is exact. `udfAllowTypeConversion` does not apply: Velox does not support coercion for
+  signatures carrying type variables, and where one is in play there is no single answer to which
+  cast would make a call fit.
+- A call that binds to no signature falls back to the JVM, the same as an unmatched `UdfEntry`.
+- A UDAF must be registered with Velox companion functions to survive a grouped aggregation. The
+  plan validator looks for `<name>_partial` and `<name>_merge_extract` when an aggregate splits
+  into partial and final stages, and without them the aggregate falls back to the JVM even though
+  its types resolve.
+- Every type combination the Velox signature admits becomes offloadable. Where a list of `UdfEntry`
+  signatures doubles as an allowlist, a by-name declaration delegates that entirely to the
+  constraints declared in the Velox signature.
+
+`myudf_map_cardinality` in [MyUDF.cc](../../cpp/velox/udf/examples/MyUDF.cc) and
+`myudaf_arbitrary` in [MyUDAF.cc](../../cpp/velox/udf/examples/MyUDAF.cc) are working examples.
+
 ## Using UDF/UDAF in Gluten
 
 Gluten loads the UDF libraries at runtime. You can upload UDF libraries via `--files` or `--archives`, and configure the library paths using the provided Spark configuration, which accepts comma separated list of library paths.

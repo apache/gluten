@@ -20,6 +20,7 @@
 #include <velox/functions/Macros.h>
 #include <velox/functions/Registerer.h>
 #include <velox/functions/lib/aggregates/AverageAggregateBase.h>
+#include <velox/functions/prestosql/aggregates/ArbitraryAggregate.h>
 
 #include "udf/Udaf.h"
 #include "udf/examples/UdfCommon.h"
@@ -176,6 +177,37 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
 
 } // namespace myavg
 
+namespace myarbitrary {
+
+// name: myudaf_arbitrary
+// signatures:
+//    T -> T, intermediate T
+// type: RegistryUdafEntry
+//
+// Nothing restates this signature for Gluten. A UdafEntry would, and since T
+// is a type variable that means one entry per supported type with the return
+// and intermediate types written out in each. A RegistryUdafEntry names the
+// aggregate and Gluten resolves both types from the Velox aggregate registry
+// per call site.
+const std::string kMyArbitraryName = "myudaf_arbitrary";
+
+// The same aggregate under a hive UDAF class name. An aggregate is only reachable from SQL
+// through one, so this is what lets a query call it and exercise the partial / final split
+// across a shuffle.
+const std::string kMyArbitraryHiveName = "test.org.apache.spark.sql.MyDoubleSum";
+
+void registerMyArbitrary() {
+  // Companion functions are required, not optional: a grouped aggregation splits into partial
+  // and final stages, and the plan validator looks for <name>_partial and <name>_merge_extract
+  // in the Velox registry. Without them the aggregate falls back to the JVM.
+  facebook::velox::aggregate::prestosql::registerArbitraryAggregate(
+      {kMyArbitraryName, kMyArbitraryHiveName},
+      /*withCompanionFunctions=*/true,
+      /*overwrite=*/true);
+}
+
+} // namespace myarbitrary
+
 std::vector<std::shared_ptr<gluten::UdafRegisterer>>& globalRegisters() {
   static std::vector<std::shared_ptr<gluten::UdafRegisterer>> registerers;
   return registerers;
@@ -191,6 +223,15 @@ void setupRegisterers() {
   inited = true;
 }
 } // namespace
+
+DEFINE_GET_NUM_REGISTRY_UDAF {
+  return 2;
+}
+
+DEFINE_GET_REGISTRY_UDAF_ENTRIES {
+  registryUdafEntries[0] = {myarbitrary::kMyArbitraryName.c_str()};
+  registryUdafEntries[1] = {myarbitrary::kMyArbitraryHiveName.c_str()};
+}
 
 DEFINE_GET_NUM_UDAF {
   setupRegisterers();
@@ -217,4 +258,6 @@ DEFINE_REGISTER_UDAF {
   for (const auto& registerer : globalRegisters()) {
     registerer->registerSignatures();
   }
+
+  myarbitrary::registerMyArbitrary();
 }
