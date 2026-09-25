@@ -25,10 +25,17 @@ import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{IntegerType, LongType, StringType, StructField, StructType}
+import org.apache.spark.util.Utils
+
+import org.apache.hadoop.fs.Path
+import org.apache.parquet.hadoop.ParquetFileReader
+import org.apache.parquet.hadoop.util.HadoopInputFile
+import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName
 
 import java.io.File
 import java.sql.Timestamp
 
+import scala.collection.JavaConverters._
 import scala.reflect.ClassTag
 
 class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenSQLTestsBaseTrait {
@@ -92,16 +99,19 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
         testGluten(s"metadata struct ($testFileFormat): " + testName) {
           withTempDir {
             dir =>
-              import scala.collection.JavaConverters._
-
               // 1. create df0 and df1 and save under /data/f0 and /data/f1
-              val df0 = spark.createDataFrame(firstFileRows.asJava, fileSchema)
-              val f0 = new File(dir, "data/f0").getCanonicalPath
-              df0.coalesce(1).write.format(testFileFormat).save(f0)
+              // Spark's writer also produces valid Parquet footers for zero-row fixtures.
+              withSQLConf(
+                GlutenConfig.GLUTEN_ENABLED.key -> "false",
+                GlutenConfig.NATIVE_WRITER_ENABLED.key -> "false") {
+                val df0 = spark.createDataFrame(firstFileRows.asJava, fileSchema)
+                val f0 = new File(dir, "data/f0").getCanonicalPath
+                df0.coalesce(1).write.format(testFileFormat).save(f0)
 
-              val df1 = spark.createDataFrame(secondFileRows.asJava, fileSchema)
-              val f1 = new File(dir, "data/f1 gluten").getCanonicalPath
-              df1.coalesce(1).write.format(testFileFormat).save(f1)
+                val df1 = spark.createDataFrame(secondFileRows.asJava, fileSchema)
+                val f1 = new File(dir, "data/f1 gluten").getCanonicalPath
+                df1.coalesce(1).write.format(testFileFormat).save(f1)
+              }
 
               // 2. read both f0 and f1
               val df = spark.read
@@ -168,6 +178,30 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
               collisionRows1.map(row => Row(row.get(index), f1(metadataColumn))))
           checkOperatorMatch[FileSourceScanExec](combined)
       }
+  }
+
+  metadataColumnsNativeTest(
+    "metadata-only projection of empty Parquet files",
+    schemaWithMetadataCollisions,
+    Seq.empty,
+    Seq.empty) {
+    (df, _, _) =>
+      assert(df.inputFiles.length == 2)
+      df.inputFiles.foreach {
+        file =>
+          val input = HadoopInputFile.fromPath(new Path(file), spark.sessionState.newHadoopConf())
+          Utils.tryWithResource(ParquetFileReader.open(input)) {
+            reader =>
+              val footer = reader.getFooter
+              assert(footer.getBlocks.asScala.map(_.getRowCount).sum == 0L)
+              assert(
+                footer.getFileMetaData.getSchema
+                  .getType("file_name")
+                  .asPrimitiveType()
+                  .getPrimitiveTypeName == PrimitiveTypeName.INT64)
+          }
+      }
+      checkMetadataAnswer(df.select(METADATA_FILE_NAME), Seq.empty)
   }
 
   metadataColumnsNativeTest(
