@@ -18,6 +18,7 @@ package org.apache.gluten.expression
 
 import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
 import org.apache.gluten.config.VeloxConfig
+import org.apache.gluten.execution.HashAggregateExecTransformer
 import org.apache.gluten.execution.ProjectExecTransformer
 import org.apache.gluten.execution.WindowExecTransformer
 import org.apache.gluten.tags.{SkipTest, UDFTest}
@@ -27,6 +28,7 @@ import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.plans.SQLHelper
 import org.apache.spark.sql.execution.ProjectExec
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.expression.UDFResolver
 
@@ -318,6 +320,46 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
       // The injected function has no JVM implementation to fall back to, so the call is
       // rejected rather than silently returning a result from somewhere else.
       assert(e.getMessage.contains("myudf_plus_one"))
+    }
+  }
+
+  test("native udaf with a plain name is callable without a hive udaf class") {
+    // libmyudaf registers the same aggregate under a hive class name and under myudaf_avg. The
+    // plain one needs no CREATE TEMPORARY FUNCTION and no Java class, exactly as for
+    // myudf_plus_one above.
+    assert(
+      spark.sessionState.functionRegistry
+        .lookupFunction(FunctionIdentifier("myudaf_avg"))
+        .isDefined)
+
+    // A grouped aggregation splits into partial and final stages around a shuffle, so this also
+    // covers the intermediate type surviving the exchange.
+    val df = spark.sql(
+      "SELECT k, myudaf_avg(v) AS agg FROM VALUES " +
+        "('a', 1.0D), ('a', 3.0D), ('b', 10.0D) AS t(k, v) GROUP BY k ORDER BY k")
+
+    val plan = df.queryExecution.executedPlan
+    val aggregates = plan.collect { case h: HashAggregateExecTransformer => h }
+    assert(
+      aggregates.size >= 2,
+      s"expected a partial and a final native aggregate, got ${aggregates.size} in:\n$plan")
+    assert(
+      plan.exists(_.isInstanceOf[ShuffleExchangeLike]),
+      s"expected the partial state to cross a shuffle in:\n$plan")
+
+    // MyDoubleAvg's final step is avg + 100.
+    checkAnswer(df, Seq(Row("a", 102.0d), Row("b", 110.0d)))
+  }
+
+  test("native udaf with a plain name fails at analysis when gluten is disabled") {
+    withSQLConf(("spark.gluten.enabled", "false")) {
+      val e = intercept[Exception] {
+        spark
+          .sql("SELECT k, myudaf_avg(v) FROM VALUES ('a', 1.0D) AS t(k, v) GROUP BY k")
+          .collect()
+      }
+      // As for a by-name UDF, there is no JVM implementation behind it.
+      assert(e.getMessage.contains("myudaf_avg"))
     }
   }
 }
