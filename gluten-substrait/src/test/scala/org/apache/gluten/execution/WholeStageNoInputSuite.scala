@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.spark.TaskContext
+
 import org.mockito.Mockito.mock
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -28,7 +30,7 @@ class WholeStageNoInputSuite extends AnyFunSuite {
     assert(wrapper.getPartitionLength == 1)
     assert(wrapper.getDependencies.isEmpty)
     assert(wrapper.getPartitions(0).isEmpty)
-    assert(wrapper.getIterators(Seq.empty, null).isEmpty)
+    assert(wrapper.getIterators(Seq.empty, mock(classOf[TaskContext])).isEmpty)
   }
 
   test("an accidental empty input stage still fails") {

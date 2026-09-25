@@ -101,10 +101,10 @@ TEST_F(Substrait2VeloxValuesNodeConversionTest, zeroColumnOneRowValuesNode) {
 
   CursorParameters params;
   params.planNode = veloxPlan;
-  auto [cursor, results] = readCursor(params);
-  ASSERT_EQ(results.size(), 1);
-  ASSERT_EQ(results.front()->childrenSize(), 0);
-  ASSERT_EQ(results.front()->size(), 1);
+  auto cursorAndResults = readCursor(params);
+  ASSERT_EQ(cursorAndResults.second.size(), 1);
+  ASSERT_EQ(cursorAndResults.second.front()->childrenSize(), 0);
+  ASSERT_EQ(cursorAndResults.second.front()->size(), 1);
 }
 
 TEST_F(Substrait2VeloxValuesNodeConversionTest, virtualTableDoesNotConsumeTableScanSplit) {
@@ -212,8 +212,8 @@ TEST_F(Substrait2VeloxValuesNodeConversionTest, supportsZeroRowVirtualTableInAll
     if (!validationMode) {
       CursorParameters params;
       params.planNode = values;
-      auto [cursor, results] = readCursor(params);
-      ASSERT_TRUE(results.empty());
+      auto cursorAndResults = readCursor(params);
+      ASSERT_TRUE(cursorAndResults.second.empty());
     }
   }
 }
