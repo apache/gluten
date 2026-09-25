@@ -109,6 +109,23 @@ recovers the carrier through Velox and standard nested exception wrappers. Other
 native errors keep their existing handling; this mechanism does not classify or
 translate native cast failures.
 
+### Native Velox cast failures
+
+After recovering any original Java throwable, the Velox output iterator recognizes
+native `USER` / `INVALID_ARGUMENT` errors attributed to a built-in `cast` by
+`ExpressionExceptionProperties`. `NativeCastException` carries the separate native
+reason and diagnostic through the same `JavaException` transport. Byte arrays
+preserve UTF-8 strings without JNI modified-UTF-8 conversion.
+
+`ColumnarBatchOutIterator` translates recognized numeric overflow, decimal precision,
+and string-to-integral failures using Spark's `QueryExecutionErrors` factories and
+retains the native diagnostic as the cause. Recognition depends on the pinned
+Velox cast-reason grammar, not diagnostic stack traces. Missing attribution,
+unrecognized types/reasons, and ambiguous unescaped string delimiters retain the
+existing error handling. When updating Velox, run the native cast-attribution and
+JVM exception-metadata tests together. Cast evaluation and ANSI, legacy, and TRY
+behavior are unchanged.
+
 ### C++ code development
 
 This guide is for remote debugging by connecting to the remote Linux server using `SSH`.
