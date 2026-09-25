@@ -38,7 +38,7 @@ INCBIN(_readcsv_plan, SOURCE_DIR "/utils/extern-local-engine/tests/json/read_stu
 TEST(LocalExecutor, ReadCSV)
 {
     constexpr std::string_view split_template
-        = R"({"items":[{"uriFile":"{replace_local_files}","length":"56","text":{"fieldDelimiter":",","maxBlockSize":"8192","header":"1"},"schema":{"names":["id","name","language"],"struct":{"types":[{"string":{"nullability":"NULLABILITY_NULLABLE"}},{"string":{"nullability":"NULLABILITY_NULLABLE"}},{"string":{"nullability":"NULLABILITY_NULLABLE"}}]}},"metadataColumns":[{}]}]})";
+        = R"({"items":[{"uriFile":"{replace_local_files}","length":"56","text":{"fieldDelimiter":",","maxBlockSize":"8192","headerLinesToSkip":"1"},"schema":{"names":["id","name","language"],"struct":{"types":[{"string":{"nullability":"NULLABILITY_NULLABLE"}},{"string":{"nullability":"NULLABILITY_NULLABLE"}},{"string":{"nullability":"NULLABILITY_NULLABLE"}}]}},"metadataColumns":[{}]}]})";
     const std::string split = replaceLocalFilesWildcards(
         split_template, GLUTEN_SOURCE_URI("/backends-velox/src/test/resources/datasource/csv/student_option_schema.csv"));
     auto plan = local_engine::JsonStringToMessage<substrait::Plan>(EMBEDDED_PLAN(_readcsv_plan));
