@@ -369,14 +369,10 @@ org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownS
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the second row group. vectorizedReaderEnabled: true readColumnarBatchAsRows: true
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#huge table: delete a small number of rows from tables of 2B rows with DVs
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#huge table: read from tables of 2B rows with existing DV of many zeros
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping stats before and after optimize
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping stats before and after optimize - old behavior with DataFrame schema
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2ParquetSuite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2ParquetSuite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2ParquetSuite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2ParquetSuite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2ParquetSuite#data skipping stats before and after optimize
@@ -385,22 +381,14 @@ org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1ColMa
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1ColMapNameModeSuite#data skipping flags - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1ColMapNameModeSuite#data skipping stats before and after optimize - column mapping name mode
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1ColMapNameModeSuite#data skipping stats before and after optimize - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#data skipping stats before and after optimize
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#data skipping stats before and after optimize - old behavior with DataFrame schema
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping flags - old behavior with DataFrame schema
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping flags - old behavior with DataFrame schema
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.delete.DeleteTempViewSQLNameBasedSuite#test delete on temp view - nontrivial projection - Dataset TempView
