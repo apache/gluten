@@ -103,6 +103,7 @@ abstract class HashAggregateExecBaseTransformer(
       case _: NumericType => true
       case _: ArrayType => true
       case _: StructType => true
+      case _: MapType => true
       case _: NullType => true
       case _ => false
     }
