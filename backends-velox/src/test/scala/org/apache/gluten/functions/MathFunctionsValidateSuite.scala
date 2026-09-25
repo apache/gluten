@@ -22,6 +22,7 @@ import org.apache.gluten.execution.{BatchScanExecTransformer, ProjectExecTransfo
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.util.SparkVersionUtil
 
 class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
 
@@ -119,6 +120,51 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
   test("ceiling") {
     runQueryAndCompare("SELECT ceiling(cast(l_orderkey as long)) from lineitem limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("2-arg ceiling / floor on decimals (RoundCeil / RoundFloor)") {
+    // The 2-argument ceiling/floor SQL forms only exist on Spark 4.0+; on Spark 3.4/3.5 they are
+    // invalid and would fail during analysis, so skip the test on those profiles.
+    assume(SparkVersionUtil.gteSpark40)
+    // The 2-arg forms produce Spark RoundCeil / RoundFloor and dispatch to the Velox
+    // decimal_ceil / decimal_floor special forms. The projection is native only when the
+    // expression offloads, so checkGlutenPlan[ProjectExecTransformer] doubles as an offload
+    // assertion; runQueryAndCompare additionally validates results against vanilla Spark.
+    runQueryAndCompare(
+      "SELECT ceiling(cast(l_quantity as decimal(12, 2)), 1) FROM lineitem limit 10") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare(
+      "SELECT floor(cast(l_quantity as decimal(12, 2)), 1) FROM lineitem limit 10") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Negative scale rounds to the left of the decimal point.
+    runQueryAndCompare(
+      "SELECT ceiling(cast(l_extendedprice as decimal(20, 4)), -2) FROM lineitem limit 10") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare(
+      "SELECT floor(cast(l_extendedprice as decimal(20, 4)), -2) FROM lineitem limit 10") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("2-arg ceiling / floor on decimals falls back under ANSI overflow") {
+    assume(SparkVersionUtil.gteSpark40)
+    // Velox's decimal_ceil / decimal_floor return NULL when the rounded result overflows the
+    // declared precision, whereas Spark raises under ANSI mode. Even with ANSI fallback disabled
+    // (native ANSI execution opted in), this op must fall back to Spark so the overflow raises
+    // instead of silently producing NULL. DECIMAL(38, 0) at its maximum value rounded with a
+    // negative scale overflows the 38-digit output precision.
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "true",
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
+      val overflowSql =
+        "SELECT ceiling(cast('99999999999999999999999999999999999999' as decimal(38, 0)), -1)"
+      intercept[Exception] {
+        spark.sql(overflowSql).collect()
+      }
     }
   }
 
