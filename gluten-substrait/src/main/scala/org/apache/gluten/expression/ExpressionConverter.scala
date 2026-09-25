@@ -683,8 +683,17 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           a
         )
       case m: MakeTimestamp =>
+        // The 4 make_timestamp* builtins share this class; resolve the name from
+        // dataType/failOnError since the static expressionsMap can't.
+        val isNtz = m.dataType.typeName == "timestamp_ntz"
+        val makeTimestampExprName = (isNtz, m.failOnError) match {
+          case (true, true) => ExpressionNames.MAKE_TIMESTAMP_NTZ
+          case (true, false) => ExpressionNames.TRY_MAKE_TIMESTAMP_NTZ
+          case (false, true) => ExpressionNames.MAKE_TIMESTAMP
+          case (false, false) => ExpressionNames.TRY_MAKE_TIMESTAMP
+        }
         BackendsApiManager.getSparkPlanExecApiInstance.genMakeTimestampTransformer(
-          substraitExprName,
+          makeTimestampExprName,
           m.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           m)
       case tsAdd: BinaryExpression if tsAdd.getClass.getSimpleName.equals("TimestampAdd") =>
