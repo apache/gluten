@@ -28,8 +28,7 @@ case class GlutenDeltaLeafV2CommandExec(delegate: LeafV2CommandExec) extends Lea
   override def metrics: Map[String, SQLMetric] = delegate.metrics
 
   override protected def run(): Seq[InternalRow] = {
-    TransactionExecutionObserver.withObserver(
-      DeltaV2WriteOperators.UseColumnarDeltaTransactionLog) {
+    DeltaV2WriteOperators.withColumnarTransaction {
       delegate.executeCollect()
     }
   }
@@ -50,8 +49,7 @@ case class GlutenDeltaLeafRunnableCommand(delegate: LeafRunnableCommand)
   }
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
-    TransactionExecutionObserver.withObserver(
-      DeltaV2WriteOperators.UseColumnarDeltaTransactionLog) {
+    DeltaV2WriteOperators.withColumnarTransaction {
       delegate.run(sparkSession)
     }
   }
@@ -67,8 +65,7 @@ case class GlutenDeltaRunnableCommand(delegate: RunnableCommand) extends LeafRun
   }
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
-    TransactionExecutionObserver.withObserver(
-      DeltaV2WriteOperators.UseColumnarDeltaTransactionLog) {
+    DeltaV2WriteOperators.withColumnarTransaction {
       delegate.run(sparkSession)
     }
   }
@@ -77,26 +74,79 @@ case class GlutenDeltaRunnableCommand(delegate: RunnableCommand) extends LeafRun
 }
 
 object DeltaV2WriteOperators {
-  object UseColumnarDeltaTransactionLog extends TransactionExecutionObserver {
-    override def startingTransaction(f: => OptimisticTransaction): OptimisticTransaction = {
-      val delegate = f
-      new GlutenOptimisticTransaction(delegate)
+  private[sql] def withColumnarTransaction[T](f: => T): T = {
+    TransactionExecutionObserver.getObserver match {
+      case _: UseColumnarDeltaTransactionLog => f
+      case observer =>
+        TransactionExecutionObserver.setObserver(wrap(observer))
+        try {
+          f
+        } finally {
+          // A completed transaction may have advanced to the next observer.
+          TransactionExecutionObserver.setObserver(unwrap(TransactionExecutionObserver.getObserver))
+        }
+    }
+  }
+
+  private def wrap(observer: TransactionExecutionObserver): TransactionExecutionObserver =
+    observer match {
+      case _: UseColumnarDeltaTransactionLog => observer
+      case _ => new UseColumnarDeltaTransactionLog(observer)
     }
 
-    override def preparingCommit[T](f: => T): T = f
+  private def unwrap(observer: TransactionExecutionObserver): TransactionExecutionObserver =
+    observer match {
+      case columnar: UseColumnarDeltaTransactionLog => columnar.underlying
+      case _ => observer
+    }
 
-    override def beginDoCommit(): Unit = ()
+  private class UseColumnarDeltaTransactionLog(val underlying: TransactionExecutionObserver)
+    extends TransactionExecutionObserver {
+    override def startingTransaction(f: => OptimisticTransaction): OptimisticTransaction = {
+      underlying.startingTransaction {
+        new GlutenOptimisticTransaction(f)
+      }
+    }
 
-    override def beginBackfill(): Unit = ()
+    override def preparingCommit[T](f: => T): T = underlying.preparingCommit(f)
 
-    override def beginPostCommit(): Unit = ()
+    override def beginDoCommit(): Unit = underlying.beginDoCommit()
 
-    override def transactionCommitted(): Unit = ()
+    override def beginBackfill(): Unit = underlying.beginBackfill()
 
-    override def transactionAborted(): Unit = ()
+    override def beginPostCommit(): Unit = underlying.beginPostCommit()
+
+    override def transactionCommitted(): Unit = withObserverAdvance {
+      underlying.transactionCommitted()
+    }
+
+    override def transactionAborted(): Unit = withObserverAdvance {
+      underlying.transactionAborted()
+    }
 
     override def createChild(): TransactionExecutionObserver = {
-      TransactionExecutionObserver.getObserver
+      wrap(underlying.createChild())
+    }
+
+    override def setNextObserver(nextTxnObserver: TransactionExecutionObserver): Unit = {
+      underlying.setNextObserver(unwrap(nextTxnObserver))
+    }
+
+    override def advanceToNextThreadObserver(): Unit = withObserverAdvance {
+      underlying.advanceToNextThreadObserver()
+    }
+
+    private def withObserverAdvance(f: => Unit): Unit = {
+      val inColumnarScope =
+        TransactionExecutionObserver.getObserver.isInstanceOf[UseColumnarDeltaTransactionLog]
+      try {
+        f
+      } finally {
+        if (inColumnarScope) {
+          // Delta's observer can replace itself from inside its commit/abort callbacks.
+          TransactionExecutionObserver.setObserver(wrap(TransactionExecutionObserver.getObserver))
+        }
+      }
     }
   }
 }
