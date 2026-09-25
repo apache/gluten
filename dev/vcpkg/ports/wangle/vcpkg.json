@@ -1,23 +1,21 @@
 {
-  "name": "fbthrift",
+  "name": "wangle",
   "version-string": "2026.09.07.00",
-  "description": "Facebook's branch of Apache Thrift, including a new C++ server.",
-  "homepage": "https://github.com/facebook/fbthrift",
+  "description": "Wangle is a framework providing a set of common client/server abstractions for building services in a consistent, modular, and composable way.",
+  "homepage": "https://github.com/facebook/wangle",
   "license": "Apache-2.0",
-  "supports": "x64 & static",
   "dependencies": [
     "boost-context",
     "boost-filesystem",
-    "boost-program-options",
     "boost-regex",
     "boost-system",
     "boost-thread",
+    "double-conversion",
     "fizz",
-    "fmt",
     "folly",
     "gflags",
     "glog",
-    "mvfst",
+    "libevent",
     "openssl",
     {
       "name": "vcpkg-cmake",
@@ -26,10 +24,6 @@
     {
       "name": "vcpkg-cmake-config",
       "host": true
-    },
-    "wangle",
-    "xxhash",
-    "zlib",
-    "zstd"
+    }
   ]
 }

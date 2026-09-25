@@ -25,15 +25,20 @@ import java.util.Locale
 import scala.collection.mutable
 
 object JoinAggregateFunctionWrapper {
-  // The wrapper is used in exactly two logical phases:
-  //   - PartialPhase: a pushed aggregate below / through joins
-  //   - FinalPhase: the aggregate above the join that restores the original query semantics
+  // The wrapper is used in three logical phases:
+  //   - PartialPhase: aggregate raw input below a join
+  //   - PartialMergePhase: merge buffers after each pushed join edge
+  //   - FinalPhase: restore the original aggregate result above the joins
   sealed trait TargetPhase {
     def sqlName: String
   }
 
   case object PartialPhase extends TargetPhase {
     override val sqlName: String = "PARTIAL"
+  }
+
+  case object PartialMergePhase extends TargetPhase {
+    override val sqlName: String = "PARTIAL_MERGE"
   }
 
   case object FinalPhase extends TargetPhase {
@@ -47,6 +52,17 @@ object JoinAggregateFunctionWrapper {
       innerAgg = innerAgg,
       targetPhase = PartialPhase,
       inputBuffer = None,
+      wrapperKey = wrapperKey)
+  }
+
+  def wrapperPartialMerge(
+      innerAgg: DeclarativeAggregate,
+      inputBuffer: Expression,
+      wrapperKey: String = "0"): JoinAggregateFunctionWrapper = {
+    JoinAggregateFunctionWrapper(
+      innerAgg = innerAgg,
+      targetPhase = PartialMergePhase,
+      inputBuffer = Some(inputBuffer),
       wrapperKey = wrapperKey)
   }
 
@@ -74,6 +90,7 @@ object JoinAggregateFunctionWrapper {
       case (PartialMerge, PartialPhase) => PartialMerge
       case (Final, PartialPhase) => PartialMerge
       case (Complete, PartialPhase) => Partial
+      case (_, PartialMergePhase) => PartialMerge
       case (Partial, FinalPhase) => PartialMerge
       case (PartialMerge, FinalPhase) => PartialMerge
       case (Final, FinalPhase) => Final
@@ -103,6 +120,7 @@ case class JoinAggregateFunctionWrapper(
    *
    * The wrapper therefore changes only the *logical contract* across the join:
    *   - PartialPhase exposes the wrapped aggregate buffer as a single struct-valued output.
+   *   - PartialMergePhase merges one or more struct-valued buffers into another buffer.
    *   - FinalPhase consumes that struct-valued buffer and delegates merge / evaluate semantics
    *     back to the wrapped Spark aggregate.
    *
@@ -123,7 +141,7 @@ case class JoinAggregateFunctionWrapper(
   override lazy val nullable: Boolean = true
 
   override lazy val dataType: DataType = targetPhase match {
-    case PartialPhase =>
+    case PartialPhase | PartialMergePhase =>
       // The pushed phase carries the aggregate buffer through the plan as a single struct-valued
       // payload so the join sees one logical column per pushed aggregate.
       CreateStruct(wrappedBufferAttrs).dataType
@@ -133,7 +151,7 @@ case class JoinAggregateFunctionWrapper(
 
   override def children: Seq[Expression] = targetPhase match {
     case PartialPhase => innerAgg.children
-    case FinalPhase => Seq(outputBufferExpr)
+    case PartialMergePhase | FinalPhase => Seq(outputBufferExpr)
   }
 
   override lazy val aggBufferAttributes: Seq[AttributeReference] = wrappedBufferAttrs
@@ -150,7 +168,7 @@ case class JoinAggregateFunctionWrapper(
         childReplacements = innerAgg.children.zip(children).toMap,
         useInputBufferField = false
       )
-    case FinalPhase =>
+    case PartialMergePhase | FinalPhase =>
       // Merge expressions read from the struct-valued input buffer produced by the pushed phase.
       rewrite(innerAgg.mergeExpressions, childReplacements = Map.empty, useInputBufferField = true)
   }
@@ -160,7 +178,7 @@ case class JoinAggregateFunctionWrapper(
   }
 
   override lazy val evaluateExpression: Expression = targetPhase match {
-    case PartialPhase =>
+    case PartialPhase | PartialMergePhase =>
       // The pushed phase returns the entire aggregate buffer, not the final aggregate value.
       CreateStruct(aggBufferAttributes)
     case FinalPhase =>
@@ -182,7 +200,7 @@ case class JoinAggregateFunctionWrapper(
   override lazy val deterministic: Boolean = innerAgg.deterministic
 
   override lazy val defaultResult: Option[Literal] = targetPhase match {
-    case PartialPhase => None
+    case PartialPhase | PartialMergePhase => None
     case FinalPhase => innerAgg.defaultResult
   }
 
@@ -192,10 +210,10 @@ case class JoinAggregateFunctionWrapper(
       case PartialPhase =>
         val newInner = innerAgg.withNewChildren(newChildren).asInstanceOf[DeclarativeAggregate]
         copy(innerAgg = newInner, inputBuffer = None)
-      case FinalPhase =>
+      case PartialMergePhase | FinalPhase =>
         if (newChildren.size != 1) {
           throw new IllegalArgumentException(
-            s"Final JoinAggregateWrapper expects exactly one child, got ${newChildren.size}")
+            s"$targetPhase JoinAggregateWrapper expects exactly one child, got ${newChildren.size}")
         }
         copy(inputBuffer = Some(newChildren.head))
     }

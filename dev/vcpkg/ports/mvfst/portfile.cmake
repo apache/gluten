@@ -2,10 +2,8 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO facebook/mvfst
     REF "v${VERSION}"
-    SHA512 6669e5b3163f422b3b5b11f298ff16f4f6f196aef765fa4a3da7a4caa69b7675e4ab8a9f9eac0e2f07e5fa30e723af7ab2310d67ec5d1357723da15444333dea
+    SHA512 00c2673086d62f672e827b3d175f287689199340716e66644088c5e13492a457a3432c6932df74a6bf02e0d4c26a59adbaa79af4e38d6b4b83483f4afba5fa3a
     HEAD_REF main
-    PATCHES
-	removexsk.patch # patch to workaround on centos7
 )
 
 vcpkg_cmake_configure(

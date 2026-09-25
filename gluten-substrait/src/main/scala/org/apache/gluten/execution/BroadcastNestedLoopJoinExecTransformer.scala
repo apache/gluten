@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.extension.columnar.transition.ConventionReq
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.{JoinParams, SubstraitContext}
@@ -51,6 +52,18 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
 
   override def leftKeys: Seq[Expression] = Nil
   override def rightKeys: Seq[Expression] = Nil
+
+  override def requiredChildConvention(): Seq[ConventionReq] = {
+    val batchReq =
+      ConventionReq.ofBatch(
+        ConventionReq.BatchType.Is(BackendsApiManager.getSettings.primaryBatchType))
+    buildSide match {
+      case BuildLeft =>
+        Seq(ConventionReq.any, batchReq)
+      case BuildRight =>
+        Seq(batchReq, ConventionReq.any)
+    }
+  }
 
   private lazy val substraitJoinType: NestedLoopJoinRel.JoinType =
     SubstraitUtil.toNestedLoopJoinSubstrait(joinType)

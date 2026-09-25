@@ -70,6 +70,13 @@ class StarSchemaJoinAggregateSingleDepthSuite extends StarSchemaJoinAggregateSui
   }
 }
 
+class StarSchemaJoinAggregatePartialMergeEnabledSuite extends StarSchemaJoinAggregateSuite {
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "true")
+  }
+}
+
 class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSparkPlanHelper {
   private val factMeasureColumnNames = Set(
     "sales_price",
@@ -95,6 +102,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key, "true")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, s"${Int.MaxValue}")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
       .set("spark.sql.adaptive.enabled", "false")
   }
 

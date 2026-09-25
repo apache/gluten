@@ -43,7 +43,7 @@ export CC=/opt/rh/gcc-toolset-12/root/bin/gcc
 export CXX=/opt/rh/gcc-toolset-12/root/bin/g++
 DEPENDENCY_DIR=${DEPENDENCY_DIR:-$(pwd)/deps-download}
 
-FB_OS_VERSION="v2026.01.05.00"
+FB_OS_VERSION="v2026.09.07.00"
 FMT_VERSION="11.2.0"
 FAST_FLOAT_VERSION="v8.0.2"
 BOOST_VERSION="boost-1.84.0"

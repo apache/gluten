@@ -292,6 +292,10 @@
                     <ignoreClass>org.apache.hadoop.hive.*</ignoreClass>
                     <!-- hawtjni -->
                     <ignoreClass>org.fusesource.hawtjni.runtime.Library</ignoreClass>
+                    <!-- Spark 4.2's spark-catalyst ships a patched copy of this datasketches
+                         class, which collides with datasketches-memory. Both artifacts are
+                         `provided`, so neither is packaged into the Gluten jar. -->
+                    <ignoreClass>org.apache.datasketches.memory.internal.ResourceImpl</ignoreClass>
                     <!-- The overridden class list by Gluten. Carefully add entries to this list only when you knew exactly what is going to happen -->
                     <ignoreClass>org.apache.spark.sql.hive.execution.HiveFileFormat</ignoreClass>
                     <ignoreClass>org.apache.spark.sql.hive.execution.HiveFileFormat$$$$anon$1</ignoreClass>
