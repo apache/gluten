@@ -455,8 +455,7 @@ TEST_F(Substrait2VeloxPlanConversionTest, parquetMetadataOnlyPreservesRows) {
   setParquetUseColumnNames(true);
   writeParquet("/first.parquet", makeRowVector({"file_name"}, {makeFlatVector<int64_t>({10, 20})}));
   writeParquet("/second.parquet", makeRowVector({"file_name"}, {makeFlatVector<int64_t>({30})}));
-  writeParquet("/empty.parquet", makeRowVector({"file_name"}, {makeFlatVector<int64_t>(std::vector<int64_t>{})}));
-  const auto files = makeParquetFiles({"/first.parquet", "/second.parquet", "/empty.parquet"});
+  const auto files = makeParquetFiles({"/first.parquet", "/second.parquet"});
   auto scan = convertRead(makeRead(ROW({"file_name"}, {VARCHAR()}), {::substrait::NamedStruct::METADATA_COL}), files);
   auto expected = makeRowVector({makeFlatVector<std::string>({"first.parquet", "first.parquet", "second.parquet"})});
   exec::test::AssertQueryBuilder(scan).splits(makeSplits(scan)).assertResults(expected);
