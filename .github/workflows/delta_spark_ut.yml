@@ -16,7 +16,7 @@
 # Runs Delta Lake's `spark` sbt module unit tests against a Gluten Velox bundle
 # that is built from the source in this repository. The pipeline:
 #
-#   1. Builds the Velox/Gluten native libraries (centos-7 + vcpkg, x86_64).
+#   1. Builds the Velox/Gluten native libraries (AlmaLinux 8 + vcpkg, x86_64).
 #   2. Builds the Gluten Java/Scala jars and assembles the
 #      `gluten-velox-bundle-spark<spark>_<scala>-linux_amd64-<version>.jar`
 #      fat jar for Spark 4.1 + Scala 2.13 + Java 17 with the Delta profile.
@@ -42,7 +42,7 @@ on:
   # Note the tradeoff: `gluten-delta/**` and `backends-velox/src-delta*/**` also
   # match velox_backend_x86.yml's own filter (its spark-ut jobs build with
   # -Pdelta), so a change there runs BOTH workflows and, now that the native lib
-  # is no longer shared between them, pays for the centos-7 build twice (~10 min).
+  # is no longer shared between them, pays for two independent native builds.
   # That is the price of decoupling, and it is small next to the case above.
   #
   # The `paths:` filter below IS the per-PR gate -- GitHub evaluates it before the
@@ -198,7 +198,7 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body \
             "🔄 Delta Spark UT started by @${TRIGGER_USER} (~2.5 h). [View run](${RUN_URL})"
 
-  build-native-lib-centos-7:
+  build-native-lib-centos-8:
     needs: delta-test-requested
     # This workflow always builds its own native lib -- there is no caller to
     # provide one, and the `paths:` filter already decided whether the run happens.
@@ -211,21 +211,33 @@ jobs:
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Build Gluten native libraries
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
             set -e
-            yum install tzdata -y
+            dnf install -y bison tzdata
             df -a
             cd /work
             export CCACHE_DIR=/work/.ccache
             export CCACHE_MAXSIZE=1G
             mkdir -p /work/.ccache
             ccache -sz
-            bash dev/ci-velox-buildstatic-centos-7.sh
+            bash dev/ci-velox-buildstatic-centos-8.sh
             ccache -s
           "
+      - name: Upload native build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: delta-spark-ut-native-build-logs-${{ github.sha }}
+          path: |
+            dev/vcpkg/.vcpkg/buildtrees/*/*.log
+            dev/vcpkg/vcpkg_installed/vcpkg/issue_body.md
+            cpp/build/CMakeFiles/CMake*.log
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 7
       - name: Save Ccache to Apache Stash
         # Comment runs use main's Stash scope; never overwrite it with PR output.
         if: ${{ always() && github.event_name != 'issue_comment' }}
@@ -233,16 +245,16 @@ jobs:
         uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos7-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
       - uses: actions/upload-artifact@v7
         with:
-          name: delta-spark-ut-native-lib-centos-7-${{github.sha}}
+          name: delta-spark-ut-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/
           if-no-files-found: error
 
   build-gluten-bundle:
-    needs: build-native-lib-centos-7
+    needs: build-native-lib-centos-8
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk17
     steps:
@@ -252,7 +264,7 @@ jobs:
       - name: Download native artifacts
         uses: actions/download-artifact@v8
         with:
-          name: delta-spark-ut-native-lib-centos-7-${{ github.sha }}
+          name: delta-spark-ut-native-lib-centos-8-${{ github.sha }}
           path: ./cpp/build/
       - name: Install Stash restore dependencies
         run: |
