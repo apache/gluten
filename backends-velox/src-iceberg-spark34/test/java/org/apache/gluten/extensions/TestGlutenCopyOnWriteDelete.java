@@ -16,12 +16,30 @@
  */
 package org.apache.gluten.extensions;
 
+import org.apache.gluten.execution.IcebergScanTransformer;
+
+import org.apache.iceberg.spark.extensions.SparkPlanUtil;
 import org.apache.iceberg.spark.extensions.TestCopyOnWriteDelete;
+import org.apache.spark.sql.execution.SparkPlan;
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec;
 import org.junit.Test;
 
+import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class TestGlutenCopyOnWriteDelete extends TestCopyOnWriteDelete {
+  @Override
+  protected void assertAllBatchScansVectorized(SparkPlan plan) {
+    List<SparkPlan> scans =
+        SparkPlanUtil.collectLeaves(plan).stream()
+            .filter(scan -> scan instanceof BatchScanExec || scan instanceof IcebergScanTransformer)
+            .collect(Collectors.toList());
+    assertThat(scans).hasSizeGreaterThan(0).allMatch(SparkPlan::supportsColumnar);
+  }
+
   @Test
   public synchronized void testDeleteWithConcurrentTableRefresh() {
     System.out.println("Run timeout");
