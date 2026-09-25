@@ -33,6 +33,7 @@ import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName
 
 import java.io.File
+import java.net.URI
 import java.sql.Timestamp
 
 import scala.collection.JavaConverters._
@@ -189,7 +190,8 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
       assert(df.inputFiles.length == 2)
       df.inputFiles.foreach {
         file =>
-          val input = HadoopInputFile.fromPath(new Path(file), spark.sessionState.newHadoopConf())
+          val input =
+            HadoopInputFile.fromPath(new Path(new URI(file)), spark.sessionState.newHadoopConf())
           Utils.tryWithResource(ParquetFileReader.open(input)) {
             reader =>
               val footer = reader.getFooter
@@ -244,7 +246,7 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
     collisionRows0,
     collisionRows1) {
     (df, f0, f1) =>
-      Seq(METADATA_FILE_NAME, METADATA_FILE_SIZE, METADATA_FILE_MODIFICATION_TIME).foreach {
+      Seq(METADATA_FILE_NAME, METADATA_FILE_SIZE).foreach {
         metadataColumn =>
           val filtered = df
             .where(Column(metadataColumn) === f0(metadataColumn) && Column("id") > 0L)
@@ -258,6 +260,30 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
                 }
             }
           checkMetadataAnswer(filtered, expected)
+      }
+
+      // Direct timestamp synthesized-filter pushdown is not supported by the native reader.
+      val targetSeconds = f0(METADATA_FILE_MODIFICATION_TIME)
+        .asInstanceOf[Timestamp]
+        .getTime / 1000L + 1L
+      val timestampFiltered = df
+        .where(
+          Column(METADATA_FILE_MODIFICATION_TIME).cast(LongType) + Column("id") === targetSeconds)
+        .select(METADATA_FILE_NAME, "id")
+      val timestampExpected = Seq((collisionRows0, f0), (collisionRows1, f1)).flatMap {
+        case (rows, metadata) =>
+          val seconds = metadata(METADATA_FILE_MODIFICATION_TIME)
+            .asInstanceOf[Timestamp]
+            .getTime / 1000L
+          rows.filter(row => seconds + row.getLong(6) == targetSeconds).map {
+            row => Row(metadata(METADATA_FILE_NAME), row.getLong(6))
+          }
+      }
+      assert(timestampExpected.nonEmpty)
+      assert(timestampExpected.size < collisionRows0.size + collisionRows1.size)
+      checkMetadataAnswer(timestampFiltered, timestampExpected)
+      if (BackendsApiManager.getSettings.supportNativeMetadataColumns()) {
+        checkOperatorMatch[FilterExecTransformer](timestampFiltered)
       }
       checkAnswer(
         df.where(Column(METADATA_FILE_NAME) === "missing.parquet").select(METADATA_FILE_NAME),
