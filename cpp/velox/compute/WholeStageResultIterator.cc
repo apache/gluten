@@ -27,6 +27,7 @@
 #include "compute/delta/DeltaSplit.h"
 #include "compute/delta/DeltaSplitInfo.h"
 #include "config/VeloxConfig.h"
+#include "jni/JniCastException.h"
 #include "jni/VeloxJavaException.h"
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
@@ -309,8 +310,11 @@ std::shared_ptr<ColumnarBatch> WholeStageResultIterator::next() {
       }
       return std::make_shared<VeloxColumnarBatch>(vector);
     }
-  } catch (const std::exception&) {
+  } catch (const std::exception& error) {
     rethrowJavaException(std::current_exception());
+    if (const auto* nativeError = dynamic_cast<const velox::VeloxException*>(&error)) {
+      rethrowNativeCastException(*nativeError);
+    }
     throw;
   }
 }
