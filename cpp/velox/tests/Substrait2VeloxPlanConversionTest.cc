@@ -19,6 +19,7 @@
 
 #include <filesystem>
 #include "compute/VeloxPlanConverter.h"
+#include "compute/delta/DeltaSplit.h"
 #include "substrait/SubstraitToVeloxPlan.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/dwio/common/tests/utils/DataFiles.h"
@@ -79,6 +80,53 @@ class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBa
       std::vector<std::shared_ptr<ResultIterator>>{},
       VeloxConnectorIds{.hive = facebook::velox::exec::test::kHiveConnectorId});
 };
+
+TEST_F(Substrait2VeloxPlanConversionTest, deltaDeletedStatusHasByteOutputAndDeltaConnectorWithoutDvSplits) {
+  ::substrait::Plan plan;
+  auto* read = plan.add_relations()->mutable_root()->mutable_input()->mutable_read();
+  read->mutable_common()->mutable_direct();
+  auto* schema = read->mutable_base_schema();
+  schema->add_names("id");
+  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->add_column_types(::substrait::NamedStruct::NORMAL_COL);
+  schema->add_names(delta::kRowDeletedColumnName);
+  schema->mutable_struct_()->add_types()->mutable_i8();
+  schema->add_column_types(::substrait::NamedStruct::DELTA_ROW_DELETED_COL);
+
+  ::substrait::ReadRel_LocalFiles files;
+  auto* file = files.add_items();
+  file->set_uri_file("test.parquet");
+  file->mutable_parquet();
+  VeloxPlanConverter converter(pool(), veloxCfg_.get(), {}, VeloxConnectorIds{.hive = "hive", .delta = "delta"});
+  const auto converted = converter.toVeloxPlan(plan, {files});
+  ASSERT_TRUE(converted->outputType()->childAt(1)->isTinyint());
+  const auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(converted);
+  ASSERT_NE(scan, nullptr);
+  ASSERT_EQ(scan->tableHandle()->connectorId(), "delta");
+  ASSERT_TRUE(scan->outputType()->childAt(1)->isTinyint());
+  ASSERT_EQ(converter.splitInfos().size(), 1);
+  ASSERT_NE(converter.splitInfos().find(scan->id()), converter.splitInfos().end());
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, deltaGeneratedRowIndexUsesDeltaConnectorWithoutDvSplits) {
+  ::substrait::Plan plan;
+  auto* read = plan.add_relations()->mutable_root()->mutable_input()->mutable_read();
+  read->mutable_common()->mutable_direct();
+  auto* schema = read->mutable_base_schema();
+  schema->add_names("__delta_internal_row_index");
+  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->add_column_types(::substrait::NamedStruct::DELTA_ROW_INDEX_COL);
+  ::substrait::ReadRel_LocalFiles files;
+  auto* file = files.add_items();
+  file->set_uri_file("test.parquet");
+  file->mutable_parquet();
+  VeloxPlanConverter converter(pool(), veloxCfg_.get(), {}, VeloxConnectorIds{.hive = "hive", .delta = "delta"});
+  const auto converted = converter.toVeloxPlan(plan, {files});
+  const auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(converted);
+  ASSERT_NE(scan, nullptr);
+  ASSERT_EQ(scan->tableHandle()->connectorId(), "delta");
+  ASSERT_TRUE(scan->outputType()->childAt(0)->isBigint());
+}
 
 // This test will firstly generate mock TPC-H lineitem ORC file. Then, Velox's
 // computing will be tested based on the generated ORC file.

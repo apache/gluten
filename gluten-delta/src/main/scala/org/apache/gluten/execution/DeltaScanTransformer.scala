@@ -18,6 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.delta.{DeletionVectorReadMetrics, DeltaDeletionVectorScanInfo}
 import org.apache.gluten.sql.shims.SparkShimLoader
+import org.apache.gluten.substrait.`type`.ColumnTypeNode
 import org.apache.gluten.substrait.rel.{DeltaLocalFilesBuilder, LocalFilesNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
@@ -33,8 +34,11 @@ import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.{FilePartition, HadoopFsRelation}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{ByteType, DataType, LongType, StructType}
+import org.apache.spark.util.SparkVersionUtil
 import org.apache.spark.util.collection.BitSet
+
+import io.substrait.proto.NamedStruct
 
 import scala.collection.JavaConverters._
 
@@ -64,6 +68,32 @@ case class DeltaScanTransformer(
   ) {
 
   override lazy val fileFormat: ReadFileFormat = ReadFileFormat.ParquetReadFormat
+
+  lazy val generatesDeletionVectorMetadata: Boolean = {
+    SparkVersionUtil.gteSpark35 &&
+    !relation.sparkSession.sessionState.conf
+      .getConfString(DeltaScanTransformer.USE_METADATA_ROW_INDEX_KEY, "true")
+      .toBoolean &&
+    (output.map(_.name) ++ requiredSchema.fieldNames)
+      .exists(DeltaScanTransformer.generatedMetadataTypes.contains)
+  }
+
+  // Keep filters above the scan until the generated values have been materialized. Physical
+  // data predicates may still prune rows: Velox generates file positions, not batch ordinals.
+  override def supportPushDownFilters: Boolean = !generatesDeletionVectorMetadata
+
+  override protected def makeColumnTypeNode(attr: Attribute): ColumnTypeNode = {
+    if (generatesDeletionVectorMetadata) {
+      attr.name match {
+        case DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME =>
+          return new ColumnTypeNode(NamedStruct.ColumnType.DELTA_ROW_DELETED_COL)
+        case DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME | "_tmp_metadata_row_index" =>
+          return new ColumnTypeNode(NamedStruct.ColumnType.DELTA_ROW_INDEX_COL)
+        case _ =>
+      }
+    }
+    super.makeColumnTypeNode(attr)
+  }
 
   override protected def additionalScanMetrics: Map[String, SQLMetric] = Map(
     "dvDescriptorPreparationTime" ->
@@ -96,6 +126,52 @@ case class DeltaScanTransformer(
     if (cdfFilesHaveDeletionVectors) {
       return ValidationResult.failed(DeltaScanTransformer.DELETION_VECTOR_UNSUPPORTED)
     }
+    if (generatesDeletionVectorMetadata) {
+      if (relation.bucketSpec.nonEmpty) {
+        return ValidationResult.failed("Bucketed generated Delta metadata scans are not supported")
+      }
+      val outputFields = output.map(attr => (attr.name, attr.dataType))
+      val requiredFields = requiredSchema.fields.map(field => (field.name, field.dataType)).toSeq
+      val generatedTypes = DeltaScanTransformer.generatedMetadataTypes
+      if (relation.partitionSchema.fieldNames.exists(generatedTypes.contains)) {
+        return ValidationResult.failed("Generated Delta metadata names overlap partition columns")
+      }
+      if (
+        Seq(outputFields, requiredFields).exists {
+          fields =>
+            val generated = fields.filter(field => generatedTypes.contains(field._1))
+            generated.map(_._1).distinct.size != generated.size ||
+            generated.exists { case (name, dataType) => generatedTypes(name) != dataType }
+        }
+      ) {
+        return ValidationResult.failed("Unsupported or duplicate generated Delta metadata fields")
+      }
+      if (
+        requiredFields.exists {
+          case (name, _) =>
+            generatedTypes.contains(name) && !output.exists(_.name == name)
+        }
+      ) {
+        return ValidationResult.failed("Generated Delta metadata must be present in scan output")
+      }
+      if (
+        !output.exists(_.name == DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME) &&
+        output.count(attr => generatedTypes.contains(attr.name)) > 1
+      ) {
+        return ValidationResult.failed("Multiple generated Delta row-index columns without flags")
+      }
+      relation.fileFormat match {
+        case format: DeltaParquetFileFormat
+            if format.columnMappingMode != NoMapping &&
+              format.referenceSchema.fieldNames.exists(generatedTypes.contains) =>
+          return ValidationResult.failed("Generated Delta metadata names overlap mapped columns")
+        case format: DeltaParquetFileFormat
+            if !DeltaDeletionVectorScanInfo.supportsGeneratedMetadata(format) =>
+          return ValidationResult.failed(
+            "Delta requires optimizations disabled for generated DV metadata")
+        case _ =>
+      }
+    }
     super.doValidateInternal()
   }
 
@@ -126,13 +202,23 @@ case class DeltaScanTransformer(
   // fields stay logical vs. become physical, and the longer-term cleanup direction (do all
   // physical translation at substrait emission time so this override and the alias-back
   // ProjectExec both go away).
-  override lazy val scanFilters: Seq[Expression] = relation.fileFormat match {
-    case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
-      val physicalByExprId = output.collect { case ar: AttributeReference => ar.exprId -> ar }.toMap
-      dataFilters.map(_.transformDown {
-        case ar: AttributeReference => physicalByExprId.getOrElse(ar.exprId, ar)
-      })
-    case _ => dataFilters
+  override lazy val scanFilters: Seq[Expression] = {
+    val filters = if (generatesDeletionVectorMetadata) {
+      dataFilters.filterNot(
+        _.references.exists(
+          attr => DeltaScanTransformer.generatedMetadataTypes.contains(attr.name)))
+    } else {
+      dataFilters
+    }
+    relation.fileFormat match {
+      case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
+        val physicalByExprId =
+          output.collect { case ar: AttributeReference => ar.exprId -> ar }.toMap
+        filters.map(_.transformDown {
+          case ar: AttributeReference => physicalByExprId.getOrElse(ar.exprId, ar)
+        })
+      case _ => filters
+    }
   }
 
   /**
@@ -268,6 +354,14 @@ case class DeltaScanTransformer(
 object DeltaScanTransformer {
 
   val DELETION_VECTOR_UNSUPPORTED = "Deletion vector is not supported in native."
+
+  private[gluten] val USE_METADATA_ROW_INDEX_KEY =
+    "spark.databricks.delta.deletionVectors.useMetadataRowIndex"
+  private[gluten] val generatedMetadataTypes: Map[String, DataType] = Map(
+    DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME -> LongType,
+    DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME -> ByteType,
+    "_tmp_metadata_row_index" -> LongType
+  )
 
   def apply(scanExec: FileSourceScanExec): DeltaScanTransformer = {
     new DeltaScanTransformer(
