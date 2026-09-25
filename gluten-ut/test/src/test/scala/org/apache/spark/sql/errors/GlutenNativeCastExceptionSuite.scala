@@ -84,6 +84,17 @@ class GlutenNativeCastExceptionSuite extends SparkFunSuite {
     )
   }
 
+  test("native DOUBLE overflow accepts the scientific notation emitted by Velox") {
+    checkError(
+      "Cannot cast DOUBLE '1.2345678901234567e+19' to BIGINT. " +
+        "Cannot cast floating-point value to an integral value due to overflow.",
+      QueryExecutionErrors.castingCauseOverflowError(
+        1.2345678901234567e19,
+        DoubleType,
+        LongType)
+    )
+  }
+
   test("native BIGINT to DECIMAL uses the Spark-version-specific decimal error") {
     checkError(
       "Cannot cast BIGINT '9223372036854775807' to DECIMAL(7, 2)",
