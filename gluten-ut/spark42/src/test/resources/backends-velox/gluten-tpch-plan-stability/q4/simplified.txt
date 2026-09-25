@@ -1,0 +1,28 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (4)
+    SortExecTransformer [o_orderpriority]
+      InputIteratorTransformer
+        InputAdapter
+          ColumnarExchange [o_orderpriority] #1
+            VeloxResizeBatches
+              WholeStageCodegenTransformer (3)
+                RegularHashAggregateExecTransformer [o_orderpriority,count] [count(1),order_count,count]
+                  InputIteratorTransformer
+                    InputAdapter
+                      ColumnarExchange [o_orderpriority,count] #2
+                        VeloxResizeBatches
+                          WholeStageCodegenTransformer (2)
+                            ProjectExecTransformer [o_orderpriority,count]
+                              FlushableHashAggregateExecTransformer [o_orderpriority] [count,count]
+                                ProjectExecTransformer [o_orderpriority]
+                                  BroadcastHashJoinExecTransformer [o_orderkey,l_orderkey]
+                                    ProjectExecTransformer [o_orderkey,o_orderpriority]
+                                      FilterExecTransformer [o_orderdate]
+                                        FileSourceScanExecTransformer parquet spark_catalog.default.orders [o_orderkey,o_orderdate,o_orderpriority]
+                                    InputIteratorTransformer
+                                      InputAdapter
+                                        ColumnarBroadcastExchange #3
+                                          WholeStageCodegenTransformer (1)
+                                            ProjectExecTransformer [l_orderkey]
+                                              FilterExecTransformer [l_commitdate,l_receiptdate]
+                                                FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_orderkey,l_commitdate,l_receiptdate]
