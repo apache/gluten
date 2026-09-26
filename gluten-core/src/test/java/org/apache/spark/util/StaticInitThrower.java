@@ -14,32 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.util
+package org.apache.spark.util;
 
-object SparkReflectionUtil {
-  def getSimpleClassName(cls: Class[_]): String = {
-    Utils.getSimpleName(cls)
-  }
-
-  def classForName[C](
-      className: String,
-      initialize: Boolean = true,
-      noSparkClassLoader: Boolean = false): Class[C] = {
-    Utils.classForName(className, initialize, noSparkClassLoader)
-  }
-
-  def isClassPresent(className: String): Boolean = {
-    try {
-      classForName(className)
-      true
-    } catch {
-      case _: ClassNotFoundException =>
-        false
-      case _: LinkageError =>
-        // The class is present but cannot be linked, e.g. an optional
-        // dependency of a different version is missing a supertype; for the
-        // caller this is equivalent to "not present".
-        false
+/** Test helper: present on the classpath but its static initializer always fails. */
+public class StaticInitThrower {
+  static {
+    if (Boolean.TRUE) {
+      throw new IllegalStateException("static initializer failed");
     }
   }
 }
