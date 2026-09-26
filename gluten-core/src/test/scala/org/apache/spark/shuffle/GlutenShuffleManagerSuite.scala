@@ -169,6 +169,28 @@ class GlutenShuffleManagerSuite extends SharedSparkSession {
         classOf[GlutenShuffleManager].getName))
   }
 
+  test("register recursively - subclass of GlutenShuffleManager") {
+    val registry = ShuffleManagerRegistry.get()
+
+    assertThrows[IllegalArgumentException](
+      registry.register(
+        new LookupKey {
+          override def accepts[K, V, C](dependency: ShuffleDependency[K, V, C]): Boolean = true
+        },
+        classOf[GlutenSubShuffleManager].getName))
+  }
+
+  test("register recursively - ShuffleManager interface") {
+    val registry = ShuffleManagerRegistry.get()
+
+    assertThrows[IllegalArgumentException](
+      registry.register(
+        new LookupKey {
+          override def accepts[K, V, C](dependency: ShuffleDependency[K, V, C]): Boolean = true
+        },
+        classOf[ShuffleManager].getName))
+  }
+
   test("register duplicated") {
     val registry = ShuffleManagerRegistry.get()
 
@@ -313,6 +335,12 @@ object GlutenShuffleManagerSuite {
       counter.clear()
     }
   }
+
+  // A subclass of GlutenShuffleManager is the exact class that recurses when
+  // registered: each instance builds its own router that instantiates the
+  // registered classes again.
+  class GlutenSubShuffleManager(conf: SparkConf, isDriver: Boolean)
+    extends GlutenShuffleManager(conf, isDriver)
 
   private object DummyPartitioner extends Partitioner {
     override def numPartitions: Int = 0
