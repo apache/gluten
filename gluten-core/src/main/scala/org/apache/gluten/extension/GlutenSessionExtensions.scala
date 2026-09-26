@@ -44,7 +44,7 @@ private[gluten] class GlutenSessionExtensions
       session =>
         val glutenEnabledForThread =
           Option(session.sparkContext.getLocalProperty(GLUTEN_ENABLE_FOR_THREAD_KEY))
-            .forall(_.toBoolean)
+            .forall(isEnabledForThread)
         val disabled = !glutenEnabledForThread
         logDebug(s"Gluten is disabled by variable: glutenEnabledForThread: $glutenEnabledForThread")
         disabled
@@ -58,4 +58,15 @@ private[gluten] class GlutenSessionExtensions
 object GlutenSessionExtensions {
   val GLUTEN_SESSION_EXTENSION_NAME: String = classOf[GlutenSessionExtensions].getCanonicalName
   val GLUTEN_ENABLE_FOR_THREAD_KEY: String = "gluten.enabledForCurrentThread"
+
+  // Visible for testing. Parse the per-thread enable flag, naming the property and the
+  // offending value when it is not a boolean instead of surfacing a bare `toBoolean` failure.
+  private[gluten] def isEnabledForThread(value: String): Boolean = {
+    try value.toBoolean
+    catch {
+      case _: IllegalArgumentException =>
+        throw new IllegalArgumentException(
+          s"$GLUTEN_ENABLE_FOR_THREAD_KEY should be boolean, but was $value")
+    }
+  }
 }
