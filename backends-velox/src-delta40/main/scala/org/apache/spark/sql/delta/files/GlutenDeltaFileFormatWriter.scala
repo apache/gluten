@@ -135,6 +135,8 @@ object GlutenDeltaFileFormatWriter extends Logging {
       } else dataColumns
 
     // Note: prepareWrite has side effect. It sets "job".
+    // Parquet field ids for IcebergCompatV2 are injected by
+    // GlutenDeltaParquetFileFormat.prepareWrite, which receives the same schema passed below.
     val outputWriterFactory =
       fileFormat.prepareWrite(
         sparkSession,

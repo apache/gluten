@@ -583,6 +583,17 @@
       </dependencies>
     </profile>
     <profile>
+      <id>spark-3.5</id>
+      <dependencies>
+        <dependency>
+          <groupId>io.delta</groupId>
+          <artifactId>delta-iceberg_${scala.binary.version}</artifactId>
+          <version>${delta.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
       <id>delta</id>
       <dependencies>
         <dependency>
