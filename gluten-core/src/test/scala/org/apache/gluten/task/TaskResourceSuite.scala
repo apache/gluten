@@ -83,4 +83,40 @@ class TaskResourceSuite extends AnyFunSuite with SQLHelper {
     }
     assert(unregisteredCount == 2)
   }
+
+  test("Run unsafe - one failing release does not skip the remaining resources") {
+    var goodReleased = 0
+    val result = scala.util.Try(TaskResources.runUnsafe {
+      // Higher priority is released first, so the failing resource releases
+      // before the good one.
+      TaskResources.addResource(
+        UUID.randomUUID().toString,
+        new TaskResource {
+          override def priority(): Int = 200
+          override def release(): Unit = throw new RuntimeException("release failed")
+          override def resourceName(): String = "failing resource"
+        }
+      )
+      TaskResources.addResource(
+        UUID.randomUUID().toString,
+        new TaskResource {
+          override def priority(): Int = 100
+          override def release(): Unit = goodReleased += 1
+          override def resourceName(): String = "good resource"
+        }
+      )
+    })
+    // The good (lower-priority) resource is still released despite the earlier failure.
+    assert(goodReleased == 1)
+    // The release failure is rethrown, not swallowed.
+    assert(result.isFailure)
+    val trace = {
+      val writer = new java.io.StringWriter()
+      result.failed.get.printStackTrace(new java.io.PrintWriter(writer))
+      writer.toString
+    }
+    assert(trace.contains("release failed"))
+    // The registry was cleared on the way out, so a fresh task runs cleanly.
+    TaskResources.runUnsafe(assert(TaskResources.inSparkTask()))
+  }
 }

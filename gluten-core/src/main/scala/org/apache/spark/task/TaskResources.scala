@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 import scala.collection.mutable
 import scala.compat.Platform.ConcurrentModificationException
+import scala.util.control.NonFatal
 
 object TaskResources extends TaskListener with Logging {
   // And open java assert mode to get memory stack
@@ -224,9 +225,17 @@ object TaskResources extends TaskListener with Logging {
             }
             // We should first call `releaseAll` then remove the registries, because
             // the functions inside registries may register new resource to registries.
-            currentTaskRegistries.releaseAll()
-            context.taskMetrics().incPeakExecutionMemory(registry.getSharedUsage().peak())
-            RESOURCE_REGISTRIES.remove(context)
+            try {
+              currentTaskRegistries.releaseAll()
+            } finally {
+              // Removing the registry must happen even if the metrics update throws,
+              // otherwise the registry stays reachable and leaks across tasks.
+              try {
+                context.taskMetrics().incPeakExecutionMemory(registry.getSharedUsage().peak())
+              } finally {
+                RESOURCE_REGISTRIES.remove(context)
+              }
+            }
           }
         }
       })
@@ -290,12 +299,50 @@ class TaskResourceRegistry extends Logging {
 
   /** Release all managed resources according to priority and reversed order */
   private[task] def releaseAll(): Unit = lock {
+    val failures = mutable.ArrayBuffer.empty[Throwable]
+    def safeResourceName(resource: TaskResource): String =
+      try resource.resourceName()
+      catch {
+        // Best-effort log label only: catch everything, including fatal errors, so a
+        // throwing resourceName() can never abort the release loop before the remaining
+        // resources are freed and the maps are cleared. Fatal errors from release()
+        // itself are still left to propagate (see the NonFatal handler below).
+        case _: Throwable => s"resource@${System.identityHashCode(resource)}"
+      }
     priorityToResourcesMapping.toSeq.sortBy(-_._1).foreach {
       case (_, resources) =>
-        resources.toSeq.reverse.foreach(release)
+        resources.toSeq.reverse.foreach {
+          resource =>
+            try release(resource)
+            catch {
+              case e: InterruptedException =>
+                // The catch cleared the interrupt status; restore it so task
+                // cancellation still propagates, then record and keep releasing so
+                // the remaining resources are freed and the registry is cleared.
+                Thread.currentThread().interrupt()
+                failures += e
+                logError(s"Interrupted while releasing resource ${safeResourceName(resource)}", e)
+              case NonFatal(e) =>
+                // One failing release must not skip the remaining ones or leave the
+                // registry uncleared; record the failure and rethrow it after the
+                // loop so callers still see the error. Fatal throwables are left to
+                // propagate immediately.
+                failures += e
+                logError(s"Failed to release resource ${safeResourceName(resource)}", e)
+            }
+        }
     }
     priorityToResourcesMapping.clear()
     resources.clear()
+    failures.headOption.foreach {
+      failure =>
+        // Keep the remaining failures attached; the logs are the only other
+        // record and may be swallowed by the completion-listener machinery.
+        // Skip entries identical to `failure` by reference: addSuppressed throws
+        // IllegalArgumentException on self-suppression.
+        failures.tail.filterNot(_ eq failure).foreach(failure.addSuppressed)
+        throw failure
+    }
   }
 
   /** Release single resource by ID */
