@@ -97,6 +97,7 @@ jobs:
       shims35:  ${{ steps.filter.outputs.shims35 }}
       shims40:  ${{ steps.filter.outputs.shims40 }}
       shims41:  ${{ steps.filter.outputs.shims41 }}
+      shims42:  ${{ steps.filter.outputs.shims42 }}
       tools_it: ${{ steps.filter.outputs.tools_it }}
     steps:
       - uses: actions/checkout@v7
@@ -114,7 +115,7 @@ jobs:
               recent=$(git log --oneline --after="24 hours ago" HEAD | wc -l)
               if [ "$recent" -eq 0 ]; then
                 echo "No commits in the last 24 hours -- skipping nightly run."
-                for flag in cpp java shims34 shims35 shims40 shims41 tools_it; do
+                for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
                   echo "$flag=false" >> $GITHUB_OUTPUT
                 done
                 echo "full_run=false" >> $GITHUB_OUTPUT
@@ -122,7 +123,7 @@ jobs:
               fi
             fi
             # Run everything, including the extended matrices PR runs skip.
-            for flag in cpp java shims34 shims35 shims40 shims41 tools_it; do
+            for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
               echo "$flag=true" >> $GITHUB_OUTPUT
             done
             echo "full_run=true" >> $GITHUB_OUTPUT
@@ -142,6 +143,7 @@ jobs:
           echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
           echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
           echo "shims41=$(match  '^(shims/(spark41|common)/|gluten-ut/spark41/)')"                           >> $GITHUB_OUTPUT
+          echo "shims42=$(match  '^(shims/(spark42|common)/|gluten-ut/spark42/)')"                           >> $GITHUB_OUTPUT
           echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
 
   build-native-lib-centos-8:
@@ -1243,6 +1245,21 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/
           $MVN_CMD clean test-compile -Pspark-4.0 -Pscala-2.13 -Pbackends-velox -Pspark-ut -Piceberg,iceberg-test,delta,paimon -Pfast-build
+
+  build-test-spark42:
+    needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims42 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-8-jdk17
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compile Spark 4.2 shim (Java 17, Scala 2.13)
+        run: |
+          cd $GITHUB_WORKSPACE/
+          $MVN_CMD clean test-compile -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -pl shims/spark42 -am -DskipTests
 
   spark-test-spark40:
     needs: [detect-changes, build-native-lib-centos-8]
