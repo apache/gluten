@@ -17,13 +17,39 @@
 
 #pragma once
 
+#include "IcebergNativeWriteInfo.pb.h"
 #include "IcebergNestedField.pb.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "utils/Metrics.h"
+#include "velox/connectors/Connector.h"
 #include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
 #include "velox/connectors/hive/iceberg/IcebergDataSink.h"
 
 namespace gluten {
+
+enum class IcebergWriteMode {
+  kData,
+  kDeletionVector,
+  kMerge,
+};
+
+struct IcebergExistingDeletionVectorInfo {
+  std::string referencedDataFile;
+  std::string puffinPath;
+  int64_t contentOffset{0};
+  int64_t contentLength{0};
+  int64_t recordCount{0};
+  int64_t fileSizeInBytes{0};
+};
+
+struct IcebergNativeWriteOptions {
+  IcebergWriteMode writeMode{IcebergWriteMode::kData};
+  std::vector<facebook::velox::column_index_t> dataColumnIndices;
+  std::optional<facebook::velox::column_index_t> operationColumnIndex;
+  std::optional<facebook::velox::column_index_t> filePathColumnIndex;
+  std::optional<facebook::velox::column_index_t> rowPositionColumnIndex;
+  std::vector<IcebergExistingDeletionVectorInfo> existingDeletionVectors;
+};
 
 struct WriteStats {
   uint64_t numWrittenBytes{0};
@@ -50,11 +76,14 @@ class IcebergWriter {
       const IcebergNestedField& field,
       const std::unordered_map<std::string, std::string>& sparkConfs,
       std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool,
-      std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool);
+      std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool,
+      IcebergNativeWriteOptions writeOptions = {});
 
   void write(const VeloxColumnarBatch& batch);
 
   std::vector<std::string> commit();
+
+  void abort();
 
   WriteStats writeStats() const;
 
@@ -72,11 +101,14 @@ class IcebergWriter {
   std::shared_ptr<facebook::velox::core::QueryCtx> queryCtx_;
   std::unique_ptr<facebook::velox::connector::ConnectorQueryCtx> connectorQueryCtx_;
 
-  std::unique_ptr<facebook::velox::connector::hive::iceberg::IcebergDataSink> dataSink_;
+  IcebergNativeWriteOptions writeOptions_;
+  std::unique_ptr<facebook::velox::connector::DataSink> dataSink_;
 
   // Records the writer creation time in ns.
   const uint64_t createTimeNs_{0};
 };
+
+IcebergNativeWriteOptions parseIcebergNativeWriteInfo(const gluten::IcebergNativeWriteInfo& writeInfo);
 
 std::shared_ptr<const facebook::velox::connector::hive::iceberg::IcebergPartitionSpec>
 parseIcebergPartitionSpec(const uint8_t* data, const int32_t length, facebook::velox::RowTypePtr rowType);
