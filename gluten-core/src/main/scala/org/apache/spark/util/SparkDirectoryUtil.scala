@@ -22,7 +22,6 @@ import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
 
 import org.apache.commons.io.FileUtils
-import org.apache.commons.lang3.StringUtils
 
 import java.io.{File, IOException}
 import java.nio.file.Paths
@@ -57,8 +56,17 @@ class SparkDirectoryUtil private (val roots: Array[String]) extends Logging {
   private val NAMESPACE_MAPPING: java.util.Map[String, Namespace] =
     new ConcurrentHashMap[String, Namespace]
 
-  def namespace(name: String): Namespace =
+  def namespace(name: String): Namespace = {
+    if (ROOTS.isEmpty) {
+      val configured =
+        if (roots.isEmpty) "none were configured"
+        else roots.map(r => s"'$r'").mkString("[", ", ", "]")
+      throw new IllegalStateException(
+        s"No available Gluten local directory for namespace '$name': none of the " +
+          s"configured local directories could be created ($configured)")
+    }
     NAMESPACE_MAPPING.computeIfAbsent(name, (name: String) => new Namespace(ROOTS, name))
+  }
 }
 
 object SparkDirectoryUtil extends Logging {
@@ -87,6 +95,11 @@ object SparkDirectoryUtil extends Logging {
   }
 
   def get(): SparkDirectoryUtil = INSTANCE
+
+  // Visible for testing: build an isolated instance without touching the
+  // process-wide singleton, so tests do not depend on init() ordering.
+  private[util] def createForTesting(roots: Array[String]): SparkDirectoryUtil =
+    new SparkDirectoryUtil(roots)
 }
 
 class Namespace(private val parents: Array[File], private val name: String) {
@@ -98,16 +111,21 @@ class Namespace(private val parents: Array[File], private val name: String) {
       path.toFile
   }
 
-  private val cycleLooper = Stream.continually(all).flatten.toIterator
+  if (all.isEmpty) {
+    // all.isEmpty iff parents.isEmpty (map preserves length), so the actionable
+    // detail here is that no parent directories were provided.
+    throw new IllegalStateException(
+      s"No available Gluten local directory in namespace '$name': " +
+        s"no parent directories were provided")
+  }
+
+  private var nextRootIndex = 0
 
   def mkChildDirRoundRobin(childDirName: String): File = synchronized {
-    if (!cycleLooper.hasNext) {
-      throw new IllegalStateException()
-    }
-    val subDir = cycleLooper.next()
-    if (StringUtils.isEmpty(subDir.getAbsolutePath)) {
-      throw new IllegalArgumentException(s"Illegal local dir: $subDir")
-    }
+    // Round-robin across the parent roots by index. The constructor rejects an
+    // empty parent list, so `all` is always non-empty here.
+    val subDir = all(nextRootIndex)
+    nextRootIndex = (nextRootIndex + 1) % all.length
     val path = Paths
       .get(subDir.getAbsolutePath)
       .resolve(childDirName)
