@@ -51,7 +51,6 @@ trait Transition {
 
 object Transition {
   val empty: Transition = (plan: SparkPlan) => plan
-  private val abort: Transition = (_: SparkPlan) => throw new UnsupportedOperationException("Abort")
   val factory = Factory.newBuiltin()
   private lazy val maxFields = SQLConf.get.maxToStringFields
 
@@ -91,11 +90,6 @@ object Transition {
       findTransition(from, to) {
         throw otherwise
       }
-    }
-
-    final def satisfies(conv: Convention, req: ConventionReq): Boolean = {
-      val transition = findTransition(conv, req)(abort)
-      transition.isEmpty
     }
 
     def update(body: TransitionGraph.Builder => Unit): Unit

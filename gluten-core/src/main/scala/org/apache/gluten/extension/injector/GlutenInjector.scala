@@ -16,7 +16,6 @@
  */
 package org.apache.gluten.extension.injector
 
-import org.apache.gluten.config.GlutenCoreConfig
 import org.apache.gluten.extension.GlutenColumnarRule
 import org.apache.gluten.extension.columnar.ColumnarRuleApplier
 import org.apache.gluten.extension.columnar.ColumnarRuleApplier.ColumnarRuleCall
@@ -39,7 +38,6 @@ class GlutenInjector private[injector] (control: InjectorControl) {
   }
 
   private def applier(session: SparkSession): ColumnarRuleApplier = {
-    val conf = new GlutenCoreConfig(session.sessionState.conf)
     legacy.createApplier(session)
   }
 }
