@@ -385,6 +385,7 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
 
   public static long shrinkOnHeapMemory(long totalMemory, long freeMemory, boolean isAsyncGc) {
     boolean updateMaxHeapFreeRatio = false;
+    boolean updateMinHeapFreeRatio = false;
     Object hotSpotBean = null;
     String maxHeapFreeRatioName = "MaxHeapFreeRatio";
     String minHeapFreeRatioName = "MinHeapFreeRatio";
@@ -401,6 +402,7 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
       if (newValue < ORIGINAL_MIN_HEAP_FREE_RATIO) {
         // Adjust the MinHeapFreeRatio to avoid the violation of the MaxHeapFreeRatio.
         setOption.invoke(hotSpotBean, minHeapFreeRatioName, Integer.toString(newValue));
+        updateMinHeapFreeRatio = true;
       }
       if (newValue < ORIGINAL_MAX_HEAP_FREE_RATIO) {
         setOption.invoke(hotSpotBean, maxHeapFreeRatioName, Integer.toString(newValue));
@@ -416,16 +418,29 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
           "Failed to update JVM heap free ratio via HotSpotDiagnosticMXBean: {}", e.toString());
       return totalMemory;
     } finally {
-      // Reset the MaxHeapFreeRatio to the original values.
+      // Reset both heap free ratios to the original values. Each revert is
+      // best-effort on its own: a failing Max revert must not silently skip
+      // the Min revert, which would leave the same permanent mutation behind.
       if (hotSpotBean != null && updateMaxHeapFreeRatio) {
         try {
           Class<?> beanClass = Class.forName("com.sun.management.HotSpotDiagnosticMXBean");
           Method setOption = beanClass.getMethod("setVMOption", String.class, String.class);
           setOption.invoke(
               hotSpotBean, maxHeapFreeRatioName, Integer.toString(ORIGINAL_MAX_HEAP_FREE_RATIO));
-          LOG.info("Reverted VM flags back.");
+          LOG.info("Reverted MaxHeapFreeRatio back.");
         } catch (Exception ignore) {
-          // best‐effort revert
+          // best-effort revert
+        }
+      }
+      if (hotSpotBean != null && updateMinHeapFreeRatio) {
+        try {
+          Class<?> beanClass = Class.forName("com.sun.management.HotSpotDiagnosticMXBean");
+          Method setOption = beanClass.getMethod("setVMOption", String.class, String.class);
+          setOption.invoke(
+              hotSpotBean, minHeapFreeRatioName, Integer.toString(ORIGINAL_MIN_HEAP_FREE_RATIO));
+          LOG.info("Reverted MinHeapFreeRatio back.");
+        } catch (Exception ignore) {
+          // best-effort revert
         }
       }
     }
