@@ -16,6 +16,8 @@
  */
 package org.apache.spark.shuffle
 
+import org.apache.gluten.exception.GlutenException
+
 import org.apache.spark.{ShuffleDependency, TaskContext}
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.buffer.ManagedBuffer
@@ -111,7 +113,12 @@ private object ShuffleManagerRouter {
 
     def get(shuffleId: Int): ShuffleManager = {
       val manager = cache.get(shuffleId)
-      assert(manager != null, s"Shuffle manager not registered for shuffle id: $shuffleId")
+      if (manager == null) {
+        // An assert is a no-op on JVMs launched without -ea (Spark's default for
+        // executors), which would turn a cache miss into a bare NPE at the
+        // delegation call site instead of this diagnostic.
+        throw new GlutenException(s"Shuffle manager not registered for shuffle id: $shuffleId")
+      }
       manager
     }
 

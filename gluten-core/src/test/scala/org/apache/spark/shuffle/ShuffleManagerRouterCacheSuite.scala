@@ -16,10 +16,13 @@
  */
 package org.apache.spark.shuffle
 
+import org.apache.gluten.exception.GlutenException
+
 import org.apache.spark.{ShuffleDependency, SparkConf, TaskContext}
 import org.apache.spark.internal.config.SHUFFLE_MANAGER
 import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.sql.test.SharedSparkSession
+import org.apache.spark.storage.ShuffleBlockId
 
 import java.util.concurrent.{CopyOnWriteArrayList, CyclicBarrier}
 import java.util.concurrent.atomic.AtomicInteger
@@ -64,6 +67,21 @@ class ShuffleManagerRouterCacheSuite extends SharedSparkSession {
     val neverRegistered = 987654321
     // Should behave like SortShuffleManager: return a boolean, not throw.
     assert(!gm.unregisterShuffle(neverRegistered))
+  }
+
+  test("block resolution of a never-registered shuffleId reports the shuffle id") {
+    val gm = spark.sparkContext.env.shuffleManager
+    val resolver = gm.shuffleBlockResolver
+
+    val neverRegistered = 987654322
+    val exception = intercept[GlutenException] {
+      resolver.getBlockData(new ShuffleBlockId(neverRegistered, 0L, 0), None)
+    }
+    // getBlockData is the one public route that reads the cache without a
+    // preceding registration; the miss must carry a diagnostic naming the
+    // shuffle id instead of surfacing as a bare NPE (the old assert is a
+    // no-op without -ea).
+    assert(exception.getMessage.contains(neverRegistered.toString))
   }
 
   test("concurrent first-touch of a new shuffleId does not fail tasks") {
