@@ -55,4 +55,23 @@ class SparkDirectoryUtilSuite extends AnyFunSuite {
       Utils.deleteRecursively(root)
     }
   }
+
+  test("mkChildDirRoundRobin cycles through the roots in order") {
+    val roots = Array.tabulate(3)(i => Files.createTempDirectory(s"gluten-rr-$i-").toFile)
+    try {
+      val namespace = new Namespace(roots, "test-namespace")
+      // The child name is fixed, so only the chosen root advances: successive calls
+      // must land under root 0, 1, 2, 0, 1, 2, 0, ... (the index-based round-robin).
+      (0 until 7).foreach {
+        i =>
+          val child = namespace.mkChildDirRoundRobin("child-dir")
+          val expectedRoot = roots(i % roots.length).getCanonicalPath
+          assert(
+            child.getCanonicalPath.startsWith(expectedRoot),
+            s"call $i landed at ${child.getCanonicalPath}, expected under $expectedRoot")
+      }
+    } finally {
+      roots.foreach(Utils.deleteRecursively)
+    }
+  }
 }
