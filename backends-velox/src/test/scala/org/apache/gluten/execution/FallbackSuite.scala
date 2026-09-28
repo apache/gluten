@@ -797,7 +797,8 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                 assert(
                   collect(plan) { case f: FileSourceScanExec => f }.nonEmpty,
                   "Expected fallback: vanilla FileSourceScanExec must be present in the plan.\n" +
-                    s"Plan:\n$plan")
+                    s"Plan:\n$plan"
+                )
 
                 // Value assertions: correctness must be preserved after fallback.
                 val rows = df.collect()
