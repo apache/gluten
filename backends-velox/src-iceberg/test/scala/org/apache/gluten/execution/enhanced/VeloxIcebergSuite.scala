@@ -18,7 +18,7 @@ package org.apache.gluten.execution.enhanced
 
 import org.apache.gluten.config.GlutenConfig.COLUMNAR_PARQUET_WRITE_BLOCK_SIZE
 import org.apache.gluten.config.GlutenIcebergConfig
-import org.apache.gluten.config.VeloxConfig.MAX_TARGET_FILE_SIZE_SESSION
+import org.apache.gluten.config.VeloxConfig.{MAX_TARGET_FILE_SIZE_SESSION, PARQUET_DICT_SIZE_BYTES, PARQUET_PAGE_SIZE_BYTES}
 import org.apache.gluten.execution._
 import org.apache.gluten.tags.EnhancedFeaturesTest
 
@@ -542,76 +542,92 @@ class VeloxIcebergSuite extends IcebergSuite {
       )
     }
   }
-  ignore("disabled test") {
-    test("iceberg native write respects target file size bytes") {
-      withTable("iceberg_small_target_tbl") {
-        spark.sql(
-          """
-            |CREATE TABLE iceberg_small_target_tbl (
-            |  id INT,
-            |  payload STRING
-            |) USING iceberg
-            |TBLPROPERTIES (
-            |  'write.format.default' = 'parquet',
-            |  'write.parquet.compression-codec' = 'uncompressed',
-            |  'write.parquet.row-group-size-bytes' = '4096',
-            |  'write.parquet.page-size-bytes' = '1024B',
-            |  'write.target-file-size-bytes' = '8192'
-            |)
-            |""".stripMargin)
+  Seq(None, Some("8192"), Some("8KB"), Some("0")).foreach {
+    targetFileSizeOverride =>
+      val description = targetFileSizeOverride.map(v => s" with session override $v").getOrElse("")
+      test(s"iceberg native write respects target file size bytes$description") {
+        val overrides = targetFileSizeOverride.toSeq.flatMap {
+          value =>
+            Seq(
+              MAX_TARGET_FILE_SIZE_SESSION.key -> value,
+              PARQUET_PAGE_SIZE_BYTES.key -> "1024",
+              PARQUET_DICT_SIZE_BYTES.key -> "2048")
+        }
+        withSQLConf(overrides: _*) {
+          withTable("iceberg_small_target_tbl") {
+            spark.sql(
+              """
+                |CREATE TABLE iceberg_small_target_tbl (
+                |  id INT,
+                |  payload STRING
+                |) USING iceberg
+                |TBLPROPERTIES (
+                |  'write.format.default' = 'parquet',
+                |  'write.parquet.compression-codec' = 'uncompressed',
+                |  'write.parquet.page-size-bytes' = '1024',
+                |  'write.target-file-size-bytes' = '8192'
+                |)
+                |""".stripMargin)
 
-        checkAnswer(
-          spark.sql(
-            """
-              |SHOW TBLPROPERTIES iceberg_small_target_tbl
-              |('write.target-file-size-bytes')
-              |""".stripMargin),
-          Seq(Row("write.target-file-size-bytes", "8192"))
-        )
+            checkAnswer(
+              spark.sql(
+                """
+                  |SHOW TBLPROPERTIES iceberg_small_target_tbl
+                  |('write.target-file-size-bytes')
+                  |""".stripMargin),
+              Seq(Row("write.target-file-size-bytes", "8192"))
+            )
 
-        val df = spark.sql(
-          """
-            |INSERT INTO iceberg_small_target_tbl
-            |SELECT /*+ COALESCE(1) */
-            |  CAST(id AS INT),
-            |  concat(
-            |    CAST(id AS STRING),
-            |    '-',
-            |    sha2(CAST(id AS STRING), 256),
-            |    '-',
-            |    sha2(CAST(id + 1000 AS STRING), 256)
-            |  )
-            |FROM range(1000)
-            |""".stripMargin)
+            val df = spark.sql(
+              """
+                |INSERT INTO iceberg_small_target_tbl
+                |SELECT /*+ COALESCE(1) */
+                |  CAST(id AS INT),
+                |  concat(
+                |    CAST(id AS STRING),
+                |    '-',
+                |    sha2(CAST(id AS STRING), 256),
+                |    '-',
+                |    sha2(CAST(id + 1000 AS STRING), 256)
+                |  )
+                |FROM range(0, 1000, 1, 16)
+                |""".stripMargin)
 
-        val commandPlan =
-          df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
+            val commandPlan =
+              df.queryExecution.executedPlan.asInstanceOf[CommandResultExec].commandPhysicalPlan
 
-        assert(commandPlan.isInstanceOf[VeloxIcebergAppendDataExec])
+            assert(commandPlan.isInstanceOf[VeloxIcebergAppendDataExec])
 
-        checkAnswer(
-          spark.sql("SELECT COUNT(*) FROM iceberg_small_target_tbl"),
-          Seq(Row(1000L)))
+            checkAnswer(
+              spark.sql("SELECT COUNT(*) FROM iceberg_small_target_tbl"),
+              Seq(Row(1000L)))
 
-        val files = spark.sql(
-          """
-            |SELECT file_size_in_bytes
-            |FROM default.iceberg_small_target_tbl.files
-            |""".stripMargin).collect().map(_.getLong(0))
+            val files = spark.sql(
+              """
+                |SELECT file_size_in_bytes
+                |FROM default.iceberg_small_target_tbl.files
+                |""".stripMargin).collect().map(_.getLong(0))
 
-        assert(files.nonEmpty)
+            assert(files.nonEmpty)
 
-        assert(
-          files.length > 1,
-          s"Expected write.target-file-size-bytes=8192 to create multiple files, " +
-            s"but got files=${files.mkString("[", ", ", "]")}")
+            if (targetFileSizeOverride.contains("0")) {
+              assert(
+                files.length == 1,
+                s"Expected the session override to disable file rotation: ${files.mkString(", ")}")
+            } else {
+              assert(
+                files.length > 1,
+                s"Expected write.target-file-size-bytes=8192 to create multiple files, " +
+                  s"but got files=${files.mkString("[", ", ", "]")}")
 
-        assert(
-          files.max < 64L * 1024L,
-          s"Expected small target file size to keep max file size reasonably small, " +
-            s"but got files=${files.mkString("[", ", ", "]")}")
+              assert(
+                files.max < 64L * 1024L,
+                s"Expected small target file size to keep max file size reasonably small, " +
+                  s"but got files=${files.mkString("[", ", ", "]")}")
+            }
+          }
+        }
       }
-    }
   }
 
   test("iceberg parquet writer respects dictionary page size bytes") {
@@ -685,7 +701,7 @@ class VeloxIcebergSuite extends IcebergSuite {
                      |TBLPROPERTIES (
                      |  'write.format.default' = 'parquet',
                      |  'write.parquet.compression-codec' = 'uncompressed',
-                     |  'write.parquet.dict-size-bytes' = '1B'
+                     |  'write.parquet.dict-size-bytes' = '1'
                      |)
                      |""".stripMargin)
 
@@ -715,7 +731,7 @@ class VeloxIcebergSuite extends IcebergSuite {
         )
         assert(
           encodings.contains(Encoding.PLAIN),
-          s"Expected write.parquet.dict-size-bytes=1B to make later data pages fall back " +
+          s"Expected write.parquet.dict-size-bytes=1 to make later data pages fall back " +
             s"to PLAIN, but got encodings=${encodings.mkString("[", ", ", "]")}"
         )
       }
