@@ -650,12 +650,12 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
-  // scalastyle:off nonascii caselocale
+  // scalastyle:off caselocale
   // PushDownInputFileExpression regression -- generic Parquet file-source path.
   // These tests verify the two PostOffload bugs fixed in commit b7568172a:
   //   1. containsInputFileRelatedExpr: SQLConf.get.resolver gate
   //   2. PostOffload dedup: exprId identity instead of name.toLowerCase
-  // scalastyle:on nonascii caselocale
+  // scalastyle:on caselocale
 
   test(
     "PushDownInputFileExpression: Input_File_Name data column distinct from input_file_name() " +
