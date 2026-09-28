@@ -189,6 +189,23 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("Metrics of TopN") {
+    runQueryAndCompare("SELECT c1, c2 FROM metrics_t1 ORDER BY c2 LIMIT 5") {
+      df =>
+        // TopNTransformer is synthesized at execution time and is not plan-visible; the native
+        // TopN metrics are reported on the TakeOrderedAndProjectExecTransformer node instead.
+        val topN = find(df.queryExecution.executedPlan) {
+          case _: TakeOrderedAndProjectExecTransformer => true
+          case _ => false
+        }
+        assert(topN.isDefined)
+        val metrics = topN.get.metrics
+        assert(metrics("numOutputRows").value == 5)
+        assert(metrics("outputVectors").value > 0)
+        assert(metrics("outputBytes").value > 0)
+    }
+  }
+
   test("Hash aggregate metrics include abandoned partial aggregation rows") {
     withSQLConf(
       GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "10",

@@ -33,9 +33,11 @@ import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, OverwriteB
  */
 case class GlutenNoopWriterRule(session: SparkSession) extends Rule[SparkPlan] {
   override def apply(p: SparkPlan): SparkPlan = p match {
-    case rc @ AppendDataExec(_, _, NoopWrite) =>
+    // Matched by field rather than positionally: Spark 4.2 added `tableName`/`transaction`
+    // parameters to these node types, which breaks positional extraction.
+    case rc: AppendDataExec if rc.write == NoopWrite =>
       injectFakeRowAdaptor(rc, rc.child)
-    case rc @ OverwriteByExpressionExec(_, _, NoopWrite) =>
+    case rc: OverwriteByExpressionExec if rc.write == NoopWrite =>
       injectFakeRowAdaptor(rc, rc.child)
     case _ => p
   }

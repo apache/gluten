@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package gluten;
+
+option java_package = "org.apache.gluten.proto";
+option java_multiple_files = true;
+
+message PaimonTableEnhancement {
+  map<string, string> table_properties = 1;
+}

@@ -30,7 +30,6 @@ import org.apache.gluten.memory.{MemoryUsageRecorder, SimpleMemoryUsageRecorder}
 import org.apache.gluten.memory.listener.ReservationListener
 import org.apache.gluten.memory.memtarget.MemoryTarget
 import org.apache.gluten.monitor.VeloxMemoryProfiler
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.udf.UdfJniWrapper
 import org.apache.gluten.utils._
 
@@ -44,7 +43,6 @@ import org.apache.spark.rpc.{GlutenDriverEndpoint, GlutenExecutorEndpoint}
 import org.apache.spark.shuffle.{ColumnarShuffleDependency, LookupKey, ShuffleManagerRegistry}
 import org.apache.spark.shuffle.sort.ColumnarShuffleManager
 import org.apache.spark.sql.execution.ColumnarCachedBatchSerializer
-import org.apache.spark.sql.execution.datasources.GlutenWriterColumnarRules
 import org.apache.spark.sql.execution.datasources.velox.{VeloxParquetWriterInjects, VeloxRowSplitter}
 import org.apache.spark.sql.expression.UDFResolver
 import org.apache.spark.sql.internal.{GlutenConfigUtil, StaticSQLConf}
@@ -239,11 +237,6 @@ class VeloxListenerApi extends ListenerApi with Logging {
 
     // Inject backend-specific implementations to override spark classes.
     GlutenFormatFactory.register(new VeloxParquetWriterInjects)
-    // Only register NativeWritePostRule for Spark 3.3
-    if (SparkShimLoader.getSparkVersion.startsWith("3.3")) {
-      GlutenFormatFactory.injectPostRuleFactory(
-        session => GlutenWriterColumnarRules.NativeWritePostRule(session))
-    }
     GlutenFormatFactory.register(new VeloxRowSplitter())
   }
 

@@ -315,7 +315,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     checkLengthAndPlan(df, 5)
   }
 
-  testWithMinSparkVersion("coalesce validation", "3.4") {
+  test("coalesce validation") {
     withTempPath {
       path =>
         val data = "2019-09-09 01:02:03.456789"
@@ -2338,16 +2338,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
           assert(metrics("numOutputBatches").value == expectedNumBatches)
         }
       })
-  }
-
-  test("Expression unsupported by backend can be handled by ColumnarPartialProject") {
-    runQueryAndCompare(
-      "SELECT c_custkey, map_from_arrays(array(c_name), array(c_comment)) FROM customer") {
-      df =>
-        val executedPlan = getExecutedPlan(df)
-        assert(executedPlan.count(_.isInstanceOf[ProjectExec]) == 0)
-        assert(executedPlan.count(_.isInstanceOf[ColumnarPartialProjectExec]) == 1)
-    }
   }
 
   testWithMinSparkVersion("Left single join should not result into exception", "4.0") {

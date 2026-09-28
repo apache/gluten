@@ -16,7 +16,9 @@
  */
 package org.apache.gluten.config
 
+import org.apache.spark.SparkEnv
 import org.apache.spark.network.util.ByteUnit
+import org.apache.spark.sql.internal.SparkConfigUtil._
 import org.apache.spark.sql.internal.SQLConf
 
 import java.util.Locale
@@ -71,6 +73,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableBroadcastBuildOncePerExecutor: Boolean =
     getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
 
+  def broadcastNestedLoopJoinFullOuterRewriteThreshold: Long =
+    getConf(VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD)
+
   def veloxBroadcastHashTableBuildTargetBytes: Long =
     getConf(COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_TARGET_BYTES)
 
@@ -88,6 +93,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
     getConf(ENABLE_ENHANCED_FEATURES)
 
   def veloxPreferredBatchBytes: Long = getConf(COLUMNAR_VELOX_PREFERRED_BATCH_BYTES)
+
+  def enableRddScan: Boolean = getConf(COLUMNAR_VELOX_RDD_SCAN_ENABLED)
 
   def cudfEnableTableScan: Boolean = getConf(CUDF_ENABLE_TABLE_SCAN)
 
@@ -129,6 +136,16 @@ object VeloxConfig extends ConfigRegistry {
   override def get: VeloxConfig = {
     new VeloxConfig(SQLConf.get)
   }
+
+  /**
+   * Reads the flag straight off the SparkConf instead of going through [[get]].
+   *
+   * Session extensions are applied while the SparkSession is still being built, so `SQLConf.get`
+   * returns defaults at that point and [[get]] would report this flag as off however the user set
+   * it.
+   */
+  def nativeUDFBypassRegistration: Boolean =
+    Option(SparkEnv.get).exists(_.conf.get(NATIVE_UDF_BYPASS_REGISTRATION))
 
   // velox caching options.
   val COLUMNAR_VELOX_CACHE_ENABLED =
@@ -237,6 +254,17 @@ object VeloxConfig extends ConfigRegistry {
           " as these consistently provided the most significant performance gains.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("32MB")
+
+  val VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD =
+    buildConf(
+      "spark.gluten.sql.columnar.backend.velox.broadcastNLJ.fullOuterRewriteThreshold")
+      .doc(
+        "Maximum per-side plan size in bytes for rewriting a full outer broadcast nested loop " +
+          "join into a left outer join and an existence join followed by union. The rewrite is " +
+          "applied only when both sides have known statistics and each side is at or below this " +
+          "threshold. Set to -1 to disable the rewrite.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("10MB")
 
   val COLUMNAR_VELOX_ASYNC_TIMEOUT_ON_TASK_STOPPING =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping")
@@ -694,6 +722,16 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val NATIVE_UDF_BYPASS_REGISTRATION =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.nativeUDF.bypassRegistration")
+      .doc(
+        "If true, a UDF from udfLibraryPaths can be called by the name it was registered " +
+          "with, so you do not have to write a Java class for it or run CREATE TEMPORARY " +
+          "FUNCTION. In exchange, there is no Java version to fall back to, so any query " +
+          "Gluten cannot run natively will fail instead of running on Spark. Off by default.")
+      .booleanConf
+      .createWithDefault(false)
+
   val CAST_FROM_VARCHAR_ADD_TRIM_NODE =
     buildConf("spark.gluten.velox.castFromVarcharAddTrimNode")
       .doc(
@@ -939,6 +977,16 @@ object VeloxConfig extends ConfigRegistry {
       .internal()
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("10MB")
+
+  val COLUMNAR_VELOX_RDD_SCAN_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.rddScan.enabled")
+      .doc(
+        "When true, offload RDDScanExec to Velox by converting the RDD[InternalRow] into" +
+          " columnar batches through the native row-to-columnar path. Schemas that are not" +
+          " supported by the Arrow export path (e.g. map or interval types) fall back to" +
+          " vanilla Spark.")
+      .booleanConf
+      .createWithDefault(true)
 
   val VELOX_MAX_COMPILED_REGEXES =
     buildConf("spark.gluten.sql.columnar.backend.velox.maxCompiledRegexes")

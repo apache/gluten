@@ -176,9 +176,11 @@ class VeloxRssSortShuffleReaderDeserializer : public ShuffleReaderDeserializer {
   std::unique_ptr<ColumnarBatchIterator> deserializeStreams() override;
 
  private:
-  class VeloxInputStream;
+  class RssSortShuffleReaderInputStream;
 
   void loadNextStream();
+
+  facebook::velox::RowVectorPtr readPage();
 
   std::shared_ptr<StreamReader> streamReader_;
   VeloxMemoryManager* memoryManager_;
@@ -189,7 +191,7 @@ class VeloxRssSortShuffleReaderDeserializer : public ShuffleReaderDeserializer {
   facebook::velox::VectorSerde* const serde_;
   facebook::velox::serializer::presto::PrestoVectorSerde::PrestoOptions serdeOptions_;
   int64_t& deserializeTime_;
-  std::shared_ptr<VeloxInputStream> in_{nullptr};
+  std::shared_ptr<RssSortShuffleReaderInputStream> in_{nullptr};
   std::shared_ptr<arrow::io::InputStream> arrowIn_{nullptr};
 
   bool reachedEos_{false};

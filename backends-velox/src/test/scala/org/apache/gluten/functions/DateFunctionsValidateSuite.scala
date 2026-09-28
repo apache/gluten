@@ -569,7 +569,7 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("read as timestamp_ntz", "3.4") {
+  test("read as timestamp_ntz") {
     val inputs: Seq[String] = Seq(
       "1970-01-01",
       "1970-01-01 00:00:00-02:00",
@@ -613,6 +613,14 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
         }
         // timestampadd(timestamp_ntz) runs natively; output stays timestamp_ntz.
         runQueryAndCompare("select timestampadd(hour, 1, ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // convert_timezone(timestamp_ntz) runs natively; output stays timestamp_ntz.
+        runQueryAndCompare("select convert_timezone('America/Los_Angeles', ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare(
+          "select convert_timezone('America/Los_Angeles', 'Asia/Shanghai', ts) from view") {
           checkGlutenPlan[ProjectExecTransformer]
         }
 

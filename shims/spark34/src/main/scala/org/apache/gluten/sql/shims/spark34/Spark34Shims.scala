@@ -23,7 +23,6 @@ import org.apache.gluten.utils.ExceptionUtils
 import org.apache.spark._
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.DecimalPrecision
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
@@ -40,7 +39,7 @@ import org.apache.spark.sql.execution.exchange.BroadcastExchangeLike
 import org.apache.spark.sql.extension.RewriteCreateTableAsSelect
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.SQLConf.LegacyBehaviorPolicy
-import org.apache.spark.sql.types.{DecimalType, IntegerType, LongType, StructField, StructType}
+import org.apache.spark.sql.types.{IntegerType, LongType, StructField, StructType}
 import org.apache.spark.storage.{GlutenShuffleBlockFetcherIterator, GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 
 import org.apache.hadoop.fs.{FileStatus, Path}
@@ -49,6 +48,11 @@ import org.apache.parquet.hadoop.metadata.ParquetMetadata
 import org.apache.parquet.schema.MessageType
 
 class Spark34Shims extends SparkShims {
+
+  override def getSampleSeed(plan: SampleExec): Long = plan.seed
+
+  override def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean =
+    partitioning.isInstanceOf[KeyGroupedPartitioning]
 
   override def scalarExpressionMappings: Seq[Sig] = {
     Seq(
@@ -92,16 +96,8 @@ class Spark34Shims extends SparkShims {
         f =>
           BucketingUtils
             .getBucketId(f.toPath.getName)
-            .getOrElse(throw invalidBucketFile(f.urlEncodedPath))
+            .getOrElse(throw ExceptionUtils.invalidBucketFile(f.urlEncodedPath))
       }
-  }
-
-  // https://issues.apache.org/jira/browse/SPARK-40400
-  private def invalidBucketFile(path: String): Throwable = {
-    new SparkException(
-      errorClass = "INVALID_BUCKET_FILE",
-      messageParameters = Map("path" -> path),
-      cause = null)
   }
 
   def setJobDescriptionOrTagForBroadcastExchange(
@@ -169,16 +165,6 @@ class Spark34Shims extends SparkShims {
       isSplitable,
       maxSplitBytes,
       partitionValues)
-  }
-
-  def structFromAttributes(attrs: Seq[Attribute]): StructType = {
-    StructType(attrs.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
-  }
-
-  def attributesFromStruct(structType: StructType): Seq[Attribute] = {
-    structType.fields.map {
-      field => AttributeReference(field.name, field.dataType, field.nullable, field.metadata)()
-    }
   }
 
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan] = {
@@ -352,10 +338,6 @@ class Spark34Shims extends SparkShims {
         Option.apply(Seq(timestampAdd.unit, timestampAdd.timeZoneId.getOrElse("")))
       case _ => Option.empty
     }
-  }
-
-  override def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType = {
-    DecimalPrecision.widerDecimalType(d1, d2)
   }
 
   override def getRewriteCreateTableAsSelect(session: SparkSession): SparkStrategy = {

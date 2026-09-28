@@ -32,18 +32,51 @@ import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.JavaConverters._
 
+/**
+ * Extends [[SortShuffleManager]] rather than [[ShuffleManager]] on purpose.
+ *
+ * `spark.shuffle.manager` is process-wide, so this manager also serves the row-based exchanges that
+ * Gluten does not offload. `ShuffleExchangeExec.needToCopyObjectsBeforeShuffle` gates the per-row
+ * defensive `UnsafeRow.copy()` on `isInstanceOf[SortShuffleManager]`, falling through to a
+ * catch-all `true` for any other implementation. The copy only protects `ExternalSorter`, which
+ * buffers deserialized rows; the row-based branches below produce the same handles and the same
+ * writers as `SortShuffleManager`, so the copy is pure overhead here. Keeping the subtype
+ * relationship lets Spark take the zero-copy path.
+ *
+ * WARNING: the `shuffleBlockResolver` wiring and the `registerShuffle` / `getWriter` /
+ * `unregisterShuffle` bodies below are copied from Spark's own `SortShuffleManager` rather than
+ * inherited, and Spark has changed them before without this copy being updated. They must be
+ * re-checked against `SortShuffleManager` whenever a new Spark version is supported, and any
+ * divergence either mirrored here or handled through a shim.
+ */
 class ColumnarShuffleManager(conf: SparkConf)
-  extends ShuffleManager
+  extends SortShuffleManager(conf)
   with SupportsColumnarShuffle
   with Logging {
 
   import ColumnarShuffleManager._
 
   private lazy val shuffleExecutorComponents = loadShuffleExecutorComponents(conf)
-  override val shuffleBlockResolver = new IndexShuffleBlockResolver(conf)
 
-  /** A mapping from shuffle ids to the number of mappers producing output for those shuffles. */
+  /**
+   * A mapping from shuffle ids to the task ids of mappers producing output for those shuffles.
+   *
+   * Must be declared before `shuffleBlockResolver`: Scala initializes vals in declaration order, so
+   * the resolver would otherwise capture `null`.
+   */
   private[this] val taskIdMapsForShuffle = new ConcurrentHashMap[Int, OpenHashSet[Long]]()
+
+  // Mirrors SortShuffleManager: the resolver must share this map rather than allocate its own. It
+  // records blocks migrated in during executor decommissioning, and `unregisterShuffle` reads the
+  // same map to delete the corresponding map output.
+  //
+  // The argument is positional rather than named because the constructor signature differs across
+  // supported Spark versions: 3.4 and 3.5 default both `_blockManager` and `taskIdMapsForShuffle`,
+  // 4.0 drops the defaults, and 4.1 narrows the map type from `java.util.Map` to
+  // `java.util.concurrent.ConcurrentMap`. The positional form compiles against all of them, but it
+  // is signature-sensitive -- re-verify it when adding a new Spark version.
+  override val shuffleBlockResolver =
+    new IndexShuffleBlockResolver(conf, null, taskIdMapsForShuffle)
 
   /** Obtains a [[ShuffleHandle]] to pass to tasks. */
   override def registerShuffle[K, V, C](
@@ -168,8 +201,12 @@ class ColumnarShuffleManager(conf: SparkConf)
   override def unregisterShuffle(shuffleId: Int): Boolean = {
     Option(taskIdMapsForShuffle.remove(shuffleId)).foreach {
       mapTaskIds =>
-        mapTaskIds.iterator.foreach {
-          mapId => shuffleBlockResolver.removeDataByMap(shuffleId, mapId)
+        // The block-migration path mutates this set under the same lock; iterating without it
+        // risks a ConcurrentModificationException during decommissioning.
+        mapTaskIds.synchronized {
+          mapTaskIds.iterator.foreach {
+            mapId => shuffleBlockResolver.removeDataByMap(shuffleId, mapId)
+          }
         }
     }
     true
@@ -177,7 +214,8 @@ class ColumnarShuffleManager(conf: SparkConf)
 
   /** Shut down this ShuffleManager. */
   override def stop(): Unit = {
-    shuffleBlockResolver.stop()
+    // SortShuffleManager.stop() stops shuffleBlockResolver.
+    super.stop()
   }
 }
 

@@ -19,18 +19,17 @@ package org.apache.gluten.sql.shims.spark41
 import org.apache.gluten.execution.PartitionedFileUtilShim
 import org.apache.gluten.expression.{ExpressionNames, Sig}
 import org.apache.gluten.sql.shims.SparkShims
+import org.apache.gluten.utils.ExceptionUtils
 
 import org.apache.spark._
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.{ExtendedAnalysisException, InternalRow}
-import org.apache.spark.sql.catalyst.analysis.DecimalPrecisionTypeCoercion
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.{JoinType, LeftSingle}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.plans.physical.{KeyGroupedPartitioning, KeyGroupedShuffleSpec, Partitioning}
-import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.catalyst.util.{CollationFactory, InternalRowComparableWrapper, MapData}
 import org.apache.spark.sql.catalyst.util.RebaseDateTime.RebaseSpec
 import org.apache.spark.sql.connector.read.{HasPartitionKey, InputPartition, Scan}
@@ -55,6 +54,11 @@ import java.util.{Map => JMap}
 import scala.jdk.CollectionConverters._
 
 class Spark41Shims extends SparkShims {
+
+  override def getSampleSeed(plan: SampleExec): Long = plan.seed
+
+  override def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean =
+    partitioning.isInstanceOf[KeyGroupedPartitioning]
 
   override def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] =
     plan.stream
@@ -107,20 +111,17 @@ class Spark41Shims extends SparkShims {
         f =>
           BucketingUtils
             .getBucketId(f.toPath.getName)
-            .getOrElse(throw invalidBucketFile(f.urlEncodedPath))
+            .getOrElse(throw ExceptionUtils.invalidBucketFile(f.urlEncodedPath))
       }
-  }
-
-  // https://issues.apache.org/jira/browse/SPARK-40400
-  private def invalidBucketFile(path: String): Throwable = {
-    new SparkException(
-      errorClass = "INVALID_BUCKET_FILE",
-      messageParameters = Map("path" -> path),
-      cause = null)
   }
 
   override def isWindowGroupLimitExec(plan: SparkPlan): Boolean = plan match {
     case _: WindowGroupLimitExec => true
+    case _ => false
+  }
+
+  override def isEmptyRelationExec(plan: SparkPlan): Boolean = plan match {
+    case _: EmptyRelationExec => true
     case _ => false
   }
 
@@ -218,14 +219,6 @@ class Spark41Shims extends SparkShims {
       isSplitable,
       maxSplitBytes,
       partitionValues)
-  }
-
-  def structFromAttributes(attrs: Seq[Attribute]): StructType = {
-    DataTypeUtils.fromAttributes(attrs)
-  }
-
-  def attributesFromStruct(structType: StructType): Seq[Attribute] = {
-    DataTypeUtils.toAttributes(structType)
   }
 
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan] = {
@@ -459,10 +452,6 @@ class Spark41Shims extends SparkShims {
         Option.apply(Seq(timestampAdd.unit, timestampAdd.timeZoneId.getOrElse("")))
       case _ => Option.empty
     }
-  }
-
-  override def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType = {
-    DecimalPrecisionTypeCoercion.widerDecimalType(d1, d2)
   }
 
   override def decimalAllowPrecisionLoss(expr: BinaryArithmetic): Boolean = expr match {

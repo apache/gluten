@@ -1216,7 +1216,8 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
     }
   }
 
-  testSparkVersionLE33("test posexplode issue: https://github.com/oap-project/gluten/issues/1767") {
+  ignoreSpark33OnlyCase(
+    "test posexplode issue: https://github.com/oap-project/gluten/issues/1767") {
     spark.sql("create table test_1767 (id bigint, data map<string, string>) using parquet")
     spark.sql("INSERT INTO test_1767 values(1, map('k', 'v'))")
 

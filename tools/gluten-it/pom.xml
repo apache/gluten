@@ -34,7 +34,7 @@
     <maven.compiler.target>${java.version}</maven.compiler.target>
     <scala.version>2.12.18</scala.version>
     <scala.binary.version>2.12</scala.binary.version>
-    <spark.version>3.5.5</spark.version>
+    <spark.version>3.5.7</spark.version>
     <spark.major.version>3</spark.major.version>
     <delta.package.name>delta-spark</delta.package.name>
     <delta.version>3.3.2</delta.version>

@@ -16,11 +16,19 @@
  */
 package org.apache.gluten.expression
 
-import org.apache.spark.sql.catalyst.expressions.{Add, Cast, Divide, EvalMode, Expression, IntegralDivide, LeafExpression, Multiply, Subtract}
+import org.apache.spark.sql.catalyst.expressions.{Add, Attribute, AttributeReference, Cast, Divide, EvalMode, Expression, IntegralDivide, LeafExpression, Multiply, Subtract}
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructField, StructType}
 
 object ExpressionUtils {
+
+  def structFromAttributes(attrs: Seq[Attribute]): StructType =
+    StructType(attrs.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
+
+  def attributesFromStruct(structType: StructType): Seq[Attribute] =
+    structType.fields.map {
+      field => AttributeReference(field.name, field.dataType, field.nullable, field.metadata)()
+    }
 
   private def getExpressionTreeDepth(expr: Expression): Integer = {
     if (expr.isInstanceOf[LeafExpression]) {

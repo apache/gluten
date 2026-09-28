@@ -104,9 +104,6 @@ org.apache.spark.sql.delta.DeltaInsertIntoSQLByPathSuite#insertInto: timestamp p
 org.apache.spark.sql.delta.DeltaInsertIntoSQLSuite#insertInto: timestamp partition values with different precisions
 org.apache.spark.sql.delta.DeltaLiteVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaLiteVacuumSuite#vacuum for cdc - update/merge
-org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=false, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
-org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=false, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
-org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=false, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
 org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=true, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
 org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=true, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
 org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=false, with rowIndexCol=true, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
@@ -116,12 +113,6 @@ org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=
 org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=true, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
 org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=true, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
 org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=false, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=true, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
-org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=true, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=false, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
-org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=true, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=false, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
-org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=true, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=false, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
-org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=true, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=true, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
-org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=true, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=true, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
-org.apache.spark.sql.delta.DeltaParquetFileFormatSuite#isDeletionVectorsEnabled=true, read DV metadata columns: with isRowDeletedCol=true, with rowIndexCol=true, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
 org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_CONTAINED, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
 org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_CONTAINED, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
 org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_CONTAINED, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
@@ -455,8 +446,26 @@ org.apache.spark.sql.delta.coordinatedcommits.CoordinatedCommitsSuite#Incomplete
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#DELETE with DVs with column mapping mode=id
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: delete a small number of rows from tables of 2B rows with DVs
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsSuite#huge table: read from tables of 2B rows with existing DV of many zeros
-org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#(It is not a test it is a sbt.testing.SuiteSelector)
-org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#<suite aborted>
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Multiple delete statements. vectorizedReaderEnabled: false readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Multiple delete statements. vectorizedReaderEnabled: true readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Multiple delete statements. vectorizedReaderEnabled: true readColumnarBatchAsRows: true
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Scan with predicates - no deletes. vectorizedReaderEnabled: false readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Scan with predicates - no deletes. vectorizedReaderEnabled: true readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Scan with predicates - no deletes. vectorizedReaderEnabled: true readColumnarBatchAsRows: true
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Scan with predicates. vectorizedReaderEnabled: false readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Scan with predicates. vectorizedReaderEnabled: true readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Scan with predicates. vectorizedReaderEnabled: true readColumnarBatchAsRows: true
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single delete statement with multiple ids. vectorizedReaderEnabled: false readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single delete statement with multiple ids. vectorizedReaderEnabled: true readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single delete statement with multiple ids. vectorizedReaderEnabled: true readColumnarBatchAsRows: true
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the first row group. vectorizedReaderEnabled: false readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the first row group. vectorizedReaderEnabled: true readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the first row group. vectorizedReaderEnabled: true readColumnarBatchAsRows: true
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the second row group. vectorizedReaderEnabled: false readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the second row group. vectorizedReaderEnabled: true readColumnarBatchAsRows: false
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the second row group. vectorizedReaderEnabled: true readColumnarBatchAsRows: true
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#huge table: delete a small number of rows from tables of 2B rows with DVs
+org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#huge table: read from tables of 2B rows with existing DV of many zeros
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLNameBasedSuite#test delete on temp view - nontrivial projection - Dataset TempView
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLNameBasedSuite#test delete on temp view - nontrivial projection - SQL TempView
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLPathBasedCDCOnSuite#test delete on temp view - nontrivial projection - Dataset TempView

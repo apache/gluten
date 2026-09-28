@@ -22,7 +22,7 @@ import org.apache.gluten.expression.Sig
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BinaryArithmetic, Expression, RaiseError}
+import org.apache.spark.sql.catalyst.expressions.{BinaryArithmetic, Expression, RaiseError}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -36,7 +36,7 @@ import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.window.WindowGroupLimitExecShim
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DecimalType, StringType, StructType}
+import org.apache.spark.sql.types.{StringType, StructType}
 import org.apache.spark.storage.{GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 import org.apache.spark.util.SparkShimVersionUtil
 
@@ -83,6 +83,25 @@ trait SparkShims {
 
   def isWindowGroupLimitExec(plan: SparkPlan): Boolean = false
 
+  /**
+   * Whether the given plan is an EmptyRelationExec. The node only exists on Spark 4.0+
+   * (SPARK-47217) so the default implementation returns false; Spark 4.0+ shims override it.
+   */
+  def isEmptyRelationExec(plan: SparkPlan): Boolean = false
+
+  /**
+   * The seed of a [[SampleExec]]. Spark 4.2 (SPARK-53564) made the seed optional and resolves it
+   * lazily via `resolvedSeed`, so the accessor is shimmed per version.
+   */
+  def getSampleSeed(plan: SampleExec): Long
+
+  /**
+   * Whether the partitioning is Spark's storage-partitioned-join partitioning. Spark 4.2
+   * (SPARK-53401) renamed `KeyGroupedPartitioning` to `KeyedPartitioning`, so the type test is
+   * shimmed per version.
+   */
+  def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean
+
   def getWindowGroupLimitExecShim(plan: SparkPlan): WindowGroupLimitExecShim = null
 
   def getWindowGroupLimitExec(windowGroupLimitExecShim: WindowGroupLimitExecShim): SparkPlan = null
@@ -115,10 +134,6 @@ trait SparkShims {
       maxSplitBytes: Long,
       partitionValues: InternalRow,
       metadata: Map[String, Any] = Map.empty): Seq[PartitionedFile]
-
-  def structFromAttributes(attrs: Seq[Attribute]): StructType
-
-  def attributesFromStruct(structType: StructType): Seq[Attribute]
 
   // For compatibility with Spark-3.5.
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan]
@@ -177,8 +192,6 @@ trait SparkShims {
 
   def getOtherConstantMetadataColumnValues(file: PartitionedFile): JMap[String, Object] =
     Map.empty[String, Any].asJava.asInstanceOf[JMap[String, Object]]
-
-  def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType
 
   // Spark 4.1+ (SPARK-53968) embeds allowDecimalPrecisionLoss in each arithmetic expression's
   // evalContext at analysis time. Spark41Shims overrides this to read from the expression.

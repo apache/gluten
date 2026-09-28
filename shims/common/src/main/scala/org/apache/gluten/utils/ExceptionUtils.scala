@@ -16,7 +16,18 @@
  */
 package org.apache.gluten.utils
 
+import org.apache.spark.SparkException
+
 object ExceptionUtils {
+
+  // Spark's QueryExecutionErrors.invalidBucketFile is private[sql] and cannot be reached from
+  // this package, so build the same exception here.
+  // https://issues.apache.org/jira/browse/SPARK-40400
+  def invalidBucketFile(path: String): Throwable =
+    new SparkException(
+      errorClass = "INVALID_BUCKET_FILE",
+      messageParameters = Map("path" -> path),
+      cause = null)
 
   /**
    * Utility to check the exception for the specified type.

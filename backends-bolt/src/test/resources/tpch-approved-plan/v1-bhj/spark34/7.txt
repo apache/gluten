@@ -1,0 +1,514 @@
+== Physical Plan ==
+AdaptiveSparkPlan (95)
++- == Final Plan ==
+   BoltColumnarToRow (62)
+   +- ^ SortExecTransformer (60)
+      +- ^ InputIteratorTransformer (59)
+         +- ShuffleQueryStage (57), Statistics(X)
+            +- ColumnarExchange (56)
+               +- BoltResizeBatches (55)
+                  +- ^ RegularHashAggregateExecTransformer (53)
+                     +- ^ InputIteratorTransformer (52)
+                        +- ShuffleQueryStage (50), Statistics(X)
+                           +- ColumnarExchange (49)
+                              +- BoltResizeBatches (48)
+                                 +- ^ ProjectExecTransformer (46)
+                                    +- ^ FlushableHashAggregateExecTransformer (45)
+                                       +- ^ ProjectExecTransformer (44)
+                                          +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (43)
+                                             :- ^ ProjectExecTransformer (38)
+                                             :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (37)
+                                             :     :- ^ ProjectExecTransformer (29)
+                                             :     :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (28)
+                                             :     :     :- ^ ProjectExecTransformer (20)
+                                             :     :     :  +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (19)
+                                             :     :     :     :- ^ ProjectExecTransformer (11)
+                                             :     :     :     :  +- ^ BroadcastHashJoinExecTransformer Inner BuildLeft (10)
+                                             :     :     :     :     :- ^ InputIteratorTransformer (7)
+                                             :     :     :     :     :  +- BroadcastQueryStage (5), Statistics(X)
+                                             :     :     :     :     :     +- ColumnarBroadcastExchange (4)
+                                             :     :     :     :     :        +- ^ FilterExecTransformer (2)
+                                             :     :     :     :     :           +- ^ ScanTransformer parquet  (1)
+                                             :     :     :     :     +- ^ FilterExecTransformer (9)
+                                             :     :     :     :        +- ^ ScanTransformer parquet  (8)
+                                             :     :     :     +- ^ InputIteratorTransformer (18)
+                                             :     :     :        +- BroadcastQueryStage (16), Statistics(X)
+                                             :     :     :           +- ColumnarBroadcastExchange (15)
+                                             :     :     :              +- ^ FilterExecTransformer (13)
+                                             :     :     :                 +- ^ ScanTransformer parquet  (12)
+                                             :     :     +- ^ InputIteratorTransformer (27)
+                                             :     :        +- BroadcastQueryStage (25), Statistics(X)
+                                             :     :           +- ColumnarBroadcastExchange (24)
+                                             :     :              +- ^ FilterExecTransformer (22)
+                                             :     :                 +- ^ ScanTransformer parquet  (21)
+                                             :     +- ^ InputIteratorTransformer (36)
+                                             :        +- BroadcastQueryStage (34), Statistics(X)
+                                             :           +- ColumnarBroadcastExchange (33)
+                                             :              +- ^ FilterExecTransformer (31)
+                                             :                 +- ^ ScanTransformer parquet  (30)
+                                             +- ^ InputIteratorTransformer (42)
+                                                +- BroadcastQueryStage (40), Statistics(X)
+                                                   +- ReusedExchange (39)
++- == Initial Plan ==
+   Sort (94)
+   +- Exchange (93)
+      +- HashAggregate (92)
+         +- Exchange (91)
+            +- HashAggregate (90)
+               +- Project (89)
+                  +- BroadcastHashJoin Inner BuildRight (88)
+                     :- Project (84)
+                     :  +- BroadcastHashJoin Inner BuildRight (83)
+                     :     :- Project (79)
+                     :     :  +- BroadcastHashJoin Inner BuildRight (78)
+                     :     :     :- Project (74)
+                     :     :     :  +- BroadcastHashJoin Inner BuildRight (73)
+                     :     :     :     :- Project (69)
+                     :     :     :     :  +- BroadcastHashJoin Inner BuildLeft (68)
+                     :     :     :     :     :- BroadcastExchange (65)
+                     :     :     :     :     :  +- Filter (64)
+                     :     :     :     :     :     +- Scan parquet (63)
+                     :     :     :     :     +- Filter (67)
+                     :     :     :     :        +- Scan parquet (66)
+                     :     :     :     +- BroadcastExchange (72)
+                     :     :     :        +- Filter (71)
+                     :     :     :           +- Scan parquet (70)
+                     :     :     +- BroadcastExchange (77)
+                     :     :        +- Filter (76)
+                     :     :           +- Scan parquet (75)
+                     :     +- BroadcastExchange (82)
+                     :        +- Filter (81)
+                     :           +- Scan parquet (80)
+                     +- BroadcastExchange (87)
+                        +- Filter (86)
+                           +- Scan parquet (85)
+
+
+(1) ScanTransformer parquet 
+Output [2]: [s_suppkey#X, s_nationkey#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(s_suppkey), IsNotNull(s_nationkey)]
+ReadSchema: struct<s_suppkey:bigint,s_nationkey:bigint>
+
+(2) FilterExecTransformer
+Input [2]: [s_suppkey#X, s_nationkey#X]
+Arguments: (isnotnull(s_suppkey#X) AND isnotnull(s_nationkey#X))
+
+(3) WholeStageCodegenTransformer (X)
+Input [2]: [s_suppkey#X, s_nationkey#X]
+Arguments: false
+
+(4) ColumnarBroadcastExchange
+Input [2]: [s_suppkey#X, s_nationkey#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(5) BroadcastQueryStage
+Output [2]: [s_suppkey#X, s_nationkey#X]
+Arguments: X
+
+(6) InputAdapter
+Input [2]: [s_suppkey#X, s_nationkey#X]
+
+(7) InputIteratorTransformer
+Input [2]: [s_suppkey#X, s_nationkey#X]
+
+(8) ScanTransformer parquet 
+Output [5]: [l_orderkey#X, l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(l_shipdate), GreaterThanOrEqual(l_shipdate,1995-01-01), LessThanOrEqual(l_shipdate,1996-12-31), IsNotNull(l_suppkey), IsNotNull(l_orderkey)]
+ReadSchema: struct<l_orderkey:bigint,l_suppkey:bigint,l_extendedprice:decimal(12,2),l_discount:decimal(12,2),l_shipdate:date>
+
+(9) FilterExecTransformer
+Input [5]: [l_orderkey#X, l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Arguments: ((((isnotnull(l_shipdate#X) AND (l_shipdate#X >= 1995-01-01)) AND (l_shipdate#X <= 1996-12-31)) AND isnotnull(l_suppkey#X)) AND isnotnull(l_orderkey#X))
+
+(10) BroadcastHashJoinExecTransformer
+Left keys [1]: [s_suppkey#X]
+Right keys [1]: [l_suppkey#X]
+Join type: Inner
+Join condition: None
+
+(11) ProjectExecTransformer
+Output [5]: [s_nationkey#X, l_orderkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Input [7]: [s_suppkey#X, s_nationkey#X, l_orderkey#X, l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+
+(12) ScanTransformer parquet 
+Output [2]: [o_orderkey#X, o_custkey#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(o_orderkey), IsNotNull(o_custkey)]
+ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint>
+
+(13) FilterExecTransformer
+Input [2]: [o_orderkey#X, o_custkey#X]
+Arguments: (isnotnull(o_orderkey#X) AND isnotnull(o_custkey#X))
+
+(14) WholeStageCodegenTransformer (X)
+Input [2]: [o_orderkey#X, o_custkey#X]
+Arguments: false
+
+(15) ColumnarBroadcastExchange
+Input [2]: [o_orderkey#X, o_custkey#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(16) BroadcastQueryStage
+Output [2]: [o_orderkey#X, o_custkey#X]
+Arguments: X
+
+(17) InputAdapter
+Input [2]: [o_orderkey#X, o_custkey#X]
+
+(18) InputIteratorTransformer
+Input [2]: [o_orderkey#X, o_custkey#X]
+
+(19) BroadcastHashJoinExecTransformer
+Left keys [1]: [l_orderkey#X]
+Right keys [1]: [o_orderkey#X]
+Join type: Inner
+Join condition: None
+
+(20) ProjectExecTransformer
+Output [5]: [s_nationkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X, o_custkey#X]
+Input [7]: [s_nationkey#X, l_orderkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X, o_orderkey#X, o_custkey#X]
+
+(21) ScanTransformer parquet 
+Output [2]: [c_custkey#X, c_nationkey#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(c_custkey), IsNotNull(c_nationkey)]
+ReadSchema: struct<c_custkey:bigint,c_nationkey:bigint>
+
+(22) FilterExecTransformer
+Input [2]: [c_custkey#X, c_nationkey#X]
+Arguments: (isnotnull(c_custkey#X) AND isnotnull(c_nationkey#X))
+
+(23) WholeStageCodegenTransformer (X)
+Input [2]: [c_custkey#X, c_nationkey#X]
+Arguments: false
+
+(24) ColumnarBroadcastExchange
+Input [2]: [c_custkey#X, c_nationkey#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(25) BroadcastQueryStage
+Output [2]: [c_custkey#X, c_nationkey#X]
+Arguments: X
+
+(26) InputAdapter
+Input [2]: [c_custkey#X, c_nationkey#X]
+
+(27) InputIteratorTransformer
+Input [2]: [c_custkey#X, c_nationkey#X]
+
+(28) BroadcastHashJoinExecTransformer
+Left keys [1]: [o_custkey#X]
+Right keys [1]: [c_custkey#X]
+Join type: Inner
+Join condition: None
+
+(29) ProjectExecTransformer
+Output [5]: [s_nationkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X, c_nationkey#X]
+Input [7]: [s_nationkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X, o_custkey#X, c_custkey#X, c_nationkey#X]
+
+(30) ScanTransformer parquet 
+Output [2]: [n_nationkey#X, n_name#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(n_nationkey), Or(EqualTo(n_name,FRANCE),EqualTo(n_name,GERMANY))]
+ReadSchema: struct<n_nationkey:bigint,n_name:string>
+
+(31) FilterExecTransformer
+Input [2]: [n_nationkey#X, n_name#X]
+Arguments: (isnotnull(n_nationkey#X) AND ((n_name#X = FRANCE) OR (n_name#X = GERMANY)))
+
+(32) WholeStageCodegenTransformer (X)
+Input [2]: [n_nationkey#X, n_name#X]
+Arguments: false
+
+(33) ColumnarBroadcastExchange
+Input [2]: [n_nationkey#X, n_name#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(34) BroadcastQueryStage
+Output [2]: [n_nationkey#X, n_name#X]
+Arguments: X
+
+(35) InputAdapter
+Input [2]: [n_nationkey#X, n_name#X]
+
+(36) InputIteratorTransformer
+Input [2]: [n_nationkey#X, n_name#X]
+
+(37) BroadcastHashJoinExecTransformer
+Left keys [1]: [s_nationkey#X]
+Right keys [1]: [n_nationkey#X]
+Join type: Inner
+Join condition: None
+
+(38) ProjectExecTransformer
+Output [5]: [l_extendedprice#X, l_discount#X, l_shipdate#X, c_nationkey#X, n_name#X]
+Input [7]: [s_nationkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X, c_nationkey#X, n_nationkey#X, n_name#X]
+
+(39) ReusedExchange [Reuses operator id: 33]
+Output [2]: [n_nationkey#X, n_name#X]
+
+(40) BroadcastQueryStage
+Output [2]: [n_nationkey#X, n_name#X]
+Arguments: X
+
+(41) InputAdapter
+Input [2]: [n_nationkey#X, n_name#X]
+
+(42) InputIteratorTransformer
+Input [2]: [n_nationkey#X, n_name#X]
+
+(43) BroadcastHashJoinExecTransformer
+Left keys [1]: [c_nationkey#X]
+Right keys [1]: [n_nationkey#X]
+Join type: Inner
+Join condition: (((n_name#X = FRANCE) AND (n_name#X = GERMANY)) OR ((n_name#X = GERMANY) AND (n_name#X = FRANCE)))
+
+(44) ProjectExecTransformer
+Output [4]: [n_name#X AS supp_nation#X, n_name#X AS cust_nation#X, year(l_shipdate#X) AS l_year#X, (l_extendedprice#X * (1 - l_discount#X)) AS volume#X]
+Input [7]: [l_extendedprice#X, l_discount#X, l_shipdate#X, c_nationkey#X, n_name#X, n_nationkey#X, n_name#X]
+
+(45) FlushableHashAggregateExecTransformer
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, volume#X]
+Keys [3]: [supp_nation#X, cust_nation#X, l_year#X]
+Functions [1]: [partial_sum(volume#X)]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [5]: [supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+
+(46) ProjectExecTransformer
+Output [6]: [hash(supp_nation#X, cust_nation#X, l_year#X, 42) AS hash_partition_key#X, supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+Input [5]: [supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+
+(47) WholeStageCodegenTransformer (X)
+Input [6]: [hash_partition_key#X, supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+Arguments: false
+
+(48) BoltResizeBatches
+Input [6]: [hash_partition_key#X, supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+Arguments: X, X
+
+(49) ColumnarExchange
+Input [6]: [hash_partition_key#X, supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(supp_nation#X, cust_nation#X, l_year#X, 1), ENSURE_REQUIREMENTS, [supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X], [plan_id=X], [shuffle_writer_type=hash]
+
+(50) ShuffleQueryStage
+Output [5]: [supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+Arguments: X
+
+(51) InputAdapter
+Input [5]: [supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+
+(52) InputIteratorTransformer
+Input [5]: [supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+
+(53) RegularHashAggregateExecTransformer
+Input [5]: [supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+Keys [3]: [supp_nation#X, cust_nation#X, l_year#X]
+Functions [1]: [sum(volume#X)]
+Aggregate Attributes [1]: [sum(volume#X)#X]
+Results [4]: [supp_nation#X, cust_nation#X, l_year#X, sum(volume#X)#X AS revenue#X]
+
+(54) WholeStageCodegenTransformer (X)
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+Arguments: false
+
+(55) BoltResizeBatches
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+Arguments: X, X
+
+(56) ColumnarExchange
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+Arguments: rangepartitioning(supp_nation#X ASC NULLS FIRST, cust_nation#X ASC NULLS FIRST, l_year#X ASC NULLS FIRST, 1), ENSURE_REQUIREMENTS, [plan_id=X], [shuffle_writer_type=hash]
+
+(57) ShuffleQueryStage
+Output [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+Arguments: X
+
+(58) InputAdapter
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+
+(59) InputIteratorTransformer
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+
+(60) SortExecTransformer
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+Arguments: [supp_nation#X ASC NULLS FIRST, cust_nation#X ASC NULLS FIRST, l_year#X ASC NULLS FIRST], true, 0
+
+(61) WholeStageCodegenTransformer (X)
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+Arguments: false
+
+(62) BoltColumnarToRow
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+
+(63) Scan parquet
+Output [2]: [s_suppkey#X, s_nationkey#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(s_suppkey), IsNotNull(s_nationkey)]
+ReadSchema: struct<s_suppkey:bigint,s_nationkey:bigint>
+
+(64) Filter
+Input [2]: [s_suppkey#X, s_nationkey#X]
+Condition : (isnotnull(s_suppkey#X) AND isnotnull(s_nationkey#X))
+
+(65) BroadcastExchange
+Input [2]: [s_suppkey#X, s_nationkey#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(66) Scan parquet
+Output [5]: [l_orderkey#X, l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(l_shipdate), GreaterThanOrEqual(l_shipdate,1995-01-01), LessThanOrEqual(l_shipdate,1996-12-31), IsNotNull(l_suppkey), IsNotNull(l_orderkey)]
+ReadSchema: struct<l_orderkey:bigint,l_suppkey:bigint,l_extendedprice:decimal(12,2),l_discount:decimal(12,2),l_shipdate:date>
+
+(67) Filter
+Input [5]: [l_orderkey#X, l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Condition : ((((isnotnull(l_shipdate#X) AND (l_shipdate#X >= 1995-01-01)) AND (l_shipdate#X <= 1996-12-31)) AND isnotnull(l_suppkey#X)) AND isnotnull(l_orderkey#X))
+
+(68) BroadcastHashJoin
+Left keys [1]: [s_suppkey#X]
+Right keys [1]: [l_suppkey#X]
+Join type: Inner
+Join condition: None
+
+(69) Project
+Output [5]: [s_nationkey#X, l_orderkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+Input [7]: [s_suppkey#X, s_nationkey#X, l_orderkey#X, l_suppkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X]
+
+(70) Scan parquet
+Output [2]: [o_orderkey#X, o_custkey#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(o_orderkey), IsNotNull(o_custkey)]
+ReadSchema: struct<o_orderkey:bigint,o_custkey:bigint>
+
+(71) Filter
+Input [2]: [o_orderkey#X, o_custkey#X]
+Condition : (isnotnull(o_orderkey#X) AND isnotnull(o_custkey#X))
+
+(72) BroadcastExchange
+Input [2]: [o_orderkey#X, o_custkey#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(73) BroadcastHashJoin
+Left keys [1]: [l_orderkey#X]
+Right keys [1]: [o_orderkey#X]
+Join type: Inner
+Join condition: None
+
+(74) Project
+Output [5]: [s_nationkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X, o_custkey#X]
+Input [7]: [s_nationkey#X, l_orderkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X, o_orderkey#X, o_custkey#X]
+
+(75) Scan parquet
+Output [2]: [c_custkey#X, c_nationkey#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(c_custkey), IsNotNull(c_nationkey)]
+ReadSchema: struct<c_custkey:bigint,c_nationkey:bigint>
+
+(76) Filter
+Input [2]: [c_custkey#X, c_nationkey#X]
+Condition : (isnotnull(c_custkey#X) AND isnotnull(c_nationkey#X))
+
+(77) BroadcastExchange
+Input [2]: [c_custkey#X, c_nationkey#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(78) BroadcastHashJoin
+Left keys [1]: [o_custkey#X]
+Right keys [1]: [c_custkey#X]
+Join type: Inner
+Join condition: None
+
+(79) Project
+Output [5]: [s_nationkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X, c_nationkey#X]
+Input [7]: [s_nationkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X, o_custkey#X, c_custkey#X, c_nationkey#X]
+
+(80) Scan parquet
+Output [2]: [n_nationkey#X, n_name#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(n_nationkey), Or(EqualTo(n_name,FRANCE),EqualTo(n_name,GERMANY))]
+ReadSchema: struct<n_nationkey:bigint,n_name:string>
+
+(81) Filter
+Input [2]: [n_nationkey#X, n_name#X]
+Condition : (isnotnull(n_nationkey#X) AND ((n_name#X = FRANCE) OR (n_name#X = GERMANY)))
+
+(82) BroadcastExchange
+Input [2]: [n_nationkey#X, n_name#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(83) BroadcastHashJoin
+Left keys [1]: [s_nationkey#X]
+Right keys [1]: [n_nationkey#X]
+Join type: Inner
+Join condition: None
+
+(84) Project
+Output [5]: [l_extendedprice#X, l_discount#X, l_shipdate#X, c_nationkey#X, n_name#X]
+Input [7]: [s_nationkey#X, l_extendedprice#X, l_discount#X, l_shipdate#X, c_nationkey#X, n_nationkey#X, n_name#X]
+
+(85) Scan parquet
+Output [2]: [n_nationkey#X, n_name#X]
+Batched: true
+Location: InMemoryFileIndex [*]
+PushedFilters: [IsNotNull(n_nationkey), Or(EqualTo(n_name,GERMANY),EqualTo(n_name,FRANCE))]
+ReadSchema: struct<n_nationkey:bigint,n_name:string>
+
+(86) Filter
+Input [2]: [n_nationkey#X, n_name#X]
+Condition : (isnotnull(n_nationkey#X) AND ((n_name#X = GERMANY) OR (n_name#X = FRANCE)))
+
+(87) BroadcastExchange
+Input [2]: [n_nationkey#X, n_name#X]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=X]
+
+(88) BroadcastHashJoin
+Left keys [1]: [c_nationkey#X]
+Right keys [1]: [n_nationkey#X]
+Join type: Inner
+Join condition: (((n_name#X = FRANCE) AND (n_name#X = GERMANY)) OR ((n_name#X = GERMANY) AND (n_name#X = FRANCE)))
+
+(89) Project
+Output [4]: [n_name#X AS supp_nation#X, n_name#X AS cust_nation#X, year(l_shipdate#X) AS l_year#X, (l_extendedprice#X * (1 - l_discount#X)) AS volume#X]
+Input [7]: [l_extendedprice#X, l_discount#X, l_shipdate#X, c_nationkey#X, n_name#X, n_nationkey#X, n_name#X]
+
+(90) HashAggregate
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, volume#X]
+Keys [3]: [supp_nation#X, cust_nation#X, l_year#X]
+Functions [1]: [partial_sum(volume#X)]
+Aggregate Attributes [2]: [sum#X, isEmpty#X]
+Results [5]: [supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+
+(91) Exchange
+Input [5]: [supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+Arguments: hashpartitioning(supp_nation#X, cust_nation#X, l_year#X, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(92) HashAggregate
+Input [5]: [supp_nation#X, cust_nation#X, l_year#X, sum#X, isEmpty#X]
+Keys [3]: [supp_nation#X, cust_nation#X, l_year#X]
+Functions [1]: [sum(volume#X)]
+Aggregate Attributes [1]: [sum(volume#X)#X]
+Results [4]: [supp_nation#X, cust_nation#X, l_year#X, sum(volume#X)#X AS revenue#X]
+
+(93) Exchange
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+Arguments: rangepartitioning(supp_nation#X ASC NULLS FIRST, cust_nation#X ASC NULLS FIRST, l_year#X ASC NULLS FIRST, 1), ENSURE_REQUIREMENTS, [plan_id=X]
+
+(94) Sort
+Input [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+Arguments: [supp_nation#X ASC NULLS FIRST, cust_nation#X ASC NULLS FIRST, l_year#X ASC NULLS FIRST], true, 0
+
+(95) AdaptiveSparkPlan
+Output [4]: [supp_nation#X, cust_nation#X, l_year#X, revenue#X]
+Arguments: isFinalPlan=true

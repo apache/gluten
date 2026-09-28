@@ -43,6 +43,7 @@ starts failing** (a regression).
 | `run-delta-tests.sh` | The shard step's body: runs `sbt spark/test` (tuned JVM/heap flags) under a hang watchdog, prints memory forensics, then gates the results against the baseline via `compare-test-results.py`. |
 | `java-test-args.sh` | Shared JVM flags (`--add-opens` + Netty property) needed to run the suite on JDK 17 with the Gluten bundle. Sourced by `run-delta-tests.sh` and by local runs. |
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and patches `DeltaSQLCommandTest`. |
+| `apply-delta-test-patches.sh` | Applies temporary Delta test workarounds: upstream scan fixes, deterministic Parquet row groups, and 2B-row DV fail-fast patches. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
 
 ## How the gate works
 
@@ -86,8 +87,10 @@ no longer carries the Delta suite.
 The tradeoff: `gluten-delta/**` and `backends-velox/src-delta*/**` also match
 `velox_backend_x86.yml`'s own filter (its spark-ut jobs build with `-Pdelta`), so
 a change there runs **both** workflows — and because the native library is no
-longer shared between them, those PRs pay for the centos-7 native build twice
-(~10 min). That is the price of decoupling the two pipelines.
+longer shared between them, those PRs pay for two independent native builds.
+Both use the AlmaLinux 8 / GCC 13 vcpkg builder; Delta's downstream bundle and
+test jobs run on CentOS 9. The Delta workflow retains native dependency logs as
+an artifact if its build fails. That is the price of decoupling the two pipelines.
 
 - **Per PR** — the workflow's own `paths:` filter runs the suite only when the PR
   touches a **high-signal Delta path**: the Delta integration code

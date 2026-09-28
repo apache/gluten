@@ -17,7 +17,6 @@
 package org.apache.gluten.execution.datasource
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.{BlockStripes, OutputWriter}
 import org.apache.spark.sql.types.StructType
@@ -57,7 +56,6 @@ trait GlutenRowSplitter {
 
 object GlutenFormatFactory {
   private var instances: Map[String, GlutenFormatWriterInjects] = _
-  private var postRuleFactory: SparkSession => Rule[SparkPlan] = _
   private var rowSplitterInstance: GlutenRowSplitter = _
 
   def register(items: GlutenFormatWriterInjects*): Unit = {
@@ -70,10 +68,6 @@ object GlutenFormatFactory {
     instances.getOrElse(
       name,
       throw new IllegalStateException(s"GlutenFormatWriterInjects for $name is not initialized"))
-  }
-
-  def injectPostRuleFactory(factory: SparkSession => Rule[SparkPlan]): Unit = {
-    postRuleFactory = factory
   }
 
   def register(rowSplitter: GlutenRowSplitter): Unit = {

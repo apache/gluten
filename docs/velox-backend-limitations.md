@@ -111,9 +111,6 @@ Gluten's.
 ### Unsupported Data type support in ParquetScan
 
 - Byte type causes fallback to vanilla spark
-- Timestamp type
-
-  Only reading with INT96 and dictionary encoding is supported. When reading INT64 represented millisecond/microsecond timestamps, or INT96 represented timestamps of other encodings, exceptions can occur.
 
 ### Utilizing Map Type as Hash Keys in ColumnarShuffleExchange
 Spark's `spark.sql.legacy.allowHashOnMapType` configuration controls whether hashing is allowed on map-type keys.
