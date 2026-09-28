@@ -686,6 +686,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                   org.apache.spark.sql.Row(2, "user-value-2")),
                 schema)
               .write
+              .mode("overwrite")
               .format("parquet")
               .save(dir.getAbsolutePath)
 
@@ -766,6 +767,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                 org.apache.spark.sql.Row(2, "user-ci-val-2")),
               schema2)
             .write
+            .mode("overwrite")
             .format("parquet")
             .save(dir.getAbsolutePath)
 
