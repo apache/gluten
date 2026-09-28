@@ -328,6 +328,18 @@
       </properties>
     </profile>
     <profile>
+      <id>spark-4.2</id>
+      <properties>
+        <spark.version>4.2.0</spark.version>
+        <scala.version>2.13.18</scala.version>
+        <scala.binary.version>2.13</scala.binary.version>
+        <!-- No Delta build for Spark 4.2 yet; placeholder inherited from spark-4.1.
+             The delta profile is opt-in and is not enabled on the Spark 4.2 lane. -->
+        <delta.package.name>delta-spark_4.1</delta.package.name>
+        <delta.version>4.1.0</delta.version>
+      </properties>
+    </profile>
+    <profile>
       <id>celeborn-0.5</id>
       <properties>
         <celeborn.version>0.5.4</celeborn.version>

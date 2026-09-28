@@ -1,0 +1,111 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (12)
+    VeloxBroadcastNestedLoopJoinExecTransformer
+      VeloxBroadcastNestedLoopJoinExecTransformer
+        VeloxBroadcastNestedLoopJoinExecTransformer
+          VeloxBroadcastNestedLoopJoinExecTransformer
+            VeloxBroadcastNestedLoopJoinExecTransformer
+              ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
+                RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
+                  RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                    RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                      InputIteratorTransformer
+                        InputAdapter
+                          ColumnarExchange [ss_list_price,sum,count,count] #1
+                            VeloxResizeBatches
+                              WholeStageCodegenTransformer (1)
+                                ProjectExecTransformer [ss_list_price,sum,count,count]
+                                  FlushableHashAggregateExecTransformer [ss_list_price,_pre_x] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                                    ProjectExecTransformer [ss_list_price]
+                                      FilterExecTransformer [ss_quantity,ss_list_price,ss_coupon_amt,ss_wholesale_cost]
+                                        FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_quantity,ss_wholesale_cost,ss_list_price,ss_coupon_amt,ss_sold_date_sk]
+              InputIteratorTransformer
+                InputAdapter
+                  ColumnarBroadcastExchange #2
+                    WholeStageCodegenTransformer (3)
+                      ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
+                        RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
+                          RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                            RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ColumnarExchange [ss_list_price,sum,count,count] #3
+                                    VeloxResizeBatches
+                                      WholeStageCodegenTransformer (2)
+                                        ProjectExecTransformer [ss_list_price,sum,count,count]
+                                          FlushableHashAggregateExecTransformer [ss_list_price,_pre_x] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                                            ProjectExecTransformer [ss_list_price]
+                                              FilterExecTransformer [ss_quantity,ss_list_price,ss_coupon_amt,ss_wholesale_cost]
+                                                FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_quantity,ss_wholesale_cost,ss_list_price,ss_coupon_amt,ss_sold_date_sk]
+            InputIteratorTransformer
+              InputAdapter
+                ColumnarBroadcastExchange #4
+                  WholeStageCodegenTransformer (5)
+                    ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
+                      RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
+                        RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                          RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarExchange [ss_list_price,sum,count,count] #5
+                                  VeloxResizeBatches
+                                    WholeStageCodegenTransformer (4)
+                                      ProjectExecTransformer [ss_list_price,sum,count,count]
+                                        FlushableHashAggregateExecTransformer [ss_list_price,_pre_x] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                                          ProjectExecTransformer [ss_list_price]
+                                            FilterExecTransformer [ss_quantity,ss_list_price,ss_coupon_amt,ss_wholesale_cost]
+                                              FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_quantity,ss_wholesale_cost,ss_list_price,ss_coupon_amt,ss_sold_date_sk]
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarBroadcastExchange #6
+                WholeStageCodegenTransformer (7)
+                  ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
+                    RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
+                      RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                        RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                          InputIteratorTransformer
+                            InputAdapter
+                              ColumnarExchange [ss_list_price,sum,count,count] #7
+                                VeloxResizeBatches
+                                  WholeStageCodegenTransformer (6)
+                                    ProjectExecTransformer [ss_list_price,sum,count,count]
+                                      FlushableHashAggregateExecTransformer [ss_list_price,_pre_x] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                                        ProjectExecTransformer [ss_list_price]
+                                          FilterExecTransformer [ss_quantity,ss_list_price,ss_coupon_amt,ss_wholesale_cost]
+                                            FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_quantity,ss_wholesale_cost,ss_list_price,ss_coupon_amt,ss_sold_date_sk]
+        InputIteratorTransformer
+          InputAdapter
+            ColumnarBroadcastExchange #8
+              WholeStageCodegenTransformer (9)
+                ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
+                  RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
+                    RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                      RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                        InputIteratorTransformer
+                          InputAdapter
+                            ColumnarExchange [ss_list_price,sum,count,count] #9
+                              VeloxResizeBatches
+                                WholeStageCodegenTransformer (8)
+                                  ProjectExecTransformer [ss_list_price,sum,count,count]
+                                    FlushableHashAggregateExecTransformer [ss_list_price,_pre_x] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                                      ProjectExecTransformer [ss_list_price]
+                                        FilterExecTransformer [ss_quantity,ss_list_price,ss_coupon_amt,ss_wholesale_cost]
+                                          FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_quantity,ss_wholesale_cost,ss_list_price,ss_coupon_amt,ss_sold_date_sk]
+      InputIteratorTransformer
+        InputAdapter
+          ColumnarBroadcastExchange #10
+            WholeStageCodegenTransformer (11)
+              ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
+                RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
+                  RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                    RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                      InputIteratorTransformer
+                        InputAdapter
+                          ColumnarExchange [ss_list_price,sum,count,count] #11
+                            VeloxResizeBatches
+                              WholeStageCodegenTransformer (10)
+                                ProjectExecTransformer [ss_list_price,sum,count,count]
+                                  FlushableHashAggregateExecTransformer [ss_list_price,_pre_x] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
+                                    ProjectExecTransformer [ss_list_price]
+                                      FilterExecTransformer [ss_quantity,ss_list_price,ss_coupon_amt,ss_wholesale_cost]
+                                        FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_quantity,ss_wholesale_cost,ss_list_price,ss_coupon_amt,ss_sold_date_sk]
