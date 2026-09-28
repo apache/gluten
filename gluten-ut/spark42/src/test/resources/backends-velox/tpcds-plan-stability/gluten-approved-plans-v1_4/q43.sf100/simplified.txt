@@ -1,0 +1,34 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [s_store_name,s_store_id,sun_sales,mon_sales,tue_sales,wed_sales,thu_sales,fri_sales,sat_sales]
+    WholeStageCodegenTransformer (5)
+      ProjectExecTransformer [s_store_name,s_store_id,sum(UnscaledValue(CASE WHEN (d_day_name = Sunday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Monday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Tuesday  ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Wednesday) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Thursday ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Friday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Saturday ) THEN ss_sales_price END))]
+        RegularHashAggregateExecTransformer [s_store_name,s_store_id,sum,sum,sum,sum,sum,sum,sum] [sum(UnscaledValue(CASE WHEN (d_day_name = Sunday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Monday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Tuesday  ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Wednesday) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Thursday ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Friday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Saturday ) THEN ss_sales_price END)),sum,sum,sum,sum,sum,sum,sum]
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarExchange [s_store_name,s_store_id,sum,sum,sum,sum,sum,sum,sum] #1
+                VeloxResizeBatches
+                  WholeStageCodegenTransformer (4)
+                    ProjectExecTransformer [s_store_name,s_store_id,sum,sum,sum,sum,sum,sum,sum]
+                      FlushableHashAggregateExecTransformer [s_store_name,s_store_id,_pre_x,_pre_x,_pre_x,_pre_x,_pre_x,_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum]
+                        ProjectExecTransformer [s_store_id,s_store_name,d_day_name,ss_sales_price]
+                          BroadcastHashJoinExecTransformer [ss_store_sk,s_store_sk]
+                            ProjectExecTransformer [d_day_name,ss_store_sk,ss_sales_price]
+                              BroadcastHashJoinExecTransformer [d_date_sk,ss_sold_date_sk]
+                                InputIteratorTransformer
+                                  InputAdapter
+                                    ColumnarBroadcastExchange #2
+                                      WholeStageCodegenTransformer (1)
+                                        ProjectExecTransformer [d_date_sk,d_day_name]
+                                          FilterExecTransformer [d_year,d_date_sk]
+                                            FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year,d_day_name]
+                                FilterExecTransformer [ss_store_sk]
+                                  FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_store_sk,ss_sales_price,ss_sold_date_sk]
+                                    ColumnarSubqueryBroadcast [d_date_sk] #1
+                                      ReusedExchange [d_date_sk,d_day_name] #2
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarBroadcastExchange #3
+                                  WholeStageCodegenTransformer (3)
+                                    ProjectExecTransformer [s_store_sk,s_store_id,s_store_name]
+                                      FilterExecTransformer [s_gmt_offset,s_store_sk]
+                                        FileSourceScanExecTransformer parquet spark_catalog.default.store [s_store_sk,s_store_id,s_store_name,s_gmt_offset]
