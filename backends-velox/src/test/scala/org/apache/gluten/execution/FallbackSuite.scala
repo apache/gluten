@@ -792,7 +792,8 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                   collect(plan) { case f: FileSourceScanExecTransformer => f }.isEmpty,
                   "Expected fallback: FileSourceScanExecTransformer must NOT be present when " +
                     "a user data column name collides with a metadata sentinel under " +
-                    s"caseSensitive=false.\nPlan:\n$plan")
+                    s"caseSensitive=false.\nPlan:\n$plan"
+                )
                 assert(
                   collect(plan) { case f: FileSourceScanExec => f }.nonEmpty,
                   "Expected fallback: vanilla FileSourceScanExec must be present in the plan.\n" +
