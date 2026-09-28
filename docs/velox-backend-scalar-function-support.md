@@ -1,6 +1,6 @@
 # Scalar Functions Support Status
 
-**Out of 433 scalar functions in Spark 4.1, Gluten currently fully supports 261 functions and partially supports 31 functions.**
+**Out of 433 scalar functions in Spark 4.1, Gluten currently fully supports 257 functions and partially supports 34 functions.**
 
 The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled, Gluten falls back to vanilla Spark
 (see `spark.gluten.sql.ansiFallback.enabled`).
@@ -288,7 +288,7 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | mod               | Remainder              | S        |                |
 | negative          | UnaryMinus             | S        |                |
 | pi                | Pi                     | S        |                |
-| pmod              | Pmod                   | S        |                |
+| pmod              | Pmod                   | PS       | Primitive numeric types in LEGACY and ANSI modes require Velox's `pmod_with_mode` capability. DECIMAL and ambiguous nonnullable ANSI error-order compositions fall back to Spark. |
 | positive          | UnaryPositive          | S        |                |
 | pow               | Pow                    | S        |                |
 | power             | Pow                    | S        |                |
@@ -538,4 +538,3 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | xpath_number      | XPathDouble         |          |                |
 | xpath_short       | XPathShort          |          |                |
 | xpath_string      | XPathString         |          |                |
-

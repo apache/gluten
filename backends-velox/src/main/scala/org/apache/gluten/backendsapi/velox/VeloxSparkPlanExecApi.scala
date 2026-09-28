@@ -170,6 +170,14 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
     else { exprName }
 
+  override def genPmodTransformer(
+      substraitExprName: String,
+      left: ExpressionTransformer,
+      right: ExpressionTransformer,
+      original: Pmod): ExpressionTransformer = {
+    VeloxPmodExpressionTransformer(left, right, original)
+  }
+
   /** Transform map_entries to Substrait. */
   override def genMapEntriesTransformer(
       substraitExprName: String,
