@@ -594,7 +594,9 @@ trait SparkPlanExecApi {
   def genPreProjectForArrowEvalPythonExec(arrowEvalPythonExec: ArrowEvalPythonExec): SparkPlan =
     arrowEvalPythonExec
 
-  def maybeCollapseTakeOrderedAndProject(plan: SparkPlan): SparkPlan = plan
+  def maybeCollapseTakeOrderedAndProject(
+      plan: SparkPlan,
+      metrics: Map[String, SQLMetric]): SparkPlan = plan
 
   def genDecimalRoundExpressionOutput(decimalType: DecimalType, toScale: Int): DecimalType = {
     val p = decimalType.precision

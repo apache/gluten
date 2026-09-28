@@ -40,8 +40,6 @@ RUN set -ex; \
     # AlmaLinux 8 repos are live — no mirror fixup needed. \
     dnf update -y; \
     dnf install -y epel-release sudo; \
-    # ccache is in EPEL — install after epel-release is registered. \
-    dnf install -y ccache; \
     # gcc-toolset-13 ships GCC 13 on RHEL8-family via Red Hat Software Collections. \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-13; \
     dnf install -y java-1.8.0-openjdk-devel patch git wget perl python3 automake libtool flex bison; \
@@ -51,6 +49,12 @@ RUN set -ex; \
     chmod +x cmake-3.31.12-linux-$(uname -m).sh; \
     ./cmake-3.31.12-linux-$(uname -m).sh --skip-license --prefix=/usr/local; \
     rm -f cmake-3.31.12-linux-$(uname -m).sh; \
+    # Install ccache 4 — EPEL 8 only ships ccache 3.7, which stores objects uncompressed \
+    # and overflows CCACHE_MAXSIZE in CI. \
+    wget https://github.com/ccache/ccache/releases/download/v4.14/ccache-4.14-linux-$(uname -m)-musl-static.tar.gz; \
+    tar -xzf ccache-4.14-linux-$(uname -m)-musl-static.tar.gz; \
+    install -m 0755 ccache-4.14-linux-$(uname -m)-musl-static/ccache /usr/local/bin/ccache; \
+    rm -rf ccache-4.14-linux-$(uname -m)-musl-static*; \
     echo "check_certificate = off" >> ~/.wgetrc; \
     dnf clean all; \
     git clone --depth=1 --branch "${GLUTEN_BRANCH}" "${GLUTEN_REPO}" /opt/gluten; \

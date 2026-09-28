@@ -52,21 +52,40 @@ DUCKDB_VERSION="v0.8.1"
 GEOS_VERSION="3.10.7"
 ABSEIL_VERSION="20240116.2"
 GRPC_VERSION="v1.48.1"
+CCACHE_VERSION="4.14"
 
 function dnf_install {
   dnf install -y -q --setopt=install_weak_deps=False "$@"
 }
 
+function install_ccache {
+  # Upstream static (musl) builds have no glibc requirement but only exist for x86_64 and
+  # aarch64; fall back to the distro package on other architectures (e.g. ppc64le).
+  case "$(uname -m)" in
+  x86_64|aarch64) ;;
+  *)
+    dnf_install ccache
+    return
+    ;;
+  esac
+  local name="ccache-${CCACHE_VERSION}-linux-$(uname -m)-musl-static"
+  wget -nv -O "/tmp/${name}.tar.gz" "https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/${name}.tar.gz"
+  tar -xzf "/tmp/${name}.tar.gz" -C /tmp
+  ${SUDO:-} install -m 0755 "/tmp/${name}/ccache" /usr/local/bin/ccache
+  rm -rf "/tmp/${name}" "/tmp/${name}.tar.gz"
+}
+
 # Install packages required for build.
 function install_build_prerequisites {
   dnf update -y
-  dnf_install dnf-plugins-core # For ccache, ninja
+  dnf_install dnf-plugins-core # For ninja
   dnf update -y
-  dnf_install ninja-build cmake ccache gcc g++ git wget which patch
+  dnf_install ninja-build cmake gcc g++ git wget which patch
   dnf_install autoconf automake python3-devel python3-pip libtool
   dnf_install libxml2-devel libgsasl-devel libuuid-devel
 
   pip install cmake==3.31.4
+  install_ccache
 }
 
 # Install dependencies from the package managers.
