@@ -79,11 +79,6 @@ org.apache.spark.sql.delta.DeltaCDCScalaWithCatalogOwnedBatch100Suite#filters sh
 org.apache.spark.sql.delta.DeltaCDCScalaWithCatalogOwnedBatch1Suite#filters should be pushed down
 org.apache.spark.sql.delta.DeltaCDCScalaWithCatalogOwnedBatch2Suite#filters should be pushed down
 org.apache.spark.sql.delta.DeltaCDCScalaWithDeletionVectorsSuite#filters should be pushed down
-org.apache.spark.sql.delta.DeltaCDCStreamDeletionVectorSuite#cdc streams with noop merge
-org.apache.spark.sql.delta.DeltaCDCStreamSuite#cdc streams with noop merge
-org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch100Suite#cdc streams with noop merge
-org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch1Suite#cdc streams with noop merge
-org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch2Suite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaColumnMappingSuite#explicit id matching
 org.apache.spark.sql.delta.DeltaColumnMappingSuite#id and name mode should write field_id in parquet schema
 org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: Delta log cache should respect options
@@ -145,135 +140,7 @@ org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#SC-8810: skipping de
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#invalid replaceWhere
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#replaceArbitrary should enforce proper usage of backtick
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only delete all rows - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only delete all rows - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only delete all rows - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only delete all rows - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with condition on delete and insert with no matching rows - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with condition on delete and insert with no matching rows - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with condition on delete and insert with no matching rows - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with condition on delete and insert with no matching rows - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with duplicates - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with duplicates - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with duplicates - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with duplicates - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with skipping - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with skipping - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with skipping - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only with skipping - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only without join - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only without join - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only without join - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only without join - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only without join with source with 1 row - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only without join with source with 1 row - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only without join with source with 1 row - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only without join with source with 1 row - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: insert-only with update/delete with unsatisfied conditions - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: insert-only with update/delete with unsatisfied conditions - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: insert-only with update/delete with unsatisfied conditions - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: insert-only with update/delete with unsatisfied conditions - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only with skipping - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only with skipping - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only with skipping - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only with skipping - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only with update/delete with unsatisfied conditions - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only with update/delete with unsatisfied conditions - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only with update/delete with unsatisfied conditions - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: match-only with update/delete with unsatisfied conditions - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: not matched by source update only - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: not matched by source update only - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: not matched by source update only - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: not matched by source update only - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: replace target with source - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: replace target with source - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: replace target with source - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: replace target with source - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: update/delete/insert with some unsatisfied conditions - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: update/delete/insert with some unsatisfied conditions - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: update/delete/insert with some unsatisfied conditions - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: update/delete/insert with some unsatisfied conditions - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: upsert - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: upsert - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: upsert - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: upsert - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: upsert and delete with conditions - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: upsert and delete with conditions - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: upsert and delete with conditions - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: upsert and delete with conditions - Partitioned = true, CDF = true
 org.apache.spark.sql.delta.DescribeDeltaHistorySuite#operation metrics - merge
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only delete all rows - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only delete all rows - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only delete all rows - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only delete all rows - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with condition on delete and insert with no matching rows - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with condition on delete and insert with no matching rows - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with condition on delete and insert with no matching rows - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with condition on delete and insert with no matching rows - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with duplicates - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with duplicates - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with duplicates - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with duplicates - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with skipping - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with skipping - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with skipping - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only with skipping - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only without join - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only without join - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only without join - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only without join - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only without join with source with 1 row - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only without join with source with 1 row - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only without join with source with 1 row - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: delete-only without join with source with 1 row - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: insert-only with update/delete with unsatisfied conditions - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: insert-only with update/delete with unsatisfied conditions - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: insert-only with update/delete with unsatisfied conditions - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: insert-only with update/delete with unsatisfied conditions - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only with skipping - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only with skipping - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only with skipping - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only with skipping - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only with update/delete with unsatisfied conditions - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only with update/delete with unsatisfied conditions - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only with update/delete with unsatisfied conditions - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: match-only with update/delete with unsatisfied conditions - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: not matched by source update only - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: not matched by source update only - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: not matched by source update only - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: not matched by source update only - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: replace target with source - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: replace target with source - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: replace target with source - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: replace target with source - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: update/delete/insert with some unsatisfied conditions - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: update/delete/insert with some unsatisfied conditions - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: update/delete/insert with some unsatisfied conditions - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: update/delete/insert with some unsatisfied conditions - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: upsert - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: upsert - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: upsert - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: upsert - Partitioned = true, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: upsert and delete with conditions - Partitioned = false, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: upsert and delete with conditions - Partitioned = false, CDF = true
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: upsert and delete with conditions - Partitioned = true, CDF = false
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#merge-metrics: upsert and delete with conditions - Partitioned = true, CDF = true
 org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#operation metrics - merge
 org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Disable Deletion Vectors feature - withUnset: false
 org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Disable Deletion Vectors feature - withUnset: true
@@ -476,7 +343,6 @@ org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLPathBasedDVPredPushO
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLPathBasedDVPredPushOnSuite#test delete on temp view - nontrivial projection - SQL TempView
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLPathBasedSuite#test delete on temp view - nontrivial projection - Dataset TempView
 org.apache.spark.sql.delta.generatedsuites.DeleteTempViewSQLPathBasedSuite#test delete on temp view - nontrivial projection - SQL TempView
-org.apache.spark.sql.delta.generatedsuites.MergeCDCSQLPathBasedCDCOnSuite#merge CDC - all conditions failed for all rows
 org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedCDCOnDVsPredPushOffSuite#Merge with DVs metrics - Incremental Updates
 org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedCDCOnDVsPredPushOffSuite#Merge with DVs metrics - delete entire file
 org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedCDCOnDVsPredPushOffSuite#Verify error is produced when paths are not joined correctly
@@ -489,108 +355,17 @@ org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedDVsPredPushOf
 org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedDVsPredPushOnSuite#Merge with DVs metrics - Incremental Updates
 org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedDVsPredPushOnSuite#Merge with DVs metrics - delete entire file
 org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedDVsPredPushOnSuite#Verify error is produced when paths are not joined correctly
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, non-null target leaves, UPDATE *
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, non-null target leaves, UPDATE t.col = s.col
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null source nested map, UPDATE *
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null source nested map, UPDATE t.col = s.col
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target col, UPDATE *
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target col, UPDATE t.col = s.col
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target leaves, UPDATE *
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target leaves, UPDATE t.col = s.col
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target nested struct, UPDATE *
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target nested struct, UPDATE t.col = s.col
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLNameBasedSuite#schema evolution - struct in different order
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLNameBasedSuite#schema evolution - struct in different order - with evolution disabled
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - struct in different order
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - struct in different order - with evolution disabled
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - struct in different order
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - struct in different order - with evolution disabled
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnSuite#schema evolution - struct in different order
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnSuite#schema evolution - struct in different order - with evolution disabled
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedSuite#schema evolution - struct in different order
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedSuite#schema evolution - struct in different order - with evolution disabled
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertScalaSuite#schema evolution - struct in different order
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertScalaSuite#schema evolution - struct in different order - with evolution disabled
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, non-null target leaves, UPDATE *
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, non-null target leaves, UPDATE t.col = s.col
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target col, UPDATE *
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target col, UPDATE t.col = s.col
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target leaves, UPDATE *
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target leaves, UPDATE t.col = s.col
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target nested struct, UPDATE *
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target nested struct, UPDATE t.col = s.col
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLNameBasedSuite#schema evolution - extra nested column in source - update, isPartitioned=false
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLNameBasedSuite#schema evolution - extra nested column in source - update, isPartitioned=true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLNameBasedSuite#schema evolution - extra nested column in source - update, partition on unused column
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update, isPartitioned=false
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update, isPartitioned=true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update, partition on unused column
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - extra nested column in source - update, isPartitioned=false
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - extra nested column in source - update, isPartitioned=true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - extra nested column in source - update, partition on unused column
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnSuite#schema evolution - extra nested column in source - update, isPartitioned=false
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnSuite#schema evolution - extra nested column in source - update, isPartitioned=true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnSuite#schema evolution - extra nested column in source - update, partition on unused column
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedSuite#schema evolution - extra nested column in source - update, isPartitioned=false
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedSuite#schema evolution - extra nested column in source - update, isPartitioned=true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedSuite#schema evolution - extra nested column in source - update, partition on unused column
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlyScalaSuite#schema evolution - extra nested column in source - update, isPartitioned=false
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlyScalaSuite#schema evolution - extra nested column in source - update, isPartitioned=true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlyScalaSuite#schema evolution - extra nested column in source - update, partition on unused column
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLNameBasedSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLNameBasedSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedDVsPredPushOffSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedDVsPredPushOnSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionScalaSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionScalaSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLNameBasedSuite#not matched by source - all 3 clauses - no changes - isPartitioned: false - cdcEnabled: true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLNameBasedSuite#not matched by source - all 3 clauses - no changes - isPartitioned: true - cdcEnabled: true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLPathBasedCDCOnSuite#not matched by source - all 3 clauses - no changes - isPartitioned: false - cdcEnabled: true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLPathBasedCDCOnSuite#not matched by source - all 3 clauses - no changes - isPartitioned: true - cdcEnabled: true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLPathBasedSuite#not matched by source - all 3 clauses - no changes - isPartitioned: false - cdcEnabled: true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2SQLPathBasedSuite#not matched by source - all 3 clauses - no changes - isPartitioned: true - cdcEnabled: true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2ScalaSuite#not matched by source - all 3 clauses - no changes - isPartitioned: false - cdcEnabled: true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoNotMatchedBySourceCDCPart2ScalaSuite#not matched by source - all 3 clauses - no changes - isPartitioned: true - cdcEnabled: true
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSQLSQLNameBasedSuite#CTE as a source in MERGE
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSQLSQLPathBasedCDCOnDVsPredPushOffSuite#CTE as a source in MERGE
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSQLSQLPathBasedCDCOnDVsPredPushOnSuite#CTE as a source in MERGE
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSQLSQLPathBasedCDCOnSuite#CTE as a source in MERGE
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSQLSQLPathBasedDVsPredPushOffSuite#CTE as a source in MERGE
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSQLSQLPathBasedDVsPredPushOnSuite#CTE as a source in MERGE
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSQLSQLPathBasedSuite#CTE as a source in MERGE
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLNameBasedSuite#schema evolution - extra nested column in source - update - single target partition
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update - single target partition
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - extra nested column in source - update - single target partition
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLPathBasedCDCOnSuite#schema evolution - extra nested column in source - update - single target partition
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLPathBasedSuite#schema evolution - extra nested column in source - update - single target partition
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnScalaSuite#schema evolution - extra nested column in source - update - single target partition
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#merge with repartition - insert only merge
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#merge with repartition - partition on multiple columns
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOnSuite#merge with repartition - partition on multiple columns
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnSuite#merge with repartition - insert only merge
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOffSuite#merge with repartition - partition on multiple columns
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedDVsPredPushOnSuite#merge with repartition - partition on multiple columns
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedSuite#merge with repartition - insert only merge
-org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#data skipping with matched predicates - with insert clause
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscScalaSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseTempViewSQLNameBasedSuite#test update on temp view - nontrivial projection - Dataset TempView
 org.apache.spark.sql.delta.generatedsuites.UpdateBaseTempViewSQLNameBasedSuite#test update on temp view - nontrivial projection - SQL TempView
